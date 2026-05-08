@@ -1,16 +1,25 @@
 package com.tortugapower.audiobookplayer.service
 
+import android.media.audiofx.LoudnessEnhancer
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 class AudioPlayerService : MediaSessionService() {
 
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
+    private var loudnessEnhancer: LoudnessEnhancer? = null
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onCreate() {
         super.onCreate()
@@ -25,10 +34,29 @@ class AudioPlayerService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
-        mediaSession = player?.let {
-            MediaSession.Builder(this, it)
+        player?.let { p ->
+            mediaSession = MediaSession.Builder(this, p)
                 .setCallback(CustomMediaSessionCallback())
                 .build()
+
+            // Initialize LoudnessEnhancer
+            try {
+                loudnessEnhancer = LoudnessEnhancer(p.audioSessionId)
+                loudnessEnhancer?.setTargetGain(1000) // 10dB boost (approx double loudness)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // Observe volume boost setting
+        serviceScope.launch {
+            PlaybackSettingsManager.getVolumeBoost(this@AudioPlayerService).collectLatest { enabled ->
+                try {
+                    loudnessEnhancer?.enabled = enabled
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
@@ -47,6 +75,8 @@ class AudioPlayerService : MediaSessionService() {
             release()
             mediaSession = null
         }
+        loudnessEnhancer?.release()
+        loudnessEnhancer = null
         player = null
         super.onDestroy()
     }

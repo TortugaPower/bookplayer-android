@@ -99,6 +99,7 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit) {
 
 @Composable
 fun ThemesScreen(onBack: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -127,7 +128,7 @@ fun ThemesScreen(onBack: () -> Unit) {
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            TextButton(onClick = { ThemeManager.setTheme(AppTheme.DefaultDark) }) {
+            TextButton(onClick = { ThemeManager.setTheme(context, AppTheme.DefaultDark) }) {
                 Text("Restore", color = MaterialTheme.colorScheme.primary)
             }
         }
@@ -176,7 +177,7 @@ fun ThemesScreen(onBack: () -> Unit) {
                             ThemeItem(
                                 theme = theme,
                                 isSelected = ThemeManager.currentTheme == theme,
-                                onClick = { ThemeManager.setTheme(theme) }
+                                onClick = { ThemeManager.setTheme(context, theme) }
                             )
                             if (index < ThemeManager.allThemes.size - 1) {
                                 HorizontalDivider(

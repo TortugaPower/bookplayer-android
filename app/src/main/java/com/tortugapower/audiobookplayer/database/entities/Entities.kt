@@ -12,19 +12,19 @@ enum class ItemType {
 @Entity(tableName = "library_items")
 open class LibraryItemEntity(
     @PrimaryKey val uuid: String,
-    val title: String,
-    val author: String? = null,
-    val duration: Double = 0.0,
-    val currentTime: Double = 0.0,
-    val percentCompleted: Double = 0.0,
-    val relativePath: String? = null,
-    val remoteURL: String? = null,
-    val artworkURL: String? = null,
-    val originalFileName: String? = null,
-    val orderRank: Int = 0,
-    val isFinished: Boolean = false,
-    val lastPlayDate: Long? = null,
-    val parentFolderUuid: String? = null,
+    var title: String,
+    var author: String? = null,
+    var duration: Double = 0.0,
+    var currentTime: Double = 0.0,
+    var percentCompleted: Double = 0.0,
+    var relativePath: String? = null,
+    var remoteURL: String? = null,
+    var artworkURL: String? = null,
+    var originalFileName: String? = null,
+    var orderRank: Int = 0,
+    var isFinished: Boolean = false,
+    var lastPlayDate: Long? = null,
+    var parentFolderUuid: String? = null,
     val type: ItemType
 )
 
@@ -47,4 +47,28 @@ data class ChapterEntity(
     val start: Double,
     val duration: Double,
     val index: Int
+)
+
+enum class BookmarkType {
+    USER, PLAY, SKIP, SLEEP
+}
+
+@Entity(
+    tableName = "bookmarks",
+    foreignKeys = [
+        ForeignKey(
+            entity = LibraryItemEntity::class,
+            parentColumns = ["uuid"],
+            childColumns = ["bookUuid"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("bookUuid")]
+)
+data class BookmarkEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bookUuid: String,
+    val time: Double,
+    var note: String? = null,
+    val type: BookmarkType = BookmarkType.USER
 )

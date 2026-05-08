@@ -53,7 +53,7 @@ fun CustomBottomNavigation(
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(36.dp))
                 .background(MaterialTheme.colorScheme.surface)
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
@@ -99,7 +99,7 @@ fun BottomNavItem(
 
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(36.dp))
             .background(backgroundColor)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },

@@ -37,7 +37,7 @@ fun MiniPlayer() {
             .clip(RoundedCornerShape(32.dp))
             .background(MaterialTheme.colorScheme.surface)
             .clickable { PlaybackManager.showPlayerScreen = true }
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 24.dp),
         contentAlignment = Alignment.CenterStart
     ) {
         Row(

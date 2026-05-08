@@ -1,5 +1,7 @@
 package com.tortugapower.audiobookplayer.ui.screens
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,19 +12,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.ui.components.CustomBottomNavigation
 import com.tortugapower.audiobookplayer.ui.components.MiniPlayer
 import com.tortugapower.audiobookplayer.ui.components.Screen
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
+import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
+import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModelFactory
 
 @Composable
 fun MainScreen() {
@@ -30,12 +38,18 @@ fun MainScreen() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val importViewModel: ImportViewModel = viewModel()
+    
+    val context = LocalContext.current
+    val database = remember { AppDatabase.getDatabase(context) }
+    val repository = remember { RoomLibraryRepository(database.libraryDao()) }
+    val playerViewModel: PlayerViewModel = viewModel(
+        factory = PlayerViewModelFactory(repository)
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                // Hide bottom bar when in Themes screen to match iOS look
                 if (currentRoute != "themes") {
                     Column {
                         if (PlaybackManager.currentItem != null) {
@@ -61,14 +75,64 @@ fun MainScreen() {
                 NavHost(
                     navController = navController,
                     startDestination = Screen.Library.route,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    enterTransition = { EnterTransition.None },
+                    exitTransition = { ExitTransition.None },
+                    popEnterTransition = { EnterTransition.None },
+                    popExitTransition = { ExitTransition.None }
                 ) {
                     composable(Screen.Library.route) { LibraryScreen() }
                     composable(Screen.Profile.route) { ProfileScreen() }
-                    composable(Screen.Settings.route) { 
+                    
+                    composable(
+                        route = Screen.Settings.route,
+                        exitTransition = {
+                            if (targetState.destination.route == "themes") {
+                                slideOutOfContainer(
+                                    AnimatedContentTransitionScope.SlideDirection.Left,
+                                    animationSpec = tween(400)
+                                )
+                            } else null
+                        },
+                        popEnterTransition = {
+                            if (initialState.destination.route == "themes") {
+                                slideIntoContainer(
+                                    AnimatedContentTransitionScope.SlideDirection.Right,
+                                    animationSpec = tween(400)
+                                )
+                            } else null
+                        }
+                    ) { 
                         SettingsScreen(onNavigateToThemes = { navController.navigate("themes") }) 
                     }
-                    composable("themes") {
+                    
+                    composable(
+                        route = "themes",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        popEnterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) {
                         ThemesScreen(onBack = { navController.popBackStack() })
                     }
                 }
@@ -90,7 +154,6 @@ fun MainScreen() {
             }
         }
 
-        // PlayerScreen handles its own visibility and animations internally now
-        PlayerScreen()
+        PlayerScreen(viewModel = playerViewModel)
     }
 }

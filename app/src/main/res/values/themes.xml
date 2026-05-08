@@ -2,4 +2,9 @@
 <resources>
 
     <style name="Theme.BookPlayer" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/app_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.BookPlayer</item>
+    </style>
 </resources>
