@@ -15,8 +15,17 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items WHERE relativePath LIKE :path || '/%' AND relativePath NOT LIKE :path || '/%/%' ORDER BY orderRank ASC")
     fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>>
 
+    @Query("SELECT * FROM library_items WHERE relativePath LIKE :path || '/%' AND relativePath NOT LIKE :path || '/%/%' ORDER BY orderRank ASC")
+    suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity>
+
+    @Query("SELECT * FROM library_items WHERE relativePath NOT LIKE '%/%' ORDER BY orderRank ASC")
+    suspend fun getRootItemsSync(): List<LibraryItemEntity>
+
     @Query("SELECT * FROM library_items WHERE uuid = :uuid")
     suspend fun getItemById(uuid: String): LibraryItemEntity?
+
+    @Query("SELECT * FROM library_items WHERE relativePath = :path LIMIT 1")
+    suspend fun getItemByPath(path: String): LibraryItemEntity?
 
     @Query("SELECT * FROM library_items WHERE type = 'FOLDER' AND relativePath NOT LIKE '%/%'")
     fun getRootFolders(): Flow<List<LibraryItemEntity>>
@@ -32,6 +41,12 @@ interface LibraryDao {
 
     @Delete
     suspend fun deleteItem(item: LibraryItemEntity)
+
+    @Delete
+    suspend fun deleteItems(items: List<LibraryItemEntity>)
+
+    @Query("SELECT * FROM library_items WHERE relativePath LIKE :path || '/%'")
+    suspend fun getDescendantsOfPath(path: String): List<LibraryItemEntity>
 
     @Query("SELECT * FROM chapters WHERE bookUuid = :bookUuid ORDER BY `index` ASC")
     fun getChaptersForBook(bookUuid: String): Flow<List<ChapterEntity>>

@@ -11,10 +11,8 @@ import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class PlayerViewModel(
@@ -25,7 +23,7 @@ class PlayerViewModel(
     var showSleepTimerMenu by mutableStateOf(false)
     var showCustomSleepTimerPicker by mutableStateOf(false)
 
-    // Bookmark States
+    // Bookmark & Chapter States
     var showBookmarkConfirmation by mutableStateOf(false)
     var showAddNoteDialog by mutableStateOf(false)
     var showBookmarksList by mutableStateOf(false)
@@ -42,19 +40,17 @@ class PlayerViewModel(
     var isRepeatEnabled by mutableStateOf(false)
 
     init {
-        // Observe bookmarks and chapters when a book is loaded
+        // Observe Current Item and update lists (Using Stable collectLatest)
         viewModelScope.launch {
-            snapshotFlow { PlaybackManager.currentItem }.collect { item ->
+            snapshotFlow { PlaybackManager.currentItem }.collectLatest { item ->
                 if (item != null) {
+                    // Launch child coroutines to collect database flows
+                    // collectLatest automatically cancels previous collections when item changes
                     launch {
-                        repository.getBookmarksForBook(item.uuid).collect {
-                            _bookmarks.value = it
-                        }
+                        repository.getBookmarksForBook(item.uuid).collect { _bookmarks.value = it }
                     }
                     launch {
-                        repository.getChaptersForBook(item.uuid).collect {
-                            _chapters.value = it
-                        }
+                        repository.getChaptersForBook(item.uuid).collect { _chapters.value = it }
                     }
                 } else {
                     _bookmarks.value = emptyList()
@@ -85,7 +81,7 @@ class PlayerViewModel(
 
     fun toggleRepeat() {
         isRepeatEnabled = !isRepeatEnabled
-        PlaybackManager.player?.repeatMode = if (isRepeatEnabled) androidx.media3.common.Player.REPEAT_MODE_ONE else androidx.media3.common.Player.REPEAT_MODE_OFF
+        PlaybackManager.player?.repeatMode = if (isRepeatEnabled) 2 else 0 // 2 = REPEAT_MODE_ONE, 0 = OFF
     }
 
     fun seekToChapter(chapter: com.tortugapower.audiobookplayer.database.entities.ChapterEntity) {
@@ -137,37 +133,21 @@ class PlayerViewModel(
         showBookmarksList = false
     }
 
-    // Observable settings for the UI
+    // Settings logic
     var smartRewind by mutableStateOf(true)
     var smartRewindLimit by mutableStateOf(30)
     var autoSleep by mutableStateOf(false)
     var quickAction1 by mutableStateOf(1.0f)
     var quickAction2 by mutableStateOf(2.0f)
 
-    fun toggleControlsSheet() {
-        showControlsSheet = !showControlsSheet
-    }
-
-    fun toggleMoreSettingsSheet() {
-        showMoreSettingsSheet = !showMoreSettingsSheet
-    }
-
-    fun toggleSleepTimerMenu() {
-        showSleepTimerMenu = !showSleepTimerMenu
-    }
-
-    fun toggleCustomSleepTimerPicker() {
-        showCustomSleepTimerPicker = !showCustomSleepTimerPicker
-    }
+    fun toggleControlsSheet() { showControlsSheet = !showControlsSheet }
+    fun toggleMoreSettingsSheet() { showMoreSettingsSheet = !showMoreSettingsSheet }
+    fun toggleSleepTimerMenu() { showSleepTimerMenu = !showSleepTimerMenu }
+    fun toggleCustomSleepTimerPicker() { showCustomSleepTimerPicker = !showCustomSleepTimerPicker }
 
     fun startSleepTimer(minutes: Int) {
         com.tortugapower.audiobookplayer.logic.SleepTimerManager.startTimer(minutes)
         showSleepTimerMenu = false
-    }
-
-    fun startSleepTimerMillis(millis: Long) {
-        com.tortugapower.audiobookplayer.logic.SleepTimerManager.startTimerMillis(millis)
-        showCustomSleepTimerPicker = false
     }
 
     fun stopSleepTimer() {
@@ -190,19 +170,15 @@ class PlayerViewModel(
 
     fun updateSmartRewind(context: Context, enabled: Boolean) {
         smartRewind = enabled
-        viewModelScope.launch {
-            PlaybackSettingsManager.setSmartRewind(context, enabled)
-        }
+        viewModelScope.launch { PlaybackSettingsManager.setSmartRewind(context, enabled) }
     }
 
     fun updateAutoSleep(context: Context, enabled: Boolean) {
         autoSleep = enabled
-        viewModelScope.launch {
-            PlaybackSettingsManager.setAutoSleepTimer(context, enabled)
-        }
+        viewModelScope.launch { PlaybackSettingsManager.setAutoSleepTimer(context, enabled) }
     }
 
-    // Proxy methods to PlaybackManager for UI convenience
+    // Proxy methods
     val playbackSpeed get() = PlaybackManager.playbackSpeed
     val playbackVolume get() = PlaybackManager.playbackVolume
     val volumeBoost get() = PlaybackManager.volumeBoost
@@ -210,27 +186,10 @@ class PlayerViewModel(
     val currentItem get() = PlaybackManager.currentItem
     val player get() = PlaybackManager.player
 
-    fun setPlaybackSpeed(context: Context, speed: Float) {
-        PlaybackManager.setPlaybackSpeed(context, speed)
-    }
-
-    fun setPlaybackVolume(context: Context, volume: Float) {
-        PlaybackManager.setPlaybackVolume(context, volume)
-    }
-
-    fun toggleVolumeBoost(context: Context) {
-        PlaybackManager.toggleVolumeBoost(context)
-    }
-
-    fun togglePlayPause() {
-        PlaybackManager.togglePlayPause()
-    }
-
-    fun seekForward() {
-        PlaybackManager.seekForward()
-    }
-
-    fun seekBackward() {
-        PlaybackManager.seekBackward()
-    }
+    fun setPlaybackSpeed(context: Context, speed: Float) { PlaybackManager.setPlaybackSpeed(context, speed) }
+    fun setPlaybackVolume(context: Context, volume: Float) { PlaybackManager.setPlaybackVolume(context, volume) }
+    fun toggleVolumeBoost(context: Context) { PlaybackManager.toggleVolumeBoost(context) }
+    fun togglePlayPause() { PlaybackManager.togglePlayPause() }
+    fun seekForward() { PlaybackManager.seekForward() }
+    fun seekBackward() { PlaybackManager.seekBackward() }
 }

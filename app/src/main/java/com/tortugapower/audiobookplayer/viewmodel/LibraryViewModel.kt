@@ -8,11 +8,9 @@ import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalCoroutinesApi::class)
 class LibraryViewModel(
     private val repository: LibraryRepository
 ) : ViewModel() {
@@ -20,19 +18,40 @@ class LibraryViewModel(
     private val _currentPath = MutableStateFlow<String?>(null)
     val currentPath: StateFlow<String?> = _currentPath.asStateFlow()
 
-    val libraryItems: Flow<List<LibraryItemEntity>> = _currentPath.flatMapLatest { path ->
-        if (path == null) {
-            repository.getRootItems()
-        } else {
-            repository.getItemsInPath(path)
+    private val itemsCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()
+    private val foldersCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()
+
+    /**
+     * Returns a path-specific StateFlow of items.
+     * Tied to the path to ensure smooth transitions during folder navigation.
+     */
+    fun getItemsForPath(path: String?): StateFlow<List<LibraryItemEntity>> {
+        return itemsCache.getOrPut(path) {
+            val itemsFlow = if (path == null) repository.getRootItems() 
+                           else repository.getItemsInPath(path)
+            itemsFlow.stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
+            )
         }
     }
 
     /**
-     * Observable flow of folders at the current path.
+     * Returns a path-specific StateFlow of folders.
      */
-    val availableFolders: Flow<List<LibraryItemEntity>> = _currentPath.flatMapLatest { path ->
-        repository.getFoldersInPath(path)
+    fun getFoldersForPath(path: String?): StateFlow<List<LibraryItemEntity>> {
+        return foldersCache.getOrPut(path) {
+            repository.getFoldersInPath(path).stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
+            )
+        }
+    }
+
+    init {
+        // No global observation needed anymore as paths are requested on-demand by the UI
     }
 
     fun navigateTo(path: String) {
@@ -49,6 +68,12 @@ class LibraryViewModel(
     fun deleteItem(context: android.content.Context, item: LibraryItemEntity) {
         viewModelScope.launch {
             repository.deleteItemWithFile(context, item)
+        }
+    }
+
+    fun deleteSelectedItems(context: android.content.Context, items: List<LibraryItemEntity>) {
+        viewModelScope.launch {
+            repository.deleteItemsWithFiles(context, items)
         }
     }
 

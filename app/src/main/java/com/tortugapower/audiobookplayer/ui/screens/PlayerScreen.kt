@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -52,12 +53,17 @@ fun PlayerScreen(
     val currentItem = viewModel.currentItem ?: return
     val isPlaying = viewModel.isPlaying
     var position by remember { mutableLongStateOf(viewModel.player?.currentPosition ?: 0L) }
-    val duration = (currentItem.duration * 1000).toLong()
+    var isDragging by remember { mutableStateOf(false) }
+    var dragPosition by remember { mutableFloatStateOf(0f) }
+    
+    val duration = remember(currentItem.uuid) { (currentItem.duration * 1000).toLong() }
     val context = LocalContext.current
     
     val configuration = LocalConfiguration.current
-    val screenHeight = configuration.screenHeightDp.dp
-    val screenHeightPx = with(LocalDensity.current) { screenHeight.toPx() }
+    val density = LocalDensity.current
+    val screenHeightPx = remember(configuration, density) {
+        with(density) { configuration.screenHeightDp.dp.toPx() }
+    }
     
     val offsetY = remember { Animatable(screenHeightPx) }
     val scope = rememberCoroutineScope()
@@ -65,17 +71,21 @@ fun PlayerScreen(
     LaunchedEffect(PlaybackManager.showPlayerScreen) {
         if (PlaybackManager.showPlayerScreen) {
             offsetY.animateTo(0f, tween(400))
-        } else {
-            if (offsetY.value < screenHeightPx) {
-                offsetY.animateTo(screenHeightPx, tween(300))
-            }
+        } else if (offsetY.value < screenHeightPx) {
+            offsetY.animateTo(screenHeightPx, tween(300))
         }
     }
 
-    LaunchedEffect(isPlaying) {
-        while (isPlaying) {
+    LaunchedEffect(isPlaying, isDragging) {
+        if (isPlaying && !isDragging) {
+            // Update position every second while playing and not dragging
+            while (true) {
+                position = viewModel.player?.currentPosition ?: 0L
+                delay(1000)
+            }
+        } else if (!isDragging) {
+            // Sync final position when paused or drag stopped
             position = viewModel.player?.currentPosition ?: 0L
-            delay(1000)
         }
     }
 
@@ -153,7 +163,8 @@ fun PlayerScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .offset { IntOffset(0, offsetY.value.roundToInt()) }
+                // PERFORMANCE: graphicsLayer uses GPU for movement, much smoother than offset
+                .graphicsLayer { translationY = offsetY.value }
                 .background(MaterialTheme.colorScheme.background)
                 .draggable(
                     orientation = Orientation.Vertical,
@@ -227,7 +238,10 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { }) {
+                    IconButton(
+                        onClick = { },
+                        modifier = Modifier.offset(x = (-12).dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.ChevronLeft,
                             contentDescription = "Prev",
@@ -243,7 +257,10 @@ fun PlayerScreen(
                         textAlign = TextAlign.Center,
                         modifier = Modifier.weight(1f)
                     )
-                    IconButton(onClick = { }) {
+                    IconButton(
+                        onClick = { },
+                        modifier = Modifier.offset(x = 12.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.ChevronRight,
                             contentDescription = "Next",
@@ -256,8 +273,18 @@ fun PlayerScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Slider(
-                    value = if (duration > 0) position.toFloat() / duration else 0f,
-                    onValueChange = { /* Handle seek */ },
+                    value = if (isDragging) dragPosition else (if (duration > 0) position.toFloat() / duration else 0f),
+                    onValueChange = { 
+                        isDragging = true
+                        dragPosition = it 
+                    },
+                    onValueChangeFinished = {
+                        val newPos = (dragPosition * duration).toLong()
+                        viewModel.player?.seekTo(newPos)
+                        position = newPos
+                        isDragging = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                     colors = SliderDefaults.colors(
                         thumbColor = MaterialTheme.colorScheme.primary,
                         activeTrackColor = MaterialTheme.colorScheme.primary,
@@ -269,21 +296,32 @@ fun PlayerScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    val displayPosition = if (isDragging) (dragPosition * duration).toLong() else position
+                    val posText = remember(displayPosition) { formatTime(displayPosition) }
+                    val remainingText = remember(duration, displayPosition) { 
+                        val remaining = (duration - displayPosition).coerceAtLeast(0)
+                        "-${formatTime(remaining)}" 
+                    }
+
                     Text(
-                        text = formatTime(position),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = posText,
+                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(60.dp)
                     )
                     Text(
                         text = "Chapter 1 of 1",
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f)
                     )
-                    val remaining = duration - position
                     Text(
-                        text = "-${formatTime(remaining)}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = remainingText,
+                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.width(60.dp)
                     )
                 }
 
@@ -334,7 +372,7 @@ fun PlayerScreen(
                     )
                     PlayerBottomButton(
                         icon = Icons.AutoMirrored.Filled.List,
-                        onClick = { viewModel.showBookmarksList = true }
+                        onClick = { viewModel.showChaptersList = true }
                     )
                     PlayerBottomButton(
                         icon = Icons.Default.MoreHoriz,
@@ -1025,7 +1063,7 @@ fun TimeWheelPicker(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (label == "hours") value.toString() else String.format("%02d", value),
+                        text = if (label == "hours") value.toString() else (if (value < 10) "0$value" else value.toString()),
                         style = if (isSelected) MaterialTheme.typography.titleLarge else MaterialTheme.typography.bodyLarge,
                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -1106,7 +1144,6 @@ fun SleepTimerSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 options.forEach { (label, minutes) ->
-                    val isSelected = (minutes == 0 && !viewModel.sleepTimerActive)
                     BookmarkDialogButton(
                         text = label,
                         onClick = {
@@ -1411,5 +1448,9 @@ private fun formatTime(ms: Long): String {
     val totalSeconds = ms / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
-    return String.format("%02d:%02d", minutes, seconds)
+    
+    val mStr = if (minutes < 10) "0$minutes" else minutes.toString()
+    val sStr = if (seconds < 10) "0$seconds" else seconds.toString()
+    
+    return "$mStr:$sStr"
 }

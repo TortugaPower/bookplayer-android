@@ -6,12 +6,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.tortugapower.audiobookplayer.MainActivity
+import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.service.AudioPlayerService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,93 +48,148 @@ object PlaybackManager {
     private var lastPauseTime: Long = 0
     private var smartRewindEnabled = true
     private var smartRewindLimit = 30
+    private var progressTrackerJob: kotlinx.coroutines.Job? = null
 
     fun initialize(context: Context) {
         if (player != null) return
+        val appContext = context.applicationContext
 
-        val sessionToken = SessionToken(context, ComponentName(context, AudioPlayerService::class.java))
-        controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
+        val sessionToken = SessionToken(appContext, ComponentName(appContext, AudioPlayerService::class.java))
+        controllerFuture = MediaController.Builder(appContext, sessionToken).buildAsync()
         controllerFuture?.addListener({
-            player = controllerFuture?.get()
-            player?.addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(playing: Boolean) {
-                    isPlaying = playing
-                    if (!playing) {
-                        lastPauseTime = System.currentTimeMillis()
-                    } else if (smartRewindEnabled) {
-                        applySmartRewind()
+            try {
+                val mediaController = controllerFuture?.get() ?: return@addListener
+                player = mediaController
+                mediaController.addListener(object : Player.Listener {
+                    override fun onIsPlayingChanged(playing: Boolean) {
+                        isPlaying = playing
+                        if (!playing) {
+                            lastPauseTime = System.currentTimeMillis()
+                            updateProgress(appContext)
+                        } else {
+                            if (smartRewindEnabled) {
+                                applySmartRewind()
+                            }
+                            startProgressTracker(appContext)
+                        }
                     }
-                }
-            })
-            // Apply current speed and volume when player is ready
-            player?.setPlaybackSpeed(playbackSpeed)
-            applyVolume(volumeBoost, playbackVolume)
+
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (playbackState == Player.STATE_ENDED) {
+                            updateProgress(appContext, forceFinished = true)
+                        }
+                    }
+                })
+                // Apply current speed and volume when player is ready
+                mediaController.setPlaybackSpeed(playbackSpeed)
+                applyVolume(volumeBoost, playbackVolume)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }, MoreExecutors.directExecutor())
 
-        // Observe settings
+        // Consolidate settings observation
         scope.launch {
-            PlaybackSettingsManager.getSpeed(context).collectLatest { speed ->
-                playbackSpeed = speed
-                player?.setPlaybackSpeed(speed)
+            launch {
+                PlaybackSettingsManager.getSpeed(appContext).collectLatest { speed ->
+                    playbackSpeed = speed
+                    player?.setPlaybackSpeed(speed)
+                }
             }
-        }
-        scope.launch {
-            PlaybackSettingsManager.getRewindInterval(context).collectLatest { interval ->
-                rewindInterval = interval
+            launch {
+                PlaybackSettingsManager.getRewindInterval(appContext).collectLatest { rewindInterval = it }
             }
-        }
-        scope.launch {
-            PlaybackSettingsManager.getForwardInterval(context).collectLatest { interval ->
-                forwardInterval = interval
+            launch {
+                PlaybackSettingsManager.getForwardInterval(appContext).collectLatest { forwardInterval = it }
             }
-        }
-        scope.launch {
-            PlaybackSettingsManager.getSmartRewind(context).collectLatest { enabled ->
-                smartRewindEnabled = enabled
+            launch {
+                PlaybackSettingsManager.getSmartRewind(appContext).collectLatest { smartRewindEnabled = it }
             }
-        }
-        scope.launch {
-            PlaybackSettingsManager.getSmartRewindLimit(context).collectLatest { limit ->
-                smartRewindLimit = limit
+            launch {
+                PlaybackSettingsManager.getSmartRewindLimit(appContext).collectLatest { smartRewindLimit = it }
             }
-        }
-        scope.launch {
-            PlaybackSettingsManager.getVolumeBoost(context).collectLatest { boost ->
-                volumeBoost = boost
-                applyVolume(boost, playbackVolume)
+            launch {
+                PlaybackSettingsManager.getVolumeBoost(appContext).collectLatest { boost ->
+                    volumeBoost = boost
+                    applyVolume(boost, playbackVolume)
+                }
             }
-        }
-        scope.launch {
-            PlaybackSettingsManager.getVolume(context).collectLatest { volume ->
-                playbackVolume = volume
-                applyVolume(volumeBoost, volume)
+            launch {
+                PlaybackSettingsManager.getVolume(appContext).collectLatest { volume ->
+                    playbackVolume = volume
+                    applyVolume(volumeBoost, volume)
+                }
             }
         }
 
-        // Restore last played item
-        scope.launch {
-            val lastUuid = PlaybackSettingsManager.getLastItemUuid(context).first()
+        // Restore last played item on IO thread
+        scope.launch(Dispatchers.IO) {
+            val lastUuid = PlaybackSettingsManager.getLastItemUuid(appContext).first()
             if (lastUuid != null) {
-                val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
-                val repository = com.tortugapower.audiobookplayer.repository.RoomLibraryRepository(db.libraryDao())
+                val db = AppDatabase.getDatabase(appContext)
+                val repository = RoomLibraryRepository(db.libraryDao())
                 val item = repository.getItemById(lastUuid)
                 if (item != null) {
-                    currentItem = item
-                    // Prepare the player with the item but don't play yet
-                    val processedDir = File(context.filesDir, "Processed")
+                    val processedDir = File(appContext.filesDir, "Processed")
                     val file = File(processedDir, item.relativePath ?: "")
                     if (file.exists()) {
-                        controllerFuture?.addListener({
-                            val mediaItem = MediaItem.fromUri(file.absolutePath)
-                            player?.setMediaItem(mediaItem)
-                            player?.prepare()
-                            // Re-apply speed and volume
-                            player?.setPlaybackSpeed(playbackSpeed)
-                            applyVolume(volumeBoost, playbackVolume)
-                        }, MoreExecutors.directExecutor())
+                        // Switch back to Main for state updates and player preparation
+                        launch(Dispatchers.Main) {
+                            currentItem = item
+                            controllerFuture?.addListener({
+                                try {
+                                    val p = player ?: return@addListener
+                                    val mediaItem = MediaItem.Builder()
+                                        .setUri(file.absolutePath)
+                                        .setMediaId(item.uuid)
+                                        .setMediaMetadata(
+                                            MediaMetadata.Builder()
+                                                .setTitle(item.title)
+                                                .setArtist(item.author ?: "Unknown author")
+                                                .build()
+                                        )
+                                        .build()
+                                    p.setMediaItem(mediaItem)
+                                    p.prepare()
+                                    // Seek to last position
+                                    p.seekTo((item.currentTime * 1000).toLong())
+                                    // Re-apply speed and volume
+                                    p.setPlaybackSpeed(playbackSpeed)
+                                    applyVolume(volumeBoost, playbackVolume)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }, MoreExecutors.directExecutor())
+                        }
                     }
                 }
             }
+        }
+    }
+
+    private fun startProgressTracker(context: Context) {
+        progressTrackerJob?.cancel()
+        progressTrackerJob = scope.launch {
+            while (isPlaying) {
+                kotlinx.coroutines.delay(10000)
+                if (isPlaying) {
+                    updateProgress(context)
+                }
+            }
+        }
+    }
+
+    private fun updateProgress(context: Context, forceFinished: Boolean = false) {
+        val item = currentItem ?: return
+        val p = player ?: return
+        val currentPos = p.currentPosition / 1000.0
+        val totalDuration = item.duration
+        val isFinished = forceFinished || (currentPos >= totalDuration - 1.0 && totalDuration > 0)
+
+        scope.launch(Dispatchers.IO) {
+            val db = AppDatabase.getDatabase(context)
+            val repository = RoomLibraryRepository(db.libraryDao())
+            repository.updateItemProgress(item.uuid, currentPos, isFinished)
         }
     }
 
@@ -151,6 +210,7 @@ object PlaybackManager {
     }
 
     fun playItem(context: Context, item: LibraryItemEntity) {
+        updateProgress(context)
         currentItem = item
         scope.launch {
             PlaybackSettingsManager.setLastItemUuid(context, item.uuid)
@@ -159,9 +219,19 @@ object PlaybackManager {
         val file = File(processedDir, item.relativePath ?: "")
         
         if (file.exists()) {
-            val mediaItem = MediaItem.fromUri(file.absolutePath)
+            val mediaItem = MediaItem.Builder()
+                .setUri(file.absolutePath)
+                .setMediaId(item.uuid)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(item.title)
+                        .setArtist(item.author ?: "Unknown author")
+                        .build()
+                )
+                .build()
             player?.setMediaItem(mediaItem)
             player?.prepare()
+            player?.seekTo((item.currentTime * 1000).toLong())
             player?.play()
             showPlayerScreen = true
             // Re-apply speed and volume on new item
@@ -170,10 +240,47 @@ object PlaybackManager {
         }
     }
 
+    fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {
+        updateProgress(context)
+        scope.launch(Dispatchers.IO) {
+            val db = AppDatabase.getDatabase(context)
+            val item = db.libraryDao().getItemByPath(path)
+            if (item != null) {
+                launch(Dispatchers.Main) {
+                    currentItem = item
+                    PlaybackSettingsManager.setLastItemUuid(context, item.uuid)
+                    val processedDir = File(context.filesDir, "Processed")
+                    val file = File(processedDir, item.relativePath ?: "")
+                    
+                    if (file.exists()) {
+                        val mediaItem = MediaItem.Builder()
+                            .setUri(file.absolutePath)
+                            .setMediaId(item.uuid)
+                            .setMediaMetadata(
+                                MediaMetadata.Builder()
+                                    .setTitle(item.title)
+                                    .setArtist(item.author ?: "Unknown author")
+                                    .build()
+                            )
+                            .build()
+                        player?.setMediaItem(mediaItem)
+                        player?.prepare()
+                        player?.seekTo((item.currentTime * 1000).toLong())
+                        if (autoplay) player?.play()
+                        if (showPlayer) showPlayerScreen = true
+                        player?.setPlaybackSpeed(playbackSpeed)
+                        applyVolume(volumeBoost, playbackVolume)
+                    }
+                }
+            }
+        }
+    }
+
     fun togglePlayPause() {
         val p = player ?: return
         if (p.isPlaying) {
             p.pause()
+            updateProgress(MainActivity.currentContext ?: return)
         } else {
             if (p.playbackState == Player.STATE_IDLE) {
                 p.prepare()
@@ -185,16 +292,27 @@ object PlaybackManager {
     }
 
     fun seekForward() {
-        player?.seekTo((player?.currentPosition ?: 0) + (forwardInterval * 1000L))
+        val p = player ?: return
+        p.seekTo(p.currentPosition + (forwardInterval * 1000L))
+        updateProgress(MainActivity.currentContext ?: return)
     }
 
     fun seekBackward() {
-        player?.seekTo((player?.currentPosition ?: 0) - (rewindInterval * 1000L))
+        val p = player ?: return
+        p.seekTo(p.currentPosition - (rewindInterval * 1000L))
+        updateProgress(MainActivity.currentContext ?: return)
+    }
+
+    fun seekTo(positionMs: Long) {
+        val p = player ?: return
+        p.seekTo(positionMs)
+        updateProgress(MainActivity.currentContext ?: return)
     }
 
     fun setPlaybackSpeed(context: Context, speed: Float) {
         scope.launch {
             PlaybackSettingsManager.setSpeed(context, speed)
+            updateProgress(context)
         }
     }
 

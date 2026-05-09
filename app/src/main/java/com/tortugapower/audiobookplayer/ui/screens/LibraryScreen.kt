@@ -21,17 +21,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Canvas
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.ImportManager
+import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
@@ -49,9 +55,11 @@ fun LibraryScreen(
         factory = LibraryViewModelFactory(repository)
     )
 
-    val items by libraryViewModel.libraryItems.collectAsState(initial = emptyList())
-    val currentPath by libraryViewModel.currentPath.collectAsState(initial = null)
-    val availableFolders by libraryViewModel.availableFolders.collectAsState(initial = emptyList())
+    val currentPath by libraryViewModel.currentPath.collectAsState()
+    
+    // Fetch data for the actual current path (used by dialogs and actions)
+    val items by libraryViewModel.getItemsForPath(currentPath).collectAsState()
+    val availableFolders by libraryViewModel.getFoldersForPath(currentPath).collectAsState()
 
     var selectedItemUuids by remember { mutableStateOf(setOf<String>()) }
     var isSelectMode by remember { mutableStateOf(false) }
@@ -65,7 +73,7 @@ fun LibraryScreen(
         }
     }
 
-    var itemToDelete by remember { mutableStateOf<LibraryItemEntity?>(null) }
+    var itemsToDelete by remember { mutableStateOf<List<LibraryItemEntity>>(emptyList()) }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var showChooseDestinationDialog by remember { mutableStateOf(false) }
     var showExistingFoldersSheet by remember { mutableStateOf(false) }
@@ -202,16 +210,27 @@ fun LibraryScreen(
         }
     }
 
-    if (itemToDelete != null) {
+    if (itemsToDelete.isNotEmpty()) {
+        val title = if (itemsToDelete.size == 1) "Delete Item" else "Delete ${itemsToDelete.size} Items"
+        val message = if (itemsToDelete.size == 1) {
+            "Are you sure you want to delete '${itemsToDelete.first().title}'? This will also remove the physical file."
+        } else {
+            "Are you sure you want to delete these ${itemsToDelete.size} items? This will also remove the physical files."
+        }
+        val hasFolder = itemsToDelete.any { it.type == ItemType.FOLDER }
+        val folderWarning = if (hasFolder) "\n\nNote: Deleting a folder will also delete all of its contents." else ""
+
         AlertDialog(
-            onDismissRequest = { itemToDelete = null },
-            title = { Text("Delete Item") },
-            text = { Text("Are you sure you want to delete '${itemToDelete?.title}'? This will also remove the physical file.") },
+            onDismissRequest = { itemsToDelete = emptyList() },
+            title = { Text(title) },
+            text = { Text(message + folderWarning) },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        itemToDelete?.let { libraryViewModel.deleteItem(context, it) }
-                        itemToDelete = null
+                        libraryViewModel.deleteSelectedItems(context, itemsToDelete)
+                        itemsToDelete = emptyList()
+                        isSelectMode = false
+                        selectedItemUuids = emptySet()
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE57373))
                 ) {
@@ -219,7 +238,7 @@ fun LibraryScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { itemToDelete = null }) {
+                TextButton(onClick = { itemsToDelete = emptyList() }) {
                     Text("Cancel")
                 }
             },
@@ -244,6 +263,10 @@ fun LibraryScreen(
             label = "FolderNavigation",
             modifier = Modifier.fillMaxSize()
         ) { path ->
+            // Path-bound items for smooth animation (outgoing keeps its items)
+            val pathItems by remember(path) { libraryViewModel.getItemsForPath(path) }.collectAsState()
+            val pathFolders by remember(path) { libraryViewModel.getFoldersForPath(path) }.collectAsState()
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -262,26 +285,32 @@ fun LibraryScreen(
                         isSelectMode = false
                         selectedItemUuids = emptySet()
                     },
-                    onDeleteSelectedClick = { },
+                    onDeleteSelectedClick = {
+                        itemsToDelete = items.filter { it.uuid in selectedItemUuids }
+                    },
                     onMoveClick = {
                         if (selectedItemUuids.isNotEmpty()) {
                             showChooseDestinationDialog = true
                         }
-                    }
+                    },
+                    onSelectAllClick = {
+                        selectedItemUuids = items.map { it.uuid }.toSet()
+                    },
+                    availableFolders = pathFolders
                 )
                 
-                if (items.isEmpty()) {
+                if (pathItems.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("Your library is empty", color = Color.Gray)
                     }
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(items, key = { it.uuid }) { item ->
+                        items(pathItems, key = { it.uuid }) { item ->
                             val isSelected = selectedItemUuids.contains(item.uuid)
                             val dismissState = rememberSwipeToDismissBoxState(
                                 confirmValueChange = {
                                     if (!isSelectMode && it == SwipeToDismissBoxValue.EndToStart) {
-                                        itemToDelete = item
+                                        itemsToDelete = listOf(item)
                                         false
                                     } else false
                                 }
@@ -298,7 +327,7 @@ fun LibraryScreen(
                                             .fillMaxSize()
                                             .background(color)
                                             .clickable { 
-                                                if (isSwiping) itemToDelete = item 
+                                                if (isSwiping) itemsToDelete = listOf(item)
                                             }
                                             .padding(horizontal = 24.dp),
                                         contentAlignment = Alignment.CenterEnd
@@ -333,7 +362,12 @@ fun LibraryScreen(
                                                 if (item.type == ItemType.FOLDER) {
                                                     libraryViewModel.navigateTo(item.relativePath ?: "")
                                                 } else {
-                                                    com.tortugapower.audiobookplayer.logic.PlaybackManager.playItem(context, item)
+                                                    if (item.isFinished) {
+                                                        item.currentTime = 0.0
+                                                        item.isFinished = false
+                                                        item.percentCompleted = 0.0
+                                                    }
+                                                    PlaybackManager.playItem(context, item)
                                                 }
                                             }
                                         }
@@ -364,7 +398,9 @@ fun LibraryHeader(
     onSelectModeClick: () -> Unit,
     onCancelSelectClick: () -> Unit,
     onDeleteSelectedClick: () -> Unit,
-    onMoveClick: () -> Unit
+    onMoveClick: () -> Unit,
+    onSelectAllClick: () -> Unit = {},
+    availableFolders: List<LibraryItemEntity> = emptyList()
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -404,11 +440,11 @@ fun LibraryHeader(
         }
         Row {
             if (isSelectMode) {
-                IconButton(onClick = onMoveClick) {
-                    Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move", tint = MaterialTheme.colorScheme.primary)
+                IconButton(onClick = onMoveClick, enabled = selectedCount > 0) {
+                    Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move", tint = if (selectedCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
                 }
-                IconButton(onClick = onDeleteSelectedClick) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.primary)
+                IconButton(onClick = onDeleteSelectedClick, enabled = selectedCount > 0) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = if (selectedCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
                 }
                 Box {
                     IconButton(onClick = { showMoreMenu = true }) {
@@ -421,7 +457,10 @@ fun LibraryHeader(
                     ) {
                         DropdownMenuItem(
                             text = { Text("Select All", color = MaterialTheme.colorScheme.onSurface) },
-                            onClick = { showMoreMenu = false }
+                            onClick = { 
+                                showMoreMenu = false
+                                onSelectAllClick()
+                            }
                         )
                     }
                 }
@@ -555,53 +594,95 @@ fun LibraryListItem(
 
         Spacer(modifier = Modifier.width(16.dp))
 
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = item.title,
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (item.type == ItemType.FOLDER) "Folder" else (item.author ?: "Unknown author"),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
+                    text = item.title,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
                 )
-            }
-            if (item.type == ItemType.BOOK) {
                 Text(
-                    text = formatDuration(item.duration),
+                    text = item.author ?: if (item.type == ItemType.FOLDER) "0 Files" else "Unknown author",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1
                 )
+                if (item.duration > 0) {
+                    Text(
+                        text = formatDuration(item.duration),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1
+                    )
+                }
             }
-        }
 
         Spacer(modifier = Modifier.width(8.dp))
 
         if (isSelectMode) {
-        } else if (item.type == ItemType.FOLDER) {
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = "Open Folder",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp)
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (item.isFinished) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Completed",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                } else {
+                    PieProgressIcon(
+                        progress = item.percentCompleted.toFloat(),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                
+                if (item.type == ItemType.FOLDER) {
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "Open Folder",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                } else {
+                    // Spacer to align with folder's chevron
+                    Spacer(modifier = Modifier.size(24.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PieProgressIcon(
+    progress: Float,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+) {
+    Canvas(modifier = modifier) {
+        if (progress > 0) {
+            val strokeWidth = 1.5.dp.toPx()
+            val radius = (size.minDimension - strokeWidth) / 2
+            val center = Offset(size.width / 2, size.height / 2)
+
+            // Outer ring
+            drawCircle(
+                color = color,
+                radius = radius,
+                center = center,
+                style = Stroke(width = strokeWidth)
             )
-        } else if (item.isFinished) {
-            Icon(
-                imageVector = Icons.Default.CheckCircle,
-                contentDescription = "Completed",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
-        } else if (item.currentTime > 0) {
-            Icon(
-                imageVector = Icons.Default.PieChart,
-                contentDescription = "In Progress",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp)
+
+            // Pie slice
+            val padding = 3.dp.toPx()
+            val arcRadius = radius - padding
+            drawArc(
+                color = color,
+                startAngle = -90f,
+                sweepAngle = 360f * progress,
+                useCenter = true,
+                topLeft = Offset(center.x - arcRadius, center.y - arcRadius),
+                size = Size(arcRadius * 2, arcRadius * 2)
             )
         }
     }

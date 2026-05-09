@@ -11,12 +11,15 @@ interface LibraryRepository {
     fun getRootItems(): Flow<List<LibraryItemEntity>>
     fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>>
     suspend fun getItemById(uuid: String): LibraryItemEntity?
+    suspend fun getItemByPath(path: String): LibraryItemEntity?
     
     fun getFoldersInPath(path: String?): Flow<List<LibraryItemEntity>>
     
     suspend fun saveItem(item: LibraryItemEntity)
     suspend fun updateItem(item: LibraryItemEntity)
+    suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean)
     suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity)
+    suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>)
     suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?)
 
     fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>>

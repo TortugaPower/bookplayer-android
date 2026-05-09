@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,16 +12,93 @@ import com.tortugapower.audiobookplayer.ui.screens.MainScreen
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerTheme
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        var currentContext: android.content.Context? = null
+            private set
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        currentContext = this
+        
+        splashScreen.setKeepOnScreenCondition {
+            !ThemeManager.isReady
+        }
+
         enableEdgeToEdge()
         ThemeManager.initialize(this)
         PlaybackManager.initialize(this)
+
+        handleIntent(intent)
+
         setContent {
             BookPlayerTheme {
                 MainScreen()
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val uri = intent?.data
+        if (uri != null && uri.scheme == "bookplayer") {
+            handleDeepLink(uri)
+        } else if (intent?.getBooleanExtra("OPEN_PLAYER", false) == true) {
+            PlaybackManager.showPlayerScreen = true
+        }
+    }
+
+    private fun handleDeepLink(uri: android.net.Uri) {
+        when (uri.host) {
+            "play" -> {
+                val showPlayer = uri.getQueryParameter("showPlayer")?.toBoolean() ?: true
+                val autoplay = uri.getQueryParameter("autoplay")?.toBoolean() ?: true
+                val identifier = uri.getQueryParameter("identifier")
+                
+                if (identifier != null) {
+                    PlaybackManager.playItemByPath(this, identifier, autoplay, showPlayer)
+                } else {
+                    if (autoplay) PlaybackManager.togglePlayPause()
+                    if (showPlayer) PlaybackManager.showPlayerScreen = true
+                }
+            }
+            "download" -> {
+                val downloadUrl = uri.getQueryParameter("url")
+                if (downloadUrl != null) {
+                    // Remove quotes if present
+                    val cleanUrl = downloadUrl.replace("\"", "")
+                    com.tortugapower.audiobookplayer.logic.ImportManager.startImport(this, listOf(android.net.Uri.parse(cleanUrl)))
+                }
+            }
+            "skipRewind" -> {
+                PlaybackManager.seekBackward()
+            }
+            "skipForward" -> {
+                PlaybackManager.seekForward()
+            }
+            "sleep" -> {
+                val seconds = uri.getQueryParameter("seconds")?.toIntOrNull()
+                if (seconds != null) {
+                    com.tortugapower.audiobookplayer.logic.SleepTimerManager.configureTimerWithSeconds(this, seconds)
+                }
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        currentContext = this
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (currentContext == this) {
+            currentContext = null
         }
     }
 

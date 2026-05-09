@@ -16,6 +16,9 @@ object ThemeManager {
     var currentTheme by mutableStateOf<AppTheme>(AppTheme.DefaultDark)
         private set
 
+    var isReady by mutableStateOf(false)
+        private set
+
     val allThemes = listOf(
         AppTheme.DefaultDark,
         AppTheme.PureBlack,
@@ -30,6 +33,7 @@ object ThemeManager {
             val themeName = PlaybackSettingsManager.getTheme(context).first()
             val theme = allThemes.find { it.name == themeName } ?: AppTheme.DefaultDark
             currentTheme = theme
+            isReady = true
         }
     }
 

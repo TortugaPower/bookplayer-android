@@ -1,5 +1,7 @@
 package com.tortugapower.audiobookplayer.service
 
+import android.app.PendingIntent
+import android.content.Intent
 import android.media.audiofx.LoudnessEnhancer
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -7,6 +9,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.tortugapower.audiobookplayer.MainActivity
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,7 +38,17 @@ class AudioPlayerService : MediaSessionService() {
             .build()
 
         player?.let { p ->
+            val intent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("OPEN_PLAYER", true)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this, 0, intent, 
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+
             mediaSession = MediaSession.Builder(this, p)
+                .setSessionActivity(pendingIntent)
                 .setCallback(CustomMediaSessionCallback())
                 .build()
 
