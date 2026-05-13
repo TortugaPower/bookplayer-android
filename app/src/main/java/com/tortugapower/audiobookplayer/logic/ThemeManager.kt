@@ -29,11 +29,13 @@ object ThemeManager {
     )
 
     fun initialize(context: Context) {
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             val themeName = PlaybackSettingsManager.getTheme(context).first()
             val theme = allThemes.find { it.name == themeName } ?: AppTheme.DefaultDark
-            currentTheme = theme
-            isReady = true
+            launch(Dispatchers.Main) {
+                currentTheme = theme
+                isReady = true
+            }
         }
     }
 

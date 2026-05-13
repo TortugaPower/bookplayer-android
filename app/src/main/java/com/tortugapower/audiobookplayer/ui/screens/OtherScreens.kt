@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -550,7 +551,11 @@ fun ThemeItem(theme: AppTheme, isSelected: Boolean, onClick: () -> Unit) {
             modifier = Modifier
                 .size(40.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(theme.surface),
+                .background(theme.surface)
+                .then(
+                    if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                    else Modifier
+                ),
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -565,7 +570,8 @@ fun ThemeItem(theme: AppTheme, isSelected: Boolean, onClick: () -> Unit) {
         
         Text(
             text = theme.name,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
             modifier = Modifier.weight(1f)
         )
         

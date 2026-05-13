@@ -19,6 +19,12 @@ object PlaybackSettingsManager {
     private val AUTO_SLEEP_TIMER = booleanPreferencesKey("auto_sleep_timer")
     private val QUICK_ACTION_1 = floatPreferencesKey("quick_action_1")
     private val QUICK_ACTION_2 = floatPreferencesKey("quick_action_2")
+    private val QUICK_ACTION_3 = floatPreferencesKey("quick_action_3")
+    private val GLOBAL_SPEED_CONTROL = booleanPreferencesKey("global_speed_control")
+    private val PROGRESS_BAR_SEEKING = booleanPreferencesKey("progress_bar_seeking")
+    private val LIST_BUTTON_OPENS = stringPreferencesKey("list_button_opens")
+    private val USE_REMAINING_TIME = booleanPreferencesKey("use_remaining_time")
+    private val USE_CHAPTER_CONTEXT = booleanPreferencesKey("use_chapter_context")
     private val VOLUME = floatPreferencesKey("playback_volume")
     private val THEME_NAME = stringPreferencesKey("app_theme")
     private val LAST_ITEM_UUID = stringPreferencesKey("last_item_uuid")
@@ -66,6 +72,36 @@ object PlaybackSettingsManager {
     fun getQuickAction2(context: Context): Flow<Float> = context.dataStore.data.map { it[QUICK_ACTION_2] ?: 2.0f }
     suspend fun setQuickAction2(context: Context, speed: Float) {
         context.dataStore.edit { it[QUICK_ACTION_2] = speed }
+    }
+
+    fun getQuickAction3(context: Context): Flow<Float> = context.dataStore.data.map { it[QUICK_ACTION_3] ?: 3.0f }
+    suspend fun setQuickAction3(context: Context, speed: Float) {
+        context.dataStore.edit { it[QUICK_ACTION_3] = speed }
+    }
+
+    fun getGlobalSpeedControl(context: Context): Flow<Boolean> = context.dataStore.data.map { it[GLOBAL_SPEED_CONTROL] ?: false }
+    suspend fun setGlobalSpeedControl(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[GLOBAL_SPEED_CONTROL] = enabled }
+    }
+
+    fun getProgressBarSeeking(context: Context): Flow<Boolean> = context.dataStore.data.map { it[PROGRESS_BAR_SEEKING] ?: true }
+    suspend fun setProgressBarSeeking(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[PROGRESS_BAR_SEEKING] = enabled }
+    }
+
+    fun getListButtonOpens(context: Context): Flow<String> = context.dataStore.data.map { it[LIST_BUTTON_OPENS] ?: "Chapters" }
+    suspend fun setListButtonOpens(context: Context, value: String) {
+        context.dataStore.edit { it[LIST_BUTTON_OPENS] = value }
+    }
+
+    fun getUseRemainingTime(context: Context): Flow<Boolean> = context.dataStore.data.map { it[USE_REMAINING_TIME] ?: true }
+    suspend fun setUseRemainingTime(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[USE_REMAINING_TIME] = enabled }
+    }
+
+    fun getUseChapterContext(context: Context): Flow<Boolean> = context.dataStore.data.map { it[USE_CHAPTER_CONTEXT] ?: false }
+    suspend fun setUseChapterContext(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[USE_CHAPTER_CONTEXT] = enabled }
     }
 
     fun getVolume(context: Context): Flow<Float> = context.dataStore.data.map { it[VOLUME] ?: 1.0f }

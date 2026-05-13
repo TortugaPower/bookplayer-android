@@ -165,4 +165,23 @@ class RoomLibraryRepository(
 
     override fun getChaptersForBook(bookUuid: String) =
         libraryDao.getChaptersForBook(bookUuid)
+
+    override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? {
+        return withContext(Dispatchers.IO) {
+            val currentItem = libraryDao.getItemById(currentItemUuid) ?: return@withContext null
+            val path = currentItem.relativePath?.substringBeforeLast('/', "") ?: ""
+            
+            val siblings = if (path.isEmpty()) {
+                libraryDao.getRootItemsSync()
+            } else {
+                libraryDao.getItemsInPathSync(path)
+            }.filter { it.type == ItemType.BOOK }
+
+            val currentIndex = siblings.indexOfFirst { it.uuid == currentItemUuid }
+            if (currentIndex == -1) return@withContext null
+
+            val targetIndex = if (next) currentIndex + 1 else currentIndex - 1
+            siblings.getOrNull(targetIndex)
+        }
+    }
 }

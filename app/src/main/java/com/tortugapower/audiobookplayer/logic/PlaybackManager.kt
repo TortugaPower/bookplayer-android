@@ -26,12 +26,17 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 object PlaybackManager {
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var player: Player? by mutableStateOf(null)
         private set
 
     var currentItem: LibraryItemEntity? by mutableStateOf(null)
+        private set
+
+    var hasNextItem by mutableStateOf(false)
+        private set
+    var hasPreviousItem by mutableStateOf(false)
         private set
 
     var isPlaying by mutableStateOf(false)
@@ -48,6 +53,7 @@ object PlaybackManager {
     private var lastPauseTime: Long = 0
     private var smartRewindEnabled = true
     private var smartRewindLimit = 30
+    var isTransitioning by mutableStateOf(false)
     private var progressTrackerJob: kotlinx.coroutines.Job? = null
 
     fun initialize(context: Context) {
@@ -60,6 +66,8 @@ object PlaybackManager {
             try {
                 val mediaController = controllerFuture?.get() ?: return@addListener
                 player = mediaController
+                
+                // Add listener once
                 mediaController.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
                         isPlaying = playing
@@ -77,9 +85,69 @@ object PlaybackManager {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         if (playbackState == Player.STATE_ENDED) {
                             updateProgress(appContext, forceFinished = true)
+                            // Auto-play next item
+                            scope.launch {
+                                val current = currentItem ?: return@launch
+                                val db = AppDatabase.getDatabase(appContext)
+                                val repository = RoomLibraryRepository(db.libraryDao())
+                                val nextItem = repository.getAdjacentItem(current.uuid, next = true)
+                                if (nextItem != null) {
+                                    playItem(appContext, nextItem)
+                                }
+                            }
+                        } else if (playbackState == Player.STATE_READY && isTransitioning) {
+                            isTransitioning = false
                         }
                     }
                 })
+
+                // Restore last played item after controller is ready
+                scope.launch(Dispatchers.IO) {
+                    val lastUuid = PlaybackSettingsManager.getLastItemUuid(appContext).first()
+                    if (lastUuid != null) {
+                        val db = AppDatabase.getDatabase(appContext)
+                        val repository = RoomLibraryRepository(db.libraryDao())
+                        val item = repository.getItemById(lastUuid)
+                        if (item != null) {
+                            val processedDir = File(appContext.filesDir, "Processed")
+                            val file = File(processedDir, item.relativePath ?: "")
+                            if (file.exists()) {
+                                // Update navigation states
+                                val next = repository.getAdjacentItem(item.uuid, next = true) != null
+                                val prev = repository.getAdjacentItem(item.uuid, next = false) != null
+                                launch(Dispatchers.Main) {
+                                    hasNextItem = next
+                                    hasPreviousItem = prev
+                                }
+                                launch(Dispatchers.Main) {
+                                    isTransitioning = true
+                                    val mediaItem = MediaItem.Builder()
+                                        .setUri(file.absolutePath)
+                                        .setMediaId(item.uuid)
+                                        .setMediaMetadata(
+                                            MediaMetadata.Builder()
+                                                .setTitle(item.title)
+                                                .setArtist(item.author ?: "Unknown author")
+                                                .build()
+                                        )
+                                        .build()
+                                    
+                                    // Use atomic setMediaItem with starting position to prevent race conditions
+                                    mediaController.setMediaItem(mediaItem, (item.currentTime * 1000).toLong())
+                                    mediaController.prepare()
+                                    
+                                    // Apply speed and volume
+                                    mediaController.setPlaybackSpeed(playbackSpeed)
+                                    applyVolume(volumeBoost, playbackVolume)
+                                    
+                                    // Finalize restoration
+                                    currentItem = item
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Apply current speed and volume when player is ready
                 mediaController.setPlaybackSpeed(playbackSpeed)
                 applyVolume(volumeBoost, playbackVolume)
@@ -88,12 +156,12 @@ object PlaybackManager {
             }
         }, MoreExecutors.directExecutor())
 
-        // Consolidate settings observation
-        scope.launch {
+        // Consolidate settings observation on background thread
+        scope.launch(Dispatchers.IO) {
             launch {
                 PlaybackSettingsManager.getSpeed(appContext).collectLatest { speed ->
                     playbackSpeed = speed
-                    player?.setPlaybackSpeed(speed)
+                    launch(Dispatchers.Main) { player?.setPlaybackSpeed(speed) }
                 }
             }
             launch {
@@ -111,57 +179,13 @@ object PlaybackManager {
             launch {
                 PlaybackSettingsManager.getVolumeBoost(appContext).collectLatest { boost ->
                     volumeBoost = boost
-                    applyVolume(boost, playbackVolume)
+                    launch(Dispatchers.Main) { applyVolume(boost, playbackVolume) }
                 }
             }
             launch {
                 PlaybackSettingsManager.getVolume(appContext).collectLatest { volume ->
                     playbackVolume = volume
-                    applyVolume(volumeBoost, volume)
-                }
-            }
-        }
-
-        // Restore last played item on IO thread
-        scope.launch(Dispatchers.IO) {
-            val lastUuid = PlaybackSettingsManager.getLastItemUuid(appContext).first()
-            if (lastUuid != null) {
-                val db = AppDatabase.getDatabase(appContext)
-                val repository = RoomLibraryRepository(db.libraryDao())
-                val item = repository.getItemById(lastUuid)
-                if (item != null) {
-                    val processedDir = File(appContext.filesDir, "Processed")
-                    val file = File(processedDir, item.relativePath ?: "")
-                    if (file.exists()) {
-                        // Switch back to Main for state updates and player preparation
-                        launch(Dispatchers.Main) {
-                            currentItem = item
-                            controllerFuture?.addListener({
-                                try {
-                                    val p = player ?: return@addListener
-                                    val mediaItem = MediaItem.Builder()
-                                        .setUri(file.absolutePath)
-                                        .setMediaId(item.uuid)
-                                        .setMediaMetadata(
-                                            MediaMetadata.Builder()
-                                                .setTitle(item.title)
-                                                .setArtist(item.author ?: "Unknown author")
-                                                .build()
-                                        )
-                                        .build()
-                                    p.setMediaItem(mediaItem)
-                                    p.prepare()
-                                    // Seek to last position
-                                    p.seekTo((item.currentTime * 1000).toLong())
-                                    // Re-apply speed and volume
-                                    p.setPlaybackSpeed(playbackSpeed)
-                                    applyVolume(volumeBoost, playbackVolume)
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
-                            }, MoreExecutors.directExecutor())
-                        }
-                    }
+                    launch(Dispatchers.Main) { applyVolume(volumeBoost, volume) }
                 }
             }
         }
@@ -179,9 +203,19 @@ object PlaybackManager {
         }
     }
 
-    private fun updateProgress(context: Context, forceFinished: Boolean = false) {
-        val item = currentItem ?: return
+    private fun updateProgress(context: Context, itemToUpdate: LibraryItemEntity? = null, forceFinished: Boolean = false) {
+        if (isTransitioning) return
+        
+        val item = itemToUpdate ?: currentItem ?: return
         val p = player ?: return
+        
+        // Safety: Only update if the player is actually on this item AND is actively ready or buffering.
+        // During IDLE or ended states (unless forced), the player position is not reliable for progress saving.
+        val isPlayerOnItem = p.currentMediaItem?.mediaId == item.uuid
+        val isPlayerActive = p.playbackState == Player.STATE_READY || p.playbackState == Player.STATE_BUFFERING
+        
+        if (!isPlayerOnItem || (!isPlayerActive && !forceFinished)) return
+
         val currentPos = p.currentPosition / 1000.0
         val totalDuration = item.duration
         val isFinished = forceFinished || (currentPos >= totalDuration - 1.0 && totalDuration > 0)
@@ -210,8 +244,33 @@ object PlaybackManager {
     }
 
     fun playItem(context: Context, item: LibraryItemEntity) {
-        updateProgress(context)
+        updateProgress(context, itemToUpdate = currentItem)
+        
+        if (item.isFinished) {
+            item.currentTime = 0.0
+            item.isFinished = false
+            item.percentCompleted = 0.0
+            scope.launch(Dispatchers.IO) {
+                val db = AppDatabase.getDatabase(context)
+                db.libraryDao().updateItem(item)
+            }
+        }
+        
+        isTransitioning = true
         currentItem = item
+        
+        // Update navigation states
+        scope.launch(Dispatchers.IO) {
+            val db = AppDatabase.getDatabase(context)
+            val repository = RoomLibraryRepository(db.libraryDao())
+            val next = repository.getAdjacentItem(item.uuid, next = true) != null
+            val prev = repository.getAdjacentItem(item.uuid, next = false) != null
+            launch(Dispatchers.Main) {
+                hasNextItem = next
+                hasPreviousItem = prev
+            }
+        }
+        
         scope.launch {
             PlaybackSettingsManager.setLastItemUuid(context, item.uuid)
         }
@@ -229,9 +288,9 @@ object PlaybackManager {
                         .build()
                 )
                 .build()
-            player?.setMediaItem(mediaItem)
+            
+            player?.setMediaItem(mediaItem, (item.currentTime * 1000).toLong())
             player?.prepare()
-            player?.seekTo((item.currentTime * 1000).toLong())
             player?.play()
             showPlayerScreen = true
             // Re-apply speed and volume on new item
@@ -241,12 +300,13 @@ object PlaybackManager {
     }
 
     fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {
-        updateProgress(context)
+        updateProgress(context, itemToUpdate = currentItem)
         scope.launch(Dispatchers.IO) {
             val db = AppDatabase.getDatabase(context)
             val item = db.libraryDao().getItemByPath(path)
             if (item != null) {
                 launch(Dispatchers.Main) {
+                    isTransitioning = true
                     currentItem = item
                     PlaybackSettingsManager.setLastItemUuid(context, item.uuid)
                     val processedDir = File(context.filesDir, "Processed")
@@ -263,9 +323,8 @@ object PlaybackManager {
                                     .build()
                             )
                             .build()
-                        player?.setMediaItem(mediaItem)
+                        player?.setMediaItem(mediaItem, (item.currentTime * 1000).toLong())
                         player?.prepare()
-                        player?.seekTo((item.currentTime * 1000).toLong())
                         if (autoplay) player?.play()
                         if (showPlayer) showPlayerScreen = true
                         player?.setPlaybackSpeed(playbackSpeed)

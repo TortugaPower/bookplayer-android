@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.viewmodel
 import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
@@ -19,9 +20,18 @@ class PlayerViewModel(
     private val repository: LibraryRepository
 ) : ViewModel() {
     var showControlsSheet by mutableStateOf(false)
-    var showMoreSettingsSheet by mutableStateOf(false)
+    var showExtendedControls by mutableStateOf(false)
+    var showMoreOptions by mutableStateOf(false)
     var showSleepTimerMenu by mutableStateOf(false)
     var showCustomSleepTimerPicker by mutableStateOf(false)
+
+    // Trigger to notify UI of seek operations
+    var seekTrigger by mutableIntStateOf(0)
+        private set
+
+    fun notifySeek() {
+        seekTrigger++
+    }
 
     // Bookmark & Chapter States
     var showBookmarkConfirmation by mutableStateOf(false)
@@ -31,6 +41,11 @@ class PlayerViewModel(
     var currentBookmark: BookmarkEntity? by mutableStateOf(null)
     var isExistingBookmark by mutableStateOf(false)
 
+    var hasNextItem by mutableStateOf(false)
+        private set
+    var hasPreviousItem by mutableStateOf(false)
+        private set
+
     private val _bookmarks = MutableStateFlow<List<BookmarkEntity>>(emptyList())
     val bookmarks: StateFlow<List<BookmarkEntity>> = _bookmarks.asStateFlow()
 
@@ -39,11 +54,50 @@ class PlayerViewModel(
 
     var isRepeatEnabled by mutableStateOf(false)
 
+    // Settings logic
+    var smartRewind by mutableStateOf(true)
+    var smartRewindLimit by mutableStateOf(30)
+    var autoSleep by mutableStateOf(false)
+    var quickAction1 by mutableStateOf(1.3f)
+    var quickAction2 by mutableStateOf(2.0f)
+    var quickAction3 by mutableStateOf(3.0f)
+    var globalSpeed by mutableStateOf(false)
+    var rewindInterval by mutableStateOf(30)
+    var forwardInterval by mutableStateOf(30)
+    var progressBarSeeking by mutableStateOf(true)
+    var listButtonOpens by mutableStateOf("Chapters")
+    var useRemainingTime by mutableStateOf(true)
+    var useChapterContext by mutableStateOf(false)
+
     init {
+        // Load initial settings
+        viewModelScope.launch {
+            val context = com.tortugapower.audiobookplayer.MainActivity.currentContext ?: return@launch
+            loadSettings(context)
+        }
+
+        // Observe settings changes continuously for real-time UI updates
+        viewModelScope.launch {
+            val context = com.tortugapower.audiobookplayer.MainActivity.currentContext ?: return@launch
+            launch {
+                PlaybackSettingsManager.getRewindInterval(context).collect { rewindInterval = it }
+            }
+            launch {
+                PlaybackSettingsManager.getForwardInterval(context).collect { forwardInterval = it }
+            }
+            launch {
+                PlaybackSettingsManager.getSmartRewindLimit(context).collect { smartRewindLimit = it }
+            }
+        }
+
         // Observe Current Item and update lists (Using Stable collectLatest)
         viewModelScope.launch {
             snapshotFlow { PlaybackManager.currentItem }.collectLatest { item ->
                 if (item != null) {
+                    // Update navigation states
+                    hasNextItem = repository.getAdjacentItem(item.uuid, next = true) != null
+                    hasPreviousItem = repository.getAdjacentItem(item.uuid, next = false) != null
+
                     // Launch child coroutines to collect database flows
                     // collectLatest automatically cancels previous collections when item changes
                     launch {
@@ -59,10 +113,10 @@ class PlayerViewModel(
             }
         }
     }
-
     fun jumpToStart() {
-        PlaybackManager.player?.seekTo(0)
-        showMoreSettingsSheet = false
+        PlaybackManager.seekTo(0)
+        showMoreOptions = false
+        notifySeek()
     }
 
     fun toggleFinished() {
@@ -71,11 +125,14 @@ class PlayerViewModel(
             item.isFinished = !item.isFinished
             if (item.isFinished) {
                 item.currentTime = item.duration
+                PlaybackManager.seekTo((item.duration * 1000).toLong())
             } else {
                 item.currentTime = 0.0
+                PlaybackManager.seekTo(0)
             }
             repository.updateItem(item)
-            showMoreSettingsSheet = false
+            showMoreOptions = false
+            notifySeek()
         }
     }
 
@@ -85,8 +142,15 @@ class PlayerViewModel(
     }
 
     fun seekToChapter(chapter: com.tortugapower.audiobookplayer.database.entities.ChapterEntity) {
-        PlaybackManager.player?.seekTo((chapter.start * 1000).toLong())
+        PlaybackManager.seekTo((chapter.start * 1000).toLong())
         showChaptersList = false
+        notifySeek()
+    }
+
+    fun seekToBookmark(bookmark: BookmarkEntity) {
+        PlaybackManager.seekTo((bookmark.time * 1000).toLong())
+        showBookmarksList = false
+        notifySeek()
     }
 
     fun addBookmark() {
@@ -128,20 +192,9 @@ class PlayerViewModel(
         }
     }
 
-    fun seekToBookmark(bookmark: BookmarkEntity) {
-        PlaybackManager.player?.seekTo((bookmark.time * 1000).toLong())
-        showBookmarksList = false
-    }
-
-    // Settings logic
-    var smartRewind by mutableStateOf(true)
-    var smartRewindLimit by mutableStateOf(30)
-    var autoSleep by mutableStateOf(false)
-    var quickAction1 by mutableStateOf(1.0f)
-    var quickAction2 by mutableStateOf(2.0f)
-
     fun toggleControlsSheet() { showControlsSheet = !showControlsSheet }
-    fun toggleMoreSettingsSheet() { showMoreSettingsSheet = !showMoreSettingsSheet }
+    fun toggleExtendedControls() { showExtendedControls = !showExtendedControls }
+    fun toggleMoreOptions() { showMoreOptions = !showMoreOptions }
     fun toggleSleepTimerMenu() { showSleepTimerMenu = !showSleepTimerMenu }
     fun toggleCustomSleepTimerPicker() { showCustomSleepTimerPicker = !showCustomSleepTimerPicker }
 
@@ -162,9 +215,17 @@ class PlayerViewModel(
         viewModelScope.launch {
             smartRewind = PlaybackSettingsManager.getSmartRewind(context).first()
             smartRewindLimit = PlaybackSettingsManager.getSmartRewindLimit(context).first()
+            rewindInterval = PlaybackSettingsManager.getRewindInterval(context).first()
+            forwardInterval = PlaybackSettingsManager.getForwardInterval(context).first()
             autoSleep = PlaybackSettingsManager.getAutoSleepTimer(context).first()
             quickAction1 = PlaybackSettingsManager.getQuickAction1(context).first()
             quickAction2 = PlaybackSettingsManager.getQuickAction2(context).first()
+            quickAction3 = PlaybackSettingsManager.getQuickAction3(context).first()
+            globalSpeed = PlaybackSettingsManager.getGlobalSpeedControl(context).first()
+            progressBarSeeking = PlaybackSettingsManager.getProgressBarSeeking(context).first()
+            listButtonOpens = PlaybackSettingsManager.getListButtonOpens(context).first()
+            useRemainingTime = PlaybackSettingsManager.getUseRemainingTime(context).first()
+            useChapterContext = PlaybackSettingsManager.getUseChapterContext(context).first()
         }
     }
 
@@ -178,6 +239,61 @@ class PlayerViewModel(
         viewModelScope.launch { PlaybackSettingsManager.setAutoSleepTimer(context, enabled) }
     }
 
+    fun updateGlobalSpeed(context: Context, enabled: Boolean) {
+        globalSpeed = enabled
+        viewModelScope.launch { PlaybackSettingsManager.setGlobalSpeedControl(context, enabled) }
+    }
+
+    fun updateProgressBarSeeking(context: Context, enabled: Boolean) {
+        progressBarSeeking = enabled
+        viewModelScope.launch { PlaybackSettingsManager.setProgressBarSeeking(context, enabled) }
+    }
+
+    fun updateListButtonOpens(context: Context, value: String) {
+        listButtonOpens = value
+        viewModelScope.launch { PlaybackSettingsManager.setListButtonOpens(context, value) }
+    }
+
+    fun updateUseRemainingTime(context: Context, enabled: Boolean) {
+        useRemainingTime = enabled
+        viewModelScope.launch { PlaybackSettingsManager.setUseRemainingTime(context, enabled) }
+    }
+
+    fun updateUseChapterContext(context: Context, enabled: Boolean) {
+        useChapterContext = enabled
+        viewModelScope.launch { PlaybackSettingsManager.setUseChapterContext(context, enabled) }
+    }
+
+    fun updateQuickAction1(context: Context, speed: Float) {
+        quickAction1 = speed
+        viewModelScope.launch { PlaybackSettingsManager.setQuickAction1(context, speed) }
+    }
+
+    fun updateQuickAction2(context: Context, speed: Float) {
+        quickAction2 = speed
+        viewModelScope.launch { PlaybackSettingsManager.setQuickAction2(context, speed) }
+    }
+
+    fun updateQuickAction3(context: Context, speed: Float) {
+        quickAction3 = speed
+        viewModelScope.launch { PlaybackSettingsManager.setQuickAction3(context, speed) }
+    }
+
+    fun updateRewindInterval(context: Context, seconds: Int) {
+        rewindInterval = seconds
+        viewModelScope.launch { PlaybackSettingsManager.setRewindInterval(context, seconds) }
+    }
+
+    fun updateForwardInterval(context: Context, seconds: Int) {
+        forwardInterval = seconds
+        viewModelScope.launch { PlaybackSettingsManager.setForwardInterval(context, seconds) }
+    }
+
+    fun updateSmartRewindLimit(context: Context, seconds: Int) {
+        smartRewindLimit = seconds
+        viewModelScope.launch { PlaybackSettingsManager.setSmartRewindLimit(context, seconds) }
+    }
+
     // Proxy methods
     val playbackSpeed get() = PlaybackManager.playbackSpeed
     val playbackVolume get() = PlaybackManager.playbackVolume
@@ -185,11 +301,38 @@ class PlayerViewModel(
     val isPlaying get() = PlaybackManager.isPlaying
     val currentItem get() = PlaybackManager.currentItem
     val player get() = PlaybackManager.player
+    val isTransitioning get() = PlaybackManager.isTransitioning
 
     fun setPlaybackSpeed(context: Context, speed: Float) { PlaybackManager.setPlaybackSpeed(context, speed) }
     fun setPlaybackVolume(context: Context, volume: Float) { PlaybackManager.setPlaybackVolume(context, volume) }
     fun toggleVolumeBoost(context: Context) { PlaybackManager.toggleVolumeBoost(context) }
+    fun playNext(context: Context) {
+        viewModelScope.launch {
+            val current = PlaybackManager.currentItem ?: return@launch
+            val nextItem = repository.getAdjacentItem(current.uuid, next = true)
+            if (nextItem != null) {
+                PlaybackManager.playItem(context, nextItem)
+            }
+        }
+    }
+
+    fun playPrevious(context: Context) {
+        viewModelScope.launch {
+            val current = PlaybackManager.currentItem ?: return@launch
+            val prevItem = repository.getAdjacentItem(current.uuid, next = false)
+            if (prevItem != null) {
+                PlaybackManager.playItem(context, prevItem)
+            }
+        }
+    }
+
     fun togglePlayPause() { PlaybackManager.togglePlayPause() }
-    fun seekForward() { PlaybackManager.seekForward() }
-    fun seekBackward() { PlaybackManager.seekBackward() }
+    fun seekForward() { 
+        PlaybackManager.seekForward() 
+        notifySeek()
+    }
+    fun seekBackward() { 
+        PlaybackManager.seekBackward() 
+        notifySeek()
+    }
 }

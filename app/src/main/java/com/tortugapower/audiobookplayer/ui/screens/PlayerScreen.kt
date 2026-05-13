@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -14,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material3.*
@@ -25,6 +27,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -37,26 +40,82 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.common.Player
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.layout.onGloballyPositioned
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+@Composable
+fun MarqueeText(
+    text: String,
+    style: TextStyle,
+    modifier: Modifier = Modifier
+) {
+    val scrollState = rememberScrollState()
+    var containerWidth by remember { mutableStateOf(0) }
+    var textWidth by remember { mutableStateOf(0) }
+
+    LaunchedEffect(text, containerWidth, textWidth) {
+        if (textWidth > containerWidth && containerWidth > 0) {
+            while (true) {
+                delay(2000) // Initial wait
+                scrollState.animateScrollTo(
+                    value = textWidth - containerWidth,
+                    animationSpec = tween(
+                        durationMillis = (textWidth - containerWidth) * 30,
+                        easing = LinearEasing
+                    )
+                )
+                delay(2000) // End wait
+                scrollState.scrollTo(0)
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .onGloballyPositioned { containerWidth = it.size.width }
+            .horizontalScroll(scrollState, enabled = false),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = style,
+            onTextLayout = { textWidth = it.size.width },
+            maxLines = 1,
+            overflow = TextOverflow.Visible,
+            modifier = Modifier.wrapContentWidth(unbounded = true)
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     viewModel: PlayerViewModel = viewModel()
 ) {
-    val currentItem = viewModel.currentItem ?: return
+    val currentItem = viewModel.currentItem
     val isPlaying = viewModel.isPlaying
-    var position by remember { mutableLongStateOf(viewModel.player?.currentPosition ?: 0L) }
+    
+    // Use the item's saved time as the initial value when the item changes
+    var position by remember(currentItem?.uuid) { 
+        val initialPos = if (currentItem != null) (currentItem.currentTime * 1000).toLong() else 0L
+        mutableLongStateOf(initialPos) 
+    }
+    
     var isDragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(0f) }
     
-    val duration = remember(currentItem.uuid) { (currentItem.duration * 1000).toLong() }
+    val duration = remember(currentItem?.uuid) { ((currentItem?.duration ?: 0.0) * 1000).toLong() }
     val context = LocalContext.current
     
     val configuration = LocalConfiguration.current
@@ -67,25 +126,47 @@ fun PlayerScreen(
     
     val offsetY = remember { Animatable(screenHeightPx) }
     val scope = rememberCoroutineScope()
+    val isHidden = offsetY.value >= screenHeightPx
 
-    LaunchedEffect(PlaybackManager.showPlayerScreen) {
+    LaunchedEffect(PlaybackManager.showPlayerScreen, screenHeightPx) {
         if (PlaybackManager.showPlayerScreen) {
             offsetY.animateTo(0f, tween(400))
-        } else if (offsetY.value < screenHeightPx) {
+        } else {
             offsetY.animateTo(screenHeightPx, tween(300))
         }
     }
 
-    LaunchedEffect(isPlaying, isDragging) {
-        if (isPlaying && !isDragging) {
-            // Update position every second while playing and not dragging
-            while (true) {
-                position = viewModel.player?.currentPosition ?: 0L
-                delay(1000)
+    LaunchedEffect(isPlaying, isDragging, isHidden, viewModel.seekTrigger, currentItem?.uuid, viewModel.isTransitioning) {
+        val p = viewModel.player
+        if (p != null && !viewModel.isTransitioning) {
+            // Final safety guard for Media3 sync lag
+            if (p.currentMediaItem?.mediaId != currentItem?.uuid || 
+                (p.playbackState != Player.STATE_READY && p.playbackState != Player.STATE_BUFFERING)) {
+                
+                var attempts = 0
+                while ((p.currentMediaItem?.mediaId != currentItem?.uuid || 
+                       (p.playbackState != Player.STATE_READY && p.playbackState != Player.STATE_BUFFERING)) 
+                       && attempts < 30) {
+                    delay(50)
+                    attempts++
+                }
+                // After IDs match and player is ready, give it a substantial moment 
+                // to settle its internal position state after seekTo()
+                delay(500)
             }
-        } else if (!isDragging) {
-            // Sync final position when paused or drag stopped
-            position = viewModel.player?.currentPosition ?: 0L
+
+            if (!isDragging && !isHidden && p.currentMediaItem?.mediaId == currentItem?.uuid && !viewModel.isTransitioning) {
+                if (isPlaying) {
+                    // Update position every second while playing
+                    while (isPlaying) {
+                        position = p.currentPosition
+                        delay(1000)
+                    }
+                } else {
+                    // Sync position once when paused or seek triggered
+                    position = p.currentPosition
+                }
+            }
         }
     }
 
@@ -95,15 +176,22 @@ fun PlayerScreen(
             onDismiss = { viewModel.toggleControlsSheet() },
             onMoreClick = {
                 viewModel.toggleControlsSheet()
-                viewModel.toggleMoreSettingsSheet()
+                viewModel.toggleExtendedControls()
             }
         )
     }
 
-    if (viewModel.showMoreSettingsSheet) {
-        PlayerMoreOptionsSheet(
+    if (viewModel.showExtendedControls) {
+        ExtendedControlsSheet(
             viewModel = viewModel,
-            onDismiss = { viewModel.toggleMoreSettingsSheet() }
+            onDismiss = { viewModel.toggleExtendedControls() }
+        )
+    }
+
+    if (viewModel.showMoreOptions) {
+        MoreOptionsSheet(
+            viewModel = viewModel,
+            onDismiss = { viewModel.toggleMoreOptions() }
         )
     }
 
@@ -159,34 +247,42 @@ fun PlayerScreen(
         )
     }
 
-    if (offsetY.value < screenHeightPx || PlaybackManager.showPlayerScreen) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                // PERFORMANCE: graphicsLayer uses GPU for movement, much smoother than offset
-                .graphicsLayer { translationY = offsetY.value }
-                .background(MaterialTheme.colorScheme.background)
-                .draggable(
-                    orientation = Orientation.Vertical,
-                    state = rememberDraggableState { delta ->
-                        val newValue = (offsetY.value + delta).coerceAtLeast(0f)
-                        scope.launch { offsetY.snapTo(newValue) }
-                    },
-                    onDragStopped = { velocity ->
-                        if (offsetY.value > screenHeightPx * 0.3f || velocity > 1000) {
-                            scope.launch {
-                                offsetY.animateTo(screenHeightPx, tween(300))
-                                PlaybackManager.showPlayerScreen = false
-                            }
-                        } else {
-                            scope.launch {
-                                offsetY.animateTo(0f, tween(300))
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .offset { IntOffset(0, offsetY.value.roundToInt()) }
+            .graphicsLayer { 
+                alpha = if (isHidden) 0f else 1f
+            }
+            .background(MaterialTheme.colorScheme.background)
+            .then(
+                if (isHidden) {
+                    Modifier // No touch interception at all when hidden
+                } else {
+                    Modifier.draggable(
+                        orientation = Orientation.Vertical,
+                        state = rememberDraggableState { delta ->
+                            val newValue = (offsetY.value + delta).coerceAtLeast(0f)
+                            scope.launch { offsetY.snapTo(newValue) }
+                        },
+                        onDragStopped = { velocity ->
+                            if (offsetY.value > screenHeightPx * 0.3f || velocity > 1000) {
+                                scope.launch {
+                                    offsetY.animateTo(screenHeightPx, tween(300))
+                                    PlaybackManager.showPlayerScreen = false
+                                }
+                            } else {
+                                scope.launch {
+                                    offsetY.animateTo(0f, tween(300))
+                                }
                             }
                         }
-                    }
-                )
-                .statusBarsPadding()
-        ) {
+                    )
+                }
+            )
+            .statusBarsPadding()
+    ) {
+        if (currentItem != null) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -239,8 +335,9 @@ fun PlayerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
-                        onClick = { },
-                        modifier = Modifier.offset(x = (-12).dp)
+                        onClick = { viewModel.playPrevious(context) },
+                        enabled = viewModel.hasPreviousItem,
+                        modifier = Modifier.offset(x = (-12).dp).alpha(if (viewModel.hasPreviousItem) 1f else 0.3f)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ChevronLeft,
@@ -249,17 +346,21 @@ fun PlayerScreen(
                             modifier = Modifier.size(32.dp)
                         )
                     }
-                    Text(
+                    MarqueeText(
                         text = currentItem.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f)
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp)
                     )
                     IconButton(
-                        onClick = { },
-                        modifier = Modifier.offset(x = 12.dp)
+                        onClick = { viewModel.playNext(context) },
+                        enabled = viewModel.hasNextItem,
+                        modifier = Modifier.offset(x = 12.dp).alpha(if (viewModel.hasNextItem) 1f else 0.3f)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ChevronRight,
@@ -280,7 +381,7 @@ fun PlayerScreen(
                     },
                     onValueChangeFinished = {
                         val newPos = (dragPosition * duration).toLong()
-                        viewModel.player?.seekTo(newPos)
+                        PlaybackManager.seekTo(newPos)
                         position = newPos
                         isDragging = false
                     },
@@ -297,31 +398,54 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     val displayPosition = if (isDragging) (dragPosition * duration).toLong() else position
-                    val posText = remember(displayPosition) { formatTime(displayPosition) }
-                    val remainingText = remember(duration, displayPosition) { 
-                        val remaining = (duration - displayPosition).coerceAtLeast(0)
-                        "-${formatTime(remaining)}" 
+                    val chapters by viewModel.chapters.collectAsState()
+                    val currentChapter = remember(chapters, displayPosition) {
+                        chapters.find { displayPosition >= (it.start * 1000) && displayPosition < ((it.start + it.duration) * 1000) }
+                    }
+                    
+                    val leftLabel = if (viewModel.useChapterContext && currentChapter != null) {
+                        val chapterPos = displayPosition - (currentChapter.start * 1000).toLong()
+                        formatTime(chapterPos.coerceAtLeast(0))
+                    } else {
+                        formatTime(displayPosition)
+                    }
+
+                    val rightLabel = if (viewModel.useChapterContext && currentChapter != null) {
+                        val chapterDuration = (currentChapter.duration * 1000).toLong()
+                        val chapterPos = displayPosition - (currentChapter.start * 1000).toLong()
+                        if (viewModel.useRemainingTime) {
+                            "-${formatTime((chapterDuration - chapterPos).coerceAtLeast(0))}"
+                        } else {
+                            formatTime(chapterDuration)
+                        }
+                    } else {
+                        if (viewModel.useRemainingTime) {
+                            "-${formatTime((duration - displayPosition).coerceAtLeast(0))}"
+                        } else {
+                            formatTime(duration)
+                        }
                     }
 
                     Text(
-                        text = posText,
-                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                        text = leftLabel,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.width(60.dp)
+                        modifier = Modifier.width(72.dp) // Increased width slightly for larger text
                     )
                     Text(
-                        text = "Chapter 1 of 1",
-                        style = MaterialTheme.typography.labelMedium,
+                        text = if (currentChapter != null) currentChapter.title else "Chapter 1 of 1",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1
                     )
                     Text(
-                        text = remainingText,
-                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                        text = rightLabel,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.End,
-                        modifier = Modifier.width(60.dp)
+                        modifier = Modifier.width(72.dp) // Increased width slightly
                     )
                 }
 
@@ -332,11 +456,14 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    SeekButton(isForward = false) { viewModel.seekBackward() }
+                    SeekButton(
+                        isForward = false,
+                        seconds = viewModel.rewindInterval
+                    ) { viewModel.seekBackward() }
 
                     IconButton(
                         onClick = { viewModel.togglePlayPause() },
-                        modifier = Modifier.size(80.dp)
+                        modifier = Modifier.size(100.dp) // Increased from 80dp
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -346,7 +473,10 @@ fun PlayerScreen(
                         )
                     }
 
-                    SeekButton(isForward = true) { viewModel.seekForward() }
+                    SeekButton(
+                        isForward = true,
+                        seconds = viewModel.forwardInterval
+                    ) { viewModel.seekForward() }
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
@@ -372,15 +502,44 @@ fun PlayerScreen(
                     )
                     PlayerBottomButton(
                         icon = Icons.AutoMirrored.Filled.List,
-                        onClick = { viewModel.showChaptersList = true }
+                        onClick = { 
+                            if (viewModel.listButtonOpens == "Chapters") {
+                                viewModel.showChaptersList = true 
+                            } else {
+                                viewModel.showBookmarksList = true
+                            }
+                        }
                     )
                     PlayerBottomButton(
                         icon = Icons.Default.MoreHoriz,
-                        onClick = { viewModel.toggleMoreSettingsSheet() }
+                        onClick = { viewModel.toggleMoreOptions() }
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+fun SheetHeaderButton(
+    text: String,
+    onClick: () -> Unit
+) {
+    TextButton(
+        onClick = onClick,
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+            contentColor = MaterialTheme.colorScheme.primary
+        ),
+        shape = RoundedCornerShape(16.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier.height(36.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -417,16 +576,7 @@ fun ChaptersListSheet(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                TextButton(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.textButtonColors(
-                        containerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                        contentColor = MaterialTheme.colorScheme.primary
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Done")
-                }
+                SheetHeaderButton(text = "Done", onClick = onDismiss)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -483,7 +633,7 @@ fun ChaptersListSheet(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlayerMoreOptionsSheet(
+fun MoreOptionsSheet(
     viewModel: PlayerViewModel,
     onDismiss: () -> Unit
 ) {
@@ -504,7 +654,7 @@ fun PlayerMoreOptionsSheet(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             BookmarkDialogButton(text = "Chapters") {
-                viewModel.showMoreSettingsSheet = false
+                viewModel.showMoreOptions = false
                 viewModel.showChaptersList = true
             }
             BookmarkDialogButton(text = "Jump to start") {
@@ -799,16 +949,7 @@ fun PlayerControlsSheet(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                TextButton(
-                    onClick = onMoreClick,
-                    colors = ButtonDefaults.textButtonColors(
-                        containerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
-                        contentColor = MaterialTheme.colorScheme.primary
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("More")
-                }
+                SheetHeaderButton(text = "More", onClick = onMoreClick)
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -858,17 +999,17 @@ fun PlayerControlsSheet(
                     currentSpeed = (currentSpeed - 0.1f).coerceAtLeast(0.5f)
                     viewModel.setPlaybackSpeed(context, currentSpeed)
                 }
-                QuickSpeedLabelButton("1x", currentSpeed == 1.0f) {
-                    currentSpeed = 1.0f
-                    viewModel.setPlaybackSpeed(context, 1.0f)
+                QuickSpeedLabelButton(formatSpeed(viewModel.quickAction1), currentSpeed == viewModel.quickAction1) {
+                    currentSpeed = viewModel.quickAction1
+                    viewModel.setPlaybackSpeed(context, viewModel.quickAction1)
                 }
-                QuickSpeedLabelButton("2x", currentSpeed == 2.0f) {
-                    currentSpeed = 2.0f
-                    viewModel.setPlaybackSpeed(context, 2.0f)
+                QuickSpeedLabelButton(formatSpeed(viewModel.quickAction2), currentSpeed == viewModel.quickAction2) {
+                    currentSpeed = viewModel.quickAction2
+                    viewModel.setPlaybackSpeed(context, viewModel.quickAction2)
                 }
-                QuickSpeedLabelButton("3x", currentSpeed == 3.0f) {
-                    currentSpeed = 3.0f
-                    viewModel.setPlaybackSpeed(context, 3.0f)
+                QuickSpeedLabelButton(formatSpeed(viewModel.quickAction3), currentSpeed == viewModel.quickAction3) {
+                    currentSpeed = viewModel.quickAction3
+                    viewModel.setPlaybackSpeed(context, viewModel.quickAction3)
                 }
                 QuickSpeedButton(icon = Icons.Default.Add) {
                     currentSpeed = (currentSpeed + 0.1f).coerceAtMost(4.0f)
@@ -1170,15 +1311,108 @@ fun SleepTimerSheet(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MorePlayerSettingsSheet(
+fun ExtendedControlsSheet(
     viewModel: PlayerViewModel,
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
+    val context = LocalContext.current.applicationContext
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     
-    LaunchedEffect(Unit) {
+    var showRewindPicker by remember { mutableStateOf(false) }
+    var showForwardPicker by remember { mutableStateOf(false) }
+    var showSmartRewindPicker by remember { mutableStateOf(false) }
+    var showListActionPicker by remember { mutableStateOf(false) }
+    var showSpeedPicker1 by remember { mutableStateOf(false) }
+    var showSpeedPicker2 by remember { mutableStateOf(false) }
+    var showSpeedPicker3 by remember { mutableStateOf(false) }
+
+    LaunchedEffect(viewModel) {
         viewModel.loadSettings(context)
+    }
+
+    if (showRewindPicker) {
+        IntervalPickerDialog(
+            title = "Rewind Interval",
+            currentValue = viewModel.rewindInterval,
+            onValueSelected = {
+                viewModel.updateRewindInterval(context, it)
+                showRewindPicker = false
+            },
+            onDismiss = { showRewindPicker = false }
+        )
+    }
+
+    if (showForwardPicker) {
+        IntervalPickerDialog(
+            title = "Forward Interval",
+            currentValue = viewModel.forwardInterval,
+            onValueSelected = {
+                viewModel.updateForwardInterval(context, it)
+                showForwardPicker = false
+            },
+            onDismiss = { showForwardPicker = false }
+        )
+    }
+
+    if (showSmartRewindPicker) {
+        IntervalPickerDialog(
+            title = "Smart Rewind Limit",
+            currentValue = viewModel.smartRewindLimit,
+            onValueSelected = {
+                viewModel.updateSmartRewindLimit(context, it)
+                showSmartRewindPicker = false
+            },
+            onDismiss = { showSmartRewindPicker = false }
+        )
+    }
+
+    if (showListActionPicker) {
+        OptionsPickerDialog(
+            title = "List Button Action",
+            options = listOf("Chapters", "Bookmarks"),
+            currentValue = viewModel.listButtonOpens,
+            onValueSelected = {
+                viewModel.updateListButtonOpens(context, it)
+                showListActionPicker = false
+            },
+            onDismiss = { showListActionPicker = false }
+        )
+    }
+
+    if (showSpeedPicker1) {
+        SpeedPickerDialog(
+            title = "Quick Action 1",
+            currentValue = viewModel.quickAction1,
+            onValueSelected = {
+                viewModel.updateQuickAction1(context, it)
+                showSpeedPicker1 = false
+            },
+            onDismiss = { showSpeedPicker1 = false }
+        )
+    }
+
+    if (showSpeedPicker2) {
+        SpeedPickerDialog(
+            title = "Quick Action 2",
+            currentValue = viewModel.quickAction2,
+            onValueSelected = {
+                viewModel.updateQuickAction2(context, it)
+                showSpeedPicker2 = false
+            },
+            onDismiss = { showSpeedPicker2 = false }
+        )
+    }
+
+    if (showSpeedPicker3) {
+        SpeedPickerDialog(
+            title = "Quick Action 3",
+            currentValue = viewModel.quickAction3,
+            onValueSelected = {
+                viewModel.updateQuickAction3(context, it)
+                showSpeedPicker3 = false
+            },
+            onDismiss = { showSpeedPicker3 = false }
+        )
     }
 
     ModalBottomSheet(
@@ -1225,19 +1459,17 @@ fun MorePlayerSettingsSheet(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column {
-                    SettingsRowPicker("Rewind", "30 secs") { /* Placeholder */ }
+                    SettingsRowPicker("Rewind", formatInterval(viewModel.rewindInterval)) { showRewindPicker = true }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker("Forward", "30 secs") { /* Placeholder */ }
+                    SettingsRowPicker("Forward", formatInterval(viewModel.forwardInterval)) { showForwardPicker = true }
                 }
             }
             Text(
                 "Adjust the amount skipped when using the buttons in the Player or Control Center.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp, start = 8.dp)
+                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
             )
-
-            Spacer(modifier = Modifier.height(24.dp))
 
             Surface(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
@@ -1248,17 +1480,15 @@ fun MorePlayerSettingsSheet(
                         viewModel.updateSmartRewind(context, it)
                     }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker("Smart Rewind Limit", "${viewModel.smartRewindLimit} secs") { /* Placeholder */ }
+                    SettingsRowPicker("Smart Rewind Limit", formatInterval(viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
                 }
             }
             Text(
                 "Automatically skip backwards when resuming playback. Skips back further the longer playback has been paused, up to a maximum of 30 secs.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp, start = 8.dp)
+                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
             )
-
-            Spacer(modifier = Modifier.height(24.dp))
 
             Surface(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
@@ -1272,10 +1502,8 @@ fun MorePlayerSettingsSheet(
                 "Restart the last active sleep timer when playback is resumed",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp, start = 8.dp)
+                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
             )
-
-            Spacer(modifier = Modifier.height(24.dp))
 
             Surface(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
@@ -1289,22 +1517,294 @@ fun MorePlayerSettingsSheet(
                 "Doubles the volume.\nUse with caution and care for your hearing.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp, start = 8.dp)
+                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
             SettingsSectionLabel("Speed")
             Surface(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column {
-                    SettingsRowPicker("Quick Action 1", "${if (viewModel.quickAction1 % 1.0f == 0.0f) viewModel.quickAction1.toInt() else viewModel.quickAction1}x") { /* Placeholder */ }
+                    SettingsRowPicker("Quick Action 1", formatSpeed(viewModel.quickAction1)) { showSpeedPicker1 = true }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker("Quick Action 2", "${if (viewModel.quickAction2 % 1.0f == 0.0f) viewModel.quickAction2.toInt() else viewModel.quickAction2}x") { /* Placeholder */ }
+                    SettingsRowPicker("Quick Action 2", formatSpeed(viewModel.quickAction2)) { showSpeedPicker2 = true }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    SettingsRowPicker("Quick Action 3", formatSpeed(viewModel.quickAction3)) { showSpeedPicker3 = true }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    SettingsRowToggle("Global Speed Control", viewModel.globalSpeed) {
+                        viewModel.updateGlobalSpeed(context, it)
+                    }
                 }
             }
+            Text(
+                "Set speed across all books.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
+            )
+
+            Surface(
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                SettingsRowToggle("Progress Bar Seeking", viewModel.progressBarSeeking) {
+                    viewModel.updateProgressBarSeeking(context, it)
+                }
+            }
+            Text(
+                "Enable seeking on the lock screen",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
+            )
+
+            Surface(
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                SettingsRowPicker("Opens", viewModel.listButtonOpens) { showListActionPicker = true }
+            }
+            Text(
+                "Adjust what the list button in the player screen opens",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
+            )
+
+            SettingsSectionLabel("Progress Labels")
+            Surface(
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column {
+                    SettingsRowToggle("Use Remaining Time", viewModel.useRemainingTime) {
+                        viewModel.updateUseRemainingTime(context, it)
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    SettingsRowToggle("Use Chapter Context", viewModel.useChapterContext) {
+                        viewModel.updateUseChapterContext(context, it)
+                    }
+                }
+            }
+            Text(
+                "Toggle between displaying the remaining time, total duration and progress of either the chapter or the book in the player screen",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 32.dp)
+            )
         }
+    }
+}
+
+@Composable
+fun IntervalPickerDialog(
+    title: String,
+    currentValue: Int,
+    onValueSelected: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val options = listOf(
+        2, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                options.forEach { seconds ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onValueSelected(seconds) }
+                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = formatInterval(seconds),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (seconds == currentValue) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Selected",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    if (seconds != options.last()) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(28.dp)
+    )
+}
+
+@Composable
+fun OptionsPickerDialog(
+    title: String,
+    options: List<String>,
+    currentValue: String,
+    onValueSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                options.forEach { option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onValueSelected(option) }
+                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = option,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (option == currentValue) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Selected",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    if (option != options.last()) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(28.dp)
+    )
+}
+
+@Composable
+fun SpeedPickerDialog(
+    title: String,
+    currentValue: Float,
+    onValueSelected: (Float) -> Unit,
+    onDismiss: () -> Unit
+) {
+    // Generate speed options from 0.5 to 4.0 in 0.05 steps
+    val options = remember {
+        (10..80).map { it * 0.05f }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                options.forEach { speed ->
+                    val isSelected = kotlin.math.abs(speed - currentValue) < 0.01f
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onValueSelected(speed) }
+                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = formatSpeed(speed),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Selected",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    if (speed != options.last()) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(28.dp)
+    )
+}
+
+private fun formatSpeed(speed: Float): String {
+    val s = "%.2f".format(speed).trimEnd('0').trimEnd('.')
+    return "${s}x"
+}
+
+private fun formatInterval(seconds: Int): String {
+    return when {
+        seconds < 60 -> "$seconds secs"
+        seconds == 60 -> "1 min"
+        seconds == 90 -> "1 min, 30 secs"
+        else -> "${seconds / 60} min"
     }
 }
 
@@ -1384,7 +1884,7 @@ fun QuickSpeedLabelButton(label: String, isSelected: Boolean, onClick: () -> Uni
 }
 
 @Composable
-fun SeekButton(isForward: Boolean, onClick: () -> Unit) {
+fun SeekButton(isForward: Boolean, seconds: Int, onClick: () -> Unit) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
@@ -1392,12 +1892,23 @@ fun SeekButton(isForward: Boolean, onClick: () -> Unit) {
             .clickable { onClick() }
             .padding(8.dp)
     ) {
-        Icon(
-            imageVector = if (isForward) Icons.Default.Forward30 else Icons.Default.Replay30,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(60.dp)
-        )
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = if (isForward) Icons.AutoMirrored.Filled.RotateRight else Icons.AutoMirrored.Filled.RotateLeft,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(72.dp) // Increased from 60dp
+            )
+            Text(
+                text = "$seconds",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp // Slightly increased from 12sp
+                ),
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp) // Optical alignment
+            )
+        }
     }
 }
 

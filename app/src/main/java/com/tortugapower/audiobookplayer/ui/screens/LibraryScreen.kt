@@ -362,12 +362,15 @@ fun LibraryScreen(
                                                 if (item.type == ItemType.FOLDER) {
                                                     libraryViewModel.navigateTo(item.relativePath ?: "")
                                                 } else {
-                                                    if (item.isFinished) {
-                                                        item.currentTime = 0.0
-                                                        item.isFinished = false
-                                                        item.percentCompleted = 0.0
+                                                    val isCurrentlyPlaying = PlaybackManager.currentItem?.uuid == item.uuid
+                                                    if (isCurrentlyPlaying) {
+                                                        PlaybackManager.showPlayerScreen = true
+                                                        if (PlaybackManager.player?.isPlaying == false) {
+                                                            PlaybackManager.player?.play()
+                                                        }
+                                                    } else {
+                                                        PlaybackManager.playItem(context, item)
                                                     }
-                                                    PlaybackManager.playItem(context, item)
                                                 }
                                             }
                                         }

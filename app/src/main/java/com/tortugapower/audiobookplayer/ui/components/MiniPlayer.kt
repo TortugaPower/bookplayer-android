@@ -98,13 +98,18 @@ fun MiniPlayer() {
 }
 
 @Composable
-private fun IconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
+private fun IconButton(
+    onClick: () -> Unit, 
+    enabled: Boolean = true,
+    content: @Composable () -> Unit
+) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(24.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
+                enabled = enabled,
                 onClick = onClick
             ),
         contentAlignment = Alignment.Center
