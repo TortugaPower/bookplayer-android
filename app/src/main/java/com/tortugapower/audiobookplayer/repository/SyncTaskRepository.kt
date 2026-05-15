@@ -1,0 +1,18 @@
+package com.tortugapower.audiobookplayer.repository
+
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import kotlinx.coroutines.flow.Flow
+
+interface SyncTaskRepository {
+    fun getAllTasks(): Flow<List<SyncTaskEntity>>
+    suspend fun getPendingTasks(): List<SyncTaskEntity>
+    suspend fun getTasksByStatus(status: SyncTaskStatus): List<SyncTaskEntity>
+    suspend fun getTasksInQueueByStatus(queueKey: String, status: SyncTaskStatus): List<SyncTaskEntity>
+    suspend fun getActiveQueueKeys(): List<String>
+    suspend fun saveTask(task: SyncTaskEntity)
+    suspend fun updateTask(task: SyncTaskEntity)
+    suspend fun deleteTask(task: SyncTaskEntity)
+    suspend fun clearCompletedTasks()
+    suspend fun getTaskById(id: String): SyncTaskEntity?
+}

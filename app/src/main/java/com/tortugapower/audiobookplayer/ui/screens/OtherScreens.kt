@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,16 +19,39 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import com.tortugapower.audiobookplayer.logic.ThemeManager
 import com.tortugapower.audiobookplayer.ui.theme.AppTheme
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
+    val accountRepository = com.tortugapower.audiobookplayer.repository.RoomAccountRepository(db.accountDao())
+    val account by accountRepository.getAccountFlow().collectAsState(initial = null)
+
     var showProSheet by remember { mutableStateOf(false) }
+    var showAuthSheet by remember { mutableStateOf(false) }
 
     if (showProSheet) {
-        BookPlayerProSheet(onDismiss = { showProSheet = false })
+        BookPlayerProSheet(
+            onDismiss = { showProSheet = false },
+            onPasskeyClick = { 
+                showProSheet = false
+                showAuthSheet = true 
+            },
+            onGoogleClick = {
+                showProSheet = false
+                showAuthSheet = true
+            }
+        )
+    }
+
+    if (showAuthSheet) {
+        AuthSheet(onDismiss = { showAuthSheet = false })
     }
 
     Column(
@@ -56,7 +80,9 @@ fun ProfileScreen() {
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(32.dp))
-                .clickable { /* Handle account setup */ },
+                .clickable { 
+                    if (account == null) showAuthSheet = true
+                },
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ) {
             Row(
@@ -71,7 +97,7 @@ fun ProfileScreen() {
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.PersonOutline,
+                        imageVector = if (account != null) Icons.Default.Person else Icons.Default.PersonOutline,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(28.dp)
@@ -82,23 +108,33 @@ fun ProfileScreen() {
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Set Up Account",
+                        text = if (account != null) account!!.email else "Set Up Account",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Not signed in",
+                        text = if (account != null) "Tier: ${account!!.tier}" else "Not signed in",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
+                if (account == null) {
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                } else {
+                    IconButton(onClick = { 
+                        scope.launch {
+                            accountRepository.deleteAccount()
+                        }
+                    }) {
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Logout", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
         }
 
@@ -120,31 +156,33 @@ fun ProfileScreen() {
         Spacer(modifier = Modifier.weight(1f))
 
         // BookPlayer Pro Section
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(bottom = 32.dp)
-        ) {
-            Text(
-                text = "BookPlayer Pro",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = { showProSheet = true },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF3482F6) // Approximate blue from screenshot
-                ),
-                shape = RoundedCornerShape(24.dp),
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+        if (account?.tier != com.tortugapower.audiobookplayer.database.entities.AccountTier.PRO) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(bottom = 32.dp)
             ) {
                 Text(
-                    text = "LEARN MORE",
-                    style = MaterialTheme.typography.labelLarge,
+                    text = "BookPlayer Pro",
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onBackground
                 )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = { showProSheet = true },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF3482F6) // Approximate blue from screenshot
+                    ),
+                    shape = RoundedCornerShape(24.dp),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                ) {
+                    Text(
+                        text = "LEARN MORE",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
             }
         }
     }
@@ -152,7 +190,11 @@ fun ProfileScreen() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BookPlayerProSheet(onDismiss: () -> Unit) {
+fun BookPlayerProSheet(
+    onDismiss: () -> Unit, 
+    onPasskeyClick: () -> Unit,
+    onGoogleClick: () -> Unit
+) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     
     ModalBottomSheet(
@@ -237,7 +279,7 @@ fun BookPlayerProSheet(onDismiss: () -> Unit) {
 
             // Login Buttons
             Button(
-                onClick = { /* Handle Google Sign In */ },
+                onClick = onGoogleClick,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -265,7 +307,7 @@ fun BookPlayerProSheet(onDismiss: () -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
 
             TextButton(
-                onClick = { /* Handle Passkey */ },
+                onClick = onPasskeyClick,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

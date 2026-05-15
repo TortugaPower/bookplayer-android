@@ -12,12 +12,20 @@ import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 
 @Database(
-    entities = [LibraryItemEntity::class, ChapterEntity::class, BookmarkEntity::class],
-    version = 2,
+    entities = [
+        LibraryItemEntity::class, 
+        ChapterEntity::class, 
+        BookmarkEntity::class, 
+        com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity::class,
+        com.tortugapower.audiobookplayer.database.entities.AccountEntity::class
+    ],
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun libraryDao(): LibraryDao
+    abstract fun syncTaskDao(): com.tortugapower.audiobookplayer.database.dao.SyncTaskDao
+    abstract fun accountDao(): com.tortugapower.audiobookplayer.database.dao.AccountDao
 
     companion object {
         @Volatile
@@ -39,6 +47,33 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `sync_tasks` (
+                        `id` TEXT PRIMARY KEY NOT NULL, 
+                        `taskID` TEXT NOT NULL, 
+                        `queueKey` TEXT NOT NULL, 
+                        `jobType` TEXT NOT NULL, 
+                        `position` INTEGER NOT NULL, 
+                        `payload` TEXT NOT NULL, 
+                        `status` TEXT NOT NULL, 
+                        `createdAt` INTEGER NOT NULL, 
+                        `errorMessage` TEXT, 
+                        `attempts` INTEGER NOT NULL
+                    )
+                """)
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `accounts` (
+                        `id` TEXT PRIMARY KEY NOT NULL, 
+                        `email` TEXT NOT NULL, 
+                        `apiToken` TEXT NOT NULL, 
+                        `tier` TEXT NOT NULL
+                    )
+                """)
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -46,7 +81,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "bookplayer.db"
                 )
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
                 INSTANCE = instance
                 instance
