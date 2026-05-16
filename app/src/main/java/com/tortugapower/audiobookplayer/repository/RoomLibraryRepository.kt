@@ -47,6 +47,7 @@ class RoomLibraryRepository(
             item.isFinished = isFinished
             item.percentCompleted = if (item.duration > 0) (currentTime / item.duration).coerceIn(0.0, 1.0) else 0.0
             if (isFinished) item.percentCompleted = 1.0
+            item.lastPlayDate = System.currentTimeMillis()
             libraryDao.updateItem(item)
 
             // Recursively update parents

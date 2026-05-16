@@ -63,6 +63,7 @@ dependencies {
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.googleid)
+    implementation(libs.coil.compose)
 
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)

@@ -5,11 +5,16 @@ import android.content.Intent
 import android.media.audiofx.LoudnessEnhancer
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import com.tortugapower.audiobookplayer.MainActivity
+import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,7 +52,31 @@ class AudioPlayerService : MediaSessionService() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
 
-            mediaSession = MediaSession.Builder(this, p)
+            // Wrap player to handle next/previous commands even without a playlist
+            val forwardingPlayer = object : ForwardingPlayer(p) {
+                override fun getAvailableCommands(): Player.Commands {
+                    return super.getAvailableCommands().buildUpon()
+                        .add(Player.COMMAND_SEEK_TO_NEXT)
+                        .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                        .build()
+                }
+
+                override fun isCommandAvailable(command: Int): Boolean {
+                    return command == Player.COMMAND_SEEK_TO_NEXT || 
+                           command == Player.COMMAND_SEEK_TO_PREVIOUS || 
+                           super.isCommandAvailable(command)
+                }
+
+                override fun seekToNext() {
+                    PlaybackManager.playNext(this@AudioPlayerService)
+                }
+
+                override fun seekToPrevious() {
+                    PlaybackManager.playPrevious(this@AudioPlayerService)
+                }
+            }
+
+            mediaSession = MediaSession.Builder(this, forwardingPlayer)
                 .setSessionActivity(pendingIntent)
                 .setCallback(CustomMediaSessionCallback())
                 .build()
@@ -74,8 +103,19 @@ class AudioPlayerService : MediaSessionService() {
     }
 
     private inner class CustomMediaSessionCallback : MediaSession.Callback {
-        // Here we can override methods to handle custom commands or 
-        // specialized logic for audiobook playback if needed.
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): MediaSession.ConnectionResult {
+            val availablePlayerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+                .add(Player.COMMAND_SEEK_TO_NEXT)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                .build()
+            
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailablePlayerCommands(availablePlayerCommands)
+                .build()
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {

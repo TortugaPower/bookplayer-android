@@ -128,6 +128,7 @@ object PlaybackManager {
                                             MediaMetadata.Builder()
                                                 .setTitle(item.title)
                                                 .setArtist(item.author ?: "Unknown author")
+                                                .setArtworkUri(item.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
                                                 .build()
                                         )
                                         .build()
@@ -285,6 +286,7 @@ object PlaybackManager {
                     MediaMetadata.Builder()
                         .setTitle(item.title)
                         .setArtist(item.author ?: "Unknown author")
+                        .setArtworkUri(item.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
                         .build()
                 )
                 .build()
@@ -320,6 +322,7 @@ object PlaybackManager {
                                 MediaMetadata.Builder()
                                     .setTitle(item.title)
                                     .setArtist(item.author ?: "Unknown author")
+                                    .setArtworkUri(item.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
                                     .build()
                             )
                             .build()
@@ -366,6 +369,30 @@ object PlaybackManager {
         val p = player ?: return
         p.seekTo(positionMs)
         updateProgress(MainActivity.currentContext ?: return)
+    }
+
+    fun playNext(context: Context) {
+        scope.launch {
+            val current = currentItem ?: return@launch
+            val db = AppDatabase.getDatabase(context)
+            val repository = RoomLibraryRepository(db.libraryDao())
+            val nextItem = repository.getAdjacentItem(current.uuid, next = true)
+            if (nextItem != null) {
+                playItem(context, nextItem)
+            }
+        }
+    }
+
+    fun playPrevious(context: Context) {
+        scope.launch {
+            val current = currentItem ?: return@launch
+            val db = AppDatabase.getDatabase(context)
+            val repository = RoomLibraryRepository(db.libraryDao())
+            val prevItem = repository.getAdjacentItem(current.uuid, next = false)
+            if (prevItem != null) {
+                playItem(context, prevItem)
+            }
+        }
     }
 
     fun setPlaybackSpeed(context: Context, speed: Float) {

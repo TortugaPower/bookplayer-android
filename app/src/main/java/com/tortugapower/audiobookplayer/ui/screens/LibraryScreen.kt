@@ -5,6 +5,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +21,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -27,11 +29,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Canvas
+import coil.compose.AsyncImage
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ItemType
@@ -77,6 +82,19 @@ fun LibraryScreen(
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var showChooseDestinationDialog by remember { mutableStateOf(false) }
     var showExistingFoldersSheet by remember { mutableStateOf(false) }
+    var showItemDetailSheet by remember { mutableStateOf(false) }
+    var itemToDetail by remember { mutableStateOf<LibraryItemEntity?>(null) }
+
+    if (showItemDetailSheet && itemToDetail != null) {
+        ItemDetailSheet(
+            item = itemToDetail!!,
+            viewModel = libraryViewModel,
+            onDismiss = { 
+                showItemDetailSheet = false 
+                itemToDetail = null
+            }
+        )
+    }
 
     if (showCreateFolderDialog) {
         var folderName by remember { mutableStateOf("") }
@@ -296,6 +314,13 @@ fun LibraryScreen(
                     onSelectAllClick = {
                         selectedItemUuids = items.map { it.uuid }.toSet()
                     },
+                    onSeeDetailsClick = {
+                        val selected = items.find { it.uuid in selectedItemUuids }
+                        if (selected != null && selected.type == ItemType.BOOK) {
+                            itemToDetail = selected
+                            showItemDetailSheet = true
+                        }
+                    },
                     availableFolders = pathFolders
                 )
                 
@@ -373,6 +398,12 @@ fun LibraryScreen(
                                                     }
                                                 }
                                             }
+                                        },
+                                        onLongClick = {
+                                            if (!isSelectMode) {
+                                                isSelectMode = true
+                                                selectedItemUuids = setOf(item.uuid)
+                                            }
                                         }
                                     )
                                 }
@@ -402,6 +433,7 @@ fun LibraryHeader(
     onCancelSelectClick: () -> Unit,
     onDeleteSelectedClick: () -> Unit,
     onMoveClick: () -> Unit,
+    onSeeDetailsClick: () -> Unit = {},
     onSelectAllClick: () -> Unit = {},
     availableFolders: List<LibraryItemEntity> = emptyList()
 ) {
@@ -420,23 +452,34 @@ fun LibraryHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(start = 4.dp, end = 16.dp) // Reduced start padding to account for IconButton internal padding
+            .padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (isSelectMode) {
-                TextButton(onClick = onCancelSelectClick) {
-                    Text("Cancel", color = MaterialTheme.colorScheme.primary)
+                IconButton(onClick = onCancelSelectClick) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack, 
+                        contentDescription = "Cancel", 
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                 }
             } else if (currentPath != null) {
                 IconButton(onClick = onBackClick) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack, 
+                        contentDescription = "Back", 
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                 }
+            } else {
+                Spacer(modifier = Modifier.width(12.dp)) // Maintain alignment when no back button
             }
             Text(
-                text = if (isSelectMode) "$selectedCount Selected" else (currentPath?.substringAfterLast('/') ?: "Library"),
-                style = MaterialTheme.typography.headlineLarge,
+                text = if (isSelectMode) "$selectedCount" else (currentPath?.substringAfterLast('/') ?: "Library"),
+                style = if (isSelectMode) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
@@ -458,6 +501,15 @@ fun LibraryHeader(
                         onDismissRequest = { showMoreMenu = false },
                         modifier = Modifier.background(MaterialTheme.colorScheme.surface)
                     ) {
+                        if (selectedCount == 1) {
+                            DropdownMenuItem(
+                                text = { Text("See details", color = MaterialTheme.colorScheme.onSurface) },
+                                onClick = { 
+                                    showMoreMenu = false
+                                    onSeeDetailsClick()
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Select All", color = MaterialTheme.colorScheme.onSurface) },
                             onClick = { 
@@ -543,12 +595,23 @@ fun LibraryListItem(
     item: LibraryItemEntity,
     isSelected: Boolean = false,
     isSelectMode: Boolean = false,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
 ) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .pointerInput(onClick, onLongClick) {
+                detectTapGestures(
+                    onTap = { onClick() },
+                    onLongPress = { 
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        onLongClick() 
+                    }
+                )
+            }
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -561,19 +624,34 @@ fun LibraryListItem(
             )
         }
 
+        // Thumbnail/Artwork
+        val artworkBackground = if (item.artworkURL == null) {
+            Modifier.background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primary, 
+                        MaterialTheme.colorScheme.secondary
+                    )
+                )
+            )
+        } else {
+            Modifier.background(Color.Transparent)
+        }
+
         Box(
             modifier = Modifier
                 .size(56.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary, 
-                            MaterialTheme.colorScheme.secondary
-                        )
-                    )
-                )
+                .then(artworkBackground)
         ) {
+            if (item.artworkURL != null) {
+                AsyncImage(
+                    model = item.artworkURL,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
             if (item.remoteURL != null) {
                 Icon(
                     imageVector = Icons.Outlined.Cloud,

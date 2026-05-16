@@ -97,4 +97,46 @@ class LibraryViewModel(
             repository.moveItems(context, items, targetPath)
         }
     }
+
+    fun updateItemDetails(item: LibraryItemEntity, newTitle: String, newAuthor: String) {
+        viewModelScope.launch {
+            item.title = newTitle
+            item.author = newAuthor
+            repository.updateItem(item)
+        }
+    }
+
+    fun updateArtwork(context: android.content.Context, item: LibraryItemEntity, imageUri: android.net.Uri?) {
+        viewModelScope.launch {
+            if (imageUri == null) {
+                // Delete existing artwork
+                com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
+                item.artworkURL = null
+            } else {
+                // Process and save new artwork
+                val artworkDir = java.io.File(context.filesDir, "Artworks")
+                if (!artworkDir.exists()) artworkDir.mkdirs()
+                
+                val fileName = "${java.util.UUID.randomUUID()}.jpg"
+                val destFile = java.io.File(artworkDir, fileName)
+                
+                // Compress and save
+                val success = com.tortugapower.audiobookplayer.logic.ArtworkManager.compressAndSaveImage(context, imageUri, destFile)
+                if (success) {
+                    // Delete old artwork if exists
+                    com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
+                    item.artworkURL = destFile.absolutePath
+                }
+            }
+            repository.updateItem(item)
+        }
+    }
+
+    fun deleteArtwork(item: LibraryItemEntity) {
+        viewModelScope.launch {
+            com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
+            item.artworkURL = null
+            repository.updateItem(item)
+        }
+    }
 }

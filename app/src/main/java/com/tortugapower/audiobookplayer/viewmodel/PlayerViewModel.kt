@@ -307,23 +307,11 @@ class PlayerViewModel(
     fun setPlaybackVolume(context: Context, volume: Float) { PlaybackManager.setPlaybackVolume(context, volume) }
     fun toggleVolumeBoost(context: Context) { PlaybackManager.toggleVolumeBoost(context) }
     fun playNext(context: Context) {
-        viewModelScope.launch {
-            val current = PlaybackManager.currentItem ?: return@launch
-            val nextItem = repository.getAdjacentItem(current.uuid, next = true)
-            if (nextItem != null) {
-                PlaybackManager.playItem(context, nextItem)
-            }
-        }
+        PlaybackManager.playNext(context)
     }
 
     fun playPrevious(context: Context) {
-        viewModelScope.launch {
-            val current = PlaybackManager.currentItem ?: return@launch
-            val prevItem = repository.getAdjacentItem(current.uuid, next = false)
-            if (prevItem != null) {
-                PlaybackManager.playItem(context, prevItem)
-            }
-        }
+        PlaybackManager.playPrevious(context)
     }
 
     fun togglePlayPause() { PlaybackManager.togglePlayPause() }

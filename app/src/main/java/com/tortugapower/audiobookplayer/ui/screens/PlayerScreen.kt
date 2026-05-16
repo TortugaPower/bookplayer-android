@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
@@ -300,21 +302,35 @@ fun PlayerScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
+                val artworkBackground = if (currentItem.artworkURL == null) {
+                    Modifier.background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.secondary
+                            )
+                        )
+                    )
+                } else {
+                    Modifier.background(Color.Transparent)
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(1f)
                         .clip(RoundedCornerShape(24.dp))
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.primary,
-                                    MaterialTheme.colorScheme.secondary
-                                )
-                            )
-                        ),
+                        .then(artworkBackground),
                     contentAlignment = Alignment.TopEnd
                 ) {
+                    if (currentItem.artworkURL != null) {
+                        AsyncImage(
+                            model = currentItem.artworkURL,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
                     IconButton(
                         onClick = { },
                         modifier = Modifier.padding(16.dp)
