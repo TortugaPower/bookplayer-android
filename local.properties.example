@@ -1,0 +1,37 @@
+# Copy this file to `local.properties` and fill in the values below.
+# `local.properties` is gitignored, so your overrides stay local.
+#
+# Android Studio also writes `sdk.dir=...` into `local.properties` automatically — leave that line alone.
+#
+# Every key below is also read from the environment, so CI can inject them
+# via env vars instead of writing this file.
+
+# --- Build flavor URLs ---------------------------------------------------------
+# DEV flavor: defaults to http://10.0.2.2:5003 (emulator alias for host's localhost)
+#             if DEV_BASE_URL is unset. Override only if you run the API elsewhere.
+# PROD flavor: no default. Required for prod builds; otherwise Retrofit will
+#              fail at startup with an empty baseUrl.
+#
+# If you point DEV at a non-loopback host over plain HTTP (e.g. your Mac's LAN IP),
+# also add that host to app/src/main/res/xml/network_security_config.xml.
+
+# DEV_BASE_URL=http://192.168.1.42:5003
+# PROD_BASE_URL=https://api.example.com
+
+# --- Google Sign-In ------------------------------------------------------------
+# OAuth 2.0 Web client ID from Google Cloud Console (used as the server client ID
+# for Google Sign-In via the Credential Manager API). Required for Google login.
+
+# GOOGLE_CLIENT_ID=000000000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
+
+# --- Sentry --------------------------------------------------------------------
+# DSN from your Sentry project settings. Leave empty to disable crash reporting
+# in local builds.
+
+# SENTRY_DSN=https://xxxxxxxx@xxxxx.ingest.sentry.io/0000000
+
+# --- RevenueCat ----------------------------------------------------------------
+# Public Android API key from the RevenueCat dashboard (Project Settings → API keys).
+# Leave empty to disable purchases in local builds.
+
+# REVENUECAT_API_KEY=goog_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
