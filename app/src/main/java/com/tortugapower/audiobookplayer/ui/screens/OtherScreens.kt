@@ -20,8 +20,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import com.tortugapower.audiobookplayer.logic.AccountGate
 import com.tortugapower.audiobookplayer.logic.ThemeManager
-import com.tortugapower.audiobookplayer.ui.theme.AppTheme
+import com.tortugapower.audiobookplayer.ui.theme.BookPlayerThemeSpec
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -411,7 +412,7 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit) {
             Column {
                 SettingsItem(
                     label = "Theme",
-                    value = ThemeManager.currentTheme.name,
+                    value = ThemeManager.currentTheme.title,
                     onClick = onNavigateToThemes
                 )
                 HorizontalDivider(
@@ -470,9 +471,7 @@ fun ThemesScreen(onBack: () -> Unit) {
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            TextButton(onClick = { ThemeManager.setTheme(context, AppTheme.DefaultDark) }) {
-                Text("Restore", color = MaterialTheme.colorScheme.primary)
-            }
+            Spacer(modifier = Modifier.size(48.dp))
         }
 
         LazyColumn(
@@ -489,11 +488,18 @@ fun ThemesScreen(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.surface
                 ) {
                     Column {
-                        SettingsToggleItem(label = "Use System Mode", checked = true, onCheckedChange = {})
+                        SettingsToggleItem(
+                            label = "Use System Mode",
+                            checked = ThemeManager.useSystemMode,
+                            onCheckedChange = { ThemeManager.setUseSystemMode(context, it) }
+                        )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
-                        SettingsToggleItem(label = "Switch automatically", checked = false, onCheckedChange = {})
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
-                        SettingsToggleItem(label = "Always use dark variation", checked = false, onCheckedChange = {})
+                        SettingsToggleItem(
+                            label = "Always use dark variation",
+                            checked = ThemeManager.useDarkVariant,
+                            enabled = !ThemeManager.useSystemMode,
+                            onCheckedChange = { ThemeManager.setUseDarkVariant(context, it) }
+                        )
                     }
                 }
             }
@@ -518,7 +524,7 @@ fun ThemesScreen(onBack: () -> Unit) {
                         ThemeManager.allThemes.forEachIndexed { index, theme ->
                             ThemeItem(
                                 theme = theme,
-                                isSelected = ThemeManager.currentTheme == theme,
+                                isSelected = ThemeManager.currentTheme.title == theme.title,
                                 onClick = { ThemeManager.setTheme(context, theme) }
                             )
                             if (index < ThemeManager.allThemes.size - 1) {
@@ -559,7 +565,12 @@ fun SettingsItem(label: String, value: String, onClick: () -> Unit) {
 }
 
 @Composable
-fun SettingsToggleItem(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+fun SettingsToggleItem(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -567,10 +578,13 @@ fun SettingsToggleItem(label: String, checked: Boolean, onCheckedChange: (Boolea
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label, color = MaterialTheme.colorScheme.onSurface)
+        val textColor = if (enabled) MaterialTheme.colorScheme.onSurface
+        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+        Text(text = label, color = textColor)
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
+            enabled = enabled,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = MaterialTheme.colorScheme.primary
@@ -580,45 +594,55 @@ fun SettingsToggleItem(label: String, checked: Boolean, onCheckedChange: (Boolea
 }
 
 @Composable
-fun ThemeItem(theme: AppTheme, isSelected: Boolean, onClick: () -> Unit) {
+fun ThemeItem(theme: BookPlayerThemeSpec, isSelected: Boolean, onClick: () -> Unit) {
+    val isLockedForUser = theme.locked && !AccountGate.isPro()
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = !isLockedForUser, onClick = onClick)
             .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // Theme Icon Placeholder
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(theme.surface)
-                .then(
-                    if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
-                    else Modifier
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(CircleShape)
-                    .background(theme.primary)
-            )
-        }
-        
+        ThemeShowcase(
+            theme = theme,
+            modifier = if (isSelected) {
+                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+            } else Modifier
+        )
+
         Spacer(modifier = Modifier.width(16.dp))
-        
+
         Text(
-            text = theme.name,
+            text = theme.title,
             color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
             modifier = Modifier.weight(1f)
         )
-        
-        if (isSelected) {
-            Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+
+        when {
+            isSelected -> Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            isLockedForUser -> Icon(Icons.Default.Lock, contentDescription = "Pro", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun ThemeShowcase(theme: BookPlayerThemeSpec, modifier: Modifier = Modifier) {
+    val s = theme.showcaseLightColors
+    Box(
+        modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(8.dp))
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                Box(Modifier.weight(1f).fillMaxHeight().background(s.background))
+                Box(Modifier.weight(1f).fillMaxHeight().background(s.accent))
+            }
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                Box(Modifier.weight(1f).fillMaxHeight().background(s.primary))
+                Box(Modifier.weight(1f).fillMaxHeight().background(s.secondary))
+            }
         }
     }
 }

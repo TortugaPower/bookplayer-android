@@ -15,6 +15,16 @@ val localProperties = Properties().apply {
 fun localProp(key: String, default: String = ""): String =
     (localProperties.getProperty(key) ?: System.getenv(key) ?: default).trim()
 
+// Release signing config is read from a gitignored keystore.properties file at the project root.
+// If the file is missing (e.g. OSS contributor), the release variant builds unsigned.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun keystoreProp(key: String): String? =
+    keystoreProperties.getProperty(key) ?: System.getenv(key)
+
 android {
     namespace = "com.tortugapower.audiobookplayer"
     compileSdk = 35
@@ -53,6 +63,18 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val storePath = keystoreProp("RELEASE_STORE_FILE")
+            if (storePath != null) {
+                storeFile = rootProject.file(storePath)
+                storePassword = keystoreProp("RELEASE_STORE_PASSWORD")
+                keyAlias = keystoreProp("RELEASE_KEY_ALIAS")
+                keyPassword = keystoreProp("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -60,6 +82,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Only attach the signing config when the keystore is actually available.
+            // Builds without keystore.properties produce an unsigned release APK.
+            if (keystoreProp("RELEASE_STORE_FILE") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
@@ -99,6 +126,7 @@ dependencies {
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.googleid)
     implementation(libs.coil.compose)
+    implementation(libs.billing.ktx)
 
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)

@@ -23,7 +23,8 @@
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.App.Starting"
-            android:launchMode="singleTop">
+            android:launchMode="singleTop"
+            android:configChanges="uiMode|orientation|screenSize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

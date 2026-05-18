@@ -2,9 +2,7 @@ package com.tortugapower.audiobookplayer
 
 import android.content.Intent
 import android.os.Bundle
-import android.graphics.Color
 import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -28,10 +26,7 @@ class MainActivity : ComponentActivity() {
             !ThemeManager.isReady
         }
 
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-        )
+        enableEdgeToEdge()
         ThemeManager.initialize(this)
         PlaybackManager.initialize(this)
 

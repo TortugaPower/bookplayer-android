@@ -26,7 +26,9 @@ object PlaybackSettingsManager {
     private val USE_REMAINING_TIME = booleanPreferencesKey("use_remaining_time")
     private val USE_CHAPTER_CONTEXT = booleanPreferencesKey("use_chapter_context")
     private val VOLUME = floatPreferencesKey("playback_volume")
-    private val THEME_NAME = stringPreferencesKey("app_theme")
+    private val THEME_TITLE = stringPreferencesKey("app_theme")
+    private val THEME_USE_SYSTEM_MODE = booleanPreferencesKey("theme_use_system_mode")
+    private val THEME_USE_DARK_VARIANT = booleanPreferencesKey("theme_use_dark_variant")
     private val LAST_ITEM_UUID = stringPreferencesKey("last_item_uuid")
 
     fun getSpeed(context: Context): Flow<Float> = context.dataStore.data.map { it[SPEED] ?: 1.0f }
@@ -109,9 +111,19 @@ object PlaybackSettingsManager {
         context.dataStore.edit { it[VOLUME] = volume }
     }
 
-    fun getTheme(context: Context): Flow<String> = context.dataStore.data.map { it[THEME_NAME] ?: "DefaultDark" }
-    suspend fun setTheme(context: Context, themeName: String) {
-        context.dataStore.edit { it[THEME_NAME] = themeName }
+    fun getThemeTitle(context: Context): Flow<String> = context.dataStore.data.map { it[THEME_TITLE] ?: "Default / Dark" }
+    suspend fun setThemeTitle(context: Context, title: String) {
+        context.dataStore.edit { it[THEME_TITLE] = title }
+    }
+
+    fun getUseSystemMode(context: Context): Flow<Boolean> = context.dataStore.data.map { it[THEME_USE_SYSTEM_MODE] ?: true }
+    suspend fun setUseSystemMode(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[THEME_USE_SYSTEM_MODE] = enabled }
+    }
+
+    fun getUseDarkVariant(context: Context): Flow<Boolean> = context.dataStore.data.map { it[THEME_USE_DARK_VARIANT] ?: true }
+    suspend fun setUseDarkVariant(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[THEME_USE_DARK_VARIANT] = enabled }
     }
 
     fun getLastItemUuid(context: Context): Flow<String?> = context.dataStore.data.map { it[LAST_ITEM_UUID] }
