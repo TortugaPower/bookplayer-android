@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -381,61 +382,56 @@ fun DisclaimerItem(text: String) {
 
 @Composable
 fun SettingsScreen(onNavigateToThemes: () -> Unit) {
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .padding(16.dp)
+            .background(MaterialTheme.colorScheme.background),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            text = "Settings",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(bottom = 32.dp)
-        )
+        item {
+            Text(
+                text = "Settings",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(bottom = 24.dp),
+            )
+        }
 
+        settingsSection(title = "Appearance") {
+            SettingsItem(
+                label = "Theme",
+                value = ThemeManager.currentTheme.title,
+                onClick = onNavigateToThemes,
+            )
+        }
+    }
+}
+
+/**
+ * Adds a labelled section to a Settings-style LazyColumn: a small caption header,
+ * followed by a Card containing the section's rows. Use multiple times to build
+ * multi-section settings screens.
+ */
+fun LazyListScope.settingsSection(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    item {
         Text(
-            text = "Appearance",
+            text = title,
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
+            modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
         )
-
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp)),
-            color = MaterialTheme.colorScheme.surface
+    }
+    item {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         ) {
-            Column {
-                SettingsItem(
-                    label = "Theme",
-                    value = ThemeManager.currentTheme.title,
-                    onClick = onNavigateToThemes
-                )
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    thickness = 0.5.dp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                )
-                SettingsItem(
-                    label = "App Icon",
-                    value = "Default",
-                    onClick = {}
-                )
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    thickness = 0.5.dp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                )
-                SettingsToggleItem(
-                    label = "Orientation Locked",
-                    checked = false,
-                    onCheckedChange = {}
-                )
-            }
+            content()
         }
     }
 }
@@ -481,26 +477,22 @@ fun ThemesScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp)),
-                    color = MaterialTheme.colorScheme.surface
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 ) {
-                    Column {
-                        SettingsToggleItem(
-                            label = "Use System Mode",
-                            checked = ThemeManager.useSystemMode,
-                            onCheckedChange = { ThemeManager.setUseSystemMode(context, it) }
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
-                        SettingsToggleItem(
-                            label = "Always use dark variation",
-                            checked = ThemeManager.useDarkVariant,
-                            enabled = !ThemeManager.useSystemMode,
-                            onCheckedChange = { ThemeManager.setUseDarkVariant(context, it) }
-                        )
-                    }
+                    SettingsToggleItem(
+                        label = "Use System Mode",
+                        checked = ThemeManager.useSystemMode,
+                        onCheckedChange = { ThemeManager.setUseSystemMode(context, it) },
+                    )
+                    HorizontalDivider()
+                    SettingsToggleItem(
+                        label = "Always use dark variation",
+                        checked = ThemeManager.useDarkVariant,
+                        enabled = !ThemeManager.useSystemMode,
+                        onCheckedChange = { ThemeManager.setUseDarkVariant(context, it) },
+                    )
                 }
             }
 
@@ -514,25 +506,18 @@ fun ThemesScreen(onBack: () -> Unit) {
             }
 
             item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp)),
-                    color = MaterialTheme.colorScheme.surface
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 ) {
-                    Column {
-                        ThemeManager.allThemes.forEachIndexed { index, theme ->
-                            ThemeItem(
-                                theme = theme,
-                                isSelected = ThemeManager.currentTheme.title == theme.title,
-                                onClick = { ThemeManager.setTheme(context, theme) }
-                            )
-                            if (index < ThemeManager.allThemes.size - 1) {
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
-                                )
-                            }
+                    ThemeManager.allThemes.forEachIndexed { index, theme ->
+                        ThemeItem(
+                            theme = theme,
+                            isSelected = ThemeManager.currentTheme.title == theme.title,
+                            onClick = { ThemeManager.setTheme(context, theme) },
+                        )
+                        if (index < ThemeManager.allThemes.size - 1) {
+                            HorizontalDivider()
                         }
                     }
                 }
@@ -543,25 +528,14 @@ fun ThemesScreen(onBack: () -> Unit) {
 
 @Composable
 fun SettingsItem(label: String, value: String, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(text = label, color = MaterialTheme.colorScheme.onSurface)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = value, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-    }
+    ListItem(
+        headlineContent = { Text(label) },
+        trailingContent = {
+            Text(value, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(onClick = onClick),
+    )
 }
 
 @Composable
@@ -571,59 +545,55 @@ fun SettingsToggleItem(
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        val textColor = if (enabled) MaterialTheme.colorScheme.onSurface
-        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-        Text(text = label, color = textColor)
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            enabled = enabled,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = MaterialTheme.colorScheme.primary
+    ListItem(
+        headlineContent = {
+            val color = if (enabled) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+            Text(label, color = color)
+        },
+        trailingContent = {
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                enabled = enabled,
             )
-        )
-    }
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(enabled = enabled) { onCheckedChange(!checked) },
+    )
 }
 
 @Composable
 fun ThemeItem(theme: BookPlayerThemeSpec, isSelected: Boolean, onClick: () -> Unit) {
     val isLockedForUser = theme.locked && !AccountGate.isPro()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = !isLockedForUser, onClick = onClick)
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        ThemeShowcase(
-            theme = theme,
-            modifier = if (isSelected) {
-                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
-            } else Modifier
-        )
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Text(
-            text = theme.title,
-            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            modifier = Modifier.weight(1f)
-        )
-
-        when {
-            isSelected -> Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            isLockedForUser -> Icon(Icons.Default.Lock, contentDescription = "Pro", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+    ListItem(
+        headlineContent = {
+            Text(
+                text = theme.title,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            )
+        },
+        leadingContent = {
+            ThemeShowcase(
+                theme = theme,
+                modifier = if (isSelected) {
+                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                } else Modifier,
+            )
+        },
+        trailingContent = if (isSelected || isLockedForUser) {
+            {
+                if (isSelected) {
+                    Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                } else {
+                    Icon(Icons.Default.Lock, contentDescription = "Pro", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        } else null,
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(enabled = !isLockedForUser, onClick = onClick),
+    )
 }
 
 @Composable

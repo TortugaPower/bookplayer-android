@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -52,7 +51,7 @@ fun MainScreen() {
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
                 if (currentRoute != "themes") {
-                    Column(modifier = Modifier.navigationBarsPadding()) {
+                    Column {
                         if (PlaybackManager.currentItem != null) {
                             MiniPlayer()
                         }
