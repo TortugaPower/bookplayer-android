@@ -1,9 +1,29 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp")
 }
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun localProp(key: String, default: String = ""): String =
+    (localProperties.getProperty(key) ?: System.getenv(key) ?: default).trim()
+
+// Release signing config is read from a gitignored keystore.properties file at the project root.
+// If the file is missing (e.g. OSS contributor), the release variant builds unsigned.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun keystoreProp(key: String): String? =
+    keystoreProperties.getProperty(key) ?: System.getenv(key)
 
 android {
     namespace = "com.tortugapower.audiobookplayer"
@@ -17,6 +37,42 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${localProp("GOOGLE_CLIENT_ID")}\"")
+        buildConfigField("String", "SENTRY_DSN", "\"${localProp("SENTRY_DSN")}\"")
+        buildConfigField("String", "REVENUECAT_API_KEY", "\"${localProp("REVENUECAT_API_KEY")}\"")
+    }
+
+    flavorDimensions += "env"
+    productFlavors {
+        create("dev") {
+            dimension = "env"
+            buildConfigField(
+                "String",
+                "BASE_URL",
+                "\"${localProp("DEV_BASE_URL", "http://10.0.2.2:5003")}\""
+            )
+        }
+        create("prod") {
+            dimension = "env"
+            buildConfigField(
+                "String",
+                "BASE_URL",
+                "\"${localProp("PROD_BASE_URL")}\""
+            )
+        }
+    }
+
+    signingConfigs {
+        create("release") {
+            val storePath = keystoreProp("RELEASE_STORE_FILE")
+            if (storePath != null) {
+                storeFile = rootProject.file(storePath)
+                storePassword = keystoreProp("RELEASE_STORE_PASSWORD")
+                keyAlias = keystoreProp("RELEASE_KEY_ALIAS")
+                keyPassword = keystoreProp("RELEASE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -26,6 +82,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Only attach the signing config when the keystore is actually available.
+            // Builds without keystore.properties produce an unsigned release APK.
+            if (keystoreProp("RELEASE_STORE_FILE") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
@@ -37,6 +98,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -64,6 +126,7 @@ dependencies {
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.googleid)
     implementation(libs.coil.compose)
+    implementation(libs.billing.ktx)
 
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)
