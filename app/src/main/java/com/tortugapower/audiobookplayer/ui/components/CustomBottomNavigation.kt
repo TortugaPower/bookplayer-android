@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ShortNavigationBar
 import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.Text
@@ -43,8 +44,10 @@ fun CustomBottomNavigation(
     currentRoute: String?,
     onTabSelected: (Screen) -> Unit,
 ) {
-    val screens = listOf(Screen.Library, Screen.Settings)
-    ShortNavigationBar {
+    val screens = listOf(Screen.Library, Screen.Profile, Screen.Settings)
+    ShortNavigationBar(
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
         screens.forEach { screen ->
             ShortNavigationBarItem(
                 selected = currentRoute == screen.route,

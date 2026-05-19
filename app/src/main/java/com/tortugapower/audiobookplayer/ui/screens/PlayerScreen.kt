@@ -283,6 +283,7 @@ fun PlayerScreen(
                 }
             )
             .statusBarsPadding()
+            .navigationBarsPadding()
     ) {
         if (currentItem != null) {
             Column(
@@ -500,7 +501,7 @@ fun PlayerScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 32.dp),
+                        .padding(bottom = 16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     PlayerBottomButton(

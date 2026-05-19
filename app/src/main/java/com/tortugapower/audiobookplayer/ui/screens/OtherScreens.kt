@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.tortugapower.audiobookplayer.ui.screens
 
 import androidx.compose.foundation.background
@@ -9,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -17,16 +20,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.AccountGate
 import com.tortugapower.audiobookplayer.logic.ThemeManager
+import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerThemeSpec
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen() {
     val context = LocalContext.current
@@ -56,25 +61,14 @@ fun ProfileScreen() {
         AuthSheet(onDismiss = { showAuthSheet = false })
     }
 
+    BookPlayerTabScaffold(title = stringResource(R.string.profile_title)) { innerPadding ->
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
+            .padding(innerPadding)
             .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Header (Android standard)
-        Text(
-            text = "Profile",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp)
-        )
-
         Spacer(modifier = Modifier.height(8.dp))
 
         // Account Section
@@ -188,9 +182,9 @@ fun ProfileScreen() {
             }
         }
     }
+    }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookPlayerProSheet(
     onDismiss: () -> Unit, 
@@ -382,45 +376,50 @@ fun DisclaimerItem(text: String) {
 
 @Composable
 fun SettingsScreen(onNavigateToThemes: () -> Unit) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item {
-            Text(
-                text = "Settings",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(bottom = 24.dp),
-            )
-        }
-
-        settingsSection(title = "Appearance") {
-            SettingsItem(
-                label = "Theme",
-                value = ThemeManager.currentTheme.title,
-                onClick = onNavigateToThemes,
-            )
+    BookPlayerTabScaffold(title = stringResource(R.string.settings_title)) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(
+                top = innerPadding.calculateTopPadding(),
+                bottom = innerPadding.calculateBottomPadding() + 16.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            settingsSection(titleRes = R.string.settings_section_appearance) {
+                SettingsItem(
+                    label = stringResource(R.string.settings_theme),
+                    value = ThemeManager.currentTheme.title,
+                    onClick = onNavigateToThemes,
+                )
+            }
         }
     }
 }
 
 /**
- * Adds a labelled section to a Settings-style LazyColumn: a small caption header,
- * followed by a Card containing the section's rows. Use multiple times to build
- * multi-section settings screens.
+ * Adds a labelled section to a Settings-style [LazyColumn]: a small uppercase caption
+ * header (Material3 grouped-list convention) followed by a [Card] that wraps the rows.
+ *
+ * Call from inside a [LazyColumn] body alongside other items. Each call produces two
+ * [LazyListScope] items (the header and the card), spaced by the parent's
+ * `verticalArrangement`. Use multiple times to build multi-section settings screens.
+ *
+ * Takes a string resource id (rather than a resolved `String`) because the section is
+ * built outside a `@Composable` context — string resolution happens inside the item bodies.
+ *
+ * @param titleRes section caption shown above the card
+ * @param content the rows to render inside the card — typically `SettingsItem`s and
+ *                `SettingsToggleItem`s, optionally separated by [HorizontalDivider]
  */
 fun LazyListScope.settingsSection(
-    title: String,
+    @androidx.annotation.StringRes titleRes: Int,
     content: @Composable () -> Unit,
 ) {
     item {
         Text(
-            text = title,
+            text = stringResource(titleRes),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
@@ -439,42 +438,26 @@ fun LazyListScope.settingsSection(
 @Composable
 fun ThemesScreen(onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-    ) {
-        // Custom Top Bar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface)
-            ) {
-                Icon(Icons.Default.ChevronLeft, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
+    BookPlayerTabScaffold(
+        title = stringResource(R.string.themes_title),
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.action_back),
+                )
             }
-            Text(
-                text = "Themes",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Spacer(modifier = Modifier.size(48.dp))
-        }
-
+        },
+    ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(
+                top = innerPadding.calculateTopPadding(),
+                bottom = innerPadding.calculateBottomPadding() + 16.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
                 Card(
@@ -482,13 +465,13 @@ fun ThemesScreen(onBack: () -> Unit) {
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 ) {
                     SettingsToggleItem(
-                        label = "Use System Mode",
+                        label = stringResource(R.string.themes_use_system_mode),
                         checked = ThemeManager.useSystemMode,
                         onCheckedChange = { ThemeManager.setUseSystemMode(context, it) },
                     )
                     HorizontalDivider()
                     SettingsToggleItem(
-                        label = "Always use dark variation",
+                        label = stringResource(R.string.themes_always_use_dark),
                         checked = ThemeManager.useDarkVariant,
                         enabled = !ThemeManager.useSystemMode,
                         onCheckedChange = { ThemeManager.setUseDarkVariant(context, it) },
@@ -498,7 +481,7 @@ fun ThemesScreen(onBack: () -> Unit) {
 
             item {
                 Text(
-                    text = "THEMES",
+                    text = stringResource(R.string.themes_section_label),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
@@ -587,7 +570,7 @@ fun ThemeItem(theme: BookPlayerThemeSpec, isSelected: Boolean, onClick: () -> Un
                 if (isSelected) {
                     Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 } else {
-                    Icon(Icons.Default.Lock, contentDescription = "Pro", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Default.Lock, contentDescription = stringResource(R.string.themes_locked_pro), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else null,

@@ -1,3 +1,36 @@
 <resources>
     <string name="app_name">BookPlayer</string>
+
+    <!-- Tab titles -->
+    <string name="library_title">Library</string>
+    <string name="settings_title">Settings</string>
+    <string name="themes_title">Themes</string>
+    <string name="profile_title">Profile</string>
+
+    <!-- Library screen -->
+    <string name="library_empty">Your library is empty</string>
+    <string name="library_selected_count">%1$d selected</string>
+
+    <!-- Common actions -->
+    <string name="action_back">Back</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_move">Move</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_more">More options</string>
+    <string name="action_select">Select</string>
+    <string name="action_select_all">Select All</string>
+    <string name="action_import">Import</string>
+    <string name="action_create_folder">Create Folder</string>
+    <string name="action_see_details">See details</string>
+    <string name="action_toggle_grid_view">Toggle grid view</string>
+
+    <!-- Settings screen sections / rows -->
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_theme">Theme</string>
+
+    <!-- Themes screen -->
+    <string name="themes_section_label">THEMES</string>
+    <string name="themes_use_system_mode">Use System Mode</string>
+    <string name="themes_always_use_dark">Always use dark variation</string>
+    <string name="themes_locked_pro">Pro</string>
 </resources>

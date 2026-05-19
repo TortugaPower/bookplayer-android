@@ -5,8 +5,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -49,6 +53,11 @@ fun MainScreen() {
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
+            // Each tab destination owns its own top bar / LargeTopAppBar, so the outer
+            // Scaffold hands top-inset duty to the inner Scaffolds.
+            contentWindowInsets = WindowInsets.systemBars.only(
+                WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
+            ),
             bottomBar = {
                 if (currentRoute != "themes") {
                     Column {
