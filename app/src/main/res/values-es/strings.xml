@@ -1,0 +1,195 @@
+<resources>
+    <string name="app_name">BookPlayer</string>
+
+    <!-- Common -->
+    <string name="common_back">Atrás</string>
+    <string name="common_close">Cerrar</string>
+    <string name="common_clear">Borrar</string>
+    <string name="common_continue">Continuar</string>
+    <string name="common_verify">Verificar</string>
+    <string name="common_logout">Cerrar sesión</string>
+    <string name="common_default">Predeterminado</string>
+    <string name="common_more">Más</string>
+    <string name="common_done">Hecho</string>
+    <string name="common_ok">Aceptar</string>
+    <string name="common_cancel">Cancelar</string>
+    <string name="common_save">Guardar</string>
+    <string name="common_delete">Eliminar</string>
+    <string name="common_accept">Aceptar</string>
+    <string name="common_remove">Quitar</string>
+    <string name="common_select_all">Seleccionar todo</string>
+    <string name="common_select">Seleccionar</string>
+    <string name="common_move">Mover</string>
+    <string name="common_completed">Completado</string>
+    <string name="common_pro_locked">Pro</string>
+    <string name="common_search">Buscar</string>
+    <string name="common_update">Actualizar</string>
+    <string name="common_add">Añadir</string>
+    <string name="common_details">Detalles</string>
+    <string name="common_unknown">Desconocido</string>
+
+    <!-- Auth -->
+    <string name="auth_error_verification_failed">Verificación fallida</string>
+    <string name="auth_error_passkey_failed">Error de llave de acceso: %1$s</string>
+    <string name="auth_setting_up_secure_access">Configurando acceso seguro...</string>
+    <string name="auth_create_account">Crear cuenta</string>
+    <string name="auth_verify_your_email">Verifica tu correo electrónico</string>
+    <string name="auth_email_label">Correo electrónico</string>
+    <string name="auth_email_placeholder">Correo electrónico</string>
+    <string name="auth_sign_in_with_passkey">Iniciar sesión con llave de acceso existente</string>
+    <string name="auth_enter_code_sent_to">Introduce el código de 6 dígitos enviado a %1$s</string>
+    <string name="auth_didnt_receive_code">¿No has recibido el código?</string>
+    <string name="auth_resend_code">Reenviar código</string>
+    <string name="auth_error_signin_failed">Error al iniciar sesión: %1$s</string>
+    <string name="auth_sign_in_with_google">Iniciar sesión con Google</string>
+    <string name="auth_continue_with_passkey">Continuar con llave de acceso</string>
+
+    <!-- Profile -->
+    <string name="profile_title">Perfil</string>
+    <string name="profile_setup_account">Configurar cuenta</string>
+    <string name="profile_tier_label">Nivel: %1$s</string>
+    <string name="profile_not_signed_in">Sesión no iniciada</string>
+    <string name="profile_listening_time_value">0m</string>
+    <string name="profile_total_listening_time">Tiempo total de escucha</string>
+
+    <!-- Pro -->
+    <string name="pro_title">BookPlayer Pro</string>
+    <string name="pro_learn_more">SABER MÁS</string>
+    <string name="pro_feature_cloud_sync_title">Sincronización en la nube (Beta)</string>
+    <string name="pro_feature_cloud_sync_desc">Descarga y sincroniza tu biblioteca y el progreso de tus libros en todos tus dispositivos compatibles.</string>
+    <string name="pro_feature_watch_title">Android Watch (Beta)</string>
+    <string name="pro_feature_watch_desc">Transmite o descarga tus libros y escucha en cualquier lugar sin tu teléfono.</string>
+    <string name="pro_feature_themes_title">Temas e iconos</string>
+    <string name="pro_feature_themes_desc">Tendrás acceso a temas e iconos de aplicación adicionales que se desbloquean al donar y unirte a BookPlayer Plus.</string>
+    <string name="pro_disclaimer_header">Por favor, ten en cuenta lo siguiente:</string>
+    <string name="pro_disclaimer_account">Solo necesitas una cuenta con nosotros si planeas escuchar tu biblioteca en diferentes dispositivos</string>
+    <string name="pro_disclaimer_subscription">Debido a los costes continuos del servidor para el almacenamiento en la nube y la sincronización del progreso, requerimos una suscripción para compensar el coste de esta función</string>
+
+    <!-- Settings/Themes -->
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_appearance_section">Apariencia</string>
+    <string name="settings_theme_label">Tema</string>
+    <string name="settings_app_icon_label">Icono de la aplicación</string>
+    <string name="settings_orientation_locked_label">Orientación bloqueada</string>
+    <string name="themes_title">Temas</string>
+    <string name="themes_use_system_mode">Usar modo del sistema</string>
+    <string name="themes_always_use_dark">Usar siempre la variante oscura</string>
+    <string name="themes_section_header">TEMAS</string>
+
+    <!-- Player -->
+    <string name="player_cast">Transmitir</string>
+    <string name="player_prev">Anterior</string>
+    <string name="player_next">Siguiente</string>
+    <string name="player_chapter_label">%1$s</string>
+    <string name="player_chapter_default">Capítulo 1 de 1</string>
+    <string name="player_play_pause">Reproducir/Pausa</string>
+    <string name="player_chapters_title">Capítulos</string>
+    <string name="player_chapter_details">Inicio: %1$s - Duración: %2$s</string>
+    <string name="player_jump_to_start">Saltar al inicio</string>
+    <string name="player_mark_as_unfinished">Marcar como no terminado</string>
+    <string name="player_mark_as_finished">Marcar como terminado</string>
+    <string name="player_repeat_off">Desactivar repetición</string>
+    <string name="player_repeat_on">Activar repetición para este libro</string>
+    <string name="player_bookmark_exists">Ya existe un marcador en %1$s</string>
+    <string name="player_bookmark_saved">Tu marcador se ha guardado en %1$s</string>
+    <string name="player_add_note">Añadir nota</string>
+    <string name="player_see_bookmarks">Ver marcadores</string>
+    <string name="player_add_note_title">Añadir nota</string>
+    <string name="player_note_placeholder">Nota</string>
+    <string name="player_bookmarks_title">Marcadores</string>
+    <string name="player_bookmarks_manual">Manual</string>
+    <string name="player_controls_title">Controles de reproducción</string>
+    <string name="player_set_speed">Ajustar velocidad de reproducción</string>
+    <string name="player_speed_min">0.5</string>
+    <string name="player_speed_max">4.0</string>
+    <string name="player_volume">Volumen</string>
+    <string name="player_boost_volume">Aumentar volumen</string>
+    <string name="player_boost_volume_desc">Duplica el volumen.\nÚsalo con precaución y cuida tu audición.</string>
+    <string name="player_custom_timer">Temporizador personalizado</string>
+    <string name="player_timer_hours">horas</string>
+    <string name="player_timer_min">min</string>
+    <string name="player_start_timer">Iniciar temporizador</string>
+    <string name="player_sleep_timer_title">Temporizador de apagado</string>
+    <string name="player_timer_off">Desactivado</string>
+    <string name="player_timer_5m">5 minutos</string>
+    <string name="player_timer_10m">10 minutos</string>
+    <string name="player_timer_15m">15 minutos</string>
+    <string name="player_timer_30m">30 minutos</string>
+    <string name="player_timer_45m">45 minutos</string>
+    <string name="player_timer_1h">1 hora</string>
+    <string name="player_timer_end_chapter">Fin del capítulo</string>
+    <string name="player_timer_custom">Personalizado</string>
+    <string name="player_rewind_interval_title">Intervalo de retroceso</string>
+    <string name="player_forward_interval_title">Intervalo de avance</string>
+    <string name="player_smart_rewind_limit_title">Límite de retroceso inteligente</string>
+    <string name="player_list_button_action_title">Acción del botón de lista</string>
+    <string name="player_quick_action_1">Acción rápida 1</string>
+    <string name="player_quick_action_2">Acción rápida 2</string>
+    <string name="player_quick_action_3">Acción rápida 3</string>
+    <string name="player_settings_skip_intervals">Intervalos de salto</string>
+    <string name="player_settings_rewind">Retroceder</string>
+    <string name="player_settings_forward">Avanzar</string>
+    <string name="player_settings_skip_intervals_desc">Ajusta la cantidad saltada al usar los botones en el reproductor o centro de control.</string>
+    <string name="player_settings_smart_rewind">Retroceso inteligente</string>
+    <string name="player_settings_smart_rewind_limit">Límite de retroceso inteligente</string>
+    <string name="player_settings_smart_rewind_desc">Retrocede automáticamente al reanudar la reproducción. Retrocede más cuanto más tiempo haya estado pausada la reproducción, hasta un máximo de 30 segundos.</string>
+    <string name="player_settings_auto_sleep_timer">Temporizador de apagado automático</string>
+    <string name="player_settings_auto_sleep_timer_desc">Reinicia el último temporizador de apagado activo al reanudar la reproducción</string>
+    <string name="player_settings_speed">Velocidad</string>
+    <string name="player_settings_global_speed">Control de velocidad global</string>
+    <string name="player_settings_global_speed_desc">Ajusta la velocidad para todos los libros.</string>
+    <string name="player_settings_progress_bar_seeking">Búsqueda en barra de progreso</string>
+    <string name="player_settings_progress_bar_seeking_desc">Activa la búsqueda en la pantalla de bloqueo</string>
+    <string name="player_settings_list_opens">Abre</string>
+    <string name="player_settings_list_opens_desc">Ajusta lo que abre el botón de lista en la pantalla del reproductor</string>
+    <string name="player_settings_progress_labels">Etiquetas de progreso</string>
+    <string name="player_settings_use_remaining_time">Usar tiempo restante</string>
+    <string name="player_settings_use_chapter_context">Usar contexto del capítulo</string>
+    <string name="player_settings_progress_labels_desc">Alterna entre mostrar el tiempo restante, la duración total y el progreso del capítulo o del libro en la pantalla del reproductor</string>
+    <string name="player_rewind">Retroceder</string>
+
+    <!-- Library -->
+    <string name="library_title_default">Biblioteca</string>
+    <string name="library_create_folder_title">Crear carpeta</string>
+    <string name="library_folder_name_label">Nombre de la carpeta</string>
+    <string name="library_folder_name_error">Usa solo letras, números, \'-\' o \'_\'</string>
+    <string name="library_choose_destination_title">Elegir destino</string>
+    <string name="library_choose_destination_message">¿A dónde te gustaría mover los elementos seleccionados?</string>
+    <string name="library_new_folder">Nueva carpeta</string>
+    <string name="library_existing_folder">Carpeta existente</string>
+    <string name="library_select_folder_title">Seleccionar carpeta</string>
+    <string name="library_delete_item_title">Eliminar elemento</string>
+    <string name="library_delete_items_title">Eliminar %1$d elementos</string>
+    <string name="library_delete_item_message">¿Estás seguro de que quieres eliminar \'%1$s\'? Esto también eliminará el archivo físico.</string>
+    <string name="library_delete_items_message">¿Estás seguro de que quieres eliminar estos %1$d elementos? Esto también eliminará los archivos físicos.</string>
+    <string name="library_delete_folder_warning">\n\nNota: Eliminar una carpeta también eliminará todo su contenido.</string>
+    <string name="library_empty_message">Tu biblioteca está vacía</string>
+    <string name="library_see_details">Ver detalles</string>
+    <string name="library_view_style">Estilo de vista</string>
+    <string name="library_folder_empty">0 archivos</string>
+    <string name="library_unknown_author">Autor desconocido</string>
+    <string name="library_open_folder">Abrir carpeta</string>
+    <string name="library_edit_book_title">Editar libro</string>
+    <string name="library_title_placeholder">Título</string>
+    <string name="library_author_placeholder">Autor</string>
+    <string name="library_artwork_title">Portada</string>
+    <string name="library_filename_label">Nombre de archivo</string>
+    <string name="library_progress_label">Progreso</string>
+    <string name="library_progress_percent">%1$d%%</string>
+    <string name="library_last_played_label">Última reproducción</string>
+    <string name="date_format_last_played">d \'de\' MMM \'de\' yyyy \'a las\' h:mm a</string>
+
+    <!-- Import -->
+    <string name="import_title">Importar</string>
+    <string name="import_disclaimer">La transferencia de archivos puede tardar un poco, asegúrate de que el número de archivos esté completo antes de proceder.</string>
+    <string name="import_files_count">%1$d archivos</string>
+
+    <!-- Interval/Duration -->
+    <string name="interval_seconds">%1$d segs</string>
+    <string name="interval_1_min">1 min</string>
+    <string name="interval_1_min_30_secs">1 min, 30 segs</string>
+    <string name="interval_minutes">%1$d min</string>
+    <string name="duration_hms">%1$dh %2$dm %3$ds</string>
+    <string name="duration_ms">%1$dm %2$ds</string>
+
+</resources>

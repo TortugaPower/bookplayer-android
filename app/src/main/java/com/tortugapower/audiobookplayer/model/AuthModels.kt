@@ -50,27 +50,54 @@ data class PasskeyRegistrationOptions(
     @SerializedName("exclude_credentials") val excludeCredentials: List<PasskeyCredentialDescriptor>?
 )
 
+data class PasskeyResponse(
+    @SerializedName("attestation_object") val attestationObject: String,
+    @SerializedName("client_data_json") val clientDataJSON: String,
+    val transports: List<String> = emptyList()
+)
+
 data class PasskeyRegistrationVerifyRequest(
     val email: String,
-    @SerializedName("credentialId") val credentialId: String,
-    @SerializedName("attestationObject") val attestationObject: String,
-    @SerializedName("clientDataJSON") val clientDataJSON: String,
-    val transports: List<String>?,
-    @SerializedName("deviceName") val deviceName: String?
+    @SerializedName("credential_id") val credentialId: String,
+    val response: PasskeyResponse,
+    @SerializedName("device_name") val deviceName: String?
+)
+
+data class PasskeyAssertionResponse(
+    @SerializedName("client_data_json") val clientDataJSON: String,
+    @SerializedName("authenticator_data") val authenticatorData: String,
+    val signature: String,
+    @SerializedName("user_handle") val userHandle: String?
+)
+
+data class PasskeyVerifyRequest(
+    @SerializedName("credential_id") val credentialId: String,
+    val response: PasskeyAssertionResponse
+)
+
+data class PasskeySignInOptionsRequest(
+    val email: String
+)
+
+data class PasskeySignInOptionsResponse(
+    val challenge: String,
+    val timeout: Int,
+    @SerializedName("rp_id") val rpId: String,
+    @SerializedName("allow_credentials") val allowCredentials: List<PasskeyCredentialDescriptor>?
 )
 
 data class PasskeyLoginResponse(
     val email: String,
     val token: String,
     @SerializedName("external_id") val externalId: String,
-    @SerializedName("revenuecat_id") val revenuecatId: String,
+    @SerializedName("revenuecat_id") val revenuecatId: String?,
     @SerializedName("has_subscription") val hasSubscription: Boolean
 )
 
 // --- Google Login ---
 
 data class GoogleLoginRequest(
-    val token: String
+    @SerializedName("token_id") val tokenId: String
 )
 
 data class GoogleLoginResponse(

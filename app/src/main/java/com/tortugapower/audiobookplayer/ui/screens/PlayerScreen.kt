@@ -45,10 +45,12 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.res.stringResource
+import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
+import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -338,7 +340,7 @@ fun PlayerScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Cast,
-                            contentDescription = "Cast",
+                            contentDescription = stringResource(R.string.player_cast),
                             tint = MaterialTheme.colorScheme.onSecondary
                         )
                     }
@@ -358,7 +360,7 @@ fun PlayerScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.ChevronLeft,
-                            contentDescription = "Prev",
+                            contentDescription = stringResource(R.string.player_prev),
                             tint = MaterialTheme.colorScheme.onBackground,
                             modifier = Modifier.size(32.dp)
                         )
@@ -381,7 +383,7 @@ fun PlayerScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.ChevronRight,
-                            contentDescription = "Next",
+                            contentDescription = stringResource(R.string.player_next),
                             tint = MaterialTheme.colorScheme.onBackground,
                             modifier = Modifier.size(32.dp)
                         )
@@ -390,7 +392,7 @@ fun PlayerScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                Slider(
+                BookPlayerSlider(
                     value = if (isDragging) dragPosition else (if (duration > 0) position.toFloat() / duration else 0f),
                     onValueChange = { 
                         isDragging = true
@@ -401,13 +403,7 @@ fun PlayerScreen(
                         PlaybackManager.seekTo(newPos)
                         position = newPos
                         isDragging = false
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                    )
+                    }
                 )
 
                 Row(
@@ -450,7 +446,7 @@ fun PlayerScreen(
                         modifier = Modifier.width(72.dp) // Increased width slightly for larger text
                     )
                     Text(
-                        text = if (currentChapter != null) currentChapter.title else "Chapter 1 of 1",
+                        text = if (currentChapter != null) currentChapter.title else stringResource(R.string.player_chapter_default),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -484,7 +480,7 @@ fun PlayerScreen(
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pause",
+                            contentDescription = stringResource(R.string.player_play_pause),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -589,11 +585,11 @@ fun ChaptersListSheet(
             ) {
                 Box(modifier = Modifier.size(40.dp)) // Spacer
                 Text(
-                    text = "Chapters",
+                    text = stringResource(R.string.player_chapters_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                SheetHeaderButton(text = "Done", onClick = onDismiss)
+                SheetHeaderButton(text = stringResource(R.string.common_done), onClick = onDismiss)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -626,7 +622,11 @@ fun ChaptersListSheet(
                                     fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Normal
                                 )
                                 Text(
-                                    text = "Start: ${formatTime((chapter.start * 1000).toLong())} - Duration: ${formatTime((chapter.duration * 1000).toLong())}",
+                                    text = stringResource(
+                                        R.string.player_chapter_details,
+                                        formatTime((chapter.start * 1000).toLong()),
+                                        formatTime((chapter.duration * 1000).toLong())
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
@@ -670,17 +670,17 @@ fun MoreOptionsSheet(
                 .padding(bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            BookmarkDialogButton(text = "Chapters") {
+            BookmarkDialogButton(text = stringResource(R.string.player_chapters_title)) {
                 viewModel.showMoreOptions = false
                 viewModel.showChaptersList = true
             }
-            BookmarkDialogButton(text = "Jump to start") {
+            BookmarkDialogButton(text = stringResource(R.string.player_jump_to_start)) {
                 viewModel.jumpToStart()
             }
-            BookmarkDialogButton(text = viewModel.currentItem?.let { if (it.isFinished) "Mark as Unfinished" else "Mark as Finished" } ?: "Mark as Finished") {
+            BookmarkDialogButton(text = viewModel.currentItem?.let { if (it.isFinished) stringResource(R.string.player_mark_as_unfinished) else stringResource(R.string.player_mark_as_finished) } ?: stringResource(R.string.player_mark_as_finished)) {
                 viewModel.toggleFinished()
             }
-            BookmarkDialogButton(text = if (viewModel.isRepeatEnabled) "Turn off Repeat" else "Turn on Repeat for this book") {
+            BookmarkDialogButton(text = if (viewModel.isRepeatEnabled) stringResource(R.string.player_repeat_off) else stringResource(R.string.player_repeat_on)) {
                 viewModel.toggleRepeat()
             }
         }
@@ -699,8 +699,8 @@ fun BookmarkConfirmationDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (isExisting) "Bookmark already exists at ${formatTime((time * 1000).toLong())}" 
-                       else "Your bookmark has been saved at ${formatTime((time * 1000).toLong())}",
+                text = if (isExisting) stringResource(R.string.player_bookmark_exists, formatTime((time * 1000).toLong())) 
+                       else stringResource(R.string.player_bookmark_saved, formatTime((time * 1000).toLong())),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
@@ -715,10 +715,10 @@ fun BookmarkConfirmationDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (!isExisting) {
-                    BookmarkDialogButton(text = "Add note", onClick = onAddNote)
+                    BookmarkDialogButton(text = stringResource(R.string.player_add_note), onClick = onAddNote)
                 }
-                BookmarkDialogButton(text = "See bookmarks", onClick = onSeeBookmarks)
-                BookmarkDialogButton(text = "OK", onClick = onDismiss)
+                BookmarkDialogButton(text = stringResource(R.string.player_see_bookmarks), onClick = onSeeBookmarks)
+                BookmarkDialogButton(text = stringResource(R.string.common_ok), onClick = onDismiss)
             }
         },
         confirmButton = {},
@@ -765,7 +765,7 @@ fun AddNoteDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                "Add note",
+                stringResource(R.string.player_add_note_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
@@ -780,7 +780,7 @@ fun AddNoteDialog(
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
-                    placeholder = { Text("Note") },
+                    placeholder = { Text(stringResource(R.string.player_note_placeholder)) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color.Transparent,
@@ -807,7 +807,7 @@ fun AddNoteDialog(
                         shape = RoundedCornerShape(26.dp),
                         elevation = null
                     ) {
-                        Text("Cancel", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.common_cancel), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     }
                     Button(
                         onClick = { onConfirm(note) },
@@ -821,7 +821,7 @@ fun AddNoteDialog(
                         shape = RoundedCornerShape(26.dp),
                         elevation = null
                     ) {
-                        Text("OK", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.common_ok), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -864,10 +864,10 @@ fun BookmarksListSheet(
                         .size(40.dp)
                         .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close), tint = MaterialTheme.colorScheme.primary)
                 }
                 Text(
-                    text = "Bookmarks",
+                    text = stringResource(R.string.player_bookmarks_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -983,26 +983,21 @@ fun PlayerControlsSheet(
                 )
             }
             
-            Slider(
+            BookPlayerSlider(
                 value = currentSpeed,
                 onValueChange = { 
                     currentSpeed = it
                     viewModel.setPlaybackSpeed(context, it)
                 },
-                valueRange = 0.5f..4.0f,
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.onSurface,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                )
+                valueRange = 0.5f..4.0f
             )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("0.5", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                Text("4.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                Text(stringResource(R.string.player_speed_min), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                Text(stringResource(R.string.player_speed_max), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -1039,18 +1034,13 @@ fun PlayerControlsSheet(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text("Volume", style = MaterialTheme.typography.bodyLarge)
-            Slider(
+            BookPlayerSlider(
                 value = currentVolume,
                 onValueChange = { 
                     currentVolume = it
                     viewModel.setPlaybackVolume(context, it)
                 },
-                valueRange = 0.0f..1.0f,
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.onSurface,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                )
+                valueRange = 0.0f..1.0f
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -1274,10 +1264,10 @@ fun SleepTimerSheet(
                         .size(40.dp)
                         .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close), tint = MaterialTheme.colorScheme.primary)
                 }
                 Text(
-                    text = "Sleep Timer",
+                    text = stringResource(R.string.player_sleep_timer_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -1287,14 +1277,14 @@ fun SleepTimerSheet(
             Spacer(modifier = Modifier.height(32.dp))
 
             val options = listOf(
-                "Off" to 0,
-                "5 minutes" to 5,
-                "10 minutes" to 10,
-                "15 minutes" to 15,
-                "30 minutes" to 30,
-                "45 minutes" to 45,
-                "1 hour" to 60,
-                "End of Chapter" to -1
+                stringResource(R.string.player_timer_off) to 0,
+                stringResource(R.string.player_timer_5m) to 5,
+                stringResource(R.string.player_timer_10m) to 10,
+                stringResource(R.string.player_timer_15m) to 15,
+                stringResource(R.string.player_timer_30m) to 30,
+                stringResource(R.string.player_timer_45m) to 45,
+                stringResource(R.string.player_timer_1h) to 60,
+                stringResource(R.string.player_timer_end_chapter) to -1
             )
 
             Column(
@@ -1317,7 +1307,7 @@ fun SleepTimerSheet(
                     )
                 }
                 
-                BookmarkDialogButton(text = "Custom") {
+                BookmarkDialogButton(text = stringResource(R.string.player_timer_custom)) {
                     viewModel.toggleSleepTimerMenu()
                     viewModel.toggleCustomSleepTimerPicker()
                 }
@@ -1410,7 +1400,7 @@ fun ExtendedControlsSheet(
 
     if (showSpeedPicker2) {
         SpeedPickerDialog(
-            title = "Quick Action 2",
+            title = stringResource(R.string.player_quick_action_2),
             currentValue = viewModel.quickAction2,
             onValueSelected = {
                 viewModel.updateQuickAction2(context, it)
@@ -1476,9 +1466,11 @@ fun ExtendedControlsSheet(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column {
-                    SettingsRowPicker("Rewind", formatInterval(viewModel.rewindInterval)) { showRewindPicker = true }
+                    SettingsRowPicker("Rewind", formatInterval(context, 
+viewModel.rewindInterval)) { showRewindPicker = true }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker("Forward", formatInterval(viewModel.forwardInterval)) { showForwardPicker = true }
+                    SettingsRowPicker("Forward", formatInterval(context, 
+viewModel.forwardInterval)) { showForwardPicker = true }
                 }
             }
             Text(
@@ -1497,11 +1489,12 @@ fun ExtendedControlsSheet(
                         viewModel.updateSmartRewind(context, it)
                     }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker("Smart Rewind Limit", formatInterval(viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
+                    SettingsRowPicker("Smart Rewind Limit", formatInterval(context, 
+viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
                 }
             }
             Text(
-                "Automatically skip backwards when resuming playback. Skips back further the longer playback has been paused, up to a maximum of 30 secs.",
+                stringResource(R.string.player_settings_smart_rewind_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
@@ -1526,7 +1519,7 @@ fun ExtendedControlsSheet(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                SettingsRowToggle("Boost Volume", viewModel.volumeBoost) {
+                SettingsRowToggle(stringResource(R.string.player_boost_volume), viewModel.volumeBoost) {
                     viewModel.toggleVolumeBoost(context)
                 }
             }
@@ -1543,13 +1536,13 @@ fun ExtendedControlsSheet(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column {
-                    SettingsRowPicker("Quick Action 1", formatSpeed(viewModel.quickAction1)) { showSpeedPicker1 = true }
+                    SettingsRowPicker(stringResource(R.string.player_quick_action_1), formatSpeed(viewModel.quickAction1)) { showSpeedPicker1 = true }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker("Quick Action 2", formatSpeed(viewModel.quickAction2)) { showSpeedPicker2 = true }
+                    SettingsRowPicker(stringResource(R.string.player_quick_action_2), formatSpeed(viewModel.quickAction2)) { showSpeedPicker2 = true }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker("Quick Action 3", formatSpeed(viewModel.quickAction3)) { showSpeedPicker3 = true }
+                    SettingsRowPicker(stringResource(R.string.player_quick_action_3), formatSpeed(viewModel.quickAction3)) { showSpeedPicker3 = true }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowToggle("Global Speed Control", viewModel.globalSpeed) {
+                    SettingsRowToggle(stringResource(R.string.player_settings_global_speed), viewModel.globalSpeed) {
                         viewModel.updateGlobalSpeed(context, it)
                     }
                 }
@@ -1580,7 +1573,7 @@ fun ExtendedControlsSheet(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                SettingsRowPicker("Opens", viewModel.listButtonOpens) { showListActionPicker = true }
+                SettingsRowPicker(stringResource(R.string.player_settings_list_opens), viewModel.listButtonOpens) { showListActionPicker = true }
             }
             Text(
                 "Adjust what the list button in the player screen opens",
@@ -1589,23 +1582,23 @@ fun ExtendedControlsSheet(
                 modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
             )
 
-            SettingsSectionLabel("Progress Labels")
+            SettingsSectionLabel(stringResource(R.string.player_settings_progress_labels))
             Surface(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column {
-                    SettingsRowToggle("Use Remaining Time", viewModel.useRemainingTime) {
+                    SettingsRowToggle(stringResource(R.string.player_settings_use_remaining_time), viewModel.useRemainingTime) {
                         viewModel.updateUseRemainingTime(context, it)
                     }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowToggle("Use Chapter Context", viewModel.useChapterContext) {
+                    SettingsRowToggle(stringResource(R.string.player_settings_use_chapter_context), viewModel.useChapterContext) {
                         viewModel.updateUseChapterContext(context, it)
                     }
                 }
             }
             Text(
-                "Toggle between displaying the remaining time, total duration and progress of either the chapter or the book in the player screen",
+                stringResource(R.string.player_settings_progress_labels_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 32.dp)
@@ -1621,6 +1614,7 @@ fun IntervalPickerDialog(
     onValueSelected: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val options = listOf(
         2, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240
     )
@@ -1652,7 +1646,7 @@ fun IntervalPickerDialog(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = formatInterval(seconds),
+                            text = formatInterval(context, seconds),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -1673,7 +1667,7 @@ fun IntervalPickerDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.common_cancel))
             }
         },
         containerColor = MaterialTheme.colorScheme.surface,
@@ -1733,7 +1727,7 @@ fun OptionsPickerDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.common_cancel))
             }
         },
         containerColor = MaterialTheme.colorScheme.surface,
@@ -1803,7 +1797,7 @@ fun SpeedPickerDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.common_cancel))
             }
         },
         containerColor = MaterialTheme.colorScheme.surface,
@@ -1816,12 +1810,12 @@ private fun formatSpeed(speed: Float): String {
     return "${s}x"
 }
 
-private fun formatInterval(seconds: Int): String {
+private fun formatInterval(context: android.content.Context, seconds: Int): String {
     return when {
-        seconds < 60 -> "$seconds secs"
-        seconds == 60 -> "1 min"
-        seconds == 90 -> "1 min, 30 secs"
-        else -> "${seconds / 60} min"
+        seconds < 60 -> context.getString(R.string.interval_seconds, seconds)
+        seconds == 60 -> context.getString(R.string.interval_1_min)
+        seconds == 90 -> context.getString(R.string.interval_1_min_30_secs)
+        else -> context.getString(R.string.interval_minutes, seconds / 60)
     }
 }
 

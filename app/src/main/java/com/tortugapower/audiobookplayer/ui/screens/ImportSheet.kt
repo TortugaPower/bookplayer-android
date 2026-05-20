@@ -20,6 +20,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.ImportFile
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
 
@@ -51,7 +53,7 @@ fun ImportSheet(viewModel: ImportViewModel) {
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.1f))
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close), tint = Color.White)
                 }
 
                 IconButton(
@@ -61,14 +63,14 @@ fun ImportSheet(viewModel: ImportViewModel) {
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.1f))
                 ) {
-                    Icon(Icons.Default.Check, contentDescription = "Accept", tint = Color.White)
+                    Icon(Icons.Default.Check, contentDescription = stringResource(R.string.common_accept), tint = Color.White)
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "Import",
+                text = stringResource(R.string.import_title),
                 fontSize = 40.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
@@ -77,7 +79,7 @@ fun ImportSheet(viewModel: ImportViewModel) {
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Transferring files may take a while, please make sure the number of files is complete before proceeding.",
+                text = stringResource(R.string.import_disclaimer),
                 color = Color.Gray,
                 fontSize = 16.sp,
                 lineHeight = 22.sp
@@ -86,7 +88,7 @@ fun ImportSheet(viewModel: ImportViewModel) {
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(
-                text = "${viewModel.importedFiles.size} Files",
+                text = stringResource(R.string.import_files_count, viewModel.importedFiles.size),
                 color = Color.Gray,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
@@ -114,7 +116,7 @@ fun ImportListItem(file: ImportFile, onRemove: () -> Unit) {
     ) {
         Icon(
             imageVector = Icons.Default.RemoveCircle,
-            contentDescription = "Remove",
+            contentDescription = stringResource(R.string.common_remove),
             tint = Color(0xFFE57373),
             modifier = Modifier
                 .size(28.dp)

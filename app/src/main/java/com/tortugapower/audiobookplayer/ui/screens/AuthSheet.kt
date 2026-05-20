@@ -1,15 +1,22 @@
 package com.tortugapower.audiobookplayer.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -19,24 +26,29 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.res.stringResource
+import com.tortugapower.audiobookplayer.R
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.viewmodel.AuthStep
 import com.tortugapower.audiobookplayer.viewmodel.AuthViewModel
 import com.tortugapower.audiobookplayer.viewmodel.AuthViewModelFactory
-
-import androidx.credentials.GetCredentialRequest
-import androidx.credentials.GetPublicKeyCredentialOption
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-import com.tortugapower.audiobookplayer.network.NetworkConstants
 import androidx.credentials.CreatePublicKeyCredentialRequest
 import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetPublicKeyCredentialOption
 import androidx.credentials.exceptions.CreateCredentialException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.tortugapower.audiobookplayer.model.PasskeyRegistrationVerifyRequest
 import com.tortugapower.audiobookplayer.model.PasskeyLoginResponse
+import com.tortugapower.audiobookplayer.model.PasskeyVerifyRequest
+import com.tortugapower.audiobookplayer.model.PasskeyAssertionResponse
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,39 +57,21 @@ fun AuthSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
     val db = AppDatabase.getDatabase(context)
     val accountRepository = RoomAccountRepository(db.accountDao())
     val viewModel: AuthViewModel = viewModel(
+        key = "AuthSheet",
         factory = AuthViewModelFactory(accountRepository)
     )
 
     val credentialManager = CredentialManager.create(context)
-
-    fun handleGoogleSignIn() {
-        val googleIdTokenOption = GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(NetworkConstants.GOOGLE_CLIENT_ID)
-            .build()
-
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdTokenOption)
-            .build()
-
-        scope.launch {
-            try {
-                val result = credentialManager.getCredential(context, request)
-                val credential = result.credential
-                
-                if (credential is GoogleIdTokenCredential) {
-                    viewModel.googleLogin(credential.idToken, credential.id)
-                }
-            } catch (e: Exception) {
-                viewModel.errorMessage = "Google Sign-In failed: ${e.message}"
-            }
-        }
-    }
-
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Reset when shown
+    LaunchedEffect(Unit) {
+        viewModel.reset()
+    }
 
     // Handle Auth success/transitions
     LaunchedEffect(viewModel.currentStep) {
@@ -95,13 +89,22 @@ fun AuthSheet(
                         
                         val responseJson = result.data.getString("androidx.credentials.BUNDLE_KEY_REGISTRATION_RESPONSE_JSON")
                         if (responseJson != null) {
+                            android.util.Log.d("AuthSheet", "Response JSON: $responseJson")
+                            val json = JSONObject(responseJson)
+                            val responseObj = json.getJSONObject("response")
+                            
                             val loginResponse = com.tortugapower.audiobookplayer.network.NetworkClient.authApi.verifyRegistration(
-                                PasskeyRegistrationVerifyRequest(
+                                com.tortugapower.audiobookplayer.model.PasskeyRegistrationVerifyRequest(
                                     email = viewModel.email,
-                                    credentialId = "", 
-                                    attestationObject = "", 
-                                    clientDataJSON = "", 
-                                    transports = null,
+                                    credentialId = json.getString("id"),
+                                    response = com.tortugapower.audiobookplayer.model.PasskeyResponse(
+                                        attestationObject = responseObj.getString("attestationObject"),
+                                        clientDataJSON = responseObj.getString("clientDataJSON"),
+                                        transports = if (responseObj.has("transports")) {
+                                            val arr = responseObj.getJSONArray("transports")
+                                            List(arr.length()) { arr.getString(it) }
+                                        } else emptyList()
+                                    ),
                                     deviceName = deviceName
                                 )
                             )
@@ -110,18 +113,76 @@ fun AuthSheet(
                                 viewModel.completeRegistration(loginResponse.body()!!)
                                 onDismiss()
                             } else {
-                                viewModel.errorMessage = "Verification failed"
+                                val errorBody = loginResponse.errorBody()?.string()
+                                android.util.Log.e("AuthSheet", "Verify failed: $errorBody")
+                                viewModel.errorMessage = context.getString(R.string.auth_error_verification_failed)
                                 viewModel.currentStep = AuthStep.CODE_VERIFICATION
                             }
                         }
                     } catch (e: CreateCredentialException) {
-                        viewModel.errorMessage = "Passkey failed: ${e.message}"
+                        viewModel.errorMessage = context.getString(R.string.auth_error_passkey_failed, e.message ?: "")
                         viewModel.currentStep = AuthStep.CODE_VERIFICATION
                     }
                 }
             } else {
-                // Google or other direct success
+                // Direct success
                 onDismiss()
+            }
+        }
+    }
+
+    // Handle Passkey Sign-in
+    LaunchedEffect(viewModel.passkeySignInRequested) {
+        if (viewModel.passkeySignInRequested) {
+            try {
+                val options = viewModel.getPasskeySignInOptions()
+                
+                if (options != null) {
+                    val getPublicKeyCredentialOption = GetPublicKeyCredentialOption(
+                        requestJson = viewModel.getSignInJson(options),
+                    )
+
+                    val getCredentialRequest = GetCredentialRequest(
+                        listOf(getPublicKeyCredentialOption)
+                    )
+
+                    val result = credentialManager.getCredential(context, getCredentialRequest)
+                    val responseJson = result.credential.data.getString("androidx.credentials.BUNDLE_KEY_AUTHENTICATION_RESPONSE_JSON")
+                    
+                    if (responseJson != null) {
+                        android.util.Log.d("AuthSheet", "SignIn Response JSON: $responseJson")
+                        val json = JSONObject(responseJson)
+                        val responseObj = json.getJSONObject("response")
+                        
+                        val loginResponse = com.tortugapower.audiobookplayer.network.NetworkClient.authApi.verifyPasskey(
+                            PasskeyVerifyRequest(
+                                credentialId = json.getString("id"),
+                                response = PasskeyAssertionResponse(
+                                    clientDataJSON = responseObj.getString("clientDataJSON"),
+                                    authenticatorData = responseObj.getString("authenticatorData"),
+                                    signature = responseObj.getString("signature"),
+                                    userHandle = if (responseObj.has("userHandle")) responseObj.getString("userHandle") else null
+                                )
+                            )
+                        )
+                        
+                        if (loginResponse.isSuccessful && loginResponse.body() != null) {
+                            viewModel.completeRegistration(loginResponse.body()!!)
+                            onDismiss()
+                        } else {
+                            val errorBody = loginResponse.errorBody()?.string()
+                            android.util.Log.e("AuthSheet", "Passkey Sign-in verify failed: $errorBody")
+                            viewModel.errorMessage = context.getString(R.string.auth_error_verification_failed)
+                        }
+                    }
+                }
+            } catch (e: GetCredentialException) {
+                if (e !is GetCredentialCancellationException) {
+                    android.util.Log.e("AuthSheet", "Passkey Sign-in failed", e)
+                    viewModel.errorMessage = context.getString(R.string.auth_error_passkey_failed, e.message ?: "")
+                }
+            } finally {
+                viewModel.passkeySignInRequested = false
             }
         }
     }
@@ -131,14 +192,15 @@ fun AuthSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        dragHandle = null,
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp)
         ) {
+            Spacer(modifier = Modifier.height(8.dp))
             // Header
             AuthHeader(
                 step = viewModel.currentStep,
@@ -158,7 +220,7 @@ fun AuthSheet(
                         email = viewModel.email,
                         onEmailChange = { viewModel.email = it },
                         onContinue = { viewModel.onEmailContinue() },
-                        onGoogleSignIn = { handleGoogleSignIn() },
+                        onPasskeySignIn = { viewModel.onSignInWithPasskey() },
                         errorMessage = viewModel.errorMessage
                     )
                 }
@@ -177,14 +239,11 @@ fun AuthSheet(
                     }
                 }
                 AuthStep.SUCCESS -> {
-                    // This state is briefly visible while the Passkey UI is being prepared or active
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Setting up your passkey...")
+                        Text(stringResource(R.string.auth_setting_up_secure_access))
                     }
                 }
-                AuthStep.ERROR -> {
-                    // Error state handled within the screens via errorMessage
-                }
+                AuthStep.ERROR -> { }
             }
         }
     }
@@ -209,7 +268,7 @@ fun AuthHeader(
                     .size(40.dp)
                     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
             ) {
-                Icon(Icons.Default.ChevronLeft, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.primary)
             }
         } else {
             IconButton(
@@ -219,14 +278,14 @@ fun AuthHeader(
                     .size(40.dp)
                     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close), tint = MaterialTheme.colorScheme.primary)
             }
         }
 
         Text(
             text = when (step) {
-                AuthStep.EMAIL_INPUT -> "Create Account"
-                AuthStep.CODE_VERIFICATION -> "Verify Your Email"
+                AuthStep.EMAIL_INPUT -> stringResource(R.string.auth_create_account)
+                AuthStep.CODE_VERIFICATION -> stringResource(R.string.auth_verify_your_email)
                 else -> ""
             },
             style = MaterialTheme.typography.titleMedium,
@@ -241,7 +300,7 @@ fun EmailInputScreen(
     email: String,
     onEmailChange: (String) -> Unit,
     onContinue: () -> Unit,
-    onGoogleSignIn: () -> Unit,
+    onPasskeySignIn: () -> Unit,
     errorMessage: String?
 ) {
     Column(
@@ -253,7 +312,7 @@ fun EmailInputScreen(
         Spacer(modifier = Modifier.height(32.dp))
         
         Text(
-            text = "Email",
+            text = stringResource(R.string.auth_email_label),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.fillMaxWidth(),
@@ -265,7 +324,7 @@ fun EmailInputScreen(
         OutlinedTextField(
             value = email,
             onValueChange = onEmailChange,
-            placeholder = { Text("Email") },
+            placeholder = { Text(stringResource(R.string.auth_email_placeholder)) },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
@@ -273,7 +332,7 @@ fun EmailInputScreen(
             trailingIcon = {
                 if (email.isNotEmpty()) {
                     IconButton(onClick = { onEmailChange("") }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_clear), modifier = Modifier.size(16.dp))
                     }
                 }
             }
@@ -301,41 +360,13 @@ fun EmailInputScreen(
             shape = RoundedCornerShape(28.dp),
             enabled = email.isNotEmpty()
         ) {
-            Text("Continue", fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.common_continue), fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Button(
-            onClick = onGoogleSignIn,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color.Black,
-                contentColor = Color.White
-            ),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.AccountCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = "Sign in with Google",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        TextButton(onClick = { /* Handle existing passkey */ }) {
-            Text("Sign in with existing passkey", color = Color(0xFF3482F6))
+        TextButton(onClick = onPasskeySignIn) {
+            Text(stringResource(R.string.auth_sign_in_with_passkey), color = Color(0xFF3482F6))
         }
     }
 }
@@ -348,6 +379,26 @@ fun CodeVerificationScreen(
     onVerify: () -> Unit,
     errorMessage: String?
 ) {
+    val focusRequester = remember { FocusRequester() }
+    var textFieldValue by remember { 
+        mutableStateOf(
+            TextFieldValue(
+                text = code,
+                selection = TextRange(code.length)
+            )
+        ) 
+    }
+
+    // Sync external code change back to internal state
+    LaunchedEffect(code) {
+        if (code != textFieldValue.text) {
+            textFieldValue = textFieldValue.copy(
+                text = code,
+                selection = TextRange(code.length)
+            )
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -355,7 +406,7 @@ fun CodeVerificationScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Enter the 6-digit code sent to $email",
+            text = stringResource(R.string.auth_enter_code_sent_to, email),
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurface
@@ -363,17 +414,50 @@ fun CodeVerificationScreen(
 
         Spacer(modifier = Modifier.height(48.dp))
 
-        OutlinedTextField(
-            value = code,
-            onValueChange = { if (it.length <= 6) onCodeChange(it) },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+        // Standard 6-digit code input using BasicTextField for native interaction support
+        BasicTextField(
+            value = textFieldValue,
+            onValueChange = { newValue ->
+                if (newValue.text.length <= 6 && newValue.text.all { it.isDigit() }) {
+                    textFieldValue = newValue
+                    onCodeChange(newValue.text)
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true,
-            trailingIcon = {
-                if (code.isNotEmpty()) {
-                    IconButton(onClick = { onCodeChange("") }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+            decorationBox = { innerTextField ->
+                Box(contentAlignment = Alignment.Center) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                    ) {
+                        repeat(6) { index ->
+                            val char = textFieldValue.text.getOrNull(index)?.toString() ?: ""
+                            val isFocused = textFieldValue.selection.collapsed && 
+                                           (textFieldValue.selection.start == index || (index == 5 && textFieldValue.selection.start == 6))
+                            
+                            Surface(
+                                modifier = Modifier.size(48.dp, 56.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                                border = if (isFocused) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = char,
+                                        style = MaterialTheme.typography.headlineMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    // Invisible input field overlay to capture focus and keyboard events
+                    Box(modifier = Modifier.fillMaxWidth().height(56.dp).alpha(0f)) {
+                        innerTextField()
                     }
                 }
             }
@@ -401,18 +485,23 @@ fun CodeVerificationScreen(
             shape = RoundedCornerShape(28.dp),
             enabled = code.length == 6
         ) {
-            Text("Verify", fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.common_verify), fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "Didn't receive the code?",
+            text = stringResource(R.string.auth_didnt_receive_code),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         TextButton(onClick = { /* Resend logic */ }) {
-            Text("Resend Code", color = Color(0xFF3482F6))
+            Text(stringResource(R.string.auth_resend_code), color = Color(0xFF3482F6))
         }
     }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
 }
+

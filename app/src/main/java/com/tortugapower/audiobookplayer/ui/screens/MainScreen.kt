@@ -28,13 +28,12 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.ui.components.CustomBottomNavigation
 import com.tortugapower.audiobookplayer.ui.components.MiniPlayer
 import com.tortugapower.audiobookplayer.ui.components.Screen
-import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
-import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
-import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModelFactory
+import com.tortugapower.audiobookplayer.viewmodel.*
 
 @Composable
 fun MainScreen() {
@@ -45,9 +44,15 @@ fun MainScreen() {
     
     val context = LocalContext.current
     val database = remember { AppDatabase.getDatabase(context) }
-    val repository = remember { RoomLibraryRepository(database.libraryDao()) }
+    val libraryRepository = remember { RoomLibraryRepository(database.libraryDao()) }
+    val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
+
     val playerViewModel: PlayerViewModel = viewModel(
-        factory = PlayerViewModelFactory(repository)
+        factory = PlayerViewModelFactory(libraryRepository)
+    )
+
+    val profileViewModel: ProfileViewModel = viewModel(
+        factory = ProfileViewModelFactory(accountRepository)
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -91,7 +96,7 @@ fun MainScreen() {
                     popExitTransition = { ExitTransition.None }
                 ) {
                     composable(Screen.Library.route) { LibraryScreen() }
-                    composable(Screen.Profile.route) { ProfileScreen() }
+                    composable(Screen.Profile.route) { ProfileScreen(viewModel = profileViewModel) }
                     
                     composable(
                         route = Screen.Settings.route,

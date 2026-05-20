@@ -1,0 +1,195 @@
+<resources>
+    <string name="app_name">BookPlayer</string>
+
+    <!-- Common -->
+    <string name="common_back">رجوع</string>
+    <string name="common_close">إغلاق</string>
+    <string name="common_clear">مسح</string>
+    <string name="common_continue">استمرار</string>
+    <string name="common_verify">تحقق</string>
+    <string name="common_logout">تسجيل الخروج</string>
+    <string name="common_default">افتراضي</string>
+    <string name="common_more">المزيد</string>
+    <string name="common_done">تم</string>
+    <string name="common_ok">موافق</string>
+    <string name="common_cancel">إلغاء</string>
+    <string name="common_save">حفظ</string>
+    <string name="common_delete">حذف</string>
+    <string name="common_accept">قبول</string>
+    <string name="common_remove">إزالة</string>
+    <string name="common_select_all">تحديد الكل</string>
+    <string name="common_select">تحديد</string>
+    <string name="common_move">نقل</string>
+    <string name="common_completed">مكتمل</string>
+    <string name="common_pro_locked">Pro</string>
+    <string name="common_search">بحث</string>
+    <string name="common_update">تحديث</string>
+    <string name="common_add">إضافة</string>
+    <string name="common_details">التفاصيل</string>
+    <string name="common_unknown">غير معروف</string>
+
+    <!-- Auth -->
+    <string name="auth_error_verification_failed">فشل التحقق</string>
+    <string name="auth_error_passkey_failed">فشل مفتاح المرور: %1$s</string>
+    <string name="auth_setting_up_secure_access">إعداد الوصول الآمن...</string>
+    <string name="auth_create_account">إنشاء حساب</string>
+    <string name="auth_verify_your_email">تحقق من بريدك الإلكتروني</string>
+    <string name="auth_email_label">البريد الإلكتروني</string>
+    <string name="auth_email_placeholder">البريد الإلكتروني</string>
+    <string name="auth_sign_in_with_passkey">تسجيل الدخول بمفتاح مرور موجود</string>
+    <string name="auth_enter_code_sent_to">أدخل الرمز المكون من 6 أرقام المرسل إلى %1$s</string>
+    <string name="auth_didnt_receive_code">لم تستلم الرمز؟</string>
+    <string name="auth_resend_code">إعادة إرسال الرمز</string>
+    <string name="auth_error_signin_failed">فشل تسجيل الدخول: %1$s</string>
+    <string name="auth_sign_in_with_google">تسجيل الدخول باستخدام Google</string>
+    <string name="auth_continue_with_passkey">الاستمرار باستخدام مفتاح المرور</string>
+
+    <!-- Profile -->
+    <string name="profile_title">الملف الشخصي</string>
+    <string name="profile_setup_account">إعداد الحساب</string>
+    <string name="profile_tier_label">المستوى: %1$s</string>
+    <string name="profile_not_signed_in">لم يتم تسجيل الدخول</string>
+    <string name="profile_listening_time_value">0 دقيقة</string>
+    <string name="profile_total_listening_time">إجمالي وقت الاستماع</string>
+
+    <!-- Pro -->
+    <string name="pro_title">BookPlayer Pro</string>
+    <string name="pro_learn_more">لمعرفة المزيد</string>
+    <string name="pro_feature_cloud_sync_title">مزامنة سحابية (تجريبي)</string>
+    <string name="pro_feature_cloud_sync_desc">تنزيل ومزامنة مكتبتك وتقدم القراءة على جميع أجهزتك المدعومة.</string>
+    <string name="pro_feature_watch_title">ساعة أندرويد (تجريبي)</string>
+    <string name="pro_feature_watch_desc">بث أو تنزيل كتبك والاستماع إليها أثناء التنقل بدون هاتفك.</string>
+    <string name="pro_feature_themes_title">السمات والأيقونات</string>
+    <string name="pro_feature_themes_desc">ستتمكن من الوصول إلى سمات وأيقونات تطبيقات إضافية يتم فتحها عن طريق التبرع والانضمام إلى BookPlayer Plus.</string>
+    <string name="pro_disclaimer_header">يرجى مراعاة ما يلي:</string>
+    <string name="pro_disclaimer_account">تحتاج فقط إلى حساب معنا إذا كنت تخطط للاستماع إلى مكتبتك عبر أجهزة مختلفة</string>
+    <string name="pro_disclaimer_subscription">نظرًا لتكاليف الخادم المستمرة للتخزين السحابي ومزامنة التقدم، فإننا نطلب اشتراكًا لتعويض تكلفة هذه الميزة</string>
+
+    <!-- Settings/Themes -->
+    <string name="settings_title">الإعدادات</string>
+    <string name="settings_appearance_section">المظهر</string>
+    <string name="settings_theme_label">السمة</string>
+    <string name="settings_app_icon_label">أيقونة التطبيق</string>
+    <string name="settings_orientation_locked_label">قفل الاتجاه</string>
+    <string name="themes_title">السمات</string>
+    <string name="themes_use_system_mode">استخدام وضع النظام</string>
+    <string name="themes_always_use_dark">استخدام الوضع الداكن دائماً</string>
+    <string name="themes_section_header">السمات</string>
+
+    <!-- Player -->
+    <string name="player_cast">بث</string>
+    <string name="player_prev">السابق</string>
+    <string name="player_next">التالي</string>
+    <string name="player_chapter_label">%1$s</string>
+    <string name="player_chapter_default">الفصل 1 من 1</string>
+    <string name="player_play_pause">تشغيل/إيقاف مؤقت</string>
+    <string name="player_chapters_title">الفصول</string>
+    <string name="player_chapter_details">البداية: %1$s - المدة: %2$s</string>
+    <string name="player_jump_to_start">انتقال إلى البداية</string>
+    <string name="player_mark_as_unfinished">تمييز كغير منتهي</string>
+    <string name="player_mark_as_finished">تمييز كمنتهي</string>
+    <string name="player_repeat_off">إيقاف التكرار</string>
+    <string name="player_repeat_on">تفعيل التكرار لهذا الكتاب</string>
+    <string name="player_bookmark_exists">توجد علامة مرجعية بالفعل عند %1$s</string>
+    <string name="player_bookmark_saved">تم حفظ علاماتك المرجعية عند %1$s</string>
+    <string name="player_add_note">إضافة ملاحظة</string>
+    <string name="player_see_bookmarks">مشاهدة العلامات المرجعية</string>
+    <string name="player_add_note_title">إضافة ملاحظة</string>
+    <string name="player_note_placeholder">ملاحظة</string>
+    <string name="player_bookmarks_title">العلامات المرجعية</string>
+    <string name="player_bookmarks_manual">يدوي</string>
+    <string name="player_controls_title">عناصر التحكم في المشغل</string>
+    <string name="player_set_speed">ضبط سرعة التشغيل</string>
+    <string name="player_speed_min">0.5</string>
+    <string name="player_speed_max">4.0</string>
+    <string name="player_volume">مستوى الصوت</string>
+    <string name="player_boost_volume">تضخيم الصوت</string>
+    <string name="player_boost_volume_desc">يضاعف مستوى الصوت.\nاستخدمه بحذر وحرص على سمعك.</string>
+    <string name="player_custom_timer">مؤقت مخصص</string>
+    <string name="player_timer_hours">ساعات</string>
+    <string name="player_timer_min">دقيقة</string>
+    <string name="player_start_timer">بدء المؤقت</string>
+    <string name="player_sleep_timer_title">مؤقت النوم</string>
+    <string name="player_timer_off">إيقاف</string>
+    <string name="player_timer_5m">5 دقائق</string>
+    <string name="player_timer_10m">10 دقائق</string>
+    <string name="player_timer_15m">15 دقيقة</string>
+    <string name="player_timer_30m">30 دقيقة</string>
+    <string name="player_timer_45m">45 دقيقة</string>
+    <string name="player_timer_1h">ساعة واحدة</string>
+    <string name="player_timer_end_chapter">نهاية الفصل</string>
+    <string name="player_timer_custom">مخصص</string>
+    <string name="player_rewind_interval_title">فاصل الرجوع</string>
+    <string name="player_forward_interval_title">فاصل التقدم</string>
+    <string name="player_smart_rewind_limit_title">حد الرجوع الذكي</string>
+    <string name="player_list_button_action_title">إجراء زر القائمة</string>
+    <string name="player_quick_action_1">إجراء سريع 1</string>
+    <string name="player_quick_action_2">إجراء سريع 2</string>
+    <string name="player_quick_action_3">إجراء سريع 3</string>
+    <string name="player_settings_skip_intervals">فواصل التخطي</string>
+    <string name="player_settings_rewind">رجوع</string>
+    <string name="player_settings_forward">تقدم</string>
+    <string name="player_settings_skip_intervals_desc">ضبط مقدار التخطي عند استخدام الأزرار في المشغل أو مركز التحكم.</string>
+    <string name="player_settings_smart_rewind">الرجوع الذكي</string>
+    <string name="player_settings_smart_rewind_limit">حد الرجوع الذكي</string>
+    <string name="player_settings_smart_rewind_desc">الرجوع للخلف تلقائياً عند استئناف التشغيل. يرجع للخلف أكثر كلما زادت مدة إيقاف التشغيل مؤقتاً، بحد أقصى 30 ثانية.</string>
+    <string name="player_settings_auto_sleep_timer">مؤقت نوم تلقائي</string>
+    <string name="player_settings_auto_sleep_timer_desc">إعادة تشغيل آخر مؤقت نوم نشط عند استئناف التشغيل</string>
+    <string name="player_settings_speed">السرعة</string>
+    <string name="player_settings_global_speed">التحكم العالمي في السرعة</string>
+    <string name="player_settings_global_speed_desc">ضبط السرعة لجميع الكتب.</string>
+    <string name="player_settings_progress_bar_seeking">السحب في شريط التقدم</string>
+    <string name="player_settings_progress_bar_seeking_desc">تفعيل السحب في شاشة القفل</string>
+    <string name="player_settings_list_opens">يفتح</string>
+    <string name="player_settings_list_opens_desc">ضبط ما يفتحه زر القائمة في شاشة المشغل</string>
+    <string name="player_settings_progress_labels">تسميات التقدم</string>
+    <string name="player_settings_use_remaining_time">استخدام الوقت المتبقي</string>
+    <string name="player_settings_use_chapter_context">استخدام سياق الفصل</string>
+    <string name="player_settings_progress_labels_desc">التبديل بين عرض الوقت المتبقي والمدة الإجمالية والتقدم للفصل أو الكتاب في شاشة المشغل</string>
+    <string name="player_rewind">رجوع</string>
+
+    <!-- Library -->
+    <string name="library_title_default">المكتبة</string>
+    <string name="library_create_folder_title">إنشاء مجلد</string>
+    <string name="library_folder_name_label">اسم المجلد</string>
+    <string name="library_folder_name_error">استخدم فقط الحروف أو الأرقام أو \'-\' أو \'_\'</string>
+    <string name="library_choose_destination_title">اختر الوجهة</string>
+    <string name="library_choose_destination_message">أين تريد نقل العناصر المحددة؟</string>
+    <string name="library_new_folder">مجلد جديد</string>
+    <string name="library_existing_folder">مجلد موجود</string>
+    <string name="library_select_folder_title">اختر المجلد</string>
+    <string name="library_delete_item_title">حذف عنصر</string>
+    <string name="library_delete_items_title">حذف %1$d عناصر</string>
+    <string name="library_delete_item_message">هل أنت متأكد أنك تريد حذف \'%1$s\'؟ سيؤدي هذا أيضاً إلى إزالة الملف الفعلي.</string>
+    <string name="library_delete_items_message">هل أنت متأكد أنك تريد حذف هذه العناصر الـ %1$d؟ سيؤدي هذا أيضاً إلى إزالة الملفات الفعلية.</string>
+    <string name="library_delete_folder_warning">\n\nملاحظة: حذف المجلد سيؤدي أيضاً إلى حذف جميع محتوياته.</string>
+    <string name="library_empty_message">مكتبتك فارغة</string>
+    <string name="library_see_details">شاهد التفاصيل</string>
+    <string name="library_view_style">نمط العرض</string>
+    <string name="library_folder_empty">0 ملفات</string>
+    <string name="library_unknown_author">مؤلف غير معروف</string>
+    <string name="library_open_folder">فتح المجلد</string>
+    <string name="library_edit_book_title">تعديل الكتاب</string>
+    <string name="library_title_placeholder">العنوان</string>
+    <string name="library_author_placeholder">المؤلف</string>
+    <string name="library_artwork_title">الغلاف</string>
+    <string name="library_filename_label">اسم الملف</string>
+    <string name="library_progress_label">التقدم</string>
+    <string name="library_progress_percent">%1$d%%</string>
+    <string name="library_last_played_label">آخر استماع</string>
+    <string name="date_format_last_played">d MMM yyyy \'عند\' h:mm a</string>
+
+    <!-- Import -->
+    <string name="import_title">استيراد</string>
+    <string name="import_disclaimer">قد يستغرق نقل الملفات بعض الوقت، يرجى التأكد من اكتمال عدد الملفات قبل المتابعة.</string>
+    <string name="import_files_count">%1$d ملفات</string>
+
+    <!-- Interval/Duration -->
+    <string name="interval_seconds">%1$d ثانية</string>
+    <string name="interval_1_min">دقيقة واحدة</string>
+    <string name="interval_1_min_30_secs">دقيقة و30 ثانية</string>
+    <string name="interval_minutes">%1$d دقائق</string>
+    <string name="duration_hms">%1$d ساعة %2$d دقيقة %3$d ثانية</string>
+    <string name="duration_ms">%1$d دقيقة %2$d ثانية</string>
+
+</resources>

@@ -1,36 +1,195 @@
 <resources>
     <string name="app_name">BookPlayer</string>
 
-    <!-- Tab titles -->
-    <string name="library_title">Library</string>
-    <string name="settings_title">Settings</string>
-    <string name="themes_title">Themes</string>
+    <!-- Common -->
+    <string name="common_back">Back</string>
+    <string name="common_close">Close</string>
+    <string name="common_clear">Clear</string>
+    <string name="common_continue">Continue</string>
+    <string name="common_verify">Verify</string>
+    <string name="common_logout">Logout</string>
+    <string name="common_default">Default</string>
+    <string name="common_more">More</string>
+    <string name="common_done">Done</string>
+    <string name="common_ok">OK</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_save">Save</string>
+    <string name="common_delete">Delete</string>
+    <string name="common_accept">Accept</string>
+    <string name="common_remove">Remove</string>
+    <string name="common_select_all">Select All</string>
+    <string name="common_select">Select</string>
+    <string name="common_move">Move</string>
+    <string name="common_completed">Completed</string>
+    <string name="common_pro_locked">Pro</string>
+    <string name="common_search">Search</string>
+    <string name="common_update">Update</string>
+    <string name="common_add">Add</string>
+    <string name="common_details">Details</string>
+    <string name="common_unknown">Unknown</string>
+
+    <!-- Auth -->
+    <string name="auth_error_verification_failed">Verification failed</string>
+    <string name="auth_error_passkey_failed">Passkey failed: %1$s</string>
+    <string name="auth_setting_up_secure_access">Setting up secure access...</string>
+    <string name="auth_create_account">Create Account</string>
+    <string name="auth_verify_your_email">Verify Your Email</string>
+    <string name="auth_email_label">Email</string>
+    <string name="auth_email_placeholder">Email</string>
+    <string name="auth_sign_in_with_passkey">Sign in with existing passkey</string>
+    <string name="auth_enter_code_sent_to">Enter the 6-digit code sent to %1$s</string>
+    <string name="auth_didnt_receive_code">Didn\'t receive the code?</string>
+    <string name="auth_resend_code">Resend Code</string>
+    <string name="auth_error_signin_failed">Sign-In failed: %1$s</string>
+    <string name="auth_sign_in_with_google">Sign in with Google</string>
+    <string name="auth_continue_with_passkey">Continue with Passkey</string>
+
+    <!-- Profile -->
     <string name="profile_title">Profile</string>
+    <string name="profile_setup_account">Set Up Account</string>
+    <string name="profile_tier_label">Tier: %1$s</string>
+    <string name="profile_not_signed_in">Not signed in</string>
+    <string name="profile_listening_time_value">0m</string>
+    <string name="profile_total_listening_time">Total Listening Time</string>
 
-    <!-- Library screen -->
-    <string name="library_empty">Your library is empty</string>
-    <string name="library_selected_count">%1$d selected</string>
+    <!-- Pro -->
+    <string name="pro_title">BookPlayer Pro</string>
+    <string name="pro_learn_more">LEARN MORE</string>
+    <string name="pro_feature_cloud_sync_title">Cloud sync (Beta)</string>
+    <string name="pro_feature_cloud_sync_desc">Download and sync your library and book progress to all your supported devices.</string>
+    <string name="pro_feature_watch_title">Android Watch (Beta)</string>
+    <string name="pro_feature_watch_desc">Stream or download your books and listen on the go without your phone.</string>
+    <string name="pro_feature_themes_title">Themes &amp; Icons</string>
+    <string name="pro_feature_themes_desc">You\'ll have access to the additional themes and app icons that are unlocked by donating and joining BookPlayer Plus.</string>
+    <string name="pro_disclaimer_header">Please keep in mind the following:</string>
+    <string name="pro_disclaimer_account">You only need an account with us if you plan to listen to your library across different devices</string>
+    <string name="pro_disclaimer_subscription">Due to ongoing server costs for cloud storage and progress syncing, we require a subscription to offset the cost of this feature</string>
 
-    <!-- Common actions -->
-    <string name="action_back">Back</string>
-    <string name="action_cancel">Cancel</string>
-    <string name="action_move">Move</string>
-    <string name="action_delete">Delete</string>
-    <string name="action_more">More options</string>
-    <string name="action_select">Select</string>
-    <string name="action_select_all">Select All</string>
-    <string name="action_import">Import</string>
-    <string name="action_create_folder">Create Folder</string>
-    <string name="action_see_details">See details</string>
-    <string name="action_toggle_grid_view">Toggle grid view</string>
-
-    <!-- Settings screen sections / rows -->
-    <string name="settings_section_appearance">Appearance</string>
-    <string name="settings_theme">Theme</string>
-
-    <!-- Themes screen -->
-    <string name="themes_section_label">THEMES</string>
+    <!-- Settings/Themes -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_appearance_section">Appearance</string>
+    <string name="settings_theme_label">Theme</string>
+    <string name="settings_app_icon_label">App Icon</string>
+    <string name="settings_orientation_locked_label">Orientation Locked</string>
+    <string name="themes_title">Themes</string>
     <string name="themes_use_system_mode">Use System Mode</string>
     <string name="themes_always_use_dark">Always use dark variation</string>
-    <string name="themes_locked_pro">Pro</string>
+    <string name="themes_section_header">THEMES</string>
+
+    <!-- Player -->
+    <string name="player_cast">Cast</string>
+    <string name="player_prev">Prev</string>
+    <string name="player_next">Next</string>
+    <string name="player_chapter_label">%1$s</string>
+    <string name="player_chapter_default">Chapter 1 of 1</string>
+    <string name="player_play_pause">Play/Pause</string>
+    <string name="player_chapters_title">Chapters</string>
+    <string name="player_chapter_details">Start: %1$s - Duration: %2$s</string>
+    <string name="player_jump_to_start">Jump to start</string>
+    <string name="player_mark_as_unfinished">Mark as Unfinished</string>
+    <string name="player_mark_as_finished">Mark as Finished</string>
+    <string name="player_repeat_off">Turn off Repeat</string>
+    <string name="player_repeat_on">Turn on Repeat for this book</string>
+    <string name="player_bookmark_exists">Bookmark already exists at %1$s</string>
+    <string name="player_bookmark_saved">Your bookmark has been saved at %1$s</string>
+    <string name="player_add_note">Add note</string>
+    <string name="player_see_bookmarks">See bookmarks</string>
+    <string name="player_add_note_title">Add note</string>
+    <string name="player_note_placeholder">Note</string>
+    <string name="player_bookmarks_title">Bookmarks</string>
+    <string name="player_bookmarks_manual">Manual</string>
+    <string name="player_controls_title">Player Controls</string>
+    <string name="player_set_speed">Set playback speed</string>
+    <string name="player_speed_min">0.5</string>
+    <string name="player_speed_max">4.0</string>
+    <string name="player_volume">Volume</string>
+    <string name="player_boost_volume">Boost Volume</string>
+    <string name="player_boost_volume_desc">Doubles the volume.\nUse with caution and care for your hearing.</string>
+    <string name="player_custom_timer">Custom Timer</string>
+    <string name="player_timer_hours">hours</string>
+    <string name="player_timer_min">min</string>
+    <string name="player_start_timer">Start Timer</string>
+    <string name="player_sleep_timer_title">Sleep Timer</string>
+    <string name="player_timer_off">Off</string>
+    <string name="player_timer_5m">5 minutes</string>
+    <string name="player_timer_10m">10 minutes</string>
+    <string name="player_timer_15m">15 minutes</string>
+    <string name="player_timer_30m">30 minutes</string>
+    <string name="player_timer_45m">45 minutes</string>
+    <string name="player_timer_1h">1 hour</string>
+    <string name="player_timer_end_chapter">End of Chapter</string>
+    <string name="player_timer_custom">Custom</string>
+    <string name="player_rewind_interval_title">Rewind Interval</string>
+    <string name="player_forward_interval_title">Forward Interval</string>
+    <string name="player_smart_rewind_limit_title">Smart Rewind Limit</string>
+    <string name="player_list_button_action_title">List Button Action</string>
+    <string name="player_quick_action_1">Quick Action 1</string>
+    <string name="player_quick_action_2">Quick Action 2</string>
+    <string name="player_quick_action_3">Quick Action 3</string>
+    <string name="player_settings_skip_intervals">Skip Intervals</string>
+    <string name="player_settings_rewind">Rewind</string>
+    <string name="player_settings_forward">Forward</string>
+    <string name="player_settings_skip_intervals_desc">Adjust the amount skipped when using the buttons in the Player or Control Center.</string>
+    <string name="player_settings_smart_rewind">Smart Rewind</string>
+    <string name="player_settings_smart_rewind_limit">Smart Rewind Limit</string>
+    <string name="player_settings_smart_rewind_desc">Automatically skip backwards when resuming playback. Skips back further the longer playback has been paused, up to a maximum of 30 secs.</string>
+    <string name="player_settings_auto_sleep_timer">Auto Sleep Timer</string>
+    <string name="player_settings_auto_sleep_timer_desc">Restart the last active sleep timer when playback is resumed</string>
+    <string name="player_settings_speed">Speed</string>
+    <string name="player_settings_global_speed">Global Speed Control</string>
+    <string name="player_settings_global_speed_desc">Set speed across all books.</string>
+    <string name="player_settings_progress_bar_seeking">Progress Bar Seeking</string>
+    <string name="player_settings_progress_bar_seeking_desc">Enable seeking on the lock screen</string>
+    <string name="player_settings_list_opens">Opens</string>
+    <string name="player_settings_list_opens_desc">Adjust what the list button in the player screen opens</string>
+    <string name="player_settings_progress_labels">Progress Labels</string>
+    <string name="player_settings_use_remaining_time">Use Remaining Time</string>
+    <string name="player_settings_use_chapter_context">Use Chapter Context</string>
+    <string name="player_settings_progress_labels_desc">Toggle between displaying the remaining time, total duration and progress of either the chapter or the book in the player screen</string>
+    <string name="player_rewind">Rewind</string>
+
+    <!-- Library -->
+    <string name="library_title_default">Library</string>
+    <string name="library_create_folder_title">Create Folder</string>
+    <string name="library_folder_name_label">Folder Name</string>
+    <string name="library_folder_name_error">Use only letters, numbers, \'-\' or \'_\'</string>
+    <string name="library_choose_destination_title">Choose Destination</string>
+    <string name="library_choose_destination_message">Where would you like to move the selected items?</string>
+    <string name="library_new_folder">New Folder</string>
+    <string name="library_existing_folder">Existing Folder</string>
+    <string name="library_select_folder_title">Select Folder</string>
+    <string name="library_delete_item_title">Delete Item</string>
+    <string name="library_delete_items_title">Delete %1$d Items</string>
+    <string name="library_delete_item_message">Are you sure you want to delete \'%1$s\'? This will also remove the physical file.</string>
+    <string name="library_delete_items_message">Are you sure you want to delete these %1$d items? This will also remove the physical files.</string>
+    <string name="library_delete_folder_warning">\n\nNote: Deleting a folder will also delete all of its contents.</string>
+    <string name="library_empty_message">Your library is empty</string>
+    <string name="library_see_details">See details</string>
+    <string name="library_view_style">View Style</string>
+    <string name="library_folder_empty">0 Files</string>
+    <string name="library_unknown_author">Unknown author</string>
+    <string name="library_open_folder">Open Folder</string>
+    <string name="library_edit_book_title">Edit Book</string>
+    <string name="library_title_placeholder">Title</string>
+    <string name="library_author_placeholder">Author</string>
+    <string name="library_artwork_title">Artwork</string>
+    <string name="library_filename_label">Filename</string>
+    <string name="library_progress_label">Progress</string>
+    <string name="library_progress_percent">%1$d%%</string>
+    <string name="library_last_played_label">Last Played</string>
+    <string name="date_format_last_played">d MMM yyyy \'at\' h:mm a</string>
+
+    <!-- Import -->
+    <string name="import_title">Import</string>
+    <string name="import_disclaimer">Transferring files may take a while, please make sure the number of files is complete before proceeding.</string>
+    <string name="import_files_count">%1$d Files</string>
+
+    <!-- Interval/Duration -->
+    <string name="interval_seconds">%1$d secs</string>
+    <string name="interval_1_min">1 min</string>
+    <string name="interval_1_min_30_secs">1 min, 30 secs</string>
+    <string name="interval_minutes">%1$d min</string>
+    <string name="duration_hms">%1$dh %2$dm %3$ds</string>
+    <string name="duration_ms">%1$dm %2$ds</string>
+
 </resources>

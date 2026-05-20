@@ -22,11 +22,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
 import java.text.SimpleDateFormat
@@ -59,38 +61,39 @@ fun ItemDetailSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        dragHandle = null,
         modifier = Modifier.fillMaxSize()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
         ) {
+            Spacer(modifier = Modifier.height(8.dp))
             // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 24.dp),
+                    .padding(vertical = 24.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ActionButton(
-                    text = "Cancel",
+                    text = stringResource(R.string.common_cancel),
                     onClick = onDismiss,
                     containerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
                     contentColor = MaterialTheme.colorScheme.onSurface
                 )
                 
                 Text(
-                    text = "Edit Book", 
+                    text = stringResource(R.string.library_edit_book_title), 
                     fontWeight = FontWeight.ExtraBold, 
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 
                 ActionButton(
-                    text = "Save",
+                    text = stringResource(R.string.common_save),
                     onClick = {
                         viewModel.updateItemDetails(item, title, author)
                         onDismiss()
@@ -99,12 +102,10 @@ fun ItemDetailSheet(
             }
 
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    "Details",
+                    stringResource(R.string.common_details),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -120,7 +121,7 @@ fun ItemDetailSheet(
                         TextField(
                             value = title,
                             onValueChange = { title = it },
-                            placeholder = { Text("Title", style = MaterialTheme.typography.bodyLarge) },
+                            placeholder = { Text(stringResource(R.string.library_title_placeholder), style = MaterialTheme.typography.bodyLarge) },
                             modifier = Modifier.fillMaxWidth(),
                             textStyle = MaterialTheme.typography.bodyLarge,
                             colors = TextFieldDefaults.colors(
@@ -137,7 +138,7 @@ fun ItemDetailSheet(
                                     IconButton(onClick = { title = "" }) {
                                         Icon(
                                             Icons.Default.Close, 
-                                            contentDescription = "Clear", 
+                                            contentDescription = stringResource(R.string.common_clear), 
                                             modifier = Modifier.size(20.dp),
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -152,7 +153,7 @@ fun ItemDetailSheet(
                         TextField(
                             value = author,
                             onValueChange = { author = it },
-                            placeholder = { Text("Author", style = MaterialTheme.typography.bodyLarge) },
+                            placeholder = { Text(stringResource(R.string.library_author_placeholder), style = MaterialTheme.typography.bodyLarge) },
                             modifier = Modifier.fillMaxWidth(),
                             textStyle = MaterialTheme.typography.bodyLarge,
                             colors = TextFieldDefaults.colors(
@@ -169,7 +170,7 @@ fun ItemDetailSheet(
                                     IconButton(onClick = { author = "" }) {
                                         Icon(
                                             Icons.Default.Close, 
-                                            contentDescription = "Clear", 
+                                            contentDescription = stringResource(R.string.common_clear), 
                                             modifier = Modifier.size(20.dp),
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -183,7 +184,7 @@ fun ItemDetailSheet(
                 Spacer(modifier = Modifier.height(32.dp))
 
                 Text(
-                    "Artwork",
+                    stringResource(R.string.library_artwork_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -199,7 +200,7 @@ fun ItemDetailSheet(
                         modifier = Modifier.padding(20.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Artwork Image - LARGER and centered
+                        // Artwork Image
                         Box(
                             modifier = Modifier
                                 .size(140.dp)
@@ -229,7 +230,7 @@ fun ItemDetailSheet(
                         Row(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(140.dp) // Match artwork preview height
+                                .height(140.dp)
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f)),
                             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -252,7 +253,7 @@ fun ItemDetailSheet(
                                     modifier = Modifier.size(28.dp)
                                 )
                                 Text(
-                                    if (item.artworkURL != null) "Update" else "Add",
+                                    if (item.artworkURL != null) stringResource(R.string.common_update) else stringResource(R.string.common_add),
                                     color = MaterialTheme.colorScheme.primary,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.ExtraBold
@@ -280,7 +281,7 @@ fun ItemDetailSheet(
                                         modifier = Modifier.size(28.dp)
                                     )
                                     Text(
-                                        "Delete", 
+                                        stringResource(R.string.common_delete), 
                                         color = MaterialTheme.colorScheme.error, 
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.ExtraBold
@@ -293,18 +294,24 @@ fun ItemDetailSheet(
 
                 Spacer(modifier = Modifier.height(40.dp))
 
-                // Metadata Footer - BOLDER and larger
+                // Metadata Footer
                 Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp)
                 ) {
-                    FooterInfoRow(label = "Filename", value = item.originalFileName ?: "Unknown")
-                    FooterInfoRow(label = "Progress", value = "${(item.percentCompleted * 100).toInt()}%")
+                    FooterInfoRow(
+                        label = stringResource(R.string.library_filename_label), 
+                        value = item.originalFileName ?: stringResource(R.string.common_unknown)
+                    )
+                    FooterInfoRow(
+                        label = stringResource(R.string.library_progress_label), 
+                        value = stringResource(R.string.library_progress_percent, (item.percentCompleted * 100).toInt())
+                    )
                     
                     if (item.lastPlayDate != null) {
                         val date = Date(item.lastPlayDate!!)
-                        val format = SimpleDateFormat("d MMM yyyy 'at' h:mm a", Locale.getDefault())
-                        FooterInfoRow(label = "Last Played", value = format.format(date))
+                        val format = SimpleDateFormat(stringResource(R.string.date_format_last_played), Locale.getDefault())
+                        FooterInfoRow(label = stringResource(R.string.library_last_played_label), value = format.format(date))
                     }
                 }
             }

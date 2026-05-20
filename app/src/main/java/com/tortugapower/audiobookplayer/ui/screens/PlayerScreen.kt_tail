@@ -1,0 +1,14 @@
+        }
+    }
+}
+
+private fun formatTime(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    
+    val mStr = if (minutes < 10) "0$minutes" else minutes.toString()
+    val sStr = if (seconds < 10) "0$seconds" else seconds.toString()
+    
+    return "$mStr:$sStr"
+}
