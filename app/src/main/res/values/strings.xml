@@ -153,6 +153,7 @@
     <string name="library_create_folder_title">Create Folder</string>
     <string name="library_folder_name_label">Folder Name</string>
     <string name="library_folder_name_error">Use only letters, numbers, \'-\' or \'_\'</string>
+    <string name="library_folder_name_exists_error">A folder or file with this name already exists</string>
     <string name="library_choose_destination_title">Choose Destination</string>
     <string name="library_choose_destination_message">Where would you like to move the selected items?</string>
     <string name="library_new_folder">New Folder</string>
@@ -183,6 +184,7 @@
     <string name="import_title">Import</string>
     <string name="import_disclaimer">Transferring files may take a while, please make sure the number of files is complete before proceeding.</string>
     <string name="import_files_count">%1$d Files</string>
+    <string name="import_skipped_items">%1$d items were skipped because they already exist in the library</string>
 
     <!-- Interval/Duration -->
     <string name="interval_seconds">%1$d secs</string>

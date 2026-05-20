@@ -11,6 +11,7 @@ class ImportViewModel(
 ) : ViewModel() {
     val importedFiles get() = importService.importedFiles
     val isImporting get() = importService.isImporting
+    val skippedItemsCount get() = importService.skippedItemsCount
     var showImportSheet 
         get() = importService.showImportSheet
         set(value) { importService.showImportSheet = value }

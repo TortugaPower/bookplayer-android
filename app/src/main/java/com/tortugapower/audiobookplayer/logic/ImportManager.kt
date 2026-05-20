@@ -27,6 +27,9 @@ object ImportManager : ImportService {
     override var isImporting by mutableStateOf(false)
         private set
 
+    override var skippedItemsCount by mutableStateOf(0)
+        private set
+
     override var showImportSheet by mutableStateOf(false)
 
     override fun startImport(context: Context, uris: List<Uri>) {
@@ -36,10 +39,20 @@ object ImportManager : ImportService {
             if (!backupDir.exists()) backupDir.mkdirs()
 
             val newFiles = mutableListOf<ImportFile>()
+            val database = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
+            val libraryDao = database.libraryDao()
             
+            var currentSkipped = 0
             withContext(Dispatchers.IO) {
                 uris.forEach { uri ->
                     val fileName = getFileName(context, uri) ?: "unknown_file_${System.currentTimeMillis()}"
+                    
+                    // Check for duplicates
+                    if (libraryDao.existsWithFileName(fileName)) {
+                        currentSkipped++
+                        return@forEach
+                    }
+
                     val destFile = File(backupDir, fileName)
                     
                     try {
@@ -56,6 +69,7 @@ object ImportManager : ImportService {
             }
 
             importedFiles = importedFiles + newFiles
+            skippedItemsCount += currentSkipped
             isImporting = false
             showImportSheet = true
         }
@@ -68,6 +82,7 @@ object ImportManager : ImportService {
         importedFiles = importedFiles.filter { it != importFile }
         if (importedFiles.isEmpty()) {
             showImportSheet = false
+            skippedItemsCount = 0
         }
     }
 
@@ -76,6 +91,7 @@ object ImportManager : ImportService {
             if (it.file.exists()) it.file.delete()
         }
         importedFiles = emptyList()
+        skippedItemsCount = 0
         showImportSheet = false
     }
 
@@ -112,6 +128,7 @@ object ImportManager : ImportService {
             }
 
             importedFiles = emptyList()
+            skippedItemsCount = 0
             showImportSheet = false
         }
     }

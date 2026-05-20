@@ -108,7 +108,8 @@ fun LibraryScreen(
 
     if (showCreateFolderDialog) {
         var folderName by remember { mutableStateOf("") }
-        val isNameValid = folderName.isNotEmpty() && folderName.all { it.isLetterOrDigit() || it == '_' || it == '-' }
+        val isNameDuplicate = items.any { it.title.equals(folderName, ignoreCase = true) }
+        val isNameValid = folderName.isNotEmpty() && folderName.all { it.isLetterOrDigit() || it == '_' || it == '-' } && !isNameDuplicate
 
         AlertDialog(
             onDismissRequest = { showCreateFolderDialog = false },
@@ -119,10 +120,14 @@ fun LibraryScreen(
                     onValueChange = { folderName = it },
                     label = { Text(stringResource(R.string.library_folder_name_label)) },
                     singleLine = true,
-                    isError = folderName.isNotEmpty() && !isNameValid,
+                    isError = folderName.isNotEmpty() && (!isNameValid || isNameDuplicate),
                     supportingText = {
-                        if (folderName.isNotEmpty() && !isNameValid) {
-                            Text(stringResource(R.string.library_folder_name_error))
+                        if (folderName.isNotEmpty()) {
+                            if (isNameDuplicate) {
+                                Text(stringResource(R.string.library_folder_name_exists_error))
+                            } else if (!isNameValid) {
+                                Text(stringResource(R.string.library_folder_name_error))
+                            }
                         }
                     },
                     colors = OutlinedTextFieldDefaults.colors(

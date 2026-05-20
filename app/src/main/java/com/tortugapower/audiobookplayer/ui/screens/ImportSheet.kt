@@ -102,6 +102,17 @@ fun ImportSheet(viewModel: ImportViewModel) {
                     HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
                 }
             }
+
+            if (viewModel.skippedItemsCount > 0) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = stringResource(R.string.import_skipped_items, viewModel.skippedItemsCount),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
         }
     }
 }

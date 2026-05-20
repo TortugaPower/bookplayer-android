@@ -27,6 +27,9 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items WHERE relativePath = :path LIMIT 1")
     suspend fun getItemByPath(path: String): LibraryItemEntity?
 
+    @Query("SELECT EXISTS(SELECT 1 FROM library_items WHERE type = 'BOOK' AND (relativePath = :fileName OR relativePath LIKE '%/' || :fileName))")
+    suspend fun existsWithFileName(fileName: String): Boolean
+
     @Query("SELECT * FROM library_items WHERE type = 'FOLDER' AND relativePath NOT LIKE '%/%'")
     fun getRootFolders(): Flow<List<LibraryItemEntity>>
 

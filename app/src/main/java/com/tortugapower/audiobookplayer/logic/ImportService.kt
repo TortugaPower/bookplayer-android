@@ -16,6 +16,7 @@ data class ImportFile(
 interface ImportService {
     val importedFiles: List<ImportFile>
     val isImporting: Boolean
+    val skippedItemsCount: Int
     var showImportSheet: Boolean
 
     fun startImport(context: Context, uris: List<Uri>)

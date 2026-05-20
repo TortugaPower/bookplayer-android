@@ -44,12 +44,14 @@ fun ItemDetailSheet(
     val context = LocalContext.current
     var title by remember { mutableStateOf(item.title) }
     var author by remember { mutableStateOf(item.author ?: "") }
+    var artworkURL by remember { mutableStateOf(item.artworkURL) }
     
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri ->
             if (uri != null) {
                 viewModel.updateArtwork(context, item, uri)
+                artworkURL = uri.toString()
             }
         }
     )
@@ -208,9 +210,9 @@ fun ItemDetailSheet(
                                 .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (item.artworkURL != null) {
+                            if (artworkURL != null) {
                                 AsyncImage(
-                                    model = item.artworkURL,
+                                    model = artworkURL,
                                     contentDescription = null,
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop
@@ -247,20 +249,20 @@ fun ItemDetailSheet(
                                     .padding(horizontal = 12.dp, vertical = 4.dp)
                             ) {
                                 Icon(
-                                    imageVector = if (item.artworkURL != null) Icons.Default.Update else Icons.Default.Add,
+                                    imageVector = if (artworkURL != null) Icons.Default.Update else Icons.Default.Add,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(28.dp)
                                 )
                                 Text(
-                                    if (item.artworkURL != null) stringResource(R.string.common_update) else stringResource(R.string.common_add),
+                                    if (artworkURL != null) stringResource(R.string.common_update) else stringResource(R.string.common_add),
                                     color = MaterialTheme.colorScheme.primary,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.ExtraBold
                                 )
                             }
 
-                            if (item.artworkURL != null) {
+                            if (artworkURL != null) {
                                 VerticalDivider(
                                     modifier = Modifier.height(64.dp), 
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
@@ -271,7 +273,10 @@ fun ItemDetailSheet(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(12.dp))
-                                        .clickable { viewModel.deleteArtwork(item) }
+                                        .clickable { 
+                                            viewModel.deleteArtwork(item)
+                                            artworkURL = null
+                                        }
                                         .padding(horizontal = 12.dp, vertical = 4.dp)
                                 ) {
                                     Icon(
