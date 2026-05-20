@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.tortugapower.audiobookplayer.ui.screens
 
 import androidx.compose.foundation.background
@@ -5,9 +7,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -16,16 +20,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.AccountGate
 import com.tortugapower.audiobookplayer.logic.ThemeManager
+import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerThemeSpec
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen() {
     val context = LocalContext.current
@@ -55,25 +61,14 @@ fun ProfileScreen() {
         AuthSheet(onDismiss = { showAuthSheet = false })
     }
 
+    BookPlayerTabScaffold(title = stringResource(R.string.profile_title)) { innerPadding ->
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
+            .padding(innerPadding)
             .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Header (Android standard)
-        Text(
-            text = "Profile",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp)
-        )
-
         Spacer(modifier = Modifier.height(8.dp))
 
         // Account Section
@@ -187,9 +182,9 @@ fun ProfileScreen() {
             }
         }
     }
+    }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookPlayerProSheet(
     onDismiss: () -> Unit, 
@@ -381,61 +376,61 @@ fun DisclaimerItem(text: String) {
 
 @Composable
 fun SettingsScreen(onNavigateToThemes: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .padding(16.dp)
-    ) {
-        Text(
-            text = "Settings",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(bottom = 32.dp)
-        )
-
-        Text(
-            text = "Appearance",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
-        )
-
-        Surface(
+    BookPlayerTabScaffold(title = stringResource(R.string.settings_title)) { innerPadding ->
+        LazyColumn(
             modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp)),
-            color = MaterialTheme.colorScheme.surface
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(
+                top = innerPadding.calculateTopPadding(),
+                bottom = innerPadding.calculateBottomPadding() + 16.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column {
+            settingsSection(titleRes = R.string.settings_section_appearance) {
                 SettingsItem(
-                    label = "Theme",
+                    label = stringResource(R.string.settings_theme),
                     value = ThemeManager.currentTheme.title,
-                    onClick = onNavigateToThemes
-                )
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    thickness = 0.5.dp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                )
-                SettingsItem(
-                    label = "App Icon",
-                    value = "Default",
-                    onClick = {}
-                )
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    thickness = 0.5.dp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                )
-                SettingsToggleItem(
-                    label = "Orientation Locked",
-                    checked = false,
-                    onCheckedChange = {}
+                    onClick = onNavigateToThemes,
                 )
             }
+        }
+    }
+}
+
+/**
+ * Adds a labelled section to a Settings-style [LazyColumn]: a small uppercase caption
+ * header (Material3 grouped-list convention) followed by a [Card] that wraps the rows.
+ *
+ * Call from inside a [LazyColumn] body alongside other items. Each call produces two
+ * [LazyListScope] items (the header and the card), spaced by the parent's
+ * `verticalArrangement`. Use multiple times to build multi-section settings screens.
+ *
+ * Takes a string resource id (rather than a resolved `String`) because the section is
+ * built outside a `@Composable` context — string resolution happens inside the item bodies.
+ *
+ * @param titleRes section caption shown above the card
+ * @param content the rows to render inside the card — typically `SettingsItem`s and
+ *                `SettingsToggleItem`s, optionally separated by [HorizontalDivider]
+ */
+fun LazyListScope.settingsSection(
+    @androidx.annotation.StringRes titleRes: Int,
+    content: @Composable () -> Unit,
+) {
+    item {
+        Text(
+            text = stringResource(titleRes),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
+        )
+    }
+    item {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            content()
         }
     }
 }
@@ -443,70 +438,50 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit) {
 @Composable
 fun ThemesScreen(onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-    ) {
-        // Custom Top Bar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface)
-            ) {
-                Icon(Icons.Default.ChevronLeft, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
+    BookPlayerTabScaffold(
+        title = stringResource(R.string.themes_title),
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.action_back),
+                )
             }
-            Text(
-                text = "Themes",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Spacer(modifier = Modifier.size(48.dp))
-        }
-
+        },
+    ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(
+                top = innerPadding.calculateTopPadding(),
+                bottom = innerPadding.calculateBottomPadding() + 16.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp)),
-                    color = MaterialTheme.colorScheme.surface
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 ) {
-                    Column {
-                        SettingsToggleItem(
-                            label = "Use System Mode",
-                            checked = ThemeManager.useSystemMode,
-                            onCheckedChange = { ThemeManager.setUseSystemMode(context, it) }
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
-                        SettingsToggleItem(
-                            label = "Always use dark variation",
-                            checked = ThemeManager.useDarkVariant,
-                            enabled = !ThemeManager.useSystemMode,
-                            onCheckedChange = { ThemeManager.setUseDarkVariant(context, it) }
-                        )
-                    }
+                    SettingsToggleItem(
+                        label = stringResource(R.string.themes_use_system_mode),
+                        checked = ThemeManager.useSystemMode,
+                        onCheckedChange = { ThemeManager.setUseSystemMode(context, it) },
+                    )
+                    HorizontalDivider()
+                    SettingsToggleItem(
+                        label = stringResource(R.string.themes_always_use_dark),
+                        checked = ThemeManager.useDarkVariant,
+                        enabled = !ThemeManager.useSystemMode,
+                        onCheckedChange = { ThemeManager.setUseDarkVariant(context, it) },
+                    )
                 }
             }
 
             item {
                 Text(
-                    text = "THEMES",
+                    text = stringResource(R.string.themes_section_label),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
@@ -514,25 +489,18 @@ fun ThemesScreen(onBack: () -> Unit) {
             }
 
             item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp)),
-                    color = MaterialTheme.colorScheme.surface
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 ) {
-                    Column {
-                        ThemeManager.allThemes.forEachIndexed { index, theme ->
-                            ThemeItem(
-                                theme = theme,
-                                isSelected = ThemeManager.currentTheme.title == theme.title,
-                                onClick = { ThemeManager.setTheme(context, theme) }
-                            )
-                            if (index < ThemeManager.allThemes.size - 1) {
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
-                                )
-                            }
+                    ThemeManager.allThemes.forEachIndexed { index, theme ->
+                        ThemeItem(
+                            theme = theme,
+                            isSelected = ThemeManager.currentTheme.title == theme.title,
+                            onClick = { ThemeManager.setTheme(context, theme) },
+                        )
+                        if (index < ThemeManager.allThemes.size - 1) {
+                            HorizontalDivider()
                         }
                     }
                 }
@@ -543,25 +511,14 @@ fun ThemesScreen(onBack: () -> Unit) {
 
 @Composable
 fun SettingsItem(label: String, value: String, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(text = label, color = MaterialTheme.colorScheme.onSurface)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = value, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-    }
+    ListItem(
+        headlineContent = { Text(label) },
+        trailingContent = {
+            Text(value, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(onClick = onClick),
+    )
 }
 
 @Composable
@@ -571,59 +528,55 @@ fun SettingsToggleItem(
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        val textColor = if (enabled) MaterialTheme.colorScheme.onSurface
-        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-        Text(text = label, color = textColor)
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            enabled = enabled,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = MaterialTheme.colorScheme.primary
+    ListItem(
+        headlineContent = {
+            val color = if (enabled) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+            Text(label, color = color)
+        },
+        trailingContent = {
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                enabled = enabled,
             )
-        )
-    }
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(enabled = enabled) { onCheckedChange(!checked) },
+    )
 }
 
 @Composable
 fun ThemeItem(theme: BookPlayerThemeSpec, isSelected: Boolean, onClick: () -> Unit) {
     val isLockedForUser = theme.locked && !AccountGate.isPro()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = !isLockedForUser, onClick = onClick)
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        ThemeShowcase(
-            theme = theme,
-            modifier = if (isSelected) {
-                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
-            } else Modifier
-        )
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Text(
-            text = theme.title,
-            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            modifier = Modifier.weight(1f)
-        )
-
-        when {
-            isSelected -> Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            isLockedForUser -> Icon(Icons.Default.Lock, contentDescription = "Pro", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+    ListItem(
+        headlineContent = {
+            Text(
+                text = theme.title,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            )
+        },
+        leadingContent = {
+            ThemeShowcase(
+                theme = theme,
+                modifier = if (isSelected) {
+                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                } else Modifier,
+            )
+        },
+        trailingContent = if (isSelected || isLockedForUser) {
+            {
+                if (isSelected) {
+                    Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                } else {
+                    Icon(Icons.Default.Lock, contentDescription = stringResource(R.string.themes_locked_pro), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        } else null,
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(enabled = !isLockedForUser, onClick = onClick),
+    )
 }
 
 @Composable

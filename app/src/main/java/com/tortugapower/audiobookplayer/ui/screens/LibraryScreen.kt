@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.tortugapower.audiobookplayer.ui.screens
 
 import androidx.activity.compose.BackHandler
@@ -9,19 +11,16 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -32,23 +31,28 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Canvas
 import coil.compose.AsyncImage
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.ImportManager
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
+import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModelFactory
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Duration of the horizontal slide between library folders. */
+private const val FolderNavDurationMillis = 400
+
 @Composable
 fun LibraryScreen(
     importViewModel: ImportViewModel = viewModel()
@@ -68,6 +72,12 @@ fun LibraryScreen(
 
     var selectedItemUuids by remember { mutableStateOf(setOf<String>()) }
     var isSelectMode by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
+        onResult = { uris -> if (uris.isNotEmpty()) ImportManager.startImport(context, uris) }
+    )
 
     BackHandler(enabled = isSelectMode || currentPath != null) {
         if (isSelectMode) {
@@ -266,330 +276,221 @@ fun LibraryScreen(
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedContent(
-            targetState = currentPath,
-            transitionSpec = {
-                if (targetState != null && (initialState == null || targetState!!.length > (initialState?.length ?: 0))) {
-                    slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(400)) togetherWith
-                    slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(400))
-                } else {
-                    slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(400)) togetherWith
-                    slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400))
+    BookPlayerTabScaffold(
+        title = if (isSelectMode) {
+            stringResource(R.string.library_selected_count, selectedItemUuids.size)
+        } else {
+            currentPath?.substringAfterLast('/') ?: stringResource(R.string.library_title)
+        },
+        navigationIcon = {
+            when {
+                isSelectMode -> IconButton(onClick = {
+                    isSelectMode = false
+                    selectedItemUuids = emptySet()
+                }) {
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_cancel))
                 }
-            },
-            label = "FolderNavigation",
-            modifier = Modifier.fillMaxSize()
-        ) { path ->
-            // Path-bound items for smooth animation (outgoing keeps its items)
-            val pathItems by remember(path) { libraryViewModel.getItemsForPath(path) }.collectAsState()
-            val pathFolders by remember(path) { libraryViewModel.getFoldersForPath(path) }.collectAsState()
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .statusBarsPadding()
-            ) {
-                LibraryHeader(
-                    currentPath = path,
-                    isSelectMode = isSelectMode,
-                    selectedCount = selectedItemUuids.size,
-                    onImportClick = { /* handled in header */ },
-                    onBackClick = { libraryViewModel.navigateBack() },
-                    onCreateFolderClick = { showCreateFolderDialog = true },
-                    onSelectModeClick = { isSelectMode = true },
-                    onCancelSelectClick = {
-                        isSelectMode = false
-                        selectedItemUuids = emptySet()
-                    },
-                    onDeleteSelectedClick = {
-                        itemsToDelete = items.filter { it.uuid in selectedItemUuids }
-                    },
-                    onMoveClick = {
-                        if (selectedItemUuids.isNotEmpty()) {
-                            showChooseDestinationDialog = true
-                        }
-                    },
-                    onSelectAllClick = {
-                        selectedItemUuids = items.map { it.uuid }.toSet()
-                    },
-                    onSeeDetailsClick = {
-                        val selected = items.find { it.uuid in selectedItemUuids }
-                        if (selected != null && selected.type == ItemType.BOOK) {
-                            itemToDetail = selected
-                            showItemDetailSheet = true
-                        }
-                    },
-                    availableFolders = pathFolders
-                )
-                
-                if (pathItems.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Your library is empty", color = Color.Gray)
-                    }
-                } else {
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(pathItems, key = { it.uuid }) { item ->
-                            val isSelected = selectedItemUuids.contains(item.uuid)
-                            val dismissState = rememberSwipeToDismissBoxState(
-                                confirmValueChange = {
-                                    if (!isSelectMode && it == SwipeToDismissBoxValue.EndToStart) {
-                                        itemsToDelete = listOf(item)
-                                        false
-                                    } else false
-                                }
-                            )
-
-                            SwipeToDismissBox(
-                                state = dismissState,
-                                backgroundContent = {
-                                    val isSwiping = !isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
-                                    val color = if (isSwiping) Color(0xFFE57373) else Color.Transparent
-                                    
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(color)
-                                            .clickable { 
-                                                if (isSwiping) itemsToDelete = listOf(item)
-                                            }
-                                            .padding(horizontal = 24.dp),
-                                        contentAlignment = Alignment.CenterEnd
-                                    ) {
-                                        if (isSwiping) {
-                                            Icon(
-                                                Icons.Default.Delete,
-                                                contentDescription = "Delete",
-                                                tint = Color.White
-                                            )
-                                        }
-                                    }
-                                },
-                                enableDismissFromStartToEnd = false
-                            ) {
-                                Surface(
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.background,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    LibraryListItem(
-                                        item = item,
-                                        isSelected = isSelected,
-                                        isSelectMode = isSelectMode,
-                                        onClick = {
-                                            if (isSelectMode) {
-                                                selectedItemUuids = if (isSelected) {
-                                                    selectedItemUuids - item.uuid
-                                                } else {
-                                                    selectedItemUuids + item.uuid
-                                                }
-                                            } else {
-                                                if (item.type == ItemType.FOLDER) {
-                                                    libraryViewModel.navigateTo(item.relativePath ?: "")
-                                                } else {
-                                                    val isCurrentlyPlaying = PlaybackManager.currentItem?.uuid == item.uuid
-                                                    if (isCurrentlyPlaying) {
-                                                        PlaybackManager.showPlayerScreen = true
-                                                        if (PlaybackManager.player?.isPlaying == false) {
-                                                            PlaybackManager.player?.play()
-                                                        }
-                                                    } else {
-                                                        PlaybackManager.playItem(context, item)
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        onLongClick = {
-                                            if (!isSelectMode) {
-                                                isSelectMode = true
-                                                selectedItemUuids = setOf(item.uuid)
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                            HorizontalDivider(
-                                modifier = Modifier.padding(start = if (isSelectMode) 120.dp else 80.dp),
-                                thickness = 0.5.dp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                            )
-                        }
-                    }
+                currentPath != null -> IconButton(onClick = { libraryViewModel.navigateBack() }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun LibraryHeader(
-    currentPath: String?,
-    isSelectMode: Boolean,
-    selectedCount: Int,
-    onImportClick: () -> Unit,
-    onBackClick: () -> Unit,
-    onCreateFolderClick: () -> Unit,
-    onSelectModeClick: () -> Unit,
-    onCancelSelectClick: () -> Unit,
-    onDeleteSelectedClick: () -> Unit,
-    onMoveClick: () -> Unit,
-    onSeeDetailsClick: () -> Unit = {},
-    onSelectAllClick: () -> Unit = {},
-    availableFolders: List<LibraryItemEntity> = emptyList()
-) {
-    var showMenu by remember { mutableStateOf(false) }
-    var showMoreMenu by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
-        onResult = { uris ->
-            if (uris.isNotEmpty()) {
-                ImportManager.startImport(context, uris)
-            }
-        }
-    )
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 4.dp, end = 16.dp) // Reduced start padding to account for IconButton internal padding
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        },
+        actions = {
             if (isSelectMode) {
-                IconButton(onClick = onCancelSelectClick) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack, 
-                        contentDescription = "Cancel", 
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                IconButton(
+                    onClick = { if (selectedItemUuids.isNotEmpty()) showChooseDestinationDialog = true },
+                    enabled = selectedItemUuids.isNotEmpty(),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = stringResource(R.string.action_move))
                 }
-            } else if (currentPath != null) {
-                IconButton(onClick = onBackClick) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack, 
-                        contentDescription = "Back", 
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            } else {
-                Spacer(modifier = Modifier.width(12.dp)) // Maintain alignment when no back button
-            }
-            Text(
-                text = if (isSelectMode) "$selectedCount" else (currentPath?.substringAfterLast('/') ?: "Library"),
-                style = if (isSelectMode) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-        }
-        Row {
-            if (isSelectMode) {
-                IconButton(onClick = onMoveClick, enabled = selectedCount > 0) {
-                    Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move", tint = if (selectedCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
-                }
-                IconButton(onClick = onDeleteSelectedClick, enabled = selectedCount > 0) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = if (selectedCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+                IconButton(
+                    onClick = { itemsToDelete = items.filter { it.uuid in selectedItemUuids } },
+                    enabled = selectedItemUuids.isNotEmpty(),
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.action_delete))
                 }
                 Box {
                     IconButton(onClick = { showMoreMenu = true }) {
-                        Icon(Icons.Default.MoreHoriz, contentDescription = "More", tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Default.MoreHoriz, contentDescription = stringResource(R.string.action_more))
                     }
                     DropdownMenu(
                         expanded = showMoreMenu,
                         onDismissRequest = { showMoreMenu = false },
-                        modifier = Modifier.background(MaterialTheme.colorScheme.surface)
                     ) {
-                        if (selectedCount == 1) {
+                        if (selectedItemUuids.size == 1) {
                             DropdownMenuItem(
-                                text = { Text("See details", color = MaterialTheme.colorScheme.onSurface) },
-                                onClick = { 
+                                text = { Text(stringResource(R.string.action_see_details)) },
+                                onClick = {
                                     showMoreMenu = false
-                                    onSeeDetailsClick()
-                                }
+                                    val selected = items.find { it.uuid in selectedItemUuids }
+                                    if (selected != null && selected.type == ItemType.BOOK) {
+                                        itemToDetail = selected
+                                        showItemDetailSheet = true
+                                    }
+                                },
                             )
                         }
                         DropdownMenuItem(
-                            text = { Text("Select All", color = MaterialTheme.colorScheme.onSurface) },
-                            onClick = { 
+                            text = { Text(stringResource(R.string.action_select_all)) },
+                            onClick = {
                                 showMoreMenu = false
-                                onSelectAllClick()
-                            }
+                                selectedItemUuids = items.map { it.uuid }.toSet()
+                            },
                         )
                     }
                 }
             } else {
-                IconButton(onClick = { }) {
-                    Icon(
-                        imageVector = Icons.Outlined.GridView, 
-                        contentDescription = "View Style", 
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
                 Box {
                     IconButton(onClick = { showMenu = true }) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert, 
-                            contentDescription = "More", 
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.action_more))
                     }
                     DropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
-                        modifier = Modifier.background(MaterialTheme.colorScheme.surface)
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Select", color = MaterialTheme.colorScheme.onSurface) },
+                            text = { Text(stringResource(R.string.action_select)) },
                             onClick = {
                                 showMenu = false
-                                onSelectModeClick()
+                                isSelectMode = true
                             },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Checklist, 
-                                    contentDescription = null, 
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
+                            leadingIcon = { Icon(Icons.Default.Checklist, null) },
                         )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
+                        HorizontalDivider()
                         DropdownMenuItem(
-                            text = { Text("Import", color = MaterialTheme.colorScheme.onSurface) },
+                            text = { Text(stringResource(R.string.action_import)) },
                             onClick = {
                                 showMenu = false
                                 launcher.launch(arrayOf("audio/*"))
                             },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.FileDownload, 
-                                    contentDescription = null, 
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
+                            leadingIcon = { Icon(Icons.Default.FileDownload, null) },
                         )
                         DropdownMenuItem(
-                            text = { Text("Create Folder", color = MaterialTheme.colorScheme.onSurface) },
+                            text = { Text(stringResource(R.string.action_create_folder)) },
                             onClick = {
                                 showMenu = false
-                                onCreateFolderClick()
+                                showCreateFolderDialog = true
                             },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.CreateNewFolder, 
-                                    contentDescription = null, 
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                            leadingIcon = { Icon(Icons.Default.CreateNewFolder, null) },
+                        )
+                    }
+                }
+            }
+        },
+    ) { innerPadding ->
+        AnimatedContent(
+            targetState = currentPath,
+            transitionSpec = {
+                if (targetState != null && (initialState == null || targetState!!.length > (initialState?.length ?: 0))) {
+                    slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(FolderNavDurationMillis)) togetherWith
+                    slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(FolderNavDurationMillis))
+                } else {
+                    slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(FolderNavDurationMillis)) togetherWith
+                    slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(FolderNavDurationMillis))
+                }
+            },
+            label = "FolderNavigation",
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+        ) { path ->
+            val pathItems by remember(path) { libraryViewModel.getItemsForPath(path) }.collectAsState()
+
+            if (pathItems.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(stringResource(R.string.library_empty), color = Color.Gray)
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(pathItems, key = { it.uuid }) { item ->
+                        val isSelected = selectedItemUuids.contains(item.uuid)
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = {
+                                if (!isSelectMode && it == SwipeToDismissBoxValue.EndToStart) {
+                                    itemsToDelete = listOf(item)
+                                    false
+                                } else false
                             }
                         )
+
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            backgroundContent = {
+                                val isSwiping = !isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
+                                val color = if (isSwiping) Color(0xFFE57373) else Color.Transparent
+                                
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(color)
+                                        .clickable { 
+                                            if (isSwiping) itemsToDelete = listOf(item)
+                                        }
+                                        .padding(horizontal = 24.dp),
+                                    contentAlignment = Alignment.CenterEnd
+                                ) {
+                                    if (isSwiping) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Delete",
+                                            tint = Color.White
+                                        )
+                                    }
+                                }
+                            },
+                            enableDismissFromStartToEnd = false
+                        ) {
+                            Surface(
+                                color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.background,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                LibraryListItem(
+                                    item = item,
+                                    isSelected = isSelected,
+                                    isSelectMode = isSelectMode,
+                                    onClick = {
+                                        if (isSelectMode) {
+                                            selectedItemUuids = if (isSelected) {
+                                                selectedItemUuids - item.uuid
+                                            } else {
+                                                selectedItemUuids + item.uuid
+                                            }
+                                        } else {
+                                            if (item.type == ItemType.FOLDER) {
+                                                libraryViewModel.navigateTo(item.relativePath ?: "")
+                                            } else {
+                                                val isCurrentlyPlaying = PlaybackManager.currentItem?.uuid == item.uuid
+                                                if (isCurrentlyPlaying) {
+                                                    PlaybackManager.showPlayerScreen = true
+                                                    if (PlaybackManager.player?.isPlaying == false) {
+                                                        PlaybackManager.player?.play()
+                                                    }
+                                                } else {
+                                                    PlaybackManager.playItem(context, item)
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onLongClick = {
+                                        if (!isSelectMode) {
+                                            isSelectMode = true
+                                            selectedItemUuids = setOf(item.uuid)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = if (isSelectMode) 120.dp else 80.dp),
+                            thickness = 0.5.dp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                        )
+                    }
                     }
                 }
             }
         }
     }
-}
-
 @Composable
 fun LibraryListItem(
     item: LibraryItemEntity,
