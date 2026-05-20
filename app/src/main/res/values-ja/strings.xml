@@ -1,0 +1,195 @@
+<resources>
+    <string name="app_name">BookPlayer</string>
+
+    <!-- Common -->
+    <string name="common_back">戻る</string>
+    <string name="common_close">閉じる</string>
+    <string name="common_clear">消去</string>
+    <string name="common_continue">続行</string>
+    <string name="common_verify">確認</string>
+    <string name="common_logout">ログアウト</string>
+    <string name="common_default">デフォルト</string>
+    <string name="common_more">もっと見る</string>
+    <string name="common_done">完了</string>
+    <string name="common_ok">OK</string>
+    <string name="common_cancel">キャンセル</string>
+    <string name="common_save">保存</string>
+    <string name="common_delete">削除</string>
+    <string name="common_accept">承認</string>
+    <string name="common_remove">削除</string>
+    <string name="common_select_all">すべて選択</string>
+    <string name="common_select">選択</string>
+    <string name="common_move">移動</string>
+    <string name="common_completed">完了</string>
+    <string name="common_pro_locked">プロ</string>
+    <string name="common_search">検索</string>
+    <string name="common_update">更新</string>
+    <string name="common_add">追加</string>
+    <string name="common_details">詳細</string>
+    <string name="common_unknown">不明</string>
+
+    <!-- Auth -->
+    <string name="auth_error_verification_failed">認証に失敗しました</string>
+    <string name="auth_error_passkey_failed">パスキーに失敗しました: %1$s</string>
+    <string name="auth_setting_up_secure_access">安全なアクセスを設定中...</string>
+    <string name="auth_create_account">アカウントを作成</string>
+    <string name="auth_verify_your_email">メールアドレスを確認</string>
+    <string name="auth_email_label">メールアドレス</string>
+    <string name="auth_email_placeholder">メールアドレス</string>
+    <string name="auth_sign_in_with_passkey">既存のパスキーでサインイン</string>
+    <string name="auth_enter_code_sent_to">%1$sに送信された6桁のコードを入力してください</string>
+    <string name="auth_didnt_receive_code">コードが届かない場合</string>
+    <string name="auth_resend_code">コードを再送</string>
+    <string name="auth_error_signin_failed">サインインに失敗しました: %1$s</string>
+    <string name="auth_sign_in_with_google">Googleでサインイン</string>
+    <string name="auth_continue_with_passkey">パスキーで続行</string>
+
+    <!-- Profile -->
+    <string name="profile_title">プロフィール</string>
+    <string name="profile_setup_account">アカウント設定</string>
+    <string name="profile_tier_label">ティア: %1$s</string>
+    <string name="profile_not_signed_in">サインインしていません</string>
+    <string name="profile_listening_time_value">0分</string>
+    <string name="profile_total_listening_time">総再生時間</string>
+
+    <!-- Pro -->
+    <string name="pro_title">BookPlayer Pro</string>
+    <string name="pro_learn_more">詳細を見る</string>
+    <string name="pro_feature_cloud_sync_title">クラウド同期 (ベータ版)</string>
+    <string name="pro_feature_cloud_sync_desc">ライブラリと本の進行状況をダウンロードして、サポートされているすべてのデバイスに同期します。</string>
+    <string name="pro_feature_watch_title">Android Watch (ベータ版)</string>
+    <string name="pro_feature_watch_desc">本をストリーミングまたはダウンロードして、スマートフォンなしで外出先でも聴くことができます。</string>
+    <string name="pro_feature_themes_title">テーマとアイコン</string>
+    <string name="pro_feature_themes_desc">寄付をしてBookPlayer Plusに参加することで、追加のテーマやアプリアイコンを利用できるようになります。</string>
+    <string name="pro_disclaimer_header">以下の点にご注意ください:</string>
+    <string name="pro_disclaimer_account">異なるデバイスでライブラリを聴く予定がある場合にのみ、アカウントが必要です。</string>
+    <string name="pro_disclaimer_subscription">クラウドストレージと進行状況の同期には継続的なサーバーコストがかかるため、この機能のコストを相殺するためのサブスクリプションが必要です。</string>
+
+    <!-- Settings/Themes -->
+    <string name="settings_title">設定</string>
+    <string name="settings_appearance_section">外観</string>
+    <string name="settings_theme_label">テーマ</string>
+    <string name="settings_app_icon_label">アプリアイコン</string>
+    <string name="settings_orientation_locked_label">画面の向きを固定</string>
+    <string name="themes_title">テーマ</string>
+    <string name="themes_use_system_mode">システム設定を使用</string>
+    <string name="themes_always_use_dark">常にダークモードを使用</string>
+    <string name="themes_section_header">テーマ</string>
+
+    <!-- Player -->
+    <string name="player_cast">キャスト</string>
+    <string name="player_prev">前へ</string>
+    <string name="player_next">次へ</string>
+    <string name="player_chapter_label">%1$s</string>
+    <string name="player_chapter_default">第1章 (全1章)</string>
+    <string name="player_play_pause">再生/一時停止</string>
+    <string name="player_chapters_title">チャプター</string>
+    <string name="player_chapter_details">開始: %1$s - 長さ: %2$s</string>
+    <string name="player_jump_to_start">最初に戻る</string>
+    <string name="player_mark_as_unfinished">未完了としてマーク</string>
+    <string name="player_mark_as_finished">完了としてマーク</string>
+    <string name="player_repeat_off">リピートをオフにする</string>
+    <string name="player_repeat_on">この本をリピート再生する</string>
+    <string name="player_bookmark_exists">%1$sにブックマークが既に存在します</string>
+    <string name="player_bookmark_saved">ブックマークを%1$sに保存しました</string>
+    <string name="player_add_note">メモを追加</string>
+    <string name="player_see_bookmarks">ブックマークを見る</string>
+    <string name="player_add_note_title">メモを追加</string>
+    <string name="player_note_placeholder">メモ</string>
+    <string name="player_bookmarks_title">ブックマーク</string>
+    <string name="player_bookmarks_manual">手動</string>
+    <string name="player_controls_title">再生コントロール</string>
+    <string name="player_set_speed">再生速度を設定</string>
+    <string name="player_speed_min">0.5</string>
+    <string name="player_speed_max">4.0</string>
+    <string name="player_volume">音量</string>
+    <string name="player_boost_volume">音量をブースト</string>
+    <string name="player_boost_volume_desc">音量を2倍にします。\n聴力保護のため、注意して使用してください。</string>
+    <string name="player_custom_timer">カスタムタイマー</string>
+    <string name="player_timer_hours">時間</string>
+    <string name="player_timer_min">分</string>
+    <string name="player_start_timer">タイマー開始</string>
+    <string name="player_sleep_timer_title">スリープタイマー</string>
+    <string name="player_timer_off">オフ</string>
+    <string name="player_timer_5m">5分</string>
+    <string name="player_timer_10m">10分</string>
+    <string name="player_timer_15m">15分</string>
+    <string name="player_timer_30m">30分</string>
+    <string name="player_timer_45m">45分</string>
+    <string name="player_timer_1h">1時間</string>
+    <string name="player_timer_end_chapter">チャプター終了時</string>
+    <string name="player_timer_custom">カスタム</string>
+    <string name="player_rewind_interval_title">戻る間隔</string>
+    <string name="player_forward_interval_title">進む間隔</string>
+    <string name="player_smart_rewind_limit_title">スマート巻き戻し制限</string>
+    <string name="player_list_button_action_title">リストボタンの動作</string>
+    <string name="player_quick_action_1">クイックアクション1</string>
+    <string name="player_quick_action_2">クイックアクション2</string>
+    <string name="player_quick_action_3">クイックアクション3</string>
+    <string name="player_settings_skip_intervals">スキップ間隔</string>
+    <string name="player_settings_rewind">戻る</string>
+    <string name="player_settings_forward">進む</string>
+    <string name="player_settings_skip_intervals_desc">プレーヤーまたはコントロールセンターのボタンを使用する際のスキップ量を調整します。</string>
+    <string name="player_settings_smart_rewind">スマート巻き戻し</string>
+    <string name="player_settings_smart_rewind_limit">スマート巻き戻し制限</string>
+    <string name="player_settings_smart_rewind_desc">再生再開時に自動的に巻き戻します。一時停止時間が長いほど、最大30秒までより多く巻き戻されます。</string>
+    <string name="player_settings_auto_sleep_timer">自動スリープタイマー</string>
+    <string name="player_settings_auto_sleep_timer_desc">再生再開時に最後に使用したスリープタイマーを再開します</string>
+    <string name="player_settings_speed">速度</string>
+    <string name="player_settings_global_speed">グローバル速度コントロール</string>
+    <string name="player_settings_global_speed_desc">すべての本に共通の速度を設定します。</string>
+    <string name="player_settings_progress_bar_seeking">プログレスバーでのシーク</string>
+    <string name="player_settings_progress_bar_seeking_desc">ロック画面でのシークを有効にする</string>
+    <string name="player_settings_list_opens">開く</string>
+    <string name="player_settings_list_opens_desc">プレーヤー画面のリストボタンで何を開くか調整します</string>
+    <string name="player_settings_progress_labels">プログレスラベル</string>
+    <string name="player_settings_use_remaining_time">残り時間を表示</string>
+    <string name="player_settings_use_chapter_context">チャプターの進捗を表示</string>
+    <string name="player_settings_progress_labels_desc">プレーヤー画面で残り時間、総再生時間、およびチャプターまたは本全体の進捗表示を切り替えます</string>
+    <string name="player_rewind">戻る</string>
+
+    <!-- Library -->
+    <string name="library_title_default">ライブラリ</string>
+    <string name="library_create_folder_title">フォルダを作成</string>
+    <string name="library_folder_name_label">フォルダ名</string>
+    <string name="library_folder_name_error">英数字、「-」、「_」のみ使用してください</string>
+    <string name="library_choose_destination_title">移動先を選択</string>
+    <string name="library_choose_destination_message">選択したアイテムをどこに移動しますか？</string>
+    <string name="library_new_folder">新規フォルダ</string>
+    <string name="library_existing_folder">既存のフォルダ</string>
+    <string name="library_select_folder_title">フォルダを選択</string>
+    <string name="library_delete_item_title">アイテムを削除</string>
+    <string name="library_delete_items_title">%1$d個のアイテムを削除</string>
+    <string name="library_delete_item_message">「%1$s」を削除してもよろしいですか？実際のファイルも削除されます。</string>
+    <string name="library_delete_items_message">%1$d個のアイテムを削除してもよろしいですか？実際のファイルも削除されます。</string>
+    <string name="library_delete_folder_warning">\n\n注意: フォルダを削除すると、その中身もすべて削除されます。</string>
+    <string name="library_empty_message">ライブラリは空です</string>
+    <string name="library_see_details">詳細を見る</string>
+    <string name="library_view_style">表示スタイル</string>
+    <string name="library_folder_empty">0個のファイル</string>
+    <string name="library_unknown_author">不明な著者</string>
+    <string name="library_open_folder">フォルダを開く</string>
+    <string name="library_edit_book_title">本を編集</string>
+    <string name="library_title_placeholder">タイトル</string>
+    <string name="library_author_placeholder">著者</string>
+    <string name="library_artwork_title">アートワーク</string>
+    <string name="library_filename_label">ファイル名</string>
+    <string name="library_progress_label">進捗</string>
+    <string name="library_progress_percent">%1$d%%</string>
+    <string name="library_last_played_label">最終再生日</string>
+    <string name="date_format_last_played">yyyy/MM/dd H:mm</string>
+
+    <!-- Import -->
+    <string name="import_title">インポート</string>
+    <string name="import_disclaimer">ファイルの転送には時間がかかる場合があります。続行する前にファイル数が正しいことを確認してください。</string>
+    <string name="import_files_count">%1$d個のファイル</string>
+
+    <!-- Interval/Duration -->
+    <string name="interval_seconds">%1$d秒</string>
+    <string name="interval_1_min">1分</string>
+    <string name="interval_1_min_30_secs">1分30秒</string>
+    <string name="interval_minutes">%1$d分</string>
+    <string name="duration_hms">%1$d時間%2$d分%3$d秒</string>
+    <string name="duration_ms">%1$d分%2$d秒</string>
+
+</resources>

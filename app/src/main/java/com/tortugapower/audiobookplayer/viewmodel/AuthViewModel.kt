@@ -36,14 +36,16 @@ class AuthViewModel(
             return
         }
 
+        errorMessage = null // Clear existing error on retry
         viewModelScope.launch {
             currentStep = AuthStep.LOADING
             try {
                 val response = NetworkClient.authApi.sendVerificationCode(EmailVerificationSendRequest(email))
                 if (response.isSuccessful && response.body()?.success == true) {
+                    errorMessage = null // Clear error on success
                     currentStep = AuthStep.CODE_VERIFICATION
                 } else {
-                    errorMessage = response.body()?.message ?: "Failed to send code"
+                    errorMessage = response.body()?.message ?: "Failed to send code ${response.code()}"
                     currentStep = AuthStep.EMAIL_INPUT
                 }
             } catch (e: Exception) {
@@ -59,6 +61,7 @@ class AuthViewModel(
             return
         }
 
+        errorMessage = null // Clear existing error on retry
         viewModelScope.launch {
             currentStep = AuthStep.LOADING
             try {
@@ -68,6 +71,7 @@ class AuthViewModel(
                 val body = response.body()
                 if (response.isSuccessful && body?.verified == true) {
                     verificationToken = body.verificationToken
+                    errorMessage = null // Clear error on success
                     // Next step is handled by the UI to trigger Passkey registration
                     currentStep = AuthStep.SUCCESS 
                 } else {
@@ -116,10 +120,11 @@ class AuthViewModel(
     }
 
     fun googleLogin(googleIdToken: String, googleUserId: String) {
+        errorMessage = null // Clear existing error on retry
         viewModelScope.launch {
             currentStep = AuthStep.LOADING
             try {
-                val response = NetworkClient.authApi.googleLogin(GoogleLoginRequest(googleIdToken))
+                val response = NetworkClient.authApi.googleLogin(GoogleLoginRequest(tokenId = googleIdToken))
                 val body = response.body()
                 if (response.isSuccessful && body != null) {
                     val account = AccountEntity(

@@ -112,17 +112,17 @@ fun LibraryScreen(
 
         AlertDialog(
             onDismissRequest = { showCreateFolderDialog = false },
-            title = { Text("Create Folder") },
+            title = { Text(stringResource(R.string.library_create_folder_title)) },
             text = {
                 OutlinedTextField(
                     value = folderName,
                     onValueChange = { folderName = it },
-                    label = { Text("Folder Name") },
+                    label = { Text(stringResource(R.string.library_folder_name_label)) },
                     singleLine = true,
                     isError = folderName.isNotEmpty() && !isNameValid,
                     supportingText = {
                         if (folderName.isNotEmpty() && !isNameValid) {
-                            Text("Use only letters, numbers, '-' or '_'")
+                            Text(stringResource(R.string.library_folder_name_error))
                         }
                     },
                     colors = OutlinedTextFieldDefaults.colors(
@@ -147,12 +147,12 @@ fun LibraryScreen(
                     },
                     enabled = isNameValid
                 ) {
-                    Text("Save")
+                    Text(stringResource(R.string.common_save))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showCreateFolderDialog = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.common_cancel))
                 }
             },
             containerColor = MaterialTheme.colorScheme.surface,
@@ -164,8 +164,8 @@ fun LibraryScreen(
     if (showChooseDestinationDialog) {
         AlertDialog(
             onDismissRequest = { showChooseDestinationDialog = false },
-            title = { Text("Choose Destination") },
-            text = { Text("Where would you like to move the selected items?") },
+            title = { Text(stringResource(R.string.library_choose_destination_title)) },
+            text = { Text(stringResource(R.string.library_choose_destination_message)) },
             confirmButton = {
                 Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
@@ -175,7 +175,7 @@ fun LibraryScreen(
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("New Folder")
+                        Text(stringResource(R.string.library_new_folder))
                     }
                     Button(
                         onClick = {
@@ -185,13 +185,13 @@ fun LibraryScreen(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = availableFolders.isNotEmpty()
                     ) {
-                        Text("Existing Folder")
+                        Text(stringResource(R.string.library_existing_folder))
                     }
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showChooseDestinationDialog = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.common_cancel))
                 }
             },
             containerColor = MaterialTheme.colorScheme.surface,
@@ -207,7 +207,7 @@ fun LibraryScreen(
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp).padding(horizontal = 16.dp)) {
                 Text(
-                    text = "Select Folder",
+                    text = stringResource(R.string.library_select_folder_title),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(bottom = 16.dp)
@@ -239,14 +239,14 @@ fun LibraryScreen(
     }
 
     if (itemsToDelete.isNotEmpty()) {
-        val title = if (itemsToDelete.size == 1) "Delete Item" else "Delete ${itemsToDelete.size} Items"
+        val title = if (itemsToDelete.size == 1) stringResource(R.string.library_delete_item_title) else stringResource(R.string.library_delete_items_title, itemsToDelete.size)
         val message = if (itemsToDelete.size == 1) {
-            "Are you sure you want to delete '${itemsToDelete.first().title}'? This will also remove the physical file."
+            stringResource(R.string.library_delete_item_message, itemsToDelete.first().title)
         } else {
-            "Are you sure you want to delete these ${itemsToDelete.size} items? This will also remove the physical files."
+            stringResource(R.string.library_delete_items_message, itemsToDelete.size)
         }
         val hasFolder = itemsToDelete.any { it.type == ItemType.FOLDER }
-        val folderWarning = if (hasFolder) "\n\nNote: Deleting a folder will also delete all of its contents." else ""
+        val folderWarning = if (hasFolder) stringResource(R.string.library_delete_folder_warning) else ""
 
         AlertDialog(
             onDismissRequest = { itemsToDelete = emptyList() },
@@ -262,12 +262,12 @@ fun LibraryScreen(
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE57373))
                 ) {
-                    Text("Delete")
+                    Text(stringResource(R.string.common_delete))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { itemsToDelete = emptyList() }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.common_cancel))
                 }
             },
             containerColor = MaterialTheme.colorScheme.surface,
@@ -278,9 +278,9 @@ fun LibraryScreen(
 
     BookPlayerTabScaffold(
         title = if (isSelectMode) {
-            stringResource(R.string.library_selected_count, selectedItemUuids.size)
+            //stringResource(R.string.library_selected_count, selectedItemUuids.size)
         } else {
-            currentPath?.substringAfterLast('/') ?: stringResource(R.string.library_title)
+            currentPath?.substringAfterLast('/') ?: stringResource(R.string.library_title_default)
         },
         navigationIcon = {
             when {
@@ -288,10 +288,10 @@ fun LibraryScreen(
                     isSelectMode = false
                     selectedItemUuids = emptySet()
                 }) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_cancel))
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_cancel))
                 }
                 currentPath != null -> IconButton(onClick = { libraryViewModel.navigateBack() }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                 }
             }
         },
@@ -301,17 +301,17 @@ fun LibraryScreen(
                     onClick = { if (selectedItemUuids.isNotEmpty()) showChooseDestinationDialog = true },
                     enabled = selectedItemUuids.isNotEmpty(),
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = stringResource(R.string.action_move))
+                    Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = stringResource(R.string.common_move))
                 }
                 IconButton(
                     onClick = { itemsToDelete = items.filter { it.uuid in selectedItemUuids } },
                     enabled = selectedItemUuids.isNotEmpty(),
                 ) {
-                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.action_delete))
+                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.common_delete))
                 }
                 Box {
                     IconButton(onClick = { showMoreMenu = true }) {
-                        Icon(Icons.Default.MoreHoriz, contentDescription = stringResource(R.string.action_more))
+                        Icon(Icons.Default.MoreHoriz, contentDescription = stringResource(R.string.common_more))
                     }
                     DropdownMenu(
                         expanded = showMoreMenu,
@@ -319,7 +319,7 @@ fun LibraryScreen(
                     ) {
                         if (selectedItemUuids.size == 1) {
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.action_see_details)) },
+                                text = { Text(stringResource(R.string.library_see_details)) },
                                 onClick = {
                                     showMoreMenu = false
                                     val selected = items.find { it.uuid in selectedItemUuids }
@@ -331,7 +331,7 @@ fun LibraryScreen(
                             )
                         }
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.action_select_all)) },
+                            text = { Text(stringResource(R.string.common_select_all)) },
                             onClick = {
                                 showMoreMenu = false
                                 selectedItemUuids = items.map { it.uuid }.toSet()
@@ -342,14 +342,14 @@ fun LibraryScreen(
             } else {
                 Box {
                     IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.action_more))
+                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.common_more))
                     }
                     DropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
                     ) {
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.action_select)) },
+                            text = { Text(stringResource(R.string.common_select)) },
                             onClick = {
                                 showMenu = false
                                 isSelectMode = true
@@ -358,7 +358,7 @@ fun LibraryScreen(
                         )
                         HorizontalDivider()
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.action_import)) },
+                            text = { Text(stringResource(R.string.import_title)) },
                             onClick = {
                                 showMenu = false
                                 launcher.launch(arrayOf("audio/*"))
@@ -366,7 +366,7 @@ fun LibraryScreen(
                             leadingIcon = { Icon(Icons.Default.FileDownload, null) },
                         )
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.action_create_folder)) },
+                            text = { Text(stringResource(R.string.library_create_folder_title)) },
                             onClick = {
                                 showMenu = false
                                 showCreateFolderDialog = true
@@ -398,7 +398,7 @@ fun LibraryScreen(
 
             if (pathItems.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(stringResource(R.string.library_empty), color = Color.Gray)
+                    Text(stringResource(R.string.library_empty_message), color = Color.Gray)
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -585,14 +585,17 @@ fun LibraryListItem(
                     maxLines = 1
                 )
                 Text(
-                    text = item.author ?: if (item.type == ItemType.FOLDER) "0 Files" else "Unknown author",
+                    text = item.author ?: if (item.type == ItemType.FOLDER) stringResource(R.string.library_folder_empty) else stringResource(R.string.library_unknown_author),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1
                 )
                 if (item.duration > 0) {
+                    val h = (item.duration / 3600).toInt()
+                    val m = ((item.duration % 3600) / 60).toInt()
+                    val s = (item.duration % 60).toInt()
                     Text(
-                        text = formatDuration(item.duration),
+                        text = if (h > 0) stringResource(R.string.duration_hms, h, m, s) else stringResource(R.string.duration_ms, m, s),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1
@@ -608,7 +611,7 @@ fun LibraryListItem(
                 if (item.isFinished) {
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
-                        contentDescription = "Completed",
+                        contentDescription = stringResource(R.string.common_completed),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
                     )
@@ -622,7 +625,7 @@ fun LibraryListItem(
                 if (item.type == ItemType.FOLDER) {
                     Icon(
                         imageVector = Icons.Default.ChevronRight,
-                        contentDescription = "Open Folder",
+                        contentDescription = stringResource(R.string.library_open_folder),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(24.dp)
                     )
@@ -670,9 +673,4 @@ fun PieProgressIcon(
     }
 }
 
-fun formatDuration(seconds: Double): String {
-    val h = (seconds / 3600).toInt()
-    val m = ((seconds % 3600) / 60).toInt()
-    val s = (seconds % 60).toInt()
-    return if (h > 0) "${h}h ${m}m ${s}s" else "${m}m ${s}s"
-}
+

@@ -23,9 +23,19 @@ interface AuthApi {
 }
 
 object NetworkClient {
+    private val client = okhttp3.OkHttpClient.Builder()
+        .addInterceptor { chain ->
+            val request = chain.request().newBuilder()
+                .addHeader("x-platform", "android")
+                .build()
+            chain.proceed(request)
+        }
+        .build()
+
     val authApi: AuthApi by lazy {
         retrofit2.Retrofit.Builder()
             .baseUrl(NetworkConstants.BASE_URL)
+            .client(client)
             .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
             .build()
             .create(AuthApi::class.java)

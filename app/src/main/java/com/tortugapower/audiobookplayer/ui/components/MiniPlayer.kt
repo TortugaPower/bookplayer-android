@@ -23,6 +23,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.tortugapower.audiobookplayer.R
 import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 
@@ -87,7 +89,7 @@ fun MiniPlayer() {
                     maxLines = 1
                 )
                 Text(
-                    text = currentItem.author ?: "Unknown author",
+                    text = currentItem.author ?: stringResource(R.string.library_unknown_author),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1
@@ -97,7 +99,7 @@ fun MiniPlayer() {
             IconButton(onClick = { PlaybackManager.seekBackward() }) {
                 Icon(
                     imageVector = Icons.Default.Replay,
-                    contentDescription = "Rewind",
+                    contentDescription = stringResource(R.string.player_rewind),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(28.dp)
                 )
@@ -105,7 +107,7 @@ fun MiniPlayer() {
             IconButton(onClick = { PlaybackManager.togglePlayPause() }) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = "Play/Pause",
+                    contentDescription = stringResource(R.string.player_play_pause),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(32.dp)
                 )

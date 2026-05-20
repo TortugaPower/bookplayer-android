@@ -1,0 +1,195 @@
+<resources>
+    <string name="app_name">BookPlayer</string>
+
+    <!-- Common -->
+    <string name="common_back">पीछे</string>
+    <string name="common_close">बंद करें</string>
+    <string name="common_clear">साफ़ करें</string>
+    <string name="common_continue">जारी रखें</string>
+    <string name="common_verify">सत्यापित करें</string>
+    <string name="common_logout">लॉगआउट</string>
+    <string name="common_default">डिफ़ॉल्ट</string>
+    <string name="common_more">अधिक</string>
+    <string name="common_done">हो गया</string>
+    <string name="common_ok">ठीक है</string>
+    <string name="common_cancel">रद्द करें</string>
+    <string name="common_save">सहेजें</string>
+    <string name="common_delete">हटाएं</string>
+    <string name="common_accept">स्वीकार करें</string>
+    <string name="common_remove">हटाएं</string>
+    <string name="common_select_all">सभी चुनें</string>
+    <string name="common_select">चुनें</string>
+    <string name="common_move">स्थानांतरित करें</string>
+    <string name="common_completed">पूरा हुआ</string>
+    <string name="common_pro_locked">प्रो</string>
+    <string name="common_search">खोजें</string>
+    <string name="common_update">अपडेट करें</string>
+    <string name="common_add">जोड़ें</string>
+    <string name="common_details">विवरण</string>
+    <string name="common_unknown">अज्ञात</string>
+
+    <!-- Auth -->
+    <string name="auth_error_verification_failed">सत्यापन विफल रहा</string>
+    <string name="auth_error_passkey_failed">पासकी विफल: %1$s</string>
+    <string name="auth_setting_up_secure_access">सुरक्षित पहुँच सेट की जा रही है...</string>
+    <string name="auth_create_account">खाता बनाएं</string>
+    <string name="auth_verify_your_email">अपना ईमेल सत्यापित करें</string>
+    <string name="auth_email_label">ईमेल</string>
+    <string name="auth_email_placeholder">ईमेल</string>
+    <string name="auth_sign_in_with_passkey">मौजूदा पासकी के साथ साइन इन करें</string>
+    <string name="auth_enter_code_sent_to">%1$s पर भेजा गया 6-अंकीय कोड दर्ज करें</string>
+    <string name="auth_didnt_receive_code">कोड प्राप्त नहीं हुआ?</string>
+    <string name="auth_resend_code">कोड पुनः भेजें</string>
+    <string name="auth_error_signin_failed">साइन-इन विफल: %1$s</string>
+    <string name="auth_sign_in_with_google">Google के साथ साइन इन करें</string>
+    <string name="auth_continue_with_passkey">पासकी के साथ जारी रखें</string>
+
+    <!-- Profile -->
+    <string name="profile_title">प्रोफ़ाइल</string>
+    <string name="profile_setup_account">खाता सेट करें</string>
+    <string name="profile_tier_label">टियर: %1$s</string>
+    <string name="profile_not_signed_in">साइन इन नहीं किया</string>
+    <string name="profile_listening_time_value">0 मि</string>
+    <string name="profile_total_listening_time">कुल सुनने का समय</string>
+
+    <!-- Pro -->
+    <string name="pro_title">BookPlayer प्रो</string>
+    <string name="pro_learn_more">अधिक जानें</string>
+    <string name="pro_feature_cloud_sync_title">क्लाउड सिंक (बीटा)</string>
+    <string name="pro_feature_cloud_sync_desc">अपनी लाइब्रेरी और पुस्तक प्रगति को अपने सभी समर्थित उपकरणों पर डाउनलोड और सिंक करें।</string>
+    <string name="pro_feature_watch_title">Android वॉच (बीटा)</string>
+    <string name="pro_feature_watch_desc">अपनी पुस्तकें स्ट्रीम या डाउनलोड करें और बिना फोन के चलते-फिरते सुनें।</string>
+    <string name="pro_feature_themes_title">थीम और आइकन</string>
+    <string name="pro_feature_themes_desc">आपको अतिरिक्त थीम और ऐप आइकन तक पहुंच मिलेगी जो दान करने और BookPlayer Plus में शामिल होने पर अनलॉक होते हैं।</string>
+    <string name="pro_disclaimer_header">कृपया निम्नलिखित बातों का ध्यान रखें:</string>
+    <string name="pro_disclaimer_account">आपको हमारे साथ खाते की आवश्यकता केवल तब होती है जब आप विभिन्न उपकरणों पर अपनी लाइब्रेरी सुनने की योजना बनाते हैं</string>
+    <string name="pro_disclaimer_subscription">क्लाउड स्टोरेज और प्रगति सिंक के लिए चल रहे सर्वर लागतों के कारण, हमें इस सुविधा की लागत की भरपाई के लिए सदस्यता की आवश्यकता है</string>
+
+    <!-- Settings/Themes -->
+    <string name="settings_title">सेटिंग्स</string>
+    <string name="settings_appearance_section">दिखावट</string>
+    <string name="settings_theme_label">थीम</string>
+    <string name="settings_app_icon_label">ऐप आइकन</string>
+    <string name="settings_orientation_locked_label">ओरिएंटेशन लॉक</string>
+    <string name="themes_title">थीम</string>
+    <string name="themes_use_system_mode">सिस्टम मोड का उपयोग करें</string>
+    <string name="themes_always_use_dark">हमेशा डार्क वेरिएंट का उपयोग करें</string>
+    <string name="themes_section_header">थीम</string>
+
+    <!-- Player -->
+    <string name="player_cast">कास्ट</string>
+    <string name="player_prev">पिछला</string>
+    <string name="player_next">अगला</string>
+    <string name="player_chapter_label">%1$s</string>
+    <string name="player_chapter_default">अध्याय 1 का 1</string>
+    <string name="player_play_pause">चलाएं/रोकें</string>
+    <string name="player_chapters_title">अध्याय</string>
+    <string name="player_chapter_details">प्रारंभ: %1$s - अवधि: %2$s</string>
+    <string name="player_jump_to_start">शुरुआत पर जाएं</string>
+    <string name="player_mark_as_unfinished">अधूरा चिह्नित करें</string>
+    <string name="player_mark_as_finished">पूरा चिह्नित करें</string>
+    <string name="player_repeat_off">दोहराना बंद करें</string>
+    <string name="player_repeat_on">इस पुस्तक के लिए दोहराना चालू करें</string>
+    <string name="player_bookmark_exists">%1$s पर बुकमार्क पहले से मौजूद है</string>
+    <string name="player_bookmark_saved">आपका बुकमार्क %1$s पर सहेजा गया है</string>
+    <string name="player_add_note">नोट जोड़ें</string>
+    <string name="player_see_bookmarks">बुकमार्क देखें</string>
+    <string name="player_add_note_title">नोट जोड़ें</string>
+    <string name="player_note_placeholder">नोट</string>
+    <string name="player_bookmarks_title">बुकमार्क</string>
+    <string name="player_bookmarks_manual">मैनुअल</string>
+    <string name="player_controls_title">प्लेयर नियंत्रण</string>
+    <string name="player_set_speed">प्लेबैक गति सेट करें</string>
+    <string name="player_speed_min">0.5</string>
+    <string name="player_speed_max">4.0</string>
+    <string name="player_volume">वॉल्यूम</string>
+    <string name="player_boost_volume">वॉल्यूम बूस्ट</string>
+    <string name="player_boost_volume_desc">वॉल्यूम दोगुना करता है।\nसावधानी के साथ उपयोग करें और अपने सुनने की क्षमता का ध्यान रखें।</string>
+    <string name="player_custom_timer">कस्टम टाइमर</string>
+    <string name="player_timer_hours">घंटे</string>
+    <string name="player_timer_min">मिनट</string>
+    <string name="player_start_timer">टाइमर शुरू करें</string>
+    <string name="player_sleep_timer_title">स्लीप टाइमर</string>
+    <string name="player_timer_off">बंद</string>
+    <string name="player_timer_5m">5 मिनट</string>
+    <string name="player_timer_10m">10 मिनट</string>
+    <string name="player_timer_15m">15 मिनट</string>
+    <string name="player_timer_30m">30 मिनट</string>
+    <string name="player_timer_45m">45 मिनट</string>
+    <string name="player_timer_1h">1 घंटा</string>
+    <string name="player_timer_end_chapter">अध्याय का अंत</string>
+    <string name="player_timer_custom">कस्टम</string>
+    <string name="player_rewind_interval_title">रिवाइंड अंतराल</string>
+    <string name="player_forward_interval_title">फॉरवर्ड अंतराल</string>
+    <string name="player_smart_rewind_limit_title">स्मार्ट रिवाइंड सीमा</string>
+    <string name="player_list_button_action_title">सूची बटन कार्रवाई</string>
+    <string name="player_quick_action_1">त्वरित कार्रवाई 1</string>
+    <string name="player_quick_action_2">त्वरित कार्रवाई 2</string>
+    <string name="player_quick_action_3">त्वरित कार्रवाई 3</string>
+    <string name="player_settings_skip_intervals">छोड़ने के अंतराल</string>
+    <string name="player_settings_rewind">रिवाइंड</string>
+    <string name="player_settings_forward">फॉरवर्ड</string>
+    <string name="player_settings_skip_intervals_desc">प्लेयर या कंट्रोल सेंटर में बटन का उपयोग करते समय छोड़ी गई राशि को समायोजित करें।</string>
+    <string name="player_settings_smart_rewind">स्मार्ट रिवाइंड</string>
+    <string name="player_settings_smart_rewind_limit">स्मार्ट रिवाइंड सीमा</string>
+    <string name="player_settings_smart_rewind_desc">प्लेबैक फिर से शुरू करते समय स्वचालित रूप से पीछे हटें। प्लेबैक जितने लंबे समय तक रुका रहा है, उतना ही पीछे हटता है, अधिकतम 30 सेकंड तक।</string>
+    <string name="player_settings_auto_sleep_timer">ऑटो स्लीप टाइमर</string>
+    <string name="player_settings_auto_sleep_timer_desc">प्लेबैक फिर से शुरू होने पर अंतिम सक्रिय स्लीप टाइमर को पुनरारंभ करें</string>
+    <string name="player_settings_speed">गति</string>
+    <string name="player_settings_global_speed">वैश्विक गति नियंत्रण</string>
+    <string name="player_settings_global_speed_desc">सभी पुस्तकों में गति सेट करें।</string>
+    <string name="player_settings_progress_bar_seeking">प्रगति बार मांग</string>
+    <string name="player_settings_progress_bar_seeking_desc">लॉक स्क्रीन पर मांग सक्षम करें</string>
+    <string name="player_settings_list_opens">खुलता है</string>
+    <string name="player_settings_list_opens_desc">समायोजित करें कि प्लेयर स्क्रीन में सूची बटन क्या खोलता है</string>
+    <string name="player_settings_progress_labels">प्रगति लेबल</string>
+    <string name="player_settings_use_remaining_time">शेष समय का उपयोग करें</string>
+    <string name="player_settings_use_chapter_context">अध्याय संदर्भ का उपयोग करें</string>
+    <string name="player_settings_progress_labels_desc">प्लेयर स्क्रीन में अध्याय या पुस्तक के शेष समय, कुल अवधि और प्रगति के बीच स्विच करें</string>
+    <string name="player_rewind">रिवाइंड</string>
+
+    <!-- Library -->
+    <string name="library_title_default">लाइब्रेरी</string>
+    <string name="library_create_folder_title">फ़ोल्डर बनाएं</string>
+    <string name="library_folder_name_label">फ़ोल्डर का नाम</string>
+    <string name="library_folder_name_error">केवल अक्षर, संख्या, \'-\' या \'_\' का उपयोग करें</string>
+    <string name="library_choose_destination_title">गंतव्य चुनें</string>
+    <string name="library_choose_destination_message">आप चयनित वस्तुओं को कहां स्थानांतरित करना चाहेंगे?</string>
+    <string name="library_new_folder">नया फ़ोल्डर</string>
+    <string name="library_existing_folder">मौजूदा फ़ोल्डर</string>
+    <string name="library_select_folder_title">फ़ोल्डर चुनें</string>
+    <string name="library_delete_item_title">वस्तु हटाएं</string>
+    <string name="library_delete_items_title">%1$d वस्तुएं हटाएं</string>
+    <string name="library_delete_item_message">क्या आप वाकई \'%1$s\' हटाना चाहते हैं? यह भौतिक फ़ाइल को भी हटा देगा।</string>
+    <string name="library_delete_items_message">क्या आप वाकई इन %1$d वस्तुओं को हटाना चाहते हैं? यह भौतिक फ़ाइलों को भी हटा देगा।</string>
+    <string name="library_delete_folder_warning">\n\nनोट: फ़ोल्डर हटाने से उसकी सभी सामग्री भी हट जाएगी।</string>
+    <string name="library_empty_message">आपकी लाइब्रेरी खाली है</string>
+    <string name="library_see_details">विवरण देखें</string>
+    <string name="library_view_style">व्यू स्टाइल</string>
+    <string name="library_folder_empty">0 फ़ाइलें</string>
+    <string name="library_unknown_author">अज्ञात लेखक</string>
+    <string name="library_open_folder">फ़ोल्डर खोलें</string>
+    <string name="library_edit_book_title">पुस्तक संपादित करें</string>
+    <string name="library_title_placeholder">शीर्षक</string>
+    <string name="library_author_placeholder">लेखक</string>
+    <string name="library_artwork_title">आर्टवर्क</string>
+    <string name="library_filename_label">फ़ाइल नाम</string>
+    <string name="library_progress_label">प्रगति</string>
+    <string name="library_progress_percent">%1$d%%</string>
+    <string name="library_last_played_label">अंतिम बार चलाया गया</string>
+    <string name="date_format_last_played">d MMM yyyy \'को\' h:mm a</string>
+
+    <!-- Import -->
+    <string name="import_title">इंपोर्ट</string>
+    <string name="import_disclaimer">फ़ाइलों को स्थानांतरित करने में कुछ समय लग सकता है, कृपया आगे बढ़ने से पहले सुनिश्चित करें कि फ़ाइलों की संख्या पूरी है।</string>
+    <string name="import_files_count">%1$d फ़ाइलें</string>
+
+    <!-- Interval/Duration -->
+    <string name="interval_seconds">%1$d सेकंड</string>
+    <string name="interval_1_min">1 मिनट</string>
+    <string name="interval_1_min_30_secs">1 मिनट, 30 सेकंड</string>
+    <string name="interval_minutes">%1$d मिनट</string>
+    <string name="duration_hms">%1$dघं %2$दमि %3$दसे</string>
+    <string name="duration_ms">%1$दमि %2$दसे</string>
+
+</resources>

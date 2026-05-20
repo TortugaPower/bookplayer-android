@@ -27,18 +27,22 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.AccountGate
+import androidx.compose.ui.res.stringResource
+import com.tortugapower.audiobookplayer.database.entities.AccountEntity
+import com.tortugapower.audiobookplayer.viewmodel.ProfileViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tortugapower.audiobookplayer.logic.ThemeManager
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerThemeSpec
 import kotlinx.coroutines.launch
 
 @Composable
-fun ProfileScreen() {
+fun ProfileScreen(viewModel: ProfileViewModel) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
-    val accountRepository = com.tortugapower.audiobookplayer.repository.RoomAccountRepository(db.accountDao())
-    val account by accountRepository.getAccountFlow().collectAsState(initial = null)
+    
+    // Use cached account state from ViewModel
+    val account by viewModel.account.collectAsState()
 
     var showProSheet by remember { mutableStateOf(false) }
     var showAuthSheet by remember { mutableStateOf(false) }
@@ -49,10 +53,6 @@ fun ProfileScreen() {
             onPasskeyClick = { 
                 showProSheet = false
                 showAuthSheet = true 
-            },
-            onGoogleClick = {
-                showProSheet = false
-                showAuthSheet = true
             }
         )
     }
@@ -77,7 +77,7 @@ fun ProfileScreen() {
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(32.dp))
                 .clickable { 
-                    if (account == null) showAuthSheet = true
+                    if (account == null) showProSheet = true
                 },
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ) {
@@ -104,13 +104,13 @@ fun ProfileScreen() {
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (account != null) account!!.email else "Set Up Account",
+                        text = if (account != null) account!!.email else stringResource(R.string.profile_setup_account),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (account != null) "Tier: ${account!!.tier}" else "Not signed in",
+                        text = if (account != null) stringResource(R.string.profile_tier_label, account!!.tier) else stringResource(R.string.profile_not_signed_in),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -124,11 +124,9 @@ fun ProfileScreen() {
                     )
                 } else {
                     IconButton(onClick = { 
-                        scope.launch {
-                            accountRepository.deleteAccount()
-                        }
+                        viewModel.logout()
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Logout", tint = MaterialTheme.colorScheme.error)
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = stringResource(R.string.common_logout), tint = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -138,13 +136,13 @@ fun ProfileScreen() {
 
         // Statistics Section
         Text(
-            text = "0m",
+            text = stringResource(R.string.profile_listening_time_value),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
-            text = "Total Listening Time",
+            text = stringResource(R.string.profile_total_listening_time),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -158,7 +156,7 @@ fun ProfileScreen() {
                 modifier = Modifier.padding(bottom = 32.dp)
             ) {
                 Text(
-                    text = "BookPlayer Pro",
+                    text = stringResource(R.string.pro_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
@@ -173,7 +171,7 @@ fun ProfileScreen() {
                     contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
                 ) {
                     Text(
-                        text = "LEARN MORE",
+                        text = stringResource(R.string.pro_learn_more),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -188,142 +186,226 @@ fun ProfileScreen() {
 @Composable
 fun BookPlayerProSheet(
     onDismiss: () -> Unit, 
-    onPasskeyClick: () -> Unit,
-    onGoogleClick: () -> Unit
+    onPasskeyClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
+    val accountRepository = com.tortugapower.audiobookplayer.repository.RoomAccountRepository(db.accountDao())
+    val viewModel: com.tortugapower.audiobookplayer.viewmodel.AuthViewModel = viewModel(
+        key = "ProSheet",
+        factory = com.tortugapower.audiobookplayer.viewmodel.AuthViewModelFactory(accountRepository)
+    )
+
+    val credentialManager = androidx.credentials.CredentialManager.create(context)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Helper to find the actual Activity context required by CredentialManager
+    fun findActivity(context: android.content.Context): android.app.Activity? {
+        var currentContext = context
+        while (currentContext is android.content.ContextWrapper) {
+            if (currentContext is android.app.Activity) return currentContext
+            currentContext = currentContext.baseContext
+        }
+        return null
+    }
+
+    fun handleGoogleSignIn() {
+        val googleIdOption = com.google.android.libraries.identity.googleid.GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(false)
+            .setServerClientId(com.tortugapower.audiobookplayer.network.NetworkConstants.GOOGLE_CLIENT_ID)
+            .build()
+
+        val request = androidx.credentials.GetCredentialRequest.Builder()
+            .addCredentialOption(googleIdOption)
+            .build()
+
+        val activity = findActivity(context)
+
+        scope.launch {
+            try {
+                if (activity == null) return@launch
+                val result = credentialManager.getCredential(activity, request)
+                val credential = result.credential
+                
+                if (credential is com.google.android.libraries.identity.googleid.GoogleIdTokenCredential) {
+                    viewModel.googleLogin(credential.idToken, credential.id)
+                }
+            } catch (e: Exception) {
+                viewModel.errorMessage = context.getString(R.string.auth_error_signin_failed, e.message ?: "")
+            }
+        }
+    }
+
+    // Reset when shown
+    LaunchedEffect(Unit) {
+        viewModel.reset()
+    }
+
+    // Close sheet on success
+    LaunchedEffect(viewModel.currentStep) {
+        if (viewModel.currentStep == com.tortugapower.audiobookplayer.viewmodel.AuthStep.SUCCESS) {
+            onDismiss()
+        }
+    }
     
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        dragHandle = null,
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
+        windowInsets = WindowInsets.statusBars
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .padding(horizontal = 24.dp)
-        ) {
-            // Header
-            Box(
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 16.dp)
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp)
             ) {
-                IconButton(
-                    onClick = onDismiss,
+                Spacer(modifier = Modifier.height(8.dp))
+                // Header
+                Box(
                     modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .size(40.dp)
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp)
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.primary)
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .size(40.dp)
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close), tint = MaterialTheme.colorScheme.primary)
+                    }
+                    
+                    Text(
+                        text = stringResource(R.string.pro_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // Features
+                ProFeatureRow(
+                    icon = Icons.Default.CloudUpload,
+                    title = stringResource(R.string.pro_feature_cloud_sync_title),
+                    description = stringResource(R.string.pro_feature_cloud_sync_desc)
+                )
+                
+                Spacer(modifier = Modifier.height(32.dp))
+                
+                ProFeatureRow(
+                    icon = Icons.Default.Watch,
+                    title = stringResource(R.string.pro_feature_watch_title),
+                    description = stringResource(R.string.pro_feature_watch_desc)
+                )
+                
+                Spacer(modifier = Modifier.height(32.dp))
+                
+                ProFeatureRow(
+                    icon = Icons.Default.Palette,
+                    title = stringResource(R.string.pro_feature_themes_title),
+                    description = stringResource(R.string.pro_feature_themes_desc)
+                )
+
+                Spacer(modifier = Modifier.height(48.dp))
+
+                // Disclaimer Section
+                Text(
+                    text = stringResource(R.string.pro_disclaimer_header),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                DisclaimerItem(text = stringResource(R.string.pro_disclaimer_account))
+                DisclaimerItem(text = stringResource(R.string.pro_disclaimer_subscription))
+
+                if (viewModel.errorMessage != null) {
+                    Text(
+                        text = viewModel.errorMessage!!,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                // Login Buttons
+                Button(
+                    onClick = { handleGoogleSignIn() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Black,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = viewModel.currentStep != com.tortugapower.audiobookplayer.viewmodel.AuthStep.LOADING
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.AccountCircle,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = stringResource(R.string.auth_sign_in_with_google),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                TextButton(
+                    onClick = onPasskeyClick,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = viewModel.currentStep != com.tortugapower.audiobookplayer.viewmodel.AuthStep.LOADING
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.auth_continue_with_passkey),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
                 
-                Text(
-                    text = "BookPlayer Pro",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.align(Alignment.Center)
-                )
+                Spacer(modifier = Modifier.height(48.dp))
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // Features
-            ProFeatureRow(
-                icon = Icons.Default.CloudUpload,
-                title = "Cloud sync (Beta)",
-                description = "Download and sync your library and book progress to all your supported devices."
-            )
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            ProFeatureRow(
-                icon = Icons.Default.Watch,
-                title = "Android Watch (Beta)",
-                description = "Stream or download your books and listen on the go without your phone."
-            )
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            ProFeatureRow(
-                icon = Icons.Default.Palette,
-                title = "Themes & Icons",
-                description = "You'll have access to the additional themes and app icons that are unlocked by donating and joining BookPlayer Plus."
-            )
-
-            Spacer(modifier = Modifier.height(48.dp))
-
-            // Disclaimer Section
-            Text(
-                text = "Please keep in mind the following:",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            DisclaimerItem(text = "You only need an account with us if you plan to listen to your library across different devices")
-            DisclaimerItem(text = "Due to ongoing server costs for cloud storage and progress syncing, we require a subscription to offset the cost of this feature")
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            // Login Buttons
-            Button(
-                onClick = onGoogleClick,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.Black, // Android standard for dark "G" button or similar
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.AccountCircle, // Placeholder for G logo
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "Sign in with Google",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
+            // Global Loader
+            if (viewModel.currentStep == com.tortugapower.audiobookplayer.viewmodel.AuthStep.LOADING) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f))
+                        .clickable(enabled = false) {},
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = Color.White)
                 }
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            TextButton(
-                onClick = onPasskeyClick,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Continue with Passkey",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(48.dp))
         }
     }
 }
@@ -387,7 +469,7 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit) {
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            settingsSection(titleRes = R.string.settings_section_appearance) {
+            settingsSection(titleRes = R.string.settings_appearance_section) {
                 SettingsItem(
                     label = stringResource(R.string.settings_theme),
                     value = ThemeManager.currentTheme.title,
@@ -444,7 +526,7 @@ fun ThemesScreen(onBack: () -> Unit) {
             IconButton(onClick = onBack) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.action_back),
+                    contentDescription = stringResource(R.string.common_back),
                 )
             }
         },
@@ -481,7 +563,7 @@ fun ThemesScreen(onBack: () -> Unit) {
 
             item {
                 Text(
-                    text = stringResource(R.string.themes_section_label),
+                    text = stringResource(R.string.themes_section_header),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
@@ -570,7 +652,7 @@ fun ThemeItem(theme: BookPlayerThemeSpec, isSelected: Boolean, onClick: () -> Un
                 if (isSelected) {
                     Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 } else {
-                    Icon(Icons.Default.Lock, contentDescription = stringResource(R.string.themes_locked_pro), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Default.Lock, contentDescription = stringResource(R.string.common_pro_locked), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else null,

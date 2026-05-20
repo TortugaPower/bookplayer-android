@@ -1,0 +1,195 @@
+<resources>
+    <string name="app_name">BookPlayer</string>
+
+    <!-- Common -->
+    <string name="common_back">Назад</string>
+    <string name="common_close">Закрыть</string>
+    <string name="common_clear">Очистить</string>
+    <string name="common_continue">Продолжить</string>
+    <string name="common_verify">Проверить</string>
+    <string name="common_logout">Выйти</string>
+    <string name="common_default">По умолчанию</string>
+    <string name="common_more">Еще</string>
+    <string name="common_done">Готово</string>
+    <string name="common_ok">ОК</string>
+    <string name="common_cancel">Отмена</string>
+    <string name="common_save">Сохранить</string>
+    <string name="common_delete">Удалить</string>
+    <string name="common_accept">Принять</string>
+    <string name="common_remove">Удалить</string>
+    <string name="common_select_all">Выбрать все</string>
+    <string name="common_select">Выбрать</string>
+    <string name="common_move">Переместить</string>
+    <string name="common_completed">Завершено</string>
+    <string name="common_pro_locked">Pro</string>
+    <string name="common_search">Поиск</string>
+    <string name="common_update">Обновить</string>
+    <string name="common_add">Добавить</string>
+    <string name="common_details">Детали</string>
+    <string name="common_unknown">Неизвестно</string>
+
+    <!-- Auth -->
+    <string name="auth_error_verification_failed">Ошибка верификации</string>
+    <string name="auth_error_passkey_failed">Ошибка ключа доступа: %1$s</string>
+    <string name="auth_setting_up_secure_access">Настройка безопасного доступа...</string>
+    <string name="auth_create_account">Создать аккаунт</string>
+    <string name="auth_verify_your_email">Подтвердите ваш email</string>
+    <string name="auth_email_label">Email</string>
+    <string name="auth_email_placeholder">Email</string>
+    <string name="auth_sign_in_with_passkey">Войти с существующим ключом доступа</string>
+    <string name="auth_enter_code_sent_to">Введите 6-значный код, отправленный на %1$s</string>
+    <string name="auth_didnt_receive_code">Не получили код?</string>
+    <string name="auth_resend_code">Отправить код еще раз</string>
+    <string name="auth_error_signin_failed">Ошибка входа: %1$s</string>
+    <string name="auth_sign_in_with_google">Войти через Google</string>
+    <string name="auth_continue_with_passkey">Продолжить с ключом доступа</string>
+
+    <!-- Profile -->
+    <string name="profile_title">Профиль</string>
+    <string name="profile_setup_account">Настроить аккаунт</string>
+    <string name="profile_tier_label">Уровень: %1$s</string>
+    <string name="profile_not_signed_in">Вы не вошли</string>
+    <string name="profile_listening_time_value">0м</string>
+    <string name="profile_total_listening_time">Общее время прослушивания</string>
+
+    <!-- Pro -->
+    <string name="pro_title">BookPlayer Pro</string>
+    <string name="pro_learn_more">УЗНАТЬ БОЛЬШЕ</string>
+    <string name="pro_feature_cloud_sync_title">Облачная синхронизация (Бета)</string>
+    <string name="pro_feature_cloud_sync_desc">Скачивайте и синхронизируйте вашу библиотеку и прогресс книг на всех поддерживаемых устройствах.</string>
+    <string name="pro_feature_watch_title">Android Watch (Бета)</string>
+    <string name="pro_feature_watch_desc">Транслируйте или скачивайте книги и слушайте на ходу без телефона.</string>
+    <string name="pro_feature_themes_title">Темы и иконки</string>
+    <string name="pro_feature_themes_desc">Вы получите доступ к дополнительным темам и иконкам приложения, которые открываются при пожертвовании и вступлении в BookPlayer Plus.</string>
+    <string name="pro_disclaimer_header">Пожалуйста, имейте в виду следующее:</string>
+    <string name="pro_disclaimer_account">Аккаунт нужен только если вы планируете слушать библиотеку на разных устройствах</string>
+    <string name="pro_disclaimer_subscription">Из-за постоянных затрат на сервер для облачного хранилища и синхронизации прогресса, нам требуется подписка для покрытия расходов на эту функцию</string>
+
+    <!-- Settings/Themes -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_appearance_section">Внешний вид</string>
+    <string name="settings_theme_label">Тема</string>
+    <string name="settings_app_icon_label">Иконка приложения</string>
+    <string name="settings_orientation_locked_label">Ориентация заблокирована</string>
+    <string name="themes_title">Темы</string>
+    <string name="themes_use_system_mode">Использовать системный режим</string>
+    <string name="themes_always_use_dark">Всегда использовать темную версию</string>
+    <string name="themes_section_header">ТЕМЫ</string>
+
+    <!-- Player -->
+    <string name="player_cast">Трансляция</string>
+    <string name="player_prev">Назад</string>
+    <string name="player_next">Вперед</string>
+    <string name="player_chapter_label">%1$s</string>
+    <string name="player_chapter_default">Глава 1 из 1</string>
+    <string name="player_play_pause">Воспроизведение/Пауза</string>
+    <string name="player_chapters_title">Главы</string>
+    <string name="player_chapter_details">Начало: %1$s - Длительность: %2$s</string>
+    <string name="player_jump_to_start">Перейти в начало</string>
+    <string name="player_mark_as_unfinished">Отметить как незавершенное</string>
+    <string name="player_mark_as_finished">Отметить как завершенное</string>
+    <string name="player_repeat_off">Выключить повтор</string>
+    <string name="player_repeat_on">Включить повтор для этой книги</string>
+    <string name="player_bookmark_exists">Закладка уже существует на %1$s</string>
+    <string name="player_bookmark_saved">Ваша закладка сохранена на %1$s</string>
+    <string name="player_add_note">Добавить заметку</string>
+    <string name="player_see_bookmarks">Посмотреть закладки</string>
+    <string name="player_add_note_title">Добавить заметку</string>
+    <string name="player_note_placeholder">Заметка</string>
+    <string name="player_bookmarks_title">Закладки</string>
+    <string name="player_bookmarks_manual">Вручную</string>
+    <string name="player_controls_title">Управление плеером</string>
+    <string name="player_set_speed">Установить скорость воспроизведения</string>
+    <string name="player_speed_min">0.5</string>
+    <string name="player_speed_max">4.0</string>
+    <string name="player_volume">Громкость</string>
+    <string name="player_boost_volume">Усиление громкости</string>
+    <string name="player_boost_volume_desc">Удваивает громкость.\nИспользуйте с осторожностью и берегите свой слух.</string>
+    <string name="player_custom_timer">Свой таймер</string>
+    <string name="player_timer_hours">часов</string>
+    <string name="player_timer_min">мин</string>
+    <string name="player_start_timer">Запустить таймер</string>
+    <string name="player_sleep_timer_title">Таймер сна</string>
+    <string name="player_timer_off">Выкл</string>
+    <string name="player_timer_5m">5 минут</string>
+    <string name="player_timer_10m">10 минут</string>
+    <string name="player_timer_15m">15 минут</string>
+    <string name="player_timer_30m">30 минут</string>
+    <string name="player_timer_45m">45 минут</string>
+    <string name="player_timer_1h">1 час</string>
+    <string name="player_timer_end_chapter">Конец главы</string>
+    <string name="player_timer_custom">Свой</string>
+    <string name="player_rewind_interval_title">Интервал перемотки назад</string>
+    <string name="player_forward_interval_title">Интервал перемотки вперед</string>
+    <string name="player_smart_rewind_limit_title">Лимит умной перемотки</string>
+    <string name="player_list_button_action_title">Действие кнопки списка</string>
+    <string name="player_quick_action_1">Быстрое действие 1</string>
+    <string name="player_quick_action_2">Быстрое действие 2</string>
+    <string name="player_quick_action_3">Быстрое действие 3</string>
+    <string name="player_settings_skip_intervals">Интервалы пропуска</string>
+    <string name="player_settings_rewind">Назад</string>
+    <string name="player_settings_forward">Вперед</string>
+    <string name="player_settings_skip_intervals_desc">Настройте время пропуска при использовании кнопок в плеере или центре управления.</string>
+    <string name="player_settings_smart_rewind">Умная перемотка</string>
+    <string name="player_settings_smart_rewind_limit">Лимит умной перемотки</string>
+    <string name="player_settings_smart_rewind_desc">Автоматически перематывать назад при возобновлении воспроизведения. Перематывает тем дальше, чем дольше воспроизведение было на паузе, максимум до 30 секунд.</string>
+    <string name="player_settings_auto_sleep_timer">Автотаймер сна</string>
+    <string name="player_settings_auto_sleep_timer_desc">Перезапускать последний активный таймер сна при возобновлении воспроизведения</string>
+    <string name="player_settings_speed">Скорость</string>
+    <string name="player_settings_global_speed">Общий контроль скорости</string>
+    <string name="player_settings_global_speed_desc">Установить скорость для всех книг.</string>
+    <string name="player_settings_progress_bar_seeking">Перемотка полосой прогресса</string>
+    <string name="player_settings_progress_bar_seeking_desc">Включить перемотку на экране блокировки</string>
+    <string name="player_settings_list_opens">Открывает</string>
+    <string name="player_settings_list_opens_desc">Настройте, что открывает кнопка списка на экране плеера</string>
+    <string name="player_settings_progress_labels">Метки прогресса</string>
+    <string name="player_settings_use_remaining_time">Использовать оставшееся время</string>
+    <string name="player_settings_use_chapter_context">Использовать контекст главы</string>
+    <string name="player_settings_progress_labels_desc">Переключение между отображением оставшегося времени, общей длительности и прогресса главы или книги на экране плеера</string>
+    <string name="player_rewind">Назад</string>
+
+    <!-- Library -->
+    <string name="library_title_default">Библиотека</string>
+    <string name="library_create_folder_title">Создать папку</string>
+    <string name="library_folder_name_label">Имя папки</string>
+    <string name="library_folder_name_error">Используйте только буквы, цифры, \'-\' или \'_\'</string>
+    <string name="library_choose_destination_title">Выберите место назначения</string>
+    <string name="library_choose_destination_message">Куда вы хотите переместить выбранные элементы?</string>
+    <string name="library_new_folder">Новая папка</string>
+    <string name="library_existing_folder">Существующая папка</string>
+    <string name="library_select_folder_title">Выберите папку</string>
+    <string name="library_delete_item_title">Удалить элемент</string>
+    <string name="library_delete_items_title">Удалить %1$d элементов</string>
+    <string name="library_delete_item_message">Вы уверены, что хотите удалить \'%1$s\'? Это также удалит физический файл.</string>
+    <string name="library_delete_items_message">Вы уверены, что хотите удалить эти %1$d элементов? Это также удалит физические файлы.</string>
+    <string name="library_delete_folder_warning">\n\nПримечание: Удаление папки также удалит все ее содержимое.</string>
+    <string name="library_empty_message">Ваша библиотека пуста</string>
+    <string name="library_see_details">Посмотреть детали</string>
+    <string name="library_view_style">Стиль отображения</string>
+    <string name="library_folder_empty">0 Файлов</string>
+    <string name="library_unknown_author">Неизвестный автор</string>
+    <string name="library_open_folder">Открыть папку</string>
+    <string name="library_edit_book_title">Редактировать книгу</string>
+    <string name="library_title_placeholder">Заголовок</string>
+    <string name="library_author_placeholder">Автор</string>
+    <string name="library_artwork_title">Обложка</string>
+    <string name="library_filename_label">Имя файла</string>
+    <string name="library_progress_label">Прогресс</string>
+    <string name="library_progress_percent">%1$d%%</string>
+    <string name="library_last_played_label">Последний раз слушали</string>
+    <string name="date_format_last_played">d MMM yyyy \'в\' h:mm a</string>
+
+    <!-- Import -->
+    <string name="import_title">Импорт</string>
+    <string name="import_disclaimer">Перенос файлов может занять некоторое время, пожалуйста, убедитесь, что количество файлов полное, прежде чем продолжать.</string>
+    <string name="import_files_count">%1$d Файлов</string>
+
+    <!-- Interval/Duration -->
+    <string name="interval_seconds">%1$d сек</string>
+    <string name="interval_1_min">1 мин</string>
+    <string name="interval_1_min_30_secs">1 мин, 30 сек</string>
+    <string name="interval_minutes">%1$d мин</string>
+    <string name="duration_hms">%1$dч %2$дм %3$дс</string>
+    <string name="duration_ms">%1$дм %2$дс</string>
+
+</resources>
