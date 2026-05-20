@@ -38,9 +38,15 @@ import com.tortugapower.audiobookplayer.viewmodel.AuthViewModel
 import com.tortugapower.audiobookplayer.viewmodel.AuthViewModelFactory
 import androidx.credentials.CreatePublicKeyCredentialRequest
 import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetPublicKeyCredentialOption
 import androidx.credentials.exceptions.CreateCredentialException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.tortugapower.audiobookplayer.model.PasskeyRegistrationVerifyRequest
 import com.tortugapower.audiobookplayer.model.PasskeyLoginResponse
+import com.tortugapower.audiobookplayer.model.PasskeyVerifyRequest
+import com.tortugapower.audiobookplayer.model.PasskeyAssertionResponse
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -125,13 +131,68 @@ fun AuthSheet(
         }
     }
 
+    // Handle Passkey Sign-in
+    LaunchedEffect(viewModel.passkeySignInRequested) {
+        if (viewModel.passkeySignInRequested) {
+            try {
+                val options = viewModel.getPasskeySignInOptions()
+                
+                if (options != null) {
+                    val getPublicKeyCredentialOption = GetPublicKeyCredentialOption(
+                        requestJson = viewModel.getSignInJson(options),
+                    )
+
+                    val getCredentialRequest = GetCredentialRequest(
+                        listOf(getPublicKeyCredentialOption)
+                    )
+
+                    val result = credentialManager.getCredential(context, getCredentialRequest)
+                    val responseJson = result.credential.data.getString("androidx.credentials.BUNDLE_KEY_AUTHENTICATION_RESPONSE_JSON")
+                    
+                    if (responseJson != null) {
+                        android.util.Log.d("AuthSheet", "SignIn Response JSON: $responseJson")
+                        val json = JSONObject(responseJson)
+                        val responseObj = json.getJSONObject("response")
+                        
+                        val loginResponse = com.tortugapower.audiobookplayer.network.NetworkClient.authApi.verifyPasskey(
+                            PasskeyVerifyRequest(
+                                credentialId = json.getString("id"),
+                                response = PasskeyAssertionResponse(
+                                    clientDataJSON = responseObj.getString("clientDataJSON"),
+                                    authenticatorData = responseObj.getString("authenticatorData"),
+                                    signature = responseObj.getString("signature"),
+                                    userHandle = if (responseObj.has("userHandle")) responseObj.getString("userHandle") else null
+                                )
+                            )
+                        )
+                        
+                        if (loginResponse.isSuccessful && loginResponse.body() != null) {
+                            viewModel.completeRegistration(loginResponse.body()!!)
+                            onDismiss()
+                        } else {
+                            val errorBody = loginResponse.errorBody()?.string()
+                            android.util.Log.e("AuthSheet", "Passkey Sign-in verify failed: $errorBody")
+                            viewModel.errorMessage = context.getString(R.string.auth_error_verification_failed)
+                        }
+                    }
+                }
+            } catch (e: GetCredentialException) {
+                if (e !is GetCredentialCancellationException) {
+                    android.util.Log.e("AuthSheet", "Passkey Sign-in failed", e)
+                    viewModel.errorMessage = context.getString(R.string.auth_error_passkey_failed, e.message ?: "")
+                }
+            } finally {
+                viewModel.passkeySignInRequested = false
+            }
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.fillMaxSize(),
-        windowInsets = WindowInsets.statusBars
     ) {
         Column(
             modifier = Modifier
@@ -159,6 +220,7 @@ fun AuthSheet(
                         email = viewModel.email,
                         onEmailChange = { viewModel.email = it },
                         onContinue = { viewModel.onEmailContinue() },
+                        onPasskeySignIn = { viewModel.onSignInWithPasskey() },
                         errorMessage = viewModel.errorMessage
                     )
                 }
@@ -238,6 +300,7 @@ fun EmailInputScreen(
     email: String,
     onEmailChange: (String) -> Unit,
     onContinue: () -> Unit,
+    onPasskeySignIn: () -> Unit,
     errorMessage: String?
 ) {
     Column(
@@ -302,7 +365,7 @@ fun EmailInputScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        TextButton(onClick = { /* Handle existing passkey */ }) {
+        TextButton(onClick = onPasskeySignIn) {
             Text(stringResource(R.string.auth_sign_in_with_passkey), color = Color(0xFF3482F6))
         }
     }

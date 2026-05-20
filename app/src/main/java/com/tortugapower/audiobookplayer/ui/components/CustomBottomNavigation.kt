@@ -31,7 +31,7 @@ import com.tortugapower.audiobookplayer.R
 
 sealed class Screen(
     val route: String,
-    val label: String,
+    @StringRes val label: Int,
     val icon: @Composable () -> Unit,
 ) {
     object Library : Screen(
@@ -40,19 +40,21 @@ sealed class Screen(
         icon = {
             Icon(
                 painter = painterResource(R.drawable.ic_newsstand),
-                contentDescription = R.string.library_title_default,
+                contentDescription = stringResource(R.string.library_title_default),
             )
         },
     )
+
     object Profile : Screen(
         route = "profile",
         label = R.string.profile_title,
-        icon = { Icon(Icons.Default.Person, contentDescription = R.string.profile_title) },
+        icon = { Icon(Icons.Default.Person, contentDescription = stringResource(R.string.profile_title)) },
     )
+
     object Settings : Screen(
         route = "settings",
         label = R.string.settings_title,
-        icon = { Icon(Icons.Default.Settings, contentDescription = R.string.settings_title) },
+        icon = { Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings_title)) },
     )
 }
 
@@ -70,7 +72,7 @@ fun CustomBottomNavigation(
                 selected = currentRoute == screen.route,
                 onClick = { onTabSelected(screen) },
                 icon = screen.icon,
-                label = { Text(screen.label) },
+                label = { Text(stringResource(screen.label)) },
             )
         }
     }

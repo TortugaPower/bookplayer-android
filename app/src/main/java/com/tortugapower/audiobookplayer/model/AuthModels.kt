@@ -63,6 +63,29 @@ data class PasskeyRegistrationVerifyRequest(
     @SerializedName("device_name") val deviceName: String?
 )
 
+data class PasskeyAssertionResponse(
+    @SerializedName("client_data_json") val clientDataJSON: String,
+    @SerializedName("authenticator_data") val authenticatorData: String,
+    val signature: String,
+    @SerializedName("user_handle") val userHandle: String?
+)
+
+data class PasskeyVerifyRequest(
+    @SerializedName("credential_id") val credentialId: String,
+    val response: PasskeyAssertionResponse
+)
+
+data class PasskeySignInOptionsRequest(
+    val email: String
+)
+
+data class PasskeySignInOptionsResponse(
+    val challenge: String,
+    val timeout: Int,
+    @SerializedName("rp_id") val rpId: String,
+    @SerializedName("allow_credentials") val allowCredentials: List<PasskeyCredentialDescriptor>?
+)
+
 data class PasskeyLoginResponse(
     val email: String,
     val token: String,

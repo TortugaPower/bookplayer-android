@@ -17,3 +17,5 @@ keystore.properties
 *.keystore
 *.jks
 !debug.keystore
+.idea/deploymentTargetSelector.xml
+.kotlin/

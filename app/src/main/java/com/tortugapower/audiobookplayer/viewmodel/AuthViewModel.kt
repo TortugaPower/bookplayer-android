@@ -29,6 +29,7 @@ class AuthViewModel(
     var verificationCode by mutableStateOf("")
     var errorMessage by mutableStateOf<String?>(null)
     var verificationToken by mutableStateOf<String?>(null)
+    var passkeySignInRequested by mutableStateOf(false)
 
     fun onEmailContinue() {
         if (!isValidEmail(email)) {
@@ -106,6 +107,26 @@ class AuthViewModel(
         }
     }
 
+    suspend fun getPasskeySignInOptions(): PasskeySignInOptionsResponse? {
+        return try {
+            val response = NetworkClient.authApi.getSignInOptions(
+                PasskeySignInOptionsRequest(email)
+            )
+            val body = response.body()
+            if (response.isSuccessful && body != null) {
+                android.util.Log.d("AuthViewModel", "SignIn RP ID: ${body.rpId}")
+                android.util.Log.d("AuthViewModel", "SignIn Challenge: ${body.challenge}")
+                body
+            } else {
+                android.util.Log.e("AuthViewModel", "Failed to get sign-in options: ${response.code()}")
+                null
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AuthViewModel", "Exception getting sign-in options", e)
+            null
+        }
+    }
+
     fun completeRegistration(loginResponse: PasskeyLoginResponse) {
         viewModelScope.launch {
             val account = AccountEntity(
@@ -146,12 +167,17 @@ class AuthViewModel(
         }
     }
 
+    fun onSignInWithPasskey() {
+        passkeySignInRequested = true
+    }
+
     fun reset() {
         currentStep = AuthStep.EMAIL_INPUT
         email = ""
         verificationCode = ""
         errorMessage = null
         verificationToken = null
+        passkeySignInRequested = false
     }
 
     fun getRegistrationJson(options: PasskeyRegistrationOptions): String {
@@ -165,6 +191,28 @@ class AuthViewModel(
             "attestation" to "none",
             "authenticatorSelection" to mapOf("residentKey" to "required", "userVerification" to "required")
         )
+        return gson.toJson(map)
+    }
+
+    fun getSignInJson(options: PasskeySignInOptionsResponse): String {
+        val gson = com.google.gson.Gson()
+        val map = mutableMapOf<String, Any>(
+            "challenge" to options.challenge,
+            "timeout" to options.timeout,
+            "rpId" to options.rpId,
+            "userVerification" to "required"
+        )
+        
+        if (options.allowCredentials != null && options.allowCredentials.isNotEmpty()) {
+            map["allowCredentials"] = options.allowCredentials.map { cred ->
+                mapOf(
+                    "type" to cred.type,
+                    "id" to cred.id,
+                    "transports" to (cred.transports ?: emptyList<String>())
+                )
+            }
+        }
+        
         return gson.toJson(map)
     }
 

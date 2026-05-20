@@ -15,8 +15,14 @@ interface AuthApi {
     @POST(NetworkConstants.ENDPOINT_REGISTRATION_OPTIONS)
     suspend fun getRegistrationOptions(@Body request: PasskeyRegistrationOptionsRequest): Response<PasskeyRegistrationOptions>
 
+    @POST(NetworkConstants.ENDPOINT_PASSKEY_SIGNIN_OPTIONS)
+    suspend fun getSignInOptions(@Body request: PasskeySignInOptionsRequest): Response<PasskeySignInOptionsResponse>
+
     @POST(NetworkConstants.ENDPOINT_REGISTRATION_VERIFY)
     suspend fun verifyRegistration(@Body request: PasskeyRegistrationVerifyRequest): Response<PasskeyLoginResponse>
+
+    @POST(NetworkConstants.ENDPOINT_PASSKEY_VERIFY)
+    suspend fun verifyPasskey(@Body request: PasskeyVerifyRequest): Response<PasskeyLoginResponse>
 
     @POST(NetworkConstants.ENDPOINT_GOOGLE_LOGIN)
     suspend fun googleLogin(@Body request: GoogleLoginRequest): Response<GoogleLoginResponse>

@@ -49,8 +49,8 @@ import androidx.compose.ui.res.stringResource
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
+import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -392,7 +392,7 @@ fun PlayerScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                Slider(
+                BookPlayerSlider(
                     value = if (isDragging) dragPosition else (if (duration > 0) position.toFloat() / duration else 0f),
                     onValueChange = { 
                         isDragging = true
@@ -403,13 +403,7 @@ fun PlayerScreen(
                         PlaybackManager.seekTo(newPos)
                         position = newPos
                         isDragging = false
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                    )
+                    }
                 )
 
                 Row(
@@ -989,18 +983,13 @@ fun PlayerControlsSheet(
                 )
             }
             
-            Slider(
+            BookPlayerSlider(
                 value = currentSpeed,
                 onValueChange = { 
                     currentSpeed = it
                     viewModel.setPlaybackSpeed(context, it)
                 },
-                valueRange = 0.5f..4.0f,
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.onSurface,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                )
+                valueRange = 0.5f..4.0f
             )
 
             Row(
@@ -1045,18 +1034,13 @@ fun PlayerControlsSheet(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text("Volume", style = MaterialTheme.typography.bodyLarge)
-            Slider(
+            BookPlayerSlider(
                 value = currentVolume,
                 onValueChange = { 
                     currentVolume = it
                     viewModel.setPlaybackVolume(context, it)
                 },
-                valueRange = 0.0f..1.0f,
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.onSurface,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                )
+                valueRange = 0.0f..1.0f
             )
 
             Spacer(modifier = Modifier.height(16.dp))

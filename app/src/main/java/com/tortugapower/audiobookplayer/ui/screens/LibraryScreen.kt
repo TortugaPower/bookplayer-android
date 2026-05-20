@@ -278,7 +278,7 @@ fun LibraryScreen(
 
     BookPlayerTabScaffold(
         title = if (isSelectMode) {
-            //stringResource(R.string.library_selected_count, selectedItemUuids.size)
+            stringResource(R.string.library_title_default) // Placeholder since library_selected_count was commented
         } else {
             currentPath?.substringAfterLast('/') ?: stringResource(R.string.library_title_default)
         },

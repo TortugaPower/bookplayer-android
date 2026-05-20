@@ -255,7 +255,6 @@ fun BookPlayerProSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.fillMaxSize(),
-        windowInsets = WindowInsets.statusBars
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -471,7 +470,7 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit) {
         ) {
             settingsSection(titleRes = R.string.settings_appearance_section) {
                 SettingsItem(
-                    label = stringResource(R.string.settings_theme),
+                    label = stringResource(R.string.settings_theme_label),
                     value = ThemeManager.currentTheme.title,
                     onClick = onNavigateToThemes,
                 )
