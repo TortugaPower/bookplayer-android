@@ -172,6 +172,7 @@
     <string name="library_unknown_author">알 수 없는 저자</string>
     <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
+    <string name="library_convert_to_volume">Convert to volume</string>
     <string name="library_open_folder">폴더 열기</string>
     <string name="library_edit_book_title">도서 편집</string>
     <string name="library_title_placeholder">제목</string>

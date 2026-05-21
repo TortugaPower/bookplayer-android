@@ -172,6 +172,7 @@
     <string name="library_unknown_author">अज्ञात लेखक</string>
     <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
+    <string name="library_convert_to_volume">Convert to volume</string>
     <string name="library_open_folder">फ़ोल्डर खोलें</string>
     <string name="library_edit_book_title">पुस्तक संपादित करें</string>
     <string name="library_title_placeholder">शीर्षक</string>

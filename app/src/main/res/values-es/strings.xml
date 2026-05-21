@@ -173,6 +173,7 @@
     <string name="library_unknown_author">Autor desconocido</string>
     <string name="library_chapter_count">%1$d capítulos</string>
     <string name="library_convert_to_folder">Convertir en carpeta</string>
+    <string name="library_convert_to_volume">Convertir en volumen</string>
     <string name="library_combine_to_volume">Crear un volumen</string>
     <string name="library_combine_to_volume_desc">Asegúrate de que los elementos estén en el orden correcto. Para reordenar los capítulos más tarde, deberás volver a convertir el volumen en una carpeta, reordenar los elementos y luego volver a crear el volumen.</string>
     <string name="library_open_folder">Abrir carpeta</string>

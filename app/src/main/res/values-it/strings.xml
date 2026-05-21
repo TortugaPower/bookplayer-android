@@ -173,6 +173,7 @@
     <string name="library_unknown_author">Autore sconosciuto</string>
     <string name="library_chapter_count">%1$d capitoli</string>
     <string name="library_convert_to_folder">Converti in cartella</string>
+    <string name="library_convert_to_volume">Converti in volume</string>
     <string name="library_combine_to_volume">Crea un volume</string>
     <string name="library_combine_to_volume_desc">Assicurati che gli elementi siano nell\'ordine corretto. Per riordinare i capitoli in un secondo momento, dovrai riconvertire il volume in una cartella, riordinare gli elementi e quindi ricreare il volume.</string>
     <string name="library_open_folder">Apri cartella</string>

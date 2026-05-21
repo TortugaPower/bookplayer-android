@@ -173,6 +173,7 @@
     <string name="library_unknown_author">Неизвестный автор</string>
     <string name="library_chapter_count">%1$d глав</string>
     <string name="library_convert_to_folder">Преобразовать в папку</string>
+    <string name="library_convert_to_volume">Преобразовать в том</string>
     <string name="library_combine_to_volume">Создать том</string>
     <string name="library_combine_to_volume_desc">Убедитесь, что элементы расположены в правильном порядке. Чтобы изменить порядок глав позже, вам нужно будет преобразовать том обратно в папку, изменить порядок элементов и снова создать том.</string>
     <string name="library_open_folder">Открыть папку</string>

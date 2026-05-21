@@ -5,13 +5,18 @@ package com.tortugapower.audiobookplayer.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -22,6 +27,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -31,16 +37,19 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.Canvas
-import coil.compose.AsyncImage
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ItemType
@@ -61,6 +70,7 @@ fun LibraryScreen(
     importViewModel: ImportViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val database = remember { AppDatabase.getDatabase(context) }
     val repository = remember { RoomLibraryRepository(database.libraryDao()) }
     val libraryViewModel: LibraryViewModel = viewModel(
@@ -277,97 +287,27 @@ fun LibraryScreen(
         )
     }
 
-    if (showChooseDestinationDialog) {
-        AlertDialog(
-            onDismissRequest = { showChooseDestinationDialog = false },
-            title = { Text(stringResource(R.string.library_choose_destination_title)) },
-            text = { Text(stringResource(R.string.library_choose_destination_message)) },
-            confirmButton = {
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = {
-                            showChooseDestinationDialog = false
-                            showCreateFolderDialog = true
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(stringResource(R.string.library_new_folder))
-                    }
-                    Button(
-                        onClick = {
-                            showChooseDestinationDialog = false
-                            showExistingFoldersSheet = true
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = availableFolders.isNotEmpty()
-                    ) {
-                        Text(stringResource(R.string.library_existing_folder))
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showChooseDestinationDialog = false }) {
-                    Text(stringResource(R.string.common_cancel))
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.surface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-
-    if (showExistingFoldersSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showExistingFoldersSheet = false },
-            containerColor = MaterialTheme.colorScheme.surface,
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp).padding(horizontal = 16.dp)) {
-                Text(
-                    text = stringResource(R.string.library_select_folder_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-                LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    items(availableFolders) { folder ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    val selectedItems = items.filter { it.uuid in selectedItemUuids }
-                                    libraryViewModel.moveSelectedItems(context, selectedItems, folder.relativePath)
-                                    showExistingFoldersSheet = false
-                                    isSelectMode = false
-                                    selectedItemUuids = emptySet()
-                                }
-                                .padding(vertical = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Text(text = folder.title, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
-                    }
-                }
-            }
-        }
-    }
-
     if (itemsToDelete.isNotEmpty()) {
-        val title = if (itemsToDelete.size == 1) stringResource(R.string.library_delete_item_title) else stringResource(R.string.library_delete_items_title, itemsToDelete.size)
-        val message = if (itemsToDelete.size == 1) {
-            stringResource(R.string.library_delete_item_message, itemsToDelete.first().title)
-        } else {
-            stringResource(R.string.library_delete_items_message, itemsToDelete.size)
-        }
-        val hasFolder = itemsToDelete.any { it.type == ItemType.FOLDER }
-        val folderWarning = if (hasFolder) stringResource(R.string.library_delete_folder_warning) else ""
-
         AlertDialog(
             onDismissRequest = { itemsToDelete = emptyList() },
-            title = { Text(title) },
-            text = { Text(message + folderWarning) },
+            title = { 
+                Text(
+                    if (itemsToDelete.size == 1) stringResource(R.string.library_delete_item_title)
+                    else stringResource(R.string.library_delete_items_title, itemsToDelete.size)
+                )
+            },
+            text = {
+                val message = if (itemsToDelete.size == 1) {
+                    stringResource(R.string.library_delete_item_message, itemsToDelete[0].title)
+                } else {
+                    stringResource(R.string.library_delete_items_message, itemsToDelete.size)
+                }
+                
+                val hasFolder = itemsToDelete.any { it.type == ItemType.FOLDER }
+                val warning = if (hasFolder) stringResource(R.string.library_delete_folder_warning) else ""
+                
+                Text(message + warning)
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -375,8 +315,7 @@ fun LibraryScreen(
                         itemsToDelete = emptyList()
                         isSelectMode = false
                         selectedItemUuids = emptySet()
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE57373))
+                    }
                 ) {
                     Text(stringResource(R.string.common_delete))
                 }
@@ -394,7 +333,7 @@ fun LibraryScreen(
 
     BookPlayerTabScaffold(
         title = if (isSelectMode) {
-            stringResource(R.string.library_title_default) // Placeholder since library_selected_count was commented
+            stringResource(R.string.library_title_default) 
         } else {
             currentPath?.substringAfterLast('/') ?: stringResource(R.string.library_title_default)
         },
@@ -433,17 +372,17 @@ fun LibraryScreen(
                         expanded = showMoreMenu,
                         onDismissRequest = { showMoreMenu = false },
                     ) {
-                        if (selectedItemUuids.size == 1) {
+                        val selectedItems = items.filter { it.uuid in selectedItemUuids }
+                        
+                        if (selectedItems.size == 1 && (selectedItems[0].type == ItemType.BOOK || selectedItems[0].type == ItemType.BOUND)) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.library_see_details)) },
                                 onClick = {
                                     showMoreMenu = false
-                                    val selected = items.find { it.uuid in selectedItemUuids }
-                                    if (selected != null && selected.type == ItemType.BOOK) {
-                                        itemToDetail = selected
-                                        showItemDetailSheet = true
-                                    }
+                                    itemToDetail = selectedItems[0]
+                                    showItemDetailSheet = true
                                 },
+                                leadingIcon = { Icon(Icons.Default.Info, null) }
                             )
                         }
                         DropdownMenuItem(
@@ -452,9 +391,9 @@ fun LibraryScreen(
                                 showMoreMenu = false
                                 selectedItemUuids = items.map { it.uuid }.toSet()
                             },
+                            leadingIcon = { Icon(Icons.Default.SelectAll, null) }
                         )
 
-                        val selectedItems = items.filter { it.uuid in selectedItemUuids }
                         if (selectedItems.size >= 2 && selectedItems.all { it.type == ItemType.BOOK }) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.library_combine_to_volume)) },
@@ -476,6 +415,19 @@ fun LibraryScreen(
                                     selectedItemUuids = emptySet()
                                 },
                                 leadingIcon = { Icon(Icons.Default.FolderOpen, null) }
+                            )
+                        }
+
+                        if (selectedItems.isNotEmpty() && selectedItems.all { it.type == ItemType.FOLDER }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.library_convert_to_volume)) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    libraryViewModel.convertFoldersToVolumes(context, selectedItems)
+                                    isSelectMode = false
+                                    selectedItemUuids = emptySet()
+                                },
+                                leadingIcon = { Icon(Icons.Default.AutoStories, null) }
                             )
                         }
                     }
@@ -539,14 +491,25 @@ fun LibraryScreen(
                 .padding(innerPadding),
         ) { path ->
             val pathItems by remember(path) { libraryViewModel.getItemsForPath(path) }.collectAsState()
+            
+            // Local state to handle reordering during selection mode
+            val reorderableItems = remember(pathItems, isSelectMode) { 
+                pathItems.toMutableStateList() 
+            }
 
             if (pathItems.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(stringResource(R.string.library_empty_message), color = Color.Gray)
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(pathItems, key = { it.uuid }) { item ->
+                val lazyListState = rememberLazyListState()
+                val density = LocalDensity.current
+                
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    itemsIndexed(reorderableItems, key = { _, it -> it.uuid }) { index, item ->
                         val isSelected = selectedItemUuids.contains(item.uuid)
                         val dismissState = rememberSwipeToDismissBoxState()
 
@@ -592,6 +555,36 @@ fun LibraryScreen(
                                     item = item,
                                     isSelected = isSelected,
                                     isSelectMode = isSelectMode,
+                                    modifier = if (isSelectMode) {
+                                        Modifier.pointerInput(item.uuid, reorderableItems) {
+                                            var dragAccumulator = 0f
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) },
+                                                onDragEnd = { libraryViewModel.reorderItems(reorderableItems.toList()) },
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    dragAccumulator += dragAmount.y
+                                                    
+                                                    val currentIndex = reorderableItems.indexOfFirst { it.uuid == item.uuid }
+                                                    if (currentIndex == -1) return@detectDragGesturesAfterLongPress
+                                                    
+                                                    val threshold = with(density) { 64.dp.toPx() }
+                                                    
+                                                    if (dragAccumulator > threshold && currentIndex < reorderableItems.size - 1) {
+                                                        reorderableItems[currentIndex] = reorderableItems[currentIndex + 1]
+                                                        reorderableItems[currentIndex + 1] = item
+                                                        dragAccumulator = 0f
+                                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                                    } else if (dragAccumulator < -threshold && currentIndex > 0) {
+                                                        reorderableItems[currentIndex] = reorderableItems[currentIndex - 1]
+                                                        reorderableItems[currentIndex - 1] = item
+                                                        dragAccumulator = 0f
+                                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    } else Modifier,
                                     onClick = {
                                         if (isSelectMode) {
                                             selectedItemUuids = if (isSelected) {
@@ -600,7 +593,7 @@ fun LibraryScreen(
                                                 selectedItemUuids + item.uuid
                                             }
                                         } else {
-                                            if (item.type == ItemType.FOLDER) {
+                                            if (item.type == ItemType.FOLDER || item.type == ItemType.BOUND) {
                                                 libraryViewModel.navigateTo(item.relativePath ?: "")
                                             } else {
                                                 val isCurrentlyPlaying = PlaybackManager.currentItem?.uuid == item.uuid
@@ -651,22 +644,27 @@ fun LibraryListItem(
     item: LibraryItemEntity,
     isSelected: Boolean = false,
     isSelectMode: Boolean = false,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .pointerInput(onClick, onLongClick) {
-                detectTapGestures(
-                    onTap = { onClick() },
-                    onLongPress = { 
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                        onLongClick() 
-                    }
-                )
+            .pointerInput(isSelectMode, onClick, onLongClick) {
+                if (isSelectMode) {
+                    detectTapGestures(onTap = { onClick() })
+                } else {
+                    detectTapGestures(
+                        onTap = { onClick() },
+                        onLongPress = { 
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            onLongClick() 
+                        }
+                    )
+                }
             }
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -761,6 +759,12 @@ fun LibraryListItem(
         Spacer(modifier = Modifier.width(8.dp))
 
         if (isSelectMode) {
+            Icon(
+                imageVector = Icons.Default.Reorder,
+                contentDescription = "Reorder",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp)
+            )
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (item.isFinished) {
@@ -777,7 +781,7 @@ fun LibraryListItem(
                     )
                 }
                 
-                if (item.type == ItemType.FOLDER) {
+                if (item.type == ItemType.FOLDER || item.type == ItemType.BOUND) {
                     Icon(
                         imageVector = Icons.Default.ChevronRight,
                         contentDescription = stringResource(R.string.library_open_folder),
@@ -827,5 +831,3 @@ fun PieProgressIcon(
         }
     }
 }
-
-

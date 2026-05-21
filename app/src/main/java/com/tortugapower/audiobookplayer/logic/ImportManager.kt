@@ -104,6 +104,7 @@ object ImportManager : ImportService {
             val libraryDao = database.libraryDao()
 
             withContext(Dispatchers.IO) {
+                var currentMaxRank = libraryDao.getMaxRootOrderRank() ?: -1
                 importedFiles.forEach { importFile ->
                     if (importFile.file.exists()) {
                         // 1. Extract duration
@@ -114,13 +115,15 @@ object ImportManager : ImportService {
                         importFile.file.renameTo(destinationFile)
 
                         // 3. Create and save LibraryItemEntity
+                        currentMaxRank++
                         val entity = com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity(
                             uuid = java.util.UUID.randomUUID().toString(),
                             title = importFile.name.substringBeforeLast('.'),
                             originalFileName = importFile.name,
                             relativePath = importFile.name, // Root for now
                             type = com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK,
-                            duration = duration
+                            duration = duration,
+                            orderRank = currentMaxRank
                         )
                         libraryDao.insertItem(entity)
                     }

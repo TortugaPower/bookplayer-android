@@ -173,6 +173,7 @@
     <string name="library_unknown_author">Unknown author</string>
     <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
+    <string name="library_convert_to_volume">Convert to volume</string>
     <string name="library_combine_to_volume">Create a volume</string>
     <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
     <string name="library_combine_to_volume_title">Volume Name</string>

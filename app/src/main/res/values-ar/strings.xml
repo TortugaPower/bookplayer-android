@@ -172,6 +172,7 @@
     <string name="library_unknown_author">مؤلف غير معروف</string>
     <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
+    <string name="library_convert_to_volume">Convert to volume</string>
     <string name="library_open_folder">فتح المجلد</string>
     <string name="library_edit_book_title">تعديل الكتاب</string>
     <string name="library_title_placeholder">العنوان</string>

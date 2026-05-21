@@ -172,6 +172,7 @@
     <string name="library_unknown_author">不明な著者</string>
     <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
+    <string name="library_convert_to_volume">Convert to volume</string>
     <string name="library_open_folder">フォルダを開く</string>
     <string name="library_edit_book_title">本を編集</string>
     <string name="library_title_placeholder">タイトル</string>

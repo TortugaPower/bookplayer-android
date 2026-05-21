@@ -5,6 +5,7 @@ import com.tortugapower.audiobookplayer.database.dao.LibraryDao
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -127,6 +128,11 @@ class RoomLibraryRepository(
         withContext(Dispatchers.IO) {
             val processedDir = File(context.filesDir, "Processed")
             
+            // Get current max order rank in target folder
+            var currentMaxRank = if (targetFolderPath == null) libraryDao.getMaxRootOrderRank() 
+                                else libraryDao.getMaxPathOrderRank(targetFolderPath)
+            var nextRank = (currentMaxRank ?: -1) + 1
+
             items.forEach { item ->
                 val oldPath = item.relativePath ?: return@forEach
                 val fileName = oldPath.substringAfterLast('/')
@@ -146,6 +152,7 @@ class RoomLibraryRepository(
                 // 2. Update DB record by mutating the existing reference
                 val previousPath = item.relativePath
                 item.relativePath = newPath
+                item.orderRank = nextRank++
                 libraryDao.updateItem(item)
 
                 // 3. Update parents for both old and new paths
@@ -168,17 +175,24 @@ class RoomLibraryRepository(
 
             // 2. Create the BOUND item in DB
             val volumeUuid = java.util.UUID.randomUUID().toString()
+            
+            // Get current max order rank in current path
+            val currentMaxRank = if (currentPath.isEmpty()) libraryDao.getMaxRootOrderRank() 
+                                 else libraryDao.getMaxPathOrderRank(currentPath)
+
             val volumeItem = LibraryItemEntity(
                 uuid = volumeUuid,
                 title = volumeName,
                 relativePath = volumePath,
                 type = ItemType.BOUND,
                 duration = items.sumOf { it.duration },
-                author = context.getString(R.string.library_chapter_count, items.size)
+                author = context.getString(R.string.library_chapter_count, items.size),
+                orderRank = (currentMaxRank ?: -1) + 1
             )
             libraryDao.insertItem(volumeItem)
 
             // 3. Move items into the volume
+            var subRank = 0
             items.forEach { item ->
                 val oldPath = item.relativePath ?: return@forEach
                 val fileName = oldPath.substringAfterLast('/')
@@ -193,6 +207,7 @@ class RoomLibraryRepository(
                 
                 val previousPath = item.relativePath
                 item.relativePath = newPath
+                item.orderRank = subRank++
                 libraryDao.updateItem(item)
                 
                 updateParentFolders(previousPath)
@@ -217,6 +232,33 @@ class RoomLibraryRepository(
                     libraryDao.updateItem(item)
                     updateParentFolders(item.relativePath)
                 }
+            }
+        }
+    }
+
+    override suspend fun convertFoldersToVolumes(context: Context, items: List<LibraryItemEntity>) {
+        withContext(Dispatchers.IO) {
+            items.forEach { item ->
+                if (item.type == ItemType.FOLDER) {
+                    item.type = ItemType.BOUND
+                    
+                    // Update metadata to volume style (Chapters instead of Files)
+                    val children = libraryDao.getItemsInPathSync(item.relativePath ?: "")
+                    val count = children.size
+                    item.author = context.getString(R.string.library_chapter_count, count)
+                    
+                    libraryDao.updateItem(item)
+                    updateParentFolders(item.relativePath)
+                }
+            }
+        }
+    }
+
+    override suspend fun reorderItems(items: List<LibraryItemEntity>) {
+        withContext(Dispatchers.IO) {
+            items.forEachIndexed { index, item ->
+                item.orderRank = index
+                libraryDao.updateItem(item)
             }
         }
     }

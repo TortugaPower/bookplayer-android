@@ -173,6 +173,7 @@
     <string name="library_unknown_author">Unbekannter Autor</string>
     <string name="library_chapter_count">%1$d Kapitel</string>
     <string name="library_convert_to_folder">In Ordner umwandeln</string>
+    <string name="library_convert_to_volume">In Volume umwandeln</string>
     <string name="library_combine_to_volume">Ein Volume erstellen</string>
     <string name="library_combine_to_volume_desc">Stellen Sie sicher, dass die Elemente in der richtigen Reihenfolge sind. Um Kapitel später neu zu ordnen, müssen Sie das Volume wieder in einen Ordner umwandeln, die Elemente neu ordnen und dann das Volume neu erstellen.</string>
     <string name="library_open_folder">Ordner öffnen</string>

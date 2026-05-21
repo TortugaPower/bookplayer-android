@@ -8,11 +8,9 @@ import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalCoroutinesApi::class)
 class LibraryViewModel(
     private val repository: LibraryRepository
 ) : ViewModel() {
@@ -23,17 +21,28 @@ class LibraryViewModel(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    val searchResults: StateFlow<List<LibraryItemEntity>> = _searchQuery
-        .debounce(300)
-        .flatMapLatest { query ->
-            if (query.isEmpty()) flowOf(emptyList())
-            else repository.searchBooks(query)
+    private val _searchResults = MutableStateFlow<List<LibraryItemEntity>>(emptyList())
+    val searchResults: StateFlow<List<LibraryItemEntity>> = _searchResults.asStateFlow()
+
+    private var searchJob: kotlinx.coroutines.Job? = null
+
+    fun updateSearchQuery(query: String) {
+        _searchQuery.value = query
+        
+        searchJob?.cancel()
+        if (query.isEmpty()) {
+            _searchResults.value = emptyList()
+            return
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+
+        searchJob = viewModelScope.launch {
+            // Stable debounce implementation
+            kotlinx.coroutines.delay(300)
+            repository.searchBooks(query).collect {
+                _searchResults.value = it
+            }
+        }
+    }
 
     private val itemsCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()
     private val foldersCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()
@@ -67,14 +76,6 @@ class LibraryViewModel(
         }
     }
 
-    init {
-        // No global observation needed anymore as paths are requested on-demand by the UI
-    }
-
-    fun updateSearchQuery(query: String) {
-        _searchQuery.value = query
-    }
-
     fun navigateTo(path: String) {
         _currentPath.value = path
     }
@@ -103,11 +104,18 @@ class LibraryViewModel(
             val path = _currentPath.value
             val relativePath = if (path == null) name else "$path/$name"
             
+            // Get current max order rank in target folder
+            val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(com.tortugapower.audiobookplayer.MainActivity.currentContext!!)
+            val libraryDao = db.libraryDao()
+            val currentMaxRank = if (path == null) libraryDao.getMaxRootOrderRank() 
+                                else libraryDao.getMaxPathOrderRank(path)
+
             val newFolder = LibraryItemEntity(
                 uuid = java.util.UUID.randomUUID().toString(),
                 title = name,
                 relativePath = relativePath,
-                type = ItemType.FOLDER
+                type = ItemType.FOLDER,
+                orderRank = (currentMaxRank ?: -1) + 1
             )
             repository.saveItem(newFolder)
         }
@@ -116,6 +124,12 @@ class LibraryViewModel(
     fun moveSelectedItems(context: android.content.Context, items: List<LibraryItemEntity>, targetPath: String?) {
         viewModelScope.launch {
             repository.moveItems(context, items, targetPath)
+        }
+    }
+
+    fun reorderItems(items: List<LibraryItemEntity>) {
+        viewModelScope.launch {
+            repository.reorderItems(items)
         }
     }
 
@@ -128,6 +142,12 @@ class LibraryViewModel(
     fun convertVolumesToFolders(items: List<LibraryItemEntity>) {
         viewModelScope.launch {
             repository.convertVolumesToFolders(items)
+        }
+    }
+
+    fun convertFoldersToVolumes(context: android.content.Context, items: List<LibraryItemEntity>) {
+        viewModelScope.launch {
+            repository.convertFoldersToVolumes(context, items)
         }
     }
 

@@ -39,6 +39,12 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items WHERE type = 'BOOK' AND title LIKE '%' || :query || '%' ORDER BY title ASC")
     fun searchBooks(query: String): Flow<List<LibraryItemEntity>>
 
+    @Query("SELECT MAX(orderRank) FROM library_items WHERE relativePath NOT LIKE '%/%'")
+    suspend fun getMaxRootOrderRank(): Int?
+
+    @Query("SELECT MAX(orderRank) FROM library_items WHERE relativePath LIKE :path || '/%' AND relativePath NOT LIKE :path || '/%/%'")
+    suspend fun getMaxPathOrderRank(path: String): Int?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertItem(item: LibraryItemEntity)
 

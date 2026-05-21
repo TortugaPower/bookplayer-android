@@ -25,7 +25,7 @@ open class LibraryItemEntity(
     var isFinished: Boolean = false,
     var lastPlayDate: Long? = null,
     var parentFolderUuid: String? = null,
-    val type: ItemType
+    var type: ItemType
 )
 
 @Entity(

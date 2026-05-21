@@ -172,6 +172,7 @@
     <string name="library_unknown_author">未知作者</string>
     <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
+    <string name="library_convert_to_volume">Convert to volume</string>
     <string name="library_open_folder">打开文件夹</string>
     <string name="library_edit_book_title">编辑书籍</string>
     <string name="library_title_placeholder">标题</string>

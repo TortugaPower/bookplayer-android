@@ -26,6 +26,8 @@ interface LibraryRepository {
     suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?)
     suspend fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String)
     suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>)
+    suspend fun convertFoldersToVolumes(context: android.content.Context, items: List<LibraryItemEntity>)
+    suspend fun reorderItems(items: List<LibraryItemEntity>)
 
     fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>>
     suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity?
