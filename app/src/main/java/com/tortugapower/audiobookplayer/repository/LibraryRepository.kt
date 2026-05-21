@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 interface LibraryRepository {
     fun getRootItems(): Flow<List<LibraryItemEntity>>
     fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>>
+    suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity>
     suspend fun getItemById(uuid: String): LibraryItemEntity?
     suspend fun getItemByPath(path: String): LibraryItemEntity?
     
@@ -23,6 +24,8 @@ interface LibraryRepository {
     suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity)
     suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>)
     suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?)
+    suspend fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String)
+    suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>)
 
     fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>>
     suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity?

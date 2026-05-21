@@ -170,6 +170,8 @@
     <string name="library_view_style">보기 스타일</string>
     <string name="library_folder_empty">파일 0개</string>
     <string name="library_unknown_author">알 수 없는 저자</string>
+    <string name="library_chapter_count">%1$d Chapters</string>
+    <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_open_folder">폴더 열기</string>
     <string name="library_edit_book_title">도서 편집</string>
     <string name="library_title_placeholder">제목</string>
@@ -194,4 +196,7 @@
     <string name="duration_hms">%1$d시간 %2$d분 %3$d초</string>
     <string name="duration_ms">%1$d분 %2$d초</string>
 
+    <string name="library_combine_to_volume">Create a volume</string>
+    <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
+    <string name="common_create">Create</string>
 </resources>

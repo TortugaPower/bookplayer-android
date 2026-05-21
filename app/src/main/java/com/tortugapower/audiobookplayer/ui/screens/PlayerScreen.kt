@@ -142,13 +142,14 @@ fun PlayerScreen(
 
     LaunchedEffect(isPlaying, isDragging, isHidden, viewModel.seekTrigger, currentItem?.uuid, viewModel.isTransitioning) {
         val p = viewModel.player
+        val chapters = viewModel.chapters.value
         if (p != null && !viewModel.isTransitioning) {
             // Final safety guard for Media3 sync lag
-            if (p.currentMediaItem?.mediaId != currentItem?.uuid || 
+            if (p.currentMediaItem?.mediaId != currentItem?.uuid && currentItem?.type != com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND || 
                 (p.playbackState != Player.STATE_READY && p.playbackState != Player.STATE_BUFFERING)) {
                 
                 var attempts = 0
-                while ((p.currentMediaItem?.mediaId != currentItem?.uuid || 
+                while ((p.currentMediaItem?.mediaId != currentItem?.uuid && currentItem?.type != com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND || 
                        (p.playbackState != Player.STATE_READY && p.playbackState != Player.STATE_BUFFERING)) 
                        && attempts < 30) {
                     delay(50)
@@ -159,16 +160,27 @@ fun PlayerScreen(
                 delay(500)
             }
 
-            if (!isDragging && !isHidden && p.currentMediaItem?.mediaId == currentItem?.uuid && !viewModel.isTransitioning) {
+            if (!isDragging && !isHidden && !viewModel.isTransitioning) {
+                val updatePosition = {
+                    if (currentItem?.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
+                        val currentIndex = p.currentMediaItemIndex
+                        if (currentIndex >= 0 && currentIndex < chapters.size) {
+                            position = (chapters[currentIndex].start * 1000).toLong() + p.currentPosition
+                        }
+                    } else {
+                        position = p.currentPosition
+                    }
+                }
+
                 if (isPlaying) {
                     // Update position every second while playing
                     while (isPlaying) {
-                        position = p.currentPosition
+                        updatePosition()
                         delay(1000)
                     }
                 } else {
                     // Sync position once when paused or seek triggered
-                    position = p.currentPosition
+                    updatePosition()
                 }
             }
         }
@@ -247,6 +259,7 @@ fun PlayerScreen(
     if (viewModel.showChaptersList) {
         ChaptersListSheet(
             viewModel = viewModel,
+            absolutePosition = position,
             onDismiss = { viewModel.showChaptersList = false }
         )
     }
@@ -288,6 +301,17 @@ fun PlayerScreen(
             .navigationBarsPadding()
     ) {
         if (currentItem != null) {
+            val chapters by viewModel.chapters.collectAsState()
+            val currentChapterIndex = remember(chapters, position, isDragging, dragPosition, viewModel.useChapterContext) {
+                val pos = if (isDragging && !viewModel.useChapterContext) {
+                    (dragPosition * duration).toLong()
+                } else {
+                    position
+                }
+                chapters.indexOfFirst { pos >= (it.start * 1000) && pos < ((it.start + it.duration) * 1000) }
+            }
+            val currentChapter = chapters.getOrNull(currentChapterIndex)
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -353,10 +377,15 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // In chapter context, we can always go back (to start of chapter or previous chapter/item)
+                    // if hasPreviousItem is true OR we are in a volume/book with chapters.
+                    val canGoBack = viewModel.hasPreviousItem || (viewModel.useChapterContext && chapters.isNotEmpty())
+                    val canGoForward = viewModel.hasNextItem || (viewModel.useChapterContext && chapters.isNotEmpty())
+
                     IconButton(
                         onClick = { viewModel.playPrevious(context) },
-                        enabled = viewModel.hasPreviousItem,
-                        modifier = Modifier.offset(x = (-12).dp).alpha(if (viewModel.hasPreviousItem) 1f else 0.3f)
+                        enabled = canGoBack,
+                        modifier = Modifier.offset(x = (-12).dp).alpha(if (canGoBack) 1f else 0.3f)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ChevronLeft,
@@ -366,7 +395,7 @@ fun PlayerScreen(
                         )
                     }
                     MarqueeText(
-                        text = currentItem.title,
+                        text = if (viewModel.useChapterContext && currentChapter != null) currentChapter.title else currentItem.title,
                         style = MaterialTheme.typography.titleLarge.copy(
                             color = MaterialTheme.colorScheme.onBackground,
                             fontWeight = FontWeight.Bold,
@@ -378,8 +407,8 @@ fun PlayerScreen(
                     )
                     IconButton(
                         onClick = { viewModel.playNext(context) },
-                        enabled = viewModel.hasNextItem,
-                        modifier = Modifier.offset(x = 12.dp).alpha(if (viewModel.hasNextItem) 1f else 0.3f)
+                        enabled = canGoForward,
+                        modifier = Modifier.offset(x = 12.dp).alpha(if (canGoForward) 1f else 0.3f)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ChevronRight,
@@ -393,14 +422,28 @@ fun PlayerScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 BookPlayerSlider(
-                    value = if (isDragging) dragPosition else (if (duration > 0) position.toFloat() / duration else 0f),
+                    value = if (isDragging) {
+                        dragPosition
+                    } else {
+                        if (viewModel.useChapterContext && currentChapter != null) {
+                            val chapterPos = position - (currentChapter.start * 1000).toLong()
+                            val chapterDur = (currentChapter.duration * 1000).toLong()
+                            if (chapterDur > 0) (chapterPos.toFloat() / chapterDur).coerceIn(0f, 1f) else 0f
+                        } else {
+                            if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                        }
+                    },
                     onValueChange = { 
                         isDragging = true
                         dragPosition = it 
                     },
                     onValueChangeFinished = {
-                        val newPos = (dragPosition * duration).toLong()
-                        PlaybackManager.seekTo(newPos)
+                        val newPos = if (viewModel.useChapterContext && currentChapter != null) {
+                            (currentChapter.start * 1000).toLong() + (dragPosition * currentChapter.duration * 1000).toLong()
+                        } else {
+                            (dragPosition * duration).toLong()
+                        }
+                        viewModel.seekToAbsolute(newPos)
                         position = newPos
                         isDragging = false
                     }
@@ -410,12 +453,14 @@ fun PlayerScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    val displayPosition = if (isDragging) (dragPosition * duration).toLong() else position
-                    val chapters by viewModel.chapters.collectAsState()
-                    val currentChapter = remember(chapters, displayPosition) {
-                        chapters.find { displayPosition >= (it.start * 1000) && displayPosition < ((it.start + it.duration) * 1000) }
-                    }
-                    
+                    val displayPosition = if (isDragging) {
+                        if (viewModel.useChapterContext && currentChapter != null) {
+                            (currentChapter.start * 1000).toLong() + (dragPosition * currentChapter.duration * 1000).toLong()
+                        } else {
+                            (dragPosition * duration).toLong()
+                        }
+                    } else position
+
                     val leftLabel = if (viewModel.useChapterContext && currentChapter != null) {
                         val chapterPos = displayPosition - (currentChapter.start * 1000).toLong()
                         formatTime(chapterPos.coerceAtLeast(0))
@@ -443,10 +488,22 @@ fun PlayerScreen(
                         text = leftLabel,
                         style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.width(72.dp) // Increased width slightly for larger text
+                        modifier = Modifier.width(72.dp)
                     )
+                    
+                    val centerLabel = if (viewModel.useChapterContext && chapters.isNotEmpty()) {
+                        if (currentChapterIndex != -1) {
+                            "Chapter ${currentChapterIndex + 1} of ${chapters.size}"
+                        } else {
+                            stringResource(R.string.player_chapter_default)
+                        }
+                    } else {
+                        val percent = if (duration > 0) (displayPosition.toDouble() / duration * 100).toInt() else 0
+                        "$percent%"
+                    }
+
                     Text(
-                        text = if (currentChapter != null) currentChapter.title else stringResource(R.string.player_chapter_default),
+                        text = centerLabel,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -458,7 +515,7 @@ fun PlayerScreen(
                         style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.End,
-                        modifier = Modifier.width(72.dp) // Increased width slightly
+                        modifier = Modifier.width(72.dp)
                     )
                 }
 
@@ -560,11 +617,11 @@ fun SheetHeaderButton(
 @Composable
 fun ChaptersListSheet(
     viewModel: PlayerViewModel,
+    absolutePosition: Long,
     onDismiss: () -> Unit
 ) {
     val chapters by viewModel.chapters.collectAsState()
     val sheetState = rememberModalBottomSheetState()
-    val currentPosition = viewModel.player?.currentPosition ?: 0L
     
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -599,8 +656,8 @@ fun ChaptersListSheet(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 items(chapters) { chapter ->
-                    val isPlaying = currentPosition >= (chapter.start * 1000) && 
-                                    currentPosition < ((chapter.start + chapter.duration) * 1000)
+                    val isPlaying = absolutePosition >= (chapter.start * 1000) && 
+                                    absolutePosition < ((chapter.start + chapter.duration) * 1000)
                     
                     Surface(
                         onClick = { viewModel.seekToChapter(chapter) },

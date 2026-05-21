@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -22,6 +23,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -81,6 +84,110 @@ fun LibraryScreen(
     var showItemDetailSheet by remember { mutableStateOf(false) }
     var itemToDetail by remember { mutableStateOf<LibraryItemEntity?>(null) }
     var showSearchScreen by remember { mutableStateOf(false) }
+    var showCombineToVolumeDialog by remember { mutableStateOf(false) }
+
+    if (showCombineToVolumeDialog) {
+        val selectedItems = remember(selectedItemUuids) { items.filter { it.uuid in selectedItemUuids } }
+        var volumeName by remember { mutableStateOf(selectedItems.firstOrNull()?.title ?: "") }
+        val focusRequester = remember { FocusRequester() }
+        val isNameDuplicate = items.any { it.title.equals(volumeName, ignoreCase = true) }
+        val isNameValid = volumeName.isNotEmpty() && volumeName.all { it.isLetterOrDigit() || it == ' ' || it == '_' || it == '-' } && !isNameDuplicate
+
+        LaunchedEffect(Unit) {
+            focusRequester.requestFocus()
+        }
+
+        AlertDialog(
+            onDismissRequest = { showCombineToVolumeDialog = false },
+            title = {
+                Text(
+                    text = stringResource(R.string.library_combine_to_volume),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = stringResource(R.string.library_combine_to_volume_desc),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+
+                    TextField(
+                        value = volumeName,
+                        onValueChange = { volumeName = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .border(
+                                width = 1.dp, 
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(12.dp)
+                            ),
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        ),
+                        placeholder = { Text(stringResource(R.string.library_combine_to_volume_title)) }
+                    )
+
+                    if (volumeName.isNotEmpty() && (isNameDuplicate || !isNameValid)) {
+                        Text(
+                            text = if (isNameDuplicate) stringResource(R.string.library_combine_to_volume_error) else stringResource(R.string.library_folder_name_error),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(top = 4.dp, start = 4.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = { showCombineToVolumeDialog = false },
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    ) {
+                        Text(stringResource(R.string.common_cancel))
+                    }
+                    Button(
+                        onClick = {
+                            val selectedItems = items.filter { it.uuid in selectedItemUuids }
+                            libraryViewModel.combineToVolume(context, selectedItems, volumeName)
+                            showCombineToVolumeDialog = false
+                            isSelectMode = false
+                            selectedItemUuids = emptySet()
+                        },
+                        enabled = isNameValid,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Text(stringResource(R.string.common_create))
+                    }
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(28.dp)
+        )
+    }
 
     val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
@@ -346,6 +453,31 @@ fun LibraryScreen(
                                 selectedItemUuids = items.map { it.uuid }.toSet()
                             },
                         )
+
+                        val selectedItems = items.filter { it.uuid in selectedItemUuids }
+                        if (selectedItems.size >= 2 && selectedItems.all { it.type == ItemType.BOOK }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.library_combine_to_volume)) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    showCombineToVolumeDialog = true
+                                },
+                                leadingIcon = { Icon(Icons.Default.AutoStories, null) }
+                            )
+                        }
+
+                        if (selectedItems.isNotEmpty() && selectedItems.all { it.type == ItemType.BOUND }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.library_convert_to_folder)) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    libraryViewModel.convertVolumesToFolders(selectedItems)
+                                    isSelectMode = false
+                                    selectedItemUuids = emptySet()
+                                },
+                                leadingIcon = { Icon(Icons.Default.FolderOpen, null) }
+                            )
+                        }
                     }
                 }
             } else {

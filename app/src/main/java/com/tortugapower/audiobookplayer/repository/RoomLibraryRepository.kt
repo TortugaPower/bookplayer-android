@@ -20,6 +20,9 @@ class RoomLibraryRepository(
     override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = 
         libraryDao.getItemsInPath(path)
 
+    override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> =
+        libraryDao.getItemsInPathSync(path)
+
     override suspend fun getItemById(uuid: String): LibraryItemEntity? = 
         libraryDao.getItemById(uuid)
 
@@ -148,6 +151,72 @@ class RoomLibraryRepository(
                 // 3. Update parents for both old and new paths
                 updateParentFolders(previousPath)
                 updateParentFolders(newPath)
+            }
+        }
+    }
+
+    override suspend fun combineToVolume(context: Context, items: List<LibraryItemEntity>, volumeName: String) {
+        withContext(Dispatchers.IO) {
+            val processedDir = File(context.filesDir, "Processed")
+            
+            // 1. Create the volume directory
+            val firstItem = items.firstOrNull() ?: return@withContext
+            val currentPath = firstItem.relativePath?.substringBeforeLast('/', "") ?: ""
+            val volumePath = if (currentPath.isEmpty()) volumeName else "$currentPath/$volumeName"
+            val volumeDir = File(processedDir, volumePath)
+            if (!volumeDir.exists()) volumeDir.mkdirs()
+
+            // 2. Create the BOUND item in DB
+            val volumeUuid = java.util.UUID.randomUUID().toString()
+            val volumeItem = LibraryItemEntity(
+                uuid = volumeUuid,
+                title = volumeName,
+                relativePath = volumePath,
+                type = ItemType.BOUND,
+                duration = items.sumOf { it.duration },
+                author = context.getString(R.string.library_chapter_count, items.size)
+            )
+            libraryDao.insertItem(volumeItem)
+
+            // 3. Move items into the volume
+            items.forEach { item ->
+                val oldPath = item.relativePath ?: return@forEach
+                val fileName = oldPath.substringAfterLast('/')
+                val newPath = "$volumePath/$fileName"
+                
+                val oldFile = File(processedDir, oldPath)
+                val newFile = File(processedDir, newPath)
+                
+                if (oldFile.exists()) {
+                    oldFile.renameTo(newFile)
+                }
+                
+                val previousPath = item.relativePath
+                item.relativePath = newPath
+                libraryDao.updateItem(item)
+                
+                updateParentFolders(previousPath)
+            }
+
+            // 4. Update the volume metadata (it's now a parent)
+            updateParentFolders(items.first().relativePath)
+        }
+    }
+
+    override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {
+        withContext(Dispatchers.IO) {
+            items.forEach { item ->
+                if (item.type == ItemType.BOUND) {
+                    item.type = ItemType.FOLDER
+                    
+                    // Update metadata to folder style (Files instead of Chapters)
+                    val children = libraryDao.getItemsInPathSync(item.relativePath ?: "")
+                    val count = children.size
+                    item.author = if (count == 1) "1 File" else "$count Files"
+                    
+                    libraryDao.updateItem(item)
+                    updateParentFolders(item.relativePath)
+                }
             }
         }
     }

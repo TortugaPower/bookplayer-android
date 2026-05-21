@@ -170,6 +170,8 @@
     <string name="library_view_style">نمط العرض</string>
     <string name="library_folder_empty">0 ملفات</string>
     <string name="library_unknown_author">مؤلف غير معروف</string>
+    <string name="library_chapter_count">%1$d Chapters</string>
+    <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_open_folder">فتح المجلد</string>
     <string name="library_edit_book_title">تعديل الكتاب</string>
     <string name="library_title_placeholder">العنوان</string>
@@ -194,4 +196,7 @@
     <string name="duration_hms">%1$d ساعة %2$d دقيقة %3$d ثانية</string>
     <string name="duration_ms">%1$d دقيقة %2$d ثانية</string>
 
+    <string name="library_combine_to_volume">Create a volume</string>
+    <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
+    <string name="common_create">Create</string>
 </resources>

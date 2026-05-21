@@ -26,6 +26,7 @@
     <string name="common_update">Aktualisieren</string>
     <string name="common_add">Hinzufügen</string>
     <string name="common_details">Details</string>
+    <string name="common_create">Erstellen</string>
     <string name="common_unknown">Unbekannt</string>
 
     <!-- Auth -->
@@ -170,6 +171,10 @@
     <string name="library_view_style">Ansichtsstil</string>
     <string name="library_folder_empty">0 Dateien</string>
     <string name="library_unknown_author">Unbekannter Autor</string>
+    <string name="library_chapter_count">%1$d Kapitel</string>
+    <string name="library_convert_to_folder">In Ordner umwandeln</string>
+    <string name="library_combine_to_volume">Ein Volume erstellen</string>
+    <string name="library_combine_to_volume_desc">Stellen Sie sicher, dass die Elemente in der richtigen Reihenfolge sind. Um Kapitel später neu zu ordnen, müssen Sie das Volume wieder in einen Ordner umwandeln, die Elemente neu ordnen und dann das Volume neu erstellen.</string>
     <string name="library_open_folder">Ordner öffnen</string>
     <string name="library_edit_book_title">Buch bearbeiten</string>
     <string name="library_title_placeholder">Titel</string>

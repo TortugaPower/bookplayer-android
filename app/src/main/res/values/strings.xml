@@ -171,6 +171,13 @@
     <string name="library_view_style">View Style</string>
     <string name="library_folder_empty">0 Files</string>
     <string name="library_unknown_author">Unknown author</string>
+    <string name="library_chapter_count">%1$d Chapters</string>
+    <string name="library_convert_to_folder">Convert to folder</string>
+    <string name="library_combine_to_volume">Create a volume</string>
+    <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
+    <string name="library_combine_to_volume_title">Volume Name</string>
+    <string name="library_combine_to_volume_error">Volume with this name already exists</string>
+    <string name="common_create">Create</string>
     <string name="library_open_folder">Open Folder</string>
     <string name="library_edit_book_title">Edit Book</string>
     <string name="library_title_placeholder">Title</string>

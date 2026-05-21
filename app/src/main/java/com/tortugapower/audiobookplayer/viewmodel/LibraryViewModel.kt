@@ -119,6 +119,18 @@ class LibraryViewModel(
         }
     }
 
+    fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String) {
+        viewModelScope.launch {
+            repository.combineToVolume(context, items, volumeName)
+        }
+    }
+
+    fun convertVolumesToFolders(items: List<LibraryItemEntity>) {
+        viewModelScope.launch {
+            repository.convertVolumesToFolders(items)
+        }
+    }
+
     fun updateItemDetails(item: LibraryItemEntity, newTitle: String, newAuthor: String) {
         viewModelScope.launch {
             item.title = newTitle

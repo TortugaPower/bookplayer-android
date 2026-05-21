@@ -170,6 +170,8 @@
     <string name="library_view_style">表示スタイル</string>
     <string name="library_folder_empty">0個のファイル</string>
     <string name="library_unknown_author">不明な著者</string>
+    <string name="library_chapter_count">%1$d Chapters</string>
+    <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_open_folder">フォルダを開く</string>
     <string name="library_edit_book_title">本を編集</string>
     <string name="library_title_placeholder">タイトル</string>
@@ -194,4 +196,7 @@
     <string name="duration_hms">%1$d時間%2$d分%3$d秒</string>
     <string name="duration_ms">%1$d分%2$d秒</string>
 
+    <string name="library_combine_to_volume">Create a volume</string>
+    <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
+    <string name="common_create">Create</string>
 </resources>

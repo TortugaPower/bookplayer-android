@@ -104,7 +104,41 @@ class PlayerViewModel(
                         repository.getBookmarksForBook(item.uuid).collect { _bookmarks.value = it }
                     }
                     launch {
-                        repository.getChaptersForBook(item.uuid).collect { _chapters.value = it }
+                        if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
+                            item.relativePath?.let { path ->
+                                val subItems = repository.getItemsInPathSync(path)
+                                var currentStart = 0.0
+                                val volumeChapters = subItems.mapIndexed { index, subItem ->
+                                    val chapter = com.tortugapower.audiobookplayer.database.entities.ChapterEntity(
+                                        id = (index + 1).toLong(),
+                                        bookUuid = item.uuid,
+                                        title = subItem.title,
+                                        start = currentStart,
+                                        duration = subItem.duration,
+                                        index = index
+                                    )
+                                    currentStart += subItem.duration
+                                    chapter
+                                }
+                                _chapters.value = volumeChapters
+                            }
+                        } else {
+                            repository.getChaptersForBook(item.uuid).collect { dbChapters ->
+                                if (dbChapters.isEmpty()) {
+                                    _chapters.value = listOf(
+                                        com.tortugapower.audiobookplayer.database.entities.ChapterEntity(
+                                            bookUuid = item.uuid,
+                                            title = item.title,
+                                            start = 0.0,
+                                            duration = item.duration,
+                                            index = 0
+                                        )
+                                    )
+                                } else {
+                                    _chapters.value = dbChapters
+                                }
+                            }
+                        }
                     }
                 } else {
                     _bookmarks.value = emptyList()
@@ -142,7 +176,12 @@ class PlayerViewModel(
     }
 
     fun seekToChapter(chapter: com.tortugapower.audiobookplayer.database.entities.ChapterEntity) {
-        PlaybackManager.seekTo((chapter.start * 1000).toLong())
+        val item = currentItem ?: return
+        if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
+            PlaybackManager.seekTo(chapter.index, 0L)
+        } else {
+            PlaybackManager.seekTo((chapter.start * 1000).toLong())
+        }
         showChaptersList = false
         notifySeek()
     }
@@ -306,11 +345,42 @@ class PlayerViewModel(
     fun setPlaybackSpeed(context: Context, speed: Float) { PlaybackManager.setPlaybackSpeed(context, speed) }
     fun setPlaybackVolume(context: Context, volume: Float) { PlaybackManager.setPlaybackVolume(context, volume) }
     fun toggleVolumeBoost(context: Context) { PlaybackManager.toggleVolumeBoost(context) }
+    
     fun playNext(context: Context) {
+        if (useChapterContext) {
+            val p = player
+            val currentChapters = chapters.value
+            if (p != null && currentChapters.isNotEmpty()) {
+                val currentPos = p.currentPosition / 1000.0
+                val currentIndex = currentChapters.indexOfFirst { currentPos >= it.start && currentPos < (it.start + it.duration) }
+                if (currentIndex != -1 && currentIndex < currentChapters.size - 1) {
+                    seekToChapter(currentChapters[currentIndex + 1])
+                    return
+                }
+            }
+        }
         PlaybackManager.playNext(context)
     }
 
     fun playPrevious(context: Context) {
+        if (useChapterContext) {
+            val p = player
+            val currentChapters = chapters.value
+            if (p != null && currentChapters.isNotEmpty()) {
+                val currentPos = p.currentPosition / 1000.0
+                val currentIndex = currentChapters.indexOfFirst { currentPos >= it.start && currentPos < (it.start + it.duration) }
+                if (currentIndex != -1) {
+                    // If more than 3 seconds into chapter, go to start of current chapter
+                    if (currentPos - currentChapters[currentIndex].start > 3.0) {
+                        seekToChapter(currentChapters[currentIndex])
+                        return
+                    } else if (currentIndex > 0) {
+                        seekToChapter(currentChapters[currentIndex - 1])
+                        return
+                    }
+                }
+            }
+        }
         PlaybackManager.playPrevious(context)
     }
 
@@ -321,6 +391,28 @@ class PlayerViewModel(
     }
     fun seekBackward() { 
         PlaybackManager.seekBackward() 
+        notifySeek()
+    }
+
+    fun seekToAbsolute(positionMs: Long) {
+        val item = currentItem ?: return
+        if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
+            val targetPosSecs = positionMs / 1000.0
+            val currentChapters = chapters.value
+            if (currentChapters.isNotEmpty()) {
+                val targetIndex = currentChapters.indexOfFirst { targetPosSecs >= it.start && targetPosSecs < (it.start + it.duration) }
+                if (targetIndex != -1) {
+                    val relativeTimeMs = ((targetPosSecs - currentChapters[targetIndex].start) * 1000).toLong()
+                    PlaybackManager.seekTo(targetIndex, relativeTimeMs)
+                } else {
+                    PlaybackManager.seekTo(positionMs)
+                }
+            } else {
+                PlaybackManager.seekTo(positionMs)
+            }
+        } else {
+            PlaybackManager.seekTo(positionMs)
+        }
         notifySeek()
     }
 }

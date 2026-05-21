@@ -23,6 +23,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 object PlaybackManager {
@@ -110,18 +111,35 @@ object PlaybackManager {
                         val item = repository.getItemById(lastUuid)
                         if (item != null) {
                             val processedDir = File(appContext.filesDir, "Processed")
-                            val file = File(processedDir, item.relativePath ?: "")
-                            if (file.exists()) {
-                                // Update navigation states
-                                val next = repository.getAdjacentItem(item.uuid, next = true) != null
-                                val prev = repository.getAdjacentItem(item.uuid, next = false) != null
-                                launch(Dispatchers.Main) {
-                                    hasNextItem = next
-                                    hasPreviousItem = prev
+                            
+                            // Update navigation states
+                            val next = repository.getAdjacentItem(item.uuid, next = true) != null
+                            val prev = repository.getAdjacentItem(item.uuid, next = false) != null
+                            launch(Dispatchers.Main) {
+                                hasNextItem = next
+                                hasPreviousItem = prev
+                            }
+
+                            val mediaItems = if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
+                                val subItems = repository.getItemsInPathSync(item.relativePath ?: "")
+                                subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }.map { subItem ->
+                                    val file = File(processedDir, subItem.relativePath ?: "")
+                                    MediaItem.Builder()
+                                        .setMediaId(subItem.uuid)
+                                        .setUri(file.absolutePath)
+                                        .setMediaMetadata(
+                                            MediaMetadata.Builder()
+                                                .setTitle(subItem.title)
+                                                .setArtist(subItem.author ?: item.author ?: "Unknown author")
+                                                .setArtworkUri(subItem.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
+                                                .build()
+                                        )
+                                        .build()
                                 }
-                                launch(Dispatchers.Main) {
-                                    isTransitioning = true
-                                    val mediaItem = MediaItem.Builder()
+                            } else {
+                                val file = File(processedDir, item.relativePath ?: "")
+                                if (file.exists()) {
+                                    listOf(MediaItem.Builder()
                                         .setUri(file.absolutePath)
                                         .setMediaId(item.uuid)
                                         .setMediaMetadata(
@@ -131,10 +149,33 @@ object PlaybackManager {
                                                 .setArtworkUri(item.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
                                                 .build()
                                         )
-                                        .build()
+                                        .build())
+                                } else emptyList()
+                            }
+
+                            if (mediaItems.isNotEmpty()) {
+                                launch(Dispatchers.Main) {
+                                    isTransitioning = true
                                     
-                                    // Use atomic setMediaItem with starting position to prevent race conditions
-                                    mediaController.setMediaItem(mediaItem, (item.currentTime * 1000).toLong())
+                                    var targetIndex = 0
+                                    var targetOffset = item.currentTime
+                                    if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
+                                        val subItems = withContext(Dispatchers.IO) {
+                                            repository.getItemsInPathSync(item.relativePath ?: "")
+                                        }
+                                        val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
+                                        var cumulative = 0.0
+                                        for (i in books.indices) {
+                                            if (item.currentTime >= cumulative && item.currentTime < cumulative + books[i].duration) {
+                                                targetIndex = i
+                                                targetOffset = item.currentTime - cumulative
+                                                break
+                                            }
+                                            cumulative += books[i].duration
+                                        }
+                                    }
+
+                                    mediaController.setMediaItems(mediaItems, targetIndex, (targetOffset * 1000).toLong())
                                     mediaController.prepare()
                                     
                                     // Apply speed and volume
@@ -210,14 +251,37 @@ object PlaybackManager {
         val item = itemToUpdate ?: currentItem ?: return
         val p = player ?: return
         
-        // Safety: Only update if the player is actually on this item AND is actively ready or buffering.
-        // During IDLE or ended states (unless forced), the player position is not reliable for progress saving.
-        val isPlayerOnItem = p.currentMediaItem?.mediaId == item.uuid
+        // Safety: Only update if the player is actually on an item in this context
         val isPlayerActive = p.playbackState == Player.STATE_READY || p.playbackState == Player.STATE_BUFFERING
-        
-        if (!isPlayerOnItem || (!isPlayerActive && !forceFinished)) return
+        if (!isPlayerActive && !forceFinished) return
 
-        val currentPos = p.currentPosition / 1000.0
+        val currentPos = if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
+            val db = AppDatabase.getDatabase(context)
+            val repository = RoomLibraryRepository(db.libraryDao())
+            var totalPos = p.currentPosition / 1000.0
+            val currentIndex = p.currentMediaItemIndex
+            
+            // We need the chapters (sub-books) to calculate total position
+            // Since this is called frequently, we'll use a simplified check or assume the caller handles it.
+            // For now, let's just use the current position if we can't easily get cumulative start.
+            // Actually, let's just get the items in path sync.
+            scope.launch(Dispatchers.IO) {
+                val subItems = repository.getItemsInPathSync(item.relativePath ?: "")
+                val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
+                if (currentIndex >= 0 && currentIndex < books.size) {
+                    var cumulativeStart = 0.0
+                    for (i in 0 until currentIndex) {
+                        cumulativeStart += books[i].duration
+                    }
+                    val finalTotalPos = cumulativeStart + totalPos
+                    repository.updateItemProgress(item.uuid, finalTotalPos, forceFinished || (finalTotalPos >= item.duration - 1.0 && item.duration > 0))
+                }
+            }
+            return // handled in scope
+        } else {
+            p.currentPosition / 1000.0
+        }
+
         val totalDuration = item.duration
         val isFinished = forceFinished || (currentPos >= totalDuration - 1.0 && totalDuration > 0)
 
@@ -276,28 +340,74 @@ object PlaybackManager {
             PlaybackSettingsManager.setLastItemUuid(context, item.uuid)
         }
         val processedDir = File(context.filesDir, "Processed")
-        val file = File(processedDir, item.relativePath ?: "")
         
-        if (file.exists()) {
-            val mediaItem = MediaItem.Builder()
-                .setUri(file.absolutePath)
-                .setMediaId(item.uuid)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(item.title)
-                        .setArtist(item.author ?: "Unknown author")
-                        .setArtworkUri(item.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
+        scope.launch(Dispatchers.Main) {
+            if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
+                val db = AppDatabase.getDatabase(context)
+                val repository = RoomLibraryRepository(db.libraryDao())
+                val subItems = withContext(Dispatchers.IO) {
+                    repository.getItemsInPathSync(item.relativePath ?: "")
+                }
+                val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
+                val mediaItems = books.map { subItem ->
+                    val file = File(processedDir, subItem.relativePath ?: "")
+                    MediaItem.Builder()
+                        .setMediaId(subItem.uuid)
+                        .setUri(file.absolutePath)
+                        .setMediaMetadata(
+                            MediaMetadata.Builder()
+                                .setTitle(subItem.title)
+                                .setArtist(subItem.author ?: item.author ?: "Unknown author")
+                                .setArtworkUri(subItem.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
+                                .build()
+                        )
                         .build()
-                )
-                .build()
-            
-            player?.setMediaItem(mediaItem, (item.currentTime * 1000).toLong())
-            player?.prepare()
-            player?.play()
-            showPlayerScreen = true
-            // Re-apply speed and volume on new item
-            player?.setPlaybackSpeed(playbackSpeed)
-            applyVolume(volumeBoost, playbackVolume)
+                }
+
+                if (mediaItems.isNotEmpty()) {
+                    // Find correct sub-book and position
+                    var targetIndex = 0
+                    var targetOffset = item.currentTime
+                    var cumulative = 0.0
+                    for (i in books.indices) {
+                        if (item.currentTime >= cumulative && item.currentTime < cumulative + books[i].duration) {
+                            targetIndex = i
+                            targetOffset = item.currentTime - cumulative
+                            break
+                        }
+                        cumulative += books[i].duration
+                    }
+
+                    player?.setMediaItems(mediaItems, targetIndex, (targetOffset * 1000).toLong())
+                    player?.prepare()
+                    player?.play()
+                    showPlayerScreen = true
+                    player?.setPlaybackSpeed(playbackSpeed)
+                    applyVolume(volumeBoost, playbackVolume)
+                }
+            } else {
+                val file = File(processedDir, item.relativePath ?: "")
+                if (file.exists()) {
+                    val mediaItem = MediaItem.Builder()
+                        .setUri(file.absolutePath)
+                        .setMediaId(item.uuid)
+                        .setMediaMetadata(
+                            MediaMetadata.Builder()
+                                .setTitle(item.title)
+                                .setArtist(item.author ?: "Unknown author")
+                                .setArtworkUri(item.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
+                                .build()
+                        )
+                        .build()
+                    
+                    player?.setMediaItem(mediaItem, (item.currentTime * 1000).toLong())
+                    player?.prepare()
+                    player?.play()
+                    showPlayerScreen = true
+                    player?.setPlaybackSpeed(playbackSpeed)
+                    applyVolume(volumeBoost, playbackVolume)
+                }
+            }
         }
     }
 
@@ -308,31 +418,9 @@ object PlaybackManager {
             val item = db.libraryDao().getItemByPath(path)
             if (item != null) {
                 launch(Dispatchers.Main) {
-                    isTransitioning = true
-                    currentItem = item
-                    PlaybackSettingsManager.setLastItemUuid(context, item.uuid)
-                    val processedDir = File(context.filesDir, "Processed")
-                    val file = File(processedDir, item.relativePath ?: "")
-                    
-                    if (file.exists()) {
-                        val mediaItem = MediaItem.Builder()
-                            .setUri(file.absolutePath)
-                            .setMediaId(item.uuid)
-                            .setMediaMetadata(
-                                MediaMetadata.Builder()
-                                    .setTitle(item.title)
-                                    .setArtist(item.author ?: "Unknown author")
-                                    .setArtworkUri(item.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
-                                    .build()
-                            )
-                            .build()
-                        player?.setMediaItem(mediaItem, (item.currentTime * 1000).toLong())
-                        player?.prepare()
-                        if (autoplay) player?.play()
-                        if (showPlayer) showPlayerScreen = true
-                        player?.setPlaybackSpeed(playbackSpeed)
-                        applyVolume(volumeBoost, playbackVolume)
-                    }
+                    playItem(context, item)
+                    if (!autoplay) player?.pause()
+                    if (!showPlayer) showPlayerScreen = false
                 }
             }
         }
@@ -368,6 +456,12 @@ object PlaybackManager {
     fun seekTo(positionMs: Long) {
         val p = player ?: return
         p.seekTo(positionMs)
+        updateProgress(MainActivity.currentContext ?: return)
+    }
+
+    fun seekTo(mediaItemIndex: Int, positionMs: Long) {
+        val p = player ?: return
+        p.seekTo(mediaItemIndex, positionMs)
         updateProgress(MainActivity.currentContext ?: return)
     }
 

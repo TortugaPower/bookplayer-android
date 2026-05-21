@@ -26,6 +26,7 @@
     <string name="common_update">Mettre à jour</string>
     <string name="common_add">Ajouter</string>
     <string name="common_details">Détails</string>
+    <string name="common_create">Créer</string>
     <string name="common_unknown">Inconnu</string>
 
     <!-- Auth -->
@@ -170,6 +171,10 @@
     <string name="library_view_style">Style de vue</string>
     <string name="library_folder_empty">0 fichier</string>
     <string name="library_unknown_author">Auteur inconnu</string>
+    <string name="library_chapter_count">%1$d chapitres</string>
+    <string name="library_convert_to_folder">Convertir en dossier</string>
+    <string name="library_combine_to_volume">Créer un volume</string>
+    <string name="library_combine_to_volume_desc">Assurez-vous que les éléments sont dans le bon ordre. Pour réorganiser les chapitres plus tard, vous devrez reconvertir le volume en dossier, réorganiser les éléments, puis recréer le volume.</string>
     <string name="library_open_folder">Ouvrir le dossier</string>
     <string name="library_edit_book_title">Modifier le livre</string>
     <string name="library_title_placeholder">Titre</string>

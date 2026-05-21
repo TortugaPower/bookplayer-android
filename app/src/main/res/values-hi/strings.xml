@@ -170,6 +170,8 @@
     <string name="library_view_style">व्यू स्टाइल</string>
     <string name="library_folder_empty">0 फ़ाइलें</string>
     <string name="library_unknown_author">अज्ञात लेखक</string>
+    <string name="library_chapter_count">%1$d Chapters</string>
+    <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_open_folder">फ़ोल्डर खोलें</string>
     <string name="library_edit_book_title">पुस्तक संपादित करें</string>
     <string name="library_title_placeholder">शीर्षक</string>
@@ -194,4 +196,7 @@
     <string name="duration_hms">%1$dघं %2$दमि %3$दसे</string>
     <string name="duration_ms">%1$दमि %2$दसे</string>
 
+    <string name="library_combine_to_volume">Create a volume</string>
+    <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
+    <string name="common_create">Create</string>
 </resources>
