@@ -153,6 +153,8 @@
     <string name="library_create_folder_title">إنشاء مجلد</string>
     <string name="library_folder_name_label">اسم المجلد</string>
     <string name="library_folder_name_error">استخدم فقط الحروف أو الأرقام أو \'-\' أو \'_\'</string>
+    <string name="search_prompt">Search your library</string>
+    <string name="search_no_results">Have you lost your wave?</string>
     <string name="library_choose_destination_title">اختر الوجهة</string>
     <string name="library_choose_destination_message">أين تريد نقل العناصر المحددة؟</string>
     <string name="library_new_folder">مجلد جديد</string>

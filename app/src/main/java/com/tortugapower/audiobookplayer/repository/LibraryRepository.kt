@@ -15,6 +15,8 @@ interface LibraryRepository {
     
     fun getFoldersInPath(path: String?): Flow<List<LibraryItemEntity>>
     
+    fun searchBooks(query: String): Flow<List<LibraryItemEntity>>
+    
     suspend fun saveItem(item: LibraryItemEntity)
     suspend fun updateItem(item: LibraryItemEntity)
     suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean)

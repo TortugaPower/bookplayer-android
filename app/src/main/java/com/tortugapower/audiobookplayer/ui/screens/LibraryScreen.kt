@@ -74,26 +74,30 @@ fun LibraryScreen(
     var isSelectMode by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
-    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
-        onResult = { uris -> if (uris.isNotEmpty()) ImportManager.startImport(context, uris) }
-    )
-
-    BackHandler(enabled = isSelectMode || currentPath != null) {
-        if (isSelectMode) {
-            isSelectMode = false
-            selectedItemUuids = emptySet()
-        } else {
-            libraryViewModel.navigateBack()
-        }
-    }
-
     var itemsToDelete by remember { mutableStateOf<List<LibraryItemEntity>>(emptyList()) }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var showChooseDestinationDialog by remember { mutableStateOf(false) }
     var showExistingFoldersSheet by remember { mutableStateOf(false) }
     var showItemDetailSheet by remember { mutableStateOf(false) }
     var itemToDetail by remember { mutableStateOf<LibraryItemEntity?>(null) }
+    var showSearchScreen by remember { mutableStateOf(false) }
+
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
+        onResult = { uris -> if (uris.isNotEmpty()) ImportManager.startImport(context, uris) }
+    )
+
+    BackHandler(enabled = isSelectMode || currentPath != null || showSearchScreen) {
+        if (showSearchScreen) {
+            showSearchScreen = false
+            libraryViewModel.updateSearchQuery("")
+        } else if (isSelectMode) {
+            isSelectMode = false
+            selectedItemUuids = emptySet()
+        } else {
+            libraryViewModel.navigateBack()
+        }
+    }
 
     if (showItemDetailSheet && itemToDetail != null) {
         ItemDetailSheet(
@@ -345,6 +349,9 @@ fun LibraryScreen(
                     }
                 }
             } else {
+                IconButton(onClick = { showSearchScreen = true }) {
+                    Icon(Icons.Default.Search, contentDescription = stringResource(R.string.common_search))
+                }
                 Box {
                     IconButton(onClick = { showMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.common_more))
@@ -409,14 +416,14 @@ fun LibraryScreen(
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(pathItems, key = { it.uuid }) { item ->
                         val isSelected = selectedItemUuids.contains(item.uuid)
-                        val dismissState = rememberSwipeToDismissBoxState(
-                            confirmValueChange = {
-                                if (!isSelectMode && it == SwipeToDismissBoxValue.EndToStart) {
-                                    itemsToDelete = listOf(item)
-                                    false
-                                } else false
+                        val dismissState = rememberSwipeToDismissBoxState()
+
+                        LaunchedEffect(dismissState.currentValue) {
+                            if (!isSelectMode && dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
+                                itemsToDelete = listOf(item)
+                                dismissState.reset()
                             }
-                        )
+                        }
 
                         SwipeToDismissBox(
                             state = dismissState,
@@ -491,11 +498,22 @@ fun LibraryScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                         )
                     }
-                    }
                 }
             }
         }
     }
+
+    if (showSearchScreen) {
+        SearchScreen(
+            viewModel = libraryViewModel,
+            onDismiss = { 
+                showSearchScreen = false 
+                libraryViewModel.updateSearchQuery("")
+            }
+        )
+    }
+}
+
 @Composable
 fun LibraryListItem(
     item: LibraryItemEntity,

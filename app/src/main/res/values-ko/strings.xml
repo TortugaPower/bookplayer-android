@@ -153,6 +153,8 @@
     <string name="library_create_folder_title">폴더 생성</string>
     <string name="library_folder_name_label">폴더 이름</string>
     <string name="library_folder_name_error">문자, 숫자, \'-\' 또는 \'_\'만 사용하세요</string>
+    <string name="search_prompt">Search your library</string>
+    <string name="search_no_results">Have you lost your wave?</string>
     <string name="library_choose_destination_title">대상 선택</string>
     <string name="library_choose_destination_message">선택한 항목을 어디로 이동하시겠습니까?</string>
     <string name="library_new_folder">새 폴더</string>

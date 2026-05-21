@@ -153,6 +153,8 @@
     <string name="library_create_folder_title">फ़ोल्डर बनाएं</string>
     <string name="library_folder_name_label">फ़ोल्डर का नाम</string>
     <string name="library_folder_name_error">केवल अक्षर, संख्या, \'-\' या \'_\' का उपयोग करें</string>
+    <string name="search_prompt">Search your library</string>
+    <string name="search_no_results">Have you lost your wave?</string>
     <string name="library_choose_destination_title">गंतव्य चुनें</string>
     <string name="library_choose_destination_message">आप चयनित वस्तुओं को कहां स्थानांतरित करना चाहेंगे?</string>
     <string name="library_new_folder">नया फ़ोल्डर</string>

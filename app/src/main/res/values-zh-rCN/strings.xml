@@ -153,6 +153,8 @@
     <string name="library_create_folder_title">创建文件夹</string>
     <string name="library_folder_name_label">文件夹名称</string>
     <string name="library_folder_name_error">仅限字母、数字、\'-\' 或 \'_\'</string>
+    <string name="search_prompt">Search your library</string>
+    <string name="search_no_results">Have you lost your wave?</string>
     <string name="library_choose_destination_title">选择目标</string>
     <string name="library_choose_destination_message">您想将选中的项目移动到哪里？</string>
     <string name="library_new_folder">新建文件夹</string>

@@ -153,6 +153,8 @@
     <string name="library_create_folder_title">フォルダを作成</string>
     <string name="library_folder_name_label">フォルダ名</string>
     <string name="library_folder_name_error">英数字、「-」、「_」のみ使用してください</string>
+    <string name="search_prompt">Search your library</string>
+    <string name="search_no_results">Have you lost your wave?</string>
     <string name="library_choose_destination_title">移動先を選択</string>
     <string name="library_choose_destination_message">選択したアイテムをどこに移動しますか？</string>
     <string name="library_new_folder">新規フォルダ</string>

@@ -153,6 +153,8 @@
     <string name="library_create_folder_title">Crea cartella</string>
     <string name="library_folder_name_label">Nome cartella</string>
     <string name="library_folder_name_error">Usa solo lettere, numeri, \'-\' o \'_\'</string>
+    <string name="search_prompt">Cerca nella tua biblioteca</string>
+    <string name="search_no_results">Hai perso la tua onda?</string>
     <string name="library_choose_destination_title">Scegli destinazione</string>
     <string name="library_choose_destination_message">Dove vorresti spostare gli elementi selezionati?</string>
     <string name="library_new_folder">Nuova cartella</string>

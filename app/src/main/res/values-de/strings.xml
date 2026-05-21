@@ -153,6 +153,8 @@
     <string name="library_create_folder_title">Ordner erstellen</string>
     <string name="library_folder_name_label">Ordnername</string>
     <string name="library_folder_name_error">Nur Buchstaben, Zahlen, \'-\' oder \'_\' verwenden</string>
+    <string name="search_prompt">In Ihrer Bibliothek suchen</string>
+    <string name="search_no_results">Haben Sie Ihre Welle verloren?</string>
     <string name="library_choose_destination_title">Ziel wählen</string>
     <string name="library_choose_destination_message">Wohin möchten Sie die ausgewählten Elemente verschieben?</string>
     <string name="library_new_folder">Neuer Ordner</string>

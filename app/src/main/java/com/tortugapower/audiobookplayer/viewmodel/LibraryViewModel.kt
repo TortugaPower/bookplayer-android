@@ -8,15 +8,32 @@ import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class LibraryViewModel(
     private val repository: LibraryRepository
 ) : ViewModel() {
 
     private val _currentPath = MutableStateFlow<String?>(null)
     val currentPath: StateFlow<String?> = _currentPath.asStateFlow()
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    val searchResults: StateFlow<List<LibraryItemEntity>> = _searchQuery
+        .debounce(300)
+        .flatMapLatest { query ->
+            if (query.isEmpty()) flowOf(emptyList())
+            else repository.searchBooks(query)
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
     private val itemsCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()
     private val foldersCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()
@@ -52,6 +69,10 @@ class LibraryViewModel(
 
     init {
         // No global observation needed anymore as paths are requested on-demand by the UI
+    }
+
+    fun updateSearchQuery(query: String) {
+        _searchQuery.value = query
     }
 
     fun navigateTo(path: String) {

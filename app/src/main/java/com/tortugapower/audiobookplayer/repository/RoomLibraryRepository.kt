@@ -30,6 +30,9 @@ class RoomLibraryRepository(
         return if (path == null) libraryDao.getRootFolders() else libraryDao.getFoldersInPath(path)
     }
 
+    override fun searchBooks(query: String): Flow<List<LibraryItemEntity>> =
+        libraryDao.searchBooks(query)
+
     override suspend fun saveItem(item: LibraryItemEntity) {
         libraryDao.insertItem(item)
         withContext(Dispatchers.IO) {
