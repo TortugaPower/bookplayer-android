@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
+import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +21,7 @@ class ProfileViewModel(private val accountRepository: AccountRepository) : ViewM
     fun logout() {
         viewModelScope.launch {
             accountRepository.deleteAccount()
+            SubscriptionManager.logout()
         }
     }
 }

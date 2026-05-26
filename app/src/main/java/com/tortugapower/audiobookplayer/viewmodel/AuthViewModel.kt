@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
+import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.model.*
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.AccountRepository
@@ -129,6 +130,7 @@ class AuthViewModel(
 
     fun completeRegistration(loginResponse: PasskeyLoginResponse) {
         viewModelScope.launch {
+            android.util.Log.d("SUBSCRIPTION", "Has Sub: ${loginResponse.hasSubscription.toString()}")
             val account = AccountEntity(
                 id = loginResponse.externalId,
                 email = loginResponse.email,
@@ -136,6 +138,7 @@ class AuthViewModel(
                 tier = if (loginResponse.hasSubscription) AccountTier.PRO else AccountTier.FREE
             )
             accountRepository.saveAccount(account)
+            SubscriptionManager.login(account.id)
             currentStep = AuthStep.SUCCESS
         }
     }
@@ -155,6 +158,7 @@ class AuthViewModel(
                         tier = AccountTier.FREE // Will be updated by RevenueCat later
                     )
                     accountRepository.saveAccount(account)
+                    SubscriptionManager.login(account.id)
                     currentStep = AuthStep.SUCCESS
                 } else {
                     errorMessage = "Server login failed: ${response.code()}"

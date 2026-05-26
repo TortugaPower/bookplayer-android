@@ -96,7 +96,18 @@ fun MainScreen() {
                     popExitTransition = { ExitTransition.None }
                 ) {
                     composable(Screen.Library.route) { LibraryScreen() }
-                    composable(Screen.Profile.route) { ProfileScreen(viewModel = profileViewModel) }
+                    composable(Screen.Profile.route) { 
+                        ProfileScreen(
+                            viewModel = profileViewModel,
+                            onNavigateToAccountDetails = { navController.navigate("accountDetails") }
+                        ) 
+                    }
+                    composable("accountDetails") {
+                        AccountDetailsScreen(
+                            viewModel = profileViewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
                     
                     composable(
                         route = Screen.Settings.route,
