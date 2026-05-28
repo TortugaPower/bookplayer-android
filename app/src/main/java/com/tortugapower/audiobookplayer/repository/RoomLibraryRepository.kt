@@ -5,6 +5,8 @@ import com.tortugapower.audiobookplayer.database.dao.LibraryDao
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
+import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -33,6 +35,9 @@ class RoomLibraryRepository(
     override fun getFoldersInPath(path: String?): Flow<List<LibraryItemEntity>> {
         return if (path == null) libraryDao.getRootFolders() else libraryDao.getFoldersInPath(path)
     }
+
+    override fun getAllContainers(): Flow<List<LibraryItemEntity>> =
+        libraryDao.getAllContainers()
 
     override fun searchBooks(query: String): Flow<List<LibraryItemEntity>> =
         libraryDao.searchBooks(query)

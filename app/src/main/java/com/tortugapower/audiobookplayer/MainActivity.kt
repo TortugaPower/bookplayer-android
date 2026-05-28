@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.ThemeManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
@@ -31,11 +32,6 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         ThemeManager.initialize(this)
-        PlaybackManager.initialize(this)
-
-        val database = AppDatabase.getDatabase(this)
-        val accountRepository = RoomAccountRepository(database.accountDao())
-        SubscriptionManager.initialize(this, accountRepository)
 
         handleIntent(intent)
 

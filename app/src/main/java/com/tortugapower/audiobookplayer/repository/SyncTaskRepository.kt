@@ -14,5 +14,7 @@ interface SyncTaskRepository {
     suspend fun updateTask(task: SyncTaskEntity)
     suspend fun deleteTask(task: SyncTaskEntity)
     suspend fun clearCompletedTasks()
+    suspend fun resetRunningTasks()
+    suspend fun deleteAllTasks()
     suspend fun getTaskById(id: String): SyncTaskEntity?
 }

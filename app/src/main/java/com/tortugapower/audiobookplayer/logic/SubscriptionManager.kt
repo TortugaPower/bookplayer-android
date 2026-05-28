@@ -22,7 +22,7 @@ object SubscriptionManager {
         accountRepository = repository
         
         // At the beginning we work with RevenueCat sandbox
-        Purchases.debugLogsEnabled = true
+        Purchases.logLevel = LogLevel.DEBUG
         
         if (BuildConfig.REVENUECAT_API_KEY.isEmpty()) {
             Log.e(TAG, "RevenueCat API Key is missing!")
@@ -88,6 +88,8 @@ object SubscriptionManager {
     }
 
     private fun updateAccountTier(customerInfo: CustomerInfo) {
+        // Temporarily disabled to prevent overwriting login subscription status
+        /*
         val hasPro = customerInfo.entitlements["pro"]?.isActive == true
         val tier = if (hasPro) AccountTier.PRO else AccountTier.FREE
         
@@ -100,5 +102,6 @@ object SubscriptionManager {
                 accountRepository?.saveAccount(account.copy(tier = tier))
             }
         }
+        */
     }
 }

@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
+        android:name=".BookPlayerApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -49,7 +50,7 @@
         </service>
 
         <service
-            android:name=".logic.SyncService"
+            android:name=".logic.TaskConcurrencyServiceHost"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

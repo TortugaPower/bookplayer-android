@@ -89,7 +89,7 @@ fun MiniPlayer() {
                     maxLines = 1
                 )
                 Text(
-                    text = currentItem.author ?: stringResource(R.string.library_unknown_author),
+                    text = if (currentItem.author.isNullOrBlank()) stringResource(R.string.library_unknown_author) else currentItem.author!!,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1

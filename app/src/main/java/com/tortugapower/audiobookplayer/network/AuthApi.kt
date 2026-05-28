@@ -29,21 +29,31 @@ interface AuthApi {
 }
 
 object NetworkClient {
+    private var apiToken: String? = null
+
+    fun setToken(token: String?) {
+        apiToken = token
+    }
+
     private val client = okhttp3.OkHttpClient.Builder()
         .addInterceptor { chain ->
-            val request = chain.request().newBuilder()
+            val builder = chain.request().newBuilder()
                 .addHeader("x-platform", "android")
-                .build()
-            chain.proceed(request)
+            
+            apiToken?.let {
+                builder.addHeader("Authorization", "Bearer $it")
+            }
+            
+            chain.proceed(builder.build())
         }
         .build()
 
-    val authApi: AuthApi by lazy {
-        retrofit2.Retrofit.Builder()
-            .baseUrl(NetworkConstants.BASE_URL)
-            .client(client)
-            .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
-            .build()
-            .create(AuthApi::class.java)
-    }
+    private val retrofit = retrofit2.Retrofit.Builder()
+        .baseUrl(NetworkConstants.BASE_URL)
+        .client(client)
+        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+        .build()
+
+    val authApi: AuthApi by lazy { retrofit.create(AuthApi::class.java) }
+    val libraryApi: LibraryApi by lazy { retrofit.create(LibraryApi::class.java) }
 }

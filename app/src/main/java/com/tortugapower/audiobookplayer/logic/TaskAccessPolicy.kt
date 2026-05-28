@@ -25,7 +25,7 @@ object TaskAccessPolicy {
         if (!canAccessSyncService(tier)) return false
 
         // specific restriction: only PRO can upload files or artwork
-        if (jobType == "upload" || jobType == "artwork_upload") {
+        if (jobType == SyncTaskFactory.JOB_UPLOAD_FILE || jobType == SyncTaskFactory.JOB_UPLOAD_ARTWORK) {
             return tier == AccountTier.PRO
         }
 

@@ -5,22 +5,24 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.tortugapower.audiobookplayer.MainActivity
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
 
-class SyncService : Service() {
+class TaskConcurrencyServiceHost : Service() {
 
     companion object {
-        private const val CHANNEL_ID = "sync_channel"
+        private const val CHANNEL_ID = "task_concurrency_channel"
         private const val NOTIFICATION_ID = 1001
         
         fun start(context: Context) {
-            val intent = Intent(context, SyncService::class.java)
+            val intent = Intent(context, TaskConcurrencyServiceHost::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -29,33 +31,56 @@ class SyncService : Service() {
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, SyncService::class.java)
+            val intent = Intent(context, TaskConcurrencyServiceHost::class.java)
             context.stopService(intent)
         }
     }
 
-    private lateinit var syncManager: SyncManager
+    private val TAG = "TaskConcurrencyServiceHost"
+    private lateinit var taskConcurrencyManager: TaskConcurrencyManager
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onCreate() {
         super.onCreate()
+        Log.d(TAG, "⚙️ TaskConcurrencyServiceHost.onCreate() - Initializing task concurrency manager")
         createNotificationChannel()
-        
+
         val db = AppDatabase.getDatabase(this)
         val repository = RoomSyncTaskRepository(db.syncTaskDao())
         val accountRepository = com.tortugapower.audiobookplayer.repository.RoomAccountRepository(db.accountDao())
-        
-        // In a real app, these processors would be injected or discovered
-        val processors = emptyList<TaskProcessor>() 
-        
-        syncManager = SyncManager(this, repository, accountRepository, processors)
-        syncManager.startProcessing()
+
+        // Register all available processors
+        val processors = listOf(
+            FetchContentsProcessor(this),
+            MetadataUploadProcessor(this, repository),
+            UploadFileProcessor(this),
+            UpdateProcessor(),
+            MoveProcessor(),
+            DeleteProcessor(),
+            RenameFolderProcessor(),
+            ArtworkUploadProcessor(this),
+            DeleteBookmarkProcessor(),
+            SetBookmarkProcessor()
+        )
+
+        taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)
+        Log.d(TAG, "🚀 Triggering taskConcurrencyManager.startProcessing()")
+        taskConcurrencyManager.startProcessing()
 
         startForeground(NOTIFICATION_ID, createNotification("Starting sync..."))
 
+        // Observe account changes to update NetworkClient token
+        serviceScope.launch {
+            accountRepository.getAccountFlow().collect { account ->
+                Log.d(TAG, "👤 Account updated, setting NetworkClient token")
+                NetworkClient.setToken(account?.apiToken)
+            }
+        }
+
         // Observe active queues to update notification
         serviceScope.launch {
-            syncManager.activeQueues.collectLatest { activeQueues ->
+            taskConcurrencyManager.activeQueues.collectLatest { activeQueues ->
+                Log.d(TAG, "🔄 Active queues updated: $activeQueues")
                 if (activeQueues.isEmpty()) {
                     updateNotification("Idle")
                 } else {
@@ -64,13 +89,12 @@ class SyncService : Service() {
             }
         }
     }
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         return START_STICKY
     }
 
     override fun onDestroy() {
-        syncManager.stopProcessing()
+        taskConcurrencyManager.stopProcessing()
         serviceScope.cancel()
         super.onDestroy()
     }

@@ -14,13 +14,13 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.DriveFileMove
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material3.*
@@ -52,11 +52,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.ImportManager
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.SyncStatusManager
+import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
+import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
@@ -67,17 +72,35 @@ private const val FolderNavDurationMillis = 400
 
 @Composable
 fun LibraryScreen(
-    importViewModel: ImportViewModel = viewModel()
+    importViewModel: ImportViewModel = viewModel(),
+    viewModel: LibraryViewModel? = null
 ) {
     val context = LocalContext.current
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    
+    // Inject repositories for sync tasks
     val database = remember { AppDatabase.getDatabase(context) }
-    val repository = remember { RoomLibraryRepository(database.libraryDao()) }
-    val libraryViewModel: LibraryViewModel = viewModel(
-        factory = LibraryViewModelFactory(repository)
+    val syncTaskRepository = remember { RoomSyncTaskRepository(database.syncTaskDao()) }
+    val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
+
+    val libraryViewModel: LibraryViewModel = viewModel ?: viewModel(
+        factory = LibraryViewModelFactory(RoomLibraryRepository(database.libraryDao()), syncTaskRepository)
     )
 
     val currentPath by libraryViewModel.currentPath.collectAsState()
+    
+    // Fetch contents with throttle when path changes
+    LaunchedEffect(currentPath) {
+        val account = accountRepository.getAccount()
+        val pathKey = currentPath ?: "root"
+        
+        if (account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)) {
+            if (SyncStatusManager.canFetchContents(pathKey)) {
+                SyncStatusManager.markPathAsFetched(pathKey)
+                SyncTaskFactory.createFetchContentsTask(syncTaskRepository, currentPath)
+            }
+        }
+    }
     
     // Fetch data for the actual current path (used by dialogs and actions)
     val items by libraryViewModel.getItemsForPath(currentPath).collectAsState()
@@ -329,6 +352,111 @@ fun LibraryScreen(
             titleContentColor = MaterialTheme.colorScheme.onSurface,
             textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+
+    if (showChooseDestinationDialog) {
+        AlertDialog(
+            onDismissRequest = { showChooseDestinationDialog = false },
+            title = { Text(stringResource(R.string.library_choose_destination_title)) },
+            text = { Text(stringResource(R.string.library_choose_destination_message)) },
+            confirmButton = {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            showChooseDestinationDialog = false
+                            showExistingFoldersSheet = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.library_existing_folder))
+                    }
+                    Button(
+                        onClick = {
+                            showChooseDestinationDialog = false
+                            showCreateFolderDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.library_new_folder))
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showChooseDestinationDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    if (showExistingFoldersSheet) {
+        val containers by libraryViewModel.getAllContainers().collectAsState()
+        val selectedItems = remember(selectedItemUuids) { items.filter { it.uuid in selectedItemUuids } }
+
+        ModalBottomSheet(
+            onDismissRequest = { showExistingFoldersSheet = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.library_select_folder_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(16.dp)
+                )
+                
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    item {
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.library_title_default)) },
+                            leadingContent = { Icon(Icons.Default.AutoStories, null) },
+                            modifier = Modifier.clickable {
+                                libraryViewModel.moveSelectedItems(context, selectedItems, null)
+                                showExistingFoldersSheet = false
+                                isSelectMode = false
+                                selectedItemUuids = emptySet()
+                            }
+                        )
+                    }
+
+                    items(containers.filter { container -> selectedItems.none { it.uuid == container.uuid } }) { container ->
+                        ListItem(
+                            headlineContent = { Text(container.title) },
+                            leadingContent = { 
+                                Icon(
+                                    imageVector = if (container.type == ItemType.FOLDER) Icons.Default.Folder else Icons.Default.AutoStories,
+                                    contentDescription = null
+                                )
+                            },
+                            modifier = Modifier.clickable {
+                                libraryViewModel.moveSelectedItems(context, selectedItems, container.relativePath)
+                                showExistingFoldersSheet = false
+                                isSelectMode = false
+                                selectedItemUuids = emptySet()
+                            }
+                        )
+                    }
+                    
+                    if (containers.isEmpty()) {
+                        item {
+                            Text(
+                                text = "No folders found",
+                                modifier = Modifier.padding(16.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     BookPlayerTabScaffold(
@@ -738,7 +866,10 @@ fun LibraryListItem(
                     maxLines = 1
                 )
                 Text(
-                    text = item.author ?: if (item.type == ItemType.FOLDER) stringResource(R.string.library_folder_empty) else stringResource(R.string.library_unknown_author),
+                    text = if (item.author.isNullOrBlank()) {
+                        if (item.type == ItemType.FOLDER) stringResource(R.string.library_folder_empty) 
+                        else stringResource(R.string.library_unknown_author)
+                    } else item.author!!,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1

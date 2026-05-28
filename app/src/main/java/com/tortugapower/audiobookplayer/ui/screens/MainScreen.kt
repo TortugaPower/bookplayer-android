@@ -30,6 +30,8 @@ import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
+import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
+import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
 import com.tortugapower.audiobookplayer.ui.components.CustomBottomNavigation
 import com.tortugapower.audiobookplayer.ui.components.MiniPlayer
 import com.tortugapower.audiobookplayer.ui.components.Screen
@@ -44,15 +46,24 @@ fun MainScreen() {
     
     val context = LocalContext.current
     val database = remember { AppDatabase.getDatabase(context) }
-    val libraryRepository = remember { RoomLibraryRepository(database.libraryDao()) }
+    val baseLibraryRepository = remember { RoomLibraryRepository(database.libraryDao()) }
+    val syncTaskRepository = remember { RoomSyncTaskRepository(database.syncTaskDao()) }
     val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
+    
+    val libraryRepository = remember { 
+        SyncingLibraryRepository(baseLibraryRepository, syncTaskRepository, accountRepository)
+    }
 
     val playerViewModel: PlayerViewModel = viewModel(
         factory = PlayerViewModelFactory(libraryRepository)
     )
 
     val profileViewModel: ProfileViewModel = viewModel(
-        factory = ProfileViewModelFactory(accountRepository)
+        factory = ProfileViewModelFactory(accountRepository, syncTaskRepository)
+    )
+
+    val libraryViewModel: LibraryViewModel = viewModel(
+        factory = LibraryViewModelFactory(libraryRepository, syncTaskRepository)
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -95,16 +106,32 @@ fun MainScreen() {
                     popEnterTransition = { EnterTransition.None },
                     popExitTransition = { ExitTransition.None }
                 ) {
-                    composable(Screen.Library.route) { LibraryScreen() }
+                    composable(Screen.Library.route) { LibraryScreen(viewModel = libraryViewModel) }
                     composable(Screen.Profile.route) { 
                         ProfileScreen(
                             viewModel = profileViewModel,
-                            onNavigateToAccountDetails = { navController.navigate("accountDetails") }
+                            onNavigateToAccountDetails = { navController.navigate("accountDetails") },
+                            onNavigateToQueuedTasks = { navController.navigate("queuedTasks") }
                         ) 
                     }
                     composable("accountDetails") {
                         AccountDetailsScreen(
                             viewModel = profileViewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("queuedTasks") {
+                        QueuedTasksScreen(
+                            viewModel = profileViewModel,
+                            onBack = { navController.popBackStack() },
+                            onNavigateToQueue = { queueKey -> navController.navigate("taskDetail/$queueKey") }
+                        )
+                    }
+                    composable("taskDetail/{queueKey}") { backStackEntry ->
+                        val queueKey = backStackEntry.arguments?.getString("queueKey") ?: ""
+                        TaskDetailScreen(
+                            viewModel = profileViewModel,
+                            queueKey = queueKey,
                             onBack = { navController.popBackStack() }
                         )
                     }

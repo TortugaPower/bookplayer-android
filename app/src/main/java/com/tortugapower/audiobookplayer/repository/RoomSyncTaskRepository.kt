@@ -45,6 +45,14 @@ class RoomSyncTaskRepository(
         syncTaskDao.clearCompletedTasks()
     }
 
+    override suspend fun resetRunningTasks() = withContext(Dispatchers.IO) {
+        syncTaskDao.resetRunningTasks()
+    }
+
+    override suspend fun deleteAllTasks() = withContext(Dispatchers.IO) {
+        syncTaskDao.deleteAllTasks()
+    }
+
     override suspend fun getTaskById(id: String): SyncTaskEntity? = withContext(Dispatchers.IO) {
         syncTaskDao.getTaskById(id)
     }

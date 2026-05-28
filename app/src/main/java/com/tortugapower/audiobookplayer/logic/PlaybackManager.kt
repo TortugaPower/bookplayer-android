@@ -15,6 +15,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import com.tortugapower.audiobookplayer.MainActivity
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.service.AudioPlayerService
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +32,8 @@ object PlaybackManager {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var player: Player? by mutableStateOf(null)
         private set
+
+    private var repository: LibraryRepository? = null
 
     var currentItem: LibraryItemEntity? by mutableStateOf(null)
         private set
@@ -57,8 +60,9 @@ object PlaybackManager {
     var isTransitioning by mutableStateOf(false)
     private var progressTrackerJob: kotlinx.coroutines.Job? = null
 
-    fun initialize(context: Context) {
+    fun initialize(context: Context, libraryRepository: LibraryRepository) {
         if (player != null) return
+        repository = libraryRepository
         val appContext = context.applicationContext
 
         val sessionToken = SessionToken(appContext, ComponentName(appContext, AudioPlayerService::class.java))
@@ -80,6 +84,16 @@ object PlaybackManager {
                                 applySmartRewind()
                             }
                             startProgressTracker(appContext)
+                        }
+                    }
+
+                    override fun onPositionDiscontinuity(
+                        oldPosition: Player.PositionInfo,
+                        newPosition: Player.PositionInfo,
+                        reason: Int
+                    ) {
+                        if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                            updateProgress(appContext)
                         }
                     }
 
@@ -106,22 +120,20 @@ object PlaybackManager {
                 scope.launch(Dispatchers.IO) {
                     val lastUuid = PlaybackSettingsManager.getLastItemUuid(appContext).first()
                     if (lastUuid != null) {
-                        val db = AppDatabase.getDatabase(appContext)
-                        val repository = RoomLibraryRepository(db.libraryDao())
-                        val item = repository.getItemById(lastUuid)
+                        val item = getRepository(appContext).getItemById(lastUuid)
                         if (item != null) {
                             val processedDir = File(appContext.filesDir, "Processed")
                             
                             // Update navigation states
-                            val next = repository.getAdjacentItem(item.uuid, next = true) != null
-                            val prev = repository.getAdjacentItem(item.uuid, next = false) != null
+                            val next = getRepository(appContext).getAdjacentItem(item.uuid, next = true) != null
+                            val prev = getRepository(appContext).getAdjacentItem(item.uuid, next = false) != null
                             launch(Dispatchers.Main) {
                                 hasNextItem = next
                                 hasPreviousItem = prev
                             }
 
                             val mediaItems = if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-                                val subItems = repository.getItemsInPathSync(item.relativePath ?: "")
+                                val subItems = getRepository(appContext).getItemsInPathSync(item.relativePath ?: "")
                                 subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }.map { subItem ->
                                     val file = File(processedDir, subItem.relativePath ?: "")
                                     MediaItem.Builder()
@@ -161,7 +173,7 @@ object PlaybackManager {
                                     var targetOffset = item.currentTime
                                     if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
                                         val subItems = withContext(Dispatchers.IO) {
-                                            repository.getItemsInPathSync(item.relativePath ?: "")
+                                            getRepository(appContext).getItemsInPathSync(item.relativePath ?: "")
                                         }
                                         val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                                         var cumulative = 0.0
@@ -233,6 +245,10 @@ object PlaybackManager {
         }
     }
 
+    private fun getRepository(context: Context): LibraryRepository {
+        return repository ?: RoomLibraryRepository(AppDatabase.getDatabase(context).libraryDao())
+    }
+
     private fun startProgressTracker(context: Context) {
         progressTrackerJob?.cancel()
         progressTrackerJob = scope.launch {
@@ -256,8 +272,6 @@ object PlaybackManager {
         if (!isPlayerActive && !forceFinished) return
 
         val currentPos = if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-            val db = AppDatabase.getDatabase(context)
-            val repository = RoomLibraryRepository(db.libraryDao())
             var totalPos = p.currentPosition / 1000.0
             val currentIndex = p.currentMediaItemIndex
             
@@ -266,7 +280,8 @@ object PlaybackManager {
             // For now, let's just use the current position if we can't easily get cumulative start.
             // Actually, let's just get the items in path sync.
             scope.launch(Dispatchers.IO) {
-                val subItems = repository.getItemsInPathSync(item.relativePath ?: "")
+                val repo = getRepository(context)
+                val subItems = repo.getItemsInPathSync(item.relativePath ?: "")
                 val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                 if (currentIndex >= 0 && currentIndex < books.size) {
                     var cumulativeStart = 0.0
@@ -274,7 +289,7 @@ object PlaybackManager {
                         cumulativeStart += books[i].duration
                     }
                     val finalTotalPos = cumulativeStart + totalPos
-                    repository.updateItemProgress(item.uuid, finalTotalPos, forceFinished || (finalTotalPos >= item.duration - 1.0 && item.duration > 0))
+                    repo.updateItemProgress(item.uuid, finalTotalPos, forceFinished || (finalTotalPos >= item.duration - 1.0 && item.duration > 0))
                 }
             }
             return // handled in scope
@@ -286,9 +301,7 @@ object PlaybackManager {
         val isFinished = forceFinished || (currentPos >= totalDuration - 1.0 && totalDuration > 0)
 
         scope.launch(Dispatchers.IO) {
-            val db = AppDatabase.getDatabase(context)
-            val repository = RoomLibraryRepository(db.libraryDao())
-            repository.updateItemProgress(item.uuid, currentPos, isFinished)
+            getRepository(context).updateItemProgress(item.uuid, currentPos, isFinished)
         }
     }
 
@@ -326,10 +339,9 @@ object PlaybackManager {
         
         // Update navigation states
         scope.launch(Dispatchers.IO) {
-            val db = AppDatabase.getDatabase(context)
-            val repository = RoomLibraryRepository(db.libraryDao())
-            val next = repository.getAdjacentItem(item.uuid, next = true) != null
-            val prev = repository.getAdjacentItem(item.uuid, next = false) != null
+            val repo = getRepository(context)
+            val next = repo.getAdjacentItem(item.uuid, next = true) != null
+            val prev = repo.getAdjacentItem(item.uuid, next = false) != null
             launch(Dispatchers.Main) {
                 hasNextItem = next
                 hasPreviousItem = prev
@@ -343,10 +355,8 @@ object PlaybackManager {
         
         scope.launch(Dispatchers.Main) {
             if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-                val db = AppDatabase.getDatabase(context)
-                val repository = RoomLibraryRepository(db.libraryDao())
                 val subItems = withContext(Dispatchers.IO) {
-                    repository.getItemsInPathSync(item.relativePath ?: "")
+                    getRepository(context).getItemsInPathSync(item.relativePath ?: "")
                 }
                 val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                 val mediaItems = books.map { subItem ->
@@ -414,8 +424,7 @@ object PlaybackManager {
     fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {
         updateProgress(context, itemToUpdate = currentItem)
         scope.launch(Dispatchers.IO) {
-            val db = AppDatabase.getDatabase(context)
-            val item = db.libraryDao().getItemByPath(path)
+            val item = getRepository(context).getItemByPath(path)
             if (item != null) {
                 launch(Dispatchers.Main) {
                     playItem(context, item)
@@ -430,7 +439,6 @@ object PlaybackManager {
         val p = player ?: return
         if (p.isPlaying) {
             p.pause()
-            updateProgress(MainActivity.currentContext ?: return)
         } else {
             if (p.playbackState == Player.STATE_IDLE) {
                 p.prepare()
@@ -444,33 +452,27 @@ object PlaybackManager {
     fun seekForward() {
         val p = player ?: return
         p.seekTo(p.currentPosition + (forwardInterval * 1000L))
-        updateProgress(MainActivity.currentContext ?: return)
     }
 
     fun seekBackward() {
         val p = player ?: return
         p.seekTo(p.currentPosition - (rewindInterval * 1000L))
-        updateProgress(MainActivity.currentContext ?: return)
     }
 
     fun seekTo(positionMs: Long) {
         val p = player ?: return
         p.seekTo(positionMs)
-        updateProgress(MainActivity.currentContext ?: return)
     }
 
     fun seekTo(mediaItemIndex: Int, positionMs: Long) {
         val p = player ?: return
         p.seekTo(mediaItemIndex, positionMs)
-        updateProgress(MainActivity.currentContext ?: return)
     }
 
     fun playNext(context: Context) {
         scope.launch {
             val current = currentItem ?: return@launch
-            val db = AppDatabase.getDatabase(context)
-            val repository = RoomLibraryRepository(db.libraryDao())
-            val nextItem = repository.getAdjacentItem(current.uuid, next = true)
+            val nextItem = getRepository(context).getAdjacentItem(current.uuid, next = true)
             if (nextItem != null) {
                 playItem(context, nextItem)
             }
@@ -480,9 +482,7 @@ object PlaybackManager {
     fun playPrevious(context: Context) {
         scope.launch {
             val current = currentItem ?: return@launch
-            val db = AppDatabase.getDatabase(context)
-            val repository = RoomLibraryRepository(db.libraryDao())
-            val prevItem = repository.getAdjacentItem(current.uuid, next = false)
+            val prevItem = getRepository(context).getAdjacentItem(current.uuid, next = false)
             if (prevItem != null) {
                 playItem(context, prevItem)
             }
@@ -492,7 +492,6 @@ object PlaybackManager {
     fun setPlaybackSpeed(context: Context, speed: Float) {
         scope.launch {
             PlaybackSettingsManager.setSpeed(context, speed)
-            updateProgress(context)
         }
     }
 

@@ -37,18 +37,27 @@ import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.AccountGate
 import com.tortugapower.audiobookplayer.logic.PurchaseFlowManager
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.ThemeManager
+import com.tortugapower.audiobookplayer.model.formatSyncTime
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerThemeSpec
 import com.tortugapower.audiobookplayer.viewmodel.ProfileViewModel
 import kotlinx.coroutines.launch
 
 @Composable
-fun ProfileScreen(viewModel: ProfileViewModel, onNavigateToAccountDetails: () -> Unit) {
+fun ProfileScreen(
+    viewModel: ProfileViewModel, 
+    onNavigateToAccountDetails: () -> Unit,
+    onNavigateToQueuedTasks: () -> Unit
+) {
     val context = LocalContext.current
     
     // Use cached account state from ViewModel
     val account by viewModel.account.collectAsState()
+    val pendingTasksCount by viewModel.pendingTasksCount.collectAsState()
+    val lastSyncTimestamp by viewModel.lastSyncTimestamp.collectAsState()
 
     var showProSheet by remember { mutableStateOf(false) }
     var showAuthSheet by remember { mutableStateOf(false) }
@@ -110,12 +119,28 @@ fun ProfileScreen(viewModel: ProfileViewModel, onNavigateToAccountDetails: () ->
                 Spacer(modifier = Modifier.width(16.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (account != null) account!!.email else stringResource(R.string.profile_setup_account),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (account != null) account!!.email else stringResource(R.string.profile_setup_account),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (account?.tier == AccountTier.PRO) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                color = Color.DarkGray.copy(alpha = 0.8f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    text = "pro",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = if (account != null) {
                             if (account!!.tier == AccountTier.PRO) "BookPlayer Pro" else "Free Account"
@@ -149,6 +174,31 @@ fun ProfileScreen(viewModel: ProfileViewModel, onNavigateToAccountDetails: () ->
         )
 
         Spacer(modifier = Modifier.weight(1f))
+
+        // Queued Tasks Button
+        if (account != null && (account!!.tier == AccountTier.PRO || account!!.tier == AccountTier.LITE)) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+                    .clickable { onNavigateToQueuedTasks() }
+            ) {
+                Text(
+                    text = "Queued sync tasks ($pendingTasksCount)",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color(0xFF3482F6),
+                    fontWeight = FontWeight.Medium
+                )
+                if (lastSyncTimestamp != null) {
+                    Text(
+                        text = "Last sync: ${lastSyncTimestamp!!.formatSyncTime()}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+            }
+        }
 
         // BookPlayer Pro Section
         if (account?.tier != AccountTier.PRO) {
@@ -984,6 +1034,184 @@ fun ThemeItem(theme: BookPlayerThemeSpec, isSelected: Boolean, onClick: () -> Un
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.clickable(enabled = !isLockedForUser, onClick = onClick),
     )
+}
+
+@Composable
+fun QueuedTasksScreen(
+    viewModel: ProfileViewModel,
+    onBack: () -> Unit,
+    onNavigateToQueue: (String) -> Unit
+) {
+    val tasks by viewModel.syncTasks.collectAsState()
+    val lastSyncTimestamp by viewModel.lastSyncTimestamp.collectAsState()
+    
+    val queues = tasks.groupBy { it.queueKey }
+
+    BookPlayerTabScaffold(
+        title = "Queued Tasks",
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
+            }
+        },
+        actions = {
+            if (tasks.isNotEmpty()) {
+                IconButton(onClick = { viewModel.deleteAllTasks() }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete all tasks")
+                }
+            }
+        }
+    ) { padding ->
+        if (queues.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "No pending tasks",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item { Spacer(modifier = Modifier.height(8.dp)) }
+
+                queues.forEach { (queueKey, queueTasks) ->
+                    val pendingInQueue = queueTasks.count { it.status != SyncTaskStatus.COMPLETED }
+                    val runningTask = queueTasks.find { it.status == SyncTaskStatus.RUNNING }
+                    
+                    item {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onNavigateToQueue(queueKey) },
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(20.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = if (queueKey == "sync") "Sync Tasks ($pendingInQueue)" else "File Tasks ($pendingInQueue)",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = if (runningTask != null) "Processing..." else "Last sync: ${lastSyncTimestamp?.formatSyncTime() ?: "Never"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TaskDetailScreen(
+    viewModel: ProfileViewModel,
+    queueKey: String,
+    onBack: () -> Unit
+) {
+    val tasks by viewModel.syncTasks.collectAsState()
+    val progressMap by viewModel.taskProgress.collectAsState()
+    val filteredTasks = tasks.filter { it.queueKey == queueKey }
+    
+    val pendingCount = filteredTasks.count { it.status != SyncTaskStatus.COMPLETED }
+    val title = if (queueKey == "sync") "Sync Tasks ($pendingCount)" else "File Tasks ($pendingCount)"
+
+    BookPlayerTabScaffold(
+        title = title,
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
+            }
+        },
+    ) { padding ->
+        if (filteredTasks.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "No tasks in this queue",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item { Spacer(modifier = Modifier.height(8.dp)) }
+
+                items(filteredTasks.size) { index ->
+                    val task = filteredTasks[index]
+                    val payload = remember(task.payload) { 
+                        try { com.google.gson.Gson().fromJson(task.payload, Map::class.java) } catch (e: Exception) { emptyMap<String, Any>() }
+                    }
+                    val title = payload["title"] as? String ?: payload["relativePath"] as? String ?: task.taskID
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val icon = when (task.jobType) {
+                                "delete" -> Icons.Default.Delete
+                                "upload_file" -> Icons.Default.CloudUpload
+                                "download_file" -> Icons.Default.CloudDownload
+                                else -> Icons.Default.Sync
+                            }
+                            
+                            val iconTint = if (task.status == SyncTaskStatus.FAILED) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant
+                            
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = iconTint,
+                                modifier = Modifier.size(24.dp).background(iconTint.copy(alpha = 0.1f), CircleShape).padding(4.dp)
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f)
+                            )
+                            
+                            if (task.status == SyncTaskStatus.RUNNING) {
+                                val progress = progressMap[task.id]
+                                if (progress != null && progress > 0.0) {
+                                    LinearProgressIndicator(
+                                        progress = { progress.toFloat() },
+                                        modifier = Modifier.width(64.dp).height(4.dp),
+                                    )
+                                } else {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
