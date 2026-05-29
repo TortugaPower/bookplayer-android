@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.revenuecat.purchases.Package
 import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.AccountGate
@@ -41,8 +42,12 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.ThemeManager
 import com.tortugapower.audiobookplayer.model.formatSyncTime
+import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
+import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerThemeSpec
+import com.tortugapower.audiobookplayer.viewmodel.AuthViewModel
+import com.tortugapower.audiobookplayer.viewmodel.AuthViewModelFactory
 import com.tortugapower.audiobookplayer.viewmodel.ProfileViewModel
 import kotlinx.coroutines.launch
 
@@ -566,11 +571,12 @@ fun BookPlayerProSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
-    val accountRepository = com.tortugapower.audiobookplayer.repository.RoomAccountRepository(db.accountDao())
-    val viewModel: com.tortugapower.audiobookplayer.viewmodel.AuthViewModel = viewModel(
+    val db = AppDatabase.getDatabase(context)
+    val accountRepository = RoomAccountRepository(db.accountDao())
+    val syncTaskRepository = RoomSyncTaskRepository(db.syncTaskDao())
+    val viewModel: AuthViewModel = viewModel(
         key = "ProSheet",
-        factory = com.tortugapower.audiobookplayer.viewmodel.AuthViewModelFactory(accountRepository)
+        factory = AuthViewModelFactory(accountRepository, syncTaskRepository)
     )
 
     val credentialManager = androidx.credentials.CredentialManager.create(context)

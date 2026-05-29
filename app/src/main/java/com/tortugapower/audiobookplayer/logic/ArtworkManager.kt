@@ -69,7 +69,7 @@ object ArtworkManager {
     }
 
     fun deleteArtwork(path: String?) {
-        if (path == null) return
+        if (path == null || path.startsWith("http")) return
         try {
             val file = File(path)
             if (file.exists()) file.delete()

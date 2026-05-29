@@ -136,29 +136,57 @@ object PlaybackManager {
                                 val subItems = getRepository(appContext).getItemsInPathSync(item.relativePath ?: "")
                                 subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }.map { subItem ->
                                     val file = File(processedDir, subItem.relativePath ?: "")
+                                    val uri = if (file.exists()) {
+                                        android.util.Log.d("PlaybackManager", "📄 Restoration: Using local file for ${subItem.title}")
+                                        android.net.Uri.fromFile(file)
+                                    } else if (!subItem.remoteURL.isNullOrEmpty()) {
+                                        android.util.Log.d("PlaybackManager", "🌐 Restoration: Using remote URL for ${subItem.title}")
+                                        android.net.Uri.parse(subItem.remoteURL)
+                                    } else {
+                                        android.util.Log.w("PlaybackManager", "⚠️ Restoration: No source available for ${subItem.title}")
+                                        android.net.Uri.EMPTY
+                                    }
+
                                     MediaItem.Builder()
                                         .setMediaId(subItem.uuid)
-                                        .setUri(file.absolutePath)
+                                        .setUri(uri)
                                         .setMediaMetadata(
                                             MediaMetadata.Builder()
                                                 .setTitle(subItem.title)
                                                 .setArtist(subItem.author ?: item.author ?: "Unknown author")
-                                                .setArtworkUri(subItem.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
+                                                .setArtworkUri(subItem.artworkURL?.let { 
+                                                    if (it.startsWith("http")) android.net.Uri.parse(it) 
+                                                    else android.net.Uri.fromFile(java.io.File(it)) 
+                                                })
                                                 .build()
                                         )
                                         .build()
                                 }
                             } else {
                                 val file = File(processedDir, item.relativePath ?: "")
-                                if (file.exists()) {
+                                val uri = if (file.exists()) {
+                                    android.util.Log.d("PlaybackManager", "📄 Restoration: Using local file for ${item.title}")
+                                    android.net.Uri.fromFile(file)
+                                } else if (!item.remoteURL.isNullOrEmpty()) {
+                                    android.util.Log.d("PlaybackManager", "🌐 Restoration: Using remote URL for ${item.title}")
+                                    android.net.Uri.parse(item.remoteURL)
+                                } else {
+                                    android.util.Log.w("PlaybackManager", "⚠️ Restoration: No source available for ${item.title}")
+                                    null
+                                }
+
+                                if (uri != null && uri != android.net.Uri.EMPTY) {
                                     listOf(MediaItem.Builder()
-                                        .setUri(file.absolutePath)
+                                        .setUri(uri)
                                         .setMediaId(item.uuid)
                                         .setMediaMetadata(
                                             MediaMetadata.Builder()
                                                 .setTitle(item.title)
                                                 .setArtist(item.author ?: "Unknown author")
-                                                .setArtworkUri(item.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
+                                                .setArtworkUri(item.artworkURL?.let { 
+                                                    if (it.startsWith("http")) android.net.Uri.parse(it) 
+                                                    else android.net.Uri.fromFile(java.io.File(it)) 
+                                                })
                                                 .build()
                                         )
                                         .build())
@@ -361,14 +389,28 @@ object PlaybackManager {
                 val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                 val mediaItems = books.map { subItem ->
                     val file = File(processedDir, subItem.relativePath ?: "")
+                    val uri = if (file.exists()) {
+                        android.util.Log.d("PlaybackManager", "📄 Playback: Using local file for ${subItem.title}")
+                        android.net.Uri.fromFile(file)
+                    } else if (!subItem.remoteURL.isNullOrEmpty()) {
+                        android.util.Log.d("PlaybackManager", "🌐 Playback: Using remote URL for ${subItem.title}")
+                        android.net.Uri.parse(subItem.remoteURL)
+                    } else {
+                        android.util.Log.w("PlaybackManager", "⚠️ Playback: No source available for ${subItem.title}")
+                        android.net.Uri.EMPTY
+                    }
+
                     MediaItem.Builder()
                         .setMediaId(subItem.uuid)
-                        .setUri(file.absolutePath)
+                        .setUri(uri)
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle(subItem.title)
                                 .setArtist(subItem.author ?: item.author ?: "Unknown author")
-                                .setArtworkUri(subItem.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
+                                .setArtworkUri(subItem.artworkURL?.let { 
+                                    if (it.startsWith("http")) android.net.Uri.parse(it) 
+                                    else android.net.Uri.fromFile(java.io.File(it)) 
+                                })
                                 .build()
                         )
                         .build()
@@ -397,15 +439,29 @@ object PlaybackManager {
                 }
             } else {
                 val file = File(processedDir, item.relativePath ?: "")
-                if (file.exists()) {
+                val uri = if (file.exists()) {
+                    android.util.Log.d("PlaybackManager", "📄 Playback: Using local file for ${item.title}")
+                    android.net.Uri.fromFile(file)
+                } else if (!item.remoteURL.isNullOrEmpty()) {
+                    android.util.Log.d("PlaybackManager", "🌐 Playback: Using remote URL for ${item.title}")
+                    android.net.Uri.parse(item.remoteURL)
+                } else {
+                    android.util.Log.w("PlaybackManager", "⚠️ Playback: No source available for ${item.title}")
+                    null
+                }
+
+                if (uri != null && uri != android.net.Uri.EMPTY) {
                     val mediaItem = MediaItem.Builder()
-                        .setUri(file.absolutePath)
+                        .setUri(uri)
                         .setMediaId(item.uuid)
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle(item.title)
                                 .setArtist(item.author ?: "Unknown author")
-                                .setArtworkUri(item.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
+                                .setArtworkUri(item.artworkURL?.let { 
+                                    if (it.startsWith("http")) android.net.Uri.parse(it) 
+                                    else android.net.Uri.fromFile(java.io.File(it)) 
+                                })
                                 .build()
                         )
                         .build()

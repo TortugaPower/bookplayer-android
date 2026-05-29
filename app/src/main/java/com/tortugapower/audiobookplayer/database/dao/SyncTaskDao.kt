@@ -39,4 +39,16 @@ interface SyncTaskDao {
 
     @Query("SELECT * FROM sync_tasks WHERE id = :id")
     suspend fun getTaskById(id: String): SyncTaskEntity?
+
+    @Query("SELECT COUNT(*) FROM sync_tasks WHERE jobType = :jobType AND (status = 'PENDING' OR status = 'RUNNING')")
+    suspend fun countActiveTasksByType(jobType: String): Int
+
+    @Query("SELECT COUNT(*) FROM sync_tasks WHERE status = 'PENDING' OR status = 'RUNNING'")
+    suspend fun countActiveTasks(): Int
+
+    @Query("SELECT COUNT(*) FROM sync_tasks WHERE queueKey = :queueKey AND (status = 'PENDING' OR status = 'RUNNING')")
+    suspend fun countActiveTasksInQueue(queueKey: String): Int
+
+    @Query("SELECT * FROM sync_tasks WHERE jobType = :jobType AND taskID = :taskId AND status = 'PENDING' LIMIT 1")
+    suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity?
 }

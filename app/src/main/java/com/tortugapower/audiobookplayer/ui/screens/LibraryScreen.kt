@@ -35,6 +35,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -48,7 +49,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
@@ -88,16 +91,18 @@ fun LibraryScreen(
     )
 
     val currentPath by libraryViewModel.currentPath.collectAsState()
+    val account by accountRepository.getAccountFlow().collectAsState(initial = null)
     
-    // Fetch contents with throttle when path changes
-    LaunchedEffect(currentPath) {
-        val account = accountRepository.getAccount()
+    // Fetch contents with throttle when path or account changes (e.g. login)
+    LaunchedEffect(currentPath, account) {
         val pathKey = currentPath ?: "root"
+        val currentAccount = account
         
-        if (account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)) {
+        if (currentAccount != null && (currentAccount.tier == AccountTier.PRO || currentAccount.tier == AccountTier.LITE)) {
             if (SyncStatusManager.canFetchContents(pathKey)) {
-                SyncStatusManager.markPathAsFetched(pathKey)
-                SyncTaskFactory.createFetchContentsTask(syncTaskRepository, currentPath)
+                if (SyncTaskFactory.createFetchContentsTask(syncTaskRepository, currentPath)) {
+                    SyncStatusManager.markPathAsFetched(pathKey)
+                }
             }
         }
     }
@@ -741,7 +746,8 @@ fun LibraryScreen(
                                             isSelectMode = true
                                             selectedItemUuids = setOf(item.uuid)
                                         }
-                                    }
+                                    },
+                                    syncTaskRepository = syncTaskRepository
                                 )
                             }
                         }
@@ -774,9 +780,24 @@ fun LibraryListItem(
     isSelectMode: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
-    onLongClick: () -> Unit = {}
+    onLongClick: () -> Unit = {},
+    syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository? = null
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    val isLocal = remember(item.relativePath, item.type) {
+        if (item.type == ItemType.FOLDER) true
+        else if (item.relativePath == null) false
+        else {
+            val processedDir = java.io.File(context.filesDir, "Processed")
+            java.io.File(processedDir, item.relativePath!!).exists()
+        }
+    }
+
+    val taskProgress by SyncStatusManager.taskProgress.collectAsState()
+    val downloadProgress = taskProgress[item.uuid]
 
     Row(
         modifier = modifier
@@ -825,6 +846,15 @@ fun LibraryListItem(
                 .size(56.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .then(artworkBackground)
+                .clickable(enabled = syncTaskRepository != null && !isLocal && !item.remoteURL.isNullOrEmpty() && downloadProgress == null) {
+                    syncTaskRepository?.let { repo ->
+                        scope.launch {
+                            SyncTaskFactory.createDownloadFileTask(repo, item)
+                            // Optionally start the service if not running
+                            context.startService(android.content.Intent(context, com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost::class.java))
+                        }
+                    }
+                }
         ) {
             if (item.artworkURL != null) {
                 AsyncImage(
@@ -834,7 +864,33 @@ fun LibraryListItem(
                     contentScale = ContentScale.Crop
                 )
             }
-            if (item.remoteURL != null) {
+
+            if (downloadProgress != null) {
+                // Download Progress Overlay
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.6f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        progress = { downloadProgress.toFloat() },
+                        modifier = Modifier.size(32.dp),
+                        color = Color.White,
+                        strokeWidth = 3.dp,
+                        trackColor = Color.White.copy(alpha = 0.3f)
+                    )
+                }
+            } else if (!isLocal && !item.remoteURL.isNullOrEmpty()) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(size.width, size.height * 0.45f)
+                        lineTo(size.width, size.height)
+                        lineTo(size.width * 0.45f, size.height)
+                        close()
+                    }
+                    drawPath(path, Color.Black.copy(alpha = 0.65f))
+                }
                 Icon(
                     imageVector = Icons.Outlined.Cloud,
                     contentDescription = null,
@@ -842,7 +898,7 @@ fun LibraryListItem(
                         .align(Alignment.BottomEnd)
                         .padding(4.dp)
                         .size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSecondary.copy(alpha = 0.8f)
+                    tint = Color(0xFF4285F4) // Cloud Blue
                 )
             }
             if (item.type == ItemType.FOLDER) {

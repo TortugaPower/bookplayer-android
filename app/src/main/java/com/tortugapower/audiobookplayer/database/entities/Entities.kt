@@ -6,7 +6,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 
 enum class ItemType {
-    BOOK, FOLDER, BOUND
+    FOLDER, BOUND, BOOK
 }
 
 @Entity(tableName = "library_items")

@@ -19,8 +19,8 @@ data class SyncableItem(
     val isFinished: Boolean,
     val orderRank: Int,
     val type: Int, // Map to ItemType ordinal
-    val remoteURL: String?,
-    val artworkURL: String?,
+    @SerializedName("url") val remoteURL: String?,
+    @SerializedName("thumbnail") val artworkURL: String?,
     val speed: Double?,
     @SerializedName("lastPlayDate") val lastPlayDateTimestamp: Double?
 )

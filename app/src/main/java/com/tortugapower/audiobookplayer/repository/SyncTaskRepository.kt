@@ -17,4 +17,8 @@ interface SyncTaskRepository {
     suspend fun resetRunningTasks()
     suspend fun deleteAllTasks()
     suspend fun getTaskById(id: String): SyncTaskEntity?
+    suspend fun countActiveTasks(): Int
+    suspend fun countActiveTasksInQueue(queueKey: String): Int
+    suspend fun countActiveTasksByType(jobType: String): Int
+    suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity?
 }

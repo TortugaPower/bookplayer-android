@@ -8,9 +8,11 @@ import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
+import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.model.*
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.AccountRepository
+import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.launch
 
 enum class AuthStep {
@@ -22,7 +24,8 @@ enum class AuthStep {
 }
 
 class AuthViewModel(
-    private val accountRepository: AccountRepository
+    private val accountRepository: AccountRepository,
+    private val syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 ) : ViewModel() {
 
     var currentStep by mutableStateOf(AuthStep.EMAIL_INPUT)
@@ -130,15 +133,23 @@ class AuthViewModel(
 
     fun completeRegistration(loginResponse: PasskeyLoginResponse) {
         viewModelScope.launch {
-            android.util.Log.d("SUBSCRIPTION", "Has Sub: ${loginResponse.hasSubscription.toString()}")
+
             val account = AccountEntity(
                 id = loginResponse.externalId,
                 email = loginResponse.email,
                 apiToken = loginResponse.token,
-                tier = if (loginResponse.hasSubscription) AccountTier.PRO else AccountTier.FREE
+                tier = if (loginResponse.hasSubscription) AccountTier.PRO else AccountTier.FREE,
+                revenuecatId = loginResponse.revenuecatId
             )
             accountRepository.saveAccount(account)
-            SubscriptionManager.login(account.id)
+            val rcId = loginResponse.revenuecatId ?: account.id
+            android.util.Log.d("SUBSCRIPTION", "Has Sub: ${rcId.toString()}")
+
+            SubscriptionManager.login(rcId)
+            
+            // Automatically fetch root contents upon login
+            SyncTaskFactory.createFetchContentsTask(syncTaskRepository, null)
+            
             currentStep = AuthStep.SUCCESS
         }
     }
@@ -155,10 +166,18 @@ class AuthViewModel(
                         id = googleUserId, // Stable ID from Google
                         email = body.email, // Email confirmed by our server
                         apiToken = body.token, // Auth token from our server
-                        tier = AccountTier.FREE // Will be updated by RevenueCat later
+                        tier = AccountTier.FREE, // Will be updated by RevenueCat later
+                        revenuecatId = body.revenuecatId
                     )
                     accountRepository.saveAccount(account)
-                    SubscriptionManager.login(account.id)
+                    
+                    val rcId = body.revenuecatId ?: account.id
+                    android.util.Log.d("SUBSCRIPTION", "Has Sub: ${body.revenuecatId.toString()}")
+                    SubscriptionManager.login(rcId)
+
+                    // Automatically fetch root contents upon login
+                    SyncTaskFactory.createFetchContentsTask(syncTaskRepository, null)
+
                     currentStep = AuthStep.SUCCESS
                 } else {
                     errorMessage = "Server login failed: ${response.code()}"

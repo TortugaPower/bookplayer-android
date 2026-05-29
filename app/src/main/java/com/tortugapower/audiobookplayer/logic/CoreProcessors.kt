@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
+import java.io.FileOutputStream
 
 class FetchContentsProcessor(private val context: Context) : TaskProcessor {
     private val gson = Gson()
@@ -46,9 +47,10 @@ class FetchContentsProcessor(private val context: Context) : TaskProcessor {
         val local = libraryDao.getItemById(remote.uuid)
         
         val type = ItemType.entries.getOrNull(remote.type) ?: ItemType.BOOK
-        
-        val entity = LibraryItemEntity(
-            uuid = remote.uuid,
+
+        android.util.Log.d("FetchContentsProcessor", "🔄 Syncing item: ${remote.title} (UUID: ${remote.uuid}), remoteURL: ${remote.remoteURL}")
+
+        val entity = LibraryItemEntity(            uuid = remote.uuid,
             title = remote.title,
             author = remote.details,
             originalFileName = remote.originalFileName,
@@ -59,6 +61,8 @@ class FetchContentsProcessor(private val context: Context) : TaskProcessor {
             isFinished = remote.isFinished,
             orderRank = remote.orderRank,
             type = type,
+            remoteURL = remote.remoteURL,
+            artworkURL = remote.artworkURL,
             lastPlayDate = remote.lastPlayDateTimestamp?.toLong() ?: local?.lastPlayDate
         )
 
@@ -178,6 +182,76 @@ class UploadFileProcessor(private val context: Context) : TaskProcessor {
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_UPLOAD_FILE
+    }
+}
+
+class DownloadFileProcessor(private val context: Context) : TaskProcessor {
+    override suspend fun process(task: SyncTaskEntity): Boolean {
+        val gson = Gson()
+        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
+        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
+
+        val remoteURL = payload["remoteURL"] as? String
+        val relativePath = payload["relativePath"] as? String
+        val taskId = task.taskID
+
+        if (remoteURL.isNullOrEmpty() || relativePath.isNullOrEmpty()) {
+            Log.e("DownloadFileProcessor", "❌ Missing remoteURL or relativePath")
+            return false
+        }
+
+        Log.d("DownloadFileProcessor", "🚀 Starting download: $remoteURL to $relativePath")
+
+        val processedDir = File(context.filesDir, "Processed")
+        if (!processedDir.exists()) processedDir.mkdirs()
+        val destFile = File(processedDir, relativePath)
+
+        // Ensure parent directories exist
+        destFile.parentFile?.mkdirs()
+
+        val client = okhttp3.OkHttpClient()
+        val request = okhttp3.Request.Builder().url(remoteURL).build()
+
+        return try {
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                Log.e("DownloadFileProcessor", "❌ Download failed: ${response.code}")
+                return false
+            }
+
+            val body = response.body ?: return false
+            val contentLength = body.contentLength()
+            var bytesRead = 0L
+
+            body.byteStream().use { input: java.io.InputStream ->
+                FileOutputStream(destFile).use { output: FileOutputStream ->
+                    val buffer = ByteArray(8 * 1024)
+                    var read: Int
+                    while (input.read(buffer).also { read = it } != -1) {
+                        output.write(buffer, 0, read)
+                        bytesRead += read
+                        if (contentLength > 0) {
+                            val progress = bytesRead.toDouble() / contentLength
+                            SyncStatusManager.updateTaskProgress(taskId, progress)
+                        }
+                    }
+                    output.flush()
+                }
+            }
+
+            Log.d("DownloadFileProcessor", "✅ Download complete: $relativePath")
+            SyncStatusManager.clearTaskProgress(taskId)
+            true
+        } catch (e: Exception) {
+            Log.e("DownloadFileProcessor", "💥 Exception during download: ${e.message}", e)
+            if (destFile.exists()) destFile.delete()
+            SyncStatusManager.clearTaskProgress(taskId)
+            false
+        }
+    }
+
+    override fun canHandle(jobType: String): Boolean {
+        return jobType == SyncTaskFactory.JOB_DOWNLOAD_FILE
     }
 }
 

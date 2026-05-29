@@ -54,7 +54,15 @@ object SyncTaskFactory {
             "isFinished" to item.isFinished,
             "orderRank" to item.orderRank
         )
-        enqueue(repository, QUEUE_SYNC, JOB_UPDATE, item.uuid, payload)
+
+        val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_UPDATE, item.uuid)
+        if (existingTask != null) {
+            val updatedTask = existingTask.copy(payload = gson.toJson(payload))
+            android.util.Log.d("SyncTaskFactory", "🔄 Merging update task for item: ${item.uuid}")
+            repository.updateTask(updatedTask)
+        } else {
+            enqueue(repository, QUEUE_SYNC, JOB_UPDATE, item.uuid, payload)
+        }
     }
 
     suspend fun createMoveTask(repository: SyncTaskRepository, item: LibraryItemEntity, origin: String, destination: String) {
@@ -85,6 +93,20 @@ object SyncTaskFactory {
             "time" to bookmark.time,
             "note" to (bookmark.note ?: "")
         )
+
+        val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_SET_BOOKMARK, bookmark.bookUuid)
+        if (existingTask != null) {
+            // Check if it's the same bookmark ID by looking at the existing payload
+            val existingPayloadType = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
+            val existingPayload: Map<String, Any?> = gson.fromJson(existingTask.payload, existingPayloadType)
+            if (existingPayload["uuid"] == bookmark.id.toString()) {
+                val updatedTask = existingTask.copy(payload = gson.toJson(payload))
+                android.util.Log.d("SyncTaskFactory", "🔄 Merging set_bookmark task for bookmark: ${bookmark.id}")
+                repository.updateTask(updatedTask)
+                return
+            }
+        }
+        
         enqueue(repository, QUEUE_SYNC, JOB_SET_BOOKMARK, bookmark.bookUuid, payload)
     }
 
@@ -119,12 +141,25 @@ object SyncTaskFactory {
         enqueue(repository, QUEUE_FILE, JOB_UPLOAD_ARTWORK, item.uuid, payload)
     }
 
-    suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?) {
+    suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?): Boolean {
+        // Only fetch if the sync queue is empty to avoid desyncs with local actions
+        if (repository.countActiveTasksInQueue(QUEUE_SYNC) > 0) {
+            android.util.Log.d("SyncTaskFactory", "⏭️ Skipping fetch_contents: sync queue not empty")
+            return false
+        }
+
+        // Avoid duplicate fetch tasks
+        if (repository.countActiveTasksByType(JOB_FETCH_CONTENTS) > 0) {
+            android.util.Log.d("SyncTaskFactory", "⏭️ Skipping fetch_contents: task already active")
+            return false
+        }
+
         val payload = mapOf(
             "title" to (path?.substringAfterLast('/') ?: "Library Root"),
             "relativePath" to (path ?: "")
         )
         enqueue(repository, QUEUE_SYNC, JOB_FETCH_CONTENTS, path ?: "root", payload)
+        return true
     }
 
     suspend fun createUploadFileTask(repository: SyncTaskRepository, item: LibraryItemEntity, remotePath: String) {
@@ -136,6 +171,16 @@ object SyncTaskFactory {
             "remotePath" to remotePath
         )
         enqueue(repository, QUEUE_FILE, JOB_UPLOAD_FILE, item.uuid, payload)
+    }
+
+    suspend fun createDownloadFileTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
+        val payload = mapOf(
+            "uuid" to item.uuid,
+            "title" to item.title,
+            "relativePath" to item.relativePath,
+            "remoteURL" to (item.remoteURL ?: "")
+        )
+        enqueue(repository, QUEUE_FILE, JOB_DOWNLOAD_FILE, item.uuid, payload)
     }
 
     private suspend fun enqueue(

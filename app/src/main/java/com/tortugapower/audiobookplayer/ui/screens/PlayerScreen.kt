@@ -32,6 +32,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Path
+import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -342,6 +345,15 @@ fun PlayerScreen(
                     Modifier.background(Color.Transparent)
                 }
 
+                val isLocal = remember(currentItem.relativePath, currentItem.type) {
+                    if (currentItem.type == com.tortugapower.audiobookplayer.database.entities.ItemType.FOLDER) true
+                    else if (currentItem.relativePath == null) false
+                    else {
+                        val processedDir = java.io.File(context.filesDir, "Processed")
+                        java.io.File(processedDir, currentItem.relativePath!!).exists()
+                    }
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -356,6 +368,26 @@ fun PlayerScreen(
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
+                        )
+                    }
+                    if (!isLocal && !currentItem.remoteURL.isNullOrEmpty()) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val path = Path().apply {
+                                moveTo(size.width, size.height * 0.45f)
+                                lineTo(size.width, size.height)
+                                lineTo(size.width * 0.45f, size.height)
+                                close()
+                            }
+                            drawPath(path, Color.Black.copy(alpha = 0.65f))
+                        }
+                        Icon(
+                            imageVector = Icons.Outlined.Cloud,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(12.dp)
+                                .size(32.dp),
+                            tint = Color(0xFF4285F4)
                         )
                     }
                     IconButton(

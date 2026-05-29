@@ -12,5 +12,6 @@ data class AccountEntity(
     @PrimaryKey val id: String,
     val email: String,
     val apiToken: String,
-    val tier: AccountTier = AccountTier.FREE
+    val tier: AccountTier = AccountTier.FREE,
+    val revenuecatId: String? = null
 )

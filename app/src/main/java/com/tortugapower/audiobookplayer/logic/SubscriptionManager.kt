@@ -54,7 +54,8 @@ object SubscriptionManager {
         scope.launch {
             val account = repository.getAccount()
             if (account != null) {
-                login(account.id)
+                val rcId = account.revenuecatId ?: account.id
+                login(rcId)
             }
         }
     }
@@ -88,12 +89,10 @@ object SubscriptionManager {
     }
 
     private fun updateAccountTier(customerInfo: CustomerInfo) {
-        // Temporarily disabled to prevent overwriting login subscription status
-        /*
         val hasPro = customerInfo.entitlements["pro"]?.isActive == true
         val tier = if (hasPro) AccountTier.PRO else AccountTier.FREE
         
-        Log.d(TAG, "Updating account tier. Has Pro: $hasPro")
+        Log.d(TAG, "Updating account tier. Has Pro: $customerInfo")
         
         scope.launch {
             val account = accountRepository?.getAccount()
@@ -102,6 +101,5 @@ object SubscriptionManager {
                 accountRepository?.saveAccount(account.copy(tier = tier))
             }
         }
-        */
     }
 }

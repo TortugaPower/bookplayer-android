@@ -20,10 +20,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Path
+import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.outlined.Cloud
 import com.tortugapower.audiobookplayer.R
 import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
@@ -48,6 +53,16 @@ fun MiniPlayer() {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
+            val context = LocalContext.current
+            val isLocal = remember(currentItem.relativePath, currentItem.type) {
+                if (currentItem.type == com.tortugapower.audiobookplayer.database.entities.ItemType.FOLDER) true
+                else if (currentItem.relativePath == null) false
+                else {
+                    val processedDir = java.io.File(context.filesDir, "Processed")
+                    java.io.File(processedDir, currentItem.relativePath!!).exists()
+                }
+            }
+
             // Thumbnail
             val artworkBackground = if (currentItem.artworkURL == null) {
                 Modifier.background(
@@ -74,6 +89,26 @@ fun MiniPlayer() {
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
+                    )
+                }
+                if (!isLocal && !currentItem.remoteURL.isNullOrEmpty()) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val path = Path().apply {
+                            moveTo(size.width, size.height * 0.45f)
+                            lineTo(size.width, size.height)
+                            lineTo(size.width * 0.45f, size.height)
+                            close()
+                        }
+                        drawPath(path, Color.Black.copy(alpha = 0.65f))
+                    }
+                    Icon(
+                        imageVector = Icons.Outlined.Cloud,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(2.dp)
+                            .size(12.dp),
+                        tint = Color(0xFF4285F4)
                     )
                 }
             }
