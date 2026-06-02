@@ -38,6 +38,16 @@ class SyncingLibraryRepository(
             val item = delegate.getItemById(uuid)
             if (item != null) {
                 SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
+                
+                // Sync parent folders as their aggregate progress changed
+                var path = item.relativePath
+                while (path != null && path.contains('/')) {
+                    path = path.substringBeforeLast('/')
+                    val parent = delegate.getItemByPath(path)
+                    if (parent != null) {
+                        SyncTaskFactory.createUpdateTask(syncTaskRepository, parent)
+                    }
+                }
             }
         }
     }

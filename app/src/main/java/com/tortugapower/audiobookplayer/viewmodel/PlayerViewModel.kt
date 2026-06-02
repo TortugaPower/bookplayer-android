@@ -338,6 +338,7 @@ class PlayerViewModel(
     val playbackVolume get() = PlaybackManager.playbackVolume
     val volumeBoost get() = PlaybackManager.volumeBoost
     val isPlaying get() = PlaybackManager.isPlaying
+    val playbackState get() = PlaybackManager.playbackState
     val currentItem get() = PlaybackManager.currentItem
     val player get() = PlaybackManager.player
     val isTransitioning get() = PlaybackManager.isTransitioning

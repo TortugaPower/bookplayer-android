@@ -53,7 +53,7 @@ import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.*
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -360,7 +360,7 @@ fun PlayerScreen(
                         .aspectRatio(1f)
                         .clip(RoundedCornerShape(24.dp))
                         .then(artworkBackground),
-                    contentAlignment = Alignment.TopEnd
+                    contentAlignment = Alignment.Center // Changed from TopEnd to Center
                 ) {
                     if (currentItem.artworkURL != null) {
                         AsyncImage(
@@ -370,35 +370,44 @@ fun PlayerScreen(
                             contentScale = ContentScale.Crop
                         )
                     }
-                    if (!isLocal && !currentItem.remoteURL.isNullOrEmpty()) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val path = Path().apply {
-                                moveTo(size.width, size.height * 0.45f)
-                                lineTo(size.width, size.height)
-                                lineTo(size.width * 0.45f, size.height)
-                                close()
-                            }
-                            drawPath(path, Color.Black.copy(alpha = 0.65f))
-                        }
-                        Icon(
-                            imageVector = Icons.Outlined.Cloud,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(12.dp)
-                                .size(32.dp),
-                            tint = Color(0xFF4285F4)
-                        )
+
+                    if (viewModel.playbackState == Player.STATE_BUFFERING && !isLocal) {
+                        SoundwaveLoadingOverlay()
                     }
-                    IconButton(
-                        onClick = { },
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Cast,
-                            contentDescription = stringResource(R.string.player_cast),
-                            tint = MaterialTheme.colorScheme.onSecondary
-                        )
+
+                    if (!isLocal && !currentItem.remoteURL.isNullOrEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val path = Path().apply {
+                                    moveTo(size.width, size.height * 0.45f)
+                                    lineTo(size.width, size.height)
+                                    lineTo(size.width * 0.45f, size.height)
+                                    close()
+                                }
+                                drawPath(path, Color.Black.copy(alpha = 0.65f))
+                            }
+                            Icon(
+                                imageVector = Icons.Outlined.Cloud,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(12.dp)
+                                    .size(32.dp),
+                                tint = Color(0xFF4285F4)
+                            )
+                        }
+                    }
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
+                        IconButton(
+                            onClick = { },
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Cast,
+                                contentDescription = stringResource(R.string.player_cast),
+                                tint = MaterialTheme.colorScheme.onSecondary
+                            )
+                        }
                     }
                 }
 
@@ -2049,6 +2058,53 @@ fun PlayerBottomButton(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SoundwaveLoadingOverlay() {
+    val infiniteTransition = rememberInfiniteTransition(label = "loading")
+    
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    // Trigger height change when alpha is at its maximum (darkest point)
+    val seed = remember(alpha > 0.79f) { kotlin.random.Random.nextInt() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = alpha)),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            modifier = Modifier.height(40.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            repeat(10) { i ->
+                // Animate height based on seed and index
+                val heightScale by animateFloatAsState(
+                    targetValue = remember(seed, i) { 0.2f + kotlin.random.Random.nextFloat() * 0.8f },
+                    animationSpec = tween(500), // Smooth transition when seed changes
+                    label = "height_$i"
+                )
+                
+                Box(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .fillMaxHeight(heightScale)
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
                 )
             }
         }

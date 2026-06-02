@@ -26,6 +26,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         currentContext = this
         
+        volumeControlStream = android.media.AudioManager.STREAM_MUSIC
+
         splashScreen.setKeepOnScreenCondition {
             !ThemeManager.isReady
         }

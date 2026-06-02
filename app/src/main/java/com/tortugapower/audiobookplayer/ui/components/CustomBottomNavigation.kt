@@ -34,6 +34,8 @@ sealed class Screen(
     @StringRes val label: Int,
     val icon: @Composable () -> Unit,
 ) {
+    open fun isSelected(currentRoute: String?): Boolean = currentRoute == route
+
     object Library : Screen(
         route = "library",
         label = R.string.library_title_default,
@@ -49,13 +51,24 @@ sealed class Screen(
         route = "profile",
         label = R.string.profile_title,
         icon = { Icon(Icons.Default.Person, contentDescription = stringResource(R.string.profile_title)) },
-    )
+    ) {
+        override fun isSelected(currentRoute: String?): Boolean {
+            return currentRoute == route || 
+                   currentRoute == "accountDetails" || 
+                   currentRoute == "queuedTasks" || 
+                   currentRoute?.startsWith("taskDetail/") == true
+        }
+    }
 
     object Settings : Screen(
         route = "settings",
         label = R.string.settings_title,
         icon = { Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings_title)) },
-    )
+    ) {
+        override fun isSelected(currentRoute: String?): Boolean {
+            return currentRoute == route || currentRoute == "themes"
+        }
+    }
 }
 
 @Composable
@@ -69,7 +82,7 @@ fun CustomBottomNavigation(
     ) {
         screens.forEach { screen ->
             ShortNavigationBarItem(
-                selected = currentRoute == screen.route,
+                selected = screen.isSelected(currentRoute),
                 onClick = { onTabSelected(screen) },
                 icon = screen.icon,
                 label = { Text(stringResource(screen.label)) },

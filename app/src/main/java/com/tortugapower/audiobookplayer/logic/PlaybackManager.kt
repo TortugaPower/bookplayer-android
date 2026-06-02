@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.logic
 import android.content.ComponentName
 import android.content.Context
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.media3.common.MediaItem
@@ -46,6 +47,9 @@ object PlaybackManager {
     var isPlaying by mutableStateOf(false)
         private set
 
+    var playbackState by mutableIntStateOf(Player.STATE_IDLE)
+        private set
+
     var showPlayerScreen by mutableStateOf(false)
 
     var playbackSpeed by mutableStateOf(1.0f)
@@ -75,6 +79,7 @@ object PlaybackManager {
                 // Add listener once
                 mediaController.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
+                        if (isPlaying == playing) return
                         isPlaying = playing
                         if (!playing) {
                             lastPauseTime = System.currentTimeMillis()
@@ -97,8 +102,9 @@ object PlaybackManager {
                         }
                     }
 
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_ENDED) {
+                    override fun onPlaybackStateChanged(state: Int) {
+                        playbackState = state
+                        if (state == Player.STATE_ENDED) {
                             updateProgress(appContext, forceFinished = true)
                             // Auto-play next item
                             scope.launch {
@@ -110,7 +116,7 @@ object PlaybackManager {
                                     playItem(appContext, nextItem)
                                 }
                             }
-                        } else if (playbackState == Player.STATE_READY && isTransitioning) {
+                        } else if (state == Player.STATE_READY && isTransitioning) {
                             isTransitioning = false
                         }
                     }
@@ -350,15 +356,23 @@ object PlaybackManager {
     }
 
     fun playItem(context: Context, item: LibraryItemEntity) {
-        updateProgress(context, itemToUpdate = currentItem)
+        // If it's already playing the requested item, just show the player
+        if (item.uuid == currentItem?.uuid && player?.isPlaying == true) {
+            showPlayerScreen = true
+            return
+        }
+
+        // Only update progress of the previous item if we're actually switching books
+        if (currentItem?.uuid != item.uuid) {
+            updateProgress(context, itemToUpdate = currentItem)
+        }
         
         if (item.isFinished) {
             item.currentTime = 0.0
             item.isFinished = false
             item.percentCompleted = 0.0
             scope.launch(Dispatchers.IO) {
-                val db = AppDatabase.getDatabase(context)
-                db.libraryDao().updateItem(item)
+                getRepository(context).updateItemProgress(item.uuid, 0.0, false)
             }
         }
         

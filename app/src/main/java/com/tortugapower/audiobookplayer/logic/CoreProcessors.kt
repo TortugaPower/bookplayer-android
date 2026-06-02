@@ -19,7 +19,10 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.io.FileOutputStream
 
-class FetchContentsProcessor(private val context: Context) : TaskProcessor {
+class FetchContentsProcessor(
+    private val context: Context,
+    private val repository: SyncTaskRepository
+) : TaskProcessor {
     private val gson = Gson()
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
@@ -34,10 +37,32 @@ class FetchContentsProcessor(private val context: Context) : TaskProcessor {
             val database = AppDatabase.getDatabase(context)
             val libraryDao = database.libraryDao()
 
+            val remoteUuids = contents.content.map { it.uuid }.toSet()
+
+            // Update existing and add missing from server
             contents.content.forEach { remoteItem ->
                 Log.e("SubscriptionManager", "LETS SEE ${remoteItem.toString()}")
                 syncItem(libraryDao, remoteItem)
             }
+
+            // Find local items missing on server that should be uploaded
+            val localItems = if (path.isEmpty()) {
+                libraryDao.getRootItemsSync()
+            } else {
+                libraryDao.getItemsInPathSync(path)
+            }
+
+            val processedDir = File(context.filesDir, "Processed")
+            localItems.forEach { localItem ->
+                if (localItem.uuid !in remoteUuids) {
+                    val file = File(processedDir, localItem.relativePath ?: "")
+                    if (file.exists() && localItem.type == ItemType.BOOK) {
+                        Log.d("FetchContentsProcessor", "📤 Local item missing on server, queuing upload: ${localItem.title}")
+                        SyncTaskFactory.createUploadMetadataTask(repository, localItem)
+                    }
+                }
+            }
+
             return true
         }
         return false
