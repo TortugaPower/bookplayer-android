@@ -49,6 +49,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
@@ -799,9 +805,33 @@ fun LibraryListItem(
     val taskProgress by SyncStatusManager.taskProgress.collectAsState()
     val downloadProgress = taskProgress[item.uuid]
 
+    val durationText = if (item.duration > 0) {
+        val h = (item.duration / 3600).toInt()
+        val m = ((item.duration % 3600) / 60).toInt()
+        val s = (item.duration % 60).toInt()
+        if (h > 0) stringResource(R.string.duration_hms, h, m, s) else stringResource(R.string.duration_ms, m, s)
+    } else ""
+
+    val authorText = if (item.author.isNullOrBlank()) {
+        if (item.type == ItemType.FOLDER) stringResource(R.string.library_folder_empty) 
+        else stringResource(R.string.library_unknown_author)
+    } else item.author!!
+
+    val progressText = if (item.isFinished) {
+        stringResource(R.string.common_completed)
+    } else {
+        "${(item.percentCompleted * 100).toInt()}% ${stringResource(R.string.common_completed).lowercase()}"
+    }
+
+    val combinedDescription = "${item.title}. $authorText. $durationText. $progressText"
+
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                contentDescription = combinedDescription
+                role = Role.Button
+            }
             .pointerInput(isSelectMode, onClick, onLongClick) {
                 if (isSelectMode) {
                     detectTapGestures(onTap = { onClick() })
@@ -841,20 +871,29 @@ fun LibraryListItem(
             Modifier.background(Color.Transparent)
         }
 
+        val showCloud = !isLocal && !item.remoteURL.isNullOrEmpty()
+        val artworkModifier = Modifier
+            .size(56.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .then(artworkBackground)
+
         Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .then(artworkBackground)
-                .clickable(enabled = syncTaskRepository != null && !isLocal && !item.remoteURL.isNullOrEmpty() && downloadProgress == null) {
-                    syncTaskRepository?.let { repo ->
-                        scope.launch {
-                            SyncTaskFactory.createDownloadFileTask(repo, item)
-                            // Optionally start the service if not running
-                            context.startService(android.content.Intent(context, com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost::class.java))
+            modifier = if (showCloud && downloadProgress == null) {
+                artworkModifier
+                    .clickable(
+                        onClickLabel = stringResource(R.string.common_download),
+                        onClick = {
+                            syncTaskRepository?.let { repo ->
+                                scope.launch {
+                                    SyncTaskFactory.createDownloadFileTask(repo, item)
+                                    context.startService(android.content.Intent(context, com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost::class.java))
+                                }
+                            }
                         }
-                    }
-                }
+                    )
+            } else {
+                artworkModifier.clearAndSetSemantics { }
+            }
         ) {
             if (item.artworkURL != null) {
                 AsyncImage(
@@ -881,7 +920,7 @@ fun LibraryListItem(
                         trackColor = Color.White.copy(alpha = 0.3f)
                     )
                 }
-            } else if (!isLocal && !item.remoteURL.isNullOrEmpty()) {
+            } else if (showCloud) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val path = androidx.compose.ui.graphics.Path().apply {
                         moveTo(size.width, size.height * 0.45f)
@@ -913,51 +952,50 @@ fun LibraryListItem(
 
         Spacer(modifier = Modifier.width(16.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f).clearAndSetSemantics { }
+        ) {
+            Text(
+                text = item.title,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+            Text(
+                text = authorText,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1
+            )
+            if (item.duration > 0) {
                 Text(
-                    text = item.title,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
-                Text(
-                    text = if (item.author.isNullOrBlank()) {
-                        if (item.type == ItemType.FOLDER) stringResource(R.string.library_folder_empty) 
-                        else stringResource(R.string.library_unknown_author)
-                    } else item.author!!,
+                    text = durationText,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1
                 )
-                if (item.duration > 0) {
-                    val h = (item.duration / 3600).toInt()
-                    val m = ((item.duration % 3600) / 60).toInt()
-                    val s = (item.duration % 60).toInt()
-                    Text(
-                        text = if (h > 0) stringResource(R.string.duration_hms, h, m, s) else stringResource(R.string.duration_ms, m, s),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1
-                    )
-                }
             }
+        }
 
         Spacer(modifier = Modifier.width(8.dp))
 
         if (isSelectMode) {
             Icon(
                 imageVector = Icons.Default.Reorder,
-                contentDescription = "Reorder",
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(24.dp).clearAndSetSemantics { }
             )
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clearAndSetSemantics { }
+            ) {
                 if (item.isFinished) {
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
-                        contentDescription = stringResource(R.string.common_completed),
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
                     )
@@ -971,7 +1009,7 @@ fun LibraryListItem(
                 if (item.type == ItemType.FOLDER || item.type == ItemType.BOUND) {
                     Icon(
                         imageVector = Icons.Default.ChevronRight,
-                        contentDescription = stringResource(R.string.library_open_folder),
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(24.dp)
                     )

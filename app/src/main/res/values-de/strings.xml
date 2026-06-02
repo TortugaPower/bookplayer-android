@@ -22,7 +22,8 @@
     <string name="common_move">Verschieben</string>
     <string name="common_completed">Abgeschlossen</string>
     <string name="common_pro_locked">Pro</string>
-    <string name="common_search">Suche</string>
+    <string name="common_search">Suchen</string>
+    <string name="common_download">Herunterladen</string>
     <string name="common_update">Aktualisieren</string>
     <string name="common_add">Hinzufügen</string>
     <string name="common_details">Details</string>

@@ -23,6 +23,7 @@
     <string name="common_completed">완료됨</string>
     <string name="common_pro_locked">Pro</string>
     <string name="common_search">검색</string>
+    <string name="common_download">다운로드</string>
     <string name="common_update">업데이트</string>
     <string name="common_add">추가</string>
     <string name="common_details">상세 정보</string>

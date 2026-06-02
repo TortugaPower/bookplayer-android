@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -43,6 +45,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.media3.common.Player
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
@@ -60,6 +65,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import kotlin.random.Random
 
 @Composable
 fun MarqueeText(
@@ -112,6 +118,7 @@ fun PlayerScreen(
 ) {
     val currentItem = viewModel.currentItem
     val isPlaying = viewModel.isPlaying
+    val playPauseFocusRequester = remember { FocusRequester() }
     
     // Use the item's saved time as the initial value when the item changes
     var position by remember(currentItem?.uuid) { 
@@ -138,6 +145,11 @@ fun PlayerScreen(
     LaunchedEffect(PlaybackManager.showPlayerScreen, screenHeightPx) {
         if (PlaybackManager.showPlayerScreen) {
             offsetY.animateTo(0f, tween(400))
+            try {
+                playPauseFocusRequester.requestFocus()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         } else {
             offsetY.animateTo(screenHeightPx, tween(300))
         }
@@ -275,6 +287,16 @@ fun PlayerScreen(
                 alpha = if (isHidden) 0f else 1f
             }
             .background(MaterialTheme.colorScheme.background)
+            .pointerInput(isHidden) {
+                if (!isHidden) {
+                    detectTapGestures(onTap = { })
+                }
+            }
+            .semantics {
+                if (!isHidden) {
+                    paneTitle = "Player"
+                }
+            }
             .then(
                 if (isHidden) {
                     Modifier // No touch interception at all when hidden
@@ -574,7 +596,9 @@ fun PlayerScreen(
 
                     IconButton(
                         onClick = { viewModel.togglePlayPause() },
-                        modifier = Modifier.size(100.dp) // Increased from 80dp
+                        modifier = Modifier
+                            .size(100.dp) // Increased from 80dp
+                            .focusRequester(playPauseFocusRequester)
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
