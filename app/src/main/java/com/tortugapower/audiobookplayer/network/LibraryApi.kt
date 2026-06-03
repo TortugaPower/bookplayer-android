@@ -14,7 +14,7 @@ interface LibraryApi {
     ): Response<Unit>
 
     @GET("/v1/library/keys")
-    suspend fun getSyncedIdentifiers(): Response<Map<String, String>>
+    suspend fun getSyncedIdentifiers(): Response<IdentifiersResponse>
 
     @GET("/v1/library")
     suspend fun getContents(

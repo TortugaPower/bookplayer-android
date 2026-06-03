@@ -9,6 +9,7 @@ import com.revenuecat.purchases.interfaces.UpdatedCustomerInfoListener
 import com.tortugapower.audiobookplayer.BuildConfig
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.repository.AccountRepository
+import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -16,10 +17,13 @@ import kotlinx.coroutines.launch
 object SubscriptionManager {
     private const val TAG = "SubscriptionManager"
     private var accountRepository: AccountRepository? = null
+    private var syncTaskRepository: SyncTaskRepository? = null
     private val scope = CoroutineScope(Dispatchers.IO)
+    private var lastProcessedTier: AccountTier? = null
 
-    fun initialize(context: Context, repository: AccountRepository) {
+    fun initialize(context: Context, repository: AccountRepository, syncRepository: SyncTaskRepository) {
         accountRepository = repository
+        syncTaskRepository = syncRepository
         
         // At the beginning we work with RevenueCat sandbox
         Purchases.logLevel = LogLevel.DEBUG
@@ -90,15 +94,31 @@ object SubscriptionManager {
 
     private fun updateAccountTier(customerInfo: CustomerInfo) {
         val hasPro = customerInfo.entitlements["pro"]?.isActive == true
-        val tier = if (hasPro) AccountTier.PRO else AccountTier.FREE
+        val hasLite = customerInfo.entitlements["lite"]?.isActive == true
+        val tier = when {
+            hasPro -> AccountTier.PRO
+            hasLite -> AccountTier.LITE
+            else -> AccountTier.FREE
+        }
         
-        Log.d(TAG, "Updating account tier. Has Pro: $customerInfo")
+        if (lastProcessedTier == tier) return
+        lastProcessedTier = tier
+        
+        Log.d(TAG, "Updating account tier. Has Pro: $hasPro, Has Lite: $hasLite")
         
         scope.launch {
             val account = accountRepository?.getAccount()
             if (account != null && account.tier != tier) {
                 Log.d(TAG, "Persisting new tier: $tier")
                 accountRepository?.saveAccount(account.copy(tier = tier))
+                
+                // Trigger account-wide identifier sync on subscription activation
+                if (tier == AccountTier.PRO || tier == AccountTier.LITE) {
+                    syncTaskRepository?.let { repo ->
+                        Log.d(TAG, "🚀 Subscription activated, triggering syncIdentifiers task")
+                        SyncTaskFactory.createSyncIdentifiersTask(repo)
+                    }
+                }
             }
         }
     }

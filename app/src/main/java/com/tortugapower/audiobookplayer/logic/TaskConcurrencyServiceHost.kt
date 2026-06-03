@@ -52,8 +52,9 @@ class TaskConcurrencyServiceHost : Service() {
         // Register all available processors
         val processors = listOf(
             FetchContentsProcessor(this, repository),
+            SyncIdentifiersProcessor(this, repository),
             MetadataUploadProcessor(this, repository),
-            UploadFileProcessor(this),
+            UploadFileProcessor(this, repository),
             UpdateProcessor(),
             MoveProcessor(),
             DeleteProcessor(),

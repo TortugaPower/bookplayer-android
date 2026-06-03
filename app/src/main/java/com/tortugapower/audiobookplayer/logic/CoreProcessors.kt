@@ -29,7 +29,9 @@ class FetchContentsProcessor(
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
         val path = payload["relativePath"] as? String ?: ""
-
+        val canDelete = payload["canDelete"] as? Boolean ?: false
+        val normalizedPath = if (path.endsWith("/")) path.removeSuffix("/") else path
+        
         val response = NetworkClient.libraryApi.getContents(path)
         
         if (response.isSuccessful && response.body() != null) {
@@ -41,24 +43,46 @@ class FetchContentsProcessor(
 
             // Update existing and add missing from server
             contents.content.forEach { remoteItem ->
-                Log.e("SubscriptionManager", "LETS SEE ${remoteItem.toString()}")
                 syncItem(libraryDao, remoteItem)
             }
 
-            // Find local items missing on server that should be uploaded
-            val localItems = if (path.isEmpty()) {
-                libraryDao.getRootItemsSync()
-            } else {
-                libraryDao.getItemsInPathSync(path)
+            // Handle cross-device Last Played synchronization
+            contents.lastItemPlayed?.let { serverLastPlayed ->
+                // Ensure the last played item itself is synced to DB
+                syncItem(libraryDao, serverLastPlayed)
+                
+                if (!PlaybackManager.isPlaying) {
+                    val localCurrent = PlaybackManager.currentItem
+                    val serverTs = serverLastPlayed.lastPlayDateTimestamp?.let { (it * 1000).toLong() } ?: 0L
+                    val localTs = localCurrent?.lastPlayDate ?: 0L
+                    
+                    val isMoreRecent = serverTs > localTs
+                    val isSameWithMoreProgress = localCurrent != null && 
+                                                serverLastPlayed.uuid == localCurrent.uuid && 
+                                                serverLastPlayed.currentTime > localCurrent.currentTime
+                    
+                    if (localCurrent == null || isMoreRecent || isSameWithMoreProgress) {
+                        val itemToRestore = libraryDao.getItemById(serverLastPlayed.uuid)
+                        if (itemToRestore != null) {
+                            Log.d("FetchContentsProcessor", "🔄 Server has a more recent state for '${itemToRestore.title}'. Syncing...")
+                            PlaybackManager.syncLastPlayed(context, itemToRestore)
+                        }
+                    }
+                }
             }
 
-            val processedDir = File(context.filesDir, "Processed")
-            localItems.forEach { localItem ->
-                if (localItem.uuid !in remoteUuids) {
-                    val file = File(processedDir, localItem.relativePath ?: "")
-                    if (file.exists() && localItem.type == ItemType.BOOK) {
-                        Log.d("FetchContentsProcessor", "📤 Local item missing on server, queuing upload: ${localItem.title}")
-                        SyncTaskFactory.createUploadMetadataTask(repository, localItem)
+            // Find local items missing on server and delete them if canDelete is true
+            if (canDelete) {
+                val localItems = if (normalizedPath.isEmpty()) {
+                    libraryDao.getRootItemsSync()
+                } else {
+                    libraryDao.getItemsInPathSync(normalizedPath)
+                }
+
+                localItems.forEach { localItem ->
+                    if (localItem.uuid !in remoteUuids) {
+                        Log.d("FetchContentsProcessor", "🗑️ Local item missing on server, deleting: ${localItem.title}")
+                        libraryDao.deleteItem(localItem)
                     }
                 }
             }
@@ -100,6 +124,46 @@ class FetchContentsProcessor(
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_FETCH_CONTENTS
+    }
+}
+
+class SyncIdentifiersProcessor(
+    private val context: Context,
+    private val repository: SyncTaskRepository
+) : TaskProcessor {
+    override suspend fun process(task: SyncTaskEntity): Boolean {
+        val response = NetworkClient.libraryApi.getSyncedIdentifiers()
+        
+        if (response.isSuccessful) {
+            val remotePaths = response.body()?.content?.toSet() ?: emptySet()
+            val database = AppDatabase.getDatabase(context)
+            val libraryDao = database.libraryDao()
+            
+            // Enqueue a forced fetch content for the root library to update UI first
+            // We set canDelete to false to avoid removing local items before they have a chance to sync
+            SyncTaskFactory.createFetchContentsTask(repository, null, force = true, canDelete = false)
+            
+            val localBooks = libraryDao.getAllBooksSync()
+            val processedDir = File(context.filesDir, "Processed")
+
+            localBooks.forEach { localBook ->
+                if (localBook.relativePath !in remotePaths) {
+                    val file = File(processedDir, localBook.relativePath ?: "")
+                    if (file.exists()) {
+                        Log.d("SyncIdentifiersProcessor", "📤 Account-wide sync: Local item missing on server, queuing upload: ${localBook.title}")
+                        SyncTaskFactory.createUploadMetadataTask(repository, localBook)
+                    }
+                }
+            }
+            
+            SyncStatusManager.markIdentifiersAsSynced()
+            return true
+        }
+        return false
+    }
+
+    override fun canHandle(jobType: String): Boolean {
+        return jobType == SyncTaskFactory.JOB_SYNC_IDENTIFIERS
     }
 }
 
@@ -148,7 +212,10 @@ class MetadataUploadProcessor(
     }
 }
 
-class UploadFileProcessor(private val context: Context) : TaskProcessor {
+class UploadFileProcessor(
+    private val context: Context,
+    private val repository: SyncTaskRepository
+) : TaskProcessor {
     private val gson = Gson()
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
@@ -157,11 +224,12 @@ class UploadFileProcessor(private val context: Context) : TaskProcessor {
 
         val relativePath = payload["relativePath"] as? String
         val remotePath = payload["remotePath"] as? String
+        val uuid = payload["uuid"] as? String
         
         Log.d("UploadFileProcessor", "🚀 Starting file upload for: $relativePath")
 
-        if (relativePath == null || remotePath == null) {
-            Log.e("UploadFileProcessor", "❌ Missing required payload data. relativePath: $relativePath, remotePath: $remotePath")
+        if (relativePath == null || remotePath == null || uuid == null) {
+            Log.e("UploadFileProcessor", "❌ Missing required payload data. relativePath: $relativePath, remotePath: $remotePath, uuid: $uuid")
             return false
         }
 
@@ -194,6 +262,10 @@ class UploadFileProcessor(private val context: Context) : TaskProcessor {
 
             if (uploadResponse.isSuccessful) {
                 Log.d("UploadFileProcessor", "✅ File upload successful: $relativePath")
+                
+                // Notify server that the item is now synced
+                SyncTaskFactory.createSyncSuccessTask(repository, uuid, relativePath)
+                
                 true
             } else {
                 Log.e("UploadFileProcessor", "❌ File upload failed with code: ${uploadResponse.code}. Error: ${uploadResponse.body?.string()}")

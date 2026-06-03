@@ -28,7 +28,7 @@ class BookPlayerApplication : Application() {
 
         // Initialize Managers
         PlaybackManager.initialize(this, syncingLibraryRepository)
-        SubscriptionManager.initialize(this, accountRepository)
+        SubscriptionManager.initialize(this, accountRepository, syncTaskRepository)
 
         // Start background services
         TaskConcurrencyServiceHost.start(this)

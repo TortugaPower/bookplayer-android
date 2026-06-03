@@ -36,3 +36,7 @@ data class UploadItemContent(
 data class ArtworkResponse(
     @SerializedName("thumbnail_url") val thumbnailURL: String
 )
+
+data class IdentifiersResponse(
+    val content: List<String>
+)

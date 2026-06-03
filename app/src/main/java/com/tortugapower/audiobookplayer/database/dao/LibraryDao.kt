@@ -42,6 +42,9 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items WHERE type = 'BOOK' AND title LIKE '%' || :query || '%' ORDER BY title ASC")
     fun searchBooks(query: String): Flow<List<LibraryItemEntity>>
 
+    @Query("SELECT * FROM library_items WHERE type = 'BOOK'")
+    suspend fun getAllBooksSync(): List<LibraryItemEntity>
+
     @Query("SELECT MAX(orderRank) FROM library_items WHERE relativePath NOT LIKE '%/%'")
     suspend fun getMaxRootOrderRank(): Int?
 

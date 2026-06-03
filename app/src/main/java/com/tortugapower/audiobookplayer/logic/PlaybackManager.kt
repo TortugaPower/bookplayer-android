@@ -355,7 +355,23 @@ object PlaybackManager {
         lastPauseTime = 0
     }
 
-    fun playItem(context: Context, item: LibraryItemEntity) {
+    fun syncLastPlayed(context: Context, item: LibraryItemEntity) {
+        if (isPlaying || player == null) return
+        
+        // If it's the same item and very close position, skip to avoid unnecessary reloads
+        if (currentItem?.uuid == item.uuid && Math.abs(currentItem!!.currentTime - item.currentTime) < 2.0) {
+            return
+        }
+
+        android.util.Log.d("PlaybackManager", "🔄 Syncing last played item from remote: ${item.title} at ${item.currentTime}s")
+        
+        // We can reuse playItem but with autoplay = false
+        // Actually, let's make playItem support an optional autoplay flag if it doesn't already
+        // Wait, playItem always calls play(). I'll update playItem to accept an autoplay param.
+        playItem(context, item, autoplay = false)
+    }
+
+    fun playItem(context: Context, item: LibraryItemEntity, autoplay: Boolean = true) {
         // If it's already playing the requested item, just show the player
         if (item.uuid == currentItem?.uuid && player?.isPlaying == true) {
             showPlayerScreen = true
@@ -446,8 +462,10 @@ object PlaybackManager {
 
                     player?.setMediaItems(mediaItems, targetIndex, (targetOffset * 1000).toLong())
                     player?.prepare()
-                    player?.play()
-                    showPlayerScreen = true
+                    if (autoplay) {
+                        player?.play()
+                        showPlayerScreen = true
+                    }
                     player?.setPlaybackSpeed(playbackSpeed)
                     applyVolume(volumeBoost, playbackVolume)
                 }
@@ -482,8 +500,10 @@ object PlaybackManager {
                     
                     player?.setMediaItem(mediaItem, (item.currentTime * 1000).toLong())
                     player?.prepare()
-                    player?.play()
-                    showPlayerScreen = true
+                    if (autoplay) {
+                        player?.play()
+                        showPlayerScreen = true
+                    }
                     player?.setPlaybackSpeed(playbackSpeed)
                     applyVolume(volumeBoost, playbackVolume)
                 }

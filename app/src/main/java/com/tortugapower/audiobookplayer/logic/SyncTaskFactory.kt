@@ -26,6 +26,18 @@ object SyncTaskFactory {
     const val JOB_FETCH_CONTENTS = "fetch_contents"
     const val JOB_UPLOAD_FILE = "upload_file"
     const val JOB_DOWNLOAD_FILE = "download_file"
+    const val JOB_SYNC_IDENTIFIERS = "sync_identifiers"
+
+    suspend fun createSyncIdentifiersTask(repository: SyncTaskRepository): Boolean {
+        if (!SyncStatusManager.checkAndMarkSyncIdentifiers()) return false
+        
+        val taskId = "all_identifiers"
+        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_SYNC_IDENTIFIERS, taskId)
+        if (existing != null) return true // Already queued
+
+        enqueue(repository, QUEUE_SYNC, JOB_SYNC_IDENTIFIERS, taskId, emptyMap<String, Any?>())
+        return true
+    }
 
     suspend fun createUploadMetadataTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
         val payload = mapOf(
@@ -42,6 +54,15 @@ object SyncTaskFactory {
             "type" to item.type.ordinal
         )
         enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_METADATA, item.uuid, payload)
+    }
+
+    suspend fun createSyncSuccessTask(repository: SyncTaskRepository, uuid: String, relativePath: String) {
+        val payload = mapOf(
+            "uuid" to uuid,
+            "relativePath" to relativePath,
+            "synced" to true
+        )
+        enqueue(repository, QUEUE_SYNC, JOB_UPDATE, uuid, payload)
     }
 
     suspend fun createUpdateTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
@@ -141,22 +162,23 @@ object SyncTaskFactory {
         enqueue(repository, QUEUE_FILE, JOB_UPLOAD_ARTWORK, item.uuid, payload)
     }
 
-    suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?): Boolean {
-        // Only fetch if the sync queue is empty to avoid desyncs with local actions
-        if (repository.countActiveTasksInQueue(QUEUE_SYNC) > 0) {
-            android.util.Log.d("SyncTaskFactory", "⏭️ Skipping fetch_contents: sync queue not empty")
-            return false
+    suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?, force: Boolean = false, canDelete: Boolean = true): Boolean {
+        if (!force) {
+            // Only fetch if the sync queue is empty to avoid desyncs with local actions
+            if (repository.countActiveTasksInQueue(QUEUE_SYNC) > 0) {
+                android.util.Log.d("SyncTaskFactory", "⏭️ Skipping fetch_contents: sync queue not empty")
+                return false
+            }
+
+            if (!SyncStatusManager.checkAndMarkFetchContents(path ?: "root")) return false
         }
 
-        // Avoid duplicate fetch tasks
-        if (repository.countActiveTasksByType(JOB_FETCH_CONTENTS) > 0) {
-            android.util.Log.d("SyncTaskFactory", "⏭️ Skipping fetch_contents: task already active")
-            return false
-        }
+        val formattedPath = if (path.isNullOrEmpty()) "" else if (path.endsWith("/")) path else "$path/"
 
         val payload = mapOf(
             "title" to (path?.substringAfterLast('/') ?: "Library Root"),
-            "relativePath" to (path ?: "")
+            "relativePath" to formattedPath,
+            "canDelete" to canDelete
         )
         enqueue(repository, QUEUE_SYNC, JOB_FETCH_CONTENTS, path ?: "root", payload)
         return true
