@@ -124,35 +124,35 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.width(16.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = if (account != null) account!!.email else stringResource(R.string.profile_setup_account),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        if (account?.tier == AccountTier.PRO) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                color = Color.DarkGray.copy(alpha = 0.8f),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text(
-                                    text = "pro",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White
-                                )
-                            }
-                        }
-                    }
                     Text(
-                        text = if (account != null) {
-                            if (account!!.tier == AccountTier.PRO) "BookPlayer Pro" else "Free Account"
-                        } else stringResource(R.string.profile_not_signed_in),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = if (account != null) account!!.email else stringResource(R.string.profile_setup_account),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
+                    
+                    if (account != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            color = if (account?.tier == AccountTier.PRO) Color.DarkGray.copy(alpha = 0.8f) 
+                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = account!!.tier.name.lowercase(),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (account?.tier == AccountTier.PRO) Color.White 
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = stringResource(R.string.profile_not_signed_in),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
                 Icon(
@@ -340,6 +340,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(24.dp))
             
+            /*
             // Passkey section
             Text(
                 text = "Passkey",
@@ -367,6 +368,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+            */
 
             // Logout Button
             Surface(

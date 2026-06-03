@@ -72,12 +72,18 @@ class RoomLibraryRepository(
         while (path.contains('/')) {
             path = path.substringBeforeLast('/')
             val folder = libraryDao.getItemByPath(path) ?: continue
-            if (folder.type == ItemType.FOLDER) {
+            if (folder.type == ItemType.FOLDER || folder.type == ItemType.BOUND) {
                 val children = libraryDao.getItemsInPathSync(path)
                 folder.duration = children.sumOf { it.duration }
                 folder.currentTime = children.sumOf { it.currentTime }
                 val count = children.size
-                folder.author = if (count == 1) "1 File" else "$count Files"
+                
+                if (folder.type == ItemType.FOLDER) {
+                    folder.author = if (count == 1) "1 File" else "$count Files"
+                } else {
+                    folder.author = if (count == 1) "1 Chapter" else "$count Chapters"
+                }
+
                 folder.percentCompleted = if (folder.duration > 0) (folder.currentTime / folder.duration).coerceIn(0.0, 1.0) else 0.0
                 folder.isFinished = children.all { it.isFinished } && children.isNotEmpty()
                 libraryDao.updateItem(folder)
@@ -102,7 +108,7 @@ class RoomLibraryRepository(
             
             for (item in items) {
                 itemsToDelete.add(item)
-                if (item.type == ItemType.FOLDER) {
+                if (item.type == ItemType.FOLDER || item.type == ItemType.BOUND) {
                     item.relativePath?.let { path ->
                         itemsToDelete.addAll(libraryDao.getDescendantsOfPath(path))
                     }

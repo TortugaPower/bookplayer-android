@@ -44,6 +44,11 @@ class FetchContentsProcessor(
             // Update existing and add missing from server
             contents.content.forEach { remoteItem ->
                 syncItem(libraryDao, remoteItem)
+
+                // If it's a BOUND item, trigger fetch for its contents to ensure they are also synced
+                if (remoteItem.type == ItemType.BOUND.ordinal) {
+                    SyncTaskFactory.createFetchContentsTask(repository, remoteItem.relativePath, force = true)
+                }
             }
 
             // Handle cross-device Last Played synchronization
@@ -99,7 +104,15 @@ class FetchContentsProcessor(
 
         android.util.Log.d("FetchContentsProcessor", "🔄 Syncing item: ${remote.title} (UUID: ${remote.uuid}), remoteURL: ${remote.remoteURL}")
 
-        val entity = LibraryItemEntity(            uuid = remote.uuid,
+        val remoteURL = remote.remoteURL?.let { 
+            if (it.startsWith("/")) com.tortugapower.audiobookplayer.network.NetworkConstants.BASE_URL + it else it 
+        }
+        val artworkURL = remote.artworkURL?.let { 
+            if (it.startsWith("/")) com.tortugapower.audiobookplayer.network.NetworkConstants.BASE_URL + it else it 
+        }
+
+        val entity = LibraryItemEntity(
+            uuid = remote.uuid,
             title = remote.title,
             author = remote.details,
             originalFileName = remote.originalFileName,
@@ -110,9 +123,9 @@ class FetchContentsProcessor(
             isFinished = remote.isFinished,
             orderRank = remote.orderRank,
             type = type,
-            remoteURL = remote.remoteURL,
-            artworkURL = remote.artworkURL,
-            lastPlayDate = remote.lastPlayDateTimestamp?.toLong() ?: local?.lastPlayDate
+            remoteURL = remoteURL,
+            artworkURL = artworkURL,
+            lastPlayDate = remote.lastPlayDateTimestamp?.let { (it * 1000).toLong() } ?: local?.lastPlayDate
         )
 
         if (local == null) {
@@ -192,8 +205,12 @@ class MetadataUploadProcessor(
                 val item = if (itemUuid != null) libraryDao.getItemById(itemUuid) else null
                 
                 if (item != null) {
-                    Log.d("MetadataUploadProcessor", "📦 Creating follow-up file upload task for item: ${item.title}")
-                    SyncTaskFactory.createUploadFileTask(repository, item, uploadUrl)
+                    if (item.type != ItemType.BOUND) {
+                        Log.d("MetadataUploadProcessor", "📦 Creating follow-up file upload task for item: ${item.title}")
+                        SyncTaskFactory.createUploadFileTask(repository, item, uploadUrl)
+                    } else {
+                        Log.d("MetadataUploadProcessor", "⏭️ Skipping file upload task for BOUND item: ${item.title}")
+                    }
                 } else {
                     Log.e("MetadataUploadProcessor", "❌ Could not find library item for UUID: $itemUuid to trigger file upload")
                 }

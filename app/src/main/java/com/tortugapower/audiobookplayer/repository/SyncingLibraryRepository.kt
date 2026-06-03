@@ -80,31 +80,23 @@ class SyncingLibraryRepository(
     }
 
     override suspend fun combineToVolume(context: Context, items: List<LibraryItemEntity>, volumeName: String) {
-        // This one is tricky because combineToVolume creates a new item.
-        // We might need to listen to the new item or have the delegate return it.
-        // For now, let's assume we can fetch it by name or path after delegation.
+        val oldPaths = items.associate { it.uuid to it.relativePath }
         delegate.combineToVolume(context, items, volumeName)
         
-        // After delegation, items have new paths.
         if (isSubscribed()) {
-            // Find the new volume item. We can try to guess its path.
             val firstItem = items.firstOrNull() ?: return
-            val currentPath = firstItem.relativePath?.substringBeforeLast('/', "") ?: ""
-            val volumePath = if (currentPath.isEmpty()) volumeName else "$currentPath/$volumeName"
+            val volumePath = firstItem.relativePath?.substringBeforeLast('/', "") ?: ""
             
             val volumeItem = delegate.getItemByPath(volumePath)
             if (volumeItem != null) {
                 SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, volumeItem)
                 
-                // Move tasks for children are handled inside moveItems usually, 
-                // but combineToVolume does its own move logic.
-                // We should probably emit move tasks for children here.
-                // However, delegate already updated items references.
                 items.forEach { item ->
-                    // We don't have old paths easily here without capturing them before.
-                    // Assuming they were moved into the volume.
-                    // This is a bit redundant if we already have the volume metadata, 
-                    // but backend might want specific move tasks.
+                    val oldPath = oldPaths[item.uuid] ?: ""
+                    val newPath = item.relativePath ?: ""
+                    if (oldPath != newPath) {
+                        SyncTaskFactory.createMoveTask(syncTaskRepository, item, oldPath, newPath)
+                    }
                 }
             }
         }

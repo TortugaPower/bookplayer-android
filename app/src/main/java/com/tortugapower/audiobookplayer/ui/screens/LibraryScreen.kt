@@ -732,7 +732,7 @@ fun LibraryScreen(
                                                 selectedItemUuids + item.uuid
                                             }
                                         } else {
-                                            if (item.type == ItemType.FOLDER || item.type == ItemType.BOUND) {
+                                            if (item.type == ItemType.FOLDER) {
                                                 libraryViewModel.navigateTo(item.relativePath ?: "")
                                             } else {
                                                 val isCurrentlyPlaying = PlaybackManager.currentItem?.uuid == item.uuid
@@ -923,9 +923,9 @@ fun LibraryListItem(
             } else if (showCloud) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val path = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(size.width, size.height * 0.45f)
+                        moveTo(size.width, size.height * 0.3f)
                         lineTo(size.width, size.height)
-                        lineTo(size.width * 0.45f, size.height)
+                        lineTo(size.width * 0.3f, size.height)
                         close()
                     }
                     drawPath(path, Color.Black.copy(alpha = 0.65f))
@@ -1006,11 +1006,18 @@ fun LibraryListItem(
                     )
                 }
                 
-                if (item.type == ItemType.FOLDER || item.type == ItemType.BOUND) {
+                if (item.type == ItemType.FOLDER) {
                     Icon(
                         imageVector = Icons.Default.ChevronRight,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                } else if (item.type == ItemType.BOUND) {
+                    Icon(
+                        imageVector = Icons.Default.Layers,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier.size(24.dp)
                     )
                 } else {

@@ -11,6 +11,7 @@ import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.model.*
 import com.tortugapower.audiobookplayer.network.NetworkClient
+import com.tortugapower.audiobookplayer.network.NetworkConstants
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.launch
@@ -50,7 +51,7 @@ class AuthViewModel(
                     errorMessage = null // Clear error on success
                     currentStep = AuthStep.CODE_VERIFICATION
                 } else {
-                    errorMessage = response.body()?.message ?: "Failed to send code ${response.code()}"
+                    errorMessage = response.body()?.message ?: "Failed to send code ${response.code()} for ${NetworkConstants.BASE_URL}"
                     currentStep = AuthStep.EMAIL_INPUT
                 }
             } catch (e: Exception) {

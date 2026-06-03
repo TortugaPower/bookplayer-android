@@ -94,9 +94,9 @@ fun MiniPlayer() {
                 if (!isLocal && !currentItem.remoteURL.isNullOrEmpty()) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val path = Path().apply {
-                            moveTo(size.width, size.height * 0.45f)
+                            moveTo(size.width, size.height * 0.3f)
                             lineTo(size.width, size.height)
-                            lineTo(size.width * 0.45f, size.height)
+                            lineTo(size.width * 0.3f, size.height)
                             close()
                         }
                         drawPath(path, Color.Black.copy(alpha = 0.65f))

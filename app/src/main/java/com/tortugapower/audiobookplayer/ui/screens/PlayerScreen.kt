@@ -401,9 +401,9 @@ fun PlayerScreen(
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
                             Canvas(modifier = Modifier.fillMaxSize()) {
                                 val path = Path().apply {
-                                    moveTo(size.width, size.height * 0.45f)
+                                    moveTo(size.width, size.height * 0.8f)
                                     lineTo(size.width, size.height)
-                                    lineTo(size.width * 0.45f, size.height)
+                                    lineTo(size.width * 0.8f, size.height)
                                     close()
                                 }
                                 drawPath(path, Color.Black.copy(alpha = 0.65f))
@@ -413,8 +413,8 @@ fun PlayerScreen(
                                 contentDescription = null,
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
-                                    .padding(12.dp)
-                                    .size(32.dp),
+                                    .padding(8.dp)
+                                    .size(24.dp),
                                 tint = Color(0xFF4285F4)
                             )
                         }
