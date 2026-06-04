@@ -27,6 +27,7 @@ object SyncTaskFactory {
     const val JOB_UPLOAD_FILE = "upload_file"
     const val JOB_DOWNLOAD_FILE = "download_file"
     const val JOB_SYNC_IDENTIFIERS = "sync_identifiers"
+    const val JOB_MATCH_UUIDS = "match_uuids"
 
     suspend fun createSyncIdentifiersTask(repository: SyncTaskRepository): Boolean {
         if (!SyncStatusManager.checkAndMarkSyncIdentifiers()) return false
@@ -203,6 +204,19 @@ object SyncTaskFactory {
             "remoteURL" to (item.remoteURL ?: "")
         )
         enqueue(repository, QUEUE_FILE, JOB_DOWNLOAD_FILE, item.uuid, payload)
+    }
+
+    suspend fun createMatchUuidsTask(repository: SyncTaskRepository, items: Map<String, String>) {
+        if (items.isEmpty()) return
+        
+        // items is a map of relativePath -> generatedUuid
+        val payload = mapOf(
+            "items" to items
+        )
+        
+        // Use a unique ID for this task to avoid duplicates if multiple fetches generate IDs
+        val taskId = "match_${java.util.UUID.randomUUID().toString().take(8)}"
+        enqueue(repository, QUEUE_SYNC, JOB_MATCH_UUIDS, taskId, payload)
     }
 
     private suspend fun enqueue(

@@ -419,6 +419,20 @@ object PlaybackManager {
                 val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                 val mediaItems = books.map { subItem ->
                     val file = File(processedDir, subItem.relativePath ?: "")
+
+                    // Try to extract artwork if missing
+                    if (subItem.artworkURL == null && file.exists()) {
+                        val artworkDir = File(context.filesDir, "Artworks")
+                        if (!artworkDir.exists()) artworkDir.mkdirs()
+                        val artworkFile = File(artworkDir, "${subItem.uuid}.jpg")
+                        if (ArtworkManager.extractAndSaveArtwork(file, artworkFile)) {
+                            subItem.artworkURL = artworkFile.absolutePath
+                            withContext(Dispatchers.IO) {
+                                repository?.updateItem(subItem)
+                            }
+                        }
+                    }
+
                     val uri = if (file.exists()) {
                         android.util.Log.d("PlaybackManager", "📄 Playback: Using local file for ${subItem.title}")
                         android.net.Uri.fromFile(file)
@@ -446,6 +460,7 @@ object PlaybackManager {
                         .build()
                 }
 
+
                 if (mediaItems.isNotEmpty()) {
                     // Find correct sub-book and position
                     var targetIndex = 0
@@ -471,6 +486,20 @@ object PlaybackManager {
                 }
             } else {
                 val file = File(processedDir, item.relativePath ?: "")
+                
+                // Try to extract artwork if missing
+                if (item.artworkURL == null && file.exists()) {
+                    val artworkDir = File(context.filesDir, "Artworks")
+                    if (!artworkDir.exists()) artworkDir.mkdirs()
+                    val artworkFile = File(artworkDir, "${item.uuid}.jpg")
+                    if (ArtworkManager.extractAndSaveArtwork(file, artworkFile)) {
+                        item.artworkURL = artworkFile.absolutePath
+                        withContext(Dispatchers.IO) {
+                            repository?.updateItem(item)
+                        }
+                    }
+                }
+
                 val uri = if (file.exists()) {
                     android.util.Log.d("PlaybackManager", "📄 Playback: Using local file for ${item.title}")
                     android.net.Uri.fromFile(file)

@@ -62,7 +62,8 @@ class TaskConcurrencyServiceHost : Service() {
             ArtworkUploadProcessor(this),
             DeleteBookmarkProcessor(),
             SetBookmarkProcessor(),
-            DownloadFileProcessor(this)
+            DownloadFileProcessor(this),
+            MatchUuidsProcessor(this, repository)
         )
 
         taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)

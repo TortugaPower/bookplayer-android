@@ -48,4 +48,7 @@ interface LibraryApi {
 
     @POST("/v1/library/thumbnail_set")
     suspend fun uploadArtwork(@Body params: Map<String, Any?>): Response<ArtworkResponse>
+
+    @POST("/v1/library/uuids")
+    suspend fun matchUuids(@Body params: Map<String, Any?>): Response<MatchUuidsResponse>
 }

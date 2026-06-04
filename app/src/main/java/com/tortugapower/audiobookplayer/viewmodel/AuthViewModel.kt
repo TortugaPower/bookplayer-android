@@ -148,9 +148,6 @@ class AuthViewModel(
 
             SubscriptionManager.login(rcId)
             
-            // Automatically fetch root contents upon login
-            SyncTaskFactory.createFetchContentsTask(syncTaskRepository, null)
-            
             currentStep = AuthStep.SUCCESS
         }
     }
@@ -175,9 +172,6 @@ class AuthViewModel(
                     val rcId = body.revenuecatId ?: account.id
                     android.util.Log.d("SUBSCRIPTION", "Has Sub: ${body.revenuecatId.toString()}")
                     SubscriptionManager.login(rcId)
-
-                    // Automatically fetch root contents upon login
-                    SyncTaskFactory.createFetchContentsTask(syncTaskRepository, null)
 
                     currentStep = AuthStep.SUCCESS
                 } else {

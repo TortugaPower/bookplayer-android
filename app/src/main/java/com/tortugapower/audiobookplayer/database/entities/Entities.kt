@@ -10,7 +10,7 @@ enum class ItemType {
 }
 
 @Entity(tableName = "library_items")
-open class LibraryItemEntity(
+data class LibraryItemEntity(
     @PrimaryKey val uuid: String,
     var title: String,
     var author: String? = null,

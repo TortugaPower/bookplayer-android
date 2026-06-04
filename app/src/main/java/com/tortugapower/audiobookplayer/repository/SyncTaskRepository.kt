@@ -21,4 +21,5 @@ interface SyncTaskRepository {
     suspend fun countActiveTasksInQueue(queueKey: String): Int
     suspend fun countActiveTasksByType(jobType: String): Int
     suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity?
+    suspend fun migrateTaskUuid(oldUuid: String, newUuid: String)
 }

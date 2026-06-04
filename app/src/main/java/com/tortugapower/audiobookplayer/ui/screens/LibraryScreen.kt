@@ -962,6 +962,7 @@ fun LibraryListItem(
                 fontWeight = FontWeight.Bold,
                 maxLines = 1
             )
+
             Text(
                 text = authorText,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -40,13 +40,19 @@ object SyncStatusManager {
         lastSyncIdentifiersTimestamp = System.currentTimeMillis()
     }
 
-    @Synchronized
     fun checkAndMarkFetchContents(path: String): Boolean {
-        if (canFetchContents(path)) {
-            markPathAsFetched(path)
-            return true
+        var allowed = false
+        _lastPathFetchTimestamps.update { map ->
+            val lastFetch = map[path] ?: 0L
+            if ((System.currentTimeMillis() - lastFetch) > 30_000) {
+                allowed = true
+                map + (path to System.currentTimeMillis())
+            } else {
+                allowed = false
+                map
+            }
         }
-        return false
+        return allowed
     }
 
     @Synchronized

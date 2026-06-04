@@ -8,7 +8,7 @@ data class ContentsResponse(
 )
 
 data class SyncableItem(
-    val uuid: String,
+    val uuid: String?,
     val relativePath: String,
     val title: String,
     val details: String,
@@ -39,4 +39,14 @@ data class ArtworkResponse(
 
 data class IdentifiersResponse(
     val content: List<String>
+)
+
+data class MatchUuidsResponse(
+    val applied: List<String>,
+    val conflicts: List<ItemConflict>
+)
+
+data class ItemConflict(
+    val key: String, // Maps to the local sent "uuid" (our key in the map)
+    val uuid: String // Maps to the authoritative server uuid
 )

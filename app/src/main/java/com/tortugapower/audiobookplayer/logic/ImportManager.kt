@@ -115,11 +115,17 @@ object ImportManager : ImportService {
                         // 1. Extract duration
                         val duration = getDuration(importFile.file)
 
-                        // 2. Move file to 'Processed' folder
+                        // 2. Extract artwork if possible
+                        val artworkDir = File(context.filesDir, "Artworks")
+                        if (!artworkDir.exists()) artworkDir.mkdirs()
+                        val artworkFile = File(artworkDir, "${java.util.UUID.randomUUID()}.jpg")
+                        val hasArtwork = ArtworkManager.extractAndSaveArtwork(importFile.file, artworkFile)
+
+                        // 3. Move file to 'Processed' folder
                         val destinationFile = File(processedDir, importFile.name)
                         importFile.file.renameTo(destinationFile)
 
-                        // 3. Create and save LibraryItemEntity
+                        // 4. Create and save LibraryItemEntity
                         currentMaxRank++
                         val entity = LibraryItemEntity(
                             uuid = java.util.UUID.randomUUID().toString(),
@@ -128,12 +134,16 @@ object ImportManager : ImportService {
                             relativePath = importFile.name, // Root for now
                             type = ItemType.BOOK,
                             duration = duration,
+                            artworkURL = if (hasArtwork) artworkFile.absolutePath else null,
                             orderRank = currentMaxRank
                         )
                         libraryDao.insertItem(entity)
                         
-                        // 4. Create Metadata Sync Task (File upload will follow automatically)
+                        // 5. Create Sync Tasks
                         SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, entity)
+                        if (hasArtwork) {
+                            SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, entity)
+                        }
                     }
                 }
             }

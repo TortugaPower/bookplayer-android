@@ -33,6 +33,7 @@ class TaskConcurrencyManager(
 
     // Mutexes to ensure sequential processing within a single queueKey
     private val queueMutexes = ConcurrentHashMap<String, Mutex>()
+    private val queueJobs = ConcurrentHashMap<String, Job>()
     private val TAG = "TaskConcurrencyManager"
 
     override fun startProcessing() {
@@ -45,35 +46,78 @@ class TaskConcurrencyManager(
             Log.d(TAG, "🧹 Resetting hung RUNNING tasks to PENDING...")
             repository.resetRunningTasks()
             
-            Log.d(TAG, "📡 Starting task collector flow...")
-            // Continuously watch for new pending tasks AND account tier changes
-            combine(
-                repository.getAllTasks(),
-                accountRepository.getAccountFlow()
-            ) { tasks, account ->
-                val tier = account?.tier
-                val canAccess = TaskAccessPolicy.canAccessSyncService(tier)
-                Log.d(TAG, "📊 Collector update: tier=$tier, canAccess=$canAccess, totalTasks=${tasks.size}")
+            Log.d(TAG, "📡 Starting queue worker manager...")
+            
+            // Watch for all pending tasks to know which queues need workers
+            repository.getAllTasks().collect { tasks ->
+                if (!isProcessing) return@collect
                 
-                if (!canAccess) {
-                    emptyList<SyncTaskEntity>()
-                } else {
-                    tasks.filter { it.status == SyncTaskStatus.PENDING }
-                }
-            }
-            .distinctUntilChanged()
-            .collect { pendingTasks ->
-                if (pendingTasks.isNotEmpty()) {
-                    Log.d(TAG, "📥 Collected ${pendingTasks.size} pending tasks: ${pendingTasks.joinToString { it.jobType }}")
-                    processTasks(pendingTasks)
+                val pendingTasks = tasks.filter { it.status == SyncTaskStatus.PENDING }
+                val activeQueueKeys = pendingTasks.map { it.queueKey }.distinct()
+                
+                for (queueKey in activeQueueKeys) {
+                    if (!queueJobs.containsKey(queueKey) || queueJobs[queueKey]?.isActive != true) {
+                        startQueueWorker(queueKey)
+                    }
                 }
             }
         }
     }
 
+    private fun startQueueWorker(queueKey: String) {
+        Log.d(TAG, "👷 Starting persistent worker for queue: $queueKey")
+        val job = serviceScope.launch {
+            // Wait for available global slot
+            queueSemaphore.acquire()
+            try {
+                _activeQueues.update { it + queueKey }
+                val mutex = queueMutexes.getOrPut(queueKey) { Mutex() }
+                
+                // Keep worker alive as long as there are pending tasks for this queue
+                while (isProcessing) {
+                    val task = mutex.withLock {
+                        // Re-fetch only the next pending task for this specific queue
+                        repository.getTasksInQueueByStatus(queueKey, SyncTaskStatus.PENDING).firstOrNull()
+                    }
+                    
+                    if (task == null) {
+                        Log.d(TAG, "🏁 Queue $queueKey is empty. Worker retiring.")
+                        break
+                    }
+
+                    // Check policy before execution
+                    val account = accountRepository.getAccount()
+                    if (TaskAccessPolicy.canExecuteTask(account?.tier, task.jobType)) {
+                        val success = executeTask(task)
+                        if (!success) {
+                            Log.w(TAG, "🛑 Queue $queueKey worker paused due to failure. Recovery time: 5s")
+                            delay(5000)
+                        } else {
+                            delay(300) // Small breather between tasks
+                        }
+                    } else {
+                        Log.w(TAG, "🚫 Policy restricted task ${task.jobType} for queue $queueKey")
+                        repository.updateTask(task.copy(
+                            status = SyncTaskStatus.PENDING,
+                            errorMessage = "Account tier restricted this task"
+                        ))
+                        break // Stop worker for this restricted queue
+                    }
+                }
+            } finally {
+                _activeQueues.update { it - queueKey }
+                queueSemaphore.release()
+                queueJobs.remove(queueKey)
+            }
+        }
+        queueJobs[queueKey] = job
+    }
+
     override fun stopProcessing() {
         Log.d(TAG, "🛑 stopProcessing() called")
         isProcessing = false
+        queueJobs.values.forEach { it.cancel() }
+        queueJobs.clear()
         collectorJob?.cancel()
         collectorJob = null
     }
@@ -94,53 +138,6 @@ class TaskConcurrencyManager(
 
     override fun isRunning(): Boolean = isProcessing
 
-    private suspend fun processTasks(tasks: List<SyncTaskEntity>) {
-        // Group tasks by queueKey to handle them in parallel across queues
-        val tasksByQueue = tasks.groupBy { it.queueKey }
-        
-        tasksByQueue.forEach { (queueKey, queueTasks) ->
-            serviceScope.launch {
-                // Wait for an available slot in the concurrent queues
-                queueSemaphore.acquire()
-                try {
-                    _activeQueues.update { it + queueKey }
-                    
-                    // Use a mutex to ensure sequential processing within this specific queue
-                    val mutex = queueMutexes.getOrPut(queueKey) { Mutex() }
-                    mutex.withLock {
-                        // Re-fetch tasks for this queue to ensure we have the latest state
-                        val currentQueueTasks = repository.getTasksInQueueByStatus(queueKey, SyncTaskStatus.PENDING)
-                        val account = accountRepository.getAccount()
-                        
-                        for (task in currentQueueTasks) {
-                            if (!isProcessing) break
-                            
-                            // Double check policy before execution
-                            if (TaskAccessPolicy.canExecuteTask(account?.tier, task.jobType)) {
-                                val success = executeTask(task)
-                                if (!success) {
-                                    Log.w(TAG, "🛑 Queue $queueKey halted due to task failure. Recovery time: 5s")
-                                    delay(5000) // Recovery time before allowing next loop to retry
-                                    return@withLock
-                                }
-                                delay(300)
-                            } else {
-                                repository.updateTask(task.copy(
-                                    status = SyncTaskStatus.PENDING,
-                                    errorMessage = "Account tier restricted this task"
-                                ))
-                                return@withLock
-                            }
-                        }
-                    }
-                } finally {
-                    _activeQueues.update { it - queueKey }
-                    queueSemaphore.release()
-                }
-            }
-        }
-    }
-
     private suspend fun executeTask(task: SyncTaskEntity): Boolean {
         Log.d(TAG, "🚀 Executing task: ${task.jobType} [ID: ${task.id}, Attempt: ${task.attempts + 1}]")
         
@@ -148,7 +145,7 @@ class TaskConcurrencyManager(
         repository.updateTask(updatedTask)
 
         // Artificial delay for testing purposes (requested by user)
-        delay(3000)
+        delay(5000)
 
         val processor = processors.find { it.canHandle(task.jobType) }
         

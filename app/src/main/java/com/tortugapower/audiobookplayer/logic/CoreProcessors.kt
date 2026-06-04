@@ -39,22 +39,35 @@ class FetchContentsProcessor(
             val database = AppDatabase.getDatabase(context)
             val libraryDao = database.libraryDao()
 
-            val remoteUuids = contents.content.map { it.uuid }.toSet()
+            val remoteUuids = mutableSetOf<String>()
+            val matchUuidMap = mutableMapOf<String, String>() // relativePath -> generatedUuid
+            val allGeneratedUuids = mutableSetOf<String>()
 
             // Update existing and add missing from server
             contents.content.forEach { remoteItem ->
-                syncItem(libraryDao, remoteItem)
+                val (finalUuid, isNew) = syncItem(libraryDao, remoteItem, allGeneratedUuids)
+                remoteUuids.add(finalUuid)
+                
+                // If the server didn't provide a UUID, mark it for matching
+                if (remoteItem.uuid.isNullOrEmpty()) {
+                    matchUuidMap[remoteItem.relativePath] = finalUuid
+                }
 
-                // If it's a BOUND item, trigger fetch for its contents to ensure they are also synced
-                if (remoteItem.type == ItemType.BOUND.ordinal) {
+                // If it's a NEW BOUND item, trigger fetch for its contents to ensure they are also synced
+                if (isNew && remoteItem.type == ItemType.BOUND.ordinal) {
                     SyncTaskFactory.createFetchContentsTask(repository, remoteItem.relativePath, force = true)
                 }
+            }
+
+            // If we generated any UUIDs, trigger the matching task
+            if (matchUuidMap.isNotEmpty()) {
+                SyncTaskFactory.createMatchUuidsTask(repository, matchUuidMap)
             }
 
             // Handle cross-device Last Played synchronization
             contents.lastItemPlayed?.let { serverLastPlayed ->
                 // Ensure the last played item itself is synced to DB
-                syncItem(libraryDao, serverLastPlayed)
+                val (finalUuid, _) = syncItem(libraryDao, serverLastPlayed, allGeneratedUuids)
                 
                 if (!PlaybackManager.isPlaying) {
                     val localCurrent = PlaybackManager.currentItem
@@ -63,11 +76,11 @@ class FetchContentsProcessor(
                     
                     val isMoreRecent = serverTs > localTs
                     val isSameWithMoreProgress = localCurrent != null && 
-                                                serverLastPlayed.uuid == localCurrent.uuid && 
+                                                finalUuid == localCurrent.uuid && 
                                                 serverLastPlayed.currentTime > localCurrent.currentTime
                     
                     if (localCurrent == null || isMoreRecent || isSameWithMoreProgress) {
-                        val itemToRestore = libraryDao.getItemById(serverLastPlayed.uuid)
+                        val itemToRestore = libraryDao.getItemById(finalUuid)
                         if (itemToRestore != null) {
                             Log.d("FetchContentsProcessor", "🔄 Server has a more recent state for '${itemToRestore.title}'. Syncing...")
                             PlaybackManager.syncLastPlayed(context, itemToRestore)
@@ -97,42 +110,71 @@ class FetchContentsProcessor(
         return false
     }
 
-    private suspend fun syncItem(libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao, remote: SyncableItem) {
-        val local = libraryDao.getItemById(remote.uuid)
+    private suspend fun syncItem(
+        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao, 
+        remote: SyncableItem,
+        generatedUuids: MutableSet<String>
+    ): Pair<String, Boolean> {
+        var uuid = remote.uuid
+        if (uuid.isNullOrEmpty()) {
+            // Server doesn't have a UUID yet.
+            // 1. Check if we already have this item locally by its path.
+            val localByPath = libraryDao.getItemByPath(remote.relativePath)
+            if (localByPath != null) {
+                // Keep our local UUID, we'll send it to the server in matchUuids task.
+                uuid = localByPath.uuid
+                generatedUuids.add(uuid!!) // Prevent collisions in this sync session
+            } else {
+                // Truly new item. Generate a unique local UUID.
+                do {
+                    uuid = java.util.UUID.randomUUID().toString()
+                } while (generatedUuids.contains(uuid))
+                generatedUuids.add(uuid!!)
+            }
+        } else {
+            // Server provided a UUID. Check for local mismatch by path.
+            val localById = libraryDao.getItemById(uuid!!)
+            if (localById == null) {
+                val localByPath = libraryDao.getItemByPath(remote.relativePath)
+                if (localByPath != null && localByPath.uuid != uuid) {
+                    // Conflict found: same path, different UUID. Server wins.
+                    Log.d("FetchContentsProcessor", "⚔️ Path conflict for '${remote.title}': local=${localByPath.uuid} server=$uuid. Migrating...")
+                    libraryDao.migrateItemUuid(localByPath.uuid, uuid!!)
+                    repository.migrateTaskUuid(localByPath.uuid, uuid!!)
+                }
+            }
+        }
+
+        val local = libraryDao.getItemById(uuid!!)
+        val isNew = local == null
         
         val type = ItemType.entries.getOrNull(remote.type) ?: ItemType.BOOK
 
-        android.util.Log.d("FetchContentsProcessor", "🔄 Syncing item: ${remote.title} (UUID: ${remote.uuid}), remoteURL: ${remote.remoteURL}")
-
-        val remoteURL = remote.remoteURL?.let { 
-            if (it.startsWith("/")) com.tortugapower.audiobookplayer.network.NetworkConstants.BASE_URL + it else it 
-        }
-        val artworkURL = remote.artworkURL?.let { 
-            if (it.startsWith("/")) com.tortugapower.audiobookplayer.network.NetworkConstants.BASE_URL + it else it 
-        }
-
         val entity = LibraryItemEntity(
-            uuid = remote.uuid,
+            uuid = uuid!!,
             title = remote.title,
             author = remote.details,
-            originalFileName = remote.originalFileName,
-            relativePath = remote.relativePath,
             duration = remote.duration,
             currentTime = remote.currentTime,
             percentCompleted = remote.percentCompleted,
-            isFinished = remote.isFinished,
+            relativePath = remote.relativePath,
+            remoteURL = remote.remoteURL,
+            artworkURL = remote.artworkURL,
+            originalFileName = remote.originalFileName,
             orderRank = remote.orderRank,
-            type = type,
-            remoteURL = remoteURL,
-            artworkURL = artworkURL,
-            lastPlayDate = remote.lastPlayDateTimestamp?.let { (it * 1000).toLong() } ?: local?.lastPlayDate
+            isFinished = remote.isFinished,
+            lastPlayDate = remote.lastPlayDateTimestamp?.let { (it * 1000).toLong() } ?: local?.lastPlayDate,
+            parentFolderUuid = local?.parentFolderUuid,
+            type = type
         )
 
-        if (local == null) {
+        if (isNew) {
             libraryDao.insertItem(entity)
         } else {
             libraryDao.updateItem(entity)
         }
+        
+        return Pair(uuid!!, isNew)
     }
 
     override fun canHandle(jobType: String): Boolean {
@@ -546,6 +588,49 @@ class DeleteBookmarkProcessor : TaskProcessor {
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_DELETE_BOOKMARK
+    }
+}
+
+class MatchUuidsProcessor(
+    private val context: Context,
+    private val repository: SyncTaskRepository
+) : TaskProcessor {
+    private val gson = Gson()
+
+    override suspend fun process(task: SyncTaskEntity): Boolean {
+        val payloadType = object : TypeToken<Map<String, Map<String, String>>>() {}.type
+        val payload: Map<String, Map<String, String>> = gson.fromJson(task.payload, payloadType)
+        val items = payload["items"] ?: return true // Nothing to match
+
+        val response = NetworkClient.libraryApi.matchUuids(payload)
+        
+        if (response.isSuccessful && response.body() != null) {
+            val result = response.body()!!
+            val database = AppDatabase.getDatabase(context)
+            val libraryDao = database.libraryDao()
+
+            // Handle conflicts
+            result.conflicts.forEach { conflict ->
+                val oldUuid = conflict.key
+                val newUuid = conflict.uuid
+                
+                Log.d("MatchUuidsProcessor", "⚔️ Conflict found: local=$oldUuid server=$newUuid. Resolving...")
+                
+                // 1. Migrate Database Records (Item, Chapters, Bookmarks)
+                libraryDao.migrateItemUuid(oldUuid, newUuid)
+                
+                // 2. Migrate Pending Tasks
+                repository.migrateTaskUuid(oldUuid, newUuid)
+            }
+
+            return true
+        }
+        
+        return false
+    }
+
+    override fun canHandle(jobType: String): Boolean {
+        return jobType == SyncTaskFactory.JOB_MATCH_UUIDS
     }
 }
 

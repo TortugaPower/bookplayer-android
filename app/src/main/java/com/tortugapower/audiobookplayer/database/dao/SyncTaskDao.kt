@@ -10,6 +10,12 @@ interface SyncTaskDao {
     @Query("SELECT * FROM sync_tasks ORDER BY createdAt ASC")
     fun getAllTasks(): Flow<List<SyncTaskEntity>>
 
+    @Query("SELECT * FROM sync_tasks")
+    suspend fun getAllTasksSync(): List<SyncTaskEntity>
+
+    @Query("SELECT * FROM sync_tasks WHERE taskID = :uuid OR payload LIKE '%' || :uuid || '%'")
+    suspend fun findTasksByUuid(uuid: String): List<SyncTaskEntity>
+
     @Query("SELECT * FROM sync_tasks WHERE status = :status ORDER BY position ASC")
     suspend fun getTasksByStatus(status: SyncTaskStatus): List<SyncTaskEntity>
 
