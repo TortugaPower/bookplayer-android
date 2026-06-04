@@ -201,4 +201,21 @@
     <string name="library_combine_to_volume">Create a volume</string>
     <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
     <string name="common_create">Create</string>
+
+    <!-- Sync Tasks -->
+    <string name="sync_task_generic">同期タスク</string>
+    <string name="sync_task_upload_metadata">メタデータのアップロード</string>
+    <string name="sync_task_update_progress">進捗状況の更新</string>
+    <string name="sync_task_move_item">項目の移動</string>
+    <string name="sync_task_delete_item">項目の削除</string>
+    <string name="sync_task_set_bookmark">ブックマークを設定</string>
+    <string name="sync_task_remove_bookmark">ブックマークを削除</string>
+    <string name="sync_task_rename_folder">フォルダ名の変更</string>
+    <string name="sync_task_upload_artwork">アートワークのアップロード</string>
+    <string name="sync_task_fetch_library">ライブラリの取得</string>
+    <string name="sync_task_upload_audio">オーディオのアップロード</string>
+    <string name="sync_task_download_audio">オーディオのダウンロード</string>
+    <string name="sync_task_sync_identifiers">識別子の同期</string>
+    <string name="sync_task_match_library_ids">ライブラリIDの照合</string>
+
 </resources>

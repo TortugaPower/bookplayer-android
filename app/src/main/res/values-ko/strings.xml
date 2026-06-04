@@ -201,4 +201,21 @@
     <string name="library_combine_to_volume">Create a volume</string>
     <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
     <string name="common_create">Create</string>
+
+    <!-- Sync Tasks -->
+    <string name="sync_task_generic">동기화 작업</string>
+    <string name="sync_task_upload_metadata">메타데이터 업로드</string>
+    <string name="sync_task_update_progress">진행 상황 업데이트</string>
+    <string name="sync_task_move_item">항목 이동</string>
+    <string name="sync_task_delete_item">항목 삭제</string>
+    <string name="sync_task_set_bookmark">북마크 설정</string>
+    <string name="sync_task_remove_bookmark">북마크 제거</string>
+    <string name="sync_task_rename_folder">폴더 이름 변경</string>
+    <string name="sync_task_upload_artwork">아트워크 업로드</string>
+    <string name="sync_task_fetch_library">라이브러리 가져오기</string>
+    <string name="sync_task_upload_audio">오디오 업로드</string>
+    <string name="sync_task_download_audio">오디오 다운로드</string>
+    <string name="sync_task_sync_identifiers">식별자 동기화</string>
+    <string name="sync_task_match_library_ids">라이브러리 ID 매칭</string>
+
 </resources>

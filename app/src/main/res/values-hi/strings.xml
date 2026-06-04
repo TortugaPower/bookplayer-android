@@ -201,4 +201,21 @@
     <string name="library_combine_to_volume">Create a volume</string>
     <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
     <string name="common_create">Create</string>
+
+    <!-- Sync Tasks -->
+    <string name="sync_task_generic">सिंक कार्य</string>
+    <string name="sync_task_upload_metadata">मेटाडेटा अपलोड</string>
+    <string name="sync_task_update_progress">प्रगति अपडेट करें</string>
+    <string name="sync_task_move_item">आइटम ले जाएँ</string>
+    <string name="sync_task_delete_item">आइटम हटाएँ</string>
+    <string name="sync_task_set_bookmark">बुकमार्क सेट करें</string>
+    <string name="sync_task_remove_bookmark">बुकमार्क हटाएँ</string>
+    <string name="sync_task_rename_folder">फ़ोल्डर का नाम बदलें</string>
+    <string name="sync_task_upload_artwork">आर्टवर्क अपलोड करें</string>
+    <string name="sync_task_fetch_library">लाइब्रेरी प्राप्त करें</string>
+    <string name="sync_task_upload_audio">ऑडियो अपलोड करें</string>
+    <string name="sync_task_download_audio">ऑडियो डाउनलोड करें</string>
+    <string name="sync_task_sync_identifiers">आइडेंटिफ़ायर सिंक करें</string>
+    <string name="sync_task_match_library_ids">लाइब्रेरी आईडी मिलान करें</string>
+
 </resources>

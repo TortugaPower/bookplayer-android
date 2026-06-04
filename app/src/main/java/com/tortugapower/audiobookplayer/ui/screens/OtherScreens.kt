@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Forward
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -28,6 +29,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -37,6 +39,7 @@ import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.AccountGate
+import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.PurchaseFlowManager
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
@@ -302,7 +305,6 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         AccountFeatureRow(Icons.Default.CloudQueue, "Cloud sync (Beta)")
-                        AccountFeatureRow(Icons.Default.Watch, "Apple Watch (Beta)")
                         AccountFeatureRow(Icons.Default.Palette, "Themes & Icons")
                     }
 
@@ -633,6 +635,12 @@ fun BookPlayerProSheet(
         }
     }
     
+    var showPaywall by remember { mutableStateOf(false) }
+
+    if (showPaywall) {
+        PaywallSheet(onDismiss = { showPaywall = false })
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -683,14 +691,6 @@ fun BookPlayerProSheet(
                 Spacer(modifier = Modifier.height(32.dp))
                 
                 ProFeatureRow(
-                    icon = Icons.Default.Watch,
-                    title = stringResource(R.string.pro_feature_watch_title),
-                    description = stringResource(R.string.pro_feature_watch_desc)
-                )
-                
-                Spacer(modifier = Modifier.height(32.dp))
-                
-                ProFeatureRow(
                     icon = Icons.Default.Palette,
                     title = stringResource(R.string.pro_feature_themes_title),
                     description = stringResource(R.string.pro_feature_themes_desc)
@@ -722,55 +722,79 @@ fun BookPlayerProSheet(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // Login Buttons
-                Button(
-                    onClick = { handleGoogleSignIn() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.Black,
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    enabled = viewModel.currentStep != com.tortugapower.audiobookplayer.viewmodel.AuthStep.LOADING
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.AccountCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
+                // Collect account state to determine if user is logged in
+                val dbAccount by accountRepository.getAccountFlow().collectAsState(initial = null)
+
+                if (dbAccount != null) {
+                    // Logged in: Single Continue button
+                    Button(
+                        onClick = { showPaywall = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF5E67D4),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
                         Text(
-                            text = stringResource(R.string.auth_sign_in_with_google),
+                            text = "Continue",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                     }
-                }
+                } else {
+                    // Not logged in: Login Buttons
+                    Button(
+                        onClick = { handleGoogleSignIn() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.Black,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        enabled = viewModel.currentStep != com.tortugapower.audiobookplayer.viewmodel.AuthStep.LOADING
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = stringResource(R.string.auth_sign_in_with_google),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                TextButton(
-                    onClick = onPasskeyClick,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = viewModel.currentStep != com.tortugapower.audiobookplayer.viewmodel.AuthStep.LOADING
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = stringResource(R.string.auth_continue_with_passkey),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                    TextButton(
+                        onClick = onPasskeyClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = viewModel.currentStep != com.tortugapower.audiobookplayer.viewmodel.AuthStep.LOADING
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.auth_continue_with_passkey),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
                 
@@ -1165,58 +1189,88 @@ fun TaskDetailScreen(
             ) {
                 item { Spacer(modifier = Modifier.height(8.dp)) }
 
-                items(filteredTasks.size) { index ->
-                    val task = filteredTasks[index]
-                    val payload = remember(task.payload) { 
-                        try { com.google.gson.Gson().fromJson(task.payload, Map::class.java) } catch (e: Exception) { emptyMap<String, Any>() }
-                    }
-                    val title = payload["title"] as? String ?: payload["relativePath"] as? String ?: task.taskID
+                items(filteredTasks.size)   { index ->
+                   val task = filteredTasks[index]
+                   val payload = remember(task.payload) {
+                       try { com.google.gson.Gson().fromJson(task.payload, Map::class.java) } catch (e: Exception) { emptyMap<String, Any>() }
+                   }
 
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val icon = when (task.jobType) {
-                                "delete" -> Icons.Default.Delete
-                                "upload_file" -> Icons.Default.CloudUpload
-                                "download_file" -> Icons.Default.CloudDownload
-                                else -> Icons.Default.Sync
-                            }
-                            
-                            val iconTint = if (task.status == SyncTaskStatus.FAILED) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant
-                            
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = null,
-                                tint = iconTint,
-                                modifier = Modifier.size(24.dp).background(iconTint.copy(alpha = 0.1f), CircleShape).padding(4.dp)
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Text(
-                                text = title,
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.weight(1f)
-                            )
-                            
-                            if (task.status == SyncTaskStatus.RUNNING) {
-                                val progress = progressMap[task.id]
-                                if (progress != null && progress > 0.0) {
-                                    LinearProgressIndicator(
-                                        progress = { progress.toFloat() },
-                                        modifier = Modifier.width(64.dp).height(4.dp),
-                                    )
-                                } else {
-                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                }
-                            }
-                        }
-                    }
+                   val (icon, label) = when (task.jobType) {
+                       SyncTaskFactory.JOB_UPLOAD_METADATA -> Icons.Default.CloudUpload to stringResource(R.string.sync_task_upload_metadata)
+                       SyncTaskFactory.JOB_UPDATE -> Icons.Default.Edit to stringResource(R.string.sync_task_update_progress)
+                       SyncTaskFactory.JOB_MOVE -> Icons.AutoMirrored.Filled.Forward to stringResource(R.string.sync_task_move_item)
+                       SyncTaskFactory.JOB_DELETE -> Icons.Default.Delete to stringResource(R.string.sync_task_delete_item)
+                       SyncTaskFactory.JOB_SET_BOOKMARK -> Icons.Default.Bookmark to stringResource(R.string.sync_task_set_bookmark)
+                       SyncTaskFactory.JOB_DELETE_BOOKMARK -> Icons.Default.BookmarkBorder to stringResource(R.string.sync_task_remove_bookmark)
+                       SyncTaskFactory.JOB_RENAME_FOLDER -> Icons.Default.Edit to stringResource(R.string.sync_task_rename_folder)
+                       SyncTaskFactory.JOB_UPLOAD_ARTWORK -> Icons.Default.Image to stringResource(R.string.sync_task_upload_artwork)
+                       SyncTaskFactory.JOB_FETCH_CONTENTS -> Icons.Default.Refresh to stringResource(R.string.sync_task_fetch_library)
+                       SyncTaskFactory.JOB_UPLOAD_FILE -> Icons.Default.Upload to stringResource(R.string.sync_task_upload_audio)
+                       SyncTaskFactory.JOB_DOWNLOAD_FILE -> Icons.Default.Download to stringResource(R.string.sync_task_download_audio)
+                       SyncTaskFactory.JOB_SYNC_IDENTIFIERS -> Icons.Default.Person to stringResource(R.string.sync_task_sync_identifiers)
+                       SyncTaskFactory.JOB_MATCH_UUIDS -> Icons.Default.SyncAlt to stringResource(R.string.sync_task_match_library_ids)
+                       else -> Icons.Default.Sync to stringResource(R.string.sync_task_generic)
+                   }
+
+                   val subject = payload["title"] as? String ?: payload["relativePath"] as? String ?: ""
+                   val title = if (subject.isNotEmpty()) "$label: $subject" else label
+
+                   Surface(
+                       modifier = Modifier.fillMaxWidth(),
+                       shape = RoundedCornerShape(16.dp),
+                       color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                   ) {
+                       Row(
+                           modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
+                           verticalAlignment = Alignment.CenterVertically
+                       ) {
+                           val iconTint = if (task.status == SyncTaskStatus.FAILED || task.errorMessage != null) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant
+
+                           Icon(
+                               imageVector = icon,
+                               contentDescription = null,
+                               tint = iconTint,
+                               modifier = Modifier
+                                   .size(32.dp)
+                                   .background(iconTint.copy(alpha = 0.1f), CircleShape)
+                                   .padding(6.dp)
+                           )
+                           Spacer(modifier = Modifier.width(16.dp))
+                           Column(modifier = Modifier.weight(1f)) {
+                               Text(
+                                   text = title,
+                                   style = MaterialTheme.typography.bodyLarge,
+                                   fontWeight = FontWeight.Medium,
+                                   maxLines = 1,
+                                   overflow = TextOverflow.Ellipsis
+                               )
+                               if (task.errorMessage != null) {
+                                   Text(
+                                       text = task.errorMessage,
+                                       style = MaterialTheme.typography.labelSmall,
+                                       color = Color.Red,
+                                       maxLines = 1,
+                                       overflow = TextOverflow.Ellipsis
+                                   )
+                               }
+                           }
+
+                           if (task.status == SyncTaskStatus.RUNNING) {
+                               Spacer(modifier = Modifier.width(16.dp))
+                               val progress = progressMap[task.id]
+                               if (progress != null && progress > 0.0) {
+                                   LinearProgressIndicator(
+                                       progress = { progress.toFloat() },
+                                       modifier = Modifier.width(64.dp).height(4.dp),
+                                   )
+                               } else {
+                                   CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                               }
+                           }
+                       }
+                   }
                 }
+
             }
         }
     }

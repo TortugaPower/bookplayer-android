@@ -74,7 +74,8 @@ object SyncTaskFactory {
             "currentTime" to item.currentTime,
             "percentCompleted" to item.percentCompleted,
             "isFinished" to item.isFinished,
-            "orderRank" to item.orderRank
+            "orderRank" to item.orderRank,
+            "type" to item.type.ordinal
         )
 
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_UPDATE, item.uuid)

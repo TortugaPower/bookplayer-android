@@ -201,4 +201,21 @@
     <string name="library_combine_to_volume">Create a volume</string>
     <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
     <string name="common_create">Create</string>
+
+    <!-- Sync Tasks -->
+    <string name="sync_task_generic">同步任务</string>
+    <string name="sync_task_upload_metadata">上传元数据</string>
+    <string name="sync_task_update_progress">更新进度</string>
+    <string name="sync_task_move_item">移动项目</string>
+    <string name="sync_task_delete_item">删除项目</string>
+    <string name="sync_task_set_bookmark">设置书签</string>
+    <string name="sync_task_remove_bookmark">移除书签</string>
+    <string name="sync_task_rename_folder">重命名文件夹</string>
+    <string name="sync_task_upload_artwork">上传封面</string>
+    <string name="sync_task_fetch_library">获取库</string>
+    <string name="sync_task_upload_audio">上传音频</string>
+    <string name="sync_task_download_audio">下载音频</string>
+    <string name="sync_task_sync_identifiers">同步标识符</string>
+    <string name="sync_task_match_library_ids">匹配库 ID</string>
+
 </resources>

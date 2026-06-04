@@ -79,6 +79,24 @@ class SyncingLibraryRepository(
         }
     }
 
+    override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {
+        delegate.convertVolumesToFolders(items)
+        if (isSubscribed()) {
+            items.forEach { item ->
+                SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
+            }
+        }
+    }
+
+    override suspend fun convertFoldersToVolumes(context: Context, items: List<LibraryItemEntity>) {
+        delegate.convertFoldersToVolumes(context, items)
+        if (isSubscribed()) {
+            items.forEach { item ->
+                SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
+            }
+        }
+    }
+
     override suspend fun combineToVolume(context: Context, items: List<LibraryItemEntity>, volumeName: String) {
         val oldPaths = items.associate { it.uuid to it.relativePath }
         delegate.combineToVolume(context, items, volumeName)

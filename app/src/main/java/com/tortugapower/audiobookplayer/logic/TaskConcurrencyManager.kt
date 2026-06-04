@@ -144,9 +144,6 @@ class TaskConcurrencyManager(
         val updatedTask = task.copy(status = SyncTaskStatus.RUNNING, attempts = task.attempts + 1)
         repository.updateTask(updatedTask)
 
-        // Artificial delay for testing purposes (requested by user)
-        delay(5000)
-
         val processor = processors.find { it.canHandle(task.jobType) }
         
         if (processor == null) {

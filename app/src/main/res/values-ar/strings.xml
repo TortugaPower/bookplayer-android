@@ -201,4 +201,21 @@
     <string name="library_combine_to_volume">Create a volume</string>
     <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
     <string name="common_create">Create</string>
+
+    <!-- Sync Tasks -->
+    <string name="sync_task_generic">مهمة المزامنة</string>
+    <string name="sync_task_upload_metadata">رفع البيانات الوصفية</string>
+    <string name="sync_task_update_progress">تحديث التقدم</string>
+    <string name="sync_task_move_item">نقل العنصر</string>
+    <string name="sync_task_delete_item">حذف العنصر</string>
+    <string name="sync_task_set_bookmark">تعيين علامة مرجعية</string>
+    <string name="sync_task_remove_bookmark">إزالة العلامة المرجعية</string>
+    <string name="sync_task_rename_folder">إعادة تسمية المجلد</string>
+    <string name="sync_task_upload_artwork">رفع الغلاف</string>
+    <string name="sync_task_fetch_library">جلب المكتبة</string>
+    <string name="sync_task_upload_audio">رفع الملف الصوتي</string>
+    <string name="sync_task_download_audio">تحميل الملف الصوتي</string>
+    <string name="sync_task_sync_identifiers">مزامنة المعرفات</string>
+    <string name="sync_task_match_library_ids">مطابقة معرفات المكتبة</string>
+
 </resources>
