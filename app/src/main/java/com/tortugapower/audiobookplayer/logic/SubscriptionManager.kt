@@ -67,6 +67,7 @@ object SubscriptionManager {
     fun login(appUserId: String) {
         if (!Purchases.isConfigured) return
         Log.d(TAG, "Logging in with appUserId: $appUserId")
+        lastProcessedTier = null // Clear to force re-evaluation for the new user
         Purchases.sharedInstance.logIn(appUserId, object : LogInCallback {
             override fun onReceived(customerInfo: CustomerInfo, created: Boolean) {
                 updateAccountTier(customerInfo)
@@ -81,6 +82,7 @@ object SubscriptionManager {
     fun logout() {
         if (!Purchases.isConfigured) return
         Log.d(TAG, "Logging out")
+        lastProcessedTier = null
         Purchases.sharedInstance.logOut(object : ReceiveCustomerInfoCallback {
             override fun onReceived(customerInfo: CustomerInfo) {
                 updateAccountTier(customerInfo)
@@ -92,24 +94,30 @@ object SubscriptionManager {
         })
     }
 
-    private fun updateAccountTier(customerInfo: CustomerInfo) {
+    internal fun updateAccountTier(customerInfo: CustomerInfo) {
+        val activeEntitlements = customerInfo.entitlements.active.keys
+        Log.d(TAG, "Updating tier. Active entitlements: $activeEntitlements")
+
         val hasPro = customerInfo.entitlements["pro"]?.isActive == true
         val hasLite = customerInfo.entitlements["lite"]?.isActive == true
+        val hasPlus = customerInfo.entitlements["plus"]?.isActive == true
+
         val tier = when {
             hasPro -> AccountTier.PRO
             hasLite -> AccountTier.LITE
+            hasPlus -> AccountTier.PLUS
             else -> AccountTier.FREE
         }
         
         if (lastProcessedTier == tier) return
         lastProcessedTier = tier
         
-        Log.d(TAG, "Updating account tier. Has Pro: $hasPro, Has Lite: $hasLite")
+        Log.d(TAG, "Setting account tier to: $tier (Pro: $hasPro, Lite: $hasLite, Plus: $hasPlus)")
         
         scope.launch {
             val account = accountRepository?.getAccount()
             if (account != null && account.tier != tier) {
-                Log.d(TAG, "Persisting new tier: $tier")
+                Log.d(TAG, "Persisting new tier: $tier for account: ${account.email}")
                 accountRepository?.saveAccount(account.copy(tier = tier))
                 
                 // Trigger account-wide identifier sync on subscription activation

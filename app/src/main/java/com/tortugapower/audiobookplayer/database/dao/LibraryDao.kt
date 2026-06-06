@@ -45,6 +45,9 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items WHERE type = 'BOOK'")
     suspend fun getAllBooksSync(): List<LibraryItemEntity>
 
+    @Query("SELECT * FROM library_items")
+    suspend fun getAllItemsSync(): List<LibraryItemEntity>
+
     @Query("SELECT MAX(orderRank) FROM library_items WHERE relativePath NOT LIKE '%/%'")
     suspend fun getMaxRootOrderRank(): Int?
 

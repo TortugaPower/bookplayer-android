@@ -48,8 +48,11 @@ object PurchaseFlowManager {
             object : PurchaseCallback {
                 override fun onCompleted(storeTransaction: StoreTransaction, customerInfo: CustomerInfo) {
                     _isPurchasing.value = false
-                    val hasPro = customerInfo.entitlements[ENTITLEMENT_ID]?.isActive == true
-                    onResult(hasPro, null)
+                    // Force immediate update of SubscriptionManager state
+                    SubscriptionManager.updateAccountTier(customerInfo)
+                    
+                    val subscribed = isSubscribed(customerInfo)
+                    onResult(subscribed, null)
                 }
 
                 override fun onError(error: PurchasesError, userCancelled: Boolean) {
@@ -67,13 +70,20 @@ object PurchaseFlowManager {
     fun restorePurchases(onResult: (Boolean, String?) -> Unit) {
         Purchases.sharedInstance.restorePurchases(object : ReceiveCustomerInfoCallback {
             override fun onReceived(customerInfo: CustomerInfo) {
-                val hasPro = customerInfo.entitlements[ENTITLEMENT_ID]?.isActive == true
-                onResult(hasPro, null)
+                SubscriptionManager.updateAccountTier(customerInfo)
+                val subscribed = isSubscribed(customerInfo)
+                onResult(subscribed, null)
             }
 
             override fun onError(error: PurchasesError) {
                 onResult(false, error.message)
             }
         })
+    }
+
+    private fun isSubscribed(customerInfo: CustomerInfo): Boolean {
+        return customerInfo.entitlements["pro"]?.isActive == true ||
+               customerInfo.entitlements["lite"]?.isActive == true ||
+               customerInfo.entitlements["plus"]?.isActive == true
     }
 }

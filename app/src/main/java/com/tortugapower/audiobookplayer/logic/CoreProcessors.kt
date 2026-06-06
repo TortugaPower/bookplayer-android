@@ -198,15 +198,22 @@ class SyncIdentifiersProcessor(
             // We set canDelete to false to avoid removing local items before they have a chance to sync
             SyncTaskFactory.createFetchContentsTask(repository, null, force = true, canDelete = false)
             
-            val localBooks = libraryDao.getAllBooksSync()
+            val localItems = libraryDao.getAllItemsSync()
             val processedDir = File(context.filesDir, "Processed")
 
-            localBooks.forEach { localBook ->
-                if (localBook.relativePath !in remotePaths) {
-                    val file = File(processedDir, localBook.relativePath ?: "")
-                    if (file.exists()) {
-                        Log.d("SyncIdentifiersProcessor", "📤 Account-wide sync: Local item missing on server, queuing upload: ${localBook.title}")
-                        SyncTaskFactory.createUploadMetadataTask(repository, localBook)
+            localItems.forEach { item ->
+                if (item.relativePath !in remotePaths) {
+                    val shouldUpload = when (item.type) {
+                        ItemType.BOOK -> {
+                            val file = File(processedDir, item.relativePath ?: "")
+                            file.exists()
+                        }
+                        ItemType.FOLDER, ItemType.BOUND -> true
+                    }
+
+                    if (shouldUpload) {
+                        Log.d("SyncIdentifiersProcessor", "📤 Account-wide sync: Local item (${item.type}) missing on server, queuing upload: ${item.title}")
+                        SyncTaskFactory.createUploadMetadataTask(repository, item)
                     }
                 }
             }
@@ -247,11 +254,11 @@ class MetadataUploadProcessor(
                 val item = if (itemUuid != null) libraryDao.getItemById(itemUuid) else null
                 
                 if (item != null) {
-                    if (item.type != ItemType.BOUND) {
+                    if (item.type == ItemType.BOOK) {
                         Log.d("MetadataUploadProcessor", "📦 Creating follow-up file upload task for item: ${item.title}")
                         SyncTaskFactory.createUploadFileTask(repository, item, uploadUrl)
                     } else {
-                        Log.d("MetadataUploadProcessor", "⏭️ Skipping file upload task for BOUND item: ${item.title}")
+                        Log.d("MetadataUploadProcessor", "⏭️ Skipping file upload task for non-BOOK item (${item.type}): ${item.title}")
                     }
                 } else {
                     Log.e("MetadataUploadProcessor", "❌ Could not find library item for UUID: $itemUuid to trigger file upload")
