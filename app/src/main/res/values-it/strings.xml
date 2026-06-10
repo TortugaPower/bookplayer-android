@@ -217,4 +217,21 @@
     <string name="sync_task_sync_identifiers">Sincronizza identificatori</string>
     <string name="sync_task_match_library_ids">Corrispondenza ID libreria</string>
 
+    <!-- Profile Stats -->
+    <string name="profile_overview">PANORAMICA</string>
+    <string name="profile_activity">ATTIVITÀ</string>
+    <string name="profile_listening_time">Tempo di ascolto</string>
+    <string name="profile_unlock_pro_stats">Sblocca Pro per vedere le statistiche</string>
+    <string name="profile_today">Oggi</string>
+    <string name="profile_favorite_book">Preferito: %1$s</string>
+    <string name="profile_completed_books">Libri completati</string>
+    <string name="profile_days_listened">Giorni ascoltati</string>
+    <string name="profile_achievements">Obiettivi</string>
+    <string name="profile_stats">Statistiche</string>
+    <string name="profile_listening_history">Cronologia di ascolto</string>
+
+    <string name="profile_week">Settimana</string>
+    <string name="profile_daily_average">Media giornaliera</string>
+    <string name="history_book_not_found">Audiolibro non trovato nella libreria</string>
+    <string name="history_empty">Ancora nessuna cronologia di ascolto</string>
 </resources>

@@ -52,7 +52,7 @@
     <string name="profile_tier_label">Nivel: %1$s</string>
     <string name="profile_not_signed_in">Sesión no iniciada</string>
     <string name="profile_listening_time_value">0m</string>
-    <string name="profile_total_listening_time">Tiempo total de escucha</string>
+    <string name="profile_total_listening_time">Tiempo total escuchado</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -217,4 +217,21 @@
     <string name="sync_task_sync_identifiers">Sincronizar identificadores</string>
     <string name="sync_task_match_library_ids">Coincidir IDs de biblioteca</string>
 
+    <!-- Profile Stats -->
+    <string name="profile_overview">RESUMEN</string>
+    <string name="profile_activity">ACTIVIDAD</string>
+    <string name="profile_listening_time">Tiempo escuchado</string>
+    <string name="profile_unlock_pro_stats">Desbloquea Pro para ver estadísticas</string>
+    <string name="profile_today">Hoy</string>
+    <string name="profile_favorite_book">Favorito: %1$s</string>
+    <string name="profile_completed_books">Libros terminados</string>
+    <string name="profile_days_listened">Días escuchados</string>
+    <string name="profile_achievements">Logros</string>
+    <string name="profile_stats">Estadísticas</string>
+    <string name="profile_listening_history">Historial de reproducción</string>
+
+    <string name="profile_week">Semana</string>
+    <string name="profile_daily_average">Promedio diario</string>
+    <string name="history_book_not_found">Audiolibro no encontrado en la biblioteca</string>
+    <string name="history_empty">Aún no hay historial de reproducción</string>
 </resources>

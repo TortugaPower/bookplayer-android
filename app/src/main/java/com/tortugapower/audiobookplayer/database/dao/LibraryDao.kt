@@ -5,6 +5,7 @@ import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -44,6 +45,12 @@ interface LibraryDao {
 
     @Query("SELECT * FROM library_items WHERE type = 'BOOK'")
     suspend fun getAllBooksSync(): List<LibraryItemEntity>
+
+    @Query("SELECT COUNT(*) FROM book_completions")
+    fun getCompletedBooksCount(): Flow<Int>
+
+    @Insert
+    suspend fun insertCompletion(completion: BookCompletionEntity)
 
     @Query("SELECT * FROM library_items")
     suspend fun getAllItemsSync(): List<LibraryItemEntity>

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.database.entities.PlaybackSessionEntity
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.network.NetworkClient
@@ -13,10 +14,15 @@ import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.Calendar
+import java.util.Locale
+import java.text.SimpleDateFormat
 
 class ProfileViewModel(
     private val accountRepository: AccountRepository,
-    private val syncTaskRepository: SyncTaskRepository
+    private val syncTaskRepository: SyncTaskRepository,
+    private val statisticsDao: com.tortugapower.audiobookplayer.database.dao.StatisticsDao,
+    private val libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
 ) : ViewModel() {
 
     val account: StateFlow<AccountEntity?> = accountRepository.getAccountFlow()
@@ -25,6 +31,141 @@ class ProfileViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = null
         )
+
+    val isSubscribed: StateFlow<Boolean> = account.map { 
+        it != null && (it.tier == com.tortugapower.audiobookplayer.database.entities.AccountTier.PRO || 
+                      it.tier == com.tortugapower.audiobookplayer.database.entities.AccountTier.LITE)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val totalPlaytime: StateFlow<Long> = statisticsDao.getTotalPlaytimeFlow()
+        .map { it ?: 0L }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val completedBooks: StateFlow<Int> = libraryDao.getCompletedBooksCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val daysListened: StateFlow<Int> = statisticsDao.getDaysListenedFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val favoriteBook: StateFlow<String?> = statisticsDao.getFavoriteBookFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val favoriteBookArtwork: StateFlow<String?> = statisticsDao.getFavoriteBookArtworkFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val favoriteAuthor: StateFlow<String?> = statisticsDao.getFavoriteAuthorFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val hourlyDistribution: StateFlow<List<com.tortugapower.audiobookplayer.database.dao.HourlyStat>> = statisticsDao.getHourlyDistributionFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val todayHourlyStats: StateFlow<List<Long>> = statisticsDao.getAllSessionsFlow()
+        .map { sessions ->
+            val hourly = MutableList(24) { 0L }
+            val cal = Calendar.getInstance()
+            cal.set(Calendar.HOUR_OF_DAY, 0)
+            cal.set(Calendar.MINUTE, 0)
+            cal.set(Calendar.SECOND, 0)
+            cal.set(Calendar.MILLISECOND, 0)
+            val startOfToday = cal.timeInMillis
+
+            sessions.filter { it.startTime >= startOfToday }.forEach { session ->
+                cal.timeInMillis = session.startTime
+                val hour = cal.get(Calendar.HOUR_OF_DAY)
+                if (hour in 0..23) {
+                    hourly[hour] += session.duration
+                }
+            }
+            hourly
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), List(24) { 0L })
+
+    val todayChangePercent: StateFlow<Int?> = statisticsDao.getAllSessionsFlow()
+        .map { sessions ->
+            val cal = Calendar.getInstance()
+            cal.set(Calendar.HOUR_OF_DAY, 0)
+            cal.set(Calendar.MINUTE, 0)
+            cal.set(Calendar.SECOND, 0)
+            cal.set(Calendar.MILLISECOND, 0)
+            val startOfToday = cal.timeInMillis
+            val startOfYesterday = startOfToday - 24 * 60 * 60 * 1000
+
+            val todayTime = sessions.filter { it.startTime >= startOfToday }.sumOf { it.duration }
+            val yesterdayTime = sessions.filter { it.startTime in startOfYesterday until startOfToday }.sumOf { it.duration }
+
+            if (yesterdayTime == 0L) {
+                if (todayTime > 0L) 100 else null
+            } else {
+                (((todayTime - yesterdayTime).toDouble() / yesterdayTime.toDouble()) * 100).toInt()
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val weekChangePercent: StateFlow<Int?> = statisticsDao.getAllSessionsFlow()
+        .map { sessions ->
+            val cal = Calendar.getInstance()
+            cal.set(Calendar.HOUR_OF_DAY, 0)
+            cal.set(Calendar.MINUTE, 0)
+            cal.set(Calendar.SECOND, 0)
+            cal.set(Calendar.MILLISECOND, 0)
+            cal.add(Calendar.DAY_OF_YEAR, -6)
+            val startOfThisWeek = cal.timeInMillis
+            val startOfPrevWeek = startOfThisWeek - 7L * 24 * 60 * 60 * 1000
+
+            val thisWeekTime = sessions.filter { it.startTime >= startOfThisWeek }.sumOf { it.duration }
+            val prevWeekTime = sessions.filter { it.startTime in startOfPrevWeek until startOfThisWeek }.sumOf { it.duration }
+
+            if (prevWeekTime == 0L) {
+                if (thisWeekTime > 0L) 100 else null
+            } else {
+                (((thisWeekTime - prevWeekTime).toDouble() / prevWeekTime.toDouble()) * 100).toInt()
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val weekDailyStats: StateFlow<List<Pair<String, Long>>> = statisticsDao.getAllSessionsFlow()
+        .map { sessions ->
+            val daily = mutableListOf<Pair<String, Long>>()
+            val sdf = SimpleDateFormat("EEE", Locale.getDefault())
+            
+            val days = (0..6).map { offset ->
+                val dayCal = Calendar.getInstance()
+                dayCal.set(Calendar.HOUR_OF_DAY, 0)
+                dayCal.set(Calendar.MINUTE, 0)
+                dayCal.set(Calendar.SECOND, 0)
+                dayCal.set(Calendar.MILLISECOND, 0)
+                dayCal.add(Calendar.DAY_OF_YEAR, -(6 - offset))
+                dayCal
+            }
+
+            days.forEach { dayCal ->
+                val startOfDay = dayCal.timeInMillis
+                dayCal.add(Calendar.DAY_OF_YEAR, 1)
+                val endOfDay = dayCal.timeInMillis
+                dayCal.add(Calendar.DAY_OF_YEAR, -1)
+
+                val daySessions = sessions.filter { it.startTime in startOfDay until endOfDay }
+                val totalDuration = daySessions.sumOf { it.duration }
+                val label = sdf.format(dayCal.time)
+                daily.add(Pair(label, totalDuration))
+            }
+            daily
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val playbackHistory: StateFlow<List<PlaybackSessionEntity>> = statisticsDao.getAllSessionsFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun playBook(context: android.content.Context, bookUuid: String, onNotFound: () -> Unit = {}) {
+        viewModelScope.launch {
+            val item = libraryDao.getItemById(bookUuid)
+            if (item != null) {
+                com.tortugapower.audiobookplayer.logic.PlaybackManager.playItem(context, item)
+            } else {
+                onNotFound()
+            }
+        }
+    }
 
     val syncTasks: StateFlow<List<SyncTaskEntity>> = syncTaskRepository.getAllTasks()
         .stateIn(

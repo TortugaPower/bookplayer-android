@@ -315,5 +315,22 @@
     <string name="sync_task_download_audio">Download Audio</string>
     <string name="sync_task_sync_identifiers">Sync Identifiers</string>
     <string name="sync_task_match_library_ids">Match Library IDs</string>
+    
+    <!-- Profile Stats -->
+    <string name="profile_overview">OVERVIEW</string>
+    <string name="profile_activity">ACTIVITY</string>
+    <string name="profile_listening_time">Listening Time</string>
+    <string name="profile_unlock_pro_stats">Unlock Pro to see stats</string>
+    <string name="profile_today">Today</string>
+    <string name="profile_favorite_book">Favorite: %1$s</string>
+    <string name="profile_completed_books">Completed Books</string>
+    <string name="profile_days_listened">Days Listened</string>
+    <string name="profile_achievements">Achievements</string>
+    <string name="profile_stats">Stats</string>
+    <string name="profile_listening_history">Listening history</string>
 
+    <string name="profile_week">Week</string>
+    <string name="profile_daily_average">Daily Average</string>
+    <string name="history_book_not_found">Audiobook not found in library</string>
+    <string name="history_empty">No listening history yet</string>
 </resources>

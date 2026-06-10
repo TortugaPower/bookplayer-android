@@ -218,4 +218,21 @@
     <string name="sync_task_sync_identifiers">識別子の同期</string>
     <string name="sync_task_match_library_ids">ライブラリIDの照合</string>
 
+    <!-- Profile Stats -->
+    <string name="profile_overview">概要</string>
+    <string name="profile_activity">アクティビティ</string>
+    <string name="profile_listening_time">再生時間</string>
+    <string name="profile_unlock_pro_stats">統計を表示するにはProをアンロック</string>
+    <string name="profile_today">今日</string>
+    <string name="profile_favorite_book">お気に入り: %1$s</string>
+    <string name="profile_completed_books">読了した本</string>
+    <string name="profile_days_listened">聴いた日数</string>
+    <string name="profile_achievements">実績</string>
+    <string name="profile_stats">統計</string>
+    <string name="profile_listening_history">再生履歴</string>
+
+    <string name="profile_week">週</string>
+    <string name="profile_daily_average">1日平均</string>
+    <string name="history_book_not_found">ライブラリにオーディオブックが見つかりません</string>
+    <string name="history_empty">再生履歴はまだありません</string>
 </resources>

@@ -218,4 +218,20 @@
     <string name="sync_task_sync_identifiers">आइडेंटिफ़ायर सिंक करें</string>
     <string name="sync_task_match_library_ids">लाइब्रेरी आईडी मिलान करें</string>
 
+    <!-- Profile Stats -->
+    <string name="profile_overview">अवलोकन</string>
+    <string name="profile_activity">गतिविधि</string>
+    <string name="profile_listening_time">सुनने का समय</string>
+    <string name="profile_unlock_pro_stats">आंकड़े देखने के लिए Pro अनलॉक करें</string>
+    <string name="profile_today">आज</string>
+    <string name="profile_favorite_book">पसंदीदा: %1$s</string>
+    <string name="profile_completed_books">पूरी की गई किताबें</string>
+    <string name="profile_days_listened">सुने गए दिन</string>
+    <string name="profile_achievements">उपलब्धियां</string>
+    <string name="profile_stats">आंकड़े</string>
+    <string name="profile_listening_history">सुनने का इतिहास</string>
+    <string name="profile_week">सप्ताह</string>
+    <string name="profile_daily_average">दैनिक औसत</string>
+    <string name="history_book_not_found">लाइब्रेरी में ऑडियोबुक नहीं मिला</string>
+    <string name="history_empty">अभी तक कोई सुनने का इतिहास नहीं है</string>
 </resources>

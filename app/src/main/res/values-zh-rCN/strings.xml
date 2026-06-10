@@ -218,4 +218,21 @@
     <string name="sync_task_sync_identifiers">同步标识符</string>
     <string name="sync_task_match_library_ids">匹配库 ID</string>
 
+    <!-- Profile Stats -->
+    <string name="profile_overview">概览</string>
+    <string name="profile_activity">活动</string>
+    <string name="profile_listening_time">听书时间</string>
+    <string name="profile_unlock_pro_stats">解锁 Pro 以查看统计数据</string>
+    <string name="profile_today">今天</string>
+    <string name="profile_favorite_book">最爱：%1$s</string>
+    <string name="profile_completed_books">已读完的书籍</string>
+    <string name="profile_days_listened">听书天数</string>
+    <string name="profile_achievements">成就</string>
+    <string name="profile_stats">统计</string>
+    <string name="profile_listening_history">听书历史</string>
+
+    <string name="profile_week">周</string>
+    <string name="profile_daily_average">日均</string>
+    <string name="history_book_not_found">库中未找到有声书</string>
+    <string name="history_empty">暂无听书历史</string>
 </resources>
