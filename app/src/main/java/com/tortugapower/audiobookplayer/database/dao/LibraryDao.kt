@@ -45,6 +45,9 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items WHERE type = 'BOOK'")
     suspend fun getAllBooksSync(): List<LibraryItemEntity>
 
+    @Query("SELECT COUNT(*) FROM library_items WHERE type = 'BOOK' AND isFinished = 1")
+    fun getCompletedBooksCount(): Flow<Int>
+
     @Query("SELECT * FROM library_items")
     suspend fun getAllItemsSync(): List<LibraryItemEntity>
 

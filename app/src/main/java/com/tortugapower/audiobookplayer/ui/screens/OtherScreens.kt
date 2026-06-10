@@ -56,14 +56,19 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun ProfileScreen(
-    viewModel: ProfileViewModel, 
+    viewModel: ProfileViewModel,
     onNavigateToAccountDetails: () -> Unit,
     onNavigateToQueuedTasks: () -> Unit
 ) {
     val context = LocalContext.current
-    
-    // Use cached account state from ViewModel
+
     val account by viewModel.account.collectAsState()
+    val isSubscribed by viewModel.isSubscribed.collectAsState()
+    val totalPlaytime by viewModel.totalPlaytime.collectAsState()
+    val completedBooks by viewModel.completedBooks.collectAsState()
+    val daysListened by viewModel.daysListened.collectAsState()
+    val favoriteBook by viewModel.favoriteBook.collectAsState()
+
     val pendingTasksCount by viewModel.pendingTasksCount.collectAsState()
     val lastSyncTimestamp by viewModel.lastSyncTimestamp.collectAsState()
 
@@ -85,163 +90,360 @@ fun ProfileScreen(
     }
 
     BookPlayerTabScaffold(title = stringResource(R.string.profile_title)) { innerPadding ->
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding)
-            .padding(horizontal = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Account Section
-        Surface(
+        LazyColumn(
             modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(32.dp))
-                .clickable { 
-                    if (account == null) showProSheet = true
-                    else onNavigateToAccountDetails()
-                },
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Row(
-                modifier = Modifier.padding(24.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
+            item { Spacer(modifier = Modifier.height(8.dp)) }
+
+            // Account Section
+            item {
+                Surface(
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(32.dp))
+                        .clickable { 
+                            if (account == null) showProSheet = true
+                            else onNavigateToAccountDetails()
+                        },
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 ) {
-                    Icon(
-                        imageVector = if (account != null) Icons.Default.Person else Icons.Default.PersonOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (account != null) account!!.email else stringResource(R.string.profile_setup_account),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    
-                    if (account != null) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Surface(
-                            color = if (account?.tier == AccountTier.PRO) Color.DarkGray.copy(alpha = 0.8f) 
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
-                            shape = RoundedCornerShape(12.dp)
+                    Row(
+                        modifier = Modifier.padding(24.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = account!!.tier.name.lowercase(),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (account?.tier == AccountTier.PRO) Color.White 
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                            Icon(
+                                imageVector = if (account != null) Icons.Default.Person else Icons.Default.PersonOutline,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp)
                             )
                         }
-                    } else {
-                        Text(
-                            text = stringResource(R.string.profile_not_signed_in),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (account != null) account!!.email else stringResource(R.string.profile_setup_account),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            if (account != null) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Surface(
+                                    color = if (account?.tier == AccountTier.PRO) Color.DarkGray.copy(alpha = 0.8f) 
+                                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(
+                                        text = account!!.tier.name.lowercase(),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (account?.tier == AccountTier.PRO) Color.White 
+                                                else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = stringResource(R.string.profile_not_signed_in),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )
                     }
                 }
+            }
 
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            item { Spacer(modifier = Modifier.height(24.dp)) }
+
+            // Statistics Header
+            item {
+                Text(
+                    text = "OVERVIEW",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 8.dp)
                 )
             }
-        }
 
-        Spacer(modifier = Modifier.height(48.dp))
-
-        // Statistics Section
-        Text(
-            text = stringResource(R.string.profile_listening_time_value),
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Text(
-            text = stringResource(R.string.profile_total_listening_time),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        // Queued Tasks Button
-        if (account != null && (account!!.tier == AccountTier.PRO || account!!.tier == AccountTier.LITE)) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 24.dp)
-                    .clickable { onNavigateToQueuedTasks() }
-            ) {
-                Text(
-                    text = "Queued sync tasks ($pendingTasksCount)",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = Color(0xFF3482F6),
-                    fontWeight = FontWeight.Medium
+            // Main Stats Card
+            item {
+                OverviewMainCard(
+                    totalPlaytime = totalPlaytime,
+                    favoriteBook = favoriteBook,
+                    isLocked = false,
+                    onLockClick = { showProSheet = true }
                 )
-                if (lastSyncTimestamp != null) {
-                    Text(
-                        text = "Last sync: ${lastSyncTimestamp!!.formatSyncTime()}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    )
-                }
             }
-        }
 
-        // BookPlayer Pro Section
-        if (account?.tier != AccountTier.PRO) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(bottom = 32.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.pro_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Button(
-                    onClick = { showProSheet = true },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF3482F6) // Approximate blue from screenshot
-                    ),
-                    shape = RoundedCornerShape(24.dp),
-                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+            item { Spacer(modifier = Modifier.height(16.dp)) }
+
+            // Small Stats Row
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = stringResource(R.string.pro_learn_more),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
+                    OverviewSmallStatBox(
+                        value = completedBooks.toString(),
+                        label = "Completed Books",
+                        modifier = Modifier.weight(1f),
+                        isLocked = false
+                    )
+                    OverviewSmallStatBox(
+                        value = daysListened.toString(),
+                        label = "Days Listened",
+                        modifier = Modifier.weight(1f),
+                        isLocked = false
+                    )
+                    OverviewSmallStatBox(
+                        value = "0", // Placeholder for achievements
+                        label = "Achievements",
+                        modifier = Modifier.weight(1f),
+                        isLocked = false
                     )
                 }
             }
+
+            item { Spacer(modifier = Modifier.height(32.dp)) }
+
+            // Activity Section
+            item {
+                Text(
+                    text = "ACTIVITY",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 8.dp)
+                )
+            }
+
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                ) {
+                    Column {
+                        ActivityRow("Stats", Icons.Default.BarChart, onClick = { if (!isSubscribed) showProSheet = true })
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        ActivityRow("Listening history", Icons.Default.History, onClick = { if (!isSubscribed) showProSheet = true })
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        ActivityRow("Achievements", Icons.Default.EmojiEvents, onClick = { if (!isSubscribed) showProSheet = true })
+                    }
+                }
+            }
+
+            item { Spacer(modifier = Modifier.height(32.dp)) }
+
+            // Queued Tasks Button
+            if (account != null && (account!!.tier == AccountTier.PRO || account!!.tier == AccountTier.LITE)) {
+                item {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 24.dp)
+                            .clickable { onNavigateToQueuedTasks() }
+                    ) {
+                        Text(
+                            text = "Queued sync tasks ($pendingTasksCount)",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color(0xFF3482F6),
+                            fontWeight = FontWeight.Medium
+                        )
+                        if (lastSyncTimestamp != null) {
+                            Text(
+                                text = "Last sync: ${lastSyncTimestamp!!.formatSyncTime()}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // BookPlayer Pro Section
+            if (account?.tier != AccountTier.PRO) {
+                item {
+                    Spacer(modifier = Modifier.height(32.dp))
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(bottom = 32.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.pro_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { showProSheet = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF3482F6)
+                            ),
+                            shape = RoundedCornerShape(24.dp),
+                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.pro_learn_more),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
         }
-    }
     }
 }
 
+@Composable
+fun OverviewMainCard(
+    totalPlaytime: Long,
+    favoriteBook: String?,
+    isLocked: Boolean,
+    onLockClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val totalMinutes = totalPlaytime / 60000
+    val displayTime = if (totalMinutes < 60) "$totalMinutes min" else "${totalMinutes / 60}h ${totalMinutes % 60}m"
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(enabled = isLocked, onClick = onLockClick),
+        color = if (isLocked) Color.DarkGray else MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Background image or gradient could go here
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.Bottom
+            ) {
+                Text(
+                    text = "Listening Time",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (isLocked) Color.LightGray else MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    text = if (isLocked) "— —" else displayTime,
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isLocked) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    text = if (isLocked) "Unlock Pro to see stats" else "Today",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isLocked) Color.LightGray else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                )
+                if (!isLocked && favoriteBook != null) {
+                    Text(
+                        text = "Favorite: $favoriteBook",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                    )
+                }
+            }
+
+            if (isLocked) {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.3f),
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).size(32.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun OverviewSmallStatBox(
+    value: String,
+    label: String,
+    isLocked: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .height(100.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = if (isLocked) "—" else value,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+fun ActivityRow(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+        )
+    }
+}
 @Composable
 fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
     val account by viewModel.account.collectAsState()

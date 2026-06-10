@@ -14,7 +14,9 @@ import kotlinx.coroutines.launch
 
 class ProfileViewModel(
     private val accountRepository: AccountRepository,
-    private val syncTaskRepository: SyncTaskRepository
+    private val syncTaskRepository: SyncTaskRepository,
+    private val statisticsDao: com.tortugapower.audiobookplayer.database.dao.StatisticsDao,
+    private val libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
 ) : ViewModel() {
 
     val account: StateFlow<AccountEntity?> = accountRepository.getAccountFlow()
@@ -23,6 +25,30 @@ class ProfileViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = null
         )
+
+    val isSubscribed: StateFlow<Boolean> = account.map { 
+        it != null && (it.tier == com.tortugapower.audiobookplayer.database.entities.AccountTier.PRO || 
+                      it.tier == com.tortugapower.audiobookplayer.database.entities.AccountTier.LITE)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val totalPlaytime: StateFlow<Long> = statisticsDao.getTotalPlaytimeFlow()
+        .map { it ?: 0L }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val completedBooks: StateFlow<Int> = libraryDao.getCompletedBooksCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val daysListened: StateFlow<Int> = statisticsDao.getDaysListenedFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val favoriteBook: StateFlow<String?> = statisticsDao.getFavoriteBookFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val favoriteAuthor: StateFlow<String?> = statisticsDao.getFavoriteAuthorFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val hourlyDistribution: StateFlow<List<com.tortugapower.audiobookplayer.database.dao.HourlyStat>> = statisticsDao.getHourlyDistributionFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val syncTasks: StateFlow<List<SyncTaskEntity>> = syncTaskRepository.getAllTasks()
         .stateIn(

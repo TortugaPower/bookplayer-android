@@ -90,6 +90,7 @@ object PlaybackManager {
                             }
                             startProgressTracker(appContext)
                         }
+                        StatisticsManager.setPlaybackState(appContext, currentItem, playing)
                     }
 
                     override fun onPositionDiscontinuity(
@@ -106,6 +107,7 @@ object PlaybackManager {
                         playbackState = state
                         if (state == Player.STATE_ENDED) {
                             updateProgress(appContext, forceFinished = true)
+                            StatisticsManager.setPlaybackState(appContext, currentItem, false)
                             // Auto-play next item
                             scope.launch {
                                 val current = currentItem ?: return@launch
@@ -290,6 +292,7 @@ object PlaybackManager {
                 kotlinx.coroutines.delay(10000)
                 if (isPlaying) {
                     updateProgress(context)
+                    StatisticsManager.updateActiveSessionDuration(context)
                 }
             }
         }

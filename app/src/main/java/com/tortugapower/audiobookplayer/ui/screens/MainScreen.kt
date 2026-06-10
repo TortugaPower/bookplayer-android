@@ -62,7 +62,12 @@ fun MainScreen() {
     )
 
     val profileViewModel: ProfileViewModel = viewModel(
-        factory = ProfileViewModelFactory(accountRepository, syncTaskRepository)
+        factory = ProfileViewModelFactory(
+            accountRepository, 
+            syncTaskRepository,
+            database.statisticsDao(),
+            database.libraryDao()
+        )
     )
 
     val libraryViewModel: LibraryViewModel = viewModel(
