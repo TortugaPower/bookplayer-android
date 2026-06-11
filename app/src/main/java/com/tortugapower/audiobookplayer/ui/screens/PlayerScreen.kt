@@ -151,7 +151,8 @@ fun PlayerScreen(
                 e.printStackTrace()
             }
         } else {
-            offsetY.animateTo(screenHeightPx, tween(300))
+            // Ensure it's completely off-screen by adding a buffer
+            offsetY.animateTo(screenHeightPx + 500f, tween(300))
         }
     }
 
@@ -279,52 +280,53 @@ fun PlayerScreen(
         )
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .offset { IntOffset(0, offsetY.value.roundToInt()) }
-            .graphicsLayer { 
-                alpha = if (isHidden) 0f else 1f
-            }
-            .background(MaterialTheme.colorScheme.background)
-            .pointerInput(isHidden) {
-                if (!isHidden) {
-                    detectTapGestures(onTap = { })
+    if (PlaybackManager.showPlayerScreen || offsetY.value < screenHeightPx) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .offset { IntOffset(0, offsetY.value.roundToInt()) }
+                .graphicsLayer { 
+                    alpha = if (isHidden) 0f else 1f
                 }
-            }
-            .semantics {
-                if (!isHidden) {
-                    paneTitle = "Player"
+                .background(MaterialTheme.colorScheme.background)
+                .pointerInput(isHidden) {
+                    if (!isHidden) {
+                        detectTapGestures(onTap = { })
+                    }
                 }
-            }
-            .then(
-                if (isHidden) {
-                    Modifier // No touch interception at all when hidden
-                } else {
-                    Modifier.draggable(
-                        orientation = Orientation.Vertical,
-                        state = rememberDraggableState { delta ->
-                            val newValue = (offsetY.value + delta).coerceAtLeast(0f)
-                            scope.launch { offsetY.snapTo(newValue) }
-                        },
-                        onDragStopped = { velocity ->
-                            if (offsetY.value > screenHeightPx * 0.3f || velocity > 1000) {
-                                scope.launch {
-                                    offsetY.animateTo(screenHeightPx, tween(300))
-                                    PlaybackManager.showPlayerScreen = false
-                                }
-                            } else {
-                                scope.launch {
-                                    offsetY.animateTo(0f, tween(300))
+                .semantics {
+                    if (!isHidden) {
+                        paneTitle = "Player"
+                    }
+                }
+                .then(
+                    if (isHidden) {
+                        Modifier // No touch interception at all when hidden
+                    } else {
+                        Modifier.draggable(
+                            orientation = Orientation.Vertical,
+                            state = rememberDraggableState { delta ->
+                                val newValue = (offsetY.value + delta).coerceAtLeast(0f)
+                                scope.launch { offsetY.snapTo(newValue) }
+                            },
+                            onDragStopped = { velocity ->
+                                if (offsetY.value > screenHeightPx * 0.3f || velocity > 1000) {
+                                    scope.launch {
+                                        offsetY.animateTo(screenHeightPx + 500f, tween(300))
+                                        PlaybackManager.showPlayerScreen = false
+                                    }
+                                } else {
+                                    scope.launch {
+                                        offsetY.animateTo(0f, tween(300))
+                                    }
                                 }
                             }
-                        }
-                    )
-                }
-            )
-            .statusBarsPadding()
-            .navigationBarsPadding()
-    ) {
+                        )
+                    }
+                )
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
         if (currentItem != null) {
             val chapters by viewModel.chapters.collectAsState()
             val currentChapterIndex = remember(chapters, position, isDragging, dragPosition, viewModel.useChapterContext) {
@@ -653,6 +655,7 @@ fun PlayerScreen(
             }
         }
     }
+}
 }
 
 @Composable
