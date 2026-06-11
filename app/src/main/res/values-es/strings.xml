@@ -23,6 +23,7 @@
     <string name="common_completed">Completado</string>
     <string name="common_pro_locked">Pro</string>
     <string name="common_search">Buscar</string>
+    <string name="common_download">Descargar</string>
     <string name="common_update">Actualizar</string>
     <string name="common_add">Añadir</string>
     <string name="common_details">Detalles</string>
@@ -199,5 +200,21 @@
     <string name="interval_minutes">%1$d min</string>
     <string name="duration_hms">%1$dh %2$dm %3$ds</string>
     <string name="duration_ms">%1$dm %2$ds</string>
+
+    <!-- Sync Tasks -->
+    <string name="sync_task_generic">Tarea de sincronización</string>
+    <string name="sync_task_upload_metadata">Subir metadatos</string>
+    <string name="sync_task_update_progress">Actualizar progreso</string>
+    <string name="sync_task_move_item">Mover elemento</string>
+    <string name="sync_task_delete_item">Eliminar elemento</string>
+    <string name="sync_task_set_bookmark">Establecer marcador</string>
+    <string name="sync_task_remove_bookmark">Quitar marcador</string>
+    <string name="sync_task_rename_folder">Cambiar nombre a la carpeta</string>
+    <string name="sync_task_upload_artwork">Subir portada</string>
+    <string name="sync_task_fetch_library">Obtener biblioteca</string>
+    <string name="sync_task_upload_audio">Subir audio</string>
+    <string name="sync_task_download_audio">Descargar audio</string>
+    <string name="sync_task_sync_identifiers">Sincronizar identificadores</string>
+    <string name="sync_task_match_library_ids">Coincidir IDs de biblioteca</string>
 
 </resources>

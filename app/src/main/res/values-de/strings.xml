@@ -22,7 +22,8 @@
     <string name="common_move">Verschieben</string>
     <string name="common_completed">Abgeschlossen</string>
     <string name="common_pro_locked">Pro</string>
-    <string name="common_search">Suche</string>
+    <string name="common_search">Suchen</string>
+    <string name="common_download">Herunterladen</string>
     <string name="common_update">Aktualisieren</string>
     <string name="common_add">Hinzufügen</string>
     <string name="common_details">Details</string>
@@ -199,5 +200,21 @@
     <string name="interval_minutes">%1$d Min.</string>
     <string name="duration_hms">%1$dh %2$dm %3$ds</string>
     <string name="duration_ms">%1$dm %2$ds</string>
+
+    <!-- Sync Tasks -->
+    <string name="sync_task_generic">Synchronisierungsaufgabe</string>
+    <string name="sync_task_upload_metadata">Metadaten-Upload</string>
+    <string name="sync_task_update_progress">Fortschritt aktualisieren</string>
+    <string name="sync_task_move_item">Element verschieben</string>
+    <string name="sync_task_delete_item">Element löschen</string>
+    <string name="sync_task_set_bookmark">Lesezeichen setzen</string>
+    <string name="sync_task_remove_bookmark">Lesezeichen entfernen</string>
+    <string name="sync_task_rename_folder">Ordner umbenennen</string>
+    <string name="sync_task_upload_artwork">Cover hochladen</string>
+    <string name="sync_task_fetch_library">Bibliothek abrufen</string>
+    <string name="sync_task_upload_audio">Audio hochladen</string>
+    <string name="sync_task_download_audio">Audio herunterladen</string>
+    <string name="sync_task_sync_identifiers">Identifikatoren synchronisieren</string>
+    <string name="sync_task_match_library_ids">Bibliotheks-IDs abgleichen</string>
 
 </resources>

@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,6 +33,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Path
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -40,6 +45,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.media3.common.Player
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
@@ -50,13 +58,14 @@ import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.*
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.layout.onGloballyPositioned
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import kotlin.random.Random
 
 @Composable
 fun MarqueeText(
@@ -109,6 +118,7 @@ fun PlayerScreen(
 ) {
     val currentItem = viewModel.currentItem
     val isPlaying = viewModel.isPlaying
+    val playPauseFocusRequester = remember { FocusRequester() }
     
     // Use the item's saved time as the initial value when the item changes
     var position by remember(currentItem?.uuid) { 
@@ -135,8 +145,14 @@ fun PlayerScreen(
     LaunchedEffect(PlaybackManager.showPlayerScreen, screenHeightPx) {
         if (PlaybackManager.showPlayerScreen) {
             offsetY.animateTo(0f, tween(400))
+            try {
+                playPauseFocusRequester.requestFocus()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         } else {
-            offsetY.animateTo(screenHeightPx, tween(300))
+            // Ensure it's completely off-screen by adding a buffer
+            offsetY.animateTo(screenHeightPx + 500f, tween(300))
         }
     }
 
@@ -264,42 +280,53 @@ fun PlayerScreen(
         )
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .offset { IntOffset(0, offsetY.value.roundToInt()) }
-            .graphicsLayer { 
-                alpha = if (isHidden) 0f else 1f
-            }
-            .background(MaterialTheme.colorScheme.background)
-            .then(
-                if (isHidden) {
-                    Modifier // No touch interception at all when hidden
-                } else {
-                    Modifier.draggable(
-                        orientation = Orientation.Vertical,
-                        state = rememberDraggableState { delta ->
-                            val newValue = (offsetY.value + delta).coerceAtLeast(0f)
-                            scope.launch { offsetY.snapTo(newValue) }
-                        },
-                        onDragStopped = { velocity ->
-                            if (offsetY.value > screenHeightPx * 0.3f || velocity > 1000) {
-                                scope.launch {
-                                    offsetY.animateTo(screenHeightPx, tween(300))
-                                    PlaybackManager.showPlayerScreen = false
-                                }
-                            } else {
-                                scope.launch {
-                                    offsetY.animateTo(0f, tween(300))
+    if (PlaybackManager.showPlayerScreen || offsetY.value < screenHeightPx) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .offset { IntOffset(0, offsetY.value.roundToInt()) }
+                .graphicsLayer { 
+                    alpha = if (isHidden) 0f else 1f
+                }
+                .background(MaterialTheme.colorScheme.background)
+                .pointerInput(isHidden) {
+                    if (!isHidden) {
+                        detectTapGestures(onTap = { })
+                    }
+                }
+                .semantics {
+                    if (!isHidden) {
+                        paneTitle = "Player"
+                    }
+                }
+                .then(
+                    if (isHidden) {
+                        Modifier // No touch interception at all when hidden
+                    } else {
+                        Modifier.draggable(
+                            orientation = Orientation.Vertical,
+                            state = rememberDraggableState { delta ->
+                                val newValue = (offsetY.value + delta).coerceAtLeast(0f)
+                                scope.launch { offsetY.snapTo(newValue) }
+                            },
+                            onDragStopped = { velocity ->
+                                if (offsetY.value > screenHeightPx * 0.3f || velocity > 1000) {
+                                    scope.launch {
+                                        offsetY.animateTo(screenHeightPx + 500f, tween(300))
+                                        PlaybackManager.showPlayerScreen = false
+                                    }
+                                } else {
+                                    scope.launch {
+                                        offsetY.animateTo(0f, tween(300))
+                                    }
                                 }
                             }
-                        }
-                    )
-                }
-            )
-            .statusBarsPadding()
-            .navigationBarsPadding()
-    ) {
+                        )
+                    }
+                )
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
         if (currentItem != null) {
             val chapters by viewModel.chapters.collectAsState()
             val currentChapterIndex = remember(chapters, position, isDragging, dragPosition, viewModel.useChapterContext) {
@@ -342,13 +369,22 @@ fun PlayerScreen(
                     Modifier.background(Color.Transparent)
                 }
 
+                val isLocal = remember(currentItem.relativePath, currentItem.type) {
+                    if (currentItem.type == com.tortugapower.audiobookplayer.database.entities.ItemType.FOLDER) true
+                    else if (currentItem.relativePath == null) false
+                    else {
+                        val processedDir = java.io.File(context.filesDir, "Processed")
+                        java.io.File(processedDir, currentItem.relativePath!!).exists()
+                    }
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(1f)
                         .clip(RoundedCornerShape(24.dp))
                         .then(artworkBackground),
-                    contentAlignment = Alignment.TopEnd
+                    contentAlignment = Alignment.Center // Changed from TopEnd to Center
                 ) {
                     if (currentItem.artworkURL != null) {
                         AsyncImage(
@@ -358,15 +394,44 @@ fun PlayerScreen(
                             contentScale = ContentScale.Crop
                         )
                     }
-                    IconButton(
-                        onClick = { },
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Cast,
-                            contentDescription = stringResource(R.string.player_cast),
-                            tint = MaterialTheme.colorScheme.onSecondary
-                        )
+
+                    if (viewModel.playbackState == Player.STATE_BUFFERING && !isLocal) {
+                        SoundwaveLoadingOverlay()
+                    }
+
+                    if (!isLocal && !currentItem.remoteURL.isNullOrEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val path = Path().apply {
+                                    moveTo(size.width, size.height * 0.8f)
+                                    lineTo(size.width, size.height)
+                                    lineTo(size.width * 0.8f, size.height)
+                                    close()
+                                }
+                                drawPath(path, Color.Black.copy(alpha = 0.65f))
+                            }
+                            Icon(
+                                imageVector = Icons.Outlined.Cloud,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(8.dp)
+                                    .size(24.dp),
+                                tint = Color(0xFF4285F4)
+                            )
+                        }
+                    }
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
+                        IconButton(
+                            onClick = { },
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Cast,
+                                contentDescription = stringResource(R.string.player_cast),
+                                tint = MaterialTheme.colorScheme.onSecondary
+                            )
+                        }
                     }
                 }
 
@@ -533,7 +598,9 @@ fun PlayerScreen(
 
                     IconButton(
                         onClick = { viewModel.togglePlayPause() },
-                        modifier = Modifier.size(100.dp) // Increased from 80dp
+                        modifier = Modifier
+                            .size(100.dp) // Increased from 80dp
+                            .focusRequester(playPauseFocusRequester)
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -588,6 +655,7 @@ fun PlayerScreen(
             }
         }
     }
+}
 }
 
 @Composable
@@ -2017,6 +2085,53 @@ fun PlayerBottomButton(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SoundwaveLoadingOverlay() {
+    val infiniteTransition = rememberInfiniteTransition(label = "loading")
+    
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    // Trigger height change when alpha is at its maximum (darkest point)
+    val seed = remember(alpha > 0.79f) { kotlin.random.Random.nextInt() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = alpha)),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            modifier = Modifier.height(40.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            repeat(10) { i ->
+                // Animate height based on seed and index
+                val heightScale by animateFloatAsState(
+                    targetValue = remember(seed, i) { 0.2f + kotlin.random.Random.nextFloat() * 0.8f },
+                    animationSpec = tween(500), // Smooth transition when seed changes
+                    label = "height_$i"
+                )
+                
+                Box(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .fillMaxHeight(heightScale)
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
                 )
             }
         }

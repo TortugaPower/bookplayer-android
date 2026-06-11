@@ -23,6 +23,7 @@
     <string name="common_completed">Terminé</string>
     <string name="common_pro_locked">Pro</string>
     <string name="common_search">Rechercher</string>
+    <string name="common_download">Télécharger</string>
     <string name="common_update">Mettre à jour</string>
     <string name="common_add">Ajouter</string>
     <string name="common_details">Détails</string>
@@ -199,5 +200,21 @@
     <string name="interval_minutes">%1$d min</string>
     <string name="duration_hms">%1$dh %2$dm %3$ds</string>
     <string name="duration_ms">%1$dm %2$ds</string>
+
+    <!-- Sync Tasks -->
+    <string name="sync_task_generic">Tâche de synchronisation</string>
+    <string name="sync_task_upload_metadata">Téléchargement des métadonnées</string>
+    <string name="sync_task_update_progress">Mise à jour de la progression</string>
+    <string name="sync_task_move_item">Déplacer l\'élément</string>
+    <string name="sync_task_delete_item">Supprimer l\'élément</string>
+    <string name="sync_task_set_bookmark">Ajouter un signet</string>
+    <string name="sync_task_remove_bookmark">Supprimer le signet</string>
+    <string name="sync_task_rename_folder">Renommer le dossier</string>
+    <string name="sync_task_upload_artwork">Télécharger la pochette</string>
+    <string name="sync_task_fetch_library">Récupérer la bibliothèque</string>
+    <string name="sync_task_upload_audio">Téléverser l\'audio</string>
+    <string name="sync_task_download_audio">Télécharger l\'audio</string>
+    <string name="sync_task_sync_identifiers">Synchroniser les identifiants</string>
+    <string name="sync_task_match_library_ids">Faire correspondre les IDs de bibliothèque</string>
 
 </resources>

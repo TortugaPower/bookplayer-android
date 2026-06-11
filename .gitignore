@@ -19,3 +19,5 @@ keystore.properties
 !debug.keystore
 .idea/deploymentTargetSelector.xml
 .kotlin/
+app/dev/
+app/prod/

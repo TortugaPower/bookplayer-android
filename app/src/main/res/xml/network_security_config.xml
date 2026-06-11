@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Release/default network security config: HTTPS-only, system trust anchors.
+    Local development cleartext hosts are defined in the debug override at
+    app/src/debug/res/xml/network_security_config.xml and never apply here.
+-->
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">192.168.100.138</domain>
-        <domain includeSubdomains="true">10.0.2.2</domain> <!-- Android Emulator Loopback -->
-        <domain includeSubdomains="true">localhost</domain>
-    </domain-config>
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />

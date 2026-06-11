@@ -102,6 +102,7 @@ data class GoogleLoginRequest(
 
 data class GoogleLoginResponse(
     val email: String,
-    val token: String
+    val token: String,
+    @SerializedName("revenuecat_id") val revenuecatId: String?
 )
 

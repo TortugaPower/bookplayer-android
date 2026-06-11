@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.logic
 import android.content.ComponentName
 import android.content.Context
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.media3.common.MediaItem
@@ -15,6 +16,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import com.tortugapower.audiobookplayer.MainActivity
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.service.AudioPlayerService
 import kotlinx.coroutines.CoroutineScope
@@ -32,6 +34,8 @@ object PlaybackManager {
     var player: Player? by mutableStateOf(null)
         private set
 
+    private var repository: LibraryRepository? = null
+
     var currentItem: LibraryItemEntity? by mutableStateOf(null)
         private set
 
@@ -41,6 +45,9 @@ object PlaybackManager {
         private set
 
     var isPlaying by mutableStateOf(false)
+        private set
+
+    var playbackState by mutableIntStateOf(Player.STATE_IDLE)
         private set
 
     var showPlayerScreen by mutableStateOf(false)
@@ -57,8 +64,9 @@ object PlaybackManager {
     var isTransitioning by mutableStateOf(false)
     private var progressTrackerJob: kotlinx.coroutines.Job? = null
 
-    fun initialize(context: Context) {
+    fun initialize(context: Context, libraryRepository: LibraryRepository) {
         if (player != null) return
+        repository = libraryRepository
         val appContext = context.applicationContext
 
         val sessionToken = SessionToken(appContext, ComponentName(appContext, AudioPlayerService::class.java))
@@ -71,6 +79,7 @@ object PlaybackManager {
                 // Add listener once
                 mediaController.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
+                        if (isPlaying == playing) return
                         isPlaying = playing
                         if (!playing) {
                             lastPauseTime = System.currentTimeMillis()
@@ -83,8 +92,19 @@ object PlaybackManager {
                         }
                     }
 
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_ENDED) {
+                    override fun onPositionDiscontinuity(
+                        oldPosition: Player.PositionInfo,
+                        newPosition: Player.PositionInfo,
+                        reason: Int
+                    ) {
+                        if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                            updateProgress(appContext)
+                        }
+                    }
+
+                    override fun onPlaybackStateChanged(state: Int) {
+                        playbackState = state
+                        if (state == Player.STATE_ENDED) {
                             updateProgress(appContext, forceFinished = true)
                             // Auto-play next item
                             scope.launch {
@@ -96,7 +116,7 @@ object PlaybackManager {
                                     playItem(appContext, nextItem)
                                 }
                             }
-                        } else if (playbackState == Player.STATE_READY && isTransitioning) {
+                        } else if (state == Player.STATE_READY && isTransitioning) {
                             isTransitioning = false
                         }
                     }
@@ -106,47 +126,73 @@ object PlaybackManager {
                 scope.launch(Dispatchers.IO) {
                     val lastUuid = PlaybackSettingsManager.getLastItemUuid(appContext).first()
                     if (lastUuid != null) {
-                        val db = AppDatabase.getDatabase(appContext)
-                        val repository = RoomLibraryRepository(db.libraryDao())
-                        val item = repository.getItemById(lastUuid)
+                        val item = getRepository(appContext).getItemById(lastUuid)
                         if (item != null) {
                             val processedDir = File(appContext.filesDir, "Processed")
                             
                             // Update navigation states
-                            val next = repository.getAdjacentItem(item.uuid, next = true) != null
-                            val prev = repository.getAdjacentItem(item.uuid, next = false) != null
+                            val next = getRepository(appContext).getAdjacentItem(item.uuid, next = true) != null
+                            val prev = getRepository(appContext).getAdjacentItem(item.uuid, next = false) != null
                             launch(Dispatchers.Main) {
                                 hasNextItem = next
                                 hasPreviousItem = prev
                             }
 
                             val mediaItems = if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-                                val subItems = repository.getItemsInPathSync(item.relativePath ?: "")
+                                val subItems = getRepository(appContext).getItemsInPathSync(item.relativePath ?: "")
                                 subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }.map { subItem ->
                                     val file = File(processedDir, subItem.relativePath ?: "")
+                                    val uri = if (file.exists()) {
+                                        android.util.Log.d("PlaybackManager", "📄 Restoration: Using local file for ${subItem.title}")
+                                        android.net.Uri.fromFile(file)
+                                    } else if (!subItem.remoteURL.isNullOrEmpty()) {
+                                        android.util.Log.d("PlaybackManager", "🌐 Restoration: Using remote URL for ${subItem.title}")
+                                        android.net.Uri.parse(subItem.remoteURL)
+                                    } else {
+                                        android.util.Log.w("PlaybackManager", "⚠️ Restoration: No source available for ${subItem.title}")
+                                        android.net.Uri.EMPTY
+                                    }
+
                                     MediaItem.Builder()
                                         .setMediaId(subItem.uuid)
-                                        .setUri(file.absolutePath)
+                                        .setUri(uri)
                                         .setMediaMetadata(
                                             MediaMetadata.Builder()
                                                 .setTitle(subItem.title)
                                                 .setArtist(subItem.author ?: item.author ?: "Unknown author")
-                                                .setArtworkUri(subItem.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
+                                                .setArtworkUri(subItem.artworkURL?.let { 
+                                                    if (it.startsWith("http")) android.net.Uri.parse(it) 
+                                                    else android.net.Uri.fromFile(java.io.File(it)) 
+                                                })
                                                 .build()
                                         )
                                         .build()
                                 }
                             } else {
                                 val file = File(processedDir, item.relativePath ?: "")
-                                if (file.exists()) {
+                                val uri = if (file.exists()) {
+                                    android.util.Log.d("PlaybackManager", "📄 Restoration: Using local file for ${item.title}")
+                                    android.net.Uri.fromFile(file)
+                                } else if (!item.remoteURL.isNullOrEmpty()) {
+                                    android.util.Log.d("PlaybackManager", "🌐 Restoration: Using remote URL for ${item.title}")
+                                    android.net.Uri.parse(item.remoteURL)
+                                } else {
+                                    android.util.Log.w("PlaybackManager", "⚠️ Restoration: No source available for ${item.title}")
+                                    null
+                                }
+
+                                if (uri != null && uri != android.net.Uri.EMPTY) {
                                     listOf(MediaItem.Builder()
-                                        .setUri(file.absolutePath)
+                                        .setUri(uri)
                                         .setMediaId(item.uuid)
                                         .setMediaMetadata(
                                             MediaMetadata.Builder()
                                                 .setTitle(item.title)
                                                 .setArtist(item.author ?: "Unknown author")
-                                                .setArtworkUri(item.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
+                                                .setArtworkUri(item.artworkURL?.let { 
+                                                    if (it.startsWith("http")) android.net.Uri.parse(it) 
+                                                    else android.net.Uri.fromFile(java.io.File(it)) 
+                                                })
                                                 .build()
                                         )
                                         .build())
@@ -161,7 +207,7 @@ object PlaybackManager {
                                     var targetOffset = item.currentTime
                                     if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
                                         val subItems = withContext(Dispatchers.IO) {
-                                            repository.getItemsInPathSync(item.relativePath ?: "")
+                                            getRepository(appContext).getItemsInPathSync(item.relativePath ?: "")
                                         }
                                         val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                                         var cumulative = 0.0
@@ -233,6 +279,10 @@ object PlaybackManager {
         }
     }
 
+    private fun getRepository(context: Context): LibraryRepository {
+        return repository ?: RoomLibraryRepository(AppDatabase.getDatabase(context).libraryDao())
+    }
+
     private fun startProgressTracker(context: Context) {
         progressTrackerJob?.cancel()
         progressTrackerJob = scope.launch {
@@ -256,8 +306,6 @@ object PlaybackManager {
         if (!isPlayerActive && !forceFinished) return
 
         val currentPos = if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-            val db = AppDatabase.getDatabase(context)
-            val repository = RoomLibraryRepository(db.libraryDao())
             var totalPos = p.currentPosition / 1000.0
             val currentIndex = p.currentMediaItemIndex
             
@@ -266,7 +314,8 @@ object PlaybackManager {
             // For now, let's just use the current position if we can't easily get cumulative start.
             // Actually, let's just get the items in path sync.
             scope.launch(Dispatchers.IO) {
-                val subItems = repository.getItemsInPathSync(item.relativePath ?: "")
+                val repo = getRepository(context)
+                val subItems = repo.getItemsInPathSync(item.relativePath ?: "")
                 val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                 if (currentIndex >= 0 && currentIndex < books.size) {
                     var cumulativeStart = 0.0
@@ -274,7 +323,7 @@ object PlaybackManager {
                         cumulativeStart += books[i].duration
                     }
                     val finalTotalPos = cumulativeStart + totalPos
-                    repository.updateItemProgress(item.uuid, finalTotalPos, forceFinished || (finalTotalPos >= item.duration - 1.0 && item.duration > 0))
+                    repo.updateItemProgress(item.uuid, finalTotalPos, forceFinished || (finalTotalPos >= item.duration - 1.0 && item.duration > 0))
                 }
             }
             return // handled in scope
@@ -286,9 +335,7 @@ object PlaybackManager {
         val isFinished = forceFinished || (currentPos >= totalDuration - 1.0 && totalDuration > 0)
 
         scope.launch(Dispatchers.IO) {
-            val db = AppDatabase.getDatabase(context)
-            val repository = RoomLibraryRepository(db.libraryDao())
-            repository.updateItemProgress(item.uuid, currentPos, isFinished)
+            getRepository(context).updateItemProgress(item.uuid, currentPos, isFinished)
         }
     }
 
@@ -308,16 +355,40 @@ object PlaybackManager {
         lastPauseTime = 0
     }
 
-    fun playItem(context: Context, item: LibraryItemEntity) {
-        updateProgress(context, itemToUpdate = currentItem)
+    fun syncLastPlayed(context: Context, item: LibraryItemEntity) {
+        if (isPlaying || player == null) return
+        
+        // If it's the same item and very close position, skip to avoid unnecessary reloads
+        if (currentItem?.uuid == item.uuid && Math.abs(currentItem!!.currentTime - item.currentTime) < 2.0) {
+            return
+        }
+
+        android.util.Log.d("PlaybackManager", "🔄 Syncing last played item from remote: ${item.title} at ${item.currentTime}s")
+        
+        // We can reuse playItem but with autoplay = false
+        // Actually, let's make playItem support an optional autoplay flag if it doesn't already
+        // Wait, playItem always calls play(). I'll update playItem to accept an autoplay param.
+        playItem(context, item, autoplay = false)
+    }
+
+    fun playItem(context: Context, item: LibraryItemEntity, autoplay: Boolean = true) {
+        // If it's already playing the requested item, just show the player
+        if (item.uuid == currentItem?.uuid && player?.isPlaying == true) {
+            showPlayerScreen = true
+            return
+        }
+
+        // Only update progress of the previous item if we're actually switching books
+        if (currentItem?.uuid != item.uuid) {
+            updateProgress(context, itemToUpdate = currentItem)
+        }
         
         if (item.isFinished) {
             item.currentTime = 0.0
             item.isFinished = false
             item.percentCompleted = 0.0
             scope.launch(Dispatchers.IO) {
-                val db = AppDatabase.getDatabase(context)
-                db.libraryDao().updateItem(item)
+                getRepository(context).updateItemProgress(item.uuid, 0.0, false)
             }
         }
         
@@ -326,10 +397,9 @@ object PlaybackManager {
         
         // Update navigation states
         scope.launch(Dispatchers.IO) {
-            val db = AppDatabase.getDatabase(context)
-            val repository = RoomLibraryRepository(db.libraryDao())
-            val next = repository.getAdjacentItem(item.uuid, next = true) != null
-            val prev = repository.getAdjacentItem(item.uuid, next = false) != null
+            val repo = getRepository(context)
+            val next = repo.getAdjacentItem(item.uuid, next = true) != null
+            val prev = repo.getAdjacentItem(item.uuid, next = false) != null
             launch(Dispatchers.Main) {
                 hasNextItem = next
                 hasPreviousItem = prev
@@ -343,26 +413,53 @@ object PlaybackManager {
         
         scope.launch(Dispatchers.Main) {
             if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-                val db = AppDatabase.getDatabase(context)
-                val repository = RoomLibraryRepository(db.libraryDao())
                 val subItems = withContext(Dispatchers.IO) {
-                    repository.getItemsInPathSync(item.relativePath ?: "")
+                    getRepository(context).getItemsInPathSync(item.relativePath ?: "")
                 }
                 val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                 val mediaItems = books.map { subItem ->
                     val file = File(processedDir, subItem.relativePath ?: "")
+
+                    // Try to extract artwork if missing
+                    if (subItem.artworkURL == null && file.exists()) {
+                        val artworkDir = File(context.filesDir, "Artworks")
+                        if (!artworkDir.exists()) artworkDir.mkdirs()
+                        val artworkFile = File(artworkDir, "${subItem.uuid}.jpg")
+                        if (ArtworkManager.extractAndSaveArtwork(file, artworkFile)) {
+                            subItem.artworkURL = artworkFile.absolutePath
+                            withContext(Dispatchers.IO) {
+                                repository?.updateItem(subItem)
+                            }
+                        }
+                    }
+
+                    val uri = if (file.exists()) {
+                        android.util.Log.d("PlaybackManager", "📄 Playback: Using local file for ${subItem.title}")
+                        android.net.Uri.fromFile(file)
+                    } else if (!subItem.remoteURL.isNullOrEmpty()) {
+                        android.util.Log.d("PlaybackManager", "🌐 Playback: Using remote URL for ${subItem.title}")
+                        android.net.Uri.parse(subItem.remoteURL)
+                    } else {
+                        android.util.Log.w("PlaybackManager", "⚠️ Playback: No source available for ${subItem.title}")
+                        android.net.Uri.EMPTY
+                    }
+
                     MediaItem.Builder()
                         .setMediaId(subItem.uuid)
-                        .setUri(file.absolutePath)
+                        .setUri(uri)
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle(subItem.title)
                                 .setArtist(subItem.author ?: item.author ?: "Unknown author")
-                                .setArtworkUri(subItem.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
+                                .setArtworkUri(subItem.artworkURL?.let { 
+                                    if (it.startsWith("http")) android.net.Uri.parse(it) 
+                                    else android.net.Uri.fromFile(java.io.File(it)) 
+                                })
                                 .build()
                         )
                         .build()
                 }
+
 
                 if (mediaItems.isNotEmpty()) {
                     // Find correct sub-book and position
@@ -380,30 +477,62 @@ object PlaybackManager {
 
                     player?.setMediaItems(mediaItems, targetIndex, (targetOffset * 1000).toLong())
                     player?.prepare()
-                    player?.play()
-                    showPlayerScreen = true
+                    if (autoplay) {
+                        player?.play()
+                        showPlayerScreen = true
+                    }
                     player?.setPlaybackSpeed(playbackSpeed)
                     applyVolume(volumeBoost, playbackVolume)
                 }
             } else {
                 val file = File(processedDir, item.relativePath ?: "")
-                if (file.exists()) {
+                
+                // Try to extract artwork if missing
+                if (item.artworkURL == null && file.exists()) {
+                    val artworkDir = File(context.filesDir, "Artworks")
+                    if (!artworkDir.exists()) artworkDir.mkdirs()
+                    val artworkFile = File(artworkDir, "${item.uuid}.jpg")
+                    if (ArtworkManager.extractAndSaveArtwork(file, artworkFile)) {
+                        item.artworkURL = artworkFile.absolutePath
+                        withContext(Dispatchers.IO) {
+                            repository?.updateItem(item)
+                        }
+                    }
+                }
+
+                val uri = if (file.exists()) {
+                    android.util.Log.d("PlaybackManager", "📄 Playback: Using local file for ${item.title}")
+                    android.net.Uri.fromFile(file)
+                } else if (!item.remoteURL.isNullOrEmpty()) {
+                    android.util.Log.d("PlaybackManager", "🌐 Playback: Using remote URL for ${item.title}")
+                    android.net.Uri.parse(item.remoteURL)
+                } else {
+                    android.util.Log.w("PlaybackManager", "⚠️ Playback: No source available for ${item.title}")
+                    null
+                }
+
+                if (uri != null && uri != android.net.Uri.EMPTY) {
                     val mediaItem = MediaItem.Builder()
-                        .setUri(file.absolutePath)
+                        .setUri(uri)
                         .setMediaId(item.uuid)
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle(item.title)
                                 .setArtist(item.author ?: "Unknown author")
-                                .setArtworkUri(item.artworkURL?.let { android.net.Uri.fromFile(java.io.File(it)) })
+                                .setArtworkUri(item.artworkURL?.let { 
+                                    if (it.startsWith("http")) android.net.Uri.parse(it) 
+                                    else android.net.Uri.fromFile(java.io.File(it)) 
+                                })
                                 .build()
                         )
                         .build()
                     
                     player?.setMediaItem(mediaItem, (item.currentTime * 1000).toLong())
                     player?.prepare()
-                    player?.play()
-                    showPlayerScreen = true
+                    if (autoplay) {
+                        player?.play()
+                        showPlayerScreen = true
+                    }
                     player?.setPlaybackSpeed(playbackSpeed)
                     applyVolume(volumeBoost, playbackVolume)
                 }
@@ -414,8 +543,7 @@ object PlaybackManager {
     fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {
         updateProgress(context, itemToUpdate = currentItem)
         scope.launch(Dispatchers.IO) {
-            val db = AppDatabase.getDatabase(context)
-            val item = db.libraryDao().getItemByPath(path)
+            val item = getRepository(context).getItemByPath(path)
             if (item != null) {
                 launch(Dispatchers.Main) {
                     playItem(context, item)
@@ -430,7 +558,6 @@ object PlaybackManager {
         val p = player ?: return
         if (p.isPlaying) {
             p.pause()
-            updateProgress(MainActivity.currentContext ?: return)
         } else {
             if (p.playbackState == Player.STATE_IDLE) {
                 p.prepare()
@@ -444,33 +571,27 @@ object PlaybackManager {
     fun seekForward() {
         val p = player ?: return
         p.seekTo(p.currentPosition + (forwardInterval * 1000L))
-        updateProgress(MainActivity.currentContext ?: return)
     }
 
     fun seekBackward() {
         val p = player ?: return
         p.seekTo(p.currentPosition - (rewindInterval * 1000L))
-        updateProgress(MainActivity.currentContext ?: return)
     }
 
     fun seekTo(positionMs: Long) {
         val p = player ?: return
         p.seekTo(positionMs)
-        updateProgress(MainActivity.currentContext ?: return)
     }
 
     fun seekTo(mediaItemIndex: Int, positionMs: Long) {
         val p = player ?: return
         p.seekTo(mediaItemIndex, positionMs)
-        updateProgress(MainActivity.currentContext ?: return)
     }
 
     fun playNext(context: Context) {
         scope.launch {
             val current = currentItem ?: return@launch
-            val db = AppDatabase.getDatabase(context)
-            val repository = RoomLibraryRepository(db.libraryDao())
-            val nextItem = repository.getAdjacentItem(current.uuid, next = true)
+            val nextItem = getRepository(context).getAdjacentItem(current.uuid, next = true)
             if (nextItem != null) {
                 playItem(context, nextItem)
             }
@@ -480,9 +601,7 @@ object PlaybackManager {
     fun playPrevious(context: Context) {
         scope.launch {
             val current = currentItem ?: return@launch
-            val db = AppDatabase.getDatabase(context)
-            val repository = RoomLibraryRepository(db.libraryDao())
-            val prevItem = repository.getAdjacentItem(current.uuid, next = false)
+            val prevItem = getRepository(context).getAdjacentItem(current.uuid, next = false)
             if (prevItem != null) {
                 playItem(context, prevItem)
             }
@@ -492,7 +611,6 @@ object PlaybackManager {
     fun setPlaybackSpeed(context: Context, speed: Float) {
         scope.launch {
             PlaybackSettingsManager.setSpeed(context, speed)
-            updateProgress(context)
         }
     }
 

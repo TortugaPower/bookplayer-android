@@ -6,8 +6,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
+import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.ThemeManager
+import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.ui.screens.MainScreen
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerTheme
 
@@ -22,13 +26,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         currentContext = this
         
+        volumeControlStream = android.media.AudioManager.STREAM_MUSIC
+
         splashScreen.setKeepOnScreenCondition {
             !ThemeManager.isReady
         }
 
         enableEdgeToEdge()
         ThemeManager.initialize(this)
-        PlaybackManager.initialize(this)
 
         handleIntent(intent)
 

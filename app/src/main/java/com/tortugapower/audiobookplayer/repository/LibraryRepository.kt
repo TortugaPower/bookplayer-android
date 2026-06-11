@@ -15,6 +15,7 @@ interface LibraryRepository {
     suspend fun getItemByPath(path: String): LibraryItemEntity?
     
     fun getFoldersInPath(path: String?): Flow<List<LibraryItemEntity>>
+    fun getAllContainers(): Flow<List<LibraryItemEntity>>
     
     fun searchBooks(query: String): Flow<List<LibraryItemEntity>>
     

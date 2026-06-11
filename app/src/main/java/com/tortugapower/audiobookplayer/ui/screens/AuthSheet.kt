@@ -33,6 +33,7 @@ import com.tortugapower.audiobookplayer.R
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
+import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.viewmodel.AuthStep
 import com.tortugapower.audiobookplayer.viewmodel.AuthViewModel
 import com.tortugapower.audiobookplayer.viewmodel.AuthViewModelFactory
@@ -60,9 +61,10 @@ fun AuthSheet(
 
     val db = AppDatabase.getDatabase(context)
     val accountRepository = RoomAccountRepository(db.accountDao())
+    val syncTaskRepository = RoomSyncTaskRepository(db.syncTaskDao())
     val viewModel: AuthViewModel = viewModel(
         key = "AuthSheet",
-        factory = AuthViewModelFactory(accountRepository)
+        factory = AuthViewModelFactory(accountRepository, syncTaskRepository)
     )
 
     val credentialManager = CredentialManager.create(context)

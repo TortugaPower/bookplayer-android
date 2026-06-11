@@ -10,6 +10,12 @@ interface SyncTaskDao {
     @Query("SELECT * FROM sync_tasks ORDER BY createdAt ASC")
     fun getAllTasks(): Flow<List<SyncTaskEntity>>
 
+    @Query("SELECT * FROM sync_tasks")
+    suspend fun getAllTasksSync(): List<SyncTaskEntity>
+
+    @Query("SELECT * FROM sync_tasks WHERE taskID = :uuid OR payload LIKE '%' || :uuid || '%'")
+    suspend fun findTasksByUuid(uuid: String): List<SyncTaskEntity>
+
     @Query("SELECT * FROM sync_tasks WHERE status = :status ORDER BY position ASC")
     suspend fun getTasksByStatus(status: SyncTaskStatus): List<SyncTaskEntity>
 
@@ -31,6 +37,24 @@ interface SyncTaskDao {
     @Query("DELETE FROM sync_tasks WHERE status = 'COMPLETED'")
     suspend fun clearCompletedTasks()
 
+    @Query("UPDATE sync_tasks SET status = 'PENDING' WHERE status = 'RUNNING'")
+    suspend fun resetRunningTasks()
+
+    @Query("DELETE FROM sync_tasks")
+    suspend fun deleteAllTasks()
+
     @Query("SELECT * FROM sync_tasks WHERE id = :id")
     suspend fun getTaskById(id: String): SyncTaskEntity?
+
+    @Query("SELECT COUNT(*) FROM sync_tasks WHERE jobType = :jobType AND (status = 'PENDING' OR status = 'RUNNING')")
+    suspend fun countActiveTasksByType(jobType: String): Int
+
+    @Query("SELECT COUNT(*) FROM sync_tasks WHERE status = 'PENDING' OR status = 'RUNNING'")
+    suspend fun countActiveTasks(): Int
+
+    @Query("SELECT COUNT(*) FROM sync_tasks WHERE queueKey = :queueKey AND (status = 'PENDING' OR status = 'RUNNING')")
+    suspend fun countActiveTasksInQueue(queueKey: String): Int
+
+    @Query("SELECT * FROM sync_tasks WHERE jobType = :jobType AND taskID = :taskId AND status = 'PENDING' LIMIT 1")
+    suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity?
 }

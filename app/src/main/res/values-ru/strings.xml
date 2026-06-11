@@ -23,6 +23,7 @@
     <string name="common_completed">Завершено</string>
     <string name="common_pro_locked">Pro</string>
     <string name="common_search">Поиск</string>
+    <string name="common_download">Скачать</string>
     <string name="common_update">Обновить</string>
     <string name="common_add">Добавить</string>
     <string name="common_details">Детали</string>
@@ -199,5 +200,21 @@
     <string name="interval_minutes">%1$d мин</string>
     <string name="duration_hms">%1$dч %2$дм %3$дс</string>
     <string name="duration_ms">%1$дм %2$дс</string>
+
+    <!-- Sync Tasks -->
+    <string name="sync_task_generic">Задача синхронизации</string>
+    <string name="sync_task_upload_metadata">Загрузка метаданных</string>
+    <string name="sync_task_update_progress">Обновление прогресса</string>
+    <string name="sync_task_move_item">Переместить элемент</string>
+    <string name="sync_task_delete_item">Удалить элемент</string>
+    <string name="sync_task_set_bookmark">Установить закладку</string>
+    <string name="sync_task_remove_bookmark">Удалить закладку</string>
+    <string name="sync_task_rename_folder">Переименовать папку</string>
+    <string name="sync_task_upload_artwork">Загрузить обложку</string>
+    <string name="sync_task_fetch_library">Получить библиотеку</string>
+    <string name="sync_task_upload_audio">Загрузить аудио</string>
+    <string name="sync_task_download_audio">Скачать аудио</string>
+    <string name="sync_task_sync_identifiers">Синхронизировать идентификаторы</string>
+    <string name="sync_task_match_library_ids">Сопоставить ID библиотеки</string>
 
 </resources>

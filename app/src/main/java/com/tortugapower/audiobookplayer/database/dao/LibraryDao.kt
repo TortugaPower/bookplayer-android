@@ -36,8 +36,17 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items WHERE type = 'FOLDER' AND relativePath LIKE :path || '/%' AND relativePath NOT LIKE :path || '/%/%'")
     fun getFoldersInPath(path: String): Flow<List<LibraryItemEntity>>
 
+    @Query("SELECT * FROM library_items WHERE type = 'FOLDER' OR type = 'BOUND' ORDER BY title ASC")
+    fun getAllContainers(): Flow<List<LibraryItemEntity>>
+
     @Query("SELECT * FROM library_items WHERE type = 'BOOK' AND title LIKE '%' || :query || '%' ORDER BY title ASC")
     fun searchBooks(query: String): Flow<List<LibraryItemEntity>>
+
+    @Query("SELECT * FROM library_items WHERE type = 'BOOK'")
+    suspend fun getAllBooksSync(): List<LibraryItemEntity>
+
+    @Query("SELECT * FROM library_items")
+    suspend fun getAllItemsSync(): List<LibraryItemEntity>
 
     @Query("SELECT MAX(orderRank) FROM library_items WHERE relativePath NOT LIKE '%/%'")
     suspend fun getMaxRootOrderRank(): Int?
@@ -80,4 +89,24 @@ interface LibraryDao {
 
     @Delete
     suspend fun deleteBookmark(bookmark: BookmarkEntity)
+
+    @Transaction
+    suspend fun migrateItemUuid(oldUuid: String, newUuid: String) {
+        val item = getItemById(oldUuid) ?: return
+        
+        // 1. Update Chapters to the new UUID
+        updateChaptersUuid(oldUuid, newUuid)
+        // 2. Update Bookmarks to the new UUID
+        updateBookmarksUuid(oldUuid, newUuid)
+        // 3. Delete old item
+        deleteItem(item)
+        // 4. Insert new item with new UUID
+        insertItem(item.copy(uuid = newUuid))
+    }
+
+    @Query("UPDATE chapters SET bookUuid = :newUuid WHERE bookUuid = :oldUuid")
+    suspend fun updateChaptersUuid(oldUuid: String, newUuid: String)
+
+    @Query("UPDATE bookmarks SET bookUuid = :newUuid WHERE bookUuid = :oldUuid")
+    suspend fun updateBookmarksUuid(oldUuid: String, newUuid: String)
 }

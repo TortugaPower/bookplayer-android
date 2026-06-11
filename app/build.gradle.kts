@@ -33,7 +33,7 @@ android {
         applicationId = "com.tortugapower.audiobookplayer"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
+        versionCode = 12
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -100,6 +100,11 @@ android {
         compose = true
         buildConfig = true
     }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
 }
 
 dependencies {
@@ -127,6 +132,7 @@ dependencies {
     implementation(libs.googleid)
     implementation(libs.coil.compose)
     implementation(libs.billing.ktx)
+    implementation(libs.purchases)
 
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)

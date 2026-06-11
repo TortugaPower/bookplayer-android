@@ -12,7 +12,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class LibraryViewModel(
-    private val repository: LibraryRepository
+    private val repository: com.tortugapower.audiobookplayer.repository.LibraryRepository,
+    private val syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 ) : ViewModel() {
 
     private val _currentPath = MutableStateFlow<String?>(null)
@@ -74,6 +75,14 @@ class LibraryViewModel(
                 initialValue = emptyList()
             )
         }
+    }
+
+    fun getAllContainers(): StateFlow<List<LibraryItemEntity>> {
+        return repository.getAllContainers().stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
     }
 
     fun navigateTo(path: String) {
@@ -152,10 +161,18 @@ class LibraryViewModel(
     }
 
     fun updateItemDetails(item: LibraryItemEntity, newTitle: String, newAuthor: String) {
-        viewModelScope.launch {
-            item.title = newTitle
-            item.author = newAuthor
-            repository.updateItem(item)
+        val titleChanged = item.title != newTitle
+        val authorChanged = item.author != newAuthor
+
+        if (titleChanged || authorChanged) {
+            viewModelScope.launch {
+                item.title = newTitle
+                item.author = newAuthor
+                repository.updateItem(item)
+                
+                // Enqueue sync task
+                com.tortugapower.audiobookplayer.logic.SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
+            }
         }
     }
 
@@ -179,6 +196,9 @@ class LibraryViewModel(
                     // Delete old artwork if exists
                     com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
                     item.artworkURL = destFile.absolutePath
+                    
+                    // Enqueue sync task for artwork
+                    com.tortugapower.audiobookplayer.logic.SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, item)
                 }
             }
             repository.updateItem(item)

@@ -45,7 +45,62 @@ class RoomSyncTaskRepository(
         syncTaskDao.clearCompletedTasks()
     }
 
+    override suspend fun resetRunningTasks() = withContext(Dispatchers.IO) {
+        syncTaskDao.resetRunningTasks()
+    }
+
+    override suspend fun deleteAllTasks() = withContext(Dispatchers.IO) {
+        syncTaskDao.deleteAllTasks()
+    }
+
     override suspend fun getTaskById(id: String): SyncTaskEntity? = withContext(Dispatchers.IO) {
         syncTaskDao.getTaskById(id)
+    }
+
+    override suspend fun countActiveTasks(): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.countActiveTasks()
+    }
+
+    override suspend fun countActiveTasksInQueue(queueKey: String): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.countActiveTasksInQueue(queueKey)
+    }
+
+    override suspend fun countActiveTasksByType(jobType: String): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.countActiveTasksByType(jobType)
+    }
+
+    override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = withContext(Dispatchers.IO) {
+        syncTaskDao.getPendingTaskByTypeAndTaskId(jobType, taskId)
+    }
+
+    override suspend fun migrateTaskUuid(oldUuid: String, newUuid: String) = withContext(Dispatchers.IO) {
+        val affectedTasks = syncTaskDao.findTasksByUuid(oldUuid)
+        for (task in affectedTasks) {
+            var updated = false
+            var newTaskId = task.taskID
+            if (task.taskID == oldUuid) {
+                newTaskId = newUuid
+                updated = true
+            }
+            
+            var newPayload = task.payload
+            if (task.payload.contains(oldUuid)) {
+                newPayload = task.payload.replace(oldUuid, newUuid)
+                updated = true
+            }
+            
+            if (updated) {
+                // Determine the new primary key (jobType + newTaskId)
+                val newId = "${task.jobType}_$newTaskId"
+                
+                // Use a transaction-like sequence: delete old, insert updated
+                syncTaskDao.deleteTask(task)
+                syncTaskDao.insertTask(task.copy(
+                    id = newId,
+                    taskID = newTaskId,
+                    payload = newPayload
+                ))
+            }
+        }
     }
 }

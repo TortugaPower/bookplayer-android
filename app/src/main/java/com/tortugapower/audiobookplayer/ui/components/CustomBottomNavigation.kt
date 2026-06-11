@@ -1,5 +1,8 @@
 package com.tortugapower.audiobookplayer.ui.components
 
+import android.util.Log
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
@@ -27,13 +30,19 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.res.stringResource
 import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import com.tortugapower.audiobookplayer.R
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material3.ripple
 
 sealed class Screen(
     val route: String,
     @StringRes val label: Int,
     val icon: @Composable () -> Unit,
 ) {
+    open fun isSelected(currentRoute: String?): Boolean = currentRoute == route
+
     object Library : Screen(
         route = "library",
         label = R.string.library_title_default,
@@ -49,13 +58,24 @@ sealed class Screen(
         route = "profile",
         label = R.string.profile_title,
         icon = { Icon(Icons.Default.Person, contentDescription = stringResource(R.string.profile_title)) },
-    )
+    ) {
+        override fun isSelected(currentRoute: String?): Boolean {
+            return currentRoute == route || 
+                   currentRoute == "accountDetails" || 
+                   currentRoute == "queuedTasks" || 
+                   currentRoute?.startsWith("taskDetail/") == true
+        }
+    }
 
     object Settings : Screen(
         route = "settings",
         label = R.string.settings_title,
         icon = { Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings_title)) },
-    )
+    ) {
+        override fun isSelected(currentRoute: String?): Boolean {
+            return currentRoute == route || currentRoute == "themes"
+        }
+    }
 }
 
 @Composable
@@ -65,15 +85,35 @@ fun CustomBottomNavigation(
 ) {
     val screens = listOf(Screen.Library, Screen.Profile, Screen.Settings)
     ShortNavigationBar(
-        containerColor = MaterialTheme.colorScheme.surface,
+         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         screens.forEach { screen ->
-            ShortNavigationBarItem(
-                selected = currentRoute == screen.route,
-                onClick = { onTabSelected(screen) },
-                icon = screen.icon,
-                label = { Text(stringResource(screen.label)) },
-            )
+            val interactionSource = remember { MutableInteractionSource() }
+
+            Box(
+                modifier = Modifier.fillMaxHeight(),
+                contentAlignment = Alignment.Center
+            ) {
+                // 2. The Visual Component (Background layer)
+                ShortNavigationBarItem(
+                    selected = screen.isSelected(currentRoute),
+                    onClick = { /* Keep this completely empty */ },
+                    icon = screen.icon,
+                    label = { Text(stringResource(screen.label)) },
+                    interactionSource = interactionSource // Connects visual state to our custom click
+                )
+
+                // 3. The Interactive Glass Pane (Foreground layer)
+                Box(
+                    modifier = Modifier
+                        .matchParentSize() // Forces this pane to exactly cover the entire item (icon + label)
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null, // Set to null so we don't get ugly double-ripples
+                            onClick = { onTabSelected(screen) }
+                        )
+                )
+            }
         }
     }
 }

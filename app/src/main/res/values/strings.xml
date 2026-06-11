@@ -23,6 +23,7 @@
     <string name="common_completed">Completed</string>
     <string name="common_pro_locked">Pro</string>
     <string name="common_search">Search</string>
+    <string name="common_download">Download</string>
     <string name="common_update">Update</string>
     <string name="common_add">Add</string>
     <string name="common_details">Details</string>
@@ -203,5 +204,21 @@
     <string name="interval_minutes">%1$d min</string>
     <string name="duration_hms">%1$dh %2$dm %3$ds</string>
     <string name="duration_ms">%1$dm %2$ds</string>
+
+    <!-- Sync Tasks -->
+    <string name="sync_task_generic">Sync Task</string>
+    <string name="sync_task_upload_metadata">Metadata Upload</string>
+    <string name="sync_task_update_progress">Update Progress</string>
+    <string name="sync_task_move_item">Move Item</string>
+    <string name="sync_task_delete_item">Delete Item</string>
+    <string name="sync_task_set_bookmark">Set Bookmark</string>
+    <string name="sync_task_remove_bookmark">Remove Bookmark</string>
+    <string name="sync_task_rename_folder">Rename Folder</string>
+    <string name="sync_task_upload_artwork">Upload Artwork</string>
+    <string name="sync_task_fetch_library">Fetch Library</string>
+    <string name="sync_task_upload_audio">Upload Audio</string>
+    <string name="sync_task_download_audio">Download Audio</string>
+    <string name="sync_task_sync_identifiers">Sync Identifiers</string>
+    <string name="sync_task_match_library_ids">Match Library IDs</string>
 
 </resources>

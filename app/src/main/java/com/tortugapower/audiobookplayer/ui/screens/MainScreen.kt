@@ -21,6 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -30,6 +33,8 @@ import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
+import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
+import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
 import com.tortugapower.audiobookplayer.ui.components.CustomBottomNavigation
 import com.tortugapower.audiobookplayer.ui.components.MiniPlayer
 import com.tortugapower.audiobookplayer.ui.components.Screen
@@ -44,19 +49,39 @@ fun MainScreen() {
     
     val context = LocalContext.current
     val database = remember { AppDatabase.getDatabase(context) }
-    val libraryRepository = remember { RoomLibraryRepository(database.libraryDao()) }
+    val baseLibraryRepository = remember { RoomLibraryRepository(database.libraryDao()) }
+    val syncTaskRepository = remember { RoomSyncTaskRepository(database.syncTaskDao()) }
     val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
+    
+    val libraryRepository = remember { 
+        SyncingLibraryRepository(baseLibraryRepository, syncTaskRepository, accountRepository)
+    }
 
     val playerViewModel: PlayerViewModel = viewModel(
         factory = PlayerViewModelFactory(libraryRepository)
     )
 
     val profileViewModel: ProfileViewModel = viewModel(
-        factory = ProfileViewModelFactory(accountRepository)
+        factory = ProfileViewModelFactory(accountRepository, syncTaskRepository)
+    )
+
+    val libraryViewModel: LibraryViewModel = viewModel(
+        factory = LibraryViewModelFactory(libraryRepository, syncTaskRepository)
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
+            modifier = Modifier.semantics {
+                if (PlaybackManager.showPlayerScreen) {
+                    hideFromAccessibility()
+                    // More aggressive approach for some versions of TalkBack
+                    // by ensuring it's not a traversal group
+                }
+            }.then(
+                if (PlaybackManager.showPlayerScreen) {
+                    Modifier.clearAndSetSemantics { }
+                } else Modifier
+            ),
             containerColor = MaterialTheme.colorScheme.background,
             // Each tab destination owns its own top bar / LargeTopAppBar, so the outer
             // Scaffold hands top-inset duty to the inner Scaffolds.
@@ -95,8 +120,35 @@ fun MainScreen() {
                     popEnterTransition = { EnterTransition.None },
                     popExitTransition = { ExitTransition.None }
                 ) {
-                    composable(Screen.Library.route) { LibraryScreen() }
-                    composable(Screen.Profile.route) { ProfileScreen(viewModel = profileViewModel) }
+                    composable(Screen.Library.route) { LibraryScreen(viewModel = libraryViewModel) }
+                    composable(Screen.Profile.route) { 
+                        ProfileScreen(
+                            viewModel = profileViewModel,
+                            onNavigateToAccountDetails = { navController.navigate("accountDetails") },
+                            onNavigateToQueuedTasks = { navController.navigate("queuedTasks") }
+                        ) 
+                    }
+                    composable("accountDetails") {
+                        AccountDetailsScreen(
+                            viewModel = profileViewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("queuedTasks") {
+                        QueuedTasksScreen(
+                            viewModel = profileViewModel,
+                            onBack = { navController.popBackStack() },
+                            onNavigateToQueue = { queueKey -> navController.navigate("taskDetail/$queueKey") }
+                        )
+                    }
+                    composable("taskDetail/{queueKey}") { backStackEntry ->
+                        val queueKey = backStackEntry.arguments?.getString("queueKey") ?: ""
+                        TaskDetailScreen(
+                            viewModel = profileViewModel,
+                            queueKey = queueKey,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
                     
                     composable(
                         route = Screen.Settings.route,
