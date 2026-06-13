@@ -93,8 +93,7 @@ fun AuthSheet(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 32.dp)
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
-            // Header
+            // Header — the sheet's drag handle already provides the gap above it.
             AuthHeader(
                 step = viewModel.currentStep,
                 onBack = {
@@ -152,7 +151,7 @@ fun AuthHeader(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         val isCodeStep = step == AuthStep.CODE_VERIFICATION
         IconButton(

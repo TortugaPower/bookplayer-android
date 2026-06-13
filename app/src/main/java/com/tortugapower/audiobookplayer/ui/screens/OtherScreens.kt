@@ -10,6 +10,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -56,12 +58,12 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun ProfileScreen(
-    viewModel: ProfileViewModel, 
+    viewModel: ProfileViewModel,
     onNavigateToAccountDetails: () -> Unit,
     onNavigateToQueuedTasks: () -> Unit
 ) {
     val context = LocalContext.current
-    
+
     // Use cached account state from ViewModel
     val account by viewModel.account.collectAsState()
     val pendingTasksCount by viewModel.pendingTasksCount.collectAsState()
@@ -73,9 +75,9 @@ fun ProfileScreen(
     if (showProSheet) {
         BookPlayerProSheet(
             onDismiss = { showProSheet = false },
-            onPasskeyClick = { 
+            onPasskeyClick = {
                 showProSheet = false
-                showAuthSheet = true 
+                showAuthSheet = true
             }
         )
     }
@@ -99,7 +101,7 @@ fun ProfileScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(32.dp))
-                .clickable { 
+                .clickable {
                     if (account == null) showProSheet = true
                     else onNavigateToAccountDetails()
                 },
@@ -133,11 +135,11 @@ fun ProfileScreen(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    
+
                     if (account != null) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Surface(
-                            color = if (account?.tier == AccountTier.PRO) Color.DarkGray.copy(alpha = 0.8f) 
+                            color = if (account?.tier == AccountTier.PRO) Color.DarkGray.copy(alpha = 0.8f)
                                     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -145,7 +147,7 @@ fun ProfileScreen(
                                 text = account!!.tier.name.lowercase(),
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (account?.tier == AccountTier.PRO) Color.White 
+                                color = if (account?.tier == AccountTier.PRO) Color.White
                                         else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -254,7 +256,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { 
+                title = {
                     Text(
                         text = account?.email ?: "",
                         style = MaterialTheme.typography.titleMedium,
@@ -299,7 +301,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(24.dp))
-                    
+
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -341,7 +343,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             /*
             // Passkey section
             Text(
@@ -378,7 +380,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                     .fillMaxWidth()
                     .height(56.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .clickable { 
+                    .clickable {
                         viewModel.logout()
                         onBack()
                     },
@@ -469,14 +471,14 @@ fun PaywallSheet(onDismiss: () -> Unit) {
                 ) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.primary)
                 }
-                
+
                 Text(
                     text = "BookPlayer Pro",
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                
+
                 TextButton(
                     onClick = {
                         PurchaseFlowManager.restorePurchases { success, _ ->
@@ -500,7 +502,7 @@ fun PaywallSheet(onDismiss: () -> Unit) {
             if (allPackages.isEmpty() && currentOfferings?.current != null) {
                 allPackages = currentOfferings.current!!.availablePackages
             }
-            
+
             allPackages.forEach { pkg ->
                 val isSelected = selectedPackage == pkg
                 Surface(
@@ -570,7 +572,7 @@ fun PaywallSheet(onDismiss: () -> Unit) {
 
 @Composable
 fun BookPlayerProSheet(
-    onDismiss: () -> Unit, 
+    onDismiss: () -> Unit,
     onPasskeyClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -596,7 +598,7 @@ fun BookPlayerProSheet(
             onDismiss()
         }
     }
-    
+
     var showPaywall by remember { mutableStateOf(false) }
 
     if (showPaywall) {
@@ -616,12 +618,12 @@ fun BookPlayerProSheet(
                     .fillMaxSize()
                     .padding(horizontal = 24.dp)
             ) {
-                Spacer(modifier = Modifier.height(8.dp))
-                // Header
+                // Header. No top spacer/padding here — the sheet's drag handle already
+                // contributes its standard ~22dp gap above this row.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 16.dp),
+                        .padding(bottom = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     IconButton(
@@ -633,7 +635,7 @@ fun BookPlayerProSheet(
                     ) {
                         Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close), tint = MaterialTheme.colorScheme.primary)
                     }
-                    
+
                     Text(
                         text = stringResource(R.string.pro_title),
                         style = MaterialTheme.typography.titleMedium,
@@ -641,48 +643,57 @@ fun BookPlayerProSheet(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                // Scrollable content between the fixed header and the pinned bottom buttons.
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Spacer(modifier = Modifier.height(32.dp))
 
-                // Features
-                ProFeatureRow(
-                    icon = Icons.Default.CloudUpload,
-                    title = stringResource(R.string.pro_feature_cloud_sync_title),
-                    description = stringResource(R.string.pro_feature_cloud_sync_desc)
-                )
-                
-                Spacer(modifier = Modifier.height(32.dp))
-                
-                ProFeatureRow(
-                    icon = Icons.Default.Palette,
-                    title = stringResource(R.string.pro_feature_themes_title),
-                    description = stringResource(R.string.pro_feature_themes_desc)
-                )
+                    // Features
+                    ProFeatureRow(
+                        icon = Icons.Default.CloudUpload,
+                        title = stringResource(R.string.pro_feature_cloud_sync_title),
+                        description = stringResource(R.string.pro_feature_cloud_sync_desc)
+                    )
 
-                Spacer(modifier = Modifier.height(48.dp))
+                    Spacer(modifier = Modifier.height(32.dp))
 
-                // Disclaimer Section
-                Text(
-                    text = stringResource(R.string.pro_disclaimer_header),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                DisclaimerItem(text = stringResource(R.string.pro_disclaimer_account))
-                DisclaimerItem(text = stringResource(R.string.pro_disclaimer_subscription))
+                    ProFeatureRow(
+                        icon = Icons.Default.Palette,
+                        title = stringResource(R.string.pro_feature_themes_title),
+                        description = stringResource(R.string.pro_feature_themes_desc)
+                    )
 
+                    Spacer(modifier = Modifier.height(48.dp))
+
+                    // Disclaimer Section
+                    Text(
+                        text = stringResource(R.string.pro_disclaimer_header),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    DisclaimerItem(text = stringResource(R.string.pro_disclaimer_account))
+                    DisclaimerItem(text = stringResource(R.string.pro_disclaimer_subscription))
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+
+                // --- Pinned bottom: error + auth buttons ---
                 if (viewModel.errorMessage != null) {
                     Text(
                         text = viewModel.errorMessage!!,
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 16.dp)
+                        modifier = Modifier.padding(bottom = 16.dp)
                     )
                 }
-
-                Spacer(modifier = Modifier.weight(1f))
 
                 // Collect account state to determine if user is logged in
                 val dbAccount by accountRepository.getAccountFlow().collectAsState(initial = null)
@@ -736,7 +747,7 @@ fun BookPlayerProSheet(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     TextButton(
                         onClick = onPasskeyClick,
@@ -745,7 +756,7 @@ fun BookPlayerProSheet(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.Person,
+                                imageVector = Icons.Default.Fingerprint,
                                 contentDescription = null,
                                 modifier = Modifier.size(20.dp),
                                 tint = MaterialTheme.colorScheme.primary
@@ -760,8 +771,8 @@ fun BookPlayerProSheet(
                         }
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(48.dp))
+
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
             // Global Loader
@@ -1039,7 +1050,7 @@ fun QueuedTasksScreen(
 ) {
     val tasks by viewModel.syncTasks.collectAsState()
     val lastSyncTimestamp by viewModel.lastSyncTimestamp.collectAsState()
-    
+
     val queues = tasks.groupBy { it.queueKey }
 
     BookPlayerTabScaffold(
@@ -1078,7 +1089,7 @@ fun QueuedTasksScreen(
                 queues.forEach { (queueKey, queueTasks) ->
                     val pendingInQueue = queueTasks.count { it.status != SyncTaskStatus.COMPLETED }
                     val runningTask = queueTasks.find { it.status == SyncTaskStatus.RUNNING }
-                    
+
                     item {
                         Surface(
                             modifier = Modifier
@@ -1122,7 +1133,7 @@ fun TaskDetailScreen(
     val tasks by viewModel.syncTasks.collectAsState()
     val progressMap by viewModel.taskProgress.collectAsState()
     val filteredTasks = tasks.filter { it.queueKey == queueKey }
-    
+
     val pendingCount = filteredTasks.count { it.status != SyncTaskStatus.COMPLETED }
     val title = if (queueKey == "sync") "Sync Tasks ($pendingCount)" else "File Tasks ($pendingCount)"
 
