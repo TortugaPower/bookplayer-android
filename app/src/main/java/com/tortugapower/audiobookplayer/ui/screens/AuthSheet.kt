@@ -110,20 +110,20 @@ fun AuthSheet(
                 AuthStep.EMAIL_INPUT -> {
                     EmailInputScreen(
                         email = viewModel.email,
-                        onEmailChange = { viewModel.email = it },
+                        onEmailChange = { viewModel.email = it; viewModel.validationError = null },
                         onContinue = { viewModel.onEmailContinue(context) },
                         onPasskeySignIn = { viewModel.onSignInWithPasskey() },
-                        errorMessage = viewModel.errorMessage
+                        validationError = viewModel.validationError
                     )
                 }
                 AuthStep.CODE_VERIFICATION -> {
                     CodeVerificationScreen(
                         email = viewModel.email,
                         code = viewModel.verificationCode,
-                        onCodeChange = { viewModel.verificationCode = it },
+                        onCodeChange = { viewModel.verificationCode = it; viewModel.validationError = null },
                         onVerify = { viewModel.onVerifyCode(context) },
                         onResend = { viewModel.onEmailContinue(context) },
-                        errorMessage = viewModel.errorMessage
+                        validationError = viewModel.validationError
                     )
                 }
                 AuthStep.LOADING -> {
@@ -139,7 +139,29 @@ fun AuthSheet(
                 AuthStep.ERROR -> { }
             }
         }
+
+        // Errors surface as a native alert dialog.
+        AuthErrorDialog(message = viewModel.errorMessage) { viewModel.errorMessage = null }
     }
+}
+
+/**
+ * Native Material alert dialog for auth errors — the Android equivalent of an iOS `.alert()`.
+ * Renders only when [message] is non-null; [onDismiss] should clear the error state.
+ */
+@Composable
+fun AuthErrorDialog(message: String?, onDismiss: () -> Unit) {
+    if (message == null) return
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.common_error)) },
+        text = { Text(message) },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.common_ok))
+            }
+        }
+    )
 }
 
 @Composable
@@ -187,7 +209,7 @@ fun EmailInputScreen(
     onEmailChange: (String) -> Unit,
     onContinue: () -> Unit,
     onPasskeySignIn: () -> Unit,
-    errorMessage: String?
+    validationError: String?
 ) {
     Column(
         modifier = Modifier
@@ -226,12 +248,15 @@ fun EmailInputScreen(
             }
         )
 
-        if (errorMessage != null) {
+        if (validationError != null) {
             Text(
-                text = errorMessage,
+                text = validationError,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 8.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                textAlign = TextAlign.Start
             )
         }
 
@@ -263,7 +288,7 @@ fun CodeVerificationScreen(
     onCodeChange: (String) -> Unit,
     onVerify: () -> Unit,
     onResend: () -> Unit,
-    errorMessage: String?
+    validationError: String?
 ) {
     val focusRequester = remember { FocusRequester() }
     var textFieldValue by remember {
@@ -345,9 +370,9 @@ fun CodeVerificationScreen(
             }
         )
 
-        if (errorMessage != null) {
+        if (validationError != null) {
             Text(
-                text = errorMessage,
+                text = validationError,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 8.dp)

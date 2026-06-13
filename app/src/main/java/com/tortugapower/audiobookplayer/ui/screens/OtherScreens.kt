@@ -685,16 +685,7 @@ fun BookPlayerProSheet(
                     Spacer(modifier = Modifier.height(24.dp))
                 }
 
-                // --- Pinned bottom: error + auth buttons ---
-                if (viewModel.errorMessage != null) {
-                    Text(
-                        text = viewModel.errorMessage!!,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                }
-
+                // --- Pinned bottom: auth buttons (errors surface via AuthErrorDialog) ---
                 // Collect account state to determine if user is logged in
                 val dbAccount by accountRepository.getAccountFlow().collectAsState(initial = null)
 
@@ -787,6 +778,9 @@ fun BookPlayerProSheet(
                     CircularProgressIndicator()
                 }
             }
+
+            // Errors surface as a native alert dialog.
+            AuthErrorDialog(message = viewModel.errorMessage) { viewModel.errorMessage = null }
         }
     }
 }

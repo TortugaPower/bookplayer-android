@@ -59,14 +59,19 @@ class AuthViewModel(
     var currentStep by mutableStateOf(AuthStep.EMAIL_INPUT)
     var email by mutableStateOf("")
     var verificationCode by mutableStateOf("")
+    // Network / operation failures — surfaced as a modal alert dialog.
     var errorMessage by mutableStateOf<String?>(null)
+    // Client-side input validation — surfaced inline next to the field.
+    var validationError by mutableStateOf<String?>(null)
     var verificationToken by mutableStateOf<String?>(null)
     var passkeySignInRequested by mutableStateOf(false)
     var passkeyRegistrationRequested by mutableStateOf(false)
 
     fun onEmailContinue(context: Context) {
+        validationError = null
         if (!isValidEmail(email)) {
-            errorMessage = context.getString(R.string.auth_error_invalid_email)
+            // Client-side validation — stays inline, no network call made.
+            validationError = context.getString(R.string.auth_error_invalid_email)
             return
         }
 
@@ -91,8 +96,10 @@ class AuthViewModel(
     }
 
     fun onVerifyCode(context: Context) {
+        validationError = null
         if (verificationCode.length != 6) {
-            errorMessage = context.getString(R.string.auth_error_enter_code)
+            // Client-side validation — stays inline, no network call made.
+            validationError = context.getString(R.string.auth_error_enter_code)
             return
         }
 
@@ -314,6 +321,7 @@ class AuthViewModel(
         email = ""
         verificationCode = ""
         errorMessage = null
+        validationError = null
         verificationToken = null
         passkeySignInRequested = false
         passkeyRegistrationRequested = false

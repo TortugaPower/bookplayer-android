@@ -12,6 +12,7 @@
     <string name="common_more">More</string>
     <string name="common_done">Done</string>
     <string name="common_ok">OK</string>
+    <string name="common_error">Error</string>
     <string name="common_cancel">Cancel</string>
     <string name="common_save">Save</string>
     <string name="common_delete">Delete</string>
