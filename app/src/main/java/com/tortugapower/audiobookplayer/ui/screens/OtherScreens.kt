@@ -583,45 +583,7 @@ fun BookPlayerProSheet(
         factory = AuthViewModelFactory(accountRepository, syncTaskRepository)
     )
 
-    val credentialManager = androidx.credentials.CredentialManager.create(context)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    // Helper to find the actual Activity context required by CredentialManager
-    fun findActivity(context: android.content.Context): android.app.Activity? {
-        var currentContext = context
-        while (currentContext is android.content.ContextWrapper) {
-            if (currentContext is android.app.Activity) return currentContext
-            currentContext = currentContext.baseContext
-        }
-        return null
-    }
-
-    fun handleGoogleSignIn() {
-        val googleIdOption = com.google.android.libraries.identity.googleid.GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(com.tortugapower.audiobookplayer.network.NetworkConstants.GOOGLE_CLIENT_ID)
-            .build()
-
-        val request = androidx.credentials.GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
-            .build()
-
-        val activity = findActivity(context)
-
-        scope.launch {
-            try {
-                if (activity == null) return@launch
-                val result = credentialManager.getCredential(activity, request)
-                val credential = result.credential
-                
-                if (credential is com.google.android.libraries.identity.googleid.GoogleIdTokenCredential) {
-                    viewModel.googleLogin(credential.idToken, credential.id)
-                }
-            } catch (e: Exception) {
-                viewModel.errorMessage = context.getString(R.string.auth_error_signin_failed, e.message ?: "")
-            }
-        }
-    }
 
     // Reset when shown
     LaunchedEffect(Unit) {
@@ -732,36 +694,37 @@ fun BookPlayerProSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF5E67D4),
-                            contentColor = Color.White
-                        ),
                         shape = RoundedCornerShape(12.dp),
                     ) {
                         Text(
-                            text = "Continue",
+                            text = stringResource(R.string.common_continue),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 } else {
-                    // Not logged in: Login Buttons
-                    Button(
-                        onClick = { handleGoogleSignIn() },
+                    // Not logged in: Login Buttons.
+                    // Google-branded sign-in button per Google's branding guidelines: neutral
+                    // surface, full-color "G" logo (never tinted), outline. Theme-aware so it
+                    // reads correctly in light and dark.
+                    OutlinedButton(
+                        onClick = { scope.launch { viewModel.signInWithGoogle(context) } },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.Black,
-                            contentColor = Color.White
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.onSurface
                         ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         shape = RoundedCornerShape(12.dp),
                         enabled = viewModel.currentStep != com.tortugapower.audiobookplayer.viewmodel.AuthStep.LOADING
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.AccountCircle,
+                                painter = androidx.compose.ui.res.painterResource(R.drawable.ic_google_logo),
                                 contentDescription = null,
+                                tint = Color.Unspecified,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
@@ -806,11 +769,11 @@ fun BookPlayerProSheet(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.3f))
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
                         .clickable(enabled = false) {},
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = Color.White)
+                    CircularProgressIndicator()
                 }
             }
         }

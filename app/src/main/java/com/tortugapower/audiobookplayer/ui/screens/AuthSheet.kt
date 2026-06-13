@@ -1,13 +1,10 @@
 package com.tortugapower.audiobookplayer.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.TextRange
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -15,41 +12,29 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.res.stringResource
-import com.tortugapower.audiobookplayer.R
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.viewmodel.AuthStep
 import com.tortugapower.audiobookplayer.viewmodel.AuthViewModel
 import com.tortugapower.audiobookplayer.viewmodel.AuthViewModelFactory
-import androidx.credentials.CreatePublicKeyCredentialRequest
-import androidx.credentials.CredentialManager
-import androidx.credentials.GetCredentialRequest
-import androidx.credentials.GetPublicKeyCredentialOption
-import androidx.credentials.exceptions.CreateCredentialException
-import androidx.credentials.exceptions.GetCredentialException
-import androidx.credentials.exceptions.GetCredentialCancellationException
-import com.tortugapower.audiobookplayer.model.PasskeyRegistrationVerifyRequest
-import com.tortugapower.audiobookplayer.model.PasskeyLoginResponse
-import com.tortugapower.audiobookplayer.model.PasskeyVerifyRequest
-import com.tortugapower.audiobookplayer.model.PasskeyAssertionResponse
-import kotlinx.coroutines.launch
-import org.json.JSONObject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,7 +42,6 @@ fun AuthSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     val db = AppDatabase.getDatabase(context)
     val accountRepository = RoomAccountRepository(db.accountDao())
@@ -67,7 +51,6 @@ fun AuthSheet(
         factory = AuthViewModelFactory(accountRepository, syncTaskRepository)
     )
 
-    val credentialManager = CredentialManager.create(context)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Reset when shown
@@ -75,117 +58,25 @@ fun AuthSheet(
         viewModel.reset()
     }
 
-    // Handle Auth success/transitions
-    LaunchedEffect(viewModel.currentStep) {
-        if (viewModel.currentStep == AuthStep.SUCCESS) {
-            if (viewModel.verificationToken != null) {
-                // Handle Passkey registration
-                val deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
-                val options = viewModel.getPasskeyRegistrationOptions(deviceName)
-                
-                if (options != null) {
-                    try {
-                        val requestJson = viewModel.getRegistrationJson(options)
-                        val request = CreatePublicKeyCredentialRequest(requestJson)
-                        val result = credentialManager.createCredential(context, request)
-                        
-                        val responseJson = result.data.getString("androidx.credentials.BUNDLE_KEY_REGISTRATION_RESPONSE_JSON")
-                        if (responseJson != null) {
-                            android.util.Log.d("AuthSheet", "Response JSON: $responseJson")
-                            val json = JSONObject(responseJson)
-                            val responseObj = json.getJSONObject("response")
-                            
-                            val loginResponse = com.tortugapower.audiobookplayer.network.NetworkClient.authApi.verifyRegistration(
-                                com.tortugapower.audiobookplayer.model.PasskeyRegistrationVerifyRequest(
-                                    email = viewModel.email,
-                                    credentialId = json.getString("id"),
-                                    response = com.tortugapower.audiobookplayer.model.PasskeyResponse(
-                                        attestationObject = responseObj.getString("attestationObject"),
-                                        clientDataJSON = responseObj.getString("clientDataJSON"),
-                                        transports = if (responseObj.has("transports")) {
-                                            val arr = responseObj.getJSONArray("transports")
-                                            List(arr.length()) { arr.getString(it) }
-                                        } else emptyList()
-                                    ),
-                                    deviceName = deviceName
-                                )
-                            )
-                            
-                            if (loginResponse.isSuccessful && loginResponse.body() != null) {
-                                viewModel.completeRegistration(loginResponse.body()!!)
-                                onDismiss()
-                            } else {
-                                val errorBody = loginResponse.errorBody()?.string()
-                                android.util.Log.e("AuthSheet", "Verify failed: $errorBody")
-                                viewModel.errorMessage = context.getString(R.string.auth_error_verification_failed)
-                                viewModel.currentStep = AuthStep.CODE_VERIFICATION
-                            }
-                        }
-                    } catch (e: CreateCredentialException) {
-                        viewModel.errorMessage = context.getString(R.string.auth_error_passkey_failed, e.message ?: "")
-                        viewModel.currentStep = AuthStep.CODE_VERIFICATION
-                    }
-                }
-            } else {
-                // Direct success
-                onDismiss()
-            }
+    // Passkey registration is triggered by the ViewModel once the email code is verified.
+    // The credential UI needs a Context, so the composable drives it from here.
+    LaunchedEffect(viewModel.passkeyRegistrationRequested) {
+        if (viewModel.passkeyRegistrationRequested) {
+            viewModel.registerPasskey(context)
         }
     }
 
-    // Handle Passkey Sign-in
+    // Passkey sign-in with an existing credential.
     LaunchedEffect(viewModel.passkeySignInRequested) {
         if (viewModel.passkeySignInRequested) {
-            try {
-                val options = viewModel.getPasskeySignInOptions()
-                
-                if (options != null) {
-                    val getPublicKeyCredentialOption = GetPublicKeyCredentialOption(
-                        requestJson = viewModel.getSignInJson(options),
-                    )
+            viewModel.signInWithPasskey(context)
+        }
+    }
 
-                    val getCredentialRequest = GetCredentialRequest(
-                        listOf(getPublicKeyCredentialOption)
-                    )
-
-                    val result = credentialManager.getCredential(context, getCredentialRequest)
-                    val responseJson = result.credential.data.getString("androidx.credentials.BUNDLE_KEY_AUTHENTICATION_RESPONSE_JSON")
-                    
-                    if (responseJson != null) {
-                        android.util.Log.d("AuthSheet", "SignIn Response JSON: $responseJson")
-                        val json = JSONObject(responseJson)
-                        val responseObj = json.getJSONObject("response")
-                        
-                        val loginResponse = com.tortugapower.audiobookplayer.network.NetworkClient.authApi.verifyPasskey(
-                            PasskeyVerifyRequest(
-                                credentialId = json.getString("id"),
-                                response = PasskeyAssertionResponse(
-                                    clientDataJSON = responseObj.getString("clientDataJSON"),
-                                    authenticatorData = responseObj.getString("authenticatorData"),
-                                    signature = responseObj.getString("signature"),
-                                    userHandle = if (responseObj.has("userHandle")) responseObj.getString("userHandle") else null
-                                )
-                            )
-                        )
-                        
-                        if (loginResponse.isSuccessful && loginResponse.body() != null) {
-                            viewModel.completeRegistration(loginResponse.body()!!)
-                            onDismiss()
-                        } else {
-                            val errorBody = loginResponse.errorBody()?.string()
-                            android.util.Log.e("AuthSheet", "Passkey Sign-in verify failed: $errorBody")
-                            viewModel.errorMessage = context.getString(R.string.auth_error_verification_failed)
-                        }
-                    }
-                }
-            } catch (e: GetCredentialException) {
-                if (e !is GetCredentialCancellationException) {
-                    android.util.Log.e("AuthSheet", "Passkey Sign-in failed", e)
-                    viewModel.errorMessage = context.getString(R.string.auth_error_passkey_failed, e.message ?: "")
-                }
-            } finally {
-                viewModel.passkeySignInRequested = false
-            }
+    // Any fully-authenticated path lands on SUCCESS — dismiss the sheet.
+    LaunchedEffect(viewModel.currentStep) {
+        if (viewModel.currentStep == AuthStep.SUCCESS) {
+            onDismiss()
         }
     }
 
@@ -206,7 +97,7 @@ fun AuthSheet(
             // Header
             AuthHeader(
                 step = viewModel.currentStep,
-                onBack = { 
+                onBack = {
                     if (viewModel.currentStep == AuthStep.CODE_VERIFICATION) {
                         viewModel.currentStep = AuthStep.EMAIL_INPUT
                     } else {
@@ -221,7 +112,7 @@ fun AuthSheet(
                     EmailInputScreen(
                         email = viewModel.email,
                         onEmailChange = { viewModel.email = it },
-                        onContinue = { viewModel.onEmailContinue() },
+                        onContinue = { viewModel.onEmailContinue(context) },
                         onPasskeySignIn = { viewModel.onSignInWithPasskey() },
                         errorMessage = viewModel.errorMessage
                     )
@@ -231,7 +122,8 @@ fun AuthSheet(
                         email = viewModel.email,
                         code = viewModel.verificationCode,
                         onCodeChange = { viewModel.verificationCode = it },
-                        onVerify = { viewModel.onVerifyCode() },
+                        onVerify = { viewModel.onVerifyCode(context) },
+                        onResend = { viewModel.onEmailContinue(context) },
                         errorMessage = viewModel.errorMessage
                     )
                 }
@@ -262,26 +154,19 @@ fun AuthHeader(
             .fillMaxWidth()
             .padding(16.dp)
     ) {
-        if (step == AuthStep.CODE_VERIFICATION) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .size(40.dp)
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.primary)
-            }
-        } else {
-            IconButton(
-                onClick = onClose,
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .size(40.dp)
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
-            ) {
-                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close), tint = MaterialTheme.colorScheme.primary)
-            }
+        val isCodeStep = step == AuthStep.CODE_VERIFICATION
+        IconButton(
+            onClick = if (isCodeStep) onBack else onClose,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .size(40.dp)
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
+        ) {
+            Icon(
+                imageVector = if (isCodeStep) Icons.AutoMirrored.Filled.ArrowBack else Icons.Default.Close,
+                contentDescription = stringResource(if (isCodeStep) R.string.common_back else R.string.common_close),
+                tint = MaterialTheme.colorScheme.primary
+            )
         }
 
         Text(
@@ -312,7 +197,7 @@ fun EmailInputScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(modifier = Modifier.height(32.dp))
-        
+
         Text(
             text = stringResource(R.string.auth_email_label),
             style = MaterialTheme.typography.bodyMedium,
@@ -320,14 +205,16 @@ fun EmailInputScreen(
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Start
         )
-        
+
         Spacer(modifier = Modifier.height(8.dp))
-        
+
         OutlinedTextField(
             value = email,
             onValueChange = onEmailChange,
             placeholder = { Text(stringResource(R.string.auth_email_placeholder)) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentType = ContentType.EmailAddress },
             shape = RoundedCornerShape(12.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             singleLine = true,
@@ -356,9 +243,6 @@ fun EmailInputScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (email.isNotEmpty()) Color(0xFF666666) else Color(0xFFCCCCCC)
-            ),
             shape = RoundedCornerShape(28.dp),
             enabled = email.isNotEmpty()
         ) {
@@ -368,7 +252,7 @@ fun EmailInputScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         TextButton(onClick = onPasskeySignIn) {
-            Text(stringResource(R.string.auth_sign_in_with_passkey), color = Color(0xFF3482F6))
+            Text(stringResource(R.string.auth_sign_in_with_passkey), color = MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -379,25 +263,18 @@ fun CodeVerificationScreen(
     code: String,
     onCodeChange: (String) -> Unit,
     onVerify: () -> Unit,
+    onResend: () -> Unit,
     errorMessage: String?
 ) {
     val focusRequester = remember { FocusRequester() }
-    var textFieldValue by remember { 
-        mutableStateOf(
-            TextFieldValue(
-                text = code,
-                selection = TextRange(code.length)
-            )
-        ) 
+    var textFieldValue by remember {
+        mutableStateOf(TextFieldValue(text = code, selection = TextRange(code.length)))
     }
 
-    // Sync external code change back to internal state
+    // Sync external code change back to internal state (e.g. on reset).
     LaunchedEffect(code) {
         if (code != textFieldValue.text) {
-            textFieldValue = textFieldValue.copy(
-                text = code,
-                selection = TextRange(code.length)
-            )
+            textFieldValue = textFieldValue.copy(text = code, selection = TextRange(code.length))
         }
     }
 
@@ -416,7 +293,9 @@ fun CodeVerificationScreen(
 
         Spacer(modifier = Modifier.height(48.dp))
 
-        // Standard 6-digit code input using BasicTextField for native interaction support
+        // Segmented 6-digit entry backed by a single BasicTextField. The
+        // `contentType = SmsOtpCode` semantics let the OS / keyboard surface the code for
+        // one-tap autofill; the decorationBox renders the per-digit boxes.
         BasicTextField(
             value = textFieldValue,
             onValueChange = { newValue ->
@@ -427,24 +306,26 @@ fun CodeVerificationScreen(
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .focusRequester(focusRequester),
+                .focusRequester(focusRequester)
+                .semantics { contentType = ContentType.SmsOtpCode },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             decorationBox = { innerTextField ->
                 Box(contentAlignment = Alignment.Center) {
+                    // The next slot to be filled is "active" while the field has focus.
+                    val activeIndex = textFieldValue.text.length.coerceAtMost(5)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
                     ) {
                         repeat(6) { index ->
                             val char = textFieldValue.text.getOrNull(index)?.toString() ?: ""
-                            val isFocused = textFieldValue.selection.collapsed && 
-                                           (textFieldValue.selection.start == index || (index == 5 && textFieldValue.selection.start == 6))
-                            
+                            val isActive = index == activeIndex
                             Surface(
                                 modifier = Modifier.size(48.dp, 56.dp),
                                 shape = RoundedCornerShape(8.dp),
-                                color = if (isFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                                border = if (isFocused) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                                color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                                border = if (isActive) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Text(
@@ -457,7 +338,7 @@ fun CodeVerificationScreen(
                             }
                         }
                     }
-                    // Invisible input field overlay to capture focus and keyboard events
+                    // Invisible input field overlay to capture focus and keyboard events.
                     Box(modifier = Modifier.fillMaxWidth().height(56.dp).alpha(0f)) {
                         innerTextField()
                     }
@@ -481,9 +362,6 @@ fun CodeVerificationScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (code.length == 6) Color(0xFF666666) else Color(0xFFCCCCCC)
-            ),
             shape = RoundedCornerShape(28.dp),
             enabled = code.length == 6
         ) {
@@ -497,8 +375,8 @@ fun CodeVerificationScreen(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        TextButton(onClick = { /* Resend logic */ }) {
-            Text(stringResource(R.string.auth_resend_code), color = Color(0xFF3482F6))
+        TextButton(onClick = onResend) {
+            Text(stringResource(R.string.auth_resend_code), color = MaterialTheme.colorScheme.primary)
         }
     }
 
@@ -506,4 +384,3 @@ fun CodeVerificationScreen(
         focusRequester.requestFocus()
     }
 }
-

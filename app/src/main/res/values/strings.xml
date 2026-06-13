@@ -32,6 +32,13 @@
     <!-- Auth -->
     <string name="auth_error_verification_failed">Verification failed</string>
     <string name="auth_error_passkey_failed">Passkey failed: %1$s</string>
+    <string name="auth_error_invalid_email">Please enter a valid email</string>
+    <string name="auth_error_enter_code">Please enter the 6-digit code</string>
+    <string name="auth_error_invalid_code">Invalid code</string>
+    <string name="auth_error_verification_expired">Verification expired. Please try again.</string>
+    <string name="auth_error_generic">An error occurred</string>
+    <string name="auth_error_send_code_failed">Couldn\'t send the code (%1$d). Please try again.</string>
+    <string name="auth_error_server_login_failed">Server login failed (%1$d)</string>
     <string name="auth_setting_up_secure_access">Setting up secure access...</string>
     <string name="auth_create_account">Create Account</string>
     <string name="auth_verify_your_email">Verify Your Email</string>
