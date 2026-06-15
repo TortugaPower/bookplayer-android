@@ -74,12 +74,13 @@ class ProfileViewModel(
     }
 
     private suspend fun clearLocalSession() {
+        // Drop the in-memory Bearer token first, before any suspension point, so it's reliably
+        // cleared even if a later step throws or the coroutine is cancelled. Done here (not just in
+        // the delete path) so logout clears it too. None of the steps below need the token.
+        NetworkClient.setToken(null)
         accountRepository.deleteAccount()
         syncTaskRepository.deleteAllTasks()
         SubscriptionManager.logout()
-        // Drop the in-memory Bearer token so it isn't attached to subsequent requests. Done here
-        // (not just in the delete path) so logout clears it too.
-        NetworkClient.setToken(null)
         SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
     }
 

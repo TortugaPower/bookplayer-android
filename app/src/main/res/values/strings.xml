@@ -78,7 +78,7 @@
 
     <!-- Account -->
     <string name="account_delete_title">Delete Account</string>
-    <string name="account_delete_warning">Warning: this action is not reversible. If your account is deleted, all your synced library details will be deleted from our servers.</string>
+    <string name="account_delete_warning">Warning: this action is irreversible. If your account is deleted, all your synced library details will be deleted from our servers.</string>
     <string name="account_delete_failed">Failed to delete account</string>
     <string name="account_deleted_title">Account Deleted</string>
     <string name="account_deleted_message">Your account has been deleted</string>

@@ -103,6 +103,10 @@ object SubscriptionManager {
     suspend fun loginAndCheckSubscription(appUserId: String): Boolean {
         if (!Purchases.isConfigured) return false
         lastProcessedTier = null
+        // Switching users — drop the previous customer's management URL up front so a login failure
+        // (onError doesn't repopulate it) can't leave the UI pointing at a stale/incorrect
+        // subscription-management link. It's set again from the fresh customer info on success.
+        managementUrl = null
         return suspendCancellableCoroutine { cont ->
             Purchases.sharedInstance.logIn(appUserId, object : LogInCallback {
                 override fun onReceived(customerInfo: CustomerInfo, created: Boolean) {
