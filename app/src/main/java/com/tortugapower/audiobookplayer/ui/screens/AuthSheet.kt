@@ -40,7 +40,7 @@ import com.tortugapower.audiobookplayer.viewmodel.AuthViewModelFactory
 @Composable
 fun AuthSheet(
     onDismiss: () -> Unit,
-    onAuthenticated: () -> Unit
+    onAuthenticated: (hasSubscription: Boolean) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -78,7 +78,7 @@ fun AuthSheet(
     // (this sheet AND the Pro sheet underneath), distinct from a user cancel.
     LaunchedEffect(viewModel.currentStep) {
         if (viewModel.currentStep == AuthStep.SUCCESS) {
-            onAuthenticated()
+            onAuthenticated(viewModel.authResultHasSubscription)
         }
     }
 

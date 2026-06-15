@@ -64,6 +64,10 @@ class AuthViewModel(
     // Client-side input validation — surfaced inline next to the field.
     var validationError by mutableStateOf<String?>(null)
     var verificationToken by mutableStateOf<String?>(null)
+    // Whether the just-authenticated account already has a subscription. Drives whether the UI
+    // presents the "Complete Your Account" paywall after sign-in (mirrors iOS hasSubscription).
+    var authResultHasSubscription by mutableStateOf(false)
+        private set
     var passkeySignInRequested by mutableStateOf(false)
     var passkeyRegistrationRequested by mutableStateOf(false)
 
@@ -323,6 +327,7 @@ class AuthViewModel(
         errorMessage = null
         validationError = null
         verificationToken = null
+        authResultHasSubscription = false
         passkeySignInRequested = false
         passkeyRegistrationRequested = false
     }
@@ -378,7 +383,11 @@ class AuthViewModel(
             revenuecatId = revenuecatId
         )
         accountRepository.saveAccount(account)
-        SubscriptionManager.login(revenuecatId ?: account.id)
+        // Subscription status is sourced from RevenueCat (the source of truth), mirroring iOS —
+        // the server login response carries no subscription flag. This drives whether the UI
+        // shows the "Complete Your Account" paywall, and updateAccountTier (inside) reconciles
+        // the persisted tier.
+        authResultHasSubscription = SubscriptionManager.loginAndCheckSubscription(revenuecatId ?: account.id)
         currentStep = AuthStep.SUCCESS
     }
 

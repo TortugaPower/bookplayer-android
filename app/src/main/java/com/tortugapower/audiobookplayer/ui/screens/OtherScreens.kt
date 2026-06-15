@@ -79,13 +79,23 @@ fun ProfileScreen(
 
     var showProSheet by remember { mutableStateOf(false) }
     var showAuthSheet by remember { mutableStateOf(false) }
+    var showPaywall by remember { mutableStateOf(false) }
+
+    // After any successful sign-in/sign-up, close the auth flow and — for accounts without a
+    // subscription — present the "Complete Your Account" paywall (mirrors iOS handleSignInResult).
+    fun onAuthenticated(hasSubscription: Boolean) {
+        showAuthSheet = false
+        showProSheet = false
+        if (!hasSubscription) showPaywall = true
+    }
 
     if (showProSheet) {
         BookPlayerProSheet(
             onDismiss = { showProSheet = false },
             // Keep the Pro sheet presented underneath; the Auth sheet stacks on top so
             // dismissing it returns here rather than closing the whole flow.
-            onPasskeyClick = { showAuthSheet = true }
+            onPasskeyClick = { showAuthSheet = true },
+            onAuthenticated = ::onAuthenticated
         )
     }
 
@@ -93,12 +103,12 @@ fun ProfileScreen(
         AuthSheet(
             // Cancel (✕ / back / swipe) → return to the Pro sheet underneath.
             onDismiss = { showAuthSheet = false },
-            // Success → close the entire auth flow (both sheets).
-            onAuthenticated = {
-                showAuthSheet = false
-                showProSheet = false
-            }
+            onAuthenticated = ::onAuthenticated
         )
+    }
+
+    if (showPaywall) {
+        PaywallSheet(onDismiss = { showPaywall = false })
     }
 
     BookPlayerTabScaffold(title = stringResource(R.string.profile_title)) { innerPadding ->
@@ -846,7 +856,8 @@ fun PaywallSheet(onDismiss: () -> Unit) {
 @Composable
 fun BookPlayerProSheet(
     onDismiss: () -> Unit,
-    onPasskeyClick: () -> Unit
+    onPasskeyClick: () -> Unit,
+    onAuthenticated: (hasSubscription: Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -865,10 +876,11 @@ fun BookPlayerProSheet(
         viewModel.reset()
     }
 
-    // Close sheet on success
+    // On success, hand off to the host so it can present the paywall to non-subscribers
+    // (mirrors iOS handleSignInResult).
     LaunchedEffect(viewModel.currentStep) {
         if (viewModel.currentStep == com.tortugapower.audiobookplayer.viewmodel.AuthStep.SUCCESS) {
-            onDismiss()
+            onAuthenticated(viewModel.authResultHasSubscription)
         }
     }
 

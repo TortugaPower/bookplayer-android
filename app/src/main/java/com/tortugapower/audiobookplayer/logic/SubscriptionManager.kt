@@ -17,6 +17,8 @@ import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 object SubscriptionManager {
     private const val TAG = "SubscriptionManager"
@@ -89,6 +91,31 @@ object SubscriptionManager {
                 Log.e(TAG, "Error logging in to RevenueCat: ${error.message}")
             }
         })
+    }
+
+    /**
+     * Logs into RevenueCat and suspends until the customer info is available, then reports
+     * whether the user has an active (paid) subscription. Mirrors iOS, which awaits
+     * `Purchases.logIn` and reads `customerInfo.activeSubscriptions`. Used by the auth flow to
+     * decide whether to present the "Complete Your Account" paywall. Returns false if RevenueCat
+     * isn't configured or the call fails (so the paywall is shown — the safe default).
+     */
+    suspend fun loginAndCheckSubscription(appUserId: String): Boolean {
+        if (!Purchases.isConfigured) return false
+        lastProcessedTier = null
+        return suspendCancellableCoroutine { cont ->
+            Purchases.sharedInstance.logIn(appUserId, object : LogInCallback {
+                override fun onReceived(customerInfo: CustomerInfo, created: Boolean) {
+                    updateAccountTier(customerInfo)
+                    cont.resume(customerInfo.activeSubscriptions.isNotEmpty())
+                }
+
+                override fun onError(error: PurchasesError) {
+                    Log.e(TAG, "Error logging in to RevenueCat: ${error.message}")
+                    cont.resume(false)
+                }
+            })
+        }
     }
 
     fun logout() {
