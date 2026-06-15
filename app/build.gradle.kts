@@ -104,6 +104,10 @@ android {
     lint {
         checkReleaseBuilds = false
         abortOnError = false
+        // The built-in NullSafeMutableLiveData check crashes with IncompatibleClassChangeError on
+        // this AGP/Lint version (a known broken detector), which hard-fails `lintDevDebug` in CI
+        // regardless of abortOnError. We don't use LiveData, so disabling it is safe.
+        disable += "NullSafeMutableLiveData"
     }
 }
 
