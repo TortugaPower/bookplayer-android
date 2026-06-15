@@ -39,7 +39,8 @@ import com.tortugapower.audiobookplayer.viewmodel.AuthViewModelFactory
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthSheet(
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onAuthenticated: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -73,10 +74,11 @@ fun AuthSheet(
         }
     }
 
-    // Any fully-authenticated path lands on SUCCESS — dismiss the sheet.
+    // Any fully-authenticated path lands on SUCCESS — close the whole auth flow
+    // (this sheet AND the Pro sheet underneath), distinct from a user cancel.
     LaunchedEffect(viewModel.currentStep) {
         if (viewModel.currentStep == AuthStep.SUCCESS) {
-            onDismiss()
+            onAuthenticated()
         }
     }
 
@@ -273,7 +275,7 @@ fun EmailInputScreen(
             Text(stringResource(R.string.common_continue), fontWeight = FontWeight.Bold)
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         TextButton(onClick = onPasskeySignIn) {
             Text(stringResource(R.string.auth_sign_in_with_passkey), color = MaterialTheme.colorScheme.primary)

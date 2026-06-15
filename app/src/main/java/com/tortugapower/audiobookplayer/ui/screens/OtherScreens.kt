@@ -27,9 +27,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,15 +81,22 @@ fun ProfileScreen(
     if (showProSheet) {
         BookPlayerProSheet(
             onDismiss = { showProSheet = false },
-            onPasskeyClick = {
-                showProSheet = false
-                showAuthSheet = true
-            }
+            // Keep the Pro sheet presented underneath; the Auth sheet stacks on top so
+            // dismissing it returns here rather than closing the whole flow.
+            onPasskeyClick = { showAuthSheet = true }
         )
     }
 
     if (showAuthSheet) {
-        AuthSheet(onDismiss = { showAuthSheet = false })
+        AuthSheet(
+            // Cancel (✕ / back / swipe) → return to the Pro sheet underneath.
+            onDismiss = { showAuthSheet = false },
+            // Success → close the entire auth flow (both sheets).
+            onAuthenticated = {
+                showAuthSheet = false
+                showProSheet = false
+            }
+        )
     }
 
     BookPlayerTabScaffold(title = stringResource(R.string.profile_title)) { innerPadding ->
@@ -244,9 +257,16 @@ fun ProfileScreen(
     }
 }
 
+/** Canonical legal pages, hosted at bookplayer.app (single source of truth across platforms). */
+private object LegalUrls {
+    const val PRIVACY = "https://bookplayer.app/privacy"
+    const val TERMS = "https://bookplayer.app/terms"
+}
+
 @Composable
 fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
     val account by viewModel.account.collectAsState()
+    val uriHandler = LocalUriHandler.current
     var showPaywall by remember { mutableStateOf(false) }
 
     if (showPaywall) {
@@ -285,46 +305,45 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Pro Status Card
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+            // Pro Status Card — only shown to users who haven't completed a Pro subscription.
+            if (account?.tier != AccountTier.PRO) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 ) {
-                    Text(
-                        text = "BookPlayer Pro",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        AccountFeatureRow(Icons.Default.CloudQueue, "Cloud sync (Beta)")
-                        AccountFeatureRow(Icons.Default.Palette, "Themes & Icons")
-                    }
+                        Text(
+                            text = "BookPlayer Pro",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
 
-                    if (account?.tier != AccountTier.PRO) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            AccountFeatureRow(Icons.Default.CloudQueue, "Cloud sync (Beta)")
+                            AccountFeatureRow(Icons.Default.Palette, "Themes & Icons")
+                        }
+
                         Spacer(modifier = Modifier.height(32.dp))
                         Button(
                             onClick = { showPaywall = true },
                             modifier = Modifier.fillMaxWidth().height(50.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5E67D4)),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Complete your account", fontWeight = FontWeight.Bold)
+                            Text("Complete Your Account", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(32.dp))
+            }
 
             // Standard Items
             Surface(
@@ -333,12 +352,16 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             ) {
                 Column {
-                    AccountActionRow(Icons.Filled.Description, "Terms and Conditions")
+                    AccountActionRow(Icons.Filled.Description, "Terms and Conditions") {
+                        uriHandler.openUri(LegalUrls.TERMS)
+                    }
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
                     )
-                    AccountActionRow(Icons.Filled.Description, "Privacy Policy")
+                    AccountActionRow(Icons.Filled.Description, "Privacy Policy") {
+                        uriHandler.openUri(LegalUrls.PRIVACY)
+                    }
                 }
             }
 
@@ -390,9 +413,9 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                     modifier = Modifier.padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = Color.Red)
+                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("Log out", color = Color.Red, fontWeight = FontWeight.Bold)
+                    Text("Log out", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -402,23 +425,23 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
 @Composable
 fun AccountFeatureRow(icon: ImageVector, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, tint = Color(0xFF3482F6), modifier = Modifier.size(24.dp))
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
         Spacer(modifier = Modifier.width(16.dp))
         Text(text, style = MaterialTheme.typography.bodyLarge)
     }
 }
 
 @Composable
-fun AccountActionRow(icon: ImageVector, text: String) {
+fun AccountActionRow(icon: ImageVector, text: String, onClick: () -> Unit = {}) {
     Surface(
-        modifier = Modifier.fillMaxWidth().height(56.dp).clickable { },
+        modifier = Modifier.fillMaxWidth().height(56.dp).clickable { onClick() },
         color = Color.Transparent
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, tint = Color(0xFF3482F6), modifier = Modifier.size(24.dp))
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
             Spacer(modifier = Modifier.width(16.dp))
             Text(text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         }
@@ -559,8 +582,24 @@ fun PaywallSheet(onDismiss: () -> Unit) {
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+            val linkColor = MaterialTheme.colorScheme.primary
             Text(
-                text = "By continuing, you agree to Privacy Policy and Terms and Conditions",
+                text = buildAnnotatedString {
+                    append("By continuing, you agree to ")
+                    withLink(
+                        LinkAnnotation.Url(
+                            LegalUrls.PRIVACY,
+                            TextLinkStyles(style = SpanStyle(color = linkColor))
+                        )
+                    ) { append("Privacy Policy") }
+                    append(" and ")
+                    withLink(
+                        LinkAnnotation.Url(
+                            LegalUrls.TERMS,
+                            TextLinkStyles(style = SpanStyle(color = linkColor))
+                        )
+                    ) { append("Terms and Conditions") }
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
