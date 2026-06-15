@@ -51,10 +51,26 @@ A modern, high-performance audiobook player built with Jetpack Compose and the l
 
 1.  Clone the repository.
 2.  Open in **Android Studio Koala** or newer.
-3.  Add your `GOOGLE_CLIENT_ID` in `NetworkConstants.kt`.
-4.  Build and Run.
+3.  Copy `local.properties.example` to `local.properties`. The `dev` flavor builds with no further setup; fill in `GOOGLE_CLIENT_ID`, `SENTRY_DSN`, or `REVENUECAT_API_KEY` only if you want to exercise those features.
+4.  Select the **devDebug** build variant, then Build and Run.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full setup and contribution guide.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read our [Contribution Guidelines](./CONTRIBUTING.md) and [Code of Conduct](./CODE_OF_CONDUCT.md) before opening an issue or pull request.
 
 ---
 
 ## 📄 License
-© 2026 BookPlayer LLC. All rights reserved.
+
+Licensed under [GNU GPL v. 3.0](https://opensource.org/licenses/GPL-3.0). See [`LICENSE`](./LICENSE) for details.
+
+---
+
+## ⚖️ Legal
+
+- [Privacy Policy](./PRIVACY_POLICY.md)
+- [Terms of Use](./TERMS_CONDITIONS.md) — [General](./GENERAL_TERMS.md) · [BookPlayer Pro](./SUPPLEMENTAL_TERMS.md)
