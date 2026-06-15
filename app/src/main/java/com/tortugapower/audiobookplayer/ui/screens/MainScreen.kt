@@ -43,6 +43,12 @@ import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.ui.components.MiniPlayer
 import com.tortugapower.audiobookplayer.ui.components.MiniPlayerBarHeight
 import com.tortugapower.audiobookplayer.ui.components.Screen
+import com.tortugapower.audiobookplayer.ui.screens.account.AccountDetailsScreen
+import com.tortugapower.audiobookplayer.ui.screens.profile.ProfileScreen
+import com.tortugapower.audiobookplayer.ui.screens.settings.SettingsScreen
+import com.tortugapower.audiobookplayer.ui.screens.synctasks.QueuedTasksScreen
+import com.tortugapower.audiobookplayer.ui.screens.synctasks.TaskDetailScreen
+import com.tortugapower.audiobookplayer.ui.screens.themes.ThemesScreen
 import com.tortugapower.audiobookplayer.viewmodel.*
 
 @Composable
