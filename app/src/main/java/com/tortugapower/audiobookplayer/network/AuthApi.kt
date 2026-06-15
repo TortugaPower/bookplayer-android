@@ -3,7 +3,10 @@ package com.tortugapower.audiobookplayer.network
 import com.tortugapower.audiobookplayer.model.*
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
+import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Path
 
 interface AuthApi {
     @POST(NetworkConstants.ENDPOINT_SEND_VERIFICATION_CODE)
@@ -26,6 +29,16 @@ interface AuthApi {
 
     @POST(NetworkConstants.ENDPOINT_GOOGLE_LOGIN)
     suspend fun googleLogin(@Body request: GoogleLoginRequest): Response<GoogleLoginResponse>
+
+    // Authenticated (Bearer token attached by NetworkClient).
+    @DELETE(NetworkConstants.ENDPOINT_DELETE_ACCOUNT)
+    suspend fun deleteAccount(): Response<DeleteAccountResponse>
+
+    @GET(NetworkConstants.ENDPOINT_PASSKEY_CREDENTIALS)
+    suspend fun listPasskeys(): Response<PasskeyListResponse>
+
+    @DELETE(NetworkConstants.ENDPOINT_PASSKEY_CREDENTIALS + "/{id}")
+    suspend fun deletePasskey(@Path("id") id: Int): Response<PasskeyDeleteResponse>
 }
 
 object NetworkClient {

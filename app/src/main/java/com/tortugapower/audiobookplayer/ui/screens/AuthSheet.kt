@@ -341,13 +341,17 @@ fun CodeVerificationScreen(
                     val activeIndex = textFieldValue.text.length.coerceAtMost(5)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         repeat(6) { index ->
                             val char = textFieldValue.text.getOrNull(index)?.toString() ?: ""
                             val isActive = index == activeIndex
                             Surface(
-                                modifier = Modifier.size(48.dp, 56.dp),
+                                // Flexible width so all 6 boxes fit any screen (fixed widths
+                                // overflowed and clipped the last digit on narrow phones).
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(56.dp),
                                 shape = RoundedCornerShape(8.dp),
                                 color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
                                         else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),

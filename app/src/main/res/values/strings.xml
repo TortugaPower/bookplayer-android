@@ -18,6 +18,7 @@
     <string name="common_delete">Delete</string>
     <string name="common_accept">Accept</string>
     <string name="common_remove">Remove</string>
+    <string name="common_retry">Retry</string>
     <string name="common_select_all">Select All</string>
     <string name="common_select">Select</string>
     <string name="common_move">Move</string>

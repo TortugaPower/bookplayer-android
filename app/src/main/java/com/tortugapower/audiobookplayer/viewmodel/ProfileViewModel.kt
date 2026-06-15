@@ -7,6 +7,7 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
+import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.*
@@ -43,11 +44,37 @@ class ProfileViewModel(
 
     fun logout() {
         viewModelScope.launch {
-            accountRepository.deleteAccount()
-            syncTaskRepository.deleteAllTasks()
-            SubscriptionManager.logout()
-            SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
+            clearLocalSession()
         }
+    }
+
+    /**
+     * Permanently delete the account on the server (DELETE /v1/user/delete, authenticated via
+     * the Bearer token), then clear the local session. Returns the server's confirmation message
+     * on success, or a failure the caller can surface. The local data is wiped only after the
+     * server confirms deletion.
+     */
+    suspend fun deleteAccount(): Result<String> {
+        return try {
+            val response = NetworkClient.authApi.deleteAccount()
+            if (response.isSuccessful) {
+                val message = response.body()?.message ?: "Your account has been deleted"
+                clearLocalSession()
+                NetworkClient.setToken(null)
+                Result.success(message)
+            } else {
+                Result.failure(Exception("Failed to delete account (${response.code()})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun clearLocalSession() {
+        accountRepository.deleteAccount()
+        syncTaskRepository.deleteAllTasks()
+        SubscriptionManager.logout()
+        SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
     }
 
     fun deleteAllTasks() {

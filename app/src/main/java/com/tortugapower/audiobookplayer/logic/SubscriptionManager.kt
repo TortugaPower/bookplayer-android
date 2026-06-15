@@ -1,7 +1,11 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.revenuecat.purchases.*
 import com.revenuecat.purchases.interfaces.LogInCallback
 import com.revenuecat.purchases.interfaces.ReceiveCustomerInfoCallback
@@ -20,6 +24,14 @@ object SubscriptionManager {
     private var syncTaskRepository: SyncTaskRepository? = null
     private val scope = CoroutineScope(Dispatchers.IO)
     private var lastProcessedTier: AccountTier? = null
+
+    /**
+     * Play Store subscription-management deep link for the current customer, or null when
+     * there's no store-managed subscription. The Android RC SDK has no `showManageSubscriptions()`
+     * (unlike iOS); opening this URL is the equivalent. Compose-observable.
+     */
+    var managementUrl: Uri? by mutableStateOf(null)
+        private set
 
     fun initialize(context: Context, repository: AccountRepository, syncRepository: SyncTaskRepository) {
         accountRepository = repository
@@ -95,6 +107,9 @@ object SubscriptionManager {
     }
 
     internal fun updateAccountTier(customerInfo: CustomerInfo) {
+        // Always refresh the management URL, even when the tier hasn't changed.
+        managementUrl = customerInfo.managementURL
+
         val activeEntitlements = customerInfo.entitlements.active.keys
         Log.d(TAG, "Updating tier. Active entitlements: $activeEntitlements")
 

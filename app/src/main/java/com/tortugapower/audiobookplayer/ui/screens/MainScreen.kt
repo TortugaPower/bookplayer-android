@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -110,7 +111,15 @@ fun MainScreen() {
                 }
             }
         ) { innerPadding ->
-            Box(modifier = Modifier.padding(innerPadding)) {
+            // Consume the root insets so the per-screen nested Scaffolds (tab chrome,
+            // Account Details) don't re-apply the bottom navigation-bar inset on top of
+            // the bottomBar we already reserve here — that double-count was leaving a gap
+            // above the mini player on every tab.
+            Box(
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding)
+            ) {
                 NavHost(
                     navController = navController,
                     startDestination = Screen.Library.route,

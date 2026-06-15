@@ -14,4 +14,6 @@ object NetworkConstants {
     const val ENDPOINT_PASSKEY_SIGNIN_OPTIONS = "/v1/passkey/auth/options"
     const val ENDPOINT_PASSKEY_VERIFY = "/v1/passkey/auth/verify"
     const val ENDPOINT_GOOGLE_LOGIN = "/v1/user/login"
+    const val ENDPOINT_DELETE_ACCOUNT = "/v1/user/delete"
+    const val ENDPOINT_PASSKEY_CREDENTIALS = "/v1/passkey/credentials"
 }

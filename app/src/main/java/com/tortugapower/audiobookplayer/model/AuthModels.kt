@@ -106,3 +106,26 @@ data class GoogleLoginResponse(
     @SerializedName("revenuecat_id") val revenuecatId: String?
 )
 
+// --- Account ---
+
+data class DeleteAccountResponse(
+    val message: String?
+)
+
+// --- Passkey management ---
+
+data class PasskeyInfo(
+    @SerializedName("id_passkey") val id: Int,
+    @SerializedName("device_name") val deviceName: String?,
+    @SerializedName("created_at") val createdAt: String?
+)
+
+data class PasskeyListResponse(
+    val passkeys: List<PasskeyInfo>
+)
+
+data class PasskeyDeleteResponse(
+    val success: Boolean?,
+    val message: String?
+)
+

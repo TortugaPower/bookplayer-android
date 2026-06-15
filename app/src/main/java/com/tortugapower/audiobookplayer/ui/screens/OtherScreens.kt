@@ -48,6 +48,7 @@ import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.AccountGate
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.PurchaseFlowManager
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
@@ -267,10 +268,86 @@ private object LegalUrls {
 fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
     val account by viewModel.account.collectAsState()
     val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
     var showPaywall by remember { mutableStateOf(false) }
+
+    // Delete-account flow state.
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
+    var deleteResultMessage by remember { mutableStateOf<String?>(null) }
+    var deleteError by remember { mutableStateOf<String?>(null) }
 
     if (showPaywall) {
         PaywallSheet(onDismiss = { showPaywall = false })
+    }
+
+    // Destructive confirmation before deleting the account.
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Account") },
+            text = {
+                Text(
+                    "Warning: this action is not reversible. If your account is deleted, all your " +
+                        "synced library details will be deleted from our servers."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        isDeleting = true
+                        scope.launch {
+                            val result = viewModel.deleteAccount()
+                            isDeleting = false
+                            result
+                                .onSuccess { deleteResultMessage = it }
+                                .onFailure { deleteError = it.message ?: "Failed to delete account" }
+                        }
+                    }
+                ) {
+                    Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
+    }
+
+    // Success — account deleted; acknowledge and leave the screen.
+    if (deleteResultMessage != null) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Account Deleted") },
+            text = { Text(deleteResultMessage!!) },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteResultMessage = null
+                    onBack()
+                }) { Text(stringResource(R.string.common_ok)) }
+            }
+        )
+    }
+
+    // Failure surfaced as an alert.
+    AuthErrorDialog(message = deleteError) { deleteError = null }
+
+    // In-progress indicator while the delete request is running.
+    if (isDeleting) {
+        AlertDialog(
+            onDismissRequest = {},
+            confirmButton = {},
+            text = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Deleting account…")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -296,10 +373,14 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
             )
         }
     ) { padding ->
+        // Scrollable so content never clips on shorter screens. The mini player + bottom nav
+        // live in the root Scaffold's bottomBar, so `padding` already insets this content above
+        // them — no per-screen mini-player inset is needed (unlike iOS).
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -343,6 +424,23 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
+            } else {
+                // Pro subscribers: manage the subscription via the Play Store. The Android RC
+                // SDK has no showManageSubscriptions(); we open the customer's management URL
+                // (falling back to the generic Play subscriptions screen if it isn't available).
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ) {
+                    AccountActionRow(Icons.Default.Settings, "Manage Subscription") {
+                        val url = SubscriptionManager.managementUrl?.toString()
+                            ?: "https://play.google.com/store/account/subscriptions"
+                        uriHandler.openUri(url)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
             }
 
             // Standard Items
@@ -367,35 +465,10 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            /*
-            // Passkey section
-            Text(
-                text = "Passkey",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 8.dp)
-            )
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.PersonOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("iPhone", fontWeight = FontWeight.Bold)
-                        Text("Created 10 Apr 2026", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Icon(Icons.Default.MoreHoriz, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                }
+            // Passkey section (list / add / remove). Requires a signed-in account.
+            account?.email?.let { email ->
+                AccountPasskeySection(accountEmail = email)
             }
-
-            Spacer(modifier = Modifier.height(32.dp))
-            */
 
             // Logout Button
             Surface(
@@ -418,6 +491,29 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                     Text("Log out", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Delete Account (destructive — confirmed via dialog).
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable(enabled = !isDeleting) { showDeleteConfirm = true },
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Delete Account", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
@@ -429,6 +525,140 @@ fun AccountFeatureRow(icon: ImageVector, text: String) {
         Spacer(modifier = Modifier.width(16.dp))
         Text(text, style = MaterialTheme.typography.bodyLarge)
     }
+}
+
+/**
+ * Passkey management for the signed-in account. Lists the existing passkey (one per account,
+ * matching iOS), lets the user add one via the system credential sheet, or remove it. Loads on
+ * first composition. Mirrors iOS `AccountPasskeySectionView`.
+ */
+@Composable
+private fun AccountPasskeySection(accountEmail: String) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isLoading by remember { mutableStateOf(true) }
+    var loadFailed by remember { mutableStateOf(false) }
+    var passkey by remember { mutableStateOf<com.tortugapower.audiobookplayer.model.PasskeyInfo?>(null) }
+    var isAdding by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    suspend fun reload() {
+        isLoading = true
+        com.tortugapower.audiobookplayer.logic.PasskeyManager.listPasskeys()
+            .onSuccess { passkey = it.firstOrNull(); loadFailed = false }
+            .onFailure { loadFailed = true }
+        isLoading = false
+    }
+
+    LaunchedEffect(Unit) { reload() }
+
+    AuthErrorDialog(message = error) { error = null }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Remove Passkey") },
+            text = { Text("Are you sure you want to remove this passkey? You won't be able to use it to sign in anymore.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    val id = passkey?.id ?: return@TextButton
+                    scope.launch {
+                        com.tortugapower.audiobookplayer.logic.PasskeyManager.deletePasskey(id)
+                            .onSuccess { reload() }
+                            .onFailure { error = it.message }
+                    }
+                }) {
+                    Text(stringResource(R.string.common_remove), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(R.string.common_cancel)) }
+            }
+        )
+    }
+
+    Text(
+        text = "Passkey",
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 8.dp)
+    )
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        when {
+            isLoading || isAdding -> {
+                Box(modifier = Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                }
+            }
+            passkey != null -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Fingerprint, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(passkey?.deviceName ?: "Unnamed device", fontWeight = FontWeight.Bold)
+                        val created = passkey?.createdAt?.substringBefore('T')
+                        if (!created.isNullOrBlank()) {
+                            Text(
+                                "Created $created",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.common_more), tint = MaterialTheme.colorScheme.primary)
+                        }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.common_remove), color = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    menuExpanded = false
+                                    showDeleteConfirm = true
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            loadFailed -> {
+                AccountActionRow(Icons.Default.Refresh, stringResource(R.string.common_retry)) {
+                    scope.launch { reload() }
+                }
+            }
+            else -> {
+                AccountActionRow(Icons.Default.Fingerprint, "Add passkey") {
+                    scope.launch {
+                        isAdding = true
+                        com.tortugapower.audiobookplayer.logic.PasskeyManager.addPasskey(context, accountEmail)
+                            .onSuccess { reload() }
+                            .onFailure {
+                                if (it !is com.tortugapower.audiobookplayer.logic.PasskeyCancelledException) {
+                                    error = it.message ?: "Couldn't add passkey"
+                                }
+                            }
+                        isAdding = false
+                    }
+                }
+            }
+        }
+    }
+
+    Spacer(modifier = Modifier.height(24.dp))
 }
 
 @Composable
