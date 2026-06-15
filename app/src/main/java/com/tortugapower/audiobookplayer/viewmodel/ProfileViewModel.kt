@@ -10,6 +10,7 @@ import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -54,17 +55,19 @@ class ProfileViewModel(
      * on success, or a failure the caller can surface. The local data is wiped only after the
      * server confirms deletion.
      */
-    suspend fun deleteAccount(): Result<String> {
+    suspend fun deleteAccount(): Result<String?> {
         return try {
             val response = NetworkClient.authApi.deleteAccount()
             if (response.isSuccessful) {
-                val message = response.body()?.message ?: "Your account has been deleted"
+                // The server's confirmation message, or null so the UI shows its localized default.
+                val message = response.body()?.message
                 clearLocalSession()
-                NetworkClient.setToken(null)
                 Result.success(message)
             } else {
                 Result.failure(Exception("Failed to delete account (${response.code()})"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -74,6 +77,9 @@ class ProfileViewModel(
         accountRepository.deleteAccount()
         syncTaskRepository.deleteAllTasks()
         SubscriptionManager.logout()
+        // Drop the in-memory Bearer token so it isn't attached to subsequent requests. Done here
+        // (not just in the delete path) so logout clears it too.
+        NetworkClient.setToken(null)
         SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
     }
 

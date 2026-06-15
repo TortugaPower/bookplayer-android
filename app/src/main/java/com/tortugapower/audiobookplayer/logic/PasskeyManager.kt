@@ -12,6 +12,7 @@ import androidx.credentials.exceptions.CreateCredentialException
 import com.google.gson.Gson
 import com.tortugapower.audiobookplayer.model.*
 import com.tortugapower.audiobookplayer.network.NetworkClient
+import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
 
 /** Raised when the user dismisses the system passkey sheet; callers should treat it as a no-op. */
@@ -37,6 +38,8 @@ object PasskeyManager {
             } else {
                 Result.failure(Exception("Failed to load passkeys (${response.code()})"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -55,6 +58,8 @@ object PasskeyManager {
                 }
                 Result.failure(Exception(message))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -110,6 +115,8 @@ object PasskeyManager {
             Result.failure(PasskeyCancelledException())
         } catch (e: CreateCredentialException) {
             Result.failure(e)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -37,8 +37,8 @@ interface AuthApi {
     @GET(NetworkConstants.ENDPOINT_PASSKEY_CREDENTIALS)
     suspend fun listPasskeys(): Response<PasskeyListResponse>
 
-    @DELETE(NetworkConstants.ENDPOINT_PASSKEY_CREDENTIALS + "/{id}")
-    suspend fun deletePasskey(@Path("id") id: Int): Response<PasskeyDeleteResponse>
+    @DELETE(NetworkConstants.ENDPOINT_PASSKEY_DELETE)
+    suspend fun deletePasskey(@Path("id") id: Int): Response<Unit>
 }
 
 object NetworkClient {

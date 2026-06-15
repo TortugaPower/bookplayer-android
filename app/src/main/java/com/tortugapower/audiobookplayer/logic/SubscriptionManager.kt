@@ -107,12 +107,15 @@ object SubscriptionManager {
             Purchases.sharedInstance.logIn(appUserId, object : LogInCallback {
                 override fun onReceived(customerInfo: CustomerInfo, created: Boolean) {
                     updateAccountTier(customerInfo)
-                    cont.resume(customerInfo.activeSubscriptions.isNotEmpty())
+                    // Guard against resuming a continuation that was already cancelled (e.g. the
+                    // caller's scope was cleared before RevenueCat's callback fired) — resuming a
+                    // cancelled/completed continuation throws.
+                    if (cont.isActive) cont.resume(customerInfo.activeSubscriptions.isNotEmpty())
                 }
 
                 override fun onError(error: PurchasesError) {
                     Log.e(TAG, "Error logging in to RevenueCat: ${error.message}")
-                    cont.resume(false)
+                    if (cont.isActive) cont.resume(false)
                 }
             })
         }
@@ -133,6 +136,9 @@ object SubscriptionManager {
         })
     }
 
+    // Always invoked from RevenueCat SDK callbacks, which dispatch on the main thread — so the
+    // `managementUrl` Compose snapshot write below is main-thread safe. Don't call this off the
+    // main thread (writing snapshot state from a background thread is undefined).
     internal fun updateAccountTier(customerInfo: CustomerInfo) {
         // Always refresh the management URL, even when the tier hasn't changed.
         managementUrl = customerInfo.managementURL

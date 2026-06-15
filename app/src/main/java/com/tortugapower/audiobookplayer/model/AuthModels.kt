@@ -121,11 +121,8 @@ data class PasskeyInfo(
 )
 
 data class PasskeyListResponse(
-    val passkeys: List<PasskeyInfo>
-)
-
-data class PasskeyDeleteResponse(
-    val success: Boolean?,
-    val message: String?
+    // Nullable on purpose: Gson bypasses Kotlin's non-null guarantee and writes a raw null when
+    // the server omits the key (or sends `"passkeys": null`). The list call defaults it to empty.
+    val passkeys: List<PasskeyInfo>? = null
 )
 

@@ -288,6 +288,7 @@ private object LegalUrls {
 @Composable
 fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
     val account by viewModel.account.collectAsState()
+    val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
     var showPaywall by remember { mutableStateOf(false) }
@@ -306,13 +307,8 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Account") },
-            text = {
-                Text(
-                    "Warning: this action is not reversible. If your account is deleted, all your " +
-                        "synced library details will be deleted from our servers."
-                )
-            },
+            title = { Text(stringResource(R.string.account_delete_title)) },
+            text = { Text(stringResource(R.string.account_delete_warning)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -322,8 +318,8 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                             val result = viewModel.deleteAccount()
                             isDeleting = false
                             result
-                                .onSuccess { deleteResultMessage = it }
-                                .onFailure { deleteError = it.message ?: "Failed to delete account" }
+                                .onSuccess { deleteResultMessage = it ?: context.getString(R.string.account_deleted_message) }
+                                .onFailure { deleteError = context.getString(R.string.account_delete_failed) }
                         }
                     }
                 ) {
@@ -342,7 +338,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
     if (deleteResultMessage != null) {
         AlertDialog(
             onDismissRequest = {},
-            title = { Text("Account Deleted") },
+            title = { Text(stringResource(R.string.account_deleted_title)) },
             text = { Text(deleteResultMessage!!) },
             confirmButton = {
                 TextButton(onClick = {
@@ -365,7 +361,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(16.dp))
-                    Text("Deleting account…")
+                    Text(stringResource(R.string.account_deleting))
                 }
             }
         )
@@ -385,7 +381,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = stringResource(R.string.common_back))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -419,7 +415,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "BookPlayer Pro",
+                            text = stringResource(R.string.pro_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -429,8 +425,8 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            AccountFeatureRow(Icons.Default.CloudQueue, "Cloud sync (Beta)")
-                            AccountFeatureRow(Icons.Default.Palette, "Themes & Icons")
+                            AccountFeatureRow(Icons.Default.CloudQueue, stringResource(R.string.pro_feature_cloud_sync_title))
+                            AccountFeatureRow(Icons.Default.Palette, stringResource(R.string.pro_feature_themes_title))
                         }
 
                         Spacer(modifier = Modifier.height(32.dp))
@@ -439,7 +435,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                             modifier = Modifier.fillMaxWidth().height(50.dp),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Complete Your Account", fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.account_complete), fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -454,7 +450,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                     shape = RoundedCornerShape(20.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 ) {
-                    AccountActionRow(Icons.Default.Settings, "Manage Subscription") {
+                    AccountActionRow(Icons.Default.Settings, stringResource(R.string.account_manage_subscription)) {
                         val url = SubscriptionManager.managementUrl?.toString()
                             ?: "https://play.google.com/store/account/subscriptions"
                         uriHandler.openUri(url)
@@ -471,14 +467,14 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             ) {
                 Column {
-                    AccountActionRow(Icons.Filled.Description, "Terms and Conditions") {
+                    AccountActionRow(Icons.Filled.Description, stringResource(R.string.legal_terms)) {
                         uriHandler.openUri(LegalUrls.TERMS)
                     }
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
                     )
-                    AccountActionRow(Icons.Filled.Description, "Privacy Policy") {
+                    AccountActionRow(Icons.Filled.Description, stringResource(R.string.legal_privacy)) {
                         uriHandler.openUri(LegalUrls.PRIVACY)
                     }
                 }
@@ -509,7 +505,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("Log out", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.account_log_out), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -530,7 +526,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                 ) {
                     Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("Delete Account", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.account_delete_title), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -570,7 +566,9 @@ private fun AccountPasskeySection(accountEmail: String) {
         isLoading = true
         com.tortugapower.audiobookplayer.logic.PasskeyManager.listPasskeys()
             .onSuccess { passkey = it.firstOrNull(); loadFailed = false }
-            .onFailure { loadFailed = true }
+            // Clear the cached passkey on failure so a transient error (notably right after a
+            // delete) surfaces the Retry state instead of a stale / just-removed passkey row.
+            .onFailure { passkey = null; loadFailed = true }
         isLoading = false
     }
 
@@ -581,8 +579,8 @@ private fun AccountPasskeySection(accountEmail: String) {
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Remove Passkey") },
-            text = { Text("Are you sure you want to remove this passkey? You won't be able to use it to sign in anymore.") },
+            title = { Text(stringResource(R.string.passkey_remove_title)) },
+            text = { Text(stringResource(R.string.passkey_remove_message)) },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
@@ -590,7 +588,7 @@ private fun AccountPasskeySection(accountEmail: String) {
                     scope.launch {
                         com.tortugapower.audiobookplayer.logic.PasskeyManager.deletePasskey(id)
                             .onSuccess { reload() }
-                            .onFailure { error = it.message }
+                            .onFailure { error = it.message ?: context.getString(R.string.passkey_remove_failed) }
                     }
                 }) {
                     Text(stringResource(R.string.common_remove), color = MaterialTheme.colorScheme.error)
@@ -603,7 +601,7 @@ private fun AccountPasskeySection(accountEmail: String) {
     }
 
     Text(
-        text = "Passkey",
+        text = stringResource(R.string.passkey_section_title),
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 8.dp)
@@ -628,11 +626,11 @@ private fun AccountPasskeySection(accountEmail: String) {
                     Icon(Icons.Default.Fingerprint, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(passkey?.deviceName ?: "Unnamed device", fontWeight = FontWeight.Bold)
+                        Text(passkey?.deviceName ?: stringResource(R.string.passkey_unnamed_device), fontWeight = FontWeight.Bold)
                         val created = passkey?.createdAt?.substringBefore('T')
                         if (!created.isNullOrBlank()) {
                             Text(
-                                "Created $created",
+                                stringResource(R.string.passkey_created, created),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -663,14 +661,14 @@ private fun AccountPasskeySection(accountEmail: String) {
                 }
             }
             else -> {
-                AccountActionRow(Icons.Default.Fingerprint, "Add passkey") {
+                AccountActionRow(Icons.Default.Fingerprint, stringResource(R.string.passkey_add)) {
                     scope.launch {
                         isAdding = true
                         com.tortugapower.audiobookplayer.logic.PasskeyManager.addPasskey(context, accountEmail)
                             .onSuccess { reload() }
                             .onFailure {
                                 if (it !is com.tortugapower.audiobookplayer.logic.PasskeyCancelledException) {
-                                    error = it.message ?: "Couldn't add passkey"
+                                    error = it.message ?: context.getString(R.string.passkey_add_failed)
                                 }
                             }
                         isAdding = false
@@ -749,6 +747,9 @@ fun PaywallSheet(onDismiss: () -> Unit) {
                 .fillMaxWidth()
                 // Clear the system navigation bar so the Subscribe button isn't under it.
                 .navigationBarsPadding()
+                // Scroll so the full paywall (plans + Subscribe + legal text) stays reachable on
+                // short screens / large font scales instead of clipping at the bottom.
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -760,11 +761,11 @@ fun PaywallSheet(onDismiss: () -> Unit) {
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.CenterStart)
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close), tint = MaterialTheme.colorScheme.primary)
                 }
 
                 Text(
-                    text = "BookPlayer Pro",
+                    text = stringResource(R.string.pro_title),
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface
@@ -781,7 +782,7 @@ fun PaywallSheet(onDismiss: () -> Unit) {
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-            Text("Choose your plan", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.paywall_choose_plan), color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(16.dp))
 
             val currentOfferings = offerings
@@ -809,7 +810,11 @@ fun PaywallSheet(onDismiss: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "${pkg.product.price.formatted} per ${pkg.packageType.name.lowercase()}",
+                            text = stringResource(
+                                R.string.paywall_price_per_period,
+                                pkg.product.price.formatted,
+                                pkg.packageType.name.lowercase()
+                            ),
                             modifier = Modifier.weight(1f),
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -843,28 +848,32 @@ fun PaywallSheet(onDismiss: () -> Unit) {
                 if (isPurchasing) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
                 } else {
-                    Text("Subscribe now", fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(stringResource(R.string.paywall_subscribe), fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
             val linkColor = MaterialTheme.colorScheme.primary
+            val agreePrefix = stringResource(R.string.paywall_agree_prefix)
+            val agreeAnd = stringResource(R.string.paywall_agree_and)
+            val privacyLabel = stringResource(R.string.legal_privacy)
+            val termsLabel = stringResource(R.string.legal_terms)
             Text(
                 text = buildAnnotatedString {
-                    append("By continuing, you agree to ")
+                    append(agreePrefix)
                     withLink(
                         LinkAnnotation.Url(
                             LegalUrls.PRIVACY,
                             TextLinkStyles(style = SpanStyle(color = linkColor))
                         )
-                    ) { append("Privacy Policy") }
-                    append(" and ")
+                    ) { append(privacyLabel) }
+                    append(agreeAnd)
                     withLink(
                         LinkAnnotation.Url(
                             LegalUrls.TERMS,
                             TextLinkStyles(style = SpanStyle(color = linkColor))
                         )
-                    ) { append("Terms and Conditions") }
+                    ) { append(termsLabel) }
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -967,6 +976,7 @@ fun ProRestoreButton(
     modifier: Modifier = Modifier,
     content: @Composable (onClick: () -> Unit, enabled: Boolean) -> Unit
 ) {
+    val context = LocalContext.current
     var isRestoring by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -981,7 +991,7 @@ fun ProRestoreButton(
                     if (success) {
                         onRestored()
                     } else {
-                        error = err ?: "No active subscription found to restore."
+                        error = err ?: context.getString(R.string.restore_none_found)
                     }
                 }
             },

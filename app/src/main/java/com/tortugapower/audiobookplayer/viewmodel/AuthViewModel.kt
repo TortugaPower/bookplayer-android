@@ -32,6 +32,7 @@ import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.network.NetworkConstants
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -92,6 +93,8 @@ class AuthViewModel(
                         ?: context.getString(R.string.auth_error_send_code_failed, response.code())
                     currentStep = AuthStep.EMAIL_INPUT
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 errorMessage = e.message ?: context.getString(R.string.auth_error_generic)
                 currentStep = AuthStep.EMAIL_INPUT
@@ -125,6 +128,8 @@ class AuthViewModel(
                     errorMessage = body?.message ?: context.getString(R.string.auth_error_invalid_code)
                     currentStep = AuthStep.CODE_VERIFICATION
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 errorMessage = e.message ?: context.getString(R.string.auth_error_generic)
                 currentStep = AuthStep.CODE_VERIFICATION
@@ -211,6 +216,8 @@ class AuthViewModel(
         } catch (e: CreateCredentialException) {
             errorMessage = context.getString(R.string.auth_error_passkey_failed, e.message ?: "")
             currentStep = AuthStep.CODE_VERIFICATION
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             errorMessage = e.message ?: context.getString(R.string.auth_error_generic)
             currentStep = AuthStep.CODE_VERIFICATION
@@ -278,6 +285,8 @@ class AuthViewModel(
         } catch (e: GetCredentialException) {
             android.util.Log.e("AuthViewModel", "Passkey sign-in failed", e)
             errorMessage = context.getString(R.string.auth_error_passkey_failed, e.message ?: "")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             errorMessage = e.message ?: context.getString(R.string.auth_error_generic)
         } finally {
@@ -314,6 +323,8 @@ class AuthViewModel(
         } catch (e: GetCredentialException) {
             errorMessage = context.getString(R.string.auth_error_signin_failed, e.message ?: "")
             currentStep = AuthStep.EMAIL_INPUT
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             errorMessage = context.getString(R.string.auth_error_signin_failed, e.message ?: "")
             currentStep = AuthStep.EMAIL_INPUT
@@ -351,6 +362,8 @@ class AuthViewModel(
                 errorMessage = context.getString(R.string.auth_error_server_login_failed, response.code())
                 currentStep = AuthStep.EMAIL_INPUT
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             errorMessage = e.message ?: context.getString(R.string.auth_error_generic)
             currentStep = AuthStep.EMAIL_INPUT
@@ -397,6 +410,8 @@ class AuthViewModel(
                 PasskeyRegistrationOptionsRequest(email, verificationToken, deviceName)
             )
             response.body()?.takeIf { response.isSuccessful }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("AuthViewModel", "Exception getting registration options", e)
             null
@@ -407,6 +422,8 @@ class AuthViewModel(
         return try {
             val response = NetworkClient.authApi.getSignInOptions(PasskeySignInOptionsRequest(email))
             response.body()?.takeIf { response.isSuccessful }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("AuthViewModel", "Exception getting sign-in options", e)
             null

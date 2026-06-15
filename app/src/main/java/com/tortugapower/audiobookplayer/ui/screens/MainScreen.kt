@@ -24,8 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.hideFromAccessibility
-import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -76,17 +74,12 @@ fun MainScreen() {
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
-            modifier = Modifier.semantics {
-                if (PlaybackManager.showPlayerScreen) {
-                    hideFromAccessibility()
-                    // More aggressive approach for some versions of TalkBack
-                    // by ensuring it's not a traversal group
-                }
-            }.then(
-                if (PlaybackManager.showPlayerScreen) {
-                    Modifier.clearAndSetSemantics { }
-                } else Modifier
-            ),
+            // While the full player is shown over everything, strip the tab UI (incl. the floating
+            // mini player) from the TalkBack tree so focus stays within the player. clearAndSetSemantics
+            // already clears the whole subtree, so no separate hideFromAccessibility() is needed.
+            modifier = if (PlaybackManager.showPlayerScreen) {
+                Modifier.clearAndSetSemantics { }
+            } else Modifier,
             containerColor = MaterialTheme.colorScheme.background,
             // Each tab destination owns its own top bar / LargeTopAppBar, so the outer
             // Scaffold hands top-inset duty to the inner Scaffolds.
