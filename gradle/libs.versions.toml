@@ -23,10 +23,12 @@ coil = "2.6.0"
 billing = "7.1.1"
 revenuecat = "7.11.0"
 sentry = "7.18.1"
+konfetti = "2.0.5"
 
 [libraries]
 purchases = { group = "com.revenuecat.purchases", name = "purchases", version.ref = "revenuecat" }
 sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "sentry" }
+konfetti-compose = { group = "nl.dionsegijn", name = "konfetti-compose", version.ref = "konfetti" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 billing-ktx = { group = "com.android.billingclient", name = "billing-ktx", version.ref = "billing" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }

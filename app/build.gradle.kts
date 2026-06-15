@@ -134,6 +134,7 @@ dependencies {
     implementation(libs.billing.ktx)
     implementation(libs.purchases)
     implementation(libs.sentry.android)
+    implementation(libs.konfetti.compose)
 
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)

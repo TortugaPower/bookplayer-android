@@ -19,6 +19,7 @@
     <string name="common_accept">Accept</string>
     <string name="common_remove">Remove</string>
     <string name="common_retry">Retry</string>
+    <string name="common_restore">Restore</string>
     <string name="common_select_all">Select All</string>
     <string name="common_select">Select</string>
     <string name="common_move">Move</string>
@@ -98,6 +99,8 @@
     <string name="player_rewind_seconds">Rewind %1$d seconds</string>
     <string name="miniplayer_now_playing">Mini player, currently playing %1$s by %2$s</string>
     <string name="miniplayer_show_player">Show player</string>
+    <string name="pro_welcome_title">Welcome to BookPlayer Pro!</string>
+    <string name="pro_welcome_description">We\'ll start syncing your library when WiFi is available</string>
     <string name="player_chapters_title">Chapters</string>
     <string name="player_chapter_details">Start: %1$s - Duration: %2$s</string>
     <string name="player_jump_to_start">Jump to start</string>

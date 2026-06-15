@@ -41,7 +41,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.revenuecat.purchases.Package
+import nl.dionsegijn.konfetti.compose.KonfettiView
+import nl.dionsegijn.konfetti.core.Angle
+import nl.dionsegijn.konfetti.core.Party
+import nl.dionsegijn.konfetti.core.Position
+import nl.dionsegijn.konfetti.core.emitter.Emitter
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
@@ -699,6 +707,19 @@ fun PaywallSheet(onDismiss: () -> Unit) {
     val isPurchasing by PurchaseFlowManager.isPurchasing.collectAsState()
     var selectedPackage by remember { mutableStateOf<Package?>(null) }
     val scope = rememberCoroutineScope()
+    // Expand fully (like the other sheets) so the whole paywall — plans, Subscribe button, and
+    // legal text — is visible instead of opening at the half-height partial detent.
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    var showWelcome by remember { mutableStateOf(false) }
+
+    // Celebration after a successful purchase or restore. OK closes the paywall.
+    if (showWelcome) {
+        WelcomeToProDialog(onDismiss = {
+            showWelcome = false
+            onDismiss()
+        })
+    }
 
     LaunchedEffect(Unit) {
         PurchaseFlowManager.fetchOfferings()
@@ -719,12 +740,15 @@ fun PaywallSheet(onDismiss: () -> Unit) {
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // Clear the system navigation bar so the Subscribe button isn't under it.
+                .navigationBarsPadding()
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -746,15 +770,13 @@ fun PaywallSheet(onDismiss: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
-                TextButton(
-                    onClick = {
-                        PurchaseFlowManager.restorePurchases { success, _ ->
-                            if (success) onDismiss()
-                        }
-                    },
+                ProRestoreButton(
+                    onRestored = { showWelcome = true },
                     modifier = Modifier.align(Alignment.CenterEnd)
-                ) {
-                    Text("Restore", color = MaterialTheme.colorScheme.primary)
+                ) { onClick, enabled ->
+                    TextButton(onClick = onClick, enabled = enabled) {
+                        Text(stringResource(R.string.common_restore), color = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
 
@@ -807,7 +829,7 @@ fun PaywallSheet(onDismiss: () -> Unit) {
                     val activity = context as? Activity
                     if (activity != null && selectedPackage != null) {
                         PurchaseFlowManager.purchasePackage(activity, selectedPackage!!) { success, _ ->
-                            if (success) onDismiss()
+                            if (success) showWelcome = true
                         }
                     }
                 },
@@ -850,6 +872,121 @@ fun PaywallSheet(onDismiss: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+}
+
+/**
+ * Celebratory confetti for the "Welcome to Pro" moment. Mirrors the iOS CAEmitterLayer effect:
+ * the same five brand colors rain down from a line across the top of the screen.
+ */
+private fun welcomeConfettiParty(): Party {
+    val iosColors = listOf(
+        0xFFF26645.toInt(), // coral
+        0xFFFFC75C.toInt(), // amber
+        0xFF7BC7A3.toInt(), // green
+        0xFF4DC2D9.toInt(), // cyan
+        0xFF94638C.toInt(), // plum
+    )
+    return Party(
+        angle = Angle.BOTTOM,            // rain downward
+        spread = 60,
+        speed = 10f,
+        maxSpeed = 30f,
+        damping = 0.9f,
+        colors = iosColors,
+        // Emit continuously (long duration) so the rain keeps going until the user taps OK and
+        // the KonfettiView leaves the composition. A moderate rate keeps sustained emission smooth.
+        emitter = Emitter(duration = 1, java.util.concurrent.TimeUnit.HOURS).perSecond(50),
+        // Emit from a line across the top, like the iOS .line emitter shape.
+        position = Position.Relative(0.0, 0.0).between(Position.Relative(1.0, 0.0))
+    )
+}
+
+/**
+ * Reusable "Welcome to BookPlayer Pro!" celebration — a full-screen [Dialog] (its own top-level
+ * window, so the confetti sits above any sheet) with continuous confetti behind a centered card.
+ * [onDismiss] is called when OK is tapped (callers decide what that means — e.g. close a paywall
+ * sheet, or just hide the dialog). Use anywhere a successful purchase/restore should celebrate.
+ */
+@Composable
+fun WelcomeToProDialog(onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            KonfettiView(
+                // Decorative — kept out of the TalkBack tree.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clearAndSetSemantics {},
+                parties = listOf(welcomeConfettiParty())
+            )
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+                modifier = Modifier.padding(40.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = stringResource(R.string.pro_welcome_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.pro_welcome_description),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(onClick = onDismiss) {
+                        Text(stringResource(R.string.common_ok))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Reusable Restore-purchases control. Owns the restore call, in-flight state, and the
+ * "nothing to restore" / error alert; invokes [onRestored] on success (callers typically show
+ * [WelcomeToProDialog]). [content] supplies the button visual — it receives the click handler and
+ * an `enabled` flag (false while restoring). Use in the paywall, the Themes screen top bar, etc.
+ */
+@Composable
+fun ProRestoreButton(
+    onRestored: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable (onClick: () -> Unit, enabled: Boolean) -> Unit
+) {
+    var isRestoring by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AuthErrorDialog(message = error) { error = null }
+
+    Box(modifier) {
+        content(
+            {
+                isRestoring = true
+                PurchaseFlowManager.restorePurchases { success, err ->
+                    isRestoring = false
+                    if (success) {
+                        onRestored()
+                    } else {
+                        error = err ?: "No active subscription found to restore."
+                    }
+                }
+            },
+            !isRestoring
+        )
     }
 }
 
@@ -1180,6 +1317,13 @@ fun LazyListScope.settingsSection(
 @Composable
 fun ThemesScreen(onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    var showWelcome by remember { mutableStateOf(false) }
+
+    // Restoring a purchase from here celebrates but stays on the Themes screen.
+    if (showWelcome) {
+        WelcomeToProDialog(onDismiss = { showWelcome = false })
+    }
+
     BookPlayerTabScaffold(
         title = stringResource(R.string.themes_title),
         navigationIcon = {
@@ -1188,6 +1332,13 @@ fun ThemesScreen(onBack: () -> Unit) {
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = stringResource(R.string.common_back),
                 )
+            }
+        },
+        actions = {
+            ProRestoreButton(onRestored = { showWelcome = true }) { onClick, enabled ->
+                TextButton(onClick = onClick, enabled = enabled) {
+                    Text(stringResource(R.string.common_restore), color = MaterialTheme.colorScheme.primary)
+                }
             }
         },
     ) { innerPadding ->
