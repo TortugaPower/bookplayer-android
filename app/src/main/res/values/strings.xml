@@ -12,11 +12,14 @@
     <string name="common_more">More</string>
     <string name="common_done">Done</string>
     <string name="common_ok">OK</string>
+    <string name="common_error">Error</string>
     <string name="common_cancel">Cancel</string>
     <string name="common_save">Save</string>
     <string name="common_delete">Delete</string>
     <string name="common_accept">Accept</string>
     <string name="common_remove">Remove</string>
+    <string name="common_retry">Retry</string>
+    <string name="common_restore">Restore</string>
     <string name="common_select_all">Select All</string>
     <string name="common_select">Select</string>
     <string name="common_move">Move</string>
@@ -32,6 +35,13 @@
     <!-- Auth -->
     <string name="auth_error_verification_failed">Verification failed</string>
     <string name="auth_error_passkey_failed">Passkey failed: %1$s</string>
+    <string name="auth_error_invalid_email">Please enter a valid email</string>
+    <string name="auth_error_enter_code">Please enter the 6-digit code</string>
+    <string name="auth_error_invalid_code">Invalid code</string>
+    <string name="auth_error_verification_expired">Verification expired. Please try again.</string>
+    <string name="auth_error_generic">An error occurred</string>
+    <string name="auth_error_send_code_failed">Couldn\'t send the code (%1$d). Please try again.</string>
+    <string name="auth_error_server_login_failed">Server login failed (%1$d)</string>
     <string name="auth_setting_up_secure_access">Setting up secure access...</string>
     <string name="auth_create_account">Create Account</string>
     <string name="auth_verify_your_email">Verify Your Email</string>
@@ -66,6 +76,38 @@
     <string name="pro_disclaimer_account">You only need an account with us if you plan to listen to your library across different devices</string>
     <string name="pro_disclaimer_subscription">Due to ongoing server costs for cloud storage and progress syncing, we require a subscription to offset the cost of this feature</string>
 
+    <!-- Account -->
+    <string name="account_delete_title">Delete Account</string>
+    <string name="account_delete_warning">Warning: this action is irreversible. If your account is deleted, all your synced library details will be deleted from our servers.</string>
+    <string name="account_delete_failed">Failed to delete account</string>
+    <string name="account_deleted_title">Account Deleted</string>
+    <string name="account_deleted_message">Your account has been deleted</string>
+    <string name="account_deleting">Deleting account…</string>
+    <string name="account_complete">Complete Your Account</string>
+    <string name="account_manage_subscription">Manage Subscription</string>
+    <string name="account_log_out">Log out</string>
+    <string name="legal_terms">Terms and Conditions</string>
+    <string name="legal_privacy">Privacy Policy</string>
+
+    <!-- Passkey management -->
+    <string name="passkey_section_title">Passkey</string>
+    <string name="passkey_remove_title">Remove Passkey</string>
+    <string name="passkey_remove_message">Are you sure you want to remove this passkey? You won\'t be able to use it to sign in anymore.</string>
+    <string name="passkey_remove_failed">Couldn\'t remove passkey</string>
+    <string name="passkey_remove_only_method">This is your only sign-in method, so it can\'t be removed.</string>
+    <string name="passkey_add">Add passkey</string>
+    <string name="passkey_add_failed">Couldn\'t add passkey</string>
+    <string name="passkey_unnamed_device">Unnamed device</string>
+    <string name="passkey_created">Created %1$s</string>
+
+    <!-- Paywall -->
+    <string name="paywall_choose_plan">Choose your plan</string>
+    <string name="paywall_price_per_period">%1$s per %2$s</string>
+    <string name="paywall_subscribe">Subscribe now</string>
+    <string name="paywall_agree_prefix">By continuing, you agree to </string>
+    <string name="paywall_agree_and"> and </string>
+    <string name="restore_none_found">No active subscription found to restore.</string>
+
     <!-- Settings/Themes -->
     <string name="settings_title">Settings</string>
     <string name="settings_appearance_section">Appearance</string>
@@ -84,6 +126,13 @@
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">Chapter 1 of 1</string>
     <string name="player_play_pause">Play/Pause</string>
+    <string name="player_play">Play</string>
+    <string name="player_pause">Pause</string>
+    <string name="player_rewind_seconds">Rewind %1$d seconds</string>
+    <string name="miniplayer_now_playing">Mini player, currently playing %1$s by %2$s</string>
+    <string name="miniplayer_show_player">Show player</string>
+    <string name="pro_welcome_title">Welcome to BookPlayer Pro!</string>
+    <string name="pro_welcome_description">We\'ll start syncing your library when WiFi is available</string>
     <string name="player_chapters_title">Chapters</string>
     <string name="player_chapter_details">Start: %1$s - Duration: %2$s</string>
     <string name="player_jump_to_start">Jump to start</string>

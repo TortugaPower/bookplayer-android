@@ -1,7 +1,11 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.revenuecat.purchases.*
 import com.revenuecat.purchases.interfaces.LogInCallback
 import com.revenuecat.purchases.interfaces.ReceiveCustomerInfoCallback
@@ -13,6 +17,8 @@ import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 object SubscriptionManager {
     private const val TAG = "SubscriptionManager"
@@ -20,6 +26,14 @@ object SubscriptionManager {
     private var syncTaskRepository: SyncTaskRepository? = null
     private val scope = CoroutineScope(Dispatchers.IO)
     private var lastProcessedTier: AccountTier? = null
+
+    /**
+     * Play Store subscription-management deep link for the current customer, or null when
+     * there's no store-managed subscription. The Android RC SDK has no `showManageSubscriptions()`
+     * (unlike iOS); opening this URL is the equivalent. Compose-observable.
+     */
+    var managementUrl: Uri? by mutableStateOf(null)
+        private set
 
     fun initialize(context: Context, repository: AccountRepository, syncRepository: SyncTaskRepository) {
         accountRepository = repository
@@ -79,6 +93,38 @@ object SubscriptionManager {
         })
     }
 
+    /**
+     * Logs into RevenueCat and suspends until the customer info is available, then reports
+     * whether the user has an active (paid) subscription. Mirrors iOS, which awaits
+     * `Purchases.logIn` and reads `customerInfo.activeSubscriptions`. Used by the auth flow to
+     * decide whether to present the "Complete Your Account" paywall. Returns false if RevenueCat
+     * isn't configured or the call fails (so the paywall is shown — the safe default).
+     */
+    suspend fun loginAndCheckSubscription(appUserId: String): Boolean {
+        if (!Purchases.isConfigured) return false
+        lastProcessedTier = null
+        // Switching users — drop the previous customer's management URL up front so a login failure
+        // (onError doesn't repopulate it) can't leave the UI pointing at a stale/incorrect
+        // subscription-management link. It's set again from the fresh customer info on success.
+        managementUrl = null
+        return suspendCancellableCoroutine { cont ->
+            Purchases.sharedInstance.logIn(appUserId, object : LogInCallback {
+                override fun onReceived(customerInfo: CustomerInfo, created: Boolean) {
+                    updateAccountTier(customerInfo)
+                    // Guard against resuming a continuation that was already cancelled (e.g. the
+                    // caller's scope was cleared before RevenueCat's callback fired) — resuming a
+                    // cancelled/completed continuation throws.
+                    if (cont.isActive) cont.resume(customerInfo.activeSubscriptions.isNotEmpty())
+                }
+
+                override fun onError(error: PurchasesError) {
+                    Log.e(TAG, "Error logging in to RevenueCat: ${error.message}")
+                    if (cont.isActive) cont.resume(false)
+                }
+            })
+        }
+    }
+
     fun logout() {
         if (!Purchases.isConfigured) return
         Log.d(TAG, "Logging out")
@@ -94,7 +140,13 @@ object SubscriptionManager {
         })
     }
 
+    // Always invoked from RevenueCat SDK callbacks, which dispatch on the main thread — so the
+    // `managementUrl` Compose snapshot write below is main-thread safe. Don't call this off the
+    // main thread (writing snapshot state from a background thread is undefined).
     internal fun updateAccountTier(customerInfo: CustomerInfo) {
+        // Always refresh the management URL, even when the tier hasn't changed.
+        managementUrl = customerInfo.managementURL
+
         val activeEntitlements = customerInfo.entitlements.active.keys
         Log.d(TAG, "Updating tier. Active entitlements: $activeEntitlements")
 

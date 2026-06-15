@@ -106,3 +106,23 @@ data class GoogleLoginResponse(
     @SerializedName("revenuecat_id") val revenuecatId: String?
 )
 
+// --- Account ---
+
+data class DeleteAccountResponse(
+    val message: String?
+)
+
+// --- Passkey management ---
+
+data class PasskeyInfo(
+    @SerializedName("id_passkey") val id: Int,
+    @SerializedName("device_name") val deviceName: String?,
+    @SerializedName("created_at") val createdAt: String?
+)
+
+data class PasskeyListResponse(
+    // Nullable on purpose: Gson bypasses Kotlin's non-null guarantee and writes a raw null when
+    // the server omits the key (or sends `"passkeys": null`). The list call defaults it to empty.
+    val passkeys: List<PasskeyInfo>? = null
+)
+

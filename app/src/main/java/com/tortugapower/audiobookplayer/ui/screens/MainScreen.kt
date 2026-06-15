@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -15,6 +16,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -22,8 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.hideFromAccessibility
-import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -35,8 +35,11 @@ import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
+import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.ui.components.CustomBottomNavigation
+import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.ui.components.MiniPlayer
+import com.tortugapower.audiobookplayer.ui.components.MiniPlayerBarHeight
 import com.tortugapower.audiobookplayer.ui.components.Screen
 import com.tortugapower.audiobookplayer.viewmodel.*
 
@@ -71,17 +74,12 @@ fun MainScreen() {
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
-            modifier = Modifier.semantics {
-                if (PlaybackManager.showPlayerScreen) {
-                    hideFromAccessibility()
-                    // More aggressive approach for some versions of TalkBack
-                    // by ensuring it's not a traversal group
-                }
-            }.then(
-                if (PlaybackManager.showPlayerScreen) {
-                    Modifier.clearAndSetSemantics { }
-                } else Modifier
-            ),
+            // While the full player is shown over everything, strip the tab UI (incl. the floating
+            // mini player) from the TalkBack tree so focus stays within the player. clearAndSetSemantics
+            // already clears the whole subtree, so no separate hideFromAccessibility() is needed.
+            modifier = if (PlaybackManager.showPlayerScreen) {
+                Modifier.clearAndSetSemantics { }
+            } else Modifier,
             containerColor = MaterialTheme.colorScheme.background,
             // Each tab destination owns its own top bar / LargeTopAppBar, so the outer
             // Scaffold hands top-inset duty to the inner Scaffolds.
@@ -90,27 +88,38 @@ fun MainScreen() {
             ),
             bottomBar = {
                 if (currentRoute != "themes") {
-                    Column {
-                        if (PlaybackManager.currentItem != null) {
-                            MiniPlayer()
-                        }
-                        CustomBottomNavigation(
-                            currentRoute = currentRoute,
-                            onTabSelected = { screen ->
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.startDestinationId) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
+                    // Mini player is no longer docked here — it floats over content (below).
+                    CustomBottomNavigation(
+                        currentRoute = currentRoute,
+                        onTabSelected = { screen ->
+                            navController.navigate(screen.route) {
+                                popUpTo(navController.graph.startDestinationId) {
+                                    saveState = true
                                 }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                        )
-                    }
+                        }
+                    )
                 }
             }
         ) { innerPadding ->
-            Box(modifier = Modifier.padding(innerPadding)) {
+            // The floating mini player is shown over content when a book is loaded (and not on
+            // the full-screen themes route). Screens read LocalMiniPlayerInset to reserve bottom
+            // space so their scroll content clears the pill while still scrolling behind it.
+            val miniPlayerVisible = PlaybackManager.currentItem != null && currentRoute != "themes"
+
+            // Consume the root insets so the per-screen nested Scaffolds (tab chrome,
+            // Account Details) don't re-apply the bottom navigation-bar inset on top of
+            // the bottomBar we already reserve here.
+            Box(
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding)
+            ) {
+              CompositionLocalProvider(
+                  LocalMiniPlayerInset provides if (miniPlayerVisible) MiniPlayerBarHeight else 0.dp
+              ) {
                 NavHost(
                     navController = navController,
                     startDestination = Screen.Library.route,
@@ -216,6 +225,13 @@ fun MainScreen() {
 
                 if (importViewModel.showImportSheet) {
                     ImportSheet(importViewModel)
+                }
+              }
+
+                // Floating mini player overlay — drawn over content, bottom-aligned (just above
+                // the docked bottom nav). Hidden on the full-screen themes route.
+                if (miniPlayerVisible) {
+                    MiniPlayer(modifier = Modifier.align(Alignment.BottomCenter))
                 }
             }
         }
