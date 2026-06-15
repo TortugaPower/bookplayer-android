@@ -31,7 +31,6 @@ import com.tortugapower.audiobookplayer.model.*
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.network.NetworkConstants
 import com.tortugapower.audiobookplayer.repository.AccountRepository
-import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -51,8 +50,7 @@ enum class AuthStep {
  * they call these functions and observe state.
  */
 class AuthViewModel(
-    private val accountRepository: AccountRepository,
-    private val syncTaskRepository: SyncTaskRepository
+    private val accountRepository: AccountRepository
 ) : ViewModel() {
 
     private val gson = Gson()

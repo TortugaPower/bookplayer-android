@@ -63,7 +63,6 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.ThemeManager
 import com.tortugapower.audiobookplayer.model.formatSyncTime
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
-import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerThemeSpec
@@ -588,7 +587,13 @@ private fun AccountPasskeySection(accountEmail: String) {
                     scope.launch {
                         com.tortugapower.audiobookplayer.logic.PasskeyManager.deletePasskey(id)
                             .onSuccess { reload() }
-                            .onFailure { error = it.message ?: context.getString(R.string.passkey_remove_failed) }
+                            .onFailure {
+                                error = when (it) {
+                                    is com.tortugapower.audiobookplayer.logic.PasskeyOnlyMethodException ->
+                                        context.getString(R.string.passkey_remove_only_method)
+                                    else -> context.getString(R.string.passkey_remove_failed)
+                                }
+                            }
                     }
                 }) {
                     Text(stringResource(R.string.common_remove), color = MaterialTheme.colorScheme.error)
@@ -1010,10 +1015,9 @@ fun BookPlayerProSheet(
     val scope = rememberCoroutineScope()
     val db = AppDatabase.getDatabase(context)
     val accountRepository = RoomAccountRepository(db.accountDao())
-    val syncTaskRepository = RoomSyncTaskRepository(db.syncTaskDao())
     val viewModel: AuthViewModel = viewModel(
         key = "ProSheet",
-        factory = AuthViewModelFactory(accountRepository, syncTaskRepository)
+        factory = AuthViewModelFactory(accountRepository)
     )
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)

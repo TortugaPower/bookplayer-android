@@ -94,6 +94,7 @@
     <string name="passkey_remove_title">Remove Passkey</string>
     <string name="passkey_remove_message">Are you sure you want to remove this passkey? You won\'t be able to use it to sign in anymore.</string>
     <string name="passkey_remove_failed">Couldn\'t remove passkey</string>
+    <string name="passkey_remove_only_method">This is your only sign-in method, so it can\'t be removed.</string>
     <string name="passkey_add">Add passkey</string>
     <string name="passkey_add_failed">Couldn\'t add passkey</string>
     <string name="passkey_unnamed_device">Unnamed device</string>

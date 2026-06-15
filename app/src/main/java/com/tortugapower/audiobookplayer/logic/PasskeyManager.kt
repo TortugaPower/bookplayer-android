@@ -19,6 +19,13 @@ import org.json.JSONObject
 class PasskeyCancelledException : Exception()
 
 /**
+ * Raised when removing a passkey is rejected because it's the account's only remaining sign-in
+ * method (server returns HTTP 403). Typed so the UI can map it to a localized message instead of
+ * the logic layer constructing user-facing text.
+ */
+class PasskeyOnlyMethodException : Exception()
+
+/**
  * Account-level passkey management (list / add / delete) for an already-authenticated user.
  *
  * Distinct from the sign-up / sign-in flow in [com.tortugapower.audiobookplayer.viewmodel.AuthViewModel]:
@@ -48,15 +55,11 @@ object PasskeyManager {
     suspend fun deletePasskey(id: Int): Result<Unit> {
         return try {
             val response = NetworkClient.authApi.deletePasskey(id)
-            if (response.isSuccessful) {
-                Result.success(Unit)
-            } else {
-                val message = if (response.code() == 403) {
-                    "This is your only sign-in method, so it can't be removed."
-                } else {
-                    "Failed to remove passkey (${response.code()})"
-                }
-                Result.failure(Exception(message))
+            when {
+                response.isSuccessful -> Result.success(Unit)
+                // 403 = the passkey is the account's only remaining sign-in method.
+                response.code() == 403 -> Result.failure(PasskeyOnlyMethodException())
+                else -> Result.failure(Exception("deletePasskey failed (HTTP ${response.code()})"))
             }
         } catch (e: CancellationException) {
             throw e
