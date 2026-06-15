@@ -16,6 +16,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -36,8 +37,11 @@ import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
+import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.ui.components.CustomBottomNavigation
+import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.ui.components.MiniPlayer
+import com.tortugapower.audiobookplayer.ui.components.MiniPlayerBarHeight
 import com.tortugapower.audiobookplayer.ui.components.Screen
 import com.tortugapower.audiobookplayer.viewmodel.*
 
@@ -91,35 +95,38 @@ fun MainScreen() {
             ),
             bottomBar = {
                 if (currentRoute != "themes") {
-                    Column {
-                        if (PlaybackManager.currentItem != null) {
-                            MiniPlayer()
-                        }
-                        CustomBottomNavigation(
-                            currentRoute = currentRoute,
-                            onTabSelected = { screen ->
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.startDestinationId) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
+                    // Mini player is no longer docked here — it floats over content (below).
+                    CustomBottomNavigation(
+                        currentRoute = currentRoute,
+                        onTabSelected = { screen ->
+                            navController.navigate(screen.route) {
+                                popUpTo(navController.graph.startDestinationId) {
+                                    saveState = true
                                 }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                        )
-                    }
+                        }
+                    )
                 }
             }
         ) { innerPadding ->
+            // The floating mini player is shown over content when a book is loaded (and not on
+            // the full-screen themes route). Screens read LocalMiniPlayerInset to reserve bottom
+            // space so their scroll content clears the pill while still scrolling behind it.
+            val miniPlayerVisible = PlaybackManager.currentItem != null && currentRoute != "themes"
+
             // Consume the root insets so the per-screen nested Scaffolds (tab chrome,
             // Account Details) don't re-apply the bottom navigation-bar inset on top of
-            // the bottomBar we already reserve here — that double-count was leaving a gap
-            // above the mini player on every tab.
+            // the bottomBar we already reserve here.
             Box(
                 modifier = Modifier
                     .padding(innerPadding)
                     .consumeWindowInsets(innerPadding)
             ) {
+              CompositionLocalProvider(
+                  LocalMiniPlayerInset provides if (miniPlayerVisible) MiniPlayerBarHeight else 0.dp
+              ) {
                 NavHost(
                     navController = navController,
                     startDestination = Screen.Library.route,
@@ -225,6 +232,13 @@ fun MainScreen() {
 
                 if (importViewModel.showImportSheet) {
                     ImportSheet(importViewModel)
+                }
+              }
+
+                // Floating mini player overlay — drawn over content, bottom-aligned (just above
+                // the docked bottom nav). Hidden on the full-screen themes route.
+                if (miniPlayerVisible) {
+                    MiniPlayer(modifier = Modifier.align(Alignment.BottomCenter))
                 }
             }
         }

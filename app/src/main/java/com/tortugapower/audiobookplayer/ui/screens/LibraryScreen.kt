@@ -72,6 +72,7 @@ import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
+import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModelFactory
@@ -646,7 +647,10 @@ fun LibraryScreen(
                 
                 LazyColumn(
                     state = lazyListState,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    // Reserve space for the floating mini player so the last item clears it
+                    // while the list still scrolls behind the pill.
+                    contentPadding = PaddingValues(bottom = LocalMiniPlayerInset.current)
                 ) {
                     itemsIndexed(reorderableItems, key = { _, it -> it.uuid }) { index, item ->
                         val isSelected = selectedItemUuids.contains(item.uuid)

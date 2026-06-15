@@ -57,6 +57,7 @@ import com.tortugapower.audiobookplayer.model.formatSyncTime
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
+import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerThemeSpec
 import com.tortugapower.audiobookplayer.viewmodel.AuthViewModel
 import com.tortugapower.audiobookplayer.viewmodel.AuthViewModelFactory
@@ -105,6 +106,8 @@ fun ProfileScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(innerPadding)
+            // Reserve space for the floating mini player so the bottom content isn't covered.
+            .padding(bottom = LocalMiniPlayerInset.current)
             .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -373,14 +376,14 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
             )
         }
     ) { padding ->
-        // Scrollable so content never clips on shorter screens. The mini player + bottom nav
-        // live in the root Scaffold's bottomBar, so `padding` already insets this content above
-        // them — no per-screen mini-player inset is needed (unlike iOS).
+        // Scrollable so content never clips on shorter screens. The verticalScroll viewport is
+        // full-height (top inset applied inside) so content scrolls behind the floating mini
+        // player; the trailing spacer reserves LocalMiniPlayerInset so the last row clears it.
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
+                .padding(top = padding.calculateTopPadding())
                 .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -513,7 +516,8 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            // Reserve space for the floating mini player so the last row clears it.
+            Spacer(modifier = Modifier.height(24.dp + LocalMiniPlayerInset.current))
         }
     }
 }
@@ -1109,7 +1113,7 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit) {
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(
                 top = innerPadding.calculateTopPadding(),
-                bottom = innerPadding.calculateBottomPadding() + 16.dp,
+                bottom = innerPadding.calculateBottomPadding() + 16.dp + LocalMiniPlayerInset.current,
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -1343,8 +1347,11 @@ fun QueuedTasksScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
                     .padding(horizontal = 20.dp),
+                contentPadding = PaddingValues(
+                    top = padding.calculateTopPadding(),
+                    bottom = padding.calculateBottomPadding() + LocalMiniPlayerInset.current
+                ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item { Spacer(modifier = Modifier.height(8.dp)) }
@@ -1420,8 +1427,11 @@ fun TaskDetailScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
                     .padding(horizontal = 20.dp),
+                contentPadding = PaddingValues(
+                    top = padding.calculateTopPadding(),
+                    bottom = padding.calculateBottomPadding() + LocalMiniPlayerInset.current
+                ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item { Spacer(modifier = Modifier.height(8.dp)) }
