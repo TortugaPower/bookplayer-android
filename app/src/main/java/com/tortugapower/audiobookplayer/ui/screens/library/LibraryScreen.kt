@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 
-package com.tortugapower.audiobookplayer.ui.screens
+package com.tortugapower.audiobookplayer.ui.screens.library
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*

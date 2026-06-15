@@ -1,4 +1,4 @@
-package com.tortugapower.audiobookplayer.ui.screens
+package com.tortugapower.audiobookplayer.ui.screens.library
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*

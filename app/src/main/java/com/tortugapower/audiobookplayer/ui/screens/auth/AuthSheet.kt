@@ -1,4 +1,4 @@
-package com.tortugapower.audiobookplayer.ui.screens
+package com.tortugapower.audiobookplayer.ui.screens.auth
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -34,7 +34,16 @@ import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.viewmodel.AuthStep
 import com.tortugapower.audiobookplayer.viewmodel.AuthViewModel
 import com.tortugapower.audiobookplayer.viewmodel.AuthViewModelFactory
+import com.tortugapower.audiobookplayer.ui.components.AuthErrorDialog
 
+/**
+ * Bottom-sheet auth flow: email entry → 6-digit code verification → passkey registration, plus the
+ * existing-passkey sign-in path. A thin UI driver over [AuthViewModel]; network errors surface via
+ * [AuthErrorDialog] while inline validation stays next to the field.
+ *
+ * @param onDismiss cancel the sheet (returns to the Pro sheet underneath)
+ * @param onAuthenticated invoked on success with whether the account already has a subscription
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthSheet(
@@ -145,24 +154,6 @@ fun AuthSheet(
     }
 }
 
-/**
- * Native Material alert dialog for auth errors — the Android equivalent of an iOS `.alert()`.
- * Renders only when [message] is non-null; [onDismiss] should clear the error state.
- */
-@Composable
-fun AuthErrorDialog(message: String?, onDismiss: () -> Unit) {
-    if (message == null) return
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.common_error)) },
-        text = { Text(message) },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.common_ok))
-            }
-        }
-    )
-}
 
 @Composable
 fun AuthHeader(

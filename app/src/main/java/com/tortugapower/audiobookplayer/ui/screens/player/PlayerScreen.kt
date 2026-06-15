@@ -1,4 +1,4 @@
-package com.tortugapower.audiobookplayer.ui.screens
+package com.tortugapower.audiobookplayer.ui.screens.player
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween

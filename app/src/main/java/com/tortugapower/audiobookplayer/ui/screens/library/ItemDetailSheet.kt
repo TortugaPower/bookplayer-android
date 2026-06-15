@@ -1,4 +1,4 @@
-package com.tortugapower.audiobookplayer.ui.screens
+package com.tortugapower.audiobookplayer.ui.screens.library
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
