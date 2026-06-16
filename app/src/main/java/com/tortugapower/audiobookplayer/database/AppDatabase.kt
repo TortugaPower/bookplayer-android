@@ -7,9 +7,12 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.tortugapower.audiobookplayer.database.dao.LibraryDao
+import com.tortugapower.audiobookplayer.database.dao.ExternalServerDao
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
+import androidx.room.TypeConverters
 
 @Database(
     entities = [
@@ -17,15 +20,18 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
         ChapterEntity::class, 
         BookmarkEntity::class, 
         com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity::class,
-        com.tortugapower.audiobookplayer.database.entities.AccountEntity::class
+        com.tortugapower.audiobookplayer.database.entities.AccountEntity::class,
+        ExternalServerEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
+@TypeConverters(MapConverter::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun libraryDao(): LibraryDao
     abstract fun syncTaskDao(): com.tortugapower.audiobookplayer.database.dao.SyncTaskDao
     abstract fun accountDao(): com.tortugapower.audiobookplayer.database.dao.AccountDao
+    abstract fun externalServerDao(): ExternalServerDao
 
     companion object {
         @Volatile
@@ -80,6 +86,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `external_servers` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `name` TEXT NOT NULL, 
+                        `type` TEXT NOT NULL, 
+                        `url` TEXT NOT NULL, 
+                        `username` TEXT, 
+                        `token` TEXT, 
+                        `customHeaders` TEXT
+                    )
+                """)
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -87,7 +109,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "bookplayer.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
                 INSTANCE = instance
                 instance

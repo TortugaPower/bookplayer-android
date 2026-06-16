@@ -70,6 +70,7 @@
     <!-- Settings/Themes -->
     <string name="settings_title">Einstellungen</string>
     <string name="settings_appearance_section">Erscheinungsbild</string>
+    <string name="settings_services_section">Dienste</string>
     <string name="settings_theme_label">Design</string>
     <string name="settings_app_icon_label">App-Icon</string>
     <string name="settings_orientation_locked_label">Ausrichtung gesperrt</string>

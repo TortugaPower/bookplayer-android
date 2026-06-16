@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -32,11 +33,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
+import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.ui.components.CustomBottomNavigation
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
@@ -50,6 +53,9 @@ import com.tortugapower.audiobookplayer.ui.screens.library.LibraryScreen
 import com.tortugapower.audiobookplayer.ui.screens.player.PlayerScreen
 import com.tortugapower.audiobookplayer.ui.screens.profile.ProfileScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.SettingsScreen
+import com.tortugapower.audiobookplayer.ui.screens.settings.MediaServersScreen
+import com.tortugapower.audiobookplayer.ui.screens.settings.ExternalLibraryScreen
+import com.tortugapower.audiobookplayer.repository.ExternalLibraryRepository
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.QueuedTasksScreen
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.TaskDetailScreen
 import com.tortugapower.audiobookplayer.ui.screens.themes.ThemesScreen
@@ -68,6 +74,8 @@ fun MainScreen() {
     val baseLibraryRepository = remember { RoomLibraryRepository(database.libraryDao()) }
     val syncTaskRepository = remember { RoomSyncTaskRepository(database.syncTaskDao()) }
     val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
+    val externalServerRepository = remember { ExternalServerRepository(database.externalServerDao()) }
+    val externalLibraryRepository = remember { ExternalLibraryRepository() }
     
     val libraryRepository = remember { 
         SyncingLibraryRepository(baseLibraryRepository, syncTaskRepository, accountRepository)
@@ -86,6 +94,10 @@ fun MainScreen() {
 
     val libraryViewModel: LibraryViewModel = viewModel(
         factory = LibraryViewModelFactory(context.applicationContext as Application, libraryRepository, syncTaskRepository)
+    )
+
+    val externalServerViewModel: ExternalServerViewModel = viewModel(
+        factory = ExternalServerViewModelFactory(externalServerRepository)
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -145,7 +157,12 @@ fun MainScreen() {
                     popEnterTransition = { EnterTransition.None },
                     popExitTransition = { ExitTransition.None }
                 ) {
-                    composable(Screen.Library.route) { LibraryScreen(viewModel = libraryViewModel) }
+                    composable(Screen.Library.route) { 
+                        LibraryScreen(
+                            viewModel = libraryViewModel,
+                            onNavigateToMediaServers = { navController.navigate("mediaServers") }
+                        ) 
+                    }
                     composable(Screen.Profile.route) { 
                         ProfileScreen(
                             viewModel = profileViewModel,
@@ -178,7 +195,7 @@ fun MainScreen() {
                     composable(
                         route = Screen.Settings.route,
                         exitTransition = {
-                            if (targetState.destination.route in setOf("themes", "tipjar", "appicons")) {
+                            if (targetState.destination.route in setOf("themes", "tipjar", "appicons", "mediaServers") || targetState.destination.route?.startsWith("externalLibrary") == true) {
                                 slideOutOfContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Left,
                                     animationSpec = tween(400)
@@ -186,20 +203,21 @@ fun MainScreen() {
                             } else null
                         },
                         popEnterTransition = {
-                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons")) {
+                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons", "mediaServers") || initialState.destination.route?.startsWith("externalLibrary") == true) {
                                 slideIntoContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Right,
                                     animationSpec = tween(400)
                                 )
                             } else null
                         }
-                    ) {
-                        SettingsScreen(
-                            onNavigateToThemes = { navController.navigate("themes") },
-                            onNavigateToAppIcons = { navController.navigate("appicons") },
-                            onNavigateToTipJar = { navController.navigate("tipjar") },
-                        )
-                    }
+) { 
+    SettingsScreen(
+        onNavigateToThemes = { navController.navigate("themes") },
+        onNavigateToAppIcons = { navController.navigate("appicons") },
+        onNavigateToTipJar = { navController.navigate("tipjar") },
+        onNavigateToMediaServers = { navController.navigate("mediaServers") }
+    ) 
+}
                     
                     composable(
                         route = "themes",
@@ -290,7 +308,143 @@ fun MainScreen() {
                     ) {
                         AppIconsScreen(onBack = { navController.popBackStack() })
                     }
-                }
+                    
+                    composable(
+                        route = "mediaServers",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        popEnterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) {
+                        MediaServersScreen(
+                            viewModel = externalServerViewModel,
+                            onBack = { navController.popBackStack() },
+                            onServerClick = { server ->
+                                navController.navigate("externalLibrary/${server.id}/${server.name}")
+                            }
+                        )
+                    }
+
+                    composable(
+                        route = "externalLibrary/{serverId}/{serverName}",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        popEnterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) { backStackEntry ->
+                        val serverId = backStackEntry.arguments?.getString("serverId")?.toLong() ?: 0L
+                        val serverName = backStackEntry.arguments?.getString("serverName") ?: ""
+                        
+                        val extLibViewModel: ExternalLibraryViewModel = viewModel(
+                            factory = ExternalLibraryViewModelFactory(serverId, externalServerRepository, externalLibraryRepository)
+                        )
+                        
+                        ExternalLibraryScreen(
+                            viewModel = extLibViewModel,
+                            serverName = serverName,
+                            onBack = { navController.popBackStack() },
+                            onItemClick = { item ->
+                                navController.navigate("externalItemDetail/$serverId/${item.uuid}")
+                            }
+                        )
+                    }
+
+                    composable(
+                        route = "externalItemDetail/{serverId}/{itemUuid}",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Up,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Down,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        popEnterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Up,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Down,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) { backStackEntry ->
+                        val serverId = backStackEntry.arguments?.getString("serverId")?.toLong() ?: 0L
+                        val itemUuid = backStackEntry.arguments?.getString("itemUuid") ?: ""
+                        
+                        // We reuse the same factory/repo but it will fetch the item details
+                        val extLibViewModel: ExternalLibraryViewModel = viewModel(
+                            factory = ExternalLibraryViewModelFactory(serverId, externalServerRepository, externalLibraryRepository)
+                        )
+                        
+                        val serverItems: List<LibraryItemEntity> by extLibViewModel.items.collectAsState()
+                        val item = serverItems.find { it.uuid == itemUuid }
+                        
+                        if (item != null) {
+                            com.tortugapower.audiobookplayer.ui.screens.settings.ExternalItemDetailScreen(
+                                item = item,
+                                onBack = { navController.popBackStack() },
+                                onStreamClick = { 
+                                    // Handle streaming
+                                },
+                                onDownloadClick = {
+                                    // Handle downloading
+                                }
+                            )
+                        } else {
+                            // Loading or Error
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        }
+                    }                }
 
                 if (importViewModel.isImporting) {
                     Box(
