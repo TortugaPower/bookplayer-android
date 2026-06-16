@@ -11,20 +11,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
 /**
- * A tappable settings row showing a [label] on the leading edge and a read-only [value] on the
- * trailing edge (e.g. "Theme … Default / Dark"). Shared list-row primitive used by the Settings
- * and Themes screens — lives in `ui.components` so neither feature package owns the other's widget.
+ * A tappable settings row showing a [label] on the leading edge and an optional read-only [value]
+ * on the trailing edge (e.g. "Theme … Default / Dark"). Pass `value = null` for an action row with
+ * no trailing text (e.g. Support links). Shared list-row primitive used by the Settings and Themes
+ * screens — lives in `ui.components` so neither feature package owns the other's widget.
  *
  * @param label the row title
- * @param value the trailing read-only value
+ * @param value the trailing read-only value, or null for a label-only action row
  * @param onClick invoked when the row is tapped
  */
 @Composable
-fun SettingsItem(label: String, value: String, onClick: () -> Unit) {
+fun SettingsItem(label: String, value: String? = null, onClick: () -> Unit) {
     ListItem(
         headlineContent = { Text(label) },
-        trailingContent = {
-            Text(value, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        trailingContent = value?.let {
+            { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.clickable(onClick = onClick),
