@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.network.services
 
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 import com.tortugapower.audiobookplayer.network.ConnectionResult
 import com.tortugapower.audiobookplayer.network.ExternalService
 
@@ -10,15 +11,15 @@ class HardcoverService : ExternalService {
         return ConnectionResult.Failure("Not implemented")
     }
 
-    override suspend fun getLibrary(token: String): List<LibraryItemEntity> {
-        return emptyList()
+    override suspend fun getLibrary(url: String, token: String, startIndex: Int, limit: Int): com.tortugapower.audiobookplayer.network.LibraryResult {
+        return com.tortugapower.audiobookplayer.network.LibraryResult(emptyList(), 0)
     }
 
-    override suspend fun getStreamUrl(token: String, item: LibraryItemEntity): String {
+    override suspend fun getStreamUrl(url: String, token: String, item: LibraryItemEntity): String {
         return ""
     }
 
-    override suspend fun getThumbnailUrl(token: String, item: LibraryItemEntity): String? {
+    override suspend fun getThumbnailUrl(url: String, token: String, item: LibraryItemEntity): String? {
         return null
     }
 }
