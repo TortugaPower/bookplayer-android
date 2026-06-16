@@ -2,6 +2,7 @@
 
 package com.tortugapower.audiobookplayer.ui.screens.settings
 
+import android.content.ClipData
 import android.content.Intent
 import android.os.Build
 import android.os.Parcelable
@@ -109,6 +110,7 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit) {
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_STREAM, uri)
+                    clipData = ClipData.newRawUri("bookplayer_debug_information.txt", uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 context.startActivity(Intent.createChooser(intent, null))

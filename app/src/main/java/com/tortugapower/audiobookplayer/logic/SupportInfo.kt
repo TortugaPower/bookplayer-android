@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.logic
 
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -18,9 +19,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-
-/** Cap the library tree so a huge library can't bloat the shared file past email-attachment limits. */
-private const val MAX_TREE_ITEMS = 1000
 
 /**
  * Short build/diagnostic blob — used as the email **attachment** (`build-info.txt`) and the
@@ -72,8 +70,7 @@ suspend fun buildDebugInformation(context: Context): String {
         appendLine()
         appendLine("Library")
         appendLine(".")
-        val sorted = items.sortedBy { it.relativePath }
-        sorted.take(MAX_TREE_ITEMS).forEach { item ->
+        items.sortedBy { it.relativePath }.forEach { item ->
             val path = item.relativePath.orEmpty()
             val depth = path.count { it == '/' }
             val indent = "    ".repeat(depth)
@@ -84,7 +81,6 @@ suspend fun buildDebugInformation(context: Context): String {
             }
             appendLine("$indent$flag $name")
         }
-        if (sorted.size > MAX_TREE_ITEMS) appendLine("… and ${sorted.size - MAX_TREE_ITEMS} more")
 
         // --- Storage Breakdown ---
         appendLine()
@@ -145,11 +141,12 @@ fun writeSupportFile(context: Context, fileName: String, content: String): Uri {
 }
 
 /**
- * Builds the support-email intents — one `ACTION_SEND` per installed email app — with the
- * `build-info.txt` attachment written and read-granted to each email package up front. The explicit
- * grants are what keep the attachment from being dropped in the multi-app chooser
- * (`EXTRA_INITIAL_INTENTS`) on API < 33, where the intent flag isn't reliably propagated. Returns an
- * empty list when no email app is installed. Does disk I/O — call off the main thread.
+ * Builds the support-email intents — one `ACTION_SEND` per installed email app — carrying the
+ * `build-info.txt` attachment. The URI is placed in `clipData` (plus `FLAG_GRANT_READ_URI_PERMISSION`)
+ * so the system grants **transient** read access only to whichever target the user actually picks —
+ * including through the multi-app chooser (`EXTRA_INITIAL_INTENTS`), where a bare `EXTRA_STREAM` grant
+ * isn't reliably propagated on older APIs. Returns an empty list when no email app is installed.
+ * Does disk I/O — call off the main thread.
  */
 fun buildSupportEmailIntents(context: Context, account: AccountEntity?): List<Intent> {
     val attachment = writeSupportFile(context, "build-info.txt", buildSupportDebugInfo(account))
@@ -158,9 +155,6 @@ fun buildSupportEmailIntents(context: Context, account: AccountEntity?): List<In
     val emailPackages = pm.queryIntentActivities(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:")), 0)
         .map { it.activityInfo.packageName }
         .distinct()
-    emailPackages.forEach {
-        context.grantUriPermission(it, attachment, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
     return emailPackages.mapNotNull { pkg ->
         Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
@@ -169,6 +163,7 @@ fun buildSupportEmailIntents(context: Context, account: AccountEntity?): List<In
             putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.settings_support_email_subject, appVersion))
             putExtra(Intent.EXTRA_TEXT, context.getString(R.string.settings_support_email_body))
             putExtra(Intent.EXTRA_STREAM, attachment)
+            clipData = ClipData.newRawUri("build-info.txt", attachment)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }.takeIf { it.resolveActivity(pm) != null }
     }

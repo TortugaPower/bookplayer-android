@@ -125,7 +125,7 @@
     <string name="settings_support_email_subject">I need help with BookPlayer %1$s</string>
     <string name="settings_support_email_body">Hello,\nI have an issue when I try to…</string>
     <string name="settings_share_debug_information">Share debug information</string>
-    <string name="settings_support_project_title">View project on Github</string>
+    <string name="settings_support_project_title">View project on GitHub</string>
     <string name="settings_support_discord_title">Join our Discord server</string>
     <string name="settings_support_compose_unavailable_title">Unable to compose email</string>
     <string name="settings_support_copy_clipboard">Copy information to clipboard</string>
