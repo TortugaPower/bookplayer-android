@@ -32,7 +32,7 @@ import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.ui.components.SettingsItem
-import com.tortugapower.audiobookplayer.ui.components.SupportLinks
+import com.tortugapower.audiobookplayer.logic.SupportLinks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

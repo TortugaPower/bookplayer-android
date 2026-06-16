@@ -13,7 +13,6 @@ import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
-import com.tortugapower.audiobookplayer.ui.components.SupportLinks
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -30,7 +29,10 @@ fun buildSupportDebugInfo(account: AccountEntity?): String = buildString {
     appendLine("Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
     appendLine("${Build.MANUFACTURER} ${Build.MODEL}")
     account?.email?.let { appendLine("Account: $it") }
-    (account?.revenuecatId ?: account?.id)?.let { appendLine("RevenueCat ID: $it") }
+    // Label honestly: only call it a RevenueCat ID when one is actually set, else it's the account id.
+    val rcId = account?.revenuecatId
+    if (rcId != null) appendLine("RevenueCat ID: $rcId")
+    else account?.id?.let { appendLine("Account ID: $it") }
 }.trimEnd()
 
 /**
@@ -98,7 +100,7 @@ suspend fun buildDebugInformation(context: Context): String {
         appendLine("Profile: ${account?.email ?: "Not logged in"}")
         if (account != null) {
             appendLine("Account ID: ${account.id}")
-            appendLine("RevenueCat ID: ${account.revenuecatId ?: account.id}")
+            account.revenuecatId?.let { appendLine("RevenueCat ID: $it") }
             appendLine("Subscription tier: ${account.tier.name}")
         }
 
@@ -137,7 +139,9 @@ suspend fun buildDebugInformation(context: Context): String {
  */
 fun writeSupportFile(context: Context, fileName: String, content: String): Uri {
     val dir = File(context.cacheDir, "support").apply { mkdirs() }
-    val file = File(dir, fileName)
+    // Strip any path components so a stray name can't escape the support/ dir (FileProvider would
+    // otherwise reject it and crash).
+    val file = File(dir, File(fileName).name)
     file.writeText(content)
     return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 }

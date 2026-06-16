@@ -1,8 +1,9 @@
-package com.tortugapower.audiobookplayer.ui.components
+package com.tortugapower.audiobookplayer.logic
 
 /**
  * Canonical support destinations, shared across platforms (mirrors iOS `SettingsSupportSectionView`).
- * Kept alongside [LegalUrls] as the single source of truth for outbound links.
+ * Lives in `logic` (not `ui`) since it's consumed by both the UI and `SupportInfo`, so both depend
+ * downward.
  */
 object SupportLinks {
     const val GITHUB = "https://github.com/TortugaPower/bookplayer-android"
