@@ -6,9 +6,13 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
@@ -36,6 +40,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,6 +53,8 @@ import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.viewmodel.ExternalLibraryViewModel
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
 import kotlinx.coroutines.launch
+
+enum class LibraryTab { BOOKS, AUTHORS }
 
 @Composable
 fun ExternalLibraryScreen(
@@ -65,9 +74,32 @@ fun ExternalLibraryScreen(
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableStateOf(LibraryTab.BOOKS) }
+    var activeAuthorFilter by remember { mutableStateOf<String?>(null) }
+    
     val focusRequester = remember { FocusRequester() }
     val selectedItems = remember { mutableStateListOf<ExternalLibraryItem>() }
     val isMultiSelectMode by remember { derivedStateOf { selectedItems.isNotEmpty() } }
+
+    val filteredItems = remember(items, searchQuery, activeAuthorFilter) {
+        items.filter { item ->
+            val matchesSearch = if (searchQuery.isEmpty()) true 
+                               else item.entity.title.contains(searchQuery, ignoreCase = true) || 
+                                    (item.entity.author?.contains(searchQuery, ignoreCase = true) ?: false)
+            val matchesAuthor = if (activeAuthorFilter == null) true
+                                else item.entity.author == activeAuthorFilter
+            matchesSearch && matchesAuthor
+        }
+    }
+
+    val authors = remember(items) {
+        items.mapNotNull { it.entity.author }.distinct().sorted()
+    }
+
+    val filteredAuthors = remember(authors, searchQuery) {
+        if (searchQuery.isEmpty()) authors
+        else authors.filter { it.contains(searchQuery, ignoreCase = true) }
+    }
 
     LaunchedEffect(isSearchActive) {
         if (isSearchActive) {
@@ -140,10 +172,21 @@ fun ExternalLibraryScreen(
                     }
                 )
             } else {
+                val titleText = when {
+                    activeAuthorFilter != null -> activeAuthorFilter!!
+                    selectedTab == LibraryTab.AUTHORS -> "Authors"
+                    else -> serverName
+                }
                 CenterAlignedTopAppBar(
-                    title = { Text(serverName) },
+                    title = { Text(titleText) },
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
+                        IconButton(onClick = {
+                            if (activeAuthorFilter != null) {
+                                activeAuthorFilter = null
+                            } else {
+                                onBack()
+                            }
+                        }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
@@ -173,7 +216,7 @@ fun ExternalLibraryScreen(
                     modifier = Modifier.align(Alignment.Center).padding(16.dp),
                     textAlign = TextAlign.Center
                 )
-            } else {
+            } else if (selectedTab == LibraryTab.BOOKS || activeAuthorFilter != null) {
                 val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
                 
                 val shouldLoadMore = remember {
@@ -186,7 +229,7 @@ fun ExternalLibraryScreen(
                 }
                 
                 LaunchedEffect(shouldLoadMore.value) {
-                    if (shouldLoadMore.value) {
+                    if (shouldLoadMore.value && activeAuthorFilter == null) {
                         viewModel.loadMore()
                     }
                 }
@@ -204,30 +247,112 @@ fun ExternalLibraryScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    items(items) { item ->
-                        val isSelected = selectedItems.contains(item)
-                        ExternalBookItem(
-                            item = item,
-                            isSelected = isSelected,
-                            onLongClick = {
-                                if (!isSelected) selectedItems.add(item)
-                            },
-                            onClick = {
-                                if (isMultiSelectMode) {
-                                    if (isSelected) selectedItems.remove(item)
-                                    else selectedItems.add(item)
-                                } else {
-                                    onItemClick(item)
+                    if (filteredItems.isEmpty() && !isLoading) {
+                        item(span = { GridItemSpan(3) }) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 120.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(64.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = "No results found",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                    if (searchQuery.isNotEmpty()) {
+                                        Text(
+                                            text = "Try a different search term",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    }
                                 }
                             }
-                        )
+                        }
+                    } else {
+                        items(filteredItems) { item ->
+                            val isSelected = selectedItems.contains(item)
+                            ExternalBookItem(
+                                item = item,
+                                isSelected = isSelected,
+                                onLongClick = {
+                                    if (!isSelected) selectedItems.add(item)
+                                },
+                                onClick = {
+                                    if (isMultiSelectMode) {
+                                        if (isSelected) selectedItems.remove(item)
+                                        else selectedItems.add(item)
+                                    } else {
+                                        onItemClick(item)
+                                    }
+                                }
+                            )
+                        }
                     }
                     
                     if (isLoading) {
-                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) {
+                        item(span = { GridItemSpan(3) }) {
                             Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(modifier = Modifier.size(32.dp))
                             }
+                        }
+                    }
+                }
+            } else {
+                // Authors Tab
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        top = 8.dp,
+                        bottom = 80.dp + LocalMiniPlayerInset.current
+                    )
+                ) {
+                    if (filteredAuthors.isEmpty() && !isLoading) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillParentMaxSize()
+                                    .padding(bottom = 80.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(64.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = "No authors found",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                    if (searchQuery.isNotEmpty()) {
+                                        Text(
+                                            text = "Try a different search term",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        items(filteredAuthors) { author ->
+                            AuthorListItem(
+                                author = author,
+                                onClick = { activeAuthorFilter = author }
+                            )
                         }
                     }
                 }
@@ -251,12 +376,27 @@ fun ExternalLibraryScreen(
                 Row(
                     modifier = Modifier
                         .padding(horizontal = 8.dp)
-                        .height(56.dp),
+                        .height(64.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    TabItem(icon = Icons.Default.AutoStories, label = "Books", isSelected = true)
-                    TabItem(icon = Icons.Default.People, label = "Authors", isSelected = false)
+                    TabItem(
+                        icon = Icons.AutoMirrored.Filled.LibraryBooks, 
+                        label = "Books", 
+                        isSelected = selectedTab == LibraryTab.BOOKS && activeAuthorFilter == null,
+                        onClick = { 
+                            selectedTab = LibraryTab.BOOKS
+                            activeAuthorFilter = null
+                        }
+                    )
+                    TabItem(
+                        icon = Icons.Default.People, 
+                        label = "Authors", 
+                        isSelected = selectedTab == LibraryTab.AUTHORS || activeAuthorFilter != null,
+                        onClick = { 
+                            selectedTab = LibraryTab.AUTHORS
+                        }
+                    )
                 }
             }
 
@@ -384,7 +524,8 @@ fun ExternalBookItem(
 fun TabItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
-    isSelected: Boolean
+    isSelected: Boolean,
+    onClick: () -> Unit
 ) {
     val color = if (isSelected) {
         MaterialTheme.colorScheme.primary
@@ -392,11 +533,21 @@ fun TabItem(
         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
     }
     
+    val backgroundColor = if (isSelected) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+    } else {
+        Color.Transparent
+    }
+    
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .padding(horizontal = 12.dp)
-            .alpha(if (isSelected) 1f else 0.8f)
+            .width(80.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(backgroundColor)
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.Center
     ) {
         Icon(
             icon, 
@@ -409,6 +560,50 @@ fun TabItem(
             color = color, 
             style = MaterialTheme.typography.labelSmall,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
+
+@Composable
+fun AuthorListItem(
+    author: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(28.dp)
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(16.dp))
+        
+        Text(
+            text = author,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f)
+        )
+        
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
         )
     }
 }

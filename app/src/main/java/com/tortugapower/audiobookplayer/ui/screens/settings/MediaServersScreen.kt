@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
@@ -45,8 +46,14 @@ fun MediaServersScreen(
                     }
                 },
                 actions = {
-                    TextButton(onClick = { isEditing = !isEditing }) {
-                        Text(if (isEditing) "Done" else "Edit")
+                    if (isEditing) {
+                        TextButton(onClick = { isEditing = false }) {
+                            Text("Done")
+                        }
+                    } else {
+                        IconButton(onClick = { isEditing = true }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit")
+                        }
                     }
                 }
             )
@@ -80,7 +87,7 @@ fun MediaServersScreen(
     var isConnecting by remember { mutableStateOf(false) }
 
     if (showAddServerDialog != null) {
-        AddServerDialog(
+        AddServerSheet(
             type = showAddServerDialog!!,
             isConnecting = isConnecting,
             errorMessage = errorMessage,
@@ -205,15 +212,16 @@ fun ServerItem(
                 Icon(
                     Icons.Default.Info,
                     contentDescription = "Info",
-                    tint = Color(0xFF3482F6)
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddServerDialog(
+fun AddServerSheet(
     type: ExternalServiceType,
     isConnecting: Boolean,
     errorMessage: String?,
@@ -223,35 +231,245 @@ fun AddServerDialog(
     var url by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    val headers = remember { mutableStateListOf<Pair<String, String>>() }
+    
+    var currentStep by remember { mutableStateOf(1) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    AlertDialog(
+    ModalBottomSheet(
         onDismissRequest = if (isConnecting) ({}) else onDismiss,
-        title = { Text("Connect to ${type.name.lowercase().capitalize()}") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("Server URL") },
-                    placeholder = { Text("http://example.com:8096") },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isConnecting
+        sheetState = sheetState,
+        dragHandle = null,
+        containerColor = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxHeight(0.92f)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = { if (currentStep == 1) onDismiss() else currentStep = 1 }, enabled = !isConnecting) {
+                    Text(if (currentStep == 1) "Cancel" else "Back", color = MaterialTheme.colorScheme.primary)
+                }
+                
+                Text(
+                    text = if (currentStep == 1) "" else type.name.lowercase().capitalize(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
                 )
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text("Username") },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isConnecting
-                )
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Password") },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isConnecting,
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
-                )
+                
+                TextButton(
+                    onClick = {
+                        if (currentStep == 1) {
+                            currentStep = 2
+                        } else {
+                            val headersMap = if (headers.isEmpty()) null else headers.toMap()
+                            onConnect(url, url, username, password, headersMap)
+                        }
+                    },
+                    enabled = url.isNotBlank() && !isConnecting
+                ) {
+                    Text(if (currentStep == 1) "Connect" else "Sign In", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                // Server URL Section (Always visible)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Server URL",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold
+                    )
+                    OutlinedTextField(
+                        value = url,
+                        onValueChange = { url = it },
+                        placeholder = { Text("http://jellyfin.example.com:8096") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        trailingIcon = {
+                            if (url.isNotEmpty()) {
+                                IconButton(onClick = { url = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                            unfocusedIndicatorColor = Color.Transparent
+                        ),
+                        singleLine = true,
+                        enabled = !isConnecting && currentStep == 1
+                    )
+                    if (currentStep == 1) {
+                        Text(
+                            text = "Connect to your ${type.name.lowercase().capitalize()} server",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+
+                if (currentStep == 1) {
+                    // Step 1: Custom HTTP Headers
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Custom HTTP Headers",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column {
+                                headers.forEachIndexed { index, pair ->
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            TextField(
+                                                value = pair.first,
+                                                onValueChange = { newKey -> headers[index] = newKey to pair.second },
+                                                placeholder = { Text("Header name") },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = TextFieldDefaults.colors(
+                                                    focusedContainerColor = Color.Transparent,
+                                                    unfocusedContainerColor = Color.Transparent,
+                                                    focusedIndicatorColor = Color.Transparent,
+                                                    unfocusedIndicatorColor = Color.Transparent
+                                                ),
+                                                singleLine = true,
+                                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+                                            )
+                                            TextField(
+                                                value = pair.second,
+                                                onValueChange = { newVal -> headers[index] = pair.first to newVal },
+                                                placeholder = { Text("Header value") },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = TextFieldDefaults.colors(
+                                                    focusedContainerColor = Color.Transparent,
+                                                    unfocusedContainerColor = Color.Transparent,
+                                                    focusedIndicatorColor = Color.Transparent,
+                                                    unfocusedIndicatorColor = Color.Transparent
+                                                ),
+                                                singleLine = true,
+                                                textStyle = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                        IconButton(onClick = { headers.removeAt(index) }) {
+                                            Icon(
+                                                Icons.Default.Delete, 
+                                                contentDescription = "Remove", 
+                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f), 
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    }
+                                    if (index < headers.size - 1) {
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp), thickness = 0.5.dp)
+                                    }
+                                }
+                                
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { 
+                                            headers.add("" to "")
+                                        }
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.AddCircle, 
+                                        contentDescription = null, 
+                                        tint = Color(0xFF3482F6),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text("Add Header", color = Color(0xFF3482F6), fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
+                        
+                        Text(
+                            text = "Headers added here are attached to every request sent to this server.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                } else {
+                    // Step 2: Login replaces Headers
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(
+                            text = "LOGIN",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column {
+                                TextField(
+                                    value = username,
+                                    onValueChange = { username = it },
+                                    placeholder = { Text("Username") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = Color.Transparent,
+                                        unfocusedContainerColor = Color.Transparent,
+                                        focusedIndicatorColor = Color.Transparent,
+                                        unfocusedIndicatorColor = Color.Transparent
+                                    ),
+                                    trailingIcon = {
+                                        if (username.isNotEmpty()) {
+                                            IconButton(onClick = { username = "" }) {
+                                                Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                    },
+                                    singleLine = true,
+                                    enabled = !isConnecting
+                                )
+                                HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp), thickness = 0.5.dp)
+                                TextField(
+                                    value = password,
+                                    onValueChange = { password = it },
+                                    placeholder = { Text("Password") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = Color.Transparent,
+                                        unfocusedContainerColor = Color.Transparent,
+                                        focusedIndicatorColor = Color.Transparent,
+                                        unfocusedIndicatorColor = Color.Transparent
+                                    ),
+                                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                    singleLine = true,
+                                    enabled = !isConnecting
+                                )
+                            }
+                        }
+                    }
+                }
 
                 if (errorMessage != null) {
                     Text(
@@ -270,24 +488,8 @@ fun AddServerDialog(
                     )
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onConnect(url, url, username, password, null) },
-                enabled = url.isNotBlank() && !isConnecting
-            ) {
-                Text("Connect")
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !isConnecting
-            ) {
-                Text("Cancel")
-            }
         }
-    )
+    }
 }
 
 fun String.capitalize() = this.lowercase().replaceFirstChar { it.uppercase() }
