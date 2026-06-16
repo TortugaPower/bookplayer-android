@@ -67,6 +67,7 @@
     <!-- Settings/Themes -->
     <string name="settings_title">सेटिंग्स</string>
     <string name="settings_appearance_section">दिखावट</string>
+    <string name="settings_services_section">सेवाएँ</string>
     <string name="settings_theme_label">थीम</string>
     <string name="settings_app_icon_label">ऐप आइकन</string>
     <string name="settings_orientation_locked_label">ओरिएंटेशन लॉक</string>

@@ -84,7 +84,8 @@ private const val FolderNavDurationMillis = 400
 @Composable
 fun LibraryScreen(
     importViewModel: ImportViewModel = viewModel(),
-    viewModel: LibraryViewModel? = null
+    viewModel: LibraryViewModel? = null,
+    onNavigateToMediaServers: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -601,6 +602,14 @@ fun LibraryScreen(
                                 launcher.launch(arrayOf("audio/*"))
                             },
                             leadingIcon = { Icon(Icons.Default.FileDownload, null) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Media Servers") },
+                            onClick = {
+                                showMenu = false
+                                onNavigateToMediaServers()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Dns, null) },
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.library_create_folder_title)) },

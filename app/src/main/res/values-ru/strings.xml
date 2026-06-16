@@ -68,6 +68,7 @@
     <!-- Settings/Themes -->
     <string name="settings_title">Настройки</string>
     <string name="settings_appearance_section">Внешний вид</string>
+    <string name="settings_services_section">Сервисы</string>
     <string name="settings_theme_label">Тема</string>
     <string name="settings_app_icon_label">Иконка приложения</string>
     <string name="settings_orientation_locked_label">Ориентация заблокирована</string>

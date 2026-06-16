@@ -109,6 +109,7 @@
     <!-- Settings/Themes -->
     <string name="settings_title">Settings</string>
     <string name="settings_appearance_section">Appearance</string>
+    <string name="settings_services_section">Services</string>
     <string name="settings_theme_label">Theme</string>
     <string name="settings_app_icon_label">App Icon</string>
     <string name="settings_orientation_locked_label">Orientation Locked</string>
