@@ -20,7 +20,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -58,6 +60,7 @@ import com.tortugapower.audiobookplayer.ui.screens.profile.ListeningHistoryScree
 import com.tortugapower.audiobookplayer.ui.screens.settings.SettingsScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.MediaServersScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.ExternalLibraryScreen
+import com.tortugapower.audiobookplayer.ui.screens.settings.MediaServersFlow
 import com.tortugapower.audiobookplayer.repository.ExternalLibraryRepository
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.QueuedTasksScreen
@@ -116,6 +119,8 @@ fun MainScreen() {
     val externalServerViewModel: ExternalServerViewModel = viewModel(
         factory = ExternalServerViewModelFactory(externalServerRepository)
     )
+
+    var showMediaServersFlow by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -178,7 +183,7 @@ fun MainScreen() {
                         LibraryScreen(
                             viewModel = libraryViewModel,
                             importViewModel = importViewModel,
-                            onNavigateToMediaServers = { navController.navigate("mediaServers") }
+                            onNavigateToMediaServers = { showMediaServersFlow = true }
                         ) 
                     }
                     composable(Screen.Profile.route) { 
@@ -227,7 +232,7 @@ fun MainScreen() {
                     composable(
                         route = Screen.Settings.route,
                         exitTransition = {
-                            if (targetState.destination.route in setOf("themes", "tipjar", "appicons", "mediaServers") || targetState.destination.route?.startsWith("externalLibrary") == true) {
+                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons")) {
                                 slideOutOfContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Left,
                                     animationSpec = tween(400)
@@ -235,21 +240,21 @@ fun MainScreen() {
                             } else null
                         },
                         popEnterTransition = {
-                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons", "mediaServers") || initialState.destination.route?.startsWith("externalLibrary") == true) {
+                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons")) {
                                 slideIntoContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Right,
                                     animationSpec = tween(400)
                                 )
                             } else null
                         }
-) { 
-    SettingsScreen(
-        onNavigateToThemes = { navController.navigate("themes") },
-        onNavigateToAppIcons = { navController.navigate("appicons") },
-        onNavigateToTipJar = { navController.navigate("tipjar") },
-        onNavigateToMediaServers = { navController.navigate("mediaServers") }
-    ) 
-}
+                    ) { 
+                        SettingsScreen(
+                            onNavigateToThemes = { navController.navigate("themes") },
+                            onNavigateToAppIcons = { navController.navigate("appicons") },
+                            onNavigateToTipJar = { navController.navigate("tipjar") },
+                            onNavigateToMediaServers = { showMediaServersFlow = true }
+                        ) 
+                    }
                     
                     composable(
                         route = "themes",
@@ -459,7 +464,8 @@ fun MainScreen() {
                                 CircularProgressIndicator()
                             }
                         }
-                    }                }
+                    }                
+                }
 
                 if (importViewModel.isImporting) {
                     Box(
@@ -475,7 +481,15 @@ fun MainScreen() {
                 if (importViewModel.showImportSheet) {
                     ImportSheet(importViewModel)
                 }
-              }
+
+                if (showMediaServersFlow) {
+                    MediaServersFlow(
+                        externalServerRepository = externalServerRepository,
+                        externalLibraryRepository = externalLibraryRepository,
+                        importViewModel = importViewModel,
+                        onDismiss = { showMediaServersFlow = false }
+                    )
+                }
 
                 // Floating mini player overlay — drawn over content, bottom-aligned (just above
                 // the docked bottom nav). Hidden on the full-screen themes route.
