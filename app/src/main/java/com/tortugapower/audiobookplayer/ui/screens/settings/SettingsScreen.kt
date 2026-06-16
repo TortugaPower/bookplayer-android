@@ -9,15 +9,14 @@ import android.os.Parcelable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.BuildConfig
@@ -45,7 +44,7 @@ import kotlinx.coroutines.withContext
 fun SettingsScreen(onNavigateToThemes: () -> Unit) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
 
     // Account is included in the debug info (when signed in) so support can correlate a report.
@@ -66,7 +65,9 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit) {
             text = { Text(info) },
             confirmButton = {
                 TextButton(onClick = {
-                    clipboard.setText(AnnotatedString(info))
+                    scope.launch {
+                        clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("BookPlayer support", info)))
+                    }
                     showEmailFallback = false
                 }) { Text(stringResource(R.string.settings_support_copy_clipboard)) }
             },
