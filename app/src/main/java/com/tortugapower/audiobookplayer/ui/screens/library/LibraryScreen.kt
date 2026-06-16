@@ -575,6 +575,24 @@ fun LibraryScreen(
                     }
                 }
             } else {
+                if (importViewModel.activeDownloadCount > 0) {
+                    IconButton(onClick = { importViewModel.showImportSheet = true }) {
+                        BadgedBox(
+                            badge = {
+                                Badge {
+                                    val count = importViewModel.activeDownloadCount
+                                    Text(if (count > 9) "9+" else count.toString())
+                                }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.FileDownload,
+                                contentDescription = "Downloads",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
                 IconButton(onClick = { showSearchScreen = true }) {
                     Icon(Icons.Default.Search, contentDescription = stringResource(R.string.common_search))
                 }

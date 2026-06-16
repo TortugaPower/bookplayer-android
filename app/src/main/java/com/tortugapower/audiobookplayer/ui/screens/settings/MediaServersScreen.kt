@@ -20,8 +20,10 @@ import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
+import com.tortugapower.audiobookplayer.network.ConnectionResult
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.viewmodel.ExternalServerViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun MediaServersScreen(
@@ -73,15 +75,37 @@ fun MediaServersScreen(
         }
     }
 
+    val scope = rememberCoroutineScope()
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isConnecting by remember { mutableStateOf(false) }
+
     if (showAddServerDialog != null) {
         AddServerDialog(
             type = showAddServerDialog!!,
-            onDismiss = { showAddServerDialog = null },
-            onConnect = { name, url, username, password, headers ->
-                // In a real implementation, we would call viewModel.testConnection first
-                // For now, let's just add it
-                viewModel.addServer(name, showAddServerDialog!!, url, username, "dummy-token", headers)
+            isConnecting = isConnecting,
+            errorMessage = errorMessage,
+            onDismiss = { 
                 showAddServerDialog = null
+                errorMessage = null
+            },
+            onConnect = { name, url, username, password, headers ->
+                scope.launch {
+                    isConnecting = true
+                    errorMessage = null
+                    val result = viewModel.testConnection(showAddServerDialog!!, url, username, password, headers)
+                    isConnecting = false
+                    
+                    when (result) {
+                        is ConnectionResult.Success -> {
+                            val finalName = result.name ?: name
+                            viewModel.addServer(finalName, showAddServerDialog!!, url, username, result.token, headers)
+                            showAddServerDialog = null
+                        }
+                        is ConnectionResult.Failure -> {
+                            errorMessage = result.message
+                        }
+                    }
+                }
             }
         )
     }
@@ -191,6 +215,8 @@ fun ServerItem(
 @Composable
 fun AddServerDialog(
     type: ExternalServiceType,
+    isConnecting: Boolean,
+    errorMessage: String?,
     onDismiss: () -> Unit,
     onConnect: (String, String, String?, String?, Map<String, String>?) -> Unit
 ) {
@@ -199,7 +225,7 @@ fun AddServerDialog(
     var password by remember { mutableStateOf("") }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = if (isConnecting) ({}) else onDismiss,
         title = { Text("Connect to ${type.name.lowercase().capitalize()}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -208,32 +234,56 @@ fun AddServerDialog(
                     onValueChange = { url = it },
                     label = { Text("Server URL") },
                     placeholder = { Text("http://example.com:8096") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isConnecting
                 )
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it },
                     label = { Text("Username") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isConnecting
                 )
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
                     label = { Text("Password") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isConnecting,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
                 )
+
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+
+                if (isConnecting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .padding(top = 16.dp)
+                    )
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = { onConnect(url, url, username, password, null) },
-                enabled = url.isNotBlank()
+                enabled = url.isNotBlank() && !isConnecting
             ) {
                 Text("Connect")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isConnecting
+            ) {
                 Text("Cancel")
             }
         }

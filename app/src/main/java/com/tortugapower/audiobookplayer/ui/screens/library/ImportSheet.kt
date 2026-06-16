@@ -31,7 +31,7 @@ fun ImportSheet(viewModel: ImportViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
     ModalBottomSheet(
         onDismissRequest = { viewModel.showImportSheet = false },
-        containerColor = Color(0xFF121212),
+        containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = null,
         modifier = Modifier.fillMaxHeight(0.9f)
     ) {
@@ -51,9 +51,13 @@ fun ImportSheet(viewModel: ImportViewModel) {
                     modifier = Modifier
                         .size(48.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.1f))
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close), tint = Color.White)
+                    Icon(
+                        Icons.Default.Close, 
+                        contentDescription = stringResource(R.string.common_close), 
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
                 }
 
                 IconButton(
@@ -61,9 +65,13 @@ fun ImportSheet(viewModel: ImportViewModel) {
                     modifier = Modifier
                         .size(48.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.1f))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                 ) {
-                    Icon(Icons.Default.Check, contentDescription = stringResource(R.string.common_accept), tint = Color.White)
+                    Icon(
+                        Icons.Default.Check, 
+                        contentDescription = stringResource(R.string.common_accept), 
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
 
@@ -73,14 +81,14 @@ fun ImportSheet(viewModel: ImportViewModel) {
                 text = stringResource(R.string.import_title),
                 fontSize = 40.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
                 text = stringResource(R.string.import_disclaimer),
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 16.sp,
                 lineHeight = 22.sp
             )
@@ -89,7 +97,7 @@ fun ImportSheet(viewModel: ImportViewModel) {
 
             Text(
                 text = stringResource(R.string.import_files_count, viewModel.importedFiles.size),
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -99,7 +107,10 @@ fun ImportSheet(viewModel: ImportViewModel) {
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(viewModel.importedFiles) { file ->
                     ImportListItem(file, onRemove = { viewModel.removeFile(file) })
-                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant, 
+                        thickness = 0.5.dp
+                    )
                 }
             }
 
@@ -128,7 +139,7 @@ fun ImportListItem(file: ImportFile, onRemove: () -> Unit) {
         Icon(
             imageVector = Icons.Default.RemoveCircle,
             contentDescription = stringResource(R.string.common_remove),
-            tint = Color(0xFFE57373),
+            tint = MaterialTheme.colorScheme.error,
             modifier = Modifier
                 .size(28.dp)
                 .clickable { onRemove() }
@@ -139,7 +150,7 @@ fun ImportListItem(file: ImportFile, onRemove: () -> Unit) {
         Icon(
             imageVector = Icons.Filled.AudioFile,
             contentDescription = null,
-            tint = Color(0xFF64B5F6),
+            tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(24.dp)
         )
 
@@ -147,7 +158,7 @@ fun ImportListItem(file: ImportFile, onRemove: () -> Unit) {
 
         Text(
             text = file.name,
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onSurface,
             fontSize = 16.sp,
             maxLines = 1
         )

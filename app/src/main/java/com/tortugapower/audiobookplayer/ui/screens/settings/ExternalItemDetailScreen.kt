@@ -2,6 +2,8 @@
 
 package com.tortugapower.audiobookplayer.ui.screens.settings
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -23,11 +26,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 
 @Composable
 fun ExternalItemDetailScreen(
-    item: LibraryItemEntity,
+    item: ExternalLibraryItem,
     onBack: () -> Unit,
     onStreamClick: () -> Unit,
     onDownloadClick: () -> Unit
@@ -69,9 +72,9 @@ fun ExternalItemDetailScreen(
                     .clip(RoundedCornerShape(16.dp)),
                 color = MaterialTheme.colorScheme.surfaceVariant
             ) {
-                if (item.artworkURL != null) {
+                if (item.entity.artworkURL != null) {
                     AsyncImage(
-                        model = item.artworkURL,
+                        model = item.entity.artworkURL,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -83,15 +86,15 @@ fun ExternalItemDetailScreen(
             
             // Title & Author
             Text(
-                text = item.title,
+                text = item.entity.title,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
             
-            if (item.author != null) {
+            if (item.entity.author != null) {
                 Text(
-                    text = item.author!!,
+                    text = item.entity.author!!,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -101,14 +104,14 @@ fun ExternalItemDetailScreen(
             Spacer(modifier = Modifier.height(8.dp))
             
             // Meta info (duration | size)
-            val durationText = if (item.duration > 0) {
-                val m = (item.duration / 60).toInt()
-                val s = (item.duration % 60).toInt()
+            val durationText = if (item.entity.duration > 0) {
+                val m = (item.entity.duration / 60).toInt()
+                val s = (item.entity.duration % 60).toInt()
                 "${m}m ${s}s"
             } else "0m 0s"
             
             Text(
-                text = "$durationText  |  21,5 MB", // Size could be dynamic if API provides it
+                text = "$durationText  |  21,5 MB", 
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
@@ -159,32 +162,49 @@ fun ExternalItemDetailScreen(
             Spacer(modifier = Modifier.height(32.dp))
             
             // Info List
-            InfoRow(label = "File Path")
+            InfoRow(label = "File Path", value = item.entity.relativePath ?: "Unknown")
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-            InfoRow(label = "Genres")
+            InfoRow(label = "Genres", value = item.genres ?: "None")
         }
     }
 }
 
 @Composable
-fun InfoRow(label: String) {
-    Row(
+fun InfoRow(label: String, value: String) {
+    var isExpanded by remember { mutableStateOf(false) }
+    val rotation by animateFloatAsState(targetValue = if (isExpanded) 90f else 0f)
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { }
-            .padding(vertical = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .clickable { isExpanded = !isExpanded }
+            .padding(vertical = 16.dp)
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Icon(
-            Icons.Default.ChevronRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.rotate(rotation),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+        }
+        
+        AnimatedVisibility(visible = isExpanded) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
     }
 }

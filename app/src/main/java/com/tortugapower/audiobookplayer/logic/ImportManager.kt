@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.media.MediaMetadataRetriever
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.tortugapower.audiobookplayer.database.AppDatabase
@@ -29,6 +30,9 @@ object ImportManager : ImportService {
         private set
 
     override var isImporting by mutableStateOf(false)
+        private set
+
+    override var activeDownloadCount by mutableIntStateOf(0)
         private set
 
     override var skippedItemsCount by mutableStateOf(0)
@@ -76,6 +80,46 @@ object ImportManager : ImportService {
             skippedItemsCount += currentSkipped
             isImporting = false
             showImportSheet = true
+        }
+    }
+
+    override fun startDownload(context: Context, url: String, fileName: String) {
+        activeDownloadCount++
+        scope.launch {
+            val backupDir = File(context.filesDir, "BPBackup")
+            if (!backupDir.exists()) backupDir.mkdirs()
+
+            val database = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
+            val libraryDao = database.libraryDao()
+
+            if (libraryDao.existsWithFileName(fileName)) {
+                skippedItemsCount++
+                activeDownloadCount--
+                if (activeDownloadCount == 0) {
+                    showImportSheet = true
+                }
+                return@launch
+            }
+
+            val destFile = File(backupDir, fileName)
+
+            try {
+                withContext(Dispatchers.IO) {
+                    java.net.URL(url).openStream().use { input ->
+                        FileOutputStream(destFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+                importedFiles = importedFiles + ImportFile(fileName, destFile)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                activeDownloadCount--
+                if (activeDownloadCount == 0 && (importedFiles.isNotEmpty() || skippedItemsCount > 0)) {
+                    showImportSheet = true
+                }
+            }
         }
     }
 
