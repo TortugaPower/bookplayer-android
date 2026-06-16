@@ -80,9 +80,9 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit) {
 
     fun sendSupportEmail() {
         // The build info rides as a build-info.txt attachment; the body is just the greeting.
-        // buildSupportEmailIntents does the file write + per-package read grants off the main thread
-        // (see its doc); we just launch the result. One match → composer directly; several →
-        // email-only picker; none → copy-to-clipboard fallback.
+        // buildSupportEmailIntents writes the file and builds the per-app intents off the main thread
+        // (attachment access is granted transiently via clipData — see its doc); we just launch the
+        // result. One match → composer directly; several → email-only picker; none → clipboard fallback.
         scope.launch {
             val emailIntents = withContext(Dispatchers.IO) { buildSupportEmailIntents(context, account) }
             when {

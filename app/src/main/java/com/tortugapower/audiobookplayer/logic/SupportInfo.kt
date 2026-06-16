@@ -130,12 +130,14 @@ suspend fun buildDebugInformation(context: Context): String {
 }
 
 /**
- * Writes [content] to a cache file named [fileName] and returns a shareable `content://` URI via
- * [FileProvider] (authority `${applicationId}.fileprovider`). A raw `file://` URI can't be shared
- * on API 24+ (`FileUriExposedException`), hence the provider.
+ * Writes [content] to `cacheDir/support/[fileName]` and returns a shareable `content://` URI via
+ * [FileProvider] (authority `${applicationId}.fileprovider`). The dedicated `support/` subdir is the
+ * only path the provider exposes (see `file_paths.xml`), so we don't expose the whole cache. A raw
+ * `file://` URI can't be shared on API 24+ (`FileUriExposedException`), hence the provider.
  */
 fun writeSupportFile(context: Context, fileName: String, content: String): Uri {
-    val file = File(context.cacheDir, fileName)
+    val dir = File(context.cacheDir, "support").apply { mkdirs() }
+    val file = File(dir, fileName)
     file.writeText(content)
     return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 }
