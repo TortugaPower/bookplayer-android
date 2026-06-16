@@ -119,6 +119,18 @@
     <string name="themes_always_use_dark">Always use dark variation</string>
     <string name="themes_section_header">THEMES</string>
 
+    <!-- Settings / Support -->
+    <string name="settings_support_section">Support</string>
+    <string name="settings_support_email_title">Send us an email</string>
+    <string name="settings_support_email_subject">I need help with BookPlayer %1$s</string>
+    <string name="settings_support_email_body">Hello,\nI have an issue when I try to…</string>
+    <string name="settings_share_debug_information">Share debug information</string>
+    <string name="settings_support_project_title">View project on Github</string>
+    <string name="settings_support_discord_title">Join our Discord server</string>
+    <string name="settings_support_compose_unavailable_title">Unable to compose email</string>
+    <string name="settings_support_copy_clipboard">Copy information to clipboard</string>
+    <string name="settings_version_footer">BookPlayer %1$s · Android %2$s</string>
+
     <!-- Player -->
     <string name="player_cast">Cast</string>
     <string name="player_prev">Prev</string>

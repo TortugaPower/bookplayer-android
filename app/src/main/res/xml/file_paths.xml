@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Exposes files written directly to the app's cacheDir (e.g. the shared debug .txt). -->
+    <cache-path name="cache" path="." />
+</paths>
