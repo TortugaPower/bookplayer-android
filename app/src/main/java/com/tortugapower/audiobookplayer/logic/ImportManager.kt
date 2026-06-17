@@ -10,6 +10,8 @@ import androidx.compose.runtime.setValue
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
+import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,7 +85,7 @@ object ImportManager : ImportService {
         }
     }
 
-    override fun startDownload(context: Context, url: String, fileName: String) {
+    override fun startDownload(context: Context, url: String, fileName: String, headers: Map<String, String>?) {
         activeDownloadCount++
         scope.launch {
             val backupDir = File(context.filesDir, "BPBackup")
@@ -105,13 +107,24 @@ object ImportManager : ImportService {
 
             try {
                 withContext(Dispatchers.IO) {
-                    java.net.URL(url).openStream().use { input ->
-                        FileOutputStream(destFile).use { output ->
-                            input.copyTo(output)
+                    val client = okhttp3.OkHttpClient()
+                    val requestBuilder = okhttp3.Request.Builder().url(url)
+                    headers?.forEach { (key, value) ->
+                        requestBuilder.addHeader(key, value)
+                    }
+                    val response = client.newCall(requestBuilder.build()).execute()
+                    
+                    if (response.isSuccessful && response.body != null) {
+                        response.body!!.byteStream().use { input ->
+                            FileOutputStream(destFile).use { output ->
+                                input.copyTo(output)
+                            }
                         }
+                        importedFiles = importedFiles + ImportFile(fileName, destFile)
+                    } else {
+                        android.util.Log.e("ImportManager", "Download failed: ${response.code}")
                     }
                 }
-                importedFiles = importedFiles + ImportFile(fileName, destFile)
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -183,10 +196,17 @@ object ImportManager : ImportService {
                         )
                         libraryDao.insertItem(entity)
                         
-                        // 5. Create Sync Tasks
-                        SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, entity)
-                        if (hasArtwork) {
-                            SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, entity)
+                        // 5. Create Sync Tasks (only if session is active)
+                        val accountRepository = RoomAccountRepository(database.accountDao())
+                        val account = accountRepository.getAccount()
+                        val isSubscribed = account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)
+                        val isPro = account != null && account.tier == AccountTier.PRO
+
+                        if (isSubscribed) {
+                            SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, entity)
+                            if (hasArtwork && isPro) {
+                                SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, entity)
+                            }
                         }
                     }
                 }

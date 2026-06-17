@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 object PlaybackManager {
     val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -34,6 +35,8 @@ object PlaybackManager {
     var player: Player? = null
         private set
 
+    val headerRegistry = ConcurrentHashMap<String, Map<String, String>>()
+    
     private var repository: LibraryRepository? = null
     private var appContext: Context? = null
 
@@ -420,7 +423,7 @@ object PlaybackManager {
         playItem(context, item, autoplay = false)
     }
 
-    fun playItem(context: Context, item: LibraryItemEntity, autoplay: Boolean = true) {
+    fun playItem(context: Context, item: LibraryItemEntity, autoplay: Boolean = true, headers: Map<String, String>? = null) {
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
             _showPlayerScreen.value = true
@@ -472,10 +475,11 @@ object PlaybackManager {
                 }
                 val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                 val mediaItems = books.map { subItem ->
-                    val file = File(processedDir, subItem.relativePath ?: "")
+                    val hasLocalPath = !subItem.relativePath.isNullOrEmpty()
+                    val file = if (hasLocalPath) File(processedDir, subItem.relativePath!!) else null
 
                     // Try to extract artwork if missing
-                    if (subItem.artworkURL == null && file.exists()) {
+                    if (subItem.artworkURL == null && file?.exists() == true && file.isFile) {
                         val artworkDir = File(context.filesDir, "Artworks")
                         if (!artworkDir.exists()) artworkDir.mkdirs()
                         val artworkFile = File(artworkDir, "${subItem.uuid}.jpg")
@@ -487,12 +491,18 @@ object PlaybackManager {
                         }
                     }
 
-                    val uri = if (file.exists()) {
+                    val uri = if (file?.exists() == true && file.isFile) {
                         android.util.Log.d("PlaybackManager", "📄 Playback: Using local file for ${subItem.title}")
                         android.net.Uri.fromFile(file)
                     } else if (!subItem.remoteURL.isNullOrEmpty()) {
                         android.util.Log.d("PlaybackManager", "🌐 Playback: Using remote URL for ${subItem.title}")
-                        android.net.Uri.parse(subItem.remoteURL)
+                        var baseUri = android.net.Uri.parse(subItem.remoteURL)
+                        headers?.let { 
+                            val key = java.util.UUID.randomUUID().toString()
+                            headerRegistry[key] = it
+                            baseUri = baseUri.buildUpon().appendQueryParameter("bp_header_key", key).build()
+                        }
+                        baseUri
                     } else {
                         android.util.Log.w("PlaybackManager", "⚠️ Playback: No source available for ${subItem.title}")
                         android.net.Uri.EMPTY
@@ -541,10 +551,11 @@ object PlaybackManager {
                     applyVolume(_volumeBoost.value, _playbackVolume.value)
                 }
             } else {
-                val file = File(processedDir, item.relativePath ?: "")
+                val hasLocalPath = !item.relativePath.isNullOrEmpty()
+                val file = if (hasLocalPath) File(processedDir, item.relativePath!!) else null
                 
                 // Try to extract artwork if missing
-                if (item.artworkURL == null && file.exists()) {
+                if (item.artworkURL == null && file?.exists() == true && file.isFile) {
                     val artworkDir = File(context.filesDir, "Artworks")
                     if (!artworkDir.exists()) artworkDir.mkdirs()
                     val artworkFile = File(artworkDir, "${item.uuid}.jpg")
@@ -556,12 +567,18 @@ object PlaybackManager {
                     }
                 }
 
-                val uri = if (file.exists()) {
+                val uri = if (file?.exists() == true && file.isFile) {
                     android.util.Log.d("PlaybackManager", "📄 Playback: Using local file for ${item.title}")
                     android.net.Uri.fromFile(file)
                 } else if (!item.remoteURL.isNullOrEmpty()) {
                     android.util.Log.d("PlaybackManager", "🌐 Playback: Using remote URL for ${item.title}")
-                    android.net.Uri.parse(item.remoteURL)
+                    var baseUri = android.net.Uri.parse(item.remoteURL)
+                    headers?.let { 
+                        val key = java.util.UUID.randomUUID().toString()
+                        headerRegistry[key] = it
+                        baseUri = baseUri.buildUpon().appendQueryParameter("bp_header_key", key).build()
+                    }
+                    baseUri
                 } else {
                     android.util.Log.w("PlaybackManager", "⚠️ Playback: No source available for ${item.title}")
                     null

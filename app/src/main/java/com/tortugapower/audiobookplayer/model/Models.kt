@@ -16,5 +16,6 @@ data class PlayableItem(
 
 data class ExternalLibraryItem(
     val entity: com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity,
-    val genres: String? = null
+    val genres: String? = null,
+    val customHeaders: Map<String, String>? = null
 )

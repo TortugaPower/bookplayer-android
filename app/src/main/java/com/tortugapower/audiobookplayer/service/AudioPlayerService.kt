@@ -28,6 +28,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+
 class AudioPlayerService : MediaSessionService() {
 
     private var player: ExoPlayer? = null
@@ -43,6 +49,42 @@ class AudioPlayerService : MediaSessionService() {
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
 
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+        
+        val customHttpDataSourceFactory = object : HttpDataSource.Factory {
+            override fun createDataSource(): HttpDataSource {
+                val delegate = httpDataSourceFactory.createDataSource()
+                return object : HttpDataSource by delegate {
+                    override fun open(dataSpec: DataSpec): Long {
+                        val uri = dataSpec.uri
+                        val key = uri.getQueryParameter("bp_header_key")
+                        if (key != null) {
+                            val headers = PlaybackManager.headerRegistry[key]
+                            headers?.forEach { (k, v) -> delegate.setRequestProperty(k, v) }
+                            
+                            val cleanUri = uri.buildUpon().clearQuery().apply {
+                                uri.queryParameterNames.filter { it != "bp_header_key" }.forEach { name ->
+                                    appendQueryParameter(name, uri.getQueryParameter(name))
+                                }
+                            }.build()
+                            
+                            return delegate.open(dataSpec.withUri(cleanUri))
+                        }
+                        return delegate.open(dataSpec)
+                    }
+                }
+            }
+
+            override fun setDefaultRequestProperties(defaultRequestProperties: MutableMap<String, String>): HttpDataSource.Factory {
+                httpDataSourceFactory.setDefaultRequestProperties(defaultRequestProperties)
+                return this
+            }
+        }
+
+        // DefaultDataSource handles file://, asset://, etc. automatically
+        val dataSourceFactory = DefaultDataSource.Factory(this, customHttpDataSourceFactory)
+
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, false)
             .setHandleAudioBecomingNoisy(true)
@@ -50,6 +92,7 @@ class AudioPlayerService : MediaSessionService() {
             // only needed while actually streaming). Requires only the WAKE_LOCK permission; ExoPlayer
             // acquires/releases the wake lock (and Wi-Fi lock, in NETWORK mode) with the play state.
             .setWakeMode(C.WAKE_MODE_NETWORK)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(dataSourceFactory))
             .build()
 
         player?.let { p ->

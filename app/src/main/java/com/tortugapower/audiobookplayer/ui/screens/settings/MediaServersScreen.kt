@@ -34,6 +34,7 @@ fun MediaServersScreen(
 ) {
     val servers by viewModel.servers.collectAsState()
     var showAddServerDialog by remember { mutableStateOf<ExternalServiceType?>(null) }
+    var showServerInfo by remember { mutableStateOf<ExternalServerEntity?>(null) }
     var isEditing by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -75,7 +76,8 @@ fun MediaServersScreen(
                         isEditing = isEditing,
                         onAddClick = { showAddServerDialog = type },
                         onDeleteClick = { viewModel.deleteServer(it) },
-                        onServerClick = onServerClick
+                        onServerClick = onServerClick,
+                        onInfoClick = { showServerInfo = it }
                     )
                 }
             }
@@ -85,6 +87,13 @@ fun MediaServersScreen(
     val scope = rememberCoroutineScope()
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isConnecting by remember { mutableStateOf(false) }
+
+    if (showServerInfo != null) {
+        ServerInfoSheet(
+            server = showServerInfo!!,
+            onDismiss = { showServerInfo = null }
+        )
+    }
 
     if (showAddServerDialog != null) {
         AddServerSheet(
@@ -125,7 +134,8 @@ fun ServerTypeSection(
     isEditing: Boolean,
     onAddClick: () -> Unit,
     onDeleteClick: (ExternalServerEntity) -> Unit,
-    onServerClick: (ExternalServerEntity) -> Unit
+    onServerClick: (ExternalServerEntity) -> Unit,
+    onInfoClick: (ExternalServerEntity) -> Unit
 ) {
     Column {
         Row(
@@ -163,7 +173,8 @@ fun ServerTypeSection(
                         server = server,
                         isEditing = isEditing,
                         onDeleteClick = { onDeleteClick(server) },
-                        onClick = { onServerClick(server) }
+                        onClick = { onServerClick(server) },
+                        onInfoClick = { onInfoClick(server) }
                     )
                 }
             }
@@ -176,7 +187,8 @@ fun ServerItem(
     server: ExternalServerEntity,
     isEditing: Boolean,
     onDeleteClick: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onInfoClick: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -208,12 +220,128 @@ fun ServerItem(
                 )
             }
 
-            IconButton(onClick = { /* Show info */ }) {
+            IconButton(onClick = onInfoClick) {
                 Icon(
                     Icons.Default.Info,
                     contentDescription = "Info",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ServerInfoSheet(
+    server: ExternalServerEntity,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        dragHandle = null,
+        containerColor = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxHeight(0.6f)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("Close", color = MaterialTheme.colorScheme.primary)
+                }
+                
+                Text(
+                    text = "Connection Details",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                Spacer(modifier = Modifier.width(64.dp))
+            }
+
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                // Server Details Section
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(
+                        text = "SERVER",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Name", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(server.name, fontWeight = FontWeight.Medium)
+                            }
+                            HorizontalDivider(thickness = 0.5.dp)
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("URL", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(server.url, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "LOGIN",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Username", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(server.username ?: "Anonymous", fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+
+                    if (!server.customHeaders.isNullOrEmpty()) {
+                        Text(
+                            text = "CUSTOM HEADERS",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                server.customHeaders!!.forEach { (key, value) ->
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(key, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(value, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
