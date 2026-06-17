@@ -62,7 +62,8 @@ fun ExternalLibraryScreen(
     importViewModel: ImportViewModel,
     serverName: String,
     onBack: () -> Unit,
-    onItemClick: (ExternalLibraryItem) -> Unit
+    onItemClick: (ExternalLibraryItem) -> Unit,
+    onActionStarted: () -> Unit = {}
 ) {
     val items by viewModel.items.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -125,10 +126,11 @@ fun ExternalLibraryScreen(
                                 scope.launch {
                                     val url = viewModel.getStreamUrl(item.entity)
                                     val fileName = item.entity.originalFileName ?: "${item.entity.title}.mp3"
-                                    importViewModel.startDownload(context, url, fileName)
+                                    importViewModel.startDownload(context, url, fileName, item.customHeaders)
                                 }
                             }
                             selectedItems.clear()
+                            onActionStarted()
                         }) {
                             Icon(Icons.Default.FileDownload, contentDescription = "Download")
                         }

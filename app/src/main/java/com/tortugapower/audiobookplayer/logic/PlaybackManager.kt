@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 object PlaybackManager {
     val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -34,6 +35,8 @@ object PlaybackManager {
     var player: Player? = null
         private set
 
+    val headerRegistry = ConcurrentHashMap<String, Map<String, String>>()
+    
     private var repository: LibraryRepository? = null
     private var appContext: Context? = null
 
@@ -319,13 +322,21 @@ object PlaybackManager {
      * chapter's title; a file holding the whole book shows the book title. Artwork falls back to the
      * book's. This is the one place MediaItems are built for both BOUND and single books.
      */
-    private fun buildMediaItems(playable: PlayableItem, processedDir: File): List<MediaItem> {
+    private fun buildMediaItems(playable: PlayableItem, processedDir: File, headers: Map<String, String>? = null): List<MediaItem> {
         return playable.fileGroups().map { group ->
             val first = group.first()
             val file = first.relativePath?.let { File(processedDir, it) }
             val uri = when {
                 file != null && file.exists() -> android.net.Uri.fromFile(file)
-                !first.remoteURL.isNullOrEmpty() -> android.net.Uri.parse(first.remoteURL)
+                !first.remoteURL.isNullOrEmpty() -> {
+                    var baseUri = android.net.Uri.parse(first.remoteURL)
+                    headers?.let {
+                        val key = java.util.UUID.randomUUID().toString()
+                        headerRegistry[key] = it
+                        baseUri = baseUri.buildUpon().appendQueryParameter("bp_header_key", key).build()
+                    }
+                    baseUri
+                }
                 else -> android.net.Uri.EMPTY
             }
             val mediaTitle = if (group.size == 1) first.title else playable.title
@@ -450,7 +461,7 @@ object PlaybackManager {
         playItem(context, item, autoplay = false)
     }
 
-    fun playItem(context: Context, item: LibraryItemEntity, autoplay: Boolean = true) {
+    fun playItem(context: Context, item: LibraryItemEntity, autoplay: Boolean = true, headers: Map<String, String>? = null) {
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
             _showPlayerScreen.value = true
@@ -515,7 +526,7 @@ object PlaybackManager {
             // BOUND books expose a whole-book timeline to the session; single books pass through.
             _currentTimeline.value = if (isBound) playable.timeline else null
 
-            val mediaItems = buildMediaItems(playable, processedDir)
+            val mediaItems = buildMediaItems(playable, processedDir, headers)
             if (mediaItems.isNotEmpty()) {
                 // Resolve the saved whole-book time into the player coordinate (file + offset) it maps to.
                 val local = if (isBound) {

@@ -18,6 +18,11 @@ class SyncingLibraryRepository(
         return account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)
     }
 
+    private suspend fun isPro(): Boolean {
+        val account = accountRepository.getAccount()
+        return account != null && account.tier == AccountTier.PRO
+    }
+
     override suspend fun saveItem(item: LibraryItemEntity) {
         delegate.saveItem(item)
         if (isSubscribed()) {
@@ -29,6 +34,12 @@ class SyncingLibraryRepository(
         delegate.updateItem(item)
         if (isSubscribed()) {
             SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
+        }
+    }
+
+    override suspend fun updateArtworkSync(item: LibraryItemEntity) {
+        if (isPro()) {
+            SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, item)
         }
     }
 

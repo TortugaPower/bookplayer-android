@@ -115,7 +115,8 @@ fun MediaServersFlow(
                     onBack = { navController.popBackStack() },
                     onItemClick = { item ->
                         navController.navigate("externalItemDetail/$serverId/${item.entity.uuid}")
-                    }
+                    },
+                    onActionStarted = onDismiss
                 )
             }
 
@@ -155,13 +156,15 @@ fun MediaServersFlow(
                         item = item,
                         onBack = { navController.popBackStack() },
                         onStreamClick = { 
-                            PlaybackManager.playItem(context, item.entity)
+                            PlaybackManager.playItem(context, item.entity, headers = item.customHeaders)
+                            onDismiss()
                         },
                         onDownloadClick = {
                             scope.launch {
                                 val url = extLibViewModel.getStreamUrl(item.entity)
                                 val fileName = item.entity.originalFileName ?: "${item.entity.title}.mp3"
-                                importViewModel.startDownload(context, url, fileName)
+                                importViewModel.startDownload(context, url, fileName, item.customHeaders)
+                                onDismiss()
                             }
                         }
                     )

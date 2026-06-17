@@ -96,12 +96,8 @@ class TaskConcurrencyManager(
                             delay(300) // Small breather between tasks
                         }
                     } else {
-                        Log.w(TAG, "🚫 Policy restricted task ${task.jobType} for queue $queueKey")
-                        repository.updateTask(task.copy(
-                            status = SyncTaskStatus.PENDING,
-                            errorMessage = "Account tier restricted this task"
-                        ))
-                        break // Stop worker for this restricted queue
+                        Log.w(TAG, "🚫 Policy restricted task ${task.jobType} for queue $queueKey. Discarding.")
+                        repository.deleteTask(task)
                     }
                 }
             } finally {
@@ -127,7 +123,7 @@ class TaskConcurrencyManager(
         if (TaskAccessPolicy.canExecuteTask(account?.tier, task.jobType)) {
             repository.saveTask(task)
         } else {
-            throw IllegalStateException("Account tier ${account?.tier ?: "NONE"} cannot create task of type ${task.jobType}")
+            Log.w(TAG, "🚫 Policy blocked enqueuing task: ${task.jobType} for tier ${account?.tier ?: "NONE"}. Discarding.")
         }
     }
 

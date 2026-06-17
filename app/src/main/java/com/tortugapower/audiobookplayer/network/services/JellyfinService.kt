@@ -85,13 +85,14 @@ class JellyfinService : ExternalService {
                         artworkURL = if (item.imageTags?.containsKey("Primary") == true) {
                             "${sanitizedUrl}Items/${item.id}/Images/Primary?fillHeight=300&fillWidth=300&quality=90&api_key=$token"
                         } else null,
-                        remoteURL = "${sanitizedUrl}Items/${item.id}/Download?api_key=$token",
+                        remoteURL = "${sanitizedUrl}Items/${item.id}/Download",
                         relativePath = item.path,
                         originalFileName = item.path?.substringAfterLast('/') ?: item.path?.substringAfterLast('\\')
                     )
                     ExternalLibraryItem(
                         entity = entity,
-                        genres = item.genres?.joinToString(", ")
+                        genres = item.genres?.joinToString(", "),
+                        customHeaders = mapOf("Authorization" to "MediaBrowser Token=\"$token\"")
                     )
                 }
                 com.tortugapower.audiobookplayer.network.LibraryResult(items, body.totalRecordCount)
@@ -105,7 +106,7 @@ class JellyfinService : ExternalService {
 
     override suspend fun getStreamUrl(url: String, token: String, item: LibraryItemEntity): String {
         val sanitizedUrl = if (url.endsWith("/")) url else "$url/"
-        return "${sanitizedUrl}Items/${item.uuid}/Download?api_key=$token"
+        return "${sanitizedUrl}Items/${item.uuid}/Download"
     }
 
     override suspend fun getThumbnailUrl(url: String, token: String, item: LibraryItemEntity): String? {

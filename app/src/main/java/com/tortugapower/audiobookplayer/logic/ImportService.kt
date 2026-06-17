@@ -21,7 +21,7 @@ interface ImportService {
     var showImportSheet: Boolean
 
     fun startImport(context: Context, uris: List<Uri>)
-    fun startDownload(context: Context, url: String, fileName: String)
+    fun startDownload(context: Context, url: String, fileName: String, headers: Map<String, String>? = null)
     fun removeFile(importFile: ImportFile)
     fun clearImport()
     fun acceptImport(context: Context)

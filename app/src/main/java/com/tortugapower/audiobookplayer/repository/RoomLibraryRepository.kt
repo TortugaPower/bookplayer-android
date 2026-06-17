@@ -299,6 +299,10 @@ class RoomLibraryRepository(
         }
     }
 
+    override suspend fun updateArtworkSync(item: LibraryItemEntity) {
+        // No-op in Room implementation
+    }
+
     override fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>> =
         libraryDao.getBookmarksForBook(bookUuid)
 
