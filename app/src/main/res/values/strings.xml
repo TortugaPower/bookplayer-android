@@ -130,6 +130,7 @@
     <string name="tip_thanks_amazing_title">You are amazing!</string>
     <string name="tip_thanks_description">Your support keeps BookPlayer going.</string>
     <string name="tip_missing_title">You haven\'t tipped us yet</string>
+    <string name="tip_contributor_a11y">GitHub profile: @%1$s</string>
 
     <!-- Settings / Support -->
     <string name="settings_support_section">Support</string>

@@ -199,7 +199,8 @@ fun TipJarScreen(onBack: () -> Unit) {
             }
             Spacer(Modifier.height(40.dp))
             ContributorsSection(contributors = contributors, uriHandler = uriHandler)
-            Spacer(Modifier.height(32.dp))
+            // Reserve the bottom system-bar inset so the last content clears the nav/gesture area.
+            Spacer(Modifier.height(32.dp + innerPadding.calculateBottomPadding()))
         }
     }
 }
@@ -271,7 +272,7 @@ private fun ContributorsSection(contributors: List<GitHubContributor>, uriHandle
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 ContributorAvatar(
                     avatarUrl = "https://github.com/$login.png",
-                    description = "GitHub profile: @$login",
+                    description = stringResource(R.string.tip_contributor_a11y, login),
                     onOpen = { uriHandler.openUri("https://github.com/$login") },
                     size = 64.dp,
                 )
@@ -294,11 +295,12 @@ private fun ContributorsSection(contributors: List<GitHubContributor>, uriHandle
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             rest.forEach { c ->
+                val login = c.login ?: return@forEach
                 val avatar = c.avatarUrl ?: return@forEach
                 val html = c.htmlUrl ?: return@forEach
                 ContributorAvatar(
                     avatarUrl = avatar,
-                    description = "GitHub profile: @${c.login}",
+                    description = stringResource(R.string.tip_contributor_a11y, login),
                     onOpen = { uriHandler.openUri(html) },
                     size = 36.dp,
                 )
