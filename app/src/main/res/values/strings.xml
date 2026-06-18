@@ -119,6 +119,19 @@
     <string name="themes_always_use_dark">Always use dark variation</string>
     <string name="themes_section_header">THEMES</string>
 
+    <!-- Tip Jar -->
+    <string name="settings_tip_jar_title">Tip Jar</string>
+    <string name="tip_extra_description">If you\'re really enjoying BookPlayer, you can leave extra tips to support the app\'s development further. This will help to keep the lights on and features coming.</string>
+    <string name="tip_support_title">Support BookPlayer</string>
+    <string name="tip_kind_title">Kind\ntip of</string>
+    <string name="tip_excellent_title">Excellent\ntip of</string>
+    <string name="tip_incredible_title">Incredible\ntip of</string>
+    <string name="tip_thanks_title">Thanks for your support!</string>
+    <string name="tip_thanks_amazing_title">You are amazing!</string>
+    <string name="tip_thanks_description">Your support keeps BookPlayer going.</string>
+    <string name="tip_missing_title">You haven\'t tipped us yet</string>
+    <string name="tip_contributor_a11y">GitHub profile: @%1$s</string>
+
     <!-- Settings / Support -->
     <string name="settings_support_section">Support</string>
     <string name="settings_support_email_title">Send us an email</string>

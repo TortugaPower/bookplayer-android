@@ -61,7 +61,11 @@ private fun welcomeConfettiParty(): Party {
  * sheet, or just hide the dialog). Use anywhere a successful purchase/restore should celebrate.
  */
 @Composable
-fun WelcomeToProDialog(onDismiss: () -> Unit) {
+fun WelcomeToProDialog(
+    onDismiss: () -> Unit,
+    title: String = stringResource(R.string.pro_welcome_title),
+    description: String = stringResource(R.string.pro_welcome_description),
+) {
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -85,14 +89,14 @@ fun WelcomeToProDialog(onDismiss: () -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = stringResource(R.string.pro_welcome_title),
+                        text = title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = stringResource(R.string.pro_welcome_description),
+                        text = description,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
