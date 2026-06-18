@@ -6,9 +6,11 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
 
 data class GitHubContributor(
-    val login: String,
-    @SerializedName("avatar_url") val avatarUrl: String,
-    @SerializedName("html_url") val htmlUrl: String,
+    // Nullable: Gson injects null into non-null Kotlin fields when the JSON omits a key (e.g.
+    // anonymous contributors). Callers filter out incomplete entries before rendering.
+    val login: String? = null,
+    @SerializedName("avatar_url") val avatarUrl: String? = null,
+    @SerializedName("html_url") val htmlUrl: String? = null,
 )
 
 /** Public GitHub API — used to show the Tip Jar contributors grid. */

@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,8 +85,8 @@ fun TipJarScreen(onBack: () -> Unit) {
     var prices by remember { mutableStateOf<Map<TipTier, String>>(emptyMap()) }
     var purchasingTier by remember { mutableStateOf<TipTier?>(null) }
     var isRestoring by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var thanksTitle by remember { mutableStateOf<String?>(null) }
+    var error by rememberSaveable { mutableStateOf<String?>(null) }
+    var thanksTitle by rememberSaveable { mutableStateOf<String?>(null) }
     var contributors by remember { mutableStateOf<List<GitHubContributor>>(emptyList()) }
 
     val genericError = stringResource(R.string.auth_error_generic)
@@ -130,7 +131,7 @@ fun TipJarScreen(onBack: () -> Unit) {
     }
 
     fun restore() {
-        if (isRestoring) return
+        if (isRestoring || purchasingTier != null) return
         isRestoring = true
         scope.launch {
             try {
@@ -153,7 +154,7 @@ fun TipJarScreen(onBack: () -> Unit) {
             }
         },
         actions = {
-            TextButton(onClick = { restore() }, enabled = !isRestoring) {
+            TextButton(onClick = { restore() }, enabled = !isRestoring && purchasingTier == null) {
                 Text(stringResource(R.string.common_restore), color = MaterialTheme.colorScheme.primary)
             }
         },
@@ -283,7 +284,8 @@ private fun ContributorsSection(contributors: List<GitHubContributor>, uriHandle
             }
         }
     }
-    val rest = contributors.filter { it.login !in FEATURED }
+    // Skip the featured two and any incomplete entries (Gson can inject nulls — see GitHubContributor).
+    val rest = contributors.filter { it.login != null && it.login !in FEATURED }
     if (rest.isNotEmpty()) {
         Spacer(Modifier.height(24.dp))
         FlowRow(
@@ -292,10 +294,12 @@ private fun ContributorsSection(contributors: List<GitHubContributor>, uriHandle
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             rest.forEach { c ->
+                val avatar = c.avatarUrl ?: return@forEach
+                val html = c.htmlUrl ?: return@forEach
                 ContributorAvatar(
-                    avatarUrl = c.avatarUrl,
+                    avatarUrl = avatar,
                     description = "GitHub profile: @${c.login}",
-                    onOpen = { uriHandler.openUri(c.htmlUrl) },
+                    onOpen = { uriHandler.openUri(html) },
                     size = 36.dp,
                 )
             }
@@ -317,6 +321,7 @@ private fun ContributorAvatar(
         modifier = Modifier
             .size(size)
             .clip(CircleShape)
-            .clickable(onClick = onOpen),
+            .clickable(onClick = onOpen)
+            .semantics { role = Role.Button },
     )
 }
