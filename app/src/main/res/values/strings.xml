@@ -290,7 +290,6 @@
     <string name="import_disclaimer">Transferring files may take a while, please make sure the number of files is complete before proceeding.</string>
     <string name="import_files_count">%1$d Files</string>
     <string name="import_skipped_items">%1$d items were skipped because they already exist in the library</string>
-
     <!-- Interval/Duration -->
     <string name="interval_seconds">%1$d secs</string>
     <string name="interval_1_min">1 min</string>
@@ -350,4 +349,7 @@
     <string name="profile_change_less_last_week">%1$d%% less than last week</string>
     <string name="profile_time_minutes">%1$d min</string>
     <string name="profile_time_hours_minutes">%1$dh %2$dm</string>
+    <!-- Media Servers -->
+    <string name="media_servers_title">Media Servers</string>
+    <string name="media_servers_edit_button_description">Edit media servers</string>
 </resources>

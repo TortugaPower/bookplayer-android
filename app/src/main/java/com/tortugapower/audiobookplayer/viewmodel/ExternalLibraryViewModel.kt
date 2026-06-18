@@ -72,7 +72,8 @@ class ExternalLibraryViewModel(
     }
 
     suspend fun getStreamUrl(item: LibraryItemEntity): String {
-        return server?.let { libraryRepository.getStreamUrl(it, item) } ?: ""
+        val currentServer = server ?: serverRepository.getServerById(serverId).also { server = it }
+        return currentServer?.let { libraryRepository.getStreamUrl(it, item) }.orEmpty()
     }
 }
 

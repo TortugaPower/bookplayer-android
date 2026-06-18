@@ -51,7 +51,7 @@ class AudioPlayerService : MediaSessionService() {
             .build()
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
+            .setAllowCrossProtocolRedirects(false)
         
         val customHttpDataSourceFactory = object : HttpDataSource.Factory {
             override fun createDataSource(): HttpDataSource {

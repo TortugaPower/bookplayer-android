@@ -6,7 +6,7 @@ import androidx.room.TypeConverters
 import com.tortugapower.audiobookplayer.database.MapConverter
 
 enum class ExternalServiceType {
-    JELLYFIN, AUDIOBOOKSHELF, HARDCOVER
+    JELLYFIN, AUDIOBOOKSHELF
 }
 
 @Entity(tableName = "external_servers")

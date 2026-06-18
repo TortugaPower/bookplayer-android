@@ -250,4 +250,7 @@
     <string name="profile_change_less_last_week">%1$d%% menos que la semana pasada</string>
     <string name="profile_time_minutes">%1$d min</string>
     <string name="profile_time_hours_minutes">%1$dh %2$dm</string>
+    <!-- Media Servers -->
+    <string name="media_servers_title">Servidores multimedia</string>
+    <string name="media_servers_edit_button_description">Editar servidores multimedia</string>
 </resources>

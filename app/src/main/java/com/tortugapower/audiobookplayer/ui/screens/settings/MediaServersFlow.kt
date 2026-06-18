@@ -21,6 +21,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navigation
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 import com.tortugapower.audiobookplayer.repository.ExternalLibraryRepository
@@ -74,103 +75,113 @@ fun MediaServersFlow(
                     onBack = onDismiss,
                     onServerClick = { server ->
                         val encodedName = android.net.Uri.encode(server.name)
-                        navController.navigate("externalLibrary/${server.id}/$encodedName")
+                        navController.navigate("externalLibraryFlow/${server.id}/$encodedName")
                     }
                 )
             }
 
-            composable(
-                route = "externalLibrary/{serverId}/{serverName}",
-                enterTransition = {
-                    slideIntoContainer(
-                        AnimatedContentTransitionScope.SlideDirection.Left,
-                        animationSpec = tween(400)
-                    )
-                },
-                exitTransition = {
-                    fadeOut(animationSpec = tween(400))
-                },
-                popEnterTransition = {
-                    fadeIn(animationSpec = tween(400))
-                },
-                popExitTransition = {
-                    slideOutOfContainer(
-                        AnimatedContentTransitionScope.SlideDirection.Right,
-                        animationSpec = tween(400)
-                    )
-                }
-            ) { backStackEntry ->
-                val serverId = backStackEntry.arguments?.getString("serverId")?.toLong() ?: 0L
-                val rawServerName = backStackEntry.arguments?.getString("serverName") ?: ""
-                val serverName = android.net.Uri.decode(rawServerName)
-                
-                val extLibViewModel: ExternalLibraryViewModel = viewModel(
-                    factory = ExternalLibraryViewModelFactory(serverId, externalServerRepository, externalLibraryRepository)
-                )
-                
-                ExternalLibraryScreen(
-                    viewModel = extLibViewModel,
-                    importViewModel = importViewModel,
-                    serverName = serverName,
-                    onBack = { navController.popBackStack() },
-                    onItemClick = { item ->
-                        navController.navigate("externalItemDetail/$serverId/${item.entity.uuid}")
+            navigation(
+                route = "externalLibraryFlow/{serverId}/{serverName}",
+                startDestination = "library",
+            ) {
+                composable(
+                    route = "library",
+                    enterTransition = {
+                        slideIntoContainer(
+                            AnimatedContentTransitionScope.SlideDirection.Left,
+                            animationSpec = tween(400)
+                        )
                     },
-                    onActionStarted = onDismiss
-                )
-            }
+                    exitTransition = {
+                        fadeOut(animationSpec = tween(400))
+                    },
+                    popEnterTransition = {
+                        fadeIn(animationSpec = tween(400))
+                    },
+                    popExitTransition = {
+                        slideOutOfContainer(
+                            AnimatedContentTransitionScope.SlideDirection.Right,
+                            animationSpec = tween(400)
+                        )
+                    }
+                ) { backStackEntry ->
+                    val parentEntry = remember(backStackEntry) { navController.getBackStackEntry("externalLibraryFlow/{serverId}/{serverName}") }
+                    val serverId = parentEntry.arguments?.getString("serverId")?.toLong() ?: 0L
+                    val rawServerName = parentEntry.arguments?.getString("serverName") ?: ""
+                    val serverName = android.net.Uri.decode(rawServerName)
 
-            composable(
-                route = "externalItemDetail/{serverId}/{itemUuid}",
-                enterTransition = {
-                    slideIntoContainer(
-                        AnimatedContentTransitionScope.SlideDirection.Left,
-                        animationSpec = tween(400)
+                    val extLibViewModel: ExternalLibraryViewModel = viewModel(
+                        viewModelStoreOwner = parentEntry,
+                        factory = ExternalLibraryViewModelFactory(serverId, externalServerRepository, externalLibraryRepository)
                     )
-                },
-                exitTransition = {
-                    fadeOut(animationSpec = tween(400))
-                },
-                popEnterTransition = {
-                    fadeIn(animationSpec = tween(400))
-                },
-                popExitTransition = {
-                    slideOutOfContainer(
-                        AnimatedContentTransitionScope.SlideDirection.Right,
-                        animationSpec = tween(400)
+
+                    ExternalLibraryScreen(
+                        viewModel = extLibViewModel,
+                        importViewModel = importViewModel,
+                        serverName = serverName,
+                        onBack = { navController.popBackStack() },
+                        onItemClick = { item ->
+                            navController.navigate("itemDetail/${item.entity.uuid}")
+                        },
+                        onActionStarted = onDismiss
                     )
                 }
-            ) { backStackEntry ->
-                val serverId = backStackEntry.arguments?.getString("serverId")?.toLong() ?: 0L
-                val itemUuid = backStackEntry.arguments?.getString("itemUuid") ?: ""
-                
-                val extLibViewModel: ExternalLibraryViewModel = viewModel(
-                    factory = ExternalLibraryViewModelFactory(serverId, externalServerRepository, externalLibraryRepository)
-                )
-                
-                val serverItems: List<ExternalLibraryItem> by extLibViewModel.items.collectAsState()
-                val item = serverItems.find { it.entity.uuid == itemUuid }
-                
-                if (item != null) {
-                    ExternalItemDetailScreen(
-                        item = item,
-                        onBack = { navController.popBackStack() },
-                        onStreamClick = { 
-                            PlaybackManager.playItem(context, item.entity, headers = item.customHeaders)
-                            onDismiss()
-                        },
-                        onDownloadClick = {
-                            scope.launch {
-                                val url = extLibViewModel.getStreamUrl(item.entity)
-                                val fileName = item.entity.originalFileName ?: "${item.entity.title}.mp3"
-                                importViewModel.startDownload(context, url, fileName, item.customHeaders)
-                                onDismiss()
-                            }
-                        }
+
+                composable(
+                    route = "itemDetail/{itemUuid}",
+                    enterTransition = {
+                        slideIntoContainer(
+                            AnimatedContentTransitionScope.SlideDirection.Left,
+                            animationSpec = tween(400)
+                        )
+                    },
+                    exitTransition = {
+                        fadeOut(animationSpec = tween(400))
+                    },
+                    popEnterTransition = {
+                        fadeIn(animationSpec = tween(400))
+                    },
+                    popExitTransition = {
+                        slideOutOfContainer(
+                            AnimatedContentTransitionScope.SlideDirection.Right,
+                            animationSpec = tween(400)
+                        )
+                    }
+                ) { backStackEntry ->
+                    val parentEntry = remember(backStackEntry) { navController.getBackStackEntry("externalLibraryFlow/{serverId}/{serverName}") }
+                    val serverId = parentEntry.arguments?.getString("serverId")?.toLong() ?: 0L
+                    val itemUuid = backStackEntry.arguments?.getString("itemUuid") ?: ""
+
+                    val extLibViewModel: ExternalLibraryViewModel = viewModel(
+                        viewModelStoreOwner = parentEntry,
+                        factory = ExternalLibraryViewModelFactory(serverId, externalServerRepository, externalLibraryRepository)
                     )
-                } else {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+
+                    val serverItems: List<ExternalLibraryItem> by extLibViewModel.items.collectAsState()
+                    val item = serverItems.find { it.entity.uuid == itemUuid }
+
+                    if (item != null) {
+                        ExternalItemDetailScreen(
+                            item = item,
+                            onBack = { navController.popBackStack() },
+                            onStreamClick = {
+                                PlaybackManager.playItem(context, item.entity, headers = item.customHeaders)
+                                onDismiss()
+                            },
+                            onDownloadClick = {
+                                scope.launch {
+                                    val url = extLibViewModel.getStreamUrl(item.entity)
+                                    if (url.isNotBlank()) {
+                                        val fileName = item.entity.originalFileName ?: "${item.entity.title}.mp3"
+                                        importViewModel.startDownload(context, url, fileName, item.customHeaders)
+                                        onDismiss()
+                                    }
+                                }
+                            }                        )
+                    } else {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
                     }
                 }
             }

@@ -5,7 +5,7 @@ import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 
 interface ExternalService {
     suspend fun connect(url: String, username: String? = null, password: String? = null, headers: Map<String, String>? = null): ConnectionResult
-    suspend fun getLibrary(url: String, token: String, startIndex: Int = 0, limit: Int = 50): LibraryResult
+    suspend fun getLibrary(url: String, token: String, startIndex: Int = 0, limit: Int = 50, headers: Map<String, String>? = null): LibraryResult
     suspend fun getStreamUrl(url: String, token: String, item: LibraryItemEntity): String
     suspend fun getThumbnailUrl(url: String, token: String, item: LibraryItemEntity): String?
 }

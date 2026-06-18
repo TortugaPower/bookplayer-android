@@ -5,7 +5,6 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -18,7 +17,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,9 +33,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.tortugapower.audiobookplayer.database.AppDatabase
-import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
-import kotlinx.coroutines.launch
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
@@ -58,11 +54,8 @@ import com.tortugapower.audiobookplayer.ui.screens.profile.ProfileScreen
 import com.tortugapower.audiobookplayer.ui.screens.profile.StatisticsScreen
 import com.tortugapower.audiobookplayer.ui.screens.profile.ListeningHistoryScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.SettingsScreen
-import com.tortugapower.audiobookplayer.ui.screens.settings.MediaServersScreen
-import com.tortugapower.audiobookplayer.ui.screens.settings.ExternalLibraryScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.MediaServersFlow
 import com.tortugapower.audiobookplayer.repository.ExternalLibraryRepository
-import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.QueuedTasksScreen
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.TaskDetailScreen
 import com.tortugapower.audiobookplayer.ui.screens.themes.ThemesScreen
@@ -75,8 +68,7 @@ fun MainScreen() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val importViewModel: ImportViewModel = viewModel()
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    
+
     val context = LocalContext.current
     val database = remember { AppDatabase.getDatabase(context) }
     val baseLibraryRepository = remember { RoomLibraryRepository(database.libraryDao()) }
@@ -116,9 +108,7 @@ fun MainScreen() {
         factory = LibraryViewModelFactory(context.applicationContext as Application, libraryRepository, syncTaskRepository)
     )
 
-    val externalServerViewModel: ExternalServerViewModel = viewModel(
-        factory = ExternalServerViewModelFactory(externalServerRepository)
-    )
+
 
     var showMediaServersFlow by remember { mutableStateOf(false) }
 
@@ -251,8 +241,7 @@ fun MainScreen() {
                         SettingsScreen(
                             onNavigateToThemes = { navController.navigate("themes") },
                             onNavigateToAppIcons = { navController.navigate("appicons") },
-                            onNavigateToTipJar = { navController.navigate("tipjar") },
-                            onNavigateToMediaServers = { showMediaServersFlow = true }
+                            onNavigateToTipJar = { navController.navigate("tipjar") }
                         ) 
                     }
                     
@@ -490,8 +479,9 @@ fun MainScreen() {
                         onDismiss = { showMediaServersFlow = false }
                     )
                 }
+              }
 
-                // Floating mini player overlay — drawn over content, bottom-aligned (just above
+// Floating mini player overlay — drawn over content, bottom-aligned (just above
                 // the docked bottom nav). Hidden on the full-screen themes route.
                 if (miniPlayerVisible) {
                     MiniPlayer(modifier = Modifier.align(Alignment.BottomCenter))

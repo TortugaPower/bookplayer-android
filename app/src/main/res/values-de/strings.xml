@@ -250,4 +250,7 @@
     <string name="profile_change_less_last_week">%1$d%% weniger als letzte Woche</string>
     <string name="profile_time_minutes">%1$d Min.</string>
     <string name="profile_time_hours_minutes">%1$d Std. %2$d Min.</string>
+    <!-- Media Servers -->
+    <string name="media_servers_title">Medienserver</string>
+    <string name="media_servers_edit_button_description">Medienserver bearbeiten</string>
 </resources>

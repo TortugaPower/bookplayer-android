@@ -4,14 +4,28 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 import com.tortugapower.audiobookplayer.network.ConnectionResult
 import com.tortugapower.audiobookplayer.network.ExternalService
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 class JellyfinService : ExternalService {
 
-    private fun getApi(url: String): JellyfinApi {
+    private fun getApi(url: String, headers: Map<String, String>? = null): JellyfinApi {
         val sanitizedUrl = if (url.endsWith("/")) url else "$url/"
+
+        val okHttpClientBuilder = OkHttpClient.Builder()
+        headers?.forEach { (key, value) ->
+            okHttpClientBuilder.addInterceptor(Interceptor { chain ->
+                val original = chain.request()
+                val requestBuilder = original.newBuilder().header(key, value)
+                chain.proceed(requestBuilder.build())
+            })
+        }
+        val okHttpClient = okHttpClientBuilder.build()
+
         return Retrofit.Builder()
+            .client(okHttpClient)
             .baseUrl(sanitizedUrl)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
@@ -32,7 +46,7 @@ class JellyfinService : ExternalService {
 
     override suspend fun connect(url: String, username: String?, password: String?, headers: Map<String, String>?): ConnectionResult {
         return try {
-            val api = getApi(url)
+            val api = getApi(url, headers)
             val authHeader = getAuthHeader()
             val response = api.authenticate(authHeader, JellyfinAuthRequest(username, password))
 
@@ -60,9 +74,9 @@ class JellyfinService : ExternalService {
         }
     }
 
-    override suspend fun getLibrary(url: String, token: String, startIndex: Int, limit: Int): com.tortugapower.audiobookplayer.network.LibraryResult {
+    override suspend fun getLibrary(url: String, token: String, startIndex: Int, limit: Int, headers: Map<String, String>?): com.tortugapower.audiobookplayer.network.LibraryResult {
         return try {
-            val api = getApi(url)
+            val api = getApi(url, headers)
             val authHeader = getAuthHeader(token)
             val response = api.getItems(
                 authHeader = authHeader,

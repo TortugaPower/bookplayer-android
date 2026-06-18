@@ -248,4 +248,7 @@
     <string name="profile_change_less_last_week">比上周少%1$d%%</string>
     <string name="profile_time_minutes">%1$d 分钟</string>
     <string name="profile_time_hours_minutes">%1$d 小时 %2$d 分钟</string>
+    <!-- Media Servers -->
+    <string name="media_servers_title">媒体服务器</string>
+    <string name="media_servers_edit_button_description">编辑媒体服务器</string>
 </resources>

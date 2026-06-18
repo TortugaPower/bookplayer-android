@@ -11,7 +11,7 @@ class HardcoverService : ExternalService {
         return ConnectionResult.Failure("Not implemented")
     }
 
-    override suspend fun getLibrary(url: String, token: String, startIndex: Int, limit: Int): com.tortugapower.audiobookplayer.network.LibraryResult {
+    override suspend fun getLibrary(url: String, token: String, startIndex: Int, limit: Int, headers: Map<String, String>?): com.tortugapower.audiobookplayer.network.LibraryResult {
         return com.tortugapower.audiobookplayer.network.LibraryResult(emptyList(), 0)
     }
 

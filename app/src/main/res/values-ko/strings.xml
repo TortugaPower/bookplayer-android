@@ -248,4 +248,7 @@
     <string name="profile_change_less_last_week">지난주보다 %1$d%% 감소</string>
     <string name="profile_time_minutes">%1$d 분</string>
     <string name="profile_time_hours_minutes">%1$d 시간 %2$d 분</string>
+    <!-- Media Servers -->
+    <string name="media_servers_title">미디어 서버</string>
+    <string name="media_servers_edit_button_description">미디어 서버 편집</string>
 </resources>

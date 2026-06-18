@@ -25,6 +25,7 @@ import com.tortugapower.audiobookplayer.network.ConnectionResult
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.viewmodel.ExternalServerViewModel
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 @Composable
 fun MediaServersScreen(
@@ -40,20 +41,20 @@ fun MediaServersScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Media Servers") },
+                title = { Text(stringResource(id = R.string.media_servers_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
+                        Icon(Icons.Default.Close, contentDescription = stringResource(id = R.string.common_close))
                     }
                 },
                 actions = {
                     if (isEditing) {
                         TextButton(onClick = { isEditing = false }) {
-                            Text("Done")
+                            Text(stringResource(id = R.string.common_done))
                         }
                     } else {
                         IconButton(onClick = { isEditing = true }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit")
+                            Icon(Icons.Default.Edit, contentDescription = stringResource(id = R.string.media_servers_edit_button_description))
                         }
                     }
                 }
@@ -63,8 +64,7 @@ fun MediaServersScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(bottom = LocalMiniPlayerInset.current),
+                .padding(innerPadding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
@@ -144,7 +144,7 @@ fun ServerTypeSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = type.name.lowercase().capitalize(),
+                text = type.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() },
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -244,7 +244,7 @@ fun ServerInfoSheet(
         sheetState = sheetState,
         dragHandle = null,
         containerColor = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.fillMaxHeight(0.6f)
+        modifier = Modifier.fillMaxSize()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Top Bar
@@ -385,7 +385,7 @@ fun AddServerSheet(
                 }
                 
                 Text(
-                    text = if (currentStep == 1) "" else type.name.lowercase().capitalize(),
+                    text = if (currentStep == 1) "" else type.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -443,7 +443,7 @@ fun AddServerSheet(
                     )
                     if (currentStep == 1) {
                         Text(
-                            text = "Connect to your ${type.name.lowercase().capitalize()} server",
+                            text = "Connect to your ${type.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }} server",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -620,4 +620,4 @@ fun AddServerSheet(
     }
 }
 
-fun String.capitalize() = this.lowercase().replaceFirstChar { it.uppercase() }
+

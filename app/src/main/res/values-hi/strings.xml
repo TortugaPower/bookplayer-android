@@ -250,4 +250,7 @@
     <string name="profile_change_less_last_week">पिछले सप्ताह से %1$d%% कम</string>
     <string name="profile_time_minutes">%1$d मिनट</string>
     <string name="profile_time_hours_minutes">%1$d घंटे %2$d मिनट</string>
+    <!-- Media Servers -->
+    <string name="media_servers_title">मीडिया सर्वर</string>
+    <string name="media_servers_edit_button_description">मीडिया सर्वर संपादित करें</string>
 </resources>
