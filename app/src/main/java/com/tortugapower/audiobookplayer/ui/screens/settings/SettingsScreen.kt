@@ -41,7 +41,7 @@ import kotlinx.coroutines.withContext
  * [onNavigateToThemes]) and Support (contact, debug info, project links), with a build-info footer.
  */
 @Composable
-fun SettingsScreen(onNavigateToThemes: () -> Unit) {
+fun SettingsScreen(onNavigateToThemes: () -> Unit, onNavigateToTipJar: () -> Unit) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboard.current
@@ -141,6 +141,11 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit) {
             }
 
             settingsSection(titleRes = R.string.settings_support_section) {
+                SettingsItem(
+                    label = stringResource(R.string.settings_tip_jar_title),
+                    onClick = onNavigateToTipJar,
+                )
+                HorizontalDivider()
                 SettingsItem(
                     label = stringResource(R.string.settings_support_email_title),
                     value = SupportLinks.SUPPORT_EMAIL,

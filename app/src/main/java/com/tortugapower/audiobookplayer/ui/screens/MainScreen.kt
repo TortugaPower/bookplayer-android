@@ -50,6 +50,7 @@ import com.tortugapower.audiobookplayer.ui.screens.settings.SettingsScreen
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.QueuedTasksScreen
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.TaskDetailScreen
 import com.tortugapower.audiobookplayer.ui.screens.themes.ThemesScreen
+import com.tortugapower.audiobookplayer.ui.screens.tipjar.TipJarScreen
 import com.tortugapower.audiobookplayer.viewmodel.*
 
 @Composable
@@ -96,7 +97,7 @@ fun MainScreen() {
                 WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
             ),
             bottomBar = {
-                if (currentRoute != "themes") {
+                if (currentRoute != "themes" && currentRoute != "tipjar") {
                     // Mini player is no longer docked here — it floats over content (below).
                     CustomBottomNavigation(
                         currentRoute = currentRoute,
@@ -116,7 +117,7 @@ fun MainScreen() {
             // The floating mini player is shown over content when a book is loaded (and not on
             // the full-screen themes route). Screens read LocalMiniPlayerInset to reserve bottom
             // space so their scroll content clears the pill while still scrolling behind it.
-            val miniPlayerVisible = PlaybackManager.currentItem != null && currentRoute != "themes"
+            val miniPlayerVisible = PlaybackManager.currentItem != null && currentRoute != "themes" && currentRoute != "tipjar"
 
             // Consume the root insets so the per-screen nested Scaffolds (tab chrome,
             // Account Details) don't re-apply the bottom navigation-bar inset on top of
@@ -171,7 +172,7 @@ fun MainScreen() {
                     composable(
                         route = Screen.Settings.route,
                         exitTransition = {
-                            if (targetState.destination.route == "themes") {
+                            if (targetState.destination.route in setOf("themes", "tipjar")) {
                                 slideOutOfContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Left,
                                     animationSpec = tween(400)
@@ -179,15 +180,18 @@ fun MainScreen() {
                             } else null
                         },
                         popEnterTransition = {
-                            if (initialState.destination.route == "themes") {
+                            if (initialState.destination.route in setOf("themes", "tipjar")) {
                                 slideIntoContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Right,
                                     animationSpec = tween(400)
                                 )
                             } else null
                         }
-                    ) { 
-                        SettingsScreen(onNavigateToThemes = { navController.navigate("themes") }) 
+                    ) {
+                        SettingsScreen(
+                            onNavigateToThemes = { navController.navigate("themes") },
+                            onNavigateToTipJar = { navController.navigate("tipjar") },
+                        )
                     }
                     
                     composable(
@@ -218,6 +222,36 @@ fun MainScreen() {
                         }
                     ) {
                         ThemesScreen(onBack = { navController.popBackStack() })
+                    }
+
+                    composable(
+                        route = "tipjar",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        popEnterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) {
+                        TipJarScreen(onBack = { navController.popBackStack() })
                     }
                 }
 
