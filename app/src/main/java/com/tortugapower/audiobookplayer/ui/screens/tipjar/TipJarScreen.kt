@@ -70,6 +70,9 @@ import kotlinx.coroutines.launch
 /** The two maintainers featured above the contributors grid (login → profile URL). */
 private val FEATURED = listOf("GianniCarlo", "Hirobreak")
 
+/** A fully-resolved contributor for the grid — non-null fields guaranteed before rendering. */
+private data class GridContributor(val login: String, val avatarUrl: String, val htmlUrl: String)
+
 /**
  * Tip Jar — donate to support BookPlayer. A tip grants the RevenueCat `plus` entitlement (→
  * `AccountTier.PLUS`). Mirrors iOS `SettingsTipJarView`: description, three tip tiers (tap = buy),
@@ -285,8 +288,14 @@ private fun ContributorsSection(contributors: List<GitHubContributor>, uriHandle
             }
         }
     }
-    // Skip the featured two and any incomplete entries (Gson can inject nulls — see GitHubContributor).
-    val rest = contributors.filter { it.login != null && it.login !in FEATURED }
+    // Resolve to fully-complete, non-featured entries up front (Gson can inject nulls — see
+    // GitHubContributor), so `isNotEmpty()` implies every entry actually renders (no empty gap).
+    val rest = contributors.mapNotNull { c ->
+        val login = c.login?.takeIf { it !in FEATURED } ?: return@mapNotNull null
+        val avatar = c.avatarUrl ?: return@mapNotNull null
+        val html = c.htmlUrl ?: return@mapNotNull null
+        GridContributor(login, avatar, html)
+    }
     if (rest.isNotEmpty()) {
         Spacer(Modifier.height(24.dp))
         FlowRow(
@@ -295,13 +304,10 @@ private fun ContributorsSection(contributors: List<GitHubContributor>, uriHandle
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             rest.forEach { c ->
-                val login = c.login ?: return@forEach
-                val avatar = c.avatarUrl ?: return@forEach
-                val html = c.htmlUrl ?: return@forEach
                 ContributorAvatar(
-                    avatarUrl = avatar,
-                    description = stringResource(R.string.tip_contributor_a11y, login),
-                    onOpen = { uriHandler.openUri(html) },
+                    avatarUrl = c.avatarUrl,
+                    description = stringResource(R.string.tip_contributor_a11y, c.login),
+                    onOpen = { uriHandler.openUri(c.htmlUrl) },
                     size = 36.dp,
                 )
             }
