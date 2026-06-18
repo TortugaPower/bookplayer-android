@@ -10,7 +10,6 @@ object ExternalServiceFactory {
         return when (type) {
             ExternalServiceType.JELLYFIN -> JellyfinService()
             ExternalServiceType.AUDIOBOOKSHELF -> AudiobookshelfService()
-            ExternalServiceType.HARDCOVER -> HardcoverService()
         }
     }
 }

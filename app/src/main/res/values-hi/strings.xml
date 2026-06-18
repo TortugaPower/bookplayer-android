@@ -219,4 +219,7 @@
     <string name="sync_task_sync_identifiers">आइडेंटिफ़ायर सिंक करें</string>
     <string name="sync_task_match_library_ids">लाइब्रेरी आईडी मिलान करें</string>
 
+    <!-- Media Servers -->
+    <string name="media_servers_title">मीडिया सर्वर</string>
+    <string name="media_servers_edit_button_description">मीडिया सर्वर संपादित करें</string>
 </resources>

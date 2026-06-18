@@ -86,15 +86,23 @@ object ImportManager : ImportService {
     }
 
     override fun startDownload(context: Context, url: String, fileName: String, headers: Map<String, String>?) {
+        if (url.isBlank()) {
+            skippedItemsCount++
+            // Optionally, show a toast message to the user: "Invalid download URL"
+            android.util.Log.e("ImportManager", "Download skipped: Invalid URL provided.")
+            return
+        }
+
         activeDownloadCount++
         scope.launch {
+            val sanitizedFileName = sanitizeFilename(fileName)
             val backupDir = File(context.filesDir, "BPBackup")
             if (!backupDir.exists()) backupDir.mkdirs()
 
             val database = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
             val libraryDao = database.libraryDao()
 
-            if (libraryDao.existsWithFileName(fileName)) {
+            if (libraryDao.existsWithFileName(sanitizedFileName)) {
                 skippedItemsCount++
                 activeDownloadCount--
                 if (activeDownloadCount == 0) {
@@ -103,7 +111,7 @@ object ImportManager : ImportService {
                 return@launch
             }
 
-            val destFile = File(backupDir, fileName)
+            val destFile = File(backupDir, sanitizedFileName)
 
             try {
                 withContext(Dispatchers.IO) {
@@ -120,13 +128,14 @@ object ImportManager : ImportService {
                                 input.copyTo(output)
                             }
                         }
-                        importedFiles = importedFiles + ImportFile(fileName, destFile)
+                        importedFiles = importedFiles + ImportFile(sanitizedFileName, destFile)
                     } else {
                         android.util.Log.e("ImportManager", "Download failed: ${response.code}")
                     }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                android.util.Log.e("ImportManager", "Download failed with exception for URL: $url", e)
             } finally {
                 activeDownloadCount--
                 if (activeDownloadCount == 0 && (importedFiles.isNotEmpty() || skippedItemsCount > 0)) {
@@ -252,5 +261,22 @@ object ImportManager : ImportService {
             if (cut != -1) result = result?.substring(cut + 1)
         }
         return result
+    }
+
+    private fun sanitizeFilename(filename: String): String {
+        // Remove any path separators to prevent path traversal
+        var sanitized = filename.replace("/", "_").replace("\\", "_")
+        // Replace characters that are generally invalid in filenames for most file systems
+        // including < > : " / \ | ? *
+        sanitized = sanitized.replace(Regex("[<>:\"/\\\\|?*]"), "_")
+        // Replace multiple underscores with a single one
+        sanitized = sanitized.replace(Regex("__+"), "_")
+        // Trim leading/trailing underscores or dots that might result from sanitization
+        sanitized = sanitized.trim('_', '.')
+        // Ensure it's not empty after sanitization, provide a default if it is
+        if (sanitized.isEmpty()) {
+            return "untitled_file"
+        }
+        return sanitized
     }
 }

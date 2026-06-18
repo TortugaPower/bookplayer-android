@@ -218,4 +218,7 @@
     <string name="sync_task_sync_identifiers">Sincronizar identificadores</string>
     <string name="sync_task_match_library_ids">Coincidir IDs de biblioteca</string>
 
+    <!-- Media Servers -->
+    <string name="media_servers_title">Servidores multimedia</string>
+    <string name="media_servers_edit_button_description">Editar servidores multimedia</string>
 </resources>

@@ -219,4 +219,7 @@
     <string name="sync_task_sync_identifiers">同步标识符</string>
     <string name="sync_task_match_library_ids">匹配库 ID</string>
 
+    <!-- Media Servers -->
+    <string name="media_servers_title">媒体服务器</string>
+    <string name="media_servers_edit_button_description">编辑媒体服务器</string>
 </resources>

@@ -218,4 +218,7 @@
     <string name="sync_task_sync_identifiers">Синхронизировать идентификаторы</string>
     <string name="sync_task_match_library_ids">Сопоставить ID библиотеки</string>
 
+    <!-- Media Servers -->
+    <string name="media_servers_title">Медиасерверы</string>
+    <string name="media_servers_edit_button_description">Редактировать медиасерверы</string>
 </resources>

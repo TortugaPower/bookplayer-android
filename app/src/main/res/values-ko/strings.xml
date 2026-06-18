@@ -219,4 +219,7 @@
     <string name="sync_task_sync_identifiers">식별자 동기화</string>
     <string name="sync_task_match_library_ids">라이브러리 ID 매칭</string>
 
+    <!-- Media Servers -->
+    <string name="media_servers_title">미디어 서버</string>
+    <string name="media_servers_edit_button_description">미디어 서버 편집</string>
 </resources>

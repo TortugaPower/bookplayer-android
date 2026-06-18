@@ -290,7 +290,6 @@
     <string name="import_disclaimer">Transferring files may take a while, please make sure the number of files is complete before proceeding.</string>
     <string name="import_files_count">%1$d Files</string>
     <string name="import_skipped_items">%1$d items were skipped because they already exist in the library</string>
-
     <!-- Interval/Duration -->
     <string name="interval_seconds">%1$d secs</string>
     <string name="interval_1_min">1 min</string>
@@ -315,4 +314,7 @@
     <string name="sync_task_sync_identifiers">Sync Identifiers</string>
     <string name="sync_task_match_library_ids">Match Library IDs</string>
 
-</resources>
+    <!-- Media Servers -->
+    <string name="media_servers_title">Media Servers</string>
+    <string name="media_servers_edit_button_description">Edit media servers</string>
+    </resources>

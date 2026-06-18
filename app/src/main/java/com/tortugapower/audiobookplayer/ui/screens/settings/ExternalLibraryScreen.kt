@@ -196,9 +196,6 @@ fun ExternalLibraryScreen(
                         IconButton(onClick = { isSearchActive = true }) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
                         }
-                        IconButton(onClick = { /* Open server settings */ }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings")
-                        }
                     }
                 )
             }
@@ -244,7 +241,7 @@ fun ExternalLibraryScreen(
                         start = 16.dp,
                         top = 16.dp,
                         end = 16.dp,
-                        bottom = 80.dp + LocalMiniPlayerInset.current
+                        bottom = 80.dp
                     ),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -315,7 +312,7 @@ fun ExternalLibraryScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
                         top = 8.dp,
-                        bottom = 80.dp + LocalMiniPlayerInset.current
+                        bottom = 80.dp
                     )
                 ) {
                     if (filteredAuthors.isEmpty() && !isLoading) {
@@ -364,7 +361,7 @@ fun ExternalLibraryScreen(
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 16.dp + LocalMiniPlayerInset.current)
+                    .padding(bottom = 16.dp)
                     .wrapContentWidth(),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                 shape = RoundedCornerShape(28.dp),

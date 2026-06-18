@@ -219,4 +219,7 @@
     <string name="sync_task_sync_identifiers">مزامنة المعرفات</string>
     <string name="sync_task_match_library_ids">مطابقة معرفات المكتبة</string>
 
+    <!-- Media Servers -->
+    <string name="media_servers_title">خوادم الوسائط</string>
+    <string name="media_servers_edit_button_description">تعديل خوادم الوسائط</string>
 </resources>
