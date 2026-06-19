@@ -9,11 +9,12 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
 
 class AudiobookshelfService : ExternalService {
 
     private fun getApi(url: String, headers: Map<String, String>? = null): AudiobookshelfApi {
-        val sanitizedUrl = if (url.endsWith("/")) url else "$url/"
+        val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
 
         val okHttpClientBuilder = OkHttpClient.Builder()
         headers?.forEach { (key, value) ->
@@ -75,12 +76,12 @@ class AudiobookshelfService : ExternalService {
 
             // 2. Get items from that library
             // startIndex to page: page = startIndex / limit
-            val page = startIndex / limit
+            val page = ExternalServiceUtils.calculatePage(startIndex, limit)
             val itemsResponse = api.getLibraryItems(auth, targetLibrary.id, limit, page, include = "media")
 
             if (itemsResponse.isSuccessful && itemsResponse.body() != null) {
                 val body = itemsResponse.body()!!
-                val sanitizedUrl = if (url.endsWith("/")) url else "$url/"
+                val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
                 val items = body.results.map { item ->
                     val metadata = item.media?.metadata
                     val firstAudioFile = item.media?.audioFiles?.sortedBy { it.index }?.firstOrNull()
@@ -101,7 +102,7 @@ class AudiobookshelfService : ExternalService {
                     ExternalLibraryItem(
                         entity = entity,
                         genres = metadata?.genres?.joinToString(", "),
-                        customHeaders = (headers ?: emptyMap()) + mapOf("Authorization" to "Bearer $token")
+                        customHeaders = ExternalServiceUtils.mergeHeaders(headers, "Authorization", "Bearer $token")
                     )
                 }
                 LibraryResult(items, body.total)
@@ -117,12 +118,12 @@ class AudiobookshelfService : ExternalService {
     }
 
     override suspend fun getStreamUrl(url: String, token: String, item: LibraryItemEntity): String {
-        val sanitizedUrl = if (url.endsWith("/")) url else "$url/"
+        val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
         return "${sanitizedUrl}api/items/${item.uuid}/download"
     }
 
     override suspend fun getThumbnailUrl(url: String, token: String, item: LibraryItemEntity): String? {
-        val sanitizedUrl = if (url.endsWith("/")) url else "$url/"
+        val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
         // We can't easily check coverPath here without a full item fetch, 
         // but we rely on the library list to have populated it correctly.
         return item.artworkURL

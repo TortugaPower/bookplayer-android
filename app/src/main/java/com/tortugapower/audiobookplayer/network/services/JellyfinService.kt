@@ -8,11 +8,12 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
 
 class JellyfinService : ExternalService {
 
     private fun getApi(url: String, headers: Map<String, String>? = null): JellyfinApi {
-        val sanitizedUrl = if (url.endsWith("/")) url else "$url/"
+        val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
 
         val okHttpClientBuilder = OkHttpClient.Builder()
         headers?.forEach { (key, value) ->
@@ -88,7 +89,7 @@ class JellyfinService : ExternalService {
 
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
-                val sanitizedUrl = if (url.endsWith("/")) url else "$url/"
+                val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
                 val items = body.items.map { item ->
                     val entity = LibraryItemEntity(
                         uuid = item.id,
@@ -106,7 +107,7 @@ class JellyfinService : ExternalService {
                     ExternalLibraryItem(
                         entity = entity,
                         genres = item.genres?.joinToString(", "),
-                        customHeaders = (headers ?: emptyMap()) + mapOf("Authorization" to "MediaBrowser Token=\"$token\"")
+                        customHeaders = ExternalServiceUtils.mergeHeaders(headers, "Authorization", "MediaBrowser Token=\"$token\"")
                     )
                 }
                 com.tortugapower.audiobookplayer.network.LibraryResult(items, body.totalRecordCount)
@@ -122,12 +123,12 @@ class JellyfinService : ExternalService {
     }
 
     override suspend fun getStreamUrl(url: String, token: String, item: LibraryItemEntity): String {
-        val sanitizedUrl = if (url.endsWith("/")) url else "$url/"
+        val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
         return "${sanitizedUrl}Items/${item.uuid}/Download"
     }
 
     override suspend fun getThumbnailUrl(url: String, token: String, item: LibraryItemEntity): String? {
-        val sanitizedUrl = if (url.endsWith("/")) url else "$url/"
+        val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
         return "${sanitizedUrl}Items/${item.uuid}/Images/Primary?api_key=$token"
     }
 }

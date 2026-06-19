@@ -95,7 +95,7 @@ object ImportManager : ImportService {
 
         activeDownloadCount++
         scope.launch {
-            val sanitizedFileName = sanitizeFilename(fileName)
+            val sanitizedFileName = FilenameUtils.sanitizeFilename(fileName)
             val backupDir = File(context.filesDir, "BPBackup")
             if (!backupDir.exists()) backupDir.mkdirs()
 
@@ -270,20 +270,5 @@ object ImportManager : ImportService {
         return result
     }
 
-    private fun sanitizeFilename(filename: String): String {
-        // Remove any path separators to prevent path traversal
-        var sanitized = filename.replace("/", "_").replace("\\", "_")
-        // Replace characters that are generally invalid in filenames for most file systems
-        // including < > : " / \ | ? *
-        sanitized = sanitized.replace(Regex("[<>:\"/\\\\|?*]"), "_")
-        // Replace multiple underscores with a single one
-        sanitized = sanitized.replace(Regex("__+"), "_")
-        // Trim leading/trailing underscores or dots that might result from sanitization
-        sanitized = sanitized.trim('_', '.')
-        // Ensure it's not empty after sanitization, provide a default if it is
-        if (sanitized.isEmpty()) {
-            return "untitled_file"
-        }
-        return sanitized
-    }
+
 }
