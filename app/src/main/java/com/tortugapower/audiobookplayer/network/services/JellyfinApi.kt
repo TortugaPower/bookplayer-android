@@ -16,7 +16,7 @@ interface JellyfinApi {
         @Header("X-Emby-Authorization") authHeader: String,
         @Query("IncludeItemTypes") itemTypes: String = "Audiobook",
         @Query("Recursive") recursive: Boolean = true,
-        @Query("Fields") fields: String = "PrimaryImageAspectRatio,BasicSyncInfo,Path,Genres",
+        @Query("Fields") fields: String = "PrimaryImageAspectRatio,BasicSyncInfo,Path,Genres,ArtistItems",
         @Query("StartIndex") startIndex: Int? = null,
         @Query("Limit") limit: Int? = null,
         @Query("SortBy") sortBy: String? = "SortName",

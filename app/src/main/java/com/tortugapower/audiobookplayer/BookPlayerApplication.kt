@@ -19,8 +19,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 class BookPlayerApplication : Application() {
+    companion object {
+        lateinit var instance: BookPlayerApplication
+            private set
+    }
+
     override fun onCreate() {
         super.onCreate()
+        instance = this
 
         // Global Initialization
         val database = AppDatabase.getDatabase(this)

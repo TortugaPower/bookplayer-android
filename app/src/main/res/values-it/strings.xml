@@ -68,7 +68,6 @@
     <!-- Settings/Themes -->
     <string name="settings_title">Impostazioni</string>
     <string name="settings_appearance_section">Aspetto</string>
-    <string name="settings_services_section">Servizi</string>
     <string name="settings_theme_label">Tema</string>
     <string name="settings_app_icon_label">Icona dell\'app</string>
     <string name="settings_orientation_locked_label">Orientamento bloccato</string>
@@ -273,9 +272,9 @@
     <!-- Add Server Sheet -->
     <string name="media_servers_add_server_connect_button">Connetti</string>
     <string name="media_servers_add_server_sign_in_button">Accedi</string>
-    <string name="media_servers_add_server_url_label">URL server</string>
-    <string name="media_servers_add_server_url_placeholder">http://jellyfin.example.com:8096</string>
-    <string name="media_servers_add_server_custom_headers_label">Header HTTP personalizzati</string>
+    <string name="media_servers_add_server_url_label">URL del server</string>
+    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_custom_headers_label">Intestazioni HTTP personalizzate</string>
     <string name="media_servers_add_server_header_name_placeholder">Nome header</string>
     <string name="media_servers_add_server_header_value_placeholder">Valore header</string>
     <string name="media_servers_add_server_add_header_button">Aggiungi header</string>

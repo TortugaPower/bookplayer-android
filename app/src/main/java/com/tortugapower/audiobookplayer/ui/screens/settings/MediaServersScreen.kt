@@ -83,7 +83,7 @@ fun MediaServersScreen(
     }
 
     val scope = rememberCoroutineScope()
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var connectionError by remember { mutableStateOf<ConnectionResult.Failure?>(null) }
     var isConnecting by remember { mutableStateOf(false) }
 
     if (showServerInfo != null) {
@@ -93,19 +93,25 @@ fun MediaServersScreen(
         )
     }
 
+    val errorDisplayMessage = connectionError?.let { error ->
+        error.messageResId?.let { resId ->
+            stringResource(id = resId, *(error.args?.toTypedArray() ?: emptyArray()))
+        } ?: error.message
+    }
+
     if (showAddServerDialog != null) {
         AddServerSheet(
             type = showAddServerDialog!!,
             isConnecting = isConnecting,
-            errorMessage = errorMessage,
+            errorMessage = errorDisplayMessage,
             onDismiss = { 
                 showAddServerDialog = null
-                errorMessage = null
+                connectionError = null
             },
             onConnect = { name, url, username, password, headers ->
                 scope.launch {
                     isConnecting = true
-                    errorMessage = null
+                    connectionError = null
                     val result = viewModel.testConnection(showAddServerDialog!!, url, username, password, headers)
                     isConnecting = false
                     
@@ -116,7 +122,7 @@ fun MediaServersScreen(
                             showAddServerDialog = null
                         }
                         is ConnectionResult.Failure -> {
-                            errorMessage = result.message
+                            connectionError = result
                         }
                     }
                 }

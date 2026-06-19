@@ -17,5 +17,9 @@ data class LibraryResult(
 
 sealed class ConnectionResult {
     data class Success(val token: String? = null, val name: String? = null) : ConnectionResult()
-    data class Failure(val message: String) : ConnectionResult()
+    data class Failure(
+        val message: String,
+        val messageResId: Int? = null,
+        val args: List<Any>? = null
+    ) : ConnectionResult()
 }

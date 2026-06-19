@@ -61,7 +61,7 @@ class AudioPlayerService : MediaSessionService() {
                         val uri = dataSpec.uri
                         val key = uri.getQueryParameter("bp_header_key")
                         if (key != null) {
-                            val headers = PlaybackManager.headerRegistry[key]
+                            val headers = PlaybackManager.getHeaders(key)
                             headers?.forEach { (k, v) -> delegate.setRequestProperty(k, v) }
                             
                             val cleanUri = uri.buildUpon().clearQuery().apply {

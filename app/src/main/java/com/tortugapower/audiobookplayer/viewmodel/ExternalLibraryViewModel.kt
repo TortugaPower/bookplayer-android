@@ -8,6 +8,8 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 import com.tortugapower.audiobookplayer.repository.ExternalLibraryRepository
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
+import com.tortugapower.audiobookplayer.ui.UiText
+import com.tortugapower.audiobookplayer.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,8 +26,8 @@ class ExternalLibraryViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
+    private val _error = MutableStateFlow<UiText?>(null)
+    val error: StateFlow<UiText?> = _error.asStateFlow()
 
     private var server: ExternalServerEntity? = null
     private var totalCount = 0
@@ -61,10 +63,11 @@ class ExternalLibraryViewModel(
                     totalCount = result.totalCount
                     isLastPage = _items.value.size >= totalCount || result.items.isEmpty()
                 } else {
-                    _error.value = "Server not found"
+                    _error.value = UiText.StringResource(R.string.media_servers_error_server_not_found)
                 }
             } catch (e: Exception) {
-                _error.value = e.message ?: "Failed to fetch library"
+                _error.value = e.message?.let { UiText.DynamicString(it) }
+                    ?: UiText.StringResource(R.string.media_servers_error_failed_to_fetch_library)
             } finally {
                 _isLoading.value = false
             }

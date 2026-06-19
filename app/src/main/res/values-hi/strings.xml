@@ -67,7 +67,6 @@
     <!-- Settings/Themes -->
     <string name="settings_title">सेटिंग्स</string>
     <string name="settings_appearance_section">दिखावट</string>
-    <string name="settings_services_section">सेवाएँ</string>
     <string name="settings_theme_label">थीम</string>
     <string name="settings_app_icon_label">ऐप आइकन</string>
     <string name="settings_orientation_locked_label">ओरिएंटेशन लॉक</string>
@@ -273,8 +272,8 @@
     <!-- Add Server Sheet -->
     <string name="media_servers_add_server_connect_button">कनेक्ट करें</string>
     <string name="media_servers_add_server_sign_in_button">साइन इन करें</string>
-    <string name="media_servers_add_server_url_label">सर्वर यूआरएल</string>
-    <string name="media_servers_add_server_url_placeholder">http://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_url_label">सर्वर URL</string>
+    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">कस्टम HTTP हेडर</string>
     <string name="media_servers_add_server_header_name_placeholder">हेडर का नाम</string>
     <string name="media_servers_add_server_header_value_placeholder">हेडर का मान</string>

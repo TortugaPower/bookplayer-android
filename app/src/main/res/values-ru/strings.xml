@@ -68,7 +68,6 @@
     <!-- Settings/Themes -->
     <string name="settings_title">Настройки</string>
     <string name="settings_appearance_section">Внешний вид</string>
-    <string name="settings_services_section">Сервисы</string>
     <string name="settings_theme_label">Тема</string>
     <string name="settings_app_icon_label">Иконка приложения</string>
     <string name="settings_orientation_locked_label">Ориентация заблокирована</string>
@@ -279,8 +278,8 @@
     <!-- Add Server Sheet -->
     <string name="media_servers_add_server_connect_button">Подключиться</string>
     <string name="media_servers_add_server_sign_in_button">Войти</string>
-    <string name="media_servers_add_server_url_label">URL сервера</string>
-    <string name="media_servers_add_server_url_placeholder">http://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_url_label">URL-адрес сервера</string>
+    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">Пользовательские HTTP-заголовки</string>
     <string name="media_servers_add_server_header_name_placeholder">Имя заголовка</string>
     <string name="media_servers_add_server_header_value_placeholder">Значение заголовка</string>

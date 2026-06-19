@@ -988,7 +988,7 @@ fun LibraryListItem(
             modifier = Modifier.weight(1f).clearAndSetSemantics { }
         ) {
             Text(
-                text = item.title,
+                text = item.title.ifBlank { stringResource(R.string.library_unknown_title) },
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold,

@@ -67,7 +67,6 @@
     <!-- Settings/Themes -->
     <string name="settings_title">设置</string>
     <string name="settings_appearance_section">外观</string>
-    <string name="settings_services_section">服务</string>
     <string name="settings_theme_label">主题</string>
     <string name="settings_app_icon_label">应用图标</string>
     <string name="settings_orientation_locked_label">屏幕方向锁定</string>
@@ -271,9 +270,9 @@
     <!-- Add Server Sheet -->
     <string name="media_servers_add_server_connect_button">连接</string>
     <string name="media_servers_add_server_sign_in_button">登录</string>
-    <string name="media_servers_add_server_url_label">服务器URL</string>
-    <string name="media_servers_add_server_url_placeholder">http://jellyfin.example.com:8096</string>
-    <string name="media_servers_add_server_custom_headers_label">自定义HTTP请求头</string>
+    <string name="media_servers_add_server_url_label">服务器 URL</string>
+    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_custom_headers_label">自定义 HTTP 请求头</string>
     <string name="media_servers_add_server_header_name_placeholder">请求头名称</string>
     <string name="media_servers_add_server_header_value_placeholder">请求头值</string>
     <string name="media_servers_add_server_add_header_button">添加请求头</string>

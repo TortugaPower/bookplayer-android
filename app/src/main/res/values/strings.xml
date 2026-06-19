@@ -109,7 +109,6 @@
     <!-- Settings/Themes -->
     <string name="settings_title">Settings</string>
     <string name="settings_appearance_section">Appearance</string>
-    <string name="settings_services_section">Services</string>
     <string name="settings_theme_label">Theme</string>
     <string name="settings_app_icon_label">App Icon</string>
     <string name="settings_orientation_locked_label">Orientation Locked</string>
@@ -266,6 +265,7 @@
     <string name="library_view_style">View Style</string>
     <string name="library_folder_empty">0 Files</string>
     <string name="library_unknown_author">Unknown author</string>
+    <string name="library_unknown_title">Unknown Title</string>
     <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_convert_to_volume">Convert to volume</string>
@@ -373,7 +373,7 @@
     <string name="media_servers_add_server_connect_button">Connect</string>
     <string name="media_servers_add_server_sign_in_button">Sign In</string>
     <string name="media_servers_add_server_url_label">Server URL</string>
-    <string name="media_servers_add_server_url_placeholder">http://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">Custom HTTP Headers</string>
     <string name="media_servers_add_server_header_name_placeholder">Header name</string>
     <string name="media_servers_add_server_header_value_placeholder">Header value</string>
@@ -382,6 +382,10 @@
     <string name="media_servers_add_server_username_placeholder">Username</string>
     <string name="media_servers_add_server_password_placeholder">Password</string>
     <string name="media_servers_add_server_connect_to_server">Connect to your %1$s server</string>
+    <string name="media_servers_error_auth_failed">Authentication failed: %1$s</string>
+    <string name="media_servers_error_connection_failed">Connection error: %1$s</string>
+    <string name="media_servers_error_server_not_found">Server not found</string>
+    <string name="media_servers_error_failed_to_fetch_library">Failed to fetch library</string>
 
     <!-- External Library Screen -->
     <string name="external_library_selected_items_count">%1$d selected</string>
