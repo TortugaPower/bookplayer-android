@@ -222,7 +222,7 @@ fun MainScreen() {
                     composable(
                         route = Screen.Settings.route,
                         exitTransition = {
-                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons")) {
+                            if (targetState.destination.route in setOf("themes", "tipjar", "appicons")) {
                                 slideOutOfContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Left,
                                     animationSpec = tween(400)

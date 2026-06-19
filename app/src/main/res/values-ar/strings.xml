@@ -265,4 +265,56 @@
     <!-- Media Servers -->
     <string name="media_servers_title">خوادم الوسائط</string>
     <string name="media_servers_edit_button_description">تعديل خوادم الوسائط</string>
+
+    <!-- Media Servers Screen -->
+    <string name="media_servers_add_button_description">إضافة</string>
+    <string name="media_servers_no_servers_added">لم يتم إضافة خوادم</string>
+    <string name="media_servers_info_button_description">معلومات</string>
+    <string name="media_servers_delete_button_description">حذف</string>
+    <string name="media_servers_anonymous_username">مجهول</string>
+
+    <!-- Server Info Sheet -->
+    <string name="media_servers_connection_details_title">تفاصيل الاتصال</string>
+    <string name="media_servers_server_section_title">الخادم</string>
+    <string name="media_servers_name_label">الاسم</string>
+    <string name="media_servers_url_label">عنوان URL</string>
+    <string name="media_servers_login_section_title">تسجيل الدخول</string>
+    <string name="media_servers_username_label">اسم المستخدم</string>
+    <string name="media_servers_custom_headers_section_title">رؤوس مخصصة</string>
+
+    <!-- Add Server Sheet -->
+    <string name="media_servers_add_server_connect_button">اتصال</string>
+    <string name="media_servers_add_server_sign_in_button">تسجيل الدخول</string>
+    <string name="media_servers_add_server_url_label">عنوان URL للخادم</string>
+    <string name="media_servers_add_server_url_placeholder">http://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_custom_headers_label">رؤوس HTTP مخصصة</string>
+    <string name="media_servers_add_server_header_name_placeholder">اسم الرأس</string>
+    <string name="media_servers_add_server_header_value_placeholder">قيمة الرأس</string>
+    <string name="media_servers_add_server_add_header_button">إضافة رأس</string>
+    <string name="media_servers_add_server_headers_description">الرؤوس المضافة هنا مرفقة بكل طلب يرسل إلى هذا الخادم.</string>
+    <string name="media_servers_add_server_username_placeholder">اسم المستخدم</string>
+    <string name="media_servers_add_server_password_placeholder">كلمة المرور</string>
+    <string name="media_servers_add_server_connect_to_server">اتصل بخادم %1$s الخاص بك</string>
+
+    <!-- External Library Screen -->
+    <string name="external_library_selected_items_count">تم تحديد %1$d</string>
+    <string name="external_library_stop_search_description">إيقاف البحث</string>
+    <string name="external_library_authors_tab_title">المؤلفون</string>
+    <string name="external_library_no_results_found">لا توجد نتائج</string>
+    <string name="external_library_try_different_search_term">جرب مصطلح بحث مختلف</string>
+    <string name="external_library_no_authors_found">لم يتم العثور على مؤلفين</string>
+    <string name="external_library_downloading_one_item">جاري تحميل عنصر واحد...</string>
+    <string name="external_library_downloading_multiple_items">جاري تحميل %1$d عناصر...</string>
+    <string name="external_library_books_tab_label">الكتب</string>
+    <string name="external_library_authors_tab_label">المؤلفون</string>
+
+    <!-- External Item Detail Screen -->
+    <string name="external_item_detail_back_button_description">رجوع</string>
+    <string name="external_item_detail_duration_fallback">0د 0ث</string>
+    <string name="external_item_detail_stream_button">بث</string>
+    <string name="external_item_detail_file_path_label">مسار الملف</string>
+    <string name="external_item_detail_unknown_value_fallback">غير معروف</string>
+    <string name="external_item_detail_genres_label">الأنواع</string>
+    <string name="external_item_detail_none_value_fallback">لا شيء</string>
+    <string name="external_item_detail_unknown_author_fallback">مؤلف غير معروف</string>
 </resources>

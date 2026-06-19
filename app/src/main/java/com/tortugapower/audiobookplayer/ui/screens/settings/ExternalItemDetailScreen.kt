@@ -21,6 +21,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
+import com.tortugapower.audiobookplayer.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -43,7 +45,7 @@ fun ExternalItemDetailScreen(
                     IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(id = R.string.external_item_detail_back_button_description),
                             modifier = Modifier
                                 .clip(androidx.compose.foundation.shape.CircleShape)
                                 .background(Color.Black.copy(alpha = 0.3f))
@@ -108,10 +110,10 @@ fun ExternalItemDetailScreen(
                 val m = (item.entity.duration / 60).toInt()
                 val s = (item.entity.duration % 60).toInt()
                 "${m}m ${s}s"
-            } else "0m 0s"
+            } else stringResource(id = R.string.external_item_detail_duration_fallback)
             
             Text(
-                text = "$durationText  |  21,5 MB", 
+                text = durationText,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
@@ -132,7 +134,7 @@ fun ExternalItemDetailScreen(
                     modifier = Modifier.size(56.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.FileDownload, contentDescription = "Download")
+                        Icon(Icons.Default.FileDownload, contentDescription = stringResource(R.string.common_download),)
                     }
                 }
                 
@@ -151,7 +153,7 @@ fun ExternalItemDetailScreen(
                         Icon(Icons.Default.Podcasts, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "Stream",
+                            stringResource(id = R.string.external_item_detail_stream_button),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -162,9 +164,9 @@ fun ExternalItemDetailScreen(
             Spacer(modifier = Modifier.height(32.dp))
             
             // Info List
-            InfoRow(label = "File Path", value = item.entity.relativePath ?: "Unknown")
+            InfoRow(label = stringResource(id = R.string.external_item_detail_file_path_label), value = item.entity.relativePath ?: stringResource(id = R.string.external_item_detail_unknown_value_fallback))
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-            InfoRow(label = "Genres", value = item.genres ?: "None")
+            InfoRow(label = stringResource(id = R.string.external_item_detail_genres_label), value = item.genres ?: stringResource(id = R.string.external_item_detail_none_value_fallback))
         }
     }
 }

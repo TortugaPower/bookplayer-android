@@ -114,6 +114,8 @@ object ImportManager : ImportService {
             val destFile = File(backupDir, sanitizedFileName)
 
             try {
+                var newlyImportedFile: ImportFile? = null
+                
                 withContext(Dispatchers.IO) {
                     val client = okhttp3.OkHttpClient()
                     val requestBuilder = okhttp3.Request.Builder().url(url)
@@ -121,17 +123,22 @@ object ImportManager : ImportService {
                         requestBuilder.addHeader(key, value)
                     }
                     val response = client.newCall(requestBuilder.build()).execute()
-                    
-                    if (response.isSuccessful && response.body != null) {
-                        response.body!!.byteStream().use { input ->
-                            FileOutputStream(destFile).use { output ->
-                                input.copyTo(output)
+                    response.use { // Ensure response is closed
+                        if (response.isSuccessful && response.body != null) {
+                            response.body!!.byteStream().use { input ->
+                                FileOutputStream(destFile).use { output ->
+                                    input.copyTo(output)
+                                }
                             }
+                            newlyImportedFile = ImportFile(sanitizedFileName, destFile)
+                        } else {
+                            android.util.Log.e("ImportManager", "Download failed: ${response.code}")
                         }
-                        importedFiles = importedFiles + ImportFile(sanitizedFileName, destFile)
-                    } else {
-                        android.util.Log.e("ImportManager", "Download failed: ${response.code}")
                     }
+                }
+                
+                newlyImportedFile?.let {
+                    importedFiles = importedFiles + it
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

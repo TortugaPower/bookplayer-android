@@ -2,13 +2,12 @@ package com.tortugapower.audiobookplayer.repository
 
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
-import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 import com.tortugapower.audiobookplayer.network.ExternalServiceFactory
 
 class ExternalLibraryRepository {
     suspend fun getLibraryItems(server: ExternalServerEntity, startIndex: Int = 0, limit: Int = 50): com.tortugapower.audiobookplayer.network.LibraryResult {
         val service = ExternalServiceFactory.getService(server.type)
-        return server.token?.let { service.getLibrary(server.url, it, startIndex, limit) } 
+        return server.token?.let { service.getLibrary(server.url, it, startIndex, limit, server.customHeaders) } 
             ?: com.tortugapower.audiobookplayer.network.LibraryResult(emptyList(), 0)
     }
 
