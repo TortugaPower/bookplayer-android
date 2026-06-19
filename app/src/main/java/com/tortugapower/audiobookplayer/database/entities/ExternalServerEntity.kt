@@ -2,8 +2,6 @@ package com.tortugapower.audiobookplayer.database.entities
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import androidx.room.TypeConverters
-import com.tortugapower.audiobookplayer.database.MapConverter
 
 enum class ExternalServiceType {
     JELLYFIN, AUDIOBOOKSHELF

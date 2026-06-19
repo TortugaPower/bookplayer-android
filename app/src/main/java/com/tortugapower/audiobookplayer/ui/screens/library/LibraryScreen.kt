@@ -587,7 +587,7 @@ fun LibraryScreen(
                         ) {
                             Icon(
                                 Icons.Default.FileDownload,
-                                contentDescription = "Downloads",
+                                contentDescription = stringResource(R.string.common_download),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -622,7 +622,7 @@ fun LibraryScreen(
                             leadingIcon = { Icon(Icons.Default.FileDownload, null) },
                         )
                         DropdownMenuItem(
-                            text = { Text("Media Servers") },
+                            text = { Text(stringResource(R.string.media_servers_title)) },
                             onClick = {
                                 showMenu = false
                                 onNavigateToMediaServers()

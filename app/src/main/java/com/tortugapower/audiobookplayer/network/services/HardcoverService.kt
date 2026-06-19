@@ -1,7 +1,6 @@
 package com.tortugapower.audiobookplayer.network.services
 
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
-import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 import com.tortugapower.audiobookplayer.network.ConnectionResult
 import com.tortugapower.audiobookplayer.network.ExternalService
 

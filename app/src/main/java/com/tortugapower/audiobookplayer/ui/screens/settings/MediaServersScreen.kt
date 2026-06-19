@@ -5,7 +5,6 @@ package com.tortugapower.audiobookplayer.ui.screens.settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -22,7 +21,6 @@ import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import com.tortugapower.audiobookplayer.network.ConnectionResult
-import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.viewmodel.ExternalServerViewModel
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -151,7 +149,7 @@ fun ServerTypeSection(
             IconButton(onClick = onAddClick) {
                 Icon(
                     Icons.Default.AddCircle,
-                    contentDescription = "Add",
+                    contentDescription = stringResource(id = R.string.media_servers_add_button_description),
                     tint = Color(0xFF3482F6)
                 )
             }
@@ -161,7 +159,7 @@ fun ServerTypeSection(
 
         if (servers.isEmpty()) {
             Text(
-                text = "No servers added",
+                text = stringResource(id = R.string.media_servers_no_servers_added),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 modifier = Modifier.padding(vertical = 8.dp)
@@ -203,7 +201,7 @@ fun ServerItem(
         ) {
             if (isEditing) {
                 IconButton(onClick = onDeleteClick) {
-                    Icon(Icons.Default.RemoveCircle, contentDescription = "Delete", tint = Color.Red)
+                    Icon(Icons.Default.RemoveCircle, contentDescription = stringResource(id = R.string.media_servers_delete_button_description), tint = Color.Red)
                 }
             }
 
@@ -214,7 +212,7 @@ fun ServerItem(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = server.username ?: "Anonymous",
+                    text = server.username ?: stringResource(id = R.string.media_servers_anonymous_username),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -223,7 +221,7 @@ fun ServerItem(
             IconButton(onClick = onInfoClick) {
                 Icon(
                     Icons.Default.Info,
-                    contentDescription = "Info",
+                    contentDescription = stringResource(id = R.string.media_servers_info_button_description),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
             }
@@ -256,11 +254,11 @@ fun ServerInfoSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(onClick = onDismiss) {
-                    Text("Close", color = MaterialTheme.colorScheme.primary)
+                    Text(stringResource(id = R.string.common_close), color = MaterialTheme.colorScheme.primary)
                 }
                 
                 Text(
-                    text = "Connection Details",
+                    text = stringResource(id = R.string.media_servers_connection_details_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -277,7 +275,7 @@ fun ServerInfoSheet(
                 // Server Details Section
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(
-                        text = "SERVER",
+                        text = stringResource(id = R.string.media_servers_server_section_title),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold
@@ -289,19 +287,19 @@ fun ServerInfoSheet(
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Name", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(id = R.string.media_servers_name_label), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(server.name, fontWeight = FontWeight.Medium)
                             }
                             HorizontalDivider(thickness = 0.5.dp)
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("URL", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(id = R.string.media_servers_url_label), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(server.url, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
 
                     Text(
-                        text = "LOGIN",
+                        text = stringResource(id = R.string.media_servers_login_section_title),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold
@@ -313,7 +311,7 @@ fun ServerInfoSheet(
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Username", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(id = R.string.media_servers_username_label), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(server.username ?: "Anonymous", fontWeight = FontWeight.Medium)
                             }
                         }
@@ -321,7 +319,7 @@ fun ServerInfoSheet(
 
                     if (!server.customHeaders.isNullOrEmpty()) {
                         Text(
-                            text = "CUSTOM HEADERS",
+                            text = stringResource(id = R.string.media_servers_custom_headers_section_title),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.Bold
@@ -381,7 +379,7 @@ fun AddServerSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(onClick = { if (currentStep == 1) onDismiss() else currentStep = 1 }, enabled = !isConnecting) {
-                    Text(if (currentStep == 1) "Cancel" else "Back", color = MaterialTheme.colorScheme.primary)
+                    Text(if (currentStep == 1) stringResource(id = R.string.common_cancel) else stringResource(id = R.string.common_back), color = MaterialTheme.colorScheme.primary)
                 }
                 
                 Text(
@@ -396,12 +394,13 @@ fun AddServerSheet(
                             currentStep = 2
                         } else {
                             val headersMap = if (headers.isEmpty()) null else headers.toMap()
-                            onConnect(url, url, username, password, headersMap)
+                            val derivedName = android.net.Uri.parse(url).host ?: url
+                            onConnect(derivedName, url, username, password, headersMap)
                         }
                     },
                     enabled = url.isNotBlank() && !isConnecting
                 ) {
-                    Text(if (currentStep == 1) "Connect" else "Sign In", color = MaterialTheme.colorScheme.primary)
+                    Text(if (currentStep == 1) stringResource(id = R.string.media_servers_add_server_connect_button) else stringResource(id = R.string.media_servers_add_server_sign_in_button), color = MaterialTheme.colorScheme.primary)
                 }
             }
 
@@ -414,7 +413,7 @@ fun AddServerSheet(
                 // Server URL Section (Always visible)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Server URL",
+                        text = stringResource(id = R.string.media_servers_add_server_url_label),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold
@@ -422,13 +421,13 @@ fun AddServerSheet(
                     OutlinedTextField(
                         value = url,
                         onValueChange = { url = it },
-                        placeholder = { Text("http://jellyfin.example.com:8096") },
+                        placeholder = { Text(stringResource(id = R.string.media_servers_add_server_url_placeholder)) },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         trailingIcon = {
                             if (url.isNotEmpty()) {
                                 IconButton(onClick = { url = "" }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Close, contentDescription = stringResource(id = R.string.common_clear), modifier = Modifier.size(18.dp))
                                 }
                             }
                         },
@@ -443,7 +442,7 @@ fun AddServerSheet(
                     )
                     if (currentStep == 1) {
                         Text(
-                            text = "Connect to your ${type.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }} server",
+                            text = stringResource(id = R.string.media_servers_add_server_connect_to_server, type.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -454,7 +453,7 @@ fun AddServerSheet(
                     // Step 1: Custom HTTP Headers
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Custom HTTP Headers",
+                            text = stringResource(id = R.string.media_servers_add_server_custom_headers_label),
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.Bold
@@ -475,7 +474,7 @@ fun AddServerSheet(
                                             TextField(
                                                 value = pair.first,
                                                 onValueChange = { newKey -> headers[index] = newKey to pair.second },
-                                                placeholder = { Text("Header name") },
+                                                placeholder = { Text(stringResource(id = R.string.media_servers_add_server_header_name_placeholder)) },
                                                 modifier = Modifier.fillMaxWidth(),
                                                 colors = TextFieldDefaults.colors(
                                                     focusedContainerColor = Color.Transparent,
@@ -489,7 +488,7 @@ fun AddServerSheet(
                                             TextField(
                                                 value = pair.second,
                                                 onValueChange = { newVal -> headers[index] = pair.first to newVal },
-                                                placeholder = { Text("Header value") },
+                                                placeholder = { Text(stringResource(id = R.string.media_servers_add_server_header_value_placeholder)) },
                                                 modifier = Modifier.fillMaxWidth(),
                                                 colors = TextFieldDefaults.colors(
                                                     focusedContainerColor = Color.Transparent,
@@ -504,7 +503,7 @@ fun AddServerSheet(
                                         IconButton(onClick = { headers.removeAt(index) }) {
                                             Icon(
                                                 Icons.Default.Delete, 
-                                                contentDescription = "Remove", 
+                                                contentDescription = stringResource(id = R.string.common_remove), 
                                                 tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f), 
                                                 modifier = Modifier.size(24.dp)
                                             )
@@ -531,13 +530,13 @@ fun AddServerSheet(
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    Text("Add Header", color = Color(0xFF3482F6), fontWeight = FontWeight.Medium)
+                                    Text(stringResource(id = R.string.media_servers_add_server_add_header_button), color = Color(0xFF3482F6), fontWeight = FontWeight.Medium)
                                 }
                             }
                         }
                         
                         Text(
-                            text = "Headers added here are attached to every request sent to this server.",
+                            text = stringResource(id = R.string.media_servers_add_server_headers_description),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -546,7 +545,7 @@ fun AddServerSheet(
                     // Step 2: Login replaces Headers
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text(
-                            text = "LOGIN",
+                            text = stringResource(id = R.string.media_servers_login_section_title),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.Bold
@@ -560,7 +559,7 @@ fun AddServerSheet(
                                 TextField(
                                     value = username,
                                     onValueChange = { username = it },
-                                    placeholder = { Text("Username") },
+                                    placeholder = { Text(stringResource(id = R.string.media_servers_add_server_username_placeholder)) },
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = TextFieldDefaults.colors(
                                         focusedContainerColor = Color.Transparent,
@@ -582,7 +581,7 @@ fun AddServerSheet(
                                 TextField(
                                     value = password,
                                     onValueChange = { password = it },
-                                    placeholder = { Text("Password") },
+                                    placeholder = { Text(stringResource(id = R.string.media_servers_add_server_password_placeholder)) },
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = TextFieldDefaults.colors(
                                         focusedContainerColor = Color.Transparent,

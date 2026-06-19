@@ -35,6 +35,8 @@ object PlaybackManager {
     var player: Player? = null
         private set
 
+    private const val MAX_REGISTRY_SIZE = 100
+    private const val PRUNE_COUNT = 10
     val headerRegistry = ConcurrentHashMap<String, Map<String, String>>()
     
     private var repository: LibraryRepository? = null
@@ -498,6 +500,13 @@ object PlaybackManager {
                         android.util.Log.d("PlaybackManager", "🌐 Playback: Using remote URL for ${subItem.title}")
                         var baseUri = android.net.Uri.parse(subItem.remoteURL)
                         headers?.let { 
+                            // Prune headerRegistry if it gets too large
+                            if (headerRegistry.size >= MAX_REGISTRY_SIZE) {
+                                val keysToRemove = headerRegistry.keys.take(PRUNE_COUNT)
+                                keysToRemove.forEach { headerRegistry.remove(it) }
+                                android.util.Log.w("PlaybackManager", "🧹 Pruned headerRegistry. Removed ${keysToRemove.size} entries.")
+                            }
+
                             val key = java.util.UUID.randomUUID().toString()
                             headerRegistry[key] = it
                             baseUri = baseUri.buildUpon().appendQueryParameter("bp_header_key", key).build()
@@ -574,6 +583,13 @@ object PlaybackManager {
                     android.util.Log.d("PlaybackManager", "🌐 Playback: Using remote URL for ${item.title}")
                     var baseUri = android.net.Uri.parse(item.remoteURL)
                     headers?.let { 
+                        // Prune headerRegistry if it gets too large
+                        if (headerRegistry.size >= MAX_REGISTRY_SIZE) {
+                            val keysToRemove = headerRegistry.keys.take(PRUNE_COUNT)
+                            keysToRemove.forEach { headerRegistry.remove(it) }
+                            android.util.Log.w("PlaybackManager", "🧹 Pruned headerRegistry. Removed ${keysToRemove.size} entries.")
+                        }
+
                         val key = java.util.UUID.randomUUID().toString()
                         headerRegistry[key] = it
                         baseUri = baseUri.buildUpon().appendQueryParameter("bp_header_key", key).build()
@@ -705,5 +721,6 @@ object PlaybackManager {
         }
         player = null
         controllerFuture = null
+        headerRegistry.clear()
     }
 }

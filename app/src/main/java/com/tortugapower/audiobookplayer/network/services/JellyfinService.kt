@@ -106,7 +106,7 @@ class JellyfinService : ExternalService {
                     ExternalLibraryItem(
                         entity = entity,
                         genres = item.genres?.joinToString(", "),
-                        customHeaders = mapOf("Authorization" to "MediaBrowser Token=\"$token\"")
+                        customHeaders = (headers ?: emptyMap()) + mapOf("Authorization" to "MediaBrowser Token=\"$token\"")
                     )
                 }
                 com.tortugapower.audiobookplayer.network.LibraryResult(items, body.totalRecordCount)

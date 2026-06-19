@@ -2,7 +2,6 @@ package com.tortugapower.audiobookplayer.network
 
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import com.tortugapower.audiobookplayer.network.services.AudiobookshelfService
-import com.tortugapower.audiobookplayer.network.services.HardcoverService
 import com.tortugapower.audiobookplayer.network.services.JellyfinService
 
 object ExternalServiceFactory {

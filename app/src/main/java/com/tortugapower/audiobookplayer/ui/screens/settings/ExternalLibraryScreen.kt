@@ -19,18 +19,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -49,10 +46,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
-import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.viewmodel.ExternalLibraryViewModel
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
 import kotlinx.coroutines.launch
+import androidx.compose.ui.res.stringResource
+import com.tortugapower.audiobookplayer.R
 
 enum class LibraryTab { BOOKS, AUTHORS }
 
@@ -114,10 +112,10 @@ fun ExternalLibraryScreen(
         topBar = {
             if (isMultiSelectMode) {
                 TopAppBar(
-                    title = { Text("${selectedItems.size} selected") },
+                    title = { Text(stringResource(id = R.string.external_library_selected_items_count, selectedItems.size)) },
                     navigationIcon = {
                         IconButton(onClick = { selectedItems.clear() }) {
-                            Icon(Icons.Default.Close, contentDescription = "Cancel")
+                            Icon(Icons.Default.Close, contentDescription = stringResource(id = R.string.common_cancel))
                         }
                     },
                     actions = {
@@ -132,7 +130,7 @@ fun ExternalLibraryScreen(
                             selectedItems.clear()
                             onActionStarted()
                         }) {
-                            Icon(Icons.Default.FileDownload, contentDescription = "Download")
+                            Icon(Icons.Default.FileDownload, contentDescription = stringResource(id = R.string.common_download))
                         }
                     }
                 )
@@ -142,7 +140,7 @@ fun ExternalLibraryScreen(
                         TextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search...") },
+                            placeholder = { Text(stringResource(id = R.string.common_search)) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(focusRequester),
@@ -162,13 +160,13 @@ fun ExternalLibraryScreen(
                             isSearchActive = false
                             searchQuery = ""
                         }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Stop search")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(id = R.string.external_library_stop_search_description))
                         }
                     },
                     actions = {
                         if (searchQuery.isNotEmpty()) {
                             IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear")
+                                Icon(Icons.Default.Close, contentDescription = stringResource(id = R.string.common_clear))
                             }
                         }
                     }
@@ -176,7 +174,7 @@ fun ExternalLibraryScreen(
             } else {
                 val titleText = when {
                     activeAuthorFilter != null -> activeAuthorFilter!!
-                    selectedTab == LibraryTab.AUTHORS -> "Authors"
+                    selectedTab == LibraryTab.AUTHORS -> stringResource(id = R.string.external_library_authors_tab_title)
                     else -> serverName
                 }
                 CenterAlignedTopAppBar(
@@ -189,12 +187,12 @@ fun ExternalLibraryScreen(
                                 onBack()
                             }
                         }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(id = R.string.common_back))
                         }
                     },
                     actions = {
                         IconButton(onClick = { isSearchActive = true }) {
-                            Icon(Icons.Default.Search, contentDescription = "Search")
+                            Icon(Icons.Default.Search, contentDescription = stringResource(id = R.string.common_search))
                         }
                     }
                 )
@@ -263,13 +261,13 @@ fun ExternalLibraryScreen(
                                     )
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
-                                        text = "No results found",
+                                        text = stringResource(id = R.string.external_library_no_results_found),
                                         style = MaterialTheme.typography.titleMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                     )
                                     if (searchQuery.isNotEmpty()) {
                                         Text(
-                                            text = "Try a different search term",
+                                            text = stringResource(id = R.string.external_library_try_different_search_term),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                                         )
@@ -332,13 +330,13 @@ fun ExternalLibraryScreen(
                                     )
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
-                                        text = "No authors found",
+                                        text = stringResource(id = R.string.external_library_no_authors_found),
                                         style = MaterialTheme.typography.titleMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                     )
                                     if (searchQuery.isNotEmpty()) {
                                         Text(
-                                            text = "Try a different search term",
+                                            text = stringResource(id = R.string.external_library_try_different_search_term),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                                         )
@@ -381,7 +379,7 @@ fun ExternalLibraryScreen(
                 ) {
                     TabItem(
                         icon = Icons.AutoMirrored.Filled.LibraryBooks, 
-                        label = "Books", 
+                        label = stringResource(id = R.string.external_library_books_tab_label), 
                         isSelected = selectedTab == LibraryTab.BOOKS && activeAuthorFilter == null,
                         onClick = { 
                             selectedTab = LibraryTab.BOOKS
@@ -390,7 +388,7 @@ fun ExternalLibraryScreen(
                     )
                     TabItem(
                         icon = Icons.Default.People, 
-                        label = "Authors", 
+                        label = stringResource(id = R.string.external_library_authors_tab_label), 
                         isSelected = selectedTab == LibraryTab.AUTHORS || activeAuthorFilter != null,
                         onClick = { 
                             selectedTab = LibraryTab.AUTHORS
@@ -425,9 +423,8 @@ fun ExternalLibraryScreen(
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = if (activeDownloadCount == 1) "Downloading 1 item..." 
-                                   else "Downloading $activeDownloadCount items...",
-                            style = MaterialTheme.typography.labelMedium
+                            text = if (activeDownloadCount == 1) stringResource(id = R.string.external_library_downloading_one_item)
+                                   else stringResource(id = R.string.external_library_downloading_multiple_items, activeDownloadCount),                            style = MaterialTheme.typography.labelMedium
                         )
                     }
                 }

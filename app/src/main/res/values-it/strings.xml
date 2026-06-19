@@ -221,4 +221,56 @@
     <!-- Media Servers -->
     <string name="media_servers_title">Server multimediali</string>
     <string name="media_servers_edit_button_description">Modifica server multimediali</string>
+
+    <!-- Media Servers Screen -->
+    <string name="media_servers_add_button_description">Aggiungi</string>
+    <string name="media_servers_no_servers_added">Nessun server aggiunto</string>
+    <string name="media_servers_info_button_description">Info</string>
+    <string name="media_servers_delete_button_description">Elimina</string>
+    <string name="media_servers_anonymous_username">Anonimo</string>
+
+    <!-- Server Info Sheet -->
+    <string name="media_servers_connection_details_title">Dettagli connessione</string>
+    <string name="media_servers_server_section_title">SERVER</string>
+    <string name="media_servers_name_label">Nome</string>
+    <string name="media_servers_url_label">URL</string>
+    <string name="media_servers_login_section_title">ACCESSO</string>
+    <string name="media_servers_username_label">Nome utente</string>
+    <string name="media_servers_custom_headers_section_title">HEADER PERSONALIZZATI</string>
+
+    <!-- Add Server Sheet -->
+    <string name="media_servers_add_server_connect_button">Connetti</string>
+    <string name="media_servers_add_server_sign_in_button">Accedi</string>
+    <string name="media_servers_add_server_url_label">URL server</string>
+    <string name="media_servers_add_server_url_placeholder">http://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_custom_headers_label">Header HTTP personalizzati</string>
+    <string name="media_servers_add_server_header_name_placeholder">Nome header</string>
+    <string name="media_servers_add_server_header_value_placeholder">Valore header</string>
+    <string name="media_servers_add_server_add_header_button">Aggiungi header</string>
+    <string name="media_servers_add_server_headers_description">Gli header aggiunti qui vengono allegati a ogni richiesta inviata a questo server.</string>
+    <string name="media_servers_add_server_username_placeholder">Nome utente</string>
+    <string name="media_servers_add_server_password_placeholder">Password</string>
+    <string name="media_servers_add_server_connect_to_server">Connettiti al tuo server %1$s</string>
+
+    <!-- External Library Screen -->
+    <string name="external_library_selected_items_count">%1$d selezionati</string>
+    <string name="external_library_stop_search_description">Ferma ricerca</string>
+    <string name="external_library_authors_tab_title">Autori</string>
+    <string name="external_library_no_results_found">Nessun risultato trovato</string>
+    <string name="external_library_try_different_search_term">Prova un termine di ricerca diverso</string>
+    <string name="external_library_no_authors_found">Nessun autore trovato</string>
+    <string name="external_library_downloading_one_item">Scaricamento di 1 elemento...</string>
+    <string name="external_library_downloading_multiple_items">Scaricamento di %1$d elementi...</string>
+    <string name="external_library_books_tab_label">Libri</string>
+    <string name="external_library_authors_tab_label">Autori</string>
+
+    <!-- External Item Detail Screen -->
+    <string name="external_item_detail_back_button_description">Indietro</string>
+    <string name="external_item_detail_duration_fallback">0m 0s</string>
+    <string name="external_item_detail_stream_button">Stream</string>
+    <string name="external_item_detail_file_path_label">Percorso file</string>
+    <string name="external_item_detail_unknown_value_fallback">Sconosciuto</string>
+    <string name="external_item_detail_genres_label">Generi</string>
+    <string name="external_item_detail_none_value_fallback">Nessuno</string>
+    <string name="external_item_detail_unknown_author_fallback">Autore sconosciuto</string>
 </resources>

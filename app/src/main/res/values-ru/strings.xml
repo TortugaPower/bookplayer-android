@@ -221,4 +221,56 @@
     <!-- Media Servers -->
     <string name="media_servers_title">Медиасерверы</string>
     <string name="media_servers_edit_button_description">Редактировать медиасерверы</string>
+
+    <!-- Media Servers Screen -->
+    <string name="media_servers_add_button_description">Добавить</string>
+    <string name="media_servers_no_servers_added">Серверы не добавлены</string>
+    <string name="media_servers_info_button_description">Инфо</string>
+    <string name="media_servers_delete_button_description">Удалить</string>
+    <string name="media_servers_anonymous_username">Анонимный</string>
+
+    <!-- Server Info Sheet -->
+    <string name="media_servers_connection_details_title">Детали подключения</string>
+    <string name="media_servers_server_section_title">СЕРВЕР</string>
+    <string name="media_servers_name_label">Имя</string>
+    <string name="media_servers_url_label">URL</string>
+    <string name="media_servers_login_section_title">ВХОД</string>
+    <string name="media_servers_username_label">Имя пользователя</string>
+    <string name="media_servers_custom_headers_section_title">ПОЛЬЗОВАТЕЛЬСКИЕ ЗАГОЛОВКИ</string>
+
+    <!-- Add Server Sheet -->
+    <string name="media_servers_add_server_connect_button">Подключиться</string>
+    <string name="media_servers_add_server_sign_in_button">Войти</string>
+    <string name="media_servers_add_server_url_label">URL сервера</string>
+    <string name="media_servers_add_server_url_placeholder">http://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_custom_headers_label">Пользовательские HTTP-заголовки</string>
+    <string name="media_servers_add_server_header_name_placeholder">Имя заголовка</string>
+    <string name="media_servers_add_server_header_value_placeholder">Значение заголовка</string>
+    <string name="media_servers_add_server_add_header_button">Добавить заголовок</string>
+    <string name="media_servers_add_server_headers_description">Заголовки, добавленные здесь, прикрепляются к каждому запросу, отправляемому на этот сервер.</string>
+    <string name="media_servers_add_server_username_placeholder">Имя пользователя</string>
+    <string name="media_servers_add_server_password_placeholder">Пароль</string>
+    <string name="media_servers_add_server_connect_to_server">Подключитесь к вашему серверу %1$s</string>
+
+    <!-- External Library Screen -->
+    <string name="external_library_selected_items_count">%1$d выбрано</string>
+    <string name="external_library_stop_search_description">Остановить поиск</string>
+    <string name="external_library_authors_tab_title">Авторы</string>
+    <string name="external_library_no_results_found">Результаты не найдены</string>
+    <string name="external_library_try_different_search_term">Попробуйте другой поисковый запрос</string>
+    <string name="external_library_no_authors_found">Авторы не найдены</string>
+    <string name="external_library_downloading_one_item">Загрузка 1 элемента...</string>
+    <string name="external_library_downloading_multiple_items">Загрузка %1$d элементов...</string>
+    <string name="external_library_books_tab_label">Книги</string>
+    <string name="external_library_authors_tab_label">Авторы</string>
+
+    <!-- External Item Detail Screen -->
+    <string name="external_item_detail_back_button_description">Назад</string>
+    <string name="external_item_detail_duration_fallback">0м 0с</string>
+    <string name="external_item_detail_stream_button">Поток</string>
+    <string name="external_item_detail_file_path_label">Путь к файлу</string>
+    <string name="external_item_detail_unknown_value_fallback">Неизвестно</string>
+    <string name="external_item_detail_genres_label">Жанры</string>
+    <string name="external_item_detail_none_value_fallback">Нет</string>
+    <string name="external_item_detail_unknown_author_fallback">Неизвестный автор</string>
 </resources>

@@ -99,7 +99,7 @@ class AudiobookshelfService : ExternalService {
                     ExternalLibraryItem(
                         entity = entity,
                         genres = metadata?.genres?.joinToString(", "),
-                        customHeaders = mapOf("Authorization" to "Bearer $token")
+                        customHeaders = (headers ?: emptyMap()) + mapOf("Authorization" to "Bearer $token")
                     )
                 }
                 LibraryResult(items, body.total)
