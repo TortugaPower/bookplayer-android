@@ -5,9 +5,10 @@ package com.tortugapower.audiobookplayer.ui.screens.settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -37,6 +38,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import com.tortugapower.audiobookplayer.ui.UiText
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Person
@@ -208,7 +210,7 @@ fun ExternalLibraryScreen(
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             } else if (error != null && items.isEmpty()) {
                 Text(
-                    text = error!!,
+                    text = error!!.asString(),
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.align(Alignment.Center).padding(16.dp),
                     textAlign = TextAlign.Center
@@ -433,6 +435,7 @@ fun ExternalLibraryScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ExternalBookItem(
     item: ExternalLibraryItem,
@@ -443,12 +446,10 @@ fun ExternalBookItem(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onLongPress = { onLongClick() },
-                    onTap = { onClick() }
-                )
-            },
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
@@ -494,7 +495,7 @@ fun ExternalBookItem(
         Spacer(modifier = Modifier.height(8.dp))
         
         Text(
-            text = item.entity.title,
+            text = item.entity.title.ifBlank { stringResource(id = R.string.library_unknown_title) },
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Bold,
             maxLines = 2,

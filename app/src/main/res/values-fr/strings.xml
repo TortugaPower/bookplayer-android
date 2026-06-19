@@ -70,7 +70,6 @@
     <!-- Settings/Themes -->
     <string name="settings_title">Paramètres</string>
     <string name="settings_appearance_section">Apparence</string>
-    <string name="settings_services_section">Services</string>
     <string name="settings_theme_label">Thème</string>
     <string name="settings_app_icon_label">Icône de l\'app</string>
     <string name="settings_orientation_locked_label">Orientation verrouillée</string>
@@ -242,7 +241,7 @@
     <string name="media_servers_add_server_connect_button">Connecter</string>
     <string name="media_servers_add_server_sign_in_button">Se connecter</string>
     <string name="media_servers_add_server_url_label">URL du serveur</string>
-    <string name="media_servers_add_server_url_placeholder">http://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">En-têtes HTTP personnalisés</string>
     <string name="media_servers_add_server_header_name_placeholder">Nom de l\'en-tête</string>
     <string name="media_servers_add_server_header_value_placeholder">Valeur de l\'en-tête</string>
@@ -272,5 +271,4 @@
     <string name="external_item_detail_unknown_value_fallback">Inconnu</string>
     <string name="external_item_detail_genres_label">Genres</string>
     <string name="external_item_detail_none_value_fallback">Aucun</string>
-    <string name="external_item_detail_unknown_author_fallback">Auteur inconnu</string>
 </resources>

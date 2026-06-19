@@ -69,7 +69,6 @@
     <!-- Settings/Themes -->
     <string name="settings_title">設定</string>
     <string name="settings_appearance_section">外観</string>
-    <string name="settings_services_section">サービス</string>
     <string name="settings_theme_label">テーマ</string>
     <string name="settings_app_icon_label">アプリアイコン</string>
     <string name="settings_orientation_locked_label">画面の向きを固定</string>
@@ -242,9 +241,9 @@
     <!-- Add Server Sheet -->
     <string name="media_servers_add_server_connect_button">接続</string>
     <string name="media_servers_add_server_sign_in_button">サインイン</string>
-    <string name="media_servers_add_server_url_label">サーバーURL</string>
-    <string name="media_servers_add_server_url_placeholder">http://jellyfin.example.com:8096</string>
-    <string name="media_servers_add_server_custom_headers_label">カスタムHTTPヘッダー</string>
+    <string name="media_servers_add_server_url_label">サーバー URL</string>
+    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_custom_headers_label">カスタム HTTP ヘッダー</string>
     <string name="media_servers_add_server_header_name_placeholder">ヘッダー名</string>
     <string name="media_servers_add_server_header_value_placeholder">ヘッダー値</string>
     <string name="media_servers_add_server_add_header_button">ヘッダーを追加</string>
@@ -273,5 +272,4 @@
     <string name="external_item_detail_unknown_value_fallback">不明</string>
     <string name="external_item_detail_genres_label">ジャンル</string>
     <string name="external_item_detail_none_value_fallback">なし</string>
-    <string name="external_item_detail_unknown_author_fallback">不明な著者</string>
 </resources>

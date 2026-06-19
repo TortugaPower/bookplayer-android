@@ -47,10 +47,18 @@ class AudiobookshelfService : ExternalService {
                 val serverName = body.serverSettings?.serverName ?: "Audiobookshelf"
                 ConnectionResult.Success(token = token, name = serverName)
             } else {
-                ConnectionResult.Failure("Authentication failed: ${response.message()}")
+                ConnectionResult.Failure(
+                    message = "Authentication failed: ${response.message()}",
+                    messageResId = com.tortugapower.audiobookplayer.R.string.media_servers_error_auth_failed,
+                    args = listOf(response.message())
+                )
             }
         } catch (e: Exception) {
-            ConnectionResult.Failure("Connection error: ${e.message}")
+            ConnectionResult.Failure(
+                message = "Connection error: ${e.message}",
+                messageResId = com.tortugapower.audiobookplayer.R.string.media_servers_error_connection_failed,
+                args = listOf(e.message ?: "")
+            )
         }
     }
 
@@ -90,7 +98,7 @@ class AudiobookshelfService : ExternalService {
                     
                     val entity = LibraryItemEntity(
                         uuid = item.id,
-                        title = metadata?.title ?: "Unknown Title",
+                        title = metadata?.title ?: realFileName?.substringBeforeLast('.') ?: "",
                         author = metadata?.authorName,
                         duration = item.media?.duration ?: 0.0,
                         type = com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK,

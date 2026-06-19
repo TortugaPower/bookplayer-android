@@ -88,7 +88,7 @@ fun ExternalItemDetailScreen(
             
             // Title & Author
             Text(
-                text = item.entity.title,
+                text = item.entity.title.ifBlank { stringResource(id = R.string.library_unknown_title) },
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center

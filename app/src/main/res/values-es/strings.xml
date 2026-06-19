@@ -70,7 +70,6 @@
     <!-- Settings/Themes -->
     <string name="settings_title">Ajustes</string>
     <string name="settings_appearance_section">Apariencia</string>
-    <string name="settings_services_section">Servicios</string>
     <string name="settings_theme_label">Tema</string>
     <string name="settings_app_icon_label">Icono de la aplicación</string>
     <string name="settings_orientation_locked_label">Orientación bloqueada</string>
@@ -242,8 +241,8 @@
     <string name="media_servers_add_server_connect_button">Conectar</string>
     <string name="media_servers_add_server_sign_in_button">Iniciar sesión</string>
     <string name="media_servers_add_server_url_label">URL del servidor</string>
-    <string name="media_servers_add_server_url_placeholder">http://jellyfin.example.com:8096</string>
-    <string name="media_servers_add_server_custom_headers_label">Encabezados HTTP personalizados</string>
+    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_custom_headers_label">Cabeceras HTTP personalizadas</string>
     <string name="media_servers_add_server_header_name_placeholder">Nombre del encabezado</string>
     <string name="media_servers_add_server_header_value_placeholder">Valor del encabezado</string>
     <string name="media_servers_add_server_add_header_button">Añadir encabezado</string>
@@ -272,5 +271,4 @@
     <string name="external_item_detail_unknown_value_fallback">Desconocido</string>
     <string name="external_item_detail_genres_label">Géneros</string>
     <string name="external_item_detail_none_value_fallback">Ninguno</string>
-    <string name="external_item_detail_unknown_author_fallback">Autor desconocido</string>
 </resources>
