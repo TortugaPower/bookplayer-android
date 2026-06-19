@@ -41,8 +41,8 @@ import com.tortugapower.audiobookplayer.ui.screens.pro.WelcomeToProDialog
  * Theme picker with light/dark-variant + system-mode toggles and a Restore action in the top bar
  * (celebrating via [WelcomeToProDialog]).
  *
- * Themes other than Default / Pure Black are gated behind the `plus` or `pro` entitlement: locked
- * rows are dimmed + non-selectable for free users, who also see a "BookPlayer Pro" upsell card whose
+ * Themes other than Default / Pure Black are gated behind a paid (plus / lite / pro) entitlement:
+ * locked rows are dimmed + non-selectable for free users, who also see a "BookPlayer Pro" upsell card whose
  * CTA runs the sign-in/paywall flow ([BookPlayerProSheet] → [AuthSheet] → [PaywallSheet]). Gaining
  * the entitlement flips `hasThemeAccess` reactively — the card hides and the themes unlock.
  *
@@ -50,7 +50,7 @@ import com.tortugapower.audiobookplayer.ui.screens.pro.WelcomeToProDialog
  */
 @Composable
 fun ThemesScreen(onBack: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     // Predefined themes (everything except Default / Pure Black, per Themes.json `locked`) unlock
     // for any paid tier — plus, lite, or pro (i.e. not FREE). Tier is reactive — granting an
     // entitlement (e.g. plus via a tip, or a subscription) flips this without a relaunch.
@@ -60,8 +60,8 @@ fun ThemesScreen(onBack: () -> Unit) {
     var showWelcome by remember { mutableStateOf(false) }
 
     // Pro upsell flow for free users (mirrors ProfileScreen): the card's CTA opens the Pro sheet →
-    // sign-in (passkey stacks AuthSheet) → on auth, non-subscribers get the paywall. Getting plus
-    // or pro flips `hasThemeAccess`, hiding the card and unlocking the themes — reactively.
+    // sign-in (passkey stacks AuthSheet) → on auth, non-subscribers get the paywall. Gaining any
+    // paid tier flips `hasThemeAccess`, hiding the card and unlocking the themes — reactively.
     var showProSheet by remember { mutableStateOf(false) }
     var showAuthSheet by remember { mutableStateOf(false) }
     var showPaywall by remember { mutableStateOf(false) }
