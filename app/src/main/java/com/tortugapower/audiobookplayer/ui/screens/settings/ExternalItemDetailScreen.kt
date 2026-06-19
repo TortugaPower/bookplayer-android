@@ -94,14 +94,12 @@ fun ExternalItemDetailScreen(
                 textAlign = TextAlign.Center
             )
             
-            if (item.entity.author != null) {
-                Text(
-                    text = item.entity.author!!,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-            }
+            Text(
+                text = item.entity.author ?: stringResource(id = R.string.library_unknown_author),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
             
             Spacer(modifier = Modifier.height(8.dp))
             
@@ -146,7 +144,7 @@ fun ExternalItemDetailScreen(
                         .height(56.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF3482F6)
+                        containerColor = MaterialTheme.colorScheme.primary
                     )
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

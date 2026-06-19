@@ -150,7 +150,7 @@ fun ServerTypeSection(
                 Icon(
                     Icons.Default.AddCircle,
                     contentDescription = stringResource(id = R.string.media_servers_add_button_description),
-                    tint = Color(0xFF3482F6)
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
         }
@@ -201,7 +201,7 @@ fun ServerItem(
         ) {
             if (isEditing) {
                 IconButton(onClick = onDeleteClick) {
-                    Icon(Icons.Default.RemoveCircle, contentDescription = stringResource(id = R.string.media_servers_delete_button_description), tint = Color.Red)
+                    Icon(Icons.Default.RemoveCircle, contentDescription = stringResource(id = R.string.media_servers_delete_button_description), tint = MaterialTheme.colorScheme.error)
                 }
             }
 
@@ -312,7 +312,7 @@ fun ServerInfoSheet(
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(stringResource(id = R.string.media_servers_username_label), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(server.username ?: "Anonymous", fontWeight = FontWeight.Medium)
+                                Text(server.username ?: stringResource(id = R.string.media_servers_anonymous_username), fontWeight = FontWeight.Medium)
                             }
                         }
                     }
@@ -526,11 +526,11 @@ fun AddServerSheet(
                                     Icon(
                                         Icons.Default.AddCircle, 
                                         contentDescription = null, 
-                                        tint = Color(0xFF3482F6),
+                                        tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    Text(stringResource(id = R.string.media_servers_add_server_add_header_button), color = Color(0xFF3482F6), fontWeight = FontWeight.Medium)
+                                    Text(stringResource(id = R.string.media_servers_add_server_add_header_button), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
                                 }
                             }
                         }
@@ -570,7 +570,7 @@ fun AddServerSheet(
                                     trailingIcon = {
                                         if (username.isNotEmpty()) {
                                             IconButton(onClick = { username = "" }) {
-                                                Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                                Icon(Icons.Default.Close, contentDescription = stringResource(id = R.string.common_clear), modifier = Modifier.size(18.dp))
                                             }
                                         }
                                     },

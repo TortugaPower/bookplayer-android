@@ -229,7 +229,6 @@ object PlaybackManager {
                                 } else {
                                     BoundTimeline.PlayerPosition(0, (item.currentTime * 1000).toLong())
                                 }
-
                                 launch(Dispatchers.Main) {
                                     _isTransitioning.value = true
 
@@ -349,13 +348,14 @@ object PlaybackManager {
             }
             val mediaTitle = if (group.size == 1) first.title else playable.title
             val artwork = first.artworkURL ?: playable.artworkURL
+            val fallbackAuthor = appContext?.getString(com.tortugapower.audiobookplayer.R.string.library_unknown_author) ?: "Unknown author"
             MediaItem.Builder()
                 .setMediaId(first.uuid.ifEmpty { first.relativePath ?: "${playable.uuid}#${first.index}" })
                 .setUri(uri)
                 .setMediaMetadata(
                     MediaMetadata.Builder()
                         .setTitle(mediaTitle)
-                        .setArtist(playable.author ?: "Unknown author")
+                        .setArtist(playable.author ?: fallbackAuthor)
                         .setAlbumTitle(playable.title)
                         .setArtworkUri(artwork?.let {
                             if (it.startsWith("http")) android.net.Uri.parse(it)
