@@ -6,19 +6,21 @@ import com.google.gson.reflect.TypeToken
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 
 object MapConverter {
+    private val gson = Gson()
+
     @TypeConverter
     @JvmStatic
     fun fromString(value: String?): Map<String, String>? {
         if (value == null) return null
         val mapType = object : TypeToken<Map<String, String>>() {}.type
-        return Gson().fromJson(value, mapType)
+        return gson.fromJson(value, mapType)
     }
 
     @TypeConverter
     @JvmStatic
     fun fromMap(map: Map<String, String>?): String? {
         if (map == null) return null
-        return Gson().toJson(map)
+        return gson.toJson(map)
     }
 
     @TypeConverter

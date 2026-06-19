@@ -195,7 +195,7 @@ object PlaybackManager {
                                         .setMediaMetadata(
                                             MediaMetadata.Builder()
                                                 .setTitle(subItem.title)
-                                                .setArtist(subItem.author ?: item.author ?: "Unknown author")
+                                                .setArtist(subItem.author ?: item.author ?: appContext.getString(com.tortugapower.audiobookplayer.R.string.library_unknown_author))
                                                 .setArtworkUri(subItem.artworkURL?.let { 
                                                     if (it.startsWith("http")) android.net.Uri.parse(it) 
                                                     else android.net.Uri.fromFile(java.io.File(it)) 
@@ -224,7 +224,7 @@ object PlaybackManager {
                                         .setMediaMetadata(
                                             MediaMetadata.Builder()
                                                 .setTitle(item.title)
-                                                .setArtist(item.author ?: "Unknown author")
+                                                .setArtist(item.author ?: appContext.getString(com.tortugapower.audiobookplayer.R.string.library_unknown_author))
                                                 .setArtworkUri(item.artworkURL?.let { 
                                                     if (it.startsWith("http")) android.net.Uri.parse(it) 
                                                     else android.net.Uri.fromFile(java.io.File(it)) 
@@ -523,7 +523,7 @@ object PlaybackManager {
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle(subItem.title)
-                                .setArtist(subItem.author ?: item.author ?: "Unknown author")
+                                .setArtist(subItem.author ?: item.author ?: context.getString(com.tortugapower.audiobookplayer.R.string.library_unknown_author))
                                 .setArtworkUri(subItem.artworkURL?.let { 
                                     if (it.startsWith("http")) android.net.Uri.parse(it) 
                                     else android.net.Uri.fromFile(java.io.File(it)) 
@@ -607,7 +607,7 @@ object PlaybackManager {
                         .setMediaMetadata(
                             MediaMetadata.Builder()
                                 .setTitle(item.title)
-                                .setArtist(item.author ?: "Unknown author")
+                                .setArtist(item.author ?: context.getString(com.tortugapower.audiobookplayer.R.string.library_unknown_author))
                                 .setArtworkUri(item.artworkURL?.let { 
                                     if (it.startsWith("http")) android.net.Uri.parse(it) 
                                     else android.net.Uri.fromFile(java.io.File(it)) 

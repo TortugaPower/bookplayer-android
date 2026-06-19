@@ -93,7 +93,7 @@ class JellyfinService : ExternalService {
                     val entity = LibraryItemEntity(
                         uuid = item.id,
                         title = item.name,
-                        author = item.artistItems?.firstOrNull()?.name ?: "Unknown Author",
+                        author = item.artistItems?.firstOrNull()?.name,
                         duration = (item.runTimeTicks ?: 0L) / 10_000_000.0,
                         type = com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK,
                         artworkURL = if (item.imageTags?.containsKey("Primary") == true) {
@@ -111,10 +111,13 @@ class JellyfinService : ExternalService {
                 }
                 com.tortugapower.audiobookplayer.network.LibraryResult(items, body.totalRecordCount)
             } else {
-                com.tortugapower.audiobookplayer.network.LibraryResult(emptyList(), 0)
+                val errorMsg = "Jellyfin API error: ${response.code()} ${response.message()}"
+                android.util.Log.e("JellyfinService", errorMsg)
+                throw Exception(errorMsg)
             }
         } catch (e: Exception) {
-            com.tortugapower.audiobookplayer.network.LibraryResult(emptyList(), 0)
+            android.util.Log.e("JellyfinService", "Error fetching library from Jellyfin", e)
+            throw e
         }
     }
 

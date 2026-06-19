@@ -503,16 +503,14 @@ fun ExternalBookItem(
             lineHeight = 14.sp
         )
         
-        if (item.entity.author != null) {
-            Text(
-                text = item.entity.author!!,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
-        }
+        Text(
+            text = item.entity.author ?: stringResource(id = R.string.library_unknown_author),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
     }
 }
 

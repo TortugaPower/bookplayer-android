@@ -61,7 +61,9 @@ class AudiobookshelfService : ExternalService {
             // 1. Get libraries to find an audiobook library
             val libResponse = api.getLibraries(auth)
             if (!libResponse.isSuccessful || libResponse.body() == null) {
-                return LibraryResult(emptyList(), 0)
+                val errorMsg = "Audiobookshelf API error fetching libraries: ${libResponse.code()} ${libResponse.message()}"
+                android.util.Log.e("AudiobookshelfService", errorMsg)
+                throw Exception(errorMsg)
             }
             
             val libraries = libResponse.body()!!.libraries
@@ -88,7 +90,7 @@ class AudiobookshelfService : ExternalService {
                     val entity = LibraryItemEntity(
                         uuid = item.id,
                         title = metadata?.title ?: "Unknown Title",
-                        author = metadata?.authorName ?: "Unknown Author",
+                        author = metadata?.authorName,
                         duration = item.media?.duration ?: 0.0,
                         type = com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK,
                         artworkURL = if (item.media?.coverPath != null) "${sanitizedUrl}api/items/${item.id}/cover?token=$token" else null,
@@ -104,10 +106,13 @@ class AudiobookshelfService : ExternalService {
                 }
                 LibraryResult(items, body.total)
             } else {
-                LibraryResult(emptyList(), 0)
+                val errorMsg = "Audiobookshelf API error fetching items: ${itemsResponse.code()} ${itemsResponse.message()}"
+                android.util.Log.e("AudiobookshelfService", errorMsg)
+                throw Exception(errorMsg)
             }
         } catch (e: Exception) {
-            LibraryResult(emptyList(), 0)
+            android.util.Log.e("AudiobookshelfService", "Error fetching library from Audiobookshelf", e)
+            throw e
         }
     }
 
