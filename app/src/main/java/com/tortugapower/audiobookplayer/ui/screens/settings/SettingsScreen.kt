@@ -58,6 +58,9 @@ fun SettingsScreen(
     val account by accountRepository.getAccountFlow().collectAsState(initial = null)
 
     val appVersion = "${BuildConfig.VERSION_NAME}-${BuildConfig.VERSION_CODE}"
+    // Read once (out of the recomposition path): each call does a PackageManager IPC per icon. The
+    // value only changes after the user picks a new icon, which recreates this screen on return.
+    val appIconTitleRes = remember { AppIconManager.currentIcon(context).titleRes }
     var showEmailFallback by remember { mutableStateOf(false) }
     var isGeneratingDebug by remember { mutableStateOf(false) }
 
@@ -146,7 +149,7 @@ fun SettingsScreen(
                 HorizontalDivider()
                 SettingsItem(
                     label = stringResource(R.string.settings_app_icon_label),
-                    value = stringResource(AppIconManager.currentIcon(context).titleRes),
+                    value = stringResource(appIconTitleRes),
                     onClick = onNavigateToAppIcons,
                 )
             }

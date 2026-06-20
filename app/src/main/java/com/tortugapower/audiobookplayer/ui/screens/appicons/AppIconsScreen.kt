@@ -25,6 +25,7 @@ import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.AppIcon
 import com.tortugapower.audiobookplayer.logic.AppIconManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
+import com.tortugapower.audiobookplayer.ui.components.AuthErrorDialog
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.screens.auth.AuthSheet
 import com.tortugapower.audiobookplayer.ui.screens.pro.BookPlayerProSheet
@@ -32,6 +33,9 @@ import com.tortugapower.audiobookplayer.ui.screens.pro.PaywallSheet
 import com.tortugapower.audiobookplayer.ui.screens.pro.ProRestoreButton
 import com.tortugapower.audiobookplayer.ui.screens.pro.WelcomeToProDialog
 import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Alternate app-icon picker. Mirrors the Themes screen: icons other than Default / Retro are gated
@@ -58,6 +62,13 @@ fun AppIconsScreen(onBack: () -> Unit) {
     // The enabled alias component is the source of truth; seed local selection from it.
     var selectedId by remember { mutableStateOf(AppIconManager.currentIcon(context).id) }
     var showWelcome by remember { mutableStateOf(false) }
+
+    // Toggling the alias is a synchronous PackageManager IPC that can throw on some OEMs — run it
+    // off the main thread, advance the selection only on success, and surface failures (mirrors iOS).
+    val scope = rememberCoroutineScope()
+    var iconError by remember { mutableStateOf<String?>(null) }
+    val changeFailedMessage = stringResource(R.string.app_icon_change_failed)
+    AuthErrorDialog(message = iconError) { iconError = null }
 
     // Pro upsell flow for free users (mirrors the Themes screen): the card's CTA opens the Pro
     // sheet → sign-in (passkey stacks AuthSheet) → on auth, non-subscribers get the paywall.
@@ -182,8 +193,10 @@ fun AppIconsScreen(onBack: () -> Unit) {
                             isSelected = selectedId == icon.id,
                             hasIconAccess = hasIconAccess,
                             onClick = {
-                                AppIconManager.setIcon(context, icon)
-                                selectedId = icon.id
+                                scope.launch {
+                                    val ok = withContext(Dispatchers.IO) { AppIconManager.setIcon(context, icon) }
+                                    if (ok) selectedId = icon.id else iconError = changeFailedMessage
+                                }
                             },
                         )
                         if (index < AppIconManager.allIcons.size - 1) {

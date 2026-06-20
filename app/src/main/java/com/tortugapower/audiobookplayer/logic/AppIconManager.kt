@@ -15,15 +15,14 @@ import com.tortugapower.audiobookplayer.R
  * Icons other than Default / Retro are gated behind a paid tier on the picker ([AppIcon.free]),
  * mirroring the Themes screen.
  *
- * Asset convention (produced in Android Studio's Image Asset Studio): each alternate uses mipmap
- * `ic_launcher_<snake(id)>` (+ `_round`). The 3 Heart of Glass entries ship as full-bleed bitmaps
- * (their glow can't be reproduced by a solid adaptive background); the others are adaptive
- * (isolated foreground + solid background color).
+ * Asset convention (produced in Android Studio's Image Asset Studio): each alternate uses an
+ * adaptive mipmap `ic_launcher_<snake(id)>` (+ `_round`) — isolated foreground + solid background
+ * color.
  */
 object AppIconManager {
 
     /**
-     * The 15 launcher icons ported from iOS, in display order. `id` doubles as the
+     * The 7 launcher icons ported from iOS, in display order. `id` doubles as the
      * `<activity-alias>` suffix and the selection key — keep it in sync with `AndroidManifest.xml`.
      */
     val allIcons: List<AppIcon> = listOf(
@@ -58,16 +57,26 @@ object AppIconManager {
     /**
      * Make [icon] the launcher icon: enable its alias, disable every other. `DONT_KILL_APP` keeps
      * the swap silent — though some OEM launchers only refresh the icon after the app is next closed.
+     *
+     * Returns true on success; false if the platform rejected the toggle (e.g. an OEM that blocks
+     * alias changes, or an unknown component). The binder calls are synchronous — call off the main
+     * thread — and the caller should surface an error and NOT advance its selection on false.
      */
-    fun setIcon(context: Context, icon: AppIcon) {
+    fun setIcon(context: Context, icon: AppIcon): Boolean {
         val pm = context.packageManager
-        applyIcon(allIcons, icon) { candidate, enabled ->
-            pm.setComponentEnabledSetting(
-                componentName(context, candidate),
-                if (enabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                PackageManager.DONT_KILL_APP,
-            )
+        return try {
+            applyIcon(allIcons, icon) { candidate, enabled ->
+                pm.setComponentEnabledSetting(
+                    componentName(context, candidate),
+                    if (enabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                    else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP,
+                )
+            }
+            true
+        } catch (t: Throwable) {
+            android.util.Log.e("AppIconManager", "Failed to set app icon '${icon.id}'", t)
+            false
         }
     }
 

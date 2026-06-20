@@ -58,9 +58,8 @@
         <!--
             App-icon aliases. Each is a launcher entry pointing at MainActivity with its own icon;
             exactly one is enabled at a time (Default by default). AppIconManager enables the chosen
-            alias and disables the rest. The android:name suffix (".icon.<Id>") must match AppIcon.id.
-            Alternates reference placeholder mipmaps until their real art is generated (see the
-            mipmap-anydpi-v26/ic_launcher_* comments).
+            alias and disables the rest. The android:name suffix (".icon.<Id>") must match AppIcon.id,
+            and each android:icon mipmap matches the AppIcon's previewRes.
         -->
         <activity-alias
             android:name=".icon.Default"
