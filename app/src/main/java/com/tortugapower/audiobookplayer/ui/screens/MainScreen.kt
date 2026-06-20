@@ -42,6 +42,7 @@ import com.tortugapower.audiobookplayer.ui.components.MiniPlayer
 import com.tortugapower.audiobookplayer.ui.components.MiniPlayerBarHeight
 import com.tortugapower.audiobookplayer.ui.components.Screen
 import com.tortugapower.audiobookplayer.ui.screens.account.AccountDetailsScreen
+import com.tortugapower.audiobookplayer.ui.screens.appicons.AppIconsScreen
 import com.tortugapower.audiobookplayer.ui.screens.library.ImportSheet
 import com.tortugapower.audiobookplayer.ui.screens.library.LibraryScreen
 import com.tortugapower.audiobookplayer.ui.screens.player.PlayerScreen
@@ -97,7 +98,7 @@ fun MainScreen() {
                 WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
             ),
             bottomBar = {
-                if (currentRoute != "themes" && currentRoute != "tipjar") {
+                if (currentRoute != "themes" && currentRoute != "tipjar" && currentRoute != "appicons") {
                     // Mini player is no longer docked here — it floats over content (below).
                     CustomBottomNavigation(
                         currentRoute = currentRoute,
@@ -117,7 +118,7 @@ fun MainScreen() {
             // The floating mini player is shown over content when a book is loaded (and not on
             // the full-screen themes route). Screens read LocalMiniPlayerInset to reserve bottom
             // space so their scroll content clears the pill while still scrolling behind it.
-            val miniPlayerVisible = PlaybackManager.currentItem != null && currentRoute != "themes" && currentRoute != "tipjar"
+            val miniPlayerVisible = PlaybackManager.currentItem != null && currentRoute != "themes" && currentRoute != "tipjar" && currentRoute != "appicons"
 
             // Consume the root insets so the per-screen nested Scaffolds (tab chrome,
             // Account Details) don't re-apply the bottom navigation-bar inset on top of
@@ -172,7 +173,7 @@ fun MainScreen() {
                     composable(
                         route = Screen.Settings.route,
                         exitTransition = {
-                            if (targetState.destination.route in setOf("themes", "tipjar")) {
+                            if (targetState.destination.route in setOf("themes", "tipjar", "appicons")) {
                                 slideOutOfContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Left,
                                     animationSpec = tween(400)
@@ -180,7 +181,7 @@ fun MainScreen() {
                             } else null
                         },
                         popEnterTransition = {
-                            if (initialState.destination.route in setOf("themes", "tipjar")) {
+                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons")) {
                                 slideIntoContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Right,
                                     animationSpec = tween(400)
@@ -190,6 +191,7 @@ fun MainScreen() {
                     ) {
                         SettingsScreen(
                             onNavigateToThemes = { navController.navigate("themes") },
+                            onNavigateToAppIcons = { navController.navigate("appicons") },
                             onNavigateToTipJar = { navController.navigate("tipjar") },
                         )
                     }
@@ -252,6 +254,36 @@ fun MainScreen() {
                         }
                     ) {
                         TipJarScreen(onBack = { navController.popBackStack() })
+                    }
+
+                    composable(
+                        route = "appicons",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        popEnterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) {
+                        AppIconsScreen(onBack = { navController.popBackStack() })
                     }
                 }
 

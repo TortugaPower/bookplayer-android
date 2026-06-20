@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.BuildConfig
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.logic.AppIconManager
 import com.tortugapower.audiobookplayer.logic.ThemeManager
 import com.tortugapower.audiobookplayer.logic.buildDebugInformation
 import com.tortugapower.audiobookplayer.logic.buildSupportDebugInfo
@@ -41,7 +42,11 @@ import kotlinx.coroutines.withContext
  * [onNavigateToThemes]) and Support (contact, debug info, project links), with a build-info footer.
  */
 @Composable
-fun SettingsScreen(onNavigateToThemes: () -> Unit, onNavigateToTipJar: () -> Unit) {
+fun SettingsScreen(
+    onNavigateToThemes: () -> Unit,
+    onNavigateToAppIcons: () -> Unit,
+    onNavigateToTipJar: () -> Unit,
+) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboard.current
@@ -137,6 +142,12 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit, onNavigateToTipJar: () -> Uni
                     label = stringResource(R.string.settings_theme_label),
                     value = ThemeManager.currentTheme.title,
                     onClick = onNavigateToThemes,
+                )
+                HorizontalDivider()
+                SettingsItem(
+                    label = stringResource(R.string.settings_app_icon_label),
+                    value = stringResource(AppIconManager.currentIcon(context).titleRes),
+                    onClick = onNavigateToAppIcons,
                 )
             }
 

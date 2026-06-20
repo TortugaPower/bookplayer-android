@@ -119,6 +119,17 @@
     <string name="themes_always_use_dark">Always use dark variation</string>
     <string name="themes_section_header">THEMES</string>
 
+    <!-- App Icons -->
+    <string name="app_icon_author">By your friends at BookPlayer</string>
+    <string name="app_icon_change_failed">Changing the app icon wasn\'t successful. Try again later.</string>
+    <string name="app_icon_name_default">Default</string>
+    <string name="app_icon_name_retro">Retro</string>
+    <string name="app_icon_name_fruit_based">Fruit Based</string>
+    <string name="app_icon_name_retro_modern">Retro Modern</string>
+    <string name="app_icon_name_neon">Neon</string>
+    <string name="app_icon_name_ayu_light">Ayu Light</string>
+    <string name="app_icon_name_songs">Songs</string>
+
     <!-- Tip Jar -->
     <string name="settings_tip_jar_title">Tip Jar</string>
     <string name="tip_extra_description">If you\'re really enjoying BookPlayer, you can leave extra tips to support the app\'s development further. This will help to keep the lights on and features coming.</string>

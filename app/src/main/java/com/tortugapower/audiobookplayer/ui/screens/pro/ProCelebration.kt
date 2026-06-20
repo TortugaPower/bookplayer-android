@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.annotation.StringRes
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import nl.dionsegijn.konfetti.compose.KonfettiView
@@ -116,11 +117,16 @@ fun WelcomeToProDialog(
  * "nothing to restore" / error alert; invokes [onRestored] on success (callers typically show
  * [WelcomeToProDialog]). [content] supplies the button visual — it receives the click handler and
  * an `enabled` flag (false while restoring). Use in the paywall, the Themes screen top bar, etc.
+ *
+ * [noneFoundMessageRes] is shown when a restore succeeds but finds nothing to restore. It defaults
+ * to subscription wording (for the paywall); the Themes / App Icons screens pass the tip-oriented
+ * `tip_missing_title` ("You haven't tipped us yet"), matching iOS's `restoreTips`.
  */
 @Composable
 fun ProRestoreButton(
     onRestored: () -> Unit,
     modifier: Modifier = Modifier,
+    @StringRes noneFoundMessageRes: Int = R.string.restore_none_found,
     content: @Composable (onClick: () -> Unit, enabled: Boolean) -> Unit
 ) {
     val context = LocalContext.current
@@ -138,7 +144,7 @@ fun ProRestoreButton(
                     if (success) {
                         onRestored()
                     } else {
-                        error = err ?: context.getString(R.string.restore_none_found)
+                        error = err ?: context.getString(noneFoundMessageRes)
                     }
                 }
             },
