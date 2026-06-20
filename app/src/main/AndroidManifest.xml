@@ -33,6 +33,13 @@
             (sourced from local.properties) and skip init when it's empty.
         -->
         <meta-data android:name="io.sentry.auto-init" android:value="false" />
+        <!--
+            MainActivity is the single real launch target. The MAIN/LAUNCHER entry point lives on the
+            <activity-alias> entries below (one per app icon) instead of here, so switching the app
+            icon — which toggles those aliases via PackageManager.setComponentEnabledSetting — never
+            disables the deep-link (bookplayer://) filter or the app's entry. MainActivity itself is
+            never disabled. See AppIconManager.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -40,10 +47,6 @@
             android:theme="@style/Theme.App.Starting"
             android:launchMode="singleTop"
             android:configChanges="uiMode|orientation|screenSize">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
             <intent-filter android:label="@string/app_name">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -51,6 +54,104 @@
                 <data android:scheme="bookplayer" />
             </intent-filter>
         </activity>
+
+        <!--
+            App-icon aliases. Each is a launcher entry pointing at MainActivity with its own icon;
+            exactly one is enabled at a time (Default by default). AppIconManager enables the chosen
+            alias and disables the rest. The android:name suffix (".icon.<Id>") must match AppIcon.id,
+            and each android:icon mipmap matches the AppIcon's previewRes.
+        -->
+        <activity-alias
+            android:name=".icon.Default"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:enabled="true"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icon.Retro"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher_retro"
+            android:roundIcon="@mipmap/ic_launcher_retro_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icon.FruitBased"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher_fruit_based"
+            android:roundIcon="@mipmap/ic_launcher_fruit_based_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icon.RetroModern"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher_retro_modern"
+            android:roundIcon="@mipmap/ic_launcher_retro_modern_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icon.Neon"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher_neon"
+            android:roundIcon="@mipmap/ic_launcher_neon_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icon.AyuLight"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher_ayu_light"
+            android:roundIcon="@mipmap/ic_launcher_ayu_light_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".icon.Songs"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher_songs"
+            android:roundIcon="@mipmap/ic_launcher_songs_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <service
             android:name=".service.AudioPlayerService"

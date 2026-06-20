@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.BuildConfig
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.logic.AppIconManager
 import com.tortugapower.audiobookplayer.logic.ThemeManager
 import com.tortugapower.audiobookplayer.logic.buildDebugInformation
 import com.tortugapower.audiobookplayer.logic.buildSupportDebugInfo
@@ -41,7 +42,11 @@ import kotlinx.coroutines.withContext
  * [onNavigateToThemes]) and Support (contact, debug info, project links), with a build-info footer.
  */
 @Composable
-fun SettingsScreen(onNavigateToThemes: () -> Unit, onNavigateToTipJar: () -> Unit) {
+fun SettingsScreen(
+    onNavigateToThemes: () -> Unit,
+    onNavigateToAppIcons: () -> Unit,
+    onNavigateToTipJar: () -> Unit,
+) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboard.current
@@ -53,6 +58,9 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit, onNavigateToTipJar: () -> Uni
     val account by accountRepository.getAccountFlow().collectAsState(initial = null)
 
     val appVersion = "${BuildConfig.VERSION_NAME}-${BuildConfig.VERSION_CODE}"
+    // Read once (out of the recomposition path): each call does a PackageManager IPC per icon. The
+    // value only changes after the user picks a new icon, which recreates this screen on return.
+    val appIconTitleRes = remember { AppIconManager.currentIcon(context).titleRes }
     var showEmailFallback by remember { mutableStateOf(false) }
     var isGeneratingDebug by remember { mutableStateOf(false) }
 
@@ -137,6 +145,12 @@ fun SettingsScreen(onNavigateToThemes: () -> Unit, onNavigateToTipJar: () -> Uni
                     label = stringResource(R.string.settings_theme_label),
                     value = ThemeManager.currentTheme.title,
                     onClick = onNavigateToThemes,
+                )
+                HorizontalDivider()
+                SettingsItem(
+                    label = stringResource(R.string.settings_app_icon_label),
+                    value = stringResource(appIconTitleRes),
+                    onClick = onNavigateToAppIcons,
                 )
             }
 

@@ -1,11 +1,7 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 
-package com.tortugapower.audiobookplayer.ui.screens.themes
+package com.tortugapower.audiobookplayer.ui.screens.appicons
 
-import com.tortugapower.audiobookplayer.ui.components.SettingsToggleItem
-
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,42 +22,56 @@ import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
-import com.tortugapower.audiobookplayer.logic.ThemeManager
+import com.tortugapower.audiobookplayer.logic.AppIcon
+import com.tortugapower.audiobookplayer.logic.AppIconManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
+import com.tortugapower.audiobookplayer.ui.components.AuthErrorDialog
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
-import com.tortugapower.audiobookplayer.ui.theme.BookPlayerThemeSpec
-
 import com.tortugapower.audiobookplayer.ui.screens.auth.AuthSheet
 import com.tortugapower.audiobookplayer.ui.screens.pro.BookPlayerProSheet
 import com.tortugapower.audiobookplayer.ui.screens.pro.PaywallSheet
 import com.tortugapower.audiobookplayer.ui.screens.pro.ProRestoreButton
 import com.tortugapower.audiobookplayer.ui.screens.pro.WelcomeToProDialog
+import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * Theme picker with light/dark-variant + system-mode toggles and a Restore action in the top bar
- * (celebrating via [WelcomeToProDialog]).
+ * Alternate app-icon picker. Mirrors the Themes screen: icons other than Default / Retro are gated
+ * behind a paid (plus / lite / pro) entitlement — locked rows are dimmed + non-selectable for free
+ * users, who also see a "BookPlayer Pro" upsell card whose CTA runs the sign-in/paywall flow
+ * ([BookPlayerProSheet] → [AuthSheet] → [PaywallSheet]). Gaining the entitlement flips
+ * `hasIconAccess` reactively — the card hides and the icons unlock.
  *
- * Themes other than Default / Pure Black are gated behind a paid (plus / lite / pro) entitlement:
- * locked rows are dimmed + non-selectable for free users, who also see a "BookPlayer Pro" upsell card whose
- * CTA runs the sign-in/paywall flow ([BookPlayerProSheet] → [AuthSheet] → [PaywallSheet]). Gaining
- * the entitlement flips `hasThemeAccess` reactively — the card hides and the themes unlock.
+ * Selecting an icon enables its `<activity-alias>` (and disables the rest) via [AppIconManager];
+ * the launcher icon swaps silently, though some OEM launchers only refresh after the app is closed.
  *
  * @param onBack pop back to Settings
  */
 @Composable
-fun ThemesScreen(onBack: () -> Unit) {
+fun AppIconsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    // Predefined themes (everything except Default / Pure Black, per Themes.json `locked`) unlock
-    // for any paid tier — plus, lite, or pro (i.e. not FREE). Tier is reactive — granting an
-    // entitlement (e.g. plus via a tip, or a subscription) flips this without a relaunch.
+    // Icons other than Default / Retro unlock for any paid tier — plus, lite, or pro (i.e. not
+    // FREE). Tier is reactive — granting an entitlement (e.g. plus via a tip, or a subscription)
+    // flips this without a relaunch.
     val accountRepository = remember { RoomAccountRepository(AppDatabase.getDatabase(context).accountDao()) }
     val account by accountRepository.getAccountFlow().collectAsState(initial = null)
-    val hasThemeAccess = account != null && account?.tier != AccountTier.FREE
+    val hasIconAccess = account != null && account?.tier != AccountTier.FREE
+
+    // The enabled alias component is the source of truth; seed local selection from it.
+    var selectedId by remember { mutableStateOf(AppIconManager.currentIcon(context).id) }
     var showWelcome by remember { mutableStateOf(false) }
 
-    // Pro upsell flow for free users (mirrors ProfileScreen): the card's CTA opens the Pro sheet →
-    // sign-in (passkey stacks AuthSheet) → on auth, non-subscribers get the paywall. Gaining any
-    // paid tier flips `hasThemeAccess`, hiding the card and unlocking the themes — reactively.
+    // Toggling the alias is a synchronous PackageManager IPC that can throw on some OEMs — run it
+    // off the main thread, advance the selection only on success, and surface failures (mirrors iOS).
+    val scope = rememberCoroutineScope()
+    var iconError by remember { mutableStateOf<String?>(null) }
+    val changeFailedMessage = stringResource(R.string.app_icon_change_failed)
+    AuthErrorDialog(message = iconError) { iconError = null }
+
+    // Pro upsell flow for free users (mirrors the Themes screen): the card's CTA opens the Pro
+    // sheet → sign-in (passkey stacks AuthSheet) → on auth, non-subscribers get the paywall.
     var showProSheet by remember { mutableStateOf(false) }
     var showAuthSheet by remember { mutableStateOf(false) }
     var showPaywall by remember { mutableStateOf(false) }
@@ -72,7 +82,6 @@ fun ThemesScreen(onBack: () -> Unit) {
         if (!hasSubscription) showPaywall = true
     }
 
-    // Restoring a purchase from here celebrates but stays on the Themes screen.
     if (showWelcome) {
         WelcomeToProDialog(onDismiss = { showWelcome = false })
     }
@@ -94,7 +103,7 @@ fun ThemesScreen(onBack: () -> Unit) {
     }
 
     BookPlayerTabScaffold(
-        title = stringResource(R.string.themes_title),
+        title = stringResource(R.string.settings_app_icon_label),
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(
@@ -125,7 +134,7 @@ fun ThemesScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // Pro upsell banner — only for free users (no plus/pro), mirroring iOS's free-only card.
-            if (!hasThemeAccess) {
+            if (!hasIconAccess) {
                 item {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
@@ -172,48 +181,25 @@ fun ThemesScreen(onBack: () -> Unit) {
                     }
                 }
             }
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                ) {
-                    SettingsToggleItem(
-                        label = stringResource(R.string.themes_use_system_mode),
-                        checked = ThemeManager.useSystemMode,
-                        onCheckedChange = { ThemeManager.setUseSystemMode(context, it) },
-                    )
-                    HorizontalDivider()
-                    SettingsToggleItem(
-                        label = stringResource(R.string.themes_always_use_dark),
-                        checked = ThemeManager.useDarkVariant,
-                        enabled = !ThemeManager.useSystemMode,
-                        onCheckedChange = { ThemeManager.setUseDarkVariant(context, it) },
-                    )
-                }
-            }
-
-            item {
-                Text(
-                    text = stringResource(R.string.themes_section_header),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
-                )
-            }
 
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 ) {
-                    ThemeManager.allThemes.forEachIndexed { index, theme ->
-                        ThemeItem(
-                            theme = theme,
-                            isSelected = ThemeManager.currentTheme.title == theme.title,
-                            hasThemeAccess = hasThemeAccess,
-                            onClick = { ThemeManager.setTheme(context, theme) },
+                    AppIconManager.allIcons.forEachIndexed { index, icon ->
+                        AppIconItem(
+                            icon = icon,
+                            isSelected = selectedId == icon.id,
+                            hasIconAccess = hasIconAccess,
+                            onClick = {
+                                scope.launch {
+                                    val ok = withContext(Dispatchers.IO) { AppIconManager.setIcon(context, icon) }
+                                    if (ok) selectedId = icon.id else iconError = changeFailedMessage
+                                }
+                            },
                         )
-                        if (index < ThemeManager.allThemes.size - 1) {
+                        if (index < AppIconManager.allIcons.size - 1) {
                             HorizontalDivider()
                         }
                     }
@@ -223,16 +209,15 @@ fun ThemesScreen(onBack: () -> Unit) {
     }
 }
 
-
 @Composable
-fun ThemeItem(theme: BookPlayerThemeSpec, isSelected: Boolean, hasThemeAccess: Boolean, onClick: () -> Unit) {
-    val isLockedForUser = theme.locked && !hasThemeAccess
+private fun AppIconItem(icon: AppIcon, isSelected: Boolean, hasIconAccess: Boolean, onClick: () -> Unit) {
+    val isLockedForUser = !icon.free && !hasIconAccess
     ListItem(
         headlineContent = {
             Text(
-                text = theme.title,
+                text = stringResource(icon.titleRes),
                 // Locked rows read as inactive via the Material disabled-content alpha (matches the
-                // dimmed SettingsToggleItem label and iOS's grayer locked text).
+                // Themes screen and iOS's grayer locked text).
                 color = when {
                     isSelected -> MaterialTheme.colorScheme.primary
                     isLockedForUser -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
@@ -241,13 +226,23 @@ fun ThemeItem(theme: BookPlayerThemeSpec, isSelected: Boolean, hasThemeAccess: B
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
             )
         },
+        supportingContent = {
+            Text(
+                text = stringResource(R.string.app_icon_author),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
         leadingContent = {
-            // The color swatch stays vibrant even when locked — only the text is dimmed.
-            ThemeShowcase(
-                theme = theme,
-                modifier = if (isSelected) {
-                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
-                } else Modifier,
+            // The icon preview stays vibrant even when locked — only the text is dimmed.
+            // Loaded via Coil (not painterResource), which rasterizes the launcher mipmaps'
+            // <adaptive-icon> drawables — painterResource only supports <vector>/raster and would crash.
+            AsyncImage(
+                model = icon.previewRes,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(10.dp)),
             )
         },
         trailingContent = if (isSelected || isLockedForUser) {
@@ -255,33 +250,15 @@ fun ThemeItem(theme: BookPlayerThemeSpec, isSelected: Boolean, hasThemeAccess: B
                 if (isSelected) {
                     Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 } else {
-                    Icon(Icons.Default.Lock, contentDescription = stringResource(R.string.common_pro_locked), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(
+                        Icons.Default.Lock,
+                        contentDescription = stringResource(R.string.common_pro_locked),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         } else null,
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.clickable(enabled = !isLockedForUser, onClick = onClick),
     )
-}
-
-
-@Composable
-private fun ThemeShowcase(theme: BookPlayerThemeSpec, modifier: Modifier = Modifier) {
-    val s = theme.showcaseLightColors
-    Box(
-        modifier
-            .size(44.dp)
-            .clip(RoundedCornerShape(8.dp))
-    ) {
-        Column(Modifier.fillMaxSize()) {
-            Row(Modifier.weight(1f).fillMaxWidth()) {
-                Box(Modifier.weight(1f).fillMaxHeight().background(s.background))
-                Box(Modifier.weight(1f).fillMaxHeight().background(s.accent))
-            }
-            Row(Modifier.weight(1f).fillMaxWidth()) {
-                Box(Modifier.weight(1f).fillMaxHeight().background(s.primary))
-                Box(Modifier.weight(1f).fillMaxHeight().background(s.secondary))
-            }
-        }
-    }
 }
