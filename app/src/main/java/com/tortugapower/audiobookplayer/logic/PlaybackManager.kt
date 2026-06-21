@@ -33,6 +33,7 @@ object PlaybackManager {
         private set
 
     private var repository: LibraryRepository? = null
+    private var appContext: Context? = null
 
     private val _currentItem = MutableStateFlow<LibraryItemEntity?>(null)
     val currentItem: StateFlow<LibraryItemEntity?> = _currentItem.asStateFlow()
@@ -51,7 +52,15 @@ object PlaybackManager {
     private val _showPlayerScreen = MutableStateFlow(false)
     val showPlayerScreen: StateFlow<Boolean> = _showPlayerScreen.asStateFlow()
 
-    fun setShowPlayer(value: Boolean) { _showPlayerScreen.value = value }
+    fun setShowPlayer(value: Boolean) {
+        val wasShown = _showPlayerScreen.value
+        _showPlayerScreen.value = value
+        // Opening the player while playing: restart the tracker so it immediately enters the fast
+        // (500ms) tick rate and refreshes the seek bar, instead of waiting out the slow background tick.
+        if (value && !wasShown && _isPlaying.value) {
+            appContext?.let { startProgressTracker(it) }
+        }
+    }
 
     private val _playbackSpeed = MutableStateFlow(1.0f)
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
@@ -78,6 +87,7 @@ object PlaybackManager {
         if (player != null) return
         repository = libraryRepository
         val appContext = context.applicationContext
+        this.appContext = appContext
 
         val sessionToken = SessionToken(appContext, ComponentName(appContext, AudioPlayerService::class.java))
         controllerFuture = MediaController.Builder(appContext, sessionToken).buildAsync()
@@ -302,12 +312,17 @@ object PlaybackManager {
         progressTrackerJob = scope.launch {
             var elapsed = 0L
             while (_isPlaying.value) {
-                kotlinx.coroutines.delay(500)
+                // Tick fast (smooth seek bar) only while the player UI is visible; otherwise tick at the
+                // DB-persistence cadence, so backgrounded/screen-off playback doesn't wake every 500ms
+                // for a position nothing is collecting (the mini player shows no progress bar).
+                // setShowPlayer restarts this loop on open, so the fast rate kicks in immediately.
+                val step = if (_showPlayerScreen.value) 500L else 10000L
+                kotlinx.coroutines.delay(step)
                 if (!_isPlaying.value) break
-                // Emit the live position for the UI every tick (~500ms)
+                // Emit the live position for the UI
                 _positionMs.value = player?.currentPosition ?: 0L
                 // Persist progress to the DB on the original ~10s cadence
-                elapsed += 500
+                elapsed += step
                 if (elapsed >= 10000) {
                     elapsed = 0
                     updateProgress(context)
@@ -416,7 +431,11 @@ object PlaybackManager {
         
         _isTransitioning.value = true
         _currentItem.value = item
-        _positionMs.value = (item.currentTime * 1000).toLong()
+        // For BOUND books the per-chapter offset is seeded in the BOUND branch below (the UI adds the
+        // chapter's cumulative start); only non-BOUND can use the whole-book currentTime directly.
+        if (item.type != com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
+            _positionMs.value = (item.currentTime * 1000).toLong()
+        }
 
         // Update navigation states
         scope.launch(Dispatchers.IO) {
@@ -498,6 +517,8 @@ object PlaybackManager {
                         cumulative += books[i].duration
                     }
 
+                    // Seed the chapter-relative offset so the UI's (chapterStart + positionMs) is correct.
+                    _positionMs.value = (targetOffset * 1000).toLong()
                     player?.setMediaItems(mediaItems, targetIndex, (targetOffset * 1000).toLong())
                     player?.prepare()
                     if (autoplay) {
