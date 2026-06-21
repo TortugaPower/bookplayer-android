@@ -37,7 +37,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         ThemeManager.initialize(this)
 
-        handleIntent(intent)
+        // Only handle the launch intent on a fresh start. On a recreate (locale/density change, or
+        // process-death restore from recents) the same ACTION_VIEW/SEND intent would otherwise be
+        // replayed and re-trigger the import. onNewIntent covers warm re-deliveries while running.
+        if (savedInstanceState == null) {
+            handleIntent(intent)
+        }
 
         setContent {
             BookPlayerTheme {
