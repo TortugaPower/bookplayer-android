@@ -45,9 +45,12 @@ class AudioPlayerService : MediaSessionService() {
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, false)
             .setHandleAudioBecomingNoisy(true)
-            // Hold a CPU wake lock during playback so audio survives screen-off / doze (local files;
-            // requires the WAKE_LOCK permission). ExoPlayer acquires/releases it with play state.
-            .setWakeMode(C.WAKE_MODE_LOCAL)
+            // Keep the CPU and Wi-Fi radio awake during playback so audio survives screen-off / doze.
+            // NETWORK (not LOCAL) because a book streams from its remote URL when no local file is
+            // present (see PlaybackManager) — LOCAL holds only a CPU lock, letting Wi-Fi sleep and
+            // stalling streamed audio. Requires only the WAKE_LOCK permission; ExoPlayer acquires and
+            // releases both the wake lock and Wi-Fi lock with the play state.
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
         player?.let { p ->

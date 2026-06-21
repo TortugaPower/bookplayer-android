@@ -3,8 +3,9 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Keeps the CPU awake so audio keeps playing with the screen off / during doze (paired with
-         ExoPlayer.setWakeMode in AudioPlayerService). -->
+    <!-- Keeps the CPU and (for streamed books) the Wi-Fi radio awake so audio keeps playing with the
+         screen off / during doze (paired with ExoPlayer.setWakeMode(WAKE_MODE_NETWORK) in
+         AudioPlayerService). The Wi-Fi lock also only needs WAKE_LOCK — no extra permission. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
