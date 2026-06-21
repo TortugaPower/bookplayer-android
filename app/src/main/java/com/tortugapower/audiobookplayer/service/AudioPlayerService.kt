@@ -8,6 +8,7 @@ import android.view.KeyEvent
 import androidx.core.content.IntentCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
@@ -45,15 +46,23 @@ class AudioPlayerService : MediaSessionService() {
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, false)
             .setHandleAudioBecomingNoisy(true)
-            // Keep the CPU and Wi-Fi radio awake during playback so audio survives screen-off / doze.
-            // NETWORK (not LOCAL) because a book streams from its remote URL when no local file is
-            // present (see PlaybackManager) — LOCAL holds only a CPU lock, letting Wi-Fi sleep and
-            // stalling streamed audio. Requires only the WAKE_LOCK permission; ExoPlayer acquires and
-            // releases both the wake lock and Wi-Fi lock with the play state.
+            // Safe default before the first item resolves; narrowed per-item below (a Wi-Fi lock is
+            // only needed while actually streaming). Requires only the WAKE_LOCK permission; ExoPlayer
+            // acquires/releases the wake lock (and Wi-Fi lock, in NETWORK mode) with the play state.
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
         player?.let { p ->
+            // Narrow the wake mode per item: hold the Wi-Fi lock only while a chapter actually streams
+            // from a remote URL; local files need just the CPU lock (saves battery for the common
+            // local-playback case). Re-evaluated on each transition, so BOUND books with mixed
+            // local/remote chapters get the right mode per chapter.
+            p.addListener(object : Player.Listener {
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    p.setWakeMode(wakeModeFor(mediaItem))
+                }
+            })
+
             val intent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("OPEN_PLAYER", true)
@@ -107,6 +116,15 @@ class AudioPlayerService : MediaSessionService() {
                 }
             }
         }
+    }
+
+    /**
+     * CPU-only wake lock for local files; CPU + Wi-Fi lock only when the item streams from a remote
+     * URL (so the Wi-Fi radio isn't held awake during local playback).
+     */
+    private fun wakeModeFor(mediaItem: MediaItem?): Int {
+        val scheme = mediaItem?.localConfiguration?.uri?.scheme?.lowercase()
+        return if (scheme == "http" || scheme == "https") C.WAKE_MODE_NETWORK else C.WAKE_MODE_LOCAL
     }
 
     /** Seek the player relative to its current position by the live configured interval. */
