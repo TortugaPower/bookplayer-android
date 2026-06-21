@@ -21,7 +21,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -52,15 +54,7 @@ object PlaybackManager {
     private val _showPlayerScreen = MutableStateFlow(false)
     val showPlayerScreen: StateFlow<Boolean> = _showPlayerScreen.asStateFlow()
 
-    fun setShowPlayer(value: Boolean) {
-        val wasShown = _showPlayerScreen.value
-        _showPlayerScreen.value = value
-        // Opening the player while playing: restart the tracker so it immediately enters the fast
-        // (500ms) tick rate and refreshes the seek bar, instead of waiting out the slow background tick.
-        if (value && !wasShown && _isPlaying.value) {
-            appContext?.let { startProgressTracker(it) }
-        }
-    }
+    fun setShowPlayer(value: Boolean) { _showPlayerScreen.value = value }
 
     private val _playbackSpeed = MutableStateFlow(1.0f)
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
@@ -88,6 +82,19 @@ object PlaybackManager {
         repository = libraryRepository
         val appContext = context.applicationContext
         this.appContext = appContext
+
+        // Restart the position tracker whenever a UI collector (re)appears while playing, so it
+        // re-enters the fast tick rate immediately instead of waiting out a slow background delay.
+        scope.launch {
+            _positionMs.subscriptionCount
+                .map { it > 0 }
+                .distinctUntilChanged()
+                .collect { hasCollectors ->
+                    if (hasCollectors && _isPlaying.value) {
+                        this@PlaybackManager.appContext?.let { startProgressTracker(it) }
+                    }
+                }
+        }
 
         val sessionToken = SessionToken(appContext, ComponentName(appContext, AudioPlayerService::class.java))
         controllerFuture = MediaController.Builder(appContext, sessionToken).buildAsync()
@@ -312,11 +319,13 @@ object PlaybackManager {
         progressTrackerJob = scope.launch {
             var elapsed = 0L
             while (_isPlaying.value) {
-                // Tick fast (smooth seek bar) only while the player UI is visible; otherwise tick at the
-                // DB-persistence cadence, so backgrounded/screen-off playback doesn't wake every 500ms
-                // for a position nothing is collecting (the mini player shows no progress bar).
-                // setShowPlayer restarts this loop on open, so the fast rate kicks in immediately.
-                val step = if (_showPlayerScreen.value) 500L else 10000L
+                // Tick fast (smooth seek bar) only while something is actually collecting positionMs.
+                // PlayerScreen's collectAsStateWithLifecycle unsubscribes when the Activity isn't
+                // RESUMED (screen off / backgrounded — even with the player open), so subscriptionCount
+                // is 0 then and we fall back to the ~10s DB-persistence cadence: no 500ms wake-ups with
+                // no consumer. The subscriptionCount observer in initialize restarts this loop the
+                // moment a collector reappears, so the fast rate resumes promptly.
+                val step = if (_positionMs.subscriptionCount.value > 0) 500L else 10000L
                 kotlinx.coroutines.delay(step)
                 if (!_isPlaying.value) break
                 // Emit the live position for the UI
