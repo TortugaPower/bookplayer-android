@@ -75,6 +75,7 @@ import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
+import android.app.Application
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModelFactory
 
 /** Duration of the horizontal slide between library folders. */
@@ -94,7 +95,7 @@ fun LibraryScreen(
     val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
 
     val libraryViewModel: LibraryViewModel = viewModel ?: viewModel(
-        factory = LibraryViewModelFactory(context.applicationContext, RoomLibraryRepository(database.libraryDao()), syncTaskRepository)
+        factory = LibraryViewModelFactory(context.applicationContext as Application, RoomLibraryRepository(database.libraryDao()), syncTaskRepository)
     )
 
     val currentPath by libraryViewModel.currentPath.collectAsState()

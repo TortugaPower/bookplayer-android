@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.ui.screens
 
+import android.app.Application
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -73,7 +74,7 @@ fun MainScreen() {
     }
 
     val playerViewModel: PlayerViewModel = viewModel(
-        factory = PlayerViewModelFactory(context.applicationContext, libraryRepository)
+        factory = PlayerViewModelFactory(context.applicationContext as Application, libraryRepository)
     )
 
     val showPlayerScreen by PlaybackManager.showPlayerScreen.collectAsStateWithLifecycle()
@@ -84,7 +85,7 @@ fun MainScreen() {
     )
 
     val libraryViewModel: LibraryViewModel = viewModel(
-        factory = LibraryViewModelFactory(context.applicationContext, libraryRepository, syncTaskRepository)
+        factory = LibraryViewModelFactory(context.applicationContext as Application, libraryRepository, syncTaskRepository)
     )
 
     Box(modifier = Modifier.fillMaxSize()) {

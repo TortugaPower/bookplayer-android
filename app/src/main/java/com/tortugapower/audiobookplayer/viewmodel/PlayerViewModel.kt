@@ -1,11 +1,12 @@
 package com.tortugapower.audiobookplayer.viewmodel
 
+import android.app.Application
 import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
@@ -16,9 +17,11 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class PlayerViewModel(
-    private val appContext: Context,
+    application: Application,
     private val repository: LibraryRepository
-) : ViewModel() {
+) : AndroidViewModel(application) {
+    private val appContext: Context get() = getApplication<Application>()
+
     var showControlsSheet by mutableStateOf(false)
     var showExtendedControls by mutableStateOf(false)
     var showMoreOptions by mutableStateOf(false)

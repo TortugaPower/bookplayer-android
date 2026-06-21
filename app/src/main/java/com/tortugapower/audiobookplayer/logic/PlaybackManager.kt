@@ -76,6 +76,9 @@ object PlaybackManager {
     private val _isTransitioning = MutableStateFlow(false)
     val isTransitioning: StateFlow<Boolean> = _isTransitioning.asStateFlow()
     private var progressTrackerJob: kotlinx.coroutines.Job? = null
+    // Wall-clock timestamp of the last DB progress persist. A field (not a per-loop accumulator) so the
+    // ~10s persist cadence survives tracker restarts (the subscriptionCount observer restarts the loop).
+    private var lastProgressPersistMs = 0L
 
     fun initialize(context: Context, libraryRepository: LibraryRepository) {
         if (player != null) return
@@ -317,23 +320,23 @@ object PlaybackManager {
     private fun startProgressTracker(context: Context) {
         progressTrackerJob?.cancel()
         progressTrackerJob = scope.launch {
-            var elapsed = 0L
             while (_isPlaying.value) {
                 // Tick fast (smooth seek bar) only while something is actually collecting positionMs.
                 // PlayerScreen's collectAsStateWithLifecycle unsubscribes when the Activity isn't
                 // RESUMED (screen off / backgrounded — even with the player open), so subscriptionCount
-                // is 0 then and we fall back to the ~10s DB-persistence cadence: no 500ms wake-ups with
-                // no consumer. The subscriptionCount observer in initialize restarts this loop the
-                // moment a collector reappears, so the fast rate resumes promptly.
-                val step = if (_positionMs.subscriptionCount.value > 0) 500L else 10000L
+                // is 0 then and we fall back to the slow cadence: no 500ms wake-ups with no consumer.
+                // The subscriptionCount observer in initialize restarts this loop the moment a collector
+                // reappears, so the fast rate resumes promptly.
+                val step = PlaybackTickPolicy.tickStepMs(_positionMs.subscriptionCount.value > 0)
                 kotlinx.coroutines.delay(step)
                 if (!_isPlaying.value) break
-                // Emit the live position for the UI
+                // Emit the live position for the UI.
                 _positionMs.value = player?.currentPosition ?: 0L
-                // Persist progress to the DB on the original ~10s cadence
-                elapsed += step
-                if (elapsed >= 10000) {
-                    elapsed = 0
+                // Persist progress on a ~10s WALL-CLOCK cadence (field-backed, so loop restarts don't
+                // reset it and push persistence back indefinitely).
+                val now = System.currentTimeMillis()
+                if (PlaybackTickPolicy.shouldPersist(now, lastProgressPersistMs)) {
+                    lastProgressPersistMs = now
                     updateProgress(context)
                 }
             }
