@@ -94,7 +94,7 @@ fun LibraryScreen(
     val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
 
     val libraryViewModel: LibraryViewModel = viewModel ?: viewModel(
-        factory = LibraryViewModelFactory(RoomLibraryRepository(database.libraryDao()), syncTaskRepository)
+        factory = LibraryViewModelFactory(context.applicationContext, RoomLibraryRepository(database.libraryDao()), syncTaskRepository)
     )
 
     val currentPath by libraryViewModel.currentPath.collectAsState()
@@ -739,9 +739,9 @@ fun LibraryScreen(
                                             if (item.type == ItemType.FOLDER) {
                                                 libraryViewModel.navigateTo(item.relativePath ?: "")
                                             } else {
-                                                val isCurrentlyPlaying = PlaybackManager.currentItem?.uuid == item.uuid
+                                                val isCurrentlyPlaying = PlaybackManager.currentItem.value?.uuid == item.uuid
                                                 if (isCurrentlyPlaying) {
-                                                    PlaybackManager.showPlayerScreen = true
+                                                    PlaybackManager.setShowPlayer(true)
                                                     if (PlaybackManager.player?.isPlaying == false) {
                                                         PlaybackManager.player?.play()
                                                     }

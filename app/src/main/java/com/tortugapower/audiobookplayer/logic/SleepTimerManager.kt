@@ -56,7 +56,7 @@ object SleepTimerManager {
     }
 
     private fun startTimerUntilEndOfChapter(context: android.content.Context) {
-        val currentItem = PlaybackManager.currentItem ?: return
+        val currentItem = PlaybackManager.currentItem.value ?: return
         val currentPlayer = PlaybackManager.player ?: return
         val currentPos = currentPlayer.currentPosition / 1000.0
 

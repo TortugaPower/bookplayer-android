@@ -2,10 +2,6 @@ package com.tortugapower.audiobookplayer.logic
 
 import android.content.ComponentName
 import android.content.Context
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -13,7 +9,6 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
-import com.tortugapower.audiobookplayer.MainActivity
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
@@ -22,6 +17,9 @@ import com.tortugapower.audiobookplayer.service.AudioPlayerService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -31,37 +29,49 @@ import java.io.File
 object PlaybackManager {
     val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var controllerFuture: ListenableFuture<MediaController>? = null
-    var player: Player? by mutableStateOf(null)
+    var player: Player? = null
         private set
 
     private var repository: LibraryRepository? = null
 
-    var currentItem: LibraryItemEntity? by mutableStateOf(null)
-        private set
+    private val _currentItem = MutableStateFlow<LibraryItemEntity?>(null)
+    val currentItem: StateFlow<LibraryItemEntity?> = _currentItem.asStateFlow()
 
-    var hasNextItem by mutableStateOf(false)
-        private set
-    var hasPreviousItem by mutableStateOf(false)
-        private set
+    private val _hasNextItem = MutableStateFlow(false)
+    val hasNextItem: StateFlow<Boolean> = _hasNextItem.asStateFlow()
+    private val _hasPreviousItem = MutableStateFlow(false)
+    val hasPreviousItem: StateFlow<Boolean> = _hasPreviousItem.asStateFlow()
 
-    var isPlaying by mutableStateOf(false)
-        private set
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
-    var playbackState by mutableIntStateOf(Player.STATE_IDLE)
-        private set
+    private val _playbackState = MutableStateFlow(Player.STATE_IDLE)
+    val playbackState: StateFlow<Int> = _playbackState.asStateFlow()
 
-    var showPlayerScreen by mutableStateOf(false)
+    private val _showPlayerScreen = MutableStateFlow(false)
+    val showPlayerScreen: StateFlow<Boolean> = _showPlayerScreen.asStateFlow()
 
-    var playbackSpeed by mutableStateOf(1.0f)
-    var rewindInterval by mutableStateOf(30)
-    var forwardInterval by mutableStateOf(30)
-    var volumeBoost by mutableStateOf(false)
-    var playbackVolume by mutableStateOf(1.0f)
+    fun setShowPlayer(value: Boolean) { _showPlayerScreen.value = value }
+
+    private val _playbackSpeed = MutableStateFlow(1.0f)
+    val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
+    private val _rewindInterval = MutableStateFlow(30)
+    val rewindInterval: StateFlow<Int> = _rewindInterval.asStateFlow()
+    private val _forwardInterval = MutableStateFlow(30)
+    val forwardInterval: StateFlow<Int> = _forwardInterval.asStateFlow()
+    private val _volumeBoost = MutableStateFlow(false)
+    val volumeBoost: StateFlow<Boolean> = _volumeBoost.asStateFlow()
+    private val _playbackVolume = MutableStateFlow(1.0f)
+    val playbackVolume: StateFlow<Float> = _playbackVolume.asStateFlow()
+
+    private val _positionMs = MutableStateFlow(0L)
+    val positionMs: StateFlow<Long> = _positionMs.asStateFlow()
 
     private var lastPauseTime: Long = 0
     private var smartRewindEnabled = true
     private var smartRewindLimit = 30
-    var isTransitioning by mutableStateOf(false)
+    private val _isTransitioning = MutableStateFlow(false)
+    val isTransitioning: StateFlow<Boolean> = _isTransitioning.asStateFlow()
     private var progressTrackerJob: kotlinx.coroutines.Job? = null
 
     fun initialize(context: Context, libraryRepository: LibraryRepository) {
@@ -79,8 +89,8 @@ object PlaybackManager {
                 // Add listener once
                 mediaController.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
-                        if (isPlaying == playing) return
-                        isPlaying = playing
+                        if (_isPlaying.value == playing) return
+                        _isPlaying.value = playing
                         if (!playing) {
                             lastPauseTime = System.currentTimeMillis()
                             updateProgress(appContext)
@@ -98,17 +108,18 @@ object PlaybackManager {
                         reason: Int
                     ) {
                         if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                            _positionMs.value = player?.currentPosition ?: 0L
                             updateProgress(appContext)
                         }
                     }
 
                     override fun onPlaybackStateChanged(state: Int) {
-                        playbackState = state
+                        _playbackState.value = state
                         if (state == Player.STATE_ENDED) {
                             updateProgress(appContext, forceFinished = true)
                             // Auto-play next item
                             scope.launch {
-                                val current = currentItem ?: return@launch
+                                val current = _currentItem.value ?: return@launch
                                 val db = AppDatabase.getDatabase(appContext)
                                 val repository = RoomLibraryRepository(db.libraryDao())
                                 val nextItem = repository.getAdjacentItem(current.uuid, next = true)
@@ -116,8 +127,8 @@ object PlaybackManager {
                                     playItem(appContext, nextItem)
                                 }
                             }
-                        } else if (state == Player.STATE_READY && isTransitioning) {
-                            isTransitioning = false
+                        } else if (state == Player.STATE_READY && _isTransitioning.value) {
+                            _isTransitioning.value = false
                         }
                     }
                 })
@@ -134,8 +145,8 @@ object PlaybackManager {
                             val next = getRepository(appContext).getAdjacentItem(item.uuid, next = true) != null
                             val prev = getRepository(appContext).getAdjacentItem(item.uuid, next = false) != null
                             launch(Dispatchers.Main) {
-                                hasNextItem = next
-                                hasPreviousItem = prev
+                                _hasNextItem.value = next
+                                _hasPreviousItem.value = prev
                             }
 
                             val mediaItems = if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
@@ -201,8 +212,8 @@ object PlaybackManager {
 
                             if (mediaItems.isNotEmpty()) {
                                 launch(Dispatchers.Main) {
-                                    isTransitioning = true
-                                    
+                                    _isTransitioning.value = true
+
                                     var targetIndex = 0
                                     var targetOffset = item.currentTime
                                     if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
@@ -225,11 +236,14 @@ object PlaybackManager {
                                     mediaController.prepare()
                                     
                                     // Apply speed and volume
-                                    mediaController.setPlaybackSpeed(playbackSpeed)
-                                    applyVolume(volumeBoost, playbackVolume)
-                                    
+                                    mediaController.setPlaybackSpeed(_playbackSpeed.value)
+                                    applyVolume(_volumeBoost.value, _playbackVolume.value)
+
                                     // Finalize restoration
-                                    currentItem = item
+                                    _currentItem.value = item
+                                    // Seed from the intended offset, not the live player: prepare() is
+                                    // async so currentPosition is still 0 here (matches playItem).
+                                    _positionMs.value = (targetOffset * 1000).toLong()
                                 }
                             }
                         }
@@ -237,8 +251,8 @@ object PlaybackManager {
                 }
 
                 // Apply current speed and volume when player is ready
-                mediaController.setPlaybackSpeed(playbackSpeed)
-                applyVolume(volumeBoost, playbackVolume)
+                mediaController.setPlaybackSpeed(_playbackSpeed.value)
+                applyVolume(_volumeBoost.value, _playbackVolume.value)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -248,15 +262,15 @@ object PlaybackManager {
         scope.launch(Dispatchers.IO) {
             launch {
                 PlaybackSettingsManager.getSpeed(appContext).collectLatest { speed ->
-                    playbackSpeed = speed
+                    _playbackSpeed.value = speed
                     launch(Dispatchers.Main) { player?.setPlaybackSpeed(speed) }
                 }
             }
             launch {
-                PlaybackSettingsManager.getRewindInterval(appContext).collectLatest { rewindInterval = it }
+                PlaybackSettingsManager.getRewindInterval(appContext).collectLatest { _rewindInterval.value = it }
             }
             launch {
-                PlaybackSettingsManager.getForwardInterval(appContext).collectLatest { forwardInterval = it }
+                PlaybackSettingsManager.getForwardInterval(appContext).collectLatest { _forwardInterval.value = it }
             }
             launch {
                 PlaybackSettingsManager.getSmartRewind(appContext).collectLatest { smartRewindEnabled = it }
@@ -266,14 +280,14 @@ object PlaybackManager {
             }
             launch {
                 PlaybackSettingsManager.getVolumeBoost(appContext).collectLatest { boost ->
-                    volumeBoost = boost
-                    launch(Dispatchers.Main) { applyVolume(boost, playbackVolume) }
+                    _volumeBoost.value = boost
+                    launch(Dispatchers.Main) { applyVolume(boost, _playbackVolume.value) }
                 }
             }
             launch {
                 PlaybackSettingsManager.getVolume(appContext).collectLatest { volume ->
-                    playbackVolume = volume
-                    launch(Dispatchers.Main) { applyVolume(volumeBoost, volume) }
+                    _playbackVolume.value = volume
+                    launch(Dispatchers.Main) { applyVolume(_volumeBoost.value, volume) }
                 }
             }
         }
@@ -286,9 +300,16 @@ object PlaybackManager {
     private fun startProgressTracker(context: Context) {
         progressTrackerJob?.cancel()
         progressTrackerJob = scope.launch {
-            while (isPlaying) {
-                kotlinx.coroutines.delay(10000)
-                if (isPlaying) {
+            var elapsed = 0L
+            while (_isPlaying.value) {
+                kotlinx.coroutines.delay(500)
+                if (!_isPlaying.value) break
+                // Emit the live position for the UI every tick (~500ms)
+                _positionMs.value = player?.currentPosition ?: 0L
+                // Persist progress to the DB on the original ~10s cadence
+                elapsed += 500
+                if (elapsed >= 10000) {
+                    elapsed = 0
                     updateProgress(context)
                 }
             }
@@ -296,9 +317,9 @@ object PlaybackManager {
     }
 
     private fun updateProgress(context: Context, itemToUpdate: LibraryItemEntity? = null, forceFinished: Boolean = false) {
-        if (isTransitioning) return
-        
-        val item = itemToUpdate ?: currentItem ?: return
+        if (_isTransitioning.value) return
+
+        val item = itemToUpdate ?: _currentItem.value ?: return
         val p = player ?: return
         
         // Safety: Only update if the player is actually on an item in this context
@@ -356,10 +377,11 @@ object PlaybackManager {
     }
 
     fun syncLastPlayed(context: Context, item: LibraryItemEntity) {
-        if (isPlaying || player == null) return
-        
+        if (_isPlaying.value || player == null) return
+
         // If it's the same item and very close position, skip to avoid unnecessary reloads
-        if (currentItem?.uuid == item.uuid && Math.abs(currentItem!!.currentTime - item.currentTime) < 2.0) {
+        val current = _currentItem.value
+        if (current?.uuid == item.uuid && Math.abs(current.currentTime - item.currentTime) < 2.0) {
             return
         }
 
@@ -373,14 +395,14 @@ object PlaybackManager {
 
     fun playItem(context: Context, item: LibraryItemEntity, autoplay: Boolean = true) {
         // If it's already playing the requested item, just show the player
-        if (item.uuid == currentItem?.uuid && player?.isPlaying == true) {
-            showPlayerScreen = true
+        if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
+            _showPlayerScreen.value = true
             return
         }
 
         // Only update progress of the previous item if we're actually switching books
-        if (currentItem?.uuid != item.uuid) {
-            updateProgress(context, itemToUpdate = currentItem)
+        if (_currentItem.value?.uuid != item.uuid) {
+            updateProgress(context, itemToUpdate = _currentItem.value)
         }
         
         if (item.isFinished) {
@@ -392,17 +414,18 @@ object PlaybackManager {
             }
         }
         
-        isTransitioning = true
-        currentItem = item
-        
+        _isTransitioning.value = true
+        _currentItem.value = item
+        _positionMs.value = (item.currentTime * 1000).toLong()
+
         // Update navigation states
         scope.launch(Dispatchers.IO) {
             val repo = getRepository(context)
             val next = repo.getAdjacentItem(item.uuid, next = true) != null
             val prev = repo.getAdjacentItem(item.uuid, next = false) != null
             launch(Dispatchers.Main) {
-                hasNextItem = next
-                hasPreviousItem = prev
+                _hasNextItem.value = next
+                _hasPreviousItem.value = prev
             }
         }
         
@@ -479,10 +502,10 @@ object PlaybackManager {
                     player?.prepare()
                     if (autoplay) {
                         player?.play()
-                        showPlayerScreen = true
+                        _showPlayerScreen.value = true
                     }
-                    player?.setPlaybackSpeed(playbackSpeed)
-                    applyVolume(volumeBoost, playbackVolume)
+                    player?.setPlaybackSpeed(_playbackSpeed.value)
+                    applyVolume(_volumeBoost.value, _playbackVolume.value)
                 }
             } else {
                 val file = File(processedDir, item.relativePath ?: "")
@@ -531,24 +554,24 @@ object PlaybackManager {
                     player?.prepare()
                     if (autoplay) {
                         player?.play()
-                        showPlayerScreen = true
+                        _showPlayerScreen.value = true
                     }
-                    player?.setPlaybackSpeed(playbackSpeed)
-                    applyVolume(volumeBoost, playbackVolume)
+                    player?.setPlaybackSpeed(_playbackSpeed.value)
+                    applyVolume(_volumeBoost.value, _playbackVolume.value)
                 }
             }
         }
     }
 
     fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {
-        updateProgress(context, itemToUpdate = currentItem)
+        updateProgress(context, itemToUpdate = _currentItem.value)
         scope.launch(Dispatchers.IO) {
             val item = getRepository(context).getItemByPath(path)
             if (item != null) {
                 launch(Dispatchers.Main) {
                     playItem(context, item)
                     if (!autoplay) player?.pause()
-                    if (!showPlayer) showPlayerScreen = false
+                    if (!showPlayer) _showPlayerScreen.value = false
                 }
             }
         }
@@ -570,12 +593,12 @@ object PlaybackManager {
 
     fun seekForward() {
         val p = player ?: return
-        p.seekTo(p.currentPosition + (forwardInterval * 1000L))
+        p.seekTo(p.currentPosition + (_forwardInterval.value * 1000L))
     }
 
     fun seekBackward() {
         val p = player ?: return
-        p.seekTo(p.currentPosition - (rewindInterval * 1000L))
+        p.seekTo(p.currentPosition - (_rewindInterval.value * 1000L))
     }
 
     fun seekTo(positionMs: Long) {
@@ -590,7 +613,7 @@ object PlaybackManager {
 
     fun playNext(context: Context) {
         scope.launch {
-            val current = currentItem ?: return@launch
+            val current = _currentItem.value ?: return@launch
             val nextItem = getRepository(context).getAdjacentItem(current.uuid, next = true)
             if (nextItem != null) {
                 playItem(context, nextItem)
@@ -600,7 +623,7 @@ object PlaybackManager {
 
     fun playPrevious(context: Context) {
         scope.launch {
-            val current = currentItem ?: return@launch
+            val current = _currentItem.value ?: return@launch
             val prevItem = getRepository(context).getAdjacentItem(current.uuid, next = false)
             if (prevItem != null) {
                 playItem(context, prevItem)
@@ -622,7 +645,7 @@ object PlaybackManager {
 
     fun toggleVolumeBoost(context: Context) {
         scope.launch {
-            PlaybackSettingsManager.setVolumeBoost(context, !volumeBoost)
+            PlaybackSettingsManager.setVolumeBoost(context, !_volumeBoost.value)
         }
     }
 

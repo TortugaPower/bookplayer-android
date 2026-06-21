@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +38,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
@@ -57,8 +59,9 @@ val LocalMiniPlayerInset = compositionLocalOf { 0.dp }
 
 @Composable
 fun MiniPlayer(modifier: Modifier = Modifier) {
-    val currentItem = PlaybackManager.currentItem ?: return
-    val isPlaying = PlaybackManager.isPlaying
+    val currentItem = PlaybackManager.currentItem.collectAsStateWithLifecycle().value ?: return
+    val isPlaying by PlaybackManager.isPlaying.collectAsStateWithLifecycle()
+    val rewindInterval by PlaybackManager.rewindInterval.collectAsStateWithLifecycle()
 
     val title = currentItem.title
     val author = if (currentItem.author.isNullOrBlank()) {
@@ -93,7 +96,7 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
             // to TalkBack as one element. The control buttons below are separate, focusable nodes
             // (we intentionally do NOT mergeDescendants, which would swallow them).
             .clickable(onClickLabel = showPlayerLabel) {
-                PlaybackManager.showPlayerScreen = true
+                PlaybackManager.setShowPlayer(true)
             }
             .semantics {
                 contentDescription = nowPlayingLabel
@@ -193,7 +196,7 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
             IconButton(onClick = { PlaybackManager.seekBackward() }) {
                 Icon(
                     imageVector = Icons.Default.Replay,
-                    contentDescription = stringResource(R.string.player_rewind_seconds, PlaybackManager.rewindInterval),
+                    contentDescription = stringResource(R.string.player_rewind_seconds, rewindInterval),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(28.dp)
                 )

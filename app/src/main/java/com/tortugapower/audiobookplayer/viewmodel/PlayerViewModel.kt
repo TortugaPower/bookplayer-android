@@ -5,7 +5,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
@@ -17,6 +16,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class PlayerViewModel(
+    private val appContext: Context,
     private val repository: LibraryRepository
 ) : ViewModel() {
     var showControlsSheet by mutableStateOf(false)
@@ -72,13 +72,12 @@ class PlayerViewModel(
     init {
         // Load initial settings
         viewModelScope.launch {
-            val context = com.tortugapower.audiobookplayer.MainActivity.currentContext ?: return@launch
-            loadSettings(context)
+            loadSettings(appContext)
         }
 
         // Observe settings changes continuously for real-time UI updates
         viewModelScope.launch {
-            val context = com.tortugapower.audiobookplayer.MainActivity.currentContext ?: return@launch
+            val context = appContext
             launch {
                 PlaybackSettingsManager.getRewindInterval(context).collect { rewindInterval = it }
             }
@@ -92,7 +91,7 @@ class PlayerViewModel(
 
         // Observe Current Item and update lists (Using Stable collectLatest)
         viewModelScope.launch {
-            snapshotFlow { PlaybackManager.currentItem }.collectLatest { item ->
+            PlaybackManager.currentItem.collectLatest { item ->
                 if (item != null) {
                     // Update navigation states
                     hasNextItem = repository.getAdjacentItem(item.uuid, next = true) != null
@@ -154,7 +153,7 @@ class PlayerViewModel(
     }
 
     fun toggleFinished() {
-        val item = PlaybackManager.currentItem ?: return
+        val item = PlaybackManager.currentItem.value ?: return
         viewModelScope.launch {
             item.isFinished = !item.isFinished
             if (item.isFinished) {
@@ -176,7 +175,7 @@ class PlayerViewModel(
     }
 
     fun seekToChapter(chapter: com.tortugapower.audiobookplayer.database.entities.ChapterEntity) {
-        val item = currentItem ?: return
+        val item = currentItem.value ?: return
         if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
             PlaybackManager.seekTo(chapter.index, 0L)
         } else {
@@ -193,7 +192,7 @@ class PlayerViewModel(
     }
 
     fun addBookmark() {
-        val item = PlaybackManager.currentItem ?: return
+        val item = PlaybackManager.currentItem.value ?: return
         val player = PlaybackManager.player ?: return
         val currentTime = (player.currentPosition / 1000).toDouble()
 
@@ -334,14 +333,14 @@ class PlayerViewModel(
     }
 
     // Proxy methods
-    val playbackSpeed get() = PlaybackManager.playbackSpeed
-    val playbackVolume get() = PlaybackManager.playbackVolume
-    val volumeBoost get() = PlaybackManager.volumeBoost
-    val isPlaying get() = PlaybackManager.isPlaying
-    val playbackState get() = PlaybackManager.playbackState
-    val currentItem get() = PlaybackManager.currentItem
+    val playbackSpeed: StateFlow<Float> get() = PlaybackManager.playbackSpeed
+    val playbackVolume: StateFlow<Float> get() = PlaybackManager.playbackVolume
+    val volumeBoost: StateFlow<Boolean> get() = PlaybackManager.volumeBoost
+    val isPlaying: StateFlow<Boolean> get() = PlaybackManager.isPlaying
+    val playbackState: StateFlow<Int> get() = PlaybackManager.playbackState
+    val currentItem: StateFlow<com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity?> get() = PlaybackManager.currentItem
     val player get() = PlaybackManager.player
-    val isTransitioning get() = PlaybackManager.isTransitioning
+    val isTransitioning: StateFlow<Boolean> get() = PlaybackManager.isTransitioning
 
     fun setPlaybackSpeed(context: Context, speed: Float) { PlaybackManager.setPlaybackSpeed(context, speed) }
     fun setPlaybackVolume(context: Context, volume: Float) { PlaybackManager.setPlaybackVolume(context, volume) }
@@ -396,7 +395,7 @@ class PlayerViewModel(
     }
 
     fun seekToAbsolute(positionMs: Long) {
-        val item = currentItem ?: return
+        val item = currentItem.value ?: return
         if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
             val targetPosSecs = positionMs / 1000.0
             val currentChapters = chapters.value
