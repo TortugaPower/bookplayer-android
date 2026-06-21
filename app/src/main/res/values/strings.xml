@@ -119,6 +119,10 @@
     <string name="themes_always_use_dark">Always use dark variation</string>
     <string name="themes_section_header">THEMES</string>
 
+    <!-- Media notification / lock-screen controls -->
+    <string name="media_action_rewind">Rewind</string>
+    <string name="media_action_fast_forward">Fast forward</string>
+
     <!-- App Icons -->
     <string name="app_icon_author">By your friends at BookPlayer</string>
     <string name="app_icon_change_failed">Changing the app icon wasn\'t successful. Try again later.</string>

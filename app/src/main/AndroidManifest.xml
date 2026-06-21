@@ -3,6 +3,10 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Keeps the CPU and (for streamed books) the Wi-Fi radio awake so audio keeps playing with the
+         screen off / during doze (paired with ExoPlayer.setWakeMode(WAKE_MODE_NETWORK) in
+         AudioPlayerService). The Wi-Fi lock also only needs WAKE_LOCK — no extra permission. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
@@ -52,6 +56,34 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="bookplayer" />
+            </intent-filter>
+            <!--
+                "Open with" / view an audio file shared from another app (a chat, a file manager,
+                etc.). Makes BookPlayer appear in the chooser for audio files; MainActivity.handleIntent
+                routes the incoming content://-or-file:// URI into ImportManager. CATEGORY_DEFAULT is
+                required for the chooser; no BROWSABLE (this is for files, not web links).
+            -->
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+            <!--
+                "Share" one or more audio files TO BookPlayer (system Share sheet). The file(s) ride
+                in EXTRA_STREAM, not the intent data — MainActivity.handleIntent reads them and routes
+                into ImportManager. SEND = one file, SEND_MULTIPLE = a batch.
+            -->
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
             </intent-filter>
         </activity>
 
