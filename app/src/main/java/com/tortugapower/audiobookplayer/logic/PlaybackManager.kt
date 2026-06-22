@@ -37,6 +37,9 @@ object PlaybackManager {
     private var repository: LibraryRepository? = null
     private var appContext: Context? = null
 
+    // --- Observable playback state, the app-scoped source of truth. Collect from Compose via
+    // collectAsStateWithLifecycle; read `.value` from non-Compose code. Only PlaybackManager writes it. ---
+
     private val _currentItem = MutableStateFlow<LibraryItemEntity?>(null)
     val currentItem: StateFlow<LibraryItemEntity?> = _currentItem.asStateFlow()
 
@@ -67,6 +70,12 @@ object PlaybackManager {
     private val _playbackVolume = MutableStateFlow(1.0f)
     val playbackVolume: StateFlow<Float> = _playbackVolume.asStateFlow()
 
+    /**
+     * Current playback position in ms — the RAW position of the current media item. For BOUND books the
+     * UI must add the current chapter's cumulative start (see PlayerScreen); it's NOT the whole-book
+     * position. Emitted while playing and re-seeded on seek/load; ticks fast only while a collector is
+     * active (see [startProgressTracker]). 0 before anything plays.
+     */
     private val _positionMs = MutableStateFlow(0L)
     val positionMs: StateFlow<Long> = _positionMs.asStateFlow()
 
