@@ -18,15 +18,10 @@ import com.tortugapower.audiobookplayer.ui.screens.MainScreen
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerTheme
 
 class MainActivity : ComponentActivity() {
-    companion object {
-        var currentContext: android.content.Context? = null
-            private set
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
-        currentContext = this
         
         volumeControlStream = android.media.AudioManager.STREAM_MUSIC
 
@@ -80,7 +75,7 @@ class MainActivity : ComponentActivity() {
                     com.tortugapower.audiobookplayer.logic.ImportManager.startImport(this, shared)
                 }
             }
-            intent.getBooleanExtra("OPEN_PLAYER", false) -> PlaybackManager.showPlayerScreen = true
+            intent.getBooleanExtra("OPEN_PLAYER", false) -> PlaybackManager.setShowPlayer(true)
         }
     }
 
@@ -95,7 +90,7 @@ class MainActivity : ComponentActivity() {
                     PlaybackManager.playItemByPath(this, identifier, autoplay, showPlayer)
                 } else {
                     if (autoplay) PlaybackManager.togglePlayPause()
-                    if (showPlayer) PlaybackManager.showPlayerScreen = true
+                    if (showPlayer) PlaybackManager.setShowPlayer(true)
                 }
             }
             "download" -> {
@@ -118,18 +113,6 @@ class MainActivity : ComponentActivity() {
                     com.tortugapower.audiobookplayer.logic.SleepTimerManager.configureTimerWithSeconds(this, seconds)
                 }
             }
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        currentContext = this
-    }
-
-    override fun onPause() {
-        super.onPause()
-        if (currentContext == this) {
-            currentContext = null
         }
     }
 

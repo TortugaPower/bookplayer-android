@@ -130,7 +130,7 @@ class AudioPlayerService : MediaSessionService() {
     /** Seek the player relative to its current position by the live configured interval. */
     private fun seekRelative(forward: Boolean) {
         val p = player ?: return
-        val seconds = if (forward) PlaybackManager.forwardInterval else PlaybackManager.rewindInterval
+        val seconds = if (forward) PlaybackManager.forwardInterval.value else PlaybackManager.rewindInterval.value
         val deltaMs = seconds * 1000L
         val target = p.currentPosition + (if (forward) deltaMs else -deltaMs)
         p.seekTo(target.coerceAtLeast(0L))

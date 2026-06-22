@@ -166,6 +166,7 @@
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">Chapter 1 of 1</string>
     <string name="player_play_pause">Play/Pause</string>
+    <string name="player_seek_position">%1$s of %2$s</string>
     <string name="player_play">Play</string>
     <string name="player_pause">Pause</string>
     <string name="player_rewind_seconds">Rewind %1$d seconds</string>
@@ -237,6 +238,9 @@
     <string name="player_settings_use_chapter_context">Use Chapter Context</string>
     <string name="player_settings_progress_labels_desc">Toggle between displaying the remaining time, total duration and progress of either the chapter or the book in the player screen</string>
     <string name="player_rewind">Rewind</string>
+    <string name="player_pane_title">Player</string>
+    <string name="player_chapter_progress">Chapter %1$d of %2$d</string>
+    <string name="common_selected">Selected</string>
 
     <!-- Library -->
     <string name="library_title_default">Library</string>

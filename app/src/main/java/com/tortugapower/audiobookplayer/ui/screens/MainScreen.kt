@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.ui.screens
 
+import android.app.Application
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -24,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -72,15 +74,18 @@ fun MainScreen() {
     }
 
     val playerViewModel: PlayerViewModel = viewModel(
-        factory = PlayerViewModelFactory(libraryRepository)
+        factory = PlayerViewModelFactory(context.applicationContext as Application, libraryRepository)
     )
+
+    val showPlayerScreen by PlaybackManager.showPlayerScreen.collectAsStateWithLifecycle()
+    val currentPlaybackItem by PlaybackManager.currentItem.collectAsStateWithLifecycle()
 
     val profileViewModel: ProfileViewModel = viewModel(
         factory = ProfileViewModelFactory(accountRepository, syncTaskRepository)
     )
 
     val libraryViewModel: LibraryViewModel = viewModel(
-        factory = LibraryViewModelFactory(libraryRepository, syncTaskRepository)
+        factory = LibraryViewModelFactory(context.applicationContext as Application, libraryRepository, syncTaskRepository)
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -88,7 +93,7 @@ fun MainScreen() {
             // While the full player is shown over everything, strip the tab UI (incl. the floating
             // mini player) from the TalkBack tree so focus stays within the player. clearAndSetSemantics
             // already clears the whole subtree, so no separate hideFromAccessibility() is needed.
-            modifier = if (PlaybackManager.showPlayerScreen) {
+            modifier = if (showPlayerScreen) {
                 Modifier.clearAndSetSemantics { }
             } else Modifier,
             containerColor = MaterialTheme.colorScheme.background,
@@ -118,7 +123,7 @@ fun MainScreen() {
             // The floating mini player is shown over content when a book is loaded (and not on
             // the full-screen themes route). Screens read LocalMiniPlayerInset to reserve bottom
             // space so their scroll content clears the pill while still scrolling behind it.
-            val miniPlayerVisible = PlaybackManager.currentItem != null && currentRoute != "themes" && currentRoute != "tipjar" && currentRoute != "appicons"
+            val miniPlayerVisible = currentPlaybackItem != null && currentRoute != "themes" && currentRoute != "tipjar" && currentRoute != "appicons"
 
             // Consume the root insets so the per-screen nested Scaffolds (tab chrome,
             // Account Details) don't re-apply the bottom navigation-bar inset on top of

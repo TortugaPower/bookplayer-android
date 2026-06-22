@@ -1,9 +1,11 @@
 package com.tortugapower.audiobookplayer.viewmodel
 
+import android.app.Application
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
@@ -12,9 +14,11 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class LibraryViewModel(
+    application: Application,
     private val repository: com.tortugapower.audiobookplayer.repository.LibraryRepository,
     private val syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository
-) : ViewModel() {
+) : AndroidViewModel(application) {
+    private val appContext: Context get() = getApplication<Application>()
 
     private val _currentPath = MutableStateFlow<String?>(null)
     val currentPath: StateFlow<String?> = _currentPath.asStateFlow()
@@ -114,7 +118,7 @@ class LibraryViewModel(
             val relativePath = if (path == null) name else "$path/$name"
             
             // Get current max order rank in target folder
-            val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(com.tortugapower.audiobookplayer.MainActivity.currentContext!!)
+            val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(appContext)
             val libraryDao = db.libraryDao()
             val currentMaxRank = if (path == null) libraryDao.getMaxRootOrderRank() 
                                 else libraryDao.getMaxPathOrderRank(path)

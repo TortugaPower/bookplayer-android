@@ -69,8 +69,8 @@ class FetchContentsProcessor(
                 // Ensure the last played item itself is synced to DB
                 val (finalUuid, _) = syncItem(libraryDao, serverLastPlayed, allGeneratedUuids)
                 
-                if (!PlaybackManager.isPlaying) {
-                    val localCurrent = PlaybackManager.currentItem
+                if (!PlaybackManager.isPlaying.value) {
+                    val localCurrent = PlaybackManager.currentItem.value
                     val serverTs = serverLastPlayed.lastPlayDateTimestamp?.let { (it * 1000).toLong() } ?: 0L
                     val localTs = localCurrent?.lastPlayDate ?: 0L
                     

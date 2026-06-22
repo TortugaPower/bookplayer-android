@@ -53,6 +53,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.stringResource
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
@@ -116,8 +117,12 @@ fun MarqueeText(
 fun PlayerScreen(
     viewModel: PlayerViewModel = viewModel()
 ) {
-    val currentItem = viewModel.currentItem
-    val isPlaying = viewModel.isPlaying
+    val currentItem = viewModel.currentItem.collectAsStateWithLifecycle().value
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
+    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
+    val isTransitioning by viewModel.isTransitioning.collectAsStateWithLifecycle()
+    val showPlayerScreen by PlaybackManager.showPlayerScreen.collectAsStateWithLifecycle()
     val playPauseFocusRequester = remember { FocusRequester() }
     
     // Use the item's saved time as the initial value when the item changes
@@ -142,8 +147,8 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val isHidden = offsetY.value >= screenHeightPx
 
-    LaunchedEffect(PlaybackManager.showPlayerScreen, screenHeightPx) {
-        if (PlaybackManager.showPlayerScreen) {
+    LaunchedEffect(showPlayerScreen, screenHeightPx) {
+        if (showPlayerScreen) {
             offsetY.animateTo(0f, tween(400))
             try {
                 playPauseFocusRequester.requestFocus()
@@ -156,49 +161,22 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(isPlaying, isDragging, isHidden, viewModel.seekTrigger, currentItem?.uuid, viewModel.isTransitioning) {
-        val p = viewModel.player
-        val chapters = viewModel.chapters.value
-        if (p != null && !viewModel.isTransitioning) {
-            // Final safety guard for Media3 sync lag
-            if (p.currentMediaItem?.mediaId != currentItem?.uuid && currentItem?.type != com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND || 
-                (p.playbackState != Player.STATE_READY && p.playbackState != Player.STATE_BUFFERING)) {
-                
-                var attempts = 0
-                while ((p.currentMediaItem?.mediaId != currentItem?.uuid && currentItem?.type != com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND || 
-                       (p.playbackState != Player.STATE_READY && p.playbackState != Player.STATE_BUFFERING)) 
-                       && attempts < 30) {
-                    delay(50)
-                    attempts++
-                }
-                // After IDs match and player is ready, give it a substantial moment 
-                // to settle its internal position state after seekTo()
-                delay(500)
-            }
-
-            if (!isDragging && !isHidden && !viewModel.isTransitioning) {
-                val updatePosition = {
-                    if (currentItem?.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-                        val currentIndex = p.currentMediaItemIndex
-                        if (currentIndex >= 0 && currentIndex < chapters.size) {
-                            position = (chapters[currentIndex].start * 1000).toLong() + p.currentPosition
-                        }
-                    } else {
-                        position = p.currentPosition
-                    }
-                }
-
-                if (isPlaying) {
-                    // Update position every second while playing
-                    while (isPlaying) {
-                        updatePosition()
-                        delay(1000)
-                    }
-                } else {
-                    // Sync position once when paused or seek triggered
-                    updatePosition()
-                }
-            }
+    // Position comes from PlaybackManager.positionMs: it ticks while playing and is re-seeded on seek
+    // (onPositionDiscontinuity) and on load. We collect it lifecycle-aware, so the UI no longer polls
+    // the player or races its post-seek settle (the old 30-iteration loop is gone). For BOUND books,
+    // add the current chapter's cumulative start to the raw per-item position.
+    val rawPositionMs by PlaybackManager.positionMs.collectAsStateWithLifecycle()
+    LaunchedEffect(rawPositionMs, currentItem?.uuid, isDragging, isTransitioning, viewModel.seekTrigger) {
+        if (isDragging || isTransitioning) return@LaunchedEffect
+        val p = viewModel.player ?: return@LaunchedEffect
+        if (p.playbackState != Player.STATE_READY && p.playbackState != Player.STATE_BUFFERING) return@LaunchedEffect
+        position = if (currentItem?.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
+            val chapters = viewModel.chapters.value
+            val idx = p.currentMediaItemIndex
+            if (idx >= 0 && idx < chapters.size) (chapters[idx].start * 1000).toLong() + rawPositionMs
+            else rawPositionMs
+        } else {
+            rawPositionMs
         }
     }
 
@@ -280,7 +258,8 @@ fun PlayerScreen(
         )
     }
 
-    if (PlaybackManager.showPlayerScreen || offsetY.value < screenHeightPx) {
+    val paneTitleText = stringResource(R.string.player_pane_title)
+    if (showPlayerScreen || offsetY.value < screenHeightPx) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -296,7 +275,7 @@ fun PlayerScreen(
                 }
                 .semantics {
                     if (!isHidden) {
-                        paneTitle = "Player"
+                        paneTitle = paneTitleText
                     }
                 }
                 .then(
@@ -313,7 +292,7 @@ fun PlayerScreen(
                                 if (offsetY.value > screenHeightPx * 0.3f || velocity > 1000) {
                                     scope.launch {
                                         offsetY.animateTo(screenHeightPx + 500f, tween(300))
-                                        PlaybackManager.showPlayerScreen = false
+                                        PlaybackManager.setShowPlayer(false)
                                     }
                                 } else {
                                     scope.launch {
@@ -395,7 +374,7 @@ fun PlayerScreen(
                         )
                     }
 
-                    if (viewModel.playbackState == Player.STATE_BUFFERING && !isLocal) {
+                    if (playbackState == Player.STATE_BUFFERING && !isLocal) {
                         SoundwaveLoadingOverlay()
                     }
 
@@ -486,7 +465,21 @@ fun PlayerScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
+                // Announce "elapsed of total" to TalkBack when the seek bar is focused/scrubbed —
+                // otherwise the slider only reports a bare percentage with no time context. Match the
+                // visible labels: chapter-relative when chapter context is on, else the whole book.
+                val seekStateDescription = if (viewModel.useChapterContext && currentChapter != null) {
+                    val chapterPos = (position - (currentChapter.start * 1000).toLong()).coerceAtLeast(0)
+                    stringResource(
+                        R.string.player_seek_position,
+                        formatTime(chapterPos),
+                        formatTime((currentChapter.duration * 1000).toLong())
+                    )
+                } else {
+                    stringResource(R.string.player_seek_position, formatTime(position), formatTime(duration))
+                }
                 BookPlayerSlider(
+                    modifier = Modifier.semantics { stateDescription = seekStateDescription },
                     value = if (isDragging) {
                         dragPosition
                     } else {
@@ -558,7 +551,7 @@ fun PlayerScreen(
                     
                     val centerLabel = if (viewModel.useChapterContext && chapters.isNotEmpty()) {
                         if (currentChapterIndex != -1) {
-                            "Chapter ${currentChapterIndex + 1} of ${chapters.size}"
+                            stringResource(R.string.player_chapter_progress, currentChapterIndex + 1, chapters.size)
                         } else {
                             stringResource(R.string.player_chapter_default)
                         }
@@ -625,7 +618,7 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     PlayerBottomButton(
-                        label = "${if (viewModel.playbackSpeed % 1.0f == 0.0f) viewModel.playbackSpeed.toInt() else viewModel.playbackSpeed}x",
+                        label = "${if (playbackSpeed % 1.0f == 0.0f) playbackSpeed.toInt() else playbackSpeed}x",
                         onClick = { viewModel.toggleControlsSheet() }
                     )
                     PlayerBottomButton(
@@ -781,6 +774,7 @@ fun MoreOptionsSheet(
 ) {
     val sheetState = rememberModalBottomSheetState()
     
+    val currentItem by viewModel.currentItem.collectAsStateWithLifecycle()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -802,7 +796,7 @@ fun MoreOptionsSheet(
             BookmarkDialogButton(text = stringResource(R.string.player_jump_to_start)) {
                 viewModel.jumpToStart()
             }
-            BookmarkDialogButton(text = viewModel.currentItem?.let { if (it.isFinished) stringResource(R.string.player_mark_as_unfinished) else stringResource(R.string.player_mark_as_finished) } ?: stringResource(R.string.player_mark_as_finished)) {
+            BookmarkDialogButton(text = currentItem?.let { if (it.isFinished) stringResource(R.string.player_mark_as_unfinished) else stringResource(R.string.player_mark_as_finished) } ?: stringResource(R.string.player_mark_as_finished)) {
                 viewModel.toggleFinished()
             }
             BookmarkDialogButton(text = if (viewModel.isRepeatEnabled) stringResource(R.string.player_repeat_off) else stringResource(R.string.player_repeat_on)) {
@@ -1002,7 +996,7 @@ fun BookmarksListSheet(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                "Manual",
+                stringResource(R.string.player_bookmarks_manual),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(vertical = 16.dp)
@@ -1056,8 +1050,9 @@ fun PlayerControlsSheet(
     onMoreClick: () -> Unit
 ) {
     val context = LocalContext.current
-    var currentSpeed by remember { mutableStateOf(viewModel.playbackSpeed) }
-    var currentVolume by remember { mutableStateOf(viewModel.playbackVolume) }
+    var currentSpeed by remember { mutableStateOf(viewModel.playbackSpeed.value) }
+    var currentVolume by remember { mutableStateOf(viewModel.playbackVolume.value) }
+    val volumeBoost by viewModel.volumeBoost.collectAsStateWithLifecycle()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
@@ -1084,14 +1079,14 @@ fun PlayerControlsSheet(
                         .size(40.dp)
                         .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close), tint = MaterialTheme.colorScheme.primary)
                 }
                 Text(
-                    text = "Player Controls",
+                    text = stringResource(R.string.player_controls_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                SheetHeaderButton(text = "More", onClick = onMoreClick)
+                SheetHeaderButton(text = stringResource(R.string.common_more), onClick = onMoreClick)
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -1101,7 +1096,7 @@ fun PlayerControlsSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Set playback speed", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.player_set_speed), style = MaterialTheme.typography.bodyLarge)
                 Text(
                     "${if (currentSpeed % 1.0f == 0.0f) currentSpeed.toInt() else currentSpeed}x",
                     fontWeight = FontWeight.Bold
@@ -1158,7 +1153,7 @@ fun PlayerControlsSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
             Spacer(modifier = Modifier.height(24.dp))
 
-            Text("Volume", style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.player_volume), style = MaterialTheme.typography.bodyLarge)
             BookPlayerSlider(
                 value = currentVolume,
                 onValueChange = { 
@@ -1176,15 +1171,15 @@ fun PlayerControlsSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Boost Volume", style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.player_boost_volume), style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        "Doubles the volume.\nUse with caution and care for your hearing.",
+                        stringResource(R.string.player_boost_volume_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                 }
                 Switch(
-                    checked = viewModel.volumeBoost,
+                    checked = volumeBoost,
                     onCheckedChange = { viewModel.toggleVolumeBoost(context) },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
@@ -1230,10 +1225,10 @@ fun CustomSleepTimerPicker(
                         .size(40.dp)
                         .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close), tint = MaterialTheme.colorScheme.primary)
                 }
                 Text(
-                    text = "Custom Timer",
+                    text = stringResource(R.string.player_custom_timer),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -1253,14 +1248,16 @@ fun CustomSleepTimerPicker(
                     range = 0..23,
                     selectedValue = selectedHours,
                     onValueChange = { selectedHours = it },
-                    label = "hours",
+                    label = stringResource(R.string.player_timer_hours),
+                    padToTwoDigits = false,
                     modifier = Modifier.weight(1f)
                 )
                 TimeWheelPicker(
                     range = 0..59,
                     selectedValue = selectedMinutes,
                     onValueChange = { selectedMinutes = it },
-                    label = "min",
+                    label = stringResource(R.string.player_timer_min),
+                    padToTwoDigits = true,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -1280,7 +1277,7 @@ fun CustomSleepTimerPicker(
                     .height(56.dp),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Text("Start Timer", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.player_start_timer), style = MaterialTheme.typography.titleMedium)
             }
         }
     }
@@ -1293,6 +1290,7 @@ fun TimeWheelPicker(
     selectedValue: Int,
     onValueChange: (Int) -> Unit,
     label: String,
+    padToTwoDigits: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState(
@@ -1336,7 +1334,7 @@ fun TimeWheelPicker(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (label == "hours") value.toString() else (if (value < 10) "0$value" else value.toString()),
+                        text = if (!padToTwoDigits) value.toString() else (if (value < 10) "0$value" else value.toString()),
                         style = if (isSelected) MaterialTheme.typography.titleLarge else MaterialTheme.typography.bodyLarge,
                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -1449,7 +1447,8 @@ fun ExtendedControlsSheet(
 ) {
     val context = LocalContext.current.applicationContext
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    
+    val volumeBoost by viewModel.volumeBoost.collectAsStateWithLifecycle()
+
     var showRewindPicker by remember { mutableStateOf(false) }
     var showForwardPicker by remember { mutableStateOf(false) }
     var showSmartRewindPicker by remember { mutableStateOf(false) }
@@ -1464,7 +1463,7 @@ fun ExtendedControlsSheet(
 
     if (showRewindPicker) {
         IntervalPickerDialog(
-            title = "Rewind Interval",
+            title = stringResource(R.string.player_rewind_interval_title),
             currentValue = viewModel.rewindInterval,
             onValueSelected = {
                 viewModel.updateRewindInterval(context, it)
@@ -1476,7 +1475,7 @@ fun ExtendedControlsSheet(
 
     if (showForwardPicker) {
         IntervalPickerDialog(
-            title = "Forward Interval",
+            title = stringResource(R.string.player_forward_interval_title),
             currentValue = viewModel.forwardInterval,
             onValueSelected = {
                 viewModel.updateForwardInterval(context, it)
@@ -1488,7 +1487,7 @@ fun ExtendedControlsSheet(
 
     if (showSmartRewindPicker) {
         IntervalPickerDialog(
-            title = "Smart Rewind Limit",
+            title = stringResource(R.string.player_smart_rewind_limit_title),
             currentValue = viewModel.smartRewindLimit,
             onValueSelected = {
                 viewModel.updateSmartRewindLimit(context, it)
@@ -1500,7 +1499,7 @@ fun ExtendedControlsSheet(
 
     if (showListActionPicker) {
         OptionsPickerDialog(
-            title = "List Button Action",
+            title = stringResource(R.string.player_list_button_action_title),
             options = listOf("Chapters", "Bookmarks"),
             currentValue = viewModel.listButtonOpens,
             onValueSelected = {
@@ -1513,7 +1512,7 @@ fun ExtendedControlsSheet(
 
     if (showSpeedPicker1) {
         SpeedPickerDialog(
-            title = "Quick Action 1",
+            title = stringResource(R.string.player_quick_action_1),
             currentValue = viewModel.quickAction1,
             onValueSelected = {
                 viewModel.updateQuickAction1(context, it)
@@ -1537,7 +1536,7 @@ fun ExtendedControlsSheet(
 
     if (showSpeedPicker3) {
         SpeedPickerDialog(
-            title = "Quick Action 3",
+            title = stringResource(R.string.player_quick_action_3),
             currentValue = viewModel.quickAction3,
             onValueSelected = {
                 viewModel.updateQuickAction3(context, it)
@@ -1573,10 +1572,10 @@ fun ExtendedControlsSheet(
                         .size(40.dp)
                         .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_close), tint = MaterialTheme.colorScheme.primary)
                 }
                 Text(
-                    text = "Player Controls",
+                    text = stringResource(R.string.player_controls_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -1585,21 +1584,21 @@ fun ExtendedControlsSheet(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            SettingsSectionLabel("Skip Intervals")
+            SettingsSectionLabel(stringResource(R.string.player_settings_skip_intervals))
             Surface(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column {
-                    SettingsRowPicker("Rewind", formatInterval(context, 
+                    SettingsRowPicker(stringResource(R.string.player_settings_rewind), formatInterval(context,
 viewModel.rewindInterval)) { showRewindPicker = true }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker("Forward", formatInterval(context, 
+                    SettingsRowPicker(stringResource(R.string.player_settings_forward), formatInterval(context,
 viewModel.forwardInterval)) { showForwardPicker = true }
                 }
             }
             Text(
-                "Adjust the amount skipped when using the buttons in the Player or Control Center.",
+                stringResource(R.string.player_settings_skip_intervals_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
@@ -1610,11 +1609,11 @@ viewModel.forwardInterval)) { showForwardPicker = true }
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column {
-                    SettingsRowToggle("Smart Rewind", viewModel.smartRewind) {
+                    SettingsRowToggle(stringResource(R.string.player_settings_smart_rewind), viewModel.smartRewind) {
                         viewModel.updateSmartRewind(context, it)
                     }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker("Smart Rewind Limit", formatInterval(context, 
+                    SettingsRowPicker(stringResource(R.string.player_settings_smart_rewind_limit), formatInterval(context,
 viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
                 }
             }
@@ -1629,12 +1628,12 @@ viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                SettingsRowToggle("Auto Sleep Timer", viewModel.autoSleep) {
+                SettingsRowToggle(stringResource(R.string.player_settings_auto_sleep_timer), viewModel.autoSleep) {
                     viewModel.updateAutoSleep(context, it)
                 }
             }
             Text(
-                "Restart the last active sleep timer when playback is resumed",
+                stringResource(R.string.player_settings_auto_sleep_timer_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
@@ -1644,18 +1643,18 @@ viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                SettingsRowToggle(stringResource(R.string.player_boost_volume), viewModel.volumeBoost) {
+                SettingsRowToggle(stringResource(R.string.player_boost_volume), volumeBoost) {
                     viewModel.toggleVolumeBoost(context)
                 }
             }
             Text(
-                "Doubles the volume.\nUse with caution and care for your hearing.",
+                stringResource(R.string.player_boost_volume_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
             )
 
-            SettingsSectionLabel("Speed")
+            SettingsSectionLabel(stringResource(R.string.player_settings_speed))
             Surface(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(16.dp)
@@ -1673,7 +1672,7 @@ viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
                 }
             }
             Text(
-                "Set speed across all books.",
+                stringResource(R.string.player_settings_global_speed_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
@@ -1683,12 +1682,12 @@ viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                SettingsRowToggle("Progress Bar Seeking", viewModel.progressBarSeeking) {
+                SettingsRowToggle(stringResource(R.string.player_settings_progress_bar_seeking), viewModel.progressBarSeeking) {
                     viewModel.updateProgressBarSeeking(context, it)
                 }
             }
             Text(
-                "Enable seeking on the lock screen",
+                stringResource(R.string.player_settings_progress_bar_seeking_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
@@ -1701,7 +1700,7 @@ viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
                 SettingsRowPicker(stringResource(R.string.player_settings_list_opens), viewModel.listButtonOpens) { showListActionPicker = true }
             }
             Text(
-                "Adjust what the list button in the player screen opens",
+                stringResource(R.string.player_settings_list_opens_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
@@ -1778,7 +1777,7 @@ fun IntervalPickerDialog(
                         if (seconds == currentValue) {
                             Icon(
                                 imageVector = Icons.Default.Check,
-                                contentDescription = "Selected",
+                                contentDescription = stringResource(R.string.common_selected),
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -1838,7 +1837,7 @@ fun OptionsPickerDialog(
                         if (option == currentValue) {
                             Icon(
                                 imageVector = Icons.Default.Check,
-                                contentDescription = "Selected",
+                                contentDescription = stringResource(R.string.common_selected),
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -1908,7 +1907,7 @@ fun SpeedPickerDialog(
                         if (isSelected) {
                             Icon(
                                 imageVector = Icons.Default.Check,
-                                contentDescription = "Selected",
+                                contentDescription = stringResource(R.string.common_selected),
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                             )
