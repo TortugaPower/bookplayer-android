@@ -227,7 +227,6 @@
     <string name="profile_favorite_book">最爱：%1$s</string>
     <string name="profile_completed_books">已读完的书籍</string>
     <string name="profile_days_listened">听书天数</string>
-    <string name="profile_achievements">成就</string>
     <string name="profile_stats">统计</string>
     <string name="profile_listening_history">听书历史</string>
 
@@ -235,4 +234,8 @@
     <string name="profile_daily_average">日均</string>
     <string name="history_book_not_found">库中未找到有声书</string>
     <string name="history_empty">暂无听书历史</string>
+    <string name="profile_change_more">比上次播放多 %1$d%%</string>
+    <string name="profile_change_less">比上次播放少 %1$d%%</string>
+    <string name="profile_time_minutes">%1$d 分钟</string>
+    <string name="profile_time_hours_minutes">%1$d 小时 %2$d 分钟</string>
 </resources>

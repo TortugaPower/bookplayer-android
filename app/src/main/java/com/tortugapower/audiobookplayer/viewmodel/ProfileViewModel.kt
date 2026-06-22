@@ -14,6 +14,7 @@ import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import java.util.Calendar
 import java.util.Locale
 import java.text.SimpleDateFormat
@@ -47,19 +48,17 @@ class ProfileViewModel(
     val daysListened: StateFlow<Int> = statisticsDao.getDaysListenedFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val favoriteBook: StateFlow<String?> = statisticsDao.getFavoriteBookFlow()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
     val favoriteBookArtwork: StateFlow<String?> = statisticsDao.getFavoriteBookArtworkFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val favoriteAuthor: StateFlow<String?> = statisticsDao.getFavoriteAuthorFlow()
+    val favoriteBookTitle: StateFlow<String?> = statisticsDao.getFavoriteBookTitleFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val hourlyDistribution: StateFlow<List<com.tortugapower.audiobookplayer.database.dao.HourlyStat>> = statisticsDao.getHourlyDistributionFlow()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val allSessionsSharedFlow: SharedFlow<List<PlaybackSessionEntity>> = statisticsDao.getAllSessionsFlow()
+        .flowOn(Dispatchers.IO)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
 
-    val todayHourlyStats: StateFlow<List<Long>> = statisticsDao.getAllSessionsFlow()
+    val todayHourlyStats: StateFlow<List<Long>> = allSessionsSharedFlow
         .map { sessions ->
             val hourly = MutableList(24) { 0L }
             val cal = Calendar.getInstance()
@@ -78,9 +77,10 @@ class ProfileViewModel(
             }
             hourly
         }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), List(24) { 0L })
 
-    val todayChangePercent: StateFlow<Int?> = statisticsDao.getAllSessionsFlow()
+    val todayChangePercent: StateFlow<Int?> = allSessionsSharedFlow
         .map { sessions ->
             val cal = Calendar.getInstance()
             cal.set(Calendar.HOUR_OF_DAY, 0)
@@ -99,9 +99,10 @@ class ProfileViewModel(
                 (((todayTime - yesterdayTime).toDouble() / yesterdayTime.toDouble()) * 100).toInt()
             }
         }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val weekChangePercent: StateFlow<Int?> = statisticsDao.getAllSessionsFlow()
+    val weekChangePercent: StateFlow<Int?> = allSessionsSharedFlow
         .map { sessions ->
             val cal = Calendar.getInstance()
             cal.set(Calendar.HOUR_OF_DAY, 0)
@@ -121,9 +122,10 @@ class ProfileViewModel(
                 (((thisWeekTime - prevWeekTime).toDouble() / prevWeekTime.toDouble()) * 100).toInt()
             }
         }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val weekDailyStats: StateFlow<List<Pair<String, Long>>> = statisticsDao.getAllSessionsFlow()
+    val weekDailyStats: StateFlow<List<Pair<String, Long>>> = allSessionsSharedFlow
         .map { sessions ->
             val daily = mutableListOf<Pair<String, Long>>()
             val sdf = SimpleDateFormat("EEE", Locale.getDefault())
@@ -151,9 +153,10 @@ class ProfileViewModel(
             }
             daily
         }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val playbackHistory: StateFlow<List<PlaybackSessionEntity>> = statisticsDao.getAllSessionsFlow()
+    val playbackHistory: StateFlow<List<PlaybackSessionEntity>> = allSessionsSharedFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun playBook(context: android.content.Context, bookUuid: String, onNotFound: () -> Unit = {}) {

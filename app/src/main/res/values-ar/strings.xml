@@ -227,11 +227,14 @@
     <string name="profile_favorite_book">المفضل: %1$s</string>
     <string name="profile_completed_books">الكتب المكتملة</string>
     <string name="profile_days_listened">الأيام المستمعة</string>
-    <string name="profile_achievements">الإنجازات</string>
     <string name="profile_stats">الإحصائيات</string>
     <string name="profile_listening_history">سجل الاستماع</string>
     <string name="profile_week">الأسبوع</string>
     <string name="profile_daily_average">المعدل اليومي</string>
     <string name="history_book_not_found">لم يتم العثور على الكتاب الصوتي في المكتبة</string>
     <string name="history_empty">لا يوجد سجل استماع بعد</string>
+    <string name="profile_change_more">%1$d%% أكثر من جلستك الأخيرة</string>
+    <string name="profile_change_less">%1$d%% أقل من جلستك الأخيرة</string>
+    <string name="profile_time_minutes">%1$d دقيقة</string>
+    <string name="profile_time_hours_minutes">%1$d ساعة %2$d دقيقة</string>
 </resources>

@@ -226,7 +226,6 @@
     <string name="profile_favorite_book">Избранное: %1$s</string>
     <string name="profile_completed_books">Завершенные книги</string>
     <string name="profile_days_listened">Дней прослушано</string>
-    <string name="profile_achievements">Достижения</string>
     <string name="profile_stats">Статистика</string>
     <string name="profile_listening_history">История прослушивания</string>
 
@@ -234,4 +233,8 @@
     <string name="profile_daily_average">Среднее за день</string>
     <string name="history_book_not_found">Аудиокнига не найдена в библиотеке</string>
     <string name="history_empty">История прослушивания пуста</string>
+    <string name="profile_change_more">%1$d%% больше, чем за прошлый сеанс</string>
+    <string name="profile_change_less">%1$d%% меньше, чем за прошлый сеанс</string>
+    <string name="profile_time_minutes">%1$d мин</string>
+    <string name="profile_time_hours_minutes">%1$d ч %2$d м</string>
 </resources>

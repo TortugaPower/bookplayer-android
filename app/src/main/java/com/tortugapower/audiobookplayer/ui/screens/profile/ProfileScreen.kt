@@ -64,9 +64,8 @@ fun ProfileScreen(
     val totalPlaytime by viewModel.totalPlaytime.collectAsState()
     val completedBooks by viewModel.completedBooks.collectAsState()
     val daysListened by viewModel.daysListened.collectAsState()
-    val favoriteBook by viewModel.favoriteBook.collectAsState()
     val favoriteBookArtwork by viewModel.favoriteBookArtwork.collectAsState()
-    val todayChangePercent by viewModel.todayChangePercent.collectAsState()
+    val favoriteBookTitle by viewModel.favoriteBookTitle.collectAsState()
     val pendingTasksCount by viewModel.pendingTasksCount.collectAsState()
     val lastSyncTimestamp by viewModel.lastSyncTimestamp.collectAsState()
 
@@ -207,9 +206,8 @@ fun ProfileScreen(
 
         OverviewMainCard(
             totalPlaytime = totalPlaytime,
-            favoriteBook = favoriteBook,
             favoriteBookArtwork = favoriteBookArtwork,
-            changePercent = todayChangePercent,
+            favoriteBookTitle = favoriteBookTitle,
             isLocked = false,
             onLockClick = { showProSheet = true }
         )
@@ -324,14 +322,17 @@ fun ProfileScreen(
 @Composable
 fun OverviewMainCard(
     totalPlaytime: Long,
-    favoriteBook: String?,
     favoriteBookArtwork: String?,
-    changePercent: Int?,
+    favoriteBookTitle: String?,
     isLocked: Boolean,
     onLockClick: () -> Unit
 ) {
     val totalMinutes = totalPlaytime / 60000
-    val displayTime = if (totalMinutes < 60) "$totalMinutes min" else "${totalMinutes / 60}h ${totalMinutes % 60}m"
+    val displayTime = if (totalMinutes < 60) {
+        stringResource(R.string.profile_time_minutes, totalMinutes)
+    } else {
+        stringResource(R.string.profile_time_hours_minutes, totalMinutes / 60, totalMinutes % 60)
+    }
 
     Surface(
         modifier = Modifier
@@ -391,25 +392,15 @@ fun OverviewMainCard(
                     color = if (isLocked) Color.LightGray else Color.White.copy(alpha = 0.7f)
                 )
 
-                if (!isLocked) {
-                    val changeText = if (changePercent != null) {
-                        val absVal = kotlin.math.abs(changePercent)
-                        if (changePercent >= 0) {
-                            "$absVal% more than your last session"
-                        } else {
-                            "$absVal% less than your last session"
-                        }
-                    } else {
-                        ""
-                    }
-                    if (changeText.isNotEmpty()) {
-                        Text(
-                            text = changeText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
+                if (!isLocked && !favoriteBookTitle.isNullOrEmpty()) {
+                    Text(
+                        text = stringResource(R.string.profile_favorite_book, favoriteBookTitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.padding(top = 4.dp),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
                 }
             }
 

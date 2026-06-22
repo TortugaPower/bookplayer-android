@@ -226,7 +226,6 @@
     <string name="profile_favorite_book">Favorito: %1$s</string>
     <string name="profile_completed_books">Libros terminados</string>
     <string name="profile_days_listened">Días escuchados</string>
-    <string name="profile_achievements">Logros</string>
     <string name="profile_stats">Estadísticas</string>
     <string name="profile_listening_history">Historial de reproducción</string>
 
@@ -234,4 +233,8 @@
     <string name="profile_daily_average">Promedio diario</string>
     <string name="history_book_not_found">Audiolibro no encontrado en la biblioteca</string>
     <string name="history_empty">Aún no hay historial de reproducción</string>
+    <string name="profile_change_more">%1$d%% más que tu última sesión</string>
+    <string name="profile_change_less">%1$d%% menos que tu última sesión</string>
+    <string name="profile_time_minutes">%1$d min</string>
+    <string name="profile_time_hours_minutes">%1$dh %2$dm</string>
 </resources>

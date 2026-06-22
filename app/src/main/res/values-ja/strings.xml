@@ -227,7 +227,6 @@
     <string name="profile_favorite_book">お気に入り: %1$s</string>
     <string name="profile_completed_books">読了した本</string>
     <string name="profile_days_listened">聴いた日数</string>
-    <string name="profile_achievements">実績</string>
     <string name="profile_stats">統計</string>
     <string name="profile_listening_history">再生履歴</string>
 
@@ -235,4 +234,8 @@
     <string name="profile_daily_average">1日平均</string>
     <string name="history_book_not_found">ライブラリにオーディオブックが見つかりません</string>
     <string name="history_empty">再生履歴はまだありません</string>
+    <string name="profile_change_more">前回のセッションより %1$d%% 多い</string>
+    <string name="profile_change_less">前回のセッションより %1$d%% 少ない</string>
+    <string name="profile_time_minutes">%1$d 分</string>
+    <string name="profile_time_hours_minutes">%1$d 時間 %2$d 分</string>
 </resources>

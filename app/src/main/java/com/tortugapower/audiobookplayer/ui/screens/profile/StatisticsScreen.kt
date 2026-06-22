@@ -86,7 +86,11 @@ fun StatisticsScreen(
             val changePercent = if (selectedTab == 0) todayChangePercent else weekChangePercent
             if (changePercent != null) {
                 Text(
-                    text = if (changePercent >= 0) "+$changePercent%" else "$changePercent%",
+                    text = if (changePercent >= 0) {
+                        stringResource(R.string.profile_change_more, changePercent)
+                    } else {
+                        stringResource(R.string.profile_change_less, kotlin.math.abs(changePercent))
+                    },
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                     color = if (changePercent >= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
                 )
@@ -98,7 +102,11 @@ fun StatisticsScreen(
             val dataList: List<Long> = if (selectedTab == 0) todayHourlyStats else weekDailyStats.map { it.second }
             val totalDurationMs = dataList.sum()
             val totalMinutes = totalDurationMs / 60000
-            val displayTotalTime = if (totalMinutes < 60) "${totalMinutes}m" else "${totalMinutes / 60}h ${totalMinutes % 60}m"
+            val displayTotalTime = if (totalMinutes < 60) {
+                stringResource(R.string.profile_time_minutes, totalMinutes)
+            } else {
+                stringResource(R.string.profile_time_hours_minutes, totalMinutes / 60, totalMinutes % 60)
+            }
 
             // Time listening duration and Date Range Row
             Row(
@@ -109,7 +117,11 @@ fun StatisticsScreen(
                 val selectedValueMs = if (selectedBarIndex != null) dataList.getOrNull(selectedBarIndex!!) else null
                 val displayTime = if (selectedValueMs != null) {
                     val min = selectedValueMs / 60000
-                    if (min < 60) "${min}m" else "${min / 60}h ${min % 60}m"
+                    if (min < 60) {
+                        stringResource(R.string.profile_time_minutes, min)
+                    } else {
+                        stringResource(R.string.profile_time_hours_minutes, min / 60, min % 60)
+                    }
                 } else {
                     displayTotalTime
                 }
@@ -124,7 +136,8 @@ fun StatisticsScreen(
                 // Date Range Label on the right
                 val dateLabel = if (selectedTab == 0) {
                     if (selectedBarIndex == null) {
-                        SimpleDateFormat("d MMM", Locale.getDefault()).format(Calendar.getInstance().time) + " - Today"
+                        val todayStr = stringResource(R.string.profile_today)
+                        SimpleDateFormat("d MMM", Locale.getDefault()).format(Calendar.getInstance().time) + " - $todayStr"
                     } else {
                         val hour = selectedBarIndex!!
                         val nextHour = (hour + 1) % 24
@@ -230,7 +243,11 @@ fun StatisticsScreen(
                                 ) {
                                     if (isSelected && value > 0L) {
                                         val min = value / 60000
-                                        val valLabel = if (min < 60) "${min}m" else "${min / 60}h ${min % 60}m"
+                                        val valLabel = if (min < 60) {
+                                            stringResource(R.string.profile_time_minutes, min)
+                                        } else {
+                                            stringResource(R.string.profile_time_hours_minutes, min / 60, min % 60)
+                                        }
                                         Text(
                                             text = valLabel,
                                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 8.sp, fontWeight = FontWeight.Bold),
@@ -322,7 +339,11 @@ fun StatisticsScreen(
                 } else {
                     val dailyAvgMs = totalDurationMs / 7
                     val avgMin = dailyAvgMs / 60000
-                    if (avgMin < 60) "${avgMin}m" else "${avgMin / 60}h ${avgMin % 60}m"
+                    if (avgMin < 60) {
+                        stringResource(R.string.profile_time_minutes, avgMin)
+                    } else {
+                        stringResource(R.string.profile_time_hours_minutes, avgMin / 60, avgMin % 60)
+                    }
                 }
 
                 Text(
@@ -396,10 +417,11 @@ fun formatYLabel(valueMs: Long, maxValMs: Long): String {
     }
 }
 
+@Composable
 fun getWeekRangeLabel(): String {
     val cal = Calendar.getInstance()
     val sdf = SimpleDateFormat("d MMM", Locale.getDefault())
-    val endLabel = "Today"
+    val endLabel = stringResource(R.string.profile_today)
     cal.add(Calendar.DAY_OF_YEAR, -6)
     val startLabel = sdf.format(cal.time)
     return "$startLabel - $endLabel"
