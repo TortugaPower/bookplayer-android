@@ -41,6 +41,18 @@ fun ItemDetailSheet(
         token = HardcoverSettingsManager.getToken(context).first()
     }
 
+    LaunchedEffect(token) {
+        if (token.isNotBlank()) {
+            val resource = viewModel.getExternalResource(item.uuid, "hardcover")
+            if (resource != null) {
+                val book = com.tortugapower.audiobookplayer.network.HardcoverService.getBook(token, resource.providerId)
+                if (book != null) {
+                    linkedBook = book
+                }
+            }
+        }
+    }
+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
@@ -117,6 +129,10 @@ fun ItemDetailSheet(
                     linkedBook = linkedBook,
                     onBookSelected = { book ->
                         linkedBook = book
+                        if (book != null) {
+                            title = book.title
+                            author = book.getAuthorName()
+                        }
                         navController.popBackStack()
                     },
                     onBack = {

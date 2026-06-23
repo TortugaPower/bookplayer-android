@@ -347,4 +347,16 @@ class RoomLibraryRepository(
             siblings.getOrNull(targetIndex)
         }
     }
+
+    override suspend fun getExternalResource(itemUuid: String, provider: String): com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity? =
+        libraryDao.getExternalResource(itemUuid, provider)
+
+    override fun getExternalResourcesForBook(itemUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>> =
+        libraryDao.getExternalResourcesForBookFlow(itemUuid)
+
+    override suspend fun saveExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity) =
+        libraryDao.insertExternalResource(externalResource)
+
+    override suspend fun deleteExternalResource(itemUuid: String, provider: String) =
+        libraryDao.deleteExternalResource(itemUuid, provider)
 }

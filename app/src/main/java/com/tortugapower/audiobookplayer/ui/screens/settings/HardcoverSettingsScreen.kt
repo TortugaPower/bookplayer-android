@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -20,6 +19,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -135,24 +135,25 @@ fun HardcoverSettingsScreen(
                     val linkStartIndex = fullHint.indexOf(apiLink)
                     if (linkStartIndex != -1) {
                         append(fullHint.substring(0, linkStartIndex))
-                        pushStringAnnotation(tag = "URL", annotation = apiLink)
-                        withStyle(style = SpanStyle(color = MaterialTheme.colorScheme.primary, textDecoration = TextDecoration.Underline)) {
+                        val link = androidx.compose.ui.text.LinkAnnotation.Url(
+                            url = apiLink,
+                            styles = androidx.compose.ui.text.TextLinkStyles(
+                                style = SpanStyle(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    textDecoration = TextDecoration.Underline
+                                )
+                            )
+                        )
+                        withLink(link) {
                             append(apiLink)
                         }
-                        pop()
                         append(fullHint.substring(linkStartIndex + apiLink.length))
                     } else {
                         append(fullHint)
                     }
                 }
-                ClickableText(
+                Text(
                     text = annotatedLinkString,
-                    onClick = { offset ->
-                        annotatedLinkString.getStringAnnotations(tag = "URL", start = offset, end = offset)
-                            .firstOrNull()?.let { annotation ->
-                                uriHandler.openUri(annotation.item)
-                            }
-                    },
                     style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                 )
             }

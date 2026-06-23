@@ -94,6 +94,11 @@ fun ItemDetailsContent(
                 text = stringResource(R.string.common_save),
                 onClick = {
                     viewModel.updateItemDetails(item, title, author)
+                    if (linkedBook != null) {
+                        viewModel.saveHardcoverLink(item.uuid, linkedBook.id)
+                    } else {
+                        viewModel.removeHardcoverLink(item.uuid)
+                    }
                     onDismiss()
                 }
             )

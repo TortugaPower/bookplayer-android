@@ -115,7 +115,8 @@ fun SearchScreen(
                         item = item,
                         onClick = {
                             PlaybackManager.playItem(context, item)
-                        }
+                        },
+                        libraryViewModel = viewModel
                     )
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
