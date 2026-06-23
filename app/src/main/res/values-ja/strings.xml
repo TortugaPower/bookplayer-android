@@ -218,6 +218,24 @@
     <string name="sync_task_sync_identifiers">識別子の同期</string>
     <string name="sync_task_match_library_ids">ライブラリIDの照合</string>
 
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">連携</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Hardcover設定</string>
+    <string name="hardcover_api_access_section">APIアクセス</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">HardcoverのAPIアクセスは %1$s で確認できます。</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">自動化</string>
+    <string name="hardcover_auto_match_books">本を自動マッチングする</string>
+    <string name="hardcover_auto_add_want_to_read">自動的に「読みたい」に追加する</string>
+    <string name="hardcover_automation_hint">読書の進捗状況をHardcoverと自動的に同期します。有効にすると、本が自動的にマッチングされ、ライブラリに追加されます。</string>
+    <string name="hardcover_progress_tracking_section">進捗トラッキング</string>
+    <string name="hardcover_reading_threshold">読書しきい値</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">Hardcoverライブラリで本を**読書中**にするために必要な最小進捗率を設定します。</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">メディアサーバー</string>
     <string name="media_servers_edit_button_description">メディアサーバーを編集</string>

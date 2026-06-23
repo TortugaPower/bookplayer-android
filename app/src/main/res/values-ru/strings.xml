@@ -217,6 +217,24 @@
     <string name="sync_task_sync_identifiers">Синхронизировать идентификаторы</string>
     <string name="sync_task_match_library_ids">Сопоставить ID библиотеки</string>
 
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">Интеграции</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Настройки Hardcover</string>
+    <string name="hardcover_api_access_section">Доступ по API</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">Вы можете найти доступ к Hardcover API по ссылке %1$s.</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">Автоматизация</string>
+    <string name="hardcover_auto_match_books">Автоматически сопоставлять книги</string>
+    <string name="hardcover_auto_add_want_to_read">Автоматически добавлять в «Хочу прочитать»</string>
+    <string name="hardcover_automation_hint">Автоматически синхронизируйте прогресс чтения с Hardcover. Если включено, книги будут автоматически сопоставляться и добавляться в вашу библиотеку.</string>
+    <string name="hardcover_progress_tracking_section">Отслеживание прогресса</string>
+    <string name="hardcover_reading_threshold">Порог чтения</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">Устанавливает минимальный процент прогресса, необходимый для того, чтобы книга была отмечена как «Читаю сейчас» в вашей библиотеке Hardcover.</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">Медиасерверы</string>
     <string name="media_servers_edit_button_description">Редактировать медиасерверы</string>

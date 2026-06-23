@@ -217,6 +217,24 @@
     <string name="sync_task_sync_identifiers">Synchroniser les identifiants</string>
     <string name="sync_task_match_library_ids">Faire correspondre les IDs de bibliothèque</string>
 
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">Intégrations</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Paramètres Hardcover</string>
+    <string name="hardcover_api_access_section">Accès API</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">Vous pouvez trouver vos accès API Hardcover sur %1$s.</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">Automatisation</string>
+    <string name="hardcover_auto_match_books">Associer automatiquement les livres</string>
+    <string name="hardcover_auto_add_want_to_read">Ajouter automatiquement à « À lire »</string>
+    <string name="hardcover_automation_hint">Synchronisez automatiquement votre progression de lecture avec Hardcover. Lorsqu\'elle est activée, les livres seront automatiquement associés et ajoutés à votre bibliothèque.</string>
+    <string name="hardcover_progress_tracking_section">Suivi de la progression</string>
+    <string name="hardcover_reading_threshold">Seuil de lecture</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">Définit le pourcentage de progression minimum requis avant qu\'un livre ne soit marqué comme **En cours de lecture** dans votre bibliothèque Hardcover.</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">Serveurs multimédias</string>
     <string name="media_servers_edit_button_description">Modifier les serveurs multimédias</string>

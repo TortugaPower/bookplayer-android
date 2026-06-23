@@ -218,6 +218,24 @@
     <string name="sync_task_sync_identifiers">مزامنة المعرفات</string>
     <string name="sync_task_match_library_ids">مطابقة معرفات المكتبة</string>
 
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">التكاملات</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">إعدادات Hardcover</string>
+    <string name="hardcover_api_access_section">الوصول إلى واجهة برمجة التطبيقات (API)</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">يمكنك العثور على وصول واجهة برمجة تطبيقات Hardcover الخاصة بك في %1$s.</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">الأتمتة</string>
+    <string name="hardcover_auto_match_books">مطابقة الكتب تلقائيًا</string>
+    <string name="hardcover_auto_add_want_to_read">الإضافة تلقائيًا إلى \"أرغب في قراءته\"</string>
+    <string name="hardcover_automation_hint">مزامنة تقدم القراءة تلقائيًا مع Hardcover. عند التمكين، سيتم مطابقة الكتب وإضافتها تلقائيًا إلى مكتبتك.</string>
+    <string name="hardcover_progress_tracking_section">تتبع التقدم</string>
+    <string name="hardcover_reading_threshold">حد القراءة</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">يحدد الحد الأدنى لنسبة تقدم القراءة المطلوبة قبل وضع علامة على الكتاب كـ **يقرأ حاليًا** في مكتبة Hardcover الخاصة بك.</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">خوادم الوسائط</string>
     <string name="media_servers_edit_button_description">تعديل خوادم الوسائط</string>
