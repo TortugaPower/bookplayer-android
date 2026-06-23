@@ -46,6 +46,8 @@ fun SettingsScreen(
     onNavigateToThemes: () -> Unit,
     onNavigateToAppIcons: () -> Unit,
     onNavigateToTipJar: () -> Unit,
+    onNavigateToMediaServers: () -> Unit,
+    onNavigateToHardcover: () -> Unit,
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -151,6 +153,18 @@ fun SettingsScreen(
                     label = stringResource(R.string.settings_app_icon_label),
                     value = stringResource(appIconTitleRes),
                     onClick = onNavigateToAppIcons,
+                )
+            }
+
+            settingsSection(titleRes = R.string.settings_integrations_section) {
+                SettingsItem(
+                    label = stringResource(R.string.media_servers_title),
+                    onClick = onNavigateToMediaServers,
+                )
+                HorizontalDivider()
+                SettingsItem(
+                    label = stringResource(R.string.hardcover_settings_title),
+                    onClick = onNavigateToHardcover,
                 )
             }
 

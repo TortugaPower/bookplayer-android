@@ -250,6 +250,24 @@
     <string name="profile_change_less_last_week">पिछले सप्ताह से %1$d%% कम</string>
     <string name="profile_time_minutes">%1$d मिनट</string>
     <string name="profile_time_hours_minutes">%1$d घंटे %2$d मिनट</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">एकीकरण</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Hardcover सेटिंग्स</string>
+    <string name="hardcover_api_access_section">API एक्सेस</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">आप %1$s पर अपना Hardcover API एक्सेस पा सकते हैं।</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">स्वचालन</string>
+    <string name="hardcover_auto_match_books">किताबों का स्वचालित मिलान करें</string>
+    <string name="hardcover_auto_add_want_to_read">स्वचालित रूप से \"पढ़ना चाहते हैं\" में जोड़ें</string>
+    <string name="hardcover_automation_hint">अपने पढ़ने की प्रगति को Hardcover के साथ स्वचालित रूप से सिंक करें। सक्षम होने पर, किताबें स्वचालित रूप से मिलान की जाएंगी और आपकी लाइब्रेरी में जोड़ी जाएंगी।</string>
+    <string name="hardcover_progress_tracking_section">प्रगति ट्रैकिंग</string>
+    <string name="hardcover_reading_threshold">पढ़ने की सीमा</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">अपनी Hardcover लाइब्रेरी में किसी पुस्तक को **अभी पढ़ रहे हैं** के रूप में चिह्नित करने के लिए आवश्यक न्यूनतम प्रगति प्रतिशत निर्धारित करता है।</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">मीडिया सर्वर</string>
     <string name="media_servers_edit_button_description">मीडिया सर्वर संपादित करें</string>

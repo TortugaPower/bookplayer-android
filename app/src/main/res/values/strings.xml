@@ -351,6 +351,24 @@
     <string name="profile_change_less_last_week">%1$d%% less than last week</string>
     <string name="profile_time_minutes">%1$d min</string>
     <string name="profile_time_hours_minutes">%1$dh %2$dm</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">Integrations</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Hardcover Settings</string>
+    <string name="hardcover_api_access_section">API Access</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">You can find your Hardcover API access at %1$s.</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">Automation</string>
+    <string name="hardcover_auto_match_books">Auto-match books</string>
+    <string name="hardcover_auto_add_want_to_read">Auto-add to Want to Read</string>
+    <string name="hardcover_automation_hint">Automatically sync your reading progress with Hardcover. When enabled, books will be automatically matched and added to your library.</string>
+    <string name="hardcover_progress_tracking_section">Progress Tracking</string>
+    <string name="hardcover_reading_threshold">Reading threshold</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">Sets the minimum progress percentage required before a book is marked as **Currently Reading** in your Hardcover library.</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">Media Servers</string>
     <string name="media_servers_edit_button_description">Edit media servers</string>

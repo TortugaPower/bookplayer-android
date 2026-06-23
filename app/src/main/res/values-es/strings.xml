@@ -250,6 +250,24 @@
     <string name="profile_change_less_last_week">%1$d%% menos que la semana pasada</string>
     <string name="profile_time_minutes">%1$d min</string>
     <string name="profile_time_hours_minutes">%1$dh %2$dm</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">Integraciones</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Ajustes de Hardcover</string>
+    <string name="hardcover_api_access_section">Acceso API</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">Puedes encontrar tu acceso a la API de Hardcover en %1$s.</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">Automatización</string>
+    <string name="hardcover_auto_match_books">Asociar libros automáticamente</string>
+    <string name="hardcover_auto_add_want_to_read">Añadir automáticamente a «Quiero leer»</string>
+    <string name="hardcover_automation_hint">Sincroniza automáticamente tu progreso de lectura con Hardcover. Cuando está activado, los libros se asociarán y se añadirán automáticamente a tu biblioteca.</string>
+    <string name="hardcover_progress_tracking_section">Seguimiento del progreso</string>
+    <string name="hardcover_reading_threshold">Umbral de lectura</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">Establece el porcentaje mínimo de progreso requerido para que un libro se marque como **Leyendo actualmente** en tu biblioteca de Hardcover.</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">Servidores multimedia</string>
     <string name="media_servers_edit_button_description">Editar servidores multimedia</string>

@@ -60,7 +60,7 @@ sealed class Screen(
         icon = { Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings_title)) },
     ) {
         override fun isSelected(currentRoute: String?): Boolean {
-            return currentRoute == route || currentRoute == "themes"
+            return currentRoute == route || currentRoute == "themes" || currentRoute == "hardcoverSettings"
         }
     }
 }

@@ -248,6 +248,24 @@
     <string name="profile_change_less_last_week">比上周少%1$d%%</string>
     <string name="profile_time_minutes">%1$d 分钟</string>
     <string name="profile_time_hours_minutes">%1$d 小时 %2$d 分钟</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">集成</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Hardcover 设置</string>
+    <string name="hardcover_api_access_section">API 访问</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">您可以在 %1$s 找到您的 Hardcover API 访问权限。</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">自动化</string>
+    <string name="hardcover_auto_match_books">自动匹配书籍</string>
+    <string name="hardcover_auto_add_want_to_read">自动添加到“想读”</string>
+    <string name="hardcover_automation_hint">自动将您的阅读进度同步到 Hardcover。启用后，书籍将自动匹配并添加到您的库中。</string>
+    <string name="hardcover_progress_tracking_section">进度跟踪</string>
+    <string name="hardcover_reading_threshold">阅读阈值</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">设置在 Hardcover 库中将书籍标记为**正在阅读**所需的最低进度百分比。</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">媒体服务器</string>
     <string name="media_servers_edit_button_description">编辑媒体服务器</string>

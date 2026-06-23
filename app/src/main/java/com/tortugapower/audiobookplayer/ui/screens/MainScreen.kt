@@ -56,6 +56,7 @@ import com.tortugapower.audiobookplayer.ui.screens.profile.StatisticsScreen
 import com.tortugapower.audiobookplayer.ui.screens.profile.ListeningHistoryScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.SettingsScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.MediaServersFlow
+import com.tortugapower.audiobookplayer.ui.screens.settings.HardcoverSettingsScreen
 import com.tortugapower.audiobookplayer.repository.ExternalLibraryRepository
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.QueuedTasksScreen
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.TaskDetailScreen
@@ -239,7 +240,7 @@ fun MainScreen() {
                     composable(
                         route = Screen.Settings.route,
                         exitTransition = {
-                            if (targetState.destination.route in setOf("themes", "tipjar", "appicons")) {
+                            if (targetState.destination.route in setOf("themes", "tipjar", "appicons", "hardcoverSettings")) {
                                 slideOutOfContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Left,
                                     animationSpec = tween(400)
@@ -247,7 +248,7 @@ fun MainScreen() {
                             } else null
                         },
                         popEnterTransition = {
-                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons")) {
+                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons", "hardcoverSettings")) {
                                 slideIntoContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Right,
                                     animationSpec = tween(400)
@@ -258,7 +259,9 @@ fun MainScreen() {
                         SettingsScreen(
                             onNavigateToThemes = { navController.navigate("themes") },
                             onNavigateToAppIcons = { navController.navigate("appicons") },
-                            onNavigateToTipJar = { navController.navigate("tipjar") }
+                            onNavigateToTipJar = { navController.navigate("tipjar") },
+                            onNavigateToMediaServers = { showMediaServersFlow = true },
+                            onNavigateToHardcover = { navController.navigate("hardcoverSettings") }
                         ) 
                     }
                     
@@ -344,6 +347,30 @@ fun MainScreen() {
                         }
                     ) {
                         AppIconsScreen(onBack = { navController.popBackStack() })
+                    }
+
+                    composable(
+                        route = "hardcoverSettings",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            fadeOut(animationSpec = tween(400))
+                        },
+                        popEnterTransition = {
+                            fadeIn(animationSpec = tween(400))
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) {
+                        HardcoverSettingsScreen(onBack = { navController.popBackStack() })
                     }
                 
                 }

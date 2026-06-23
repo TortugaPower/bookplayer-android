@@ -250,6 +250,24 @@
     <string name="profile_change_less_last_week">%1$d%% weniger als letzte Woche</string>
     <string name="profile_time_minutes">%1$d Min.</string>
     <string name="profile_time_hours_minutes">%1$d Std. %2$d Min.</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">Integrationen</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Hardcover-Einstellungen</string>
+    <string name="hardcover_api_access_section">API-Zugriff</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">Sie finden Ihren Hardcover-API-Zugang unter %1$s.</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">Automatisierung</string>
+    <string name="hardcover_auto_match_books">Bücher automatisch abgleichen</string>
+    <string name="hardcover_auto_add_want_to_read">Automatisch zu „Möchte ich lesen“ hinzufügen</string>
+    <string name="hardcover_automation_hint">Synchronisieren Sie Ihren Lesefortschritt automatisch mit Hardcover. Wenn aktiviert, werden Bücher automatisch abgeglichen und Ihrer Bibliothek hinzugefügt.</string>
+    <string name="hardcover_progress_tracking_section">Fortschrittsverfolgung</string>
+    <string name="hardcover_reading_threshold">Leseschwelle</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">Legt den minimalen Fortschrittsprozentsatz fest, der erforderlich ist, bevor ein Buch in Ihrer Hardcover-Bibliothek als **Wird gerade gelesen** markiert wird.</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">Medienserver</string>
     <string name="media_servers_edit_button_description">Medienserver bearbeiten</string>
