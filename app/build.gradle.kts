@@ -109,6 +109,10 @@ android {
         // regardless of abortOnError. We don't use LiveData, so disabling it is safe.
         disable += "NullSafeMutableLiveData"
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {

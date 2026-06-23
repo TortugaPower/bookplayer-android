@@ -15,7 +15,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class RoomLibraryRepository(
-    private val libraryDao: LibraryDao
+    private val libraryDao: LibraryDao,
+    var timeProvider: () -> Long = { System.currentTimeMillis() }
 ) : LibraryRepository {
 
     override fun getRootItems(): Flow<List<LibraryItemEntity>> = 
@@ -58,7 +59,7 @@ class RoomLibraryRepository(
                     bookUuid = item.uuid,
                     bookTitle = item.title,
                     authorName = item.author,
-                    completionDate = System.currentTimeMillis()
+                    completionDate = timeProvider()
                 )
                 libraryDao.insertCompletion(completion)
             }
@@ -79,11 +80,11 @@ class RoomLibraryRepository(
                     bookUuid = item.uuid,
                     bookTitle = item.title,
                     authorName = item.author,
-                    completionDate = System.currentTimeMillis()
+                    completionDate = timeProvider()
                 )
                 libraryDao.insertCompletion(completion)
             }
-            item.lastPlayDate = System.currentTimeMillis()
+            item.lastPlayDate = timeProvider()
             libraryDao.updateItem(item)
 
             // Recursively update parents

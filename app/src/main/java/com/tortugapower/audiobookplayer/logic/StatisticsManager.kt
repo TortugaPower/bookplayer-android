@@ -15,13 +15,16 @@ import kotlinx.coroutines.sync.withLock
 
 object StatisticsManager {
     private const val TAG = "StatisticsManager"
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val mutex = Mutex()
+
+    var testDao: com.tortugapower.audiobookplayer.database.dao.StatisticsDao? = null
+    var timeProvider: () -> Long = { System.currentTimeMillis() }
 
     fun setPlaybackState(context: Context, item: LibraryItemEntity?, isPlaying: Boolean) {
         scope.launch {
             mutex.withLock {
-                val dao = AppDatabase.getDatabase(context).statisticsDao()
+                val dao = testDao ?: AppDatabase.getDatabase(context).statisticsDao()
                 val activeSession = dao.getActiveSession()
 
                 if (isPlaying && item != null) {
@@ -38,7 +41,7 @@ object StatisticsManager {
                         bookUuid = item.uuid,
                         bookTitle = item.title,
                         authorName = item.author,
-                        startTime = System.currentTimeMillis()
+                        startTime = timeProvider()
                     )
                     val id = dao.insertSession(session)
                     Log.d(TAG, "🚀 Started new session: $id for ${item.title}")
@@ -53,7 +56,7 @@ object StatisticsManager {
     private suspend fun stopActiveSessionInternal(dao: com.tortugapower.audiobookplayer.database.dao.StatisticsDao) {
         val activeSession = dao.getActiveSession()
         if (activeSession != null) {
-            val now = System.currentTimeMillis()
+            val now = timeProvider()
             val duration = now - activeSession.startTime
             
             // Only save sessions longer than 1 second to avoid noise from rapid toggling
@@ -63,12 +66,8 @@ object StatisticsManager {
                 dao.updateSession(activeSession)
                 Log.d(TAG, "⏹️ Stopped session: ${activeSession.id}. Duration: ${duration}ms")
             } else {
-                // If it was too short, just delete it or mark as ended without duration
-                // For simplicity, let's just mark as ended so it's not "active" anymore
-                activeSession.endTime = now
-                activeSession.duration = Math.max(0, duration)
-                dao.updateSession(activeSession)
-                Log.d(TAG, "⏹️ Stopped very short session: ${activeSession.id}. Duration: ${activeSession.duration}ms")
+                dao.deleteSession(activeSession)
+                Log.d(TAG, "🗑️ Deleted short session: ${activeSession.id}. Duration: ${duration}ms")
             }
         }
     }
@@ -80,11 +79,11 @@ object StatisticsManager {
     fun updateActiveSessionDuration(context: Context) {
         scope.launch {
             mutex.withLock {
-                val dao = AppDatabase.getDatabase(context).statisticsDao()
+                val dao = testDao ?: AppDatabase.getDatabase(context).statisticsDao()
                 val activeSession = dao.getActiveSession()
                 
                 if (activeSession != null) {
-                    val now = System.currentTimeMillis()
+                    val now = timeProvider()
                     val newDuration = now - activeSession.startTime
                     if (newDuration > activeSession.duration) {
                         activeSession.duration = newDuration

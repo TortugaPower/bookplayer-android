@@ -12,6 +12,9 @@ interface StatisticsDao {
     @Update
     suspend fun updateSession(session: PlaybackSessionEntity)
 
+    @Delete
+    suspend fun deleteSession(session: PlaybackSessionEntity)
+
     @Query("SELECT * FROM playback_sessions WHERE endTime IS NULL ORDER BY startTime DESC LIMIT 1")
     suspend fun getActiveSession(): PlaybackSessionEntity?
 
