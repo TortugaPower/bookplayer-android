@@ -11,6 +11,7 @@ import com.tortugapower.audiobookplayer.database.dao.ExternalServerDao
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import androidx.room.TypeConverters
 
@@ -21,9 +22,10 @@ import androidx.room.TypeConverters
         BookmarkEntity::class, 
         com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity::class,
         com.tortugapower.audiobookplayer.database.entities.AccountEntity::class,
-        ExternalServerEntity::class
+        ExternalServerEntity::class,
+        ExternalResourceEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(MapConverter::class)
@@ -101,6 +103,24 @@ abstract class AppDatabase : RoomDatabase() {
                 """)
             }
         }
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `external_resources` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `providerName` TEXT NOT NULL, 
+                        `providerId` TEXT NOT NULL, 
+                        `syncStatus` TEXT NOT NULL, 
+                        `lastSyncedAt` INTEGER, 
+                        `processedFile` INTEGER NOT NULL DEFAULT 0, 
+                        `libraryItemUuid` TEXT NOT NULL, 
+                        `hostId` TEXT,
+                        FOREIGN KEY(`libraryItemUuid`) REFERENCES `library_items`(`uuid`) ON UPDATE NO ACTION ON DELETE CASCADE 
+                    )
+                """)
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_external_resources_libraryItemUuid` ON `external_resources` (`libraryItemUuid`)")
+            }
+        }
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -109,7 +129,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "bookplayer.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
                 INSTANCE = instance
                 instance

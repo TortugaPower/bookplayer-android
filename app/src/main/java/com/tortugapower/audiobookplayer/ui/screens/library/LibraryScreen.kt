@@ -785,7 +785,8 @@ fun LibraryScreen(
                                             selectedItemUuids = setOf(item.uuid)
                                         }
                                     },
-                                    syncTaskRepository = syncTaskRepository
+                                    syncTaskRepository = syncTaskRepository,
+                                    libraryViewModel = libraryViewModel
                                 )
                             }
                         }
@@ -819,11 +820,19 @@ fun LibraryListItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
-    syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository? = null
+    syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository? = null,
+    libraryViewModel: com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel? = null
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    val externalResources by if (libraryViewModel != null) {
+        remember(item.uuid) { libraryViewModel.getExternalResourcesForBook(item.uuid) }
+            .collectAsState(initial = emptyList())
+    } else {
+        remember { mutableStateOf(emptyList<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>()) }
+    }
 
     val isLocal = remember(item.relativePath, item.type) {
         if (item.type == ItemType.FOLDER) true
@@ -995,12 +1004,96 @@ fun LibraryListItem(
                 maxLines = 1
             )
 
-            Text(
-                text = authorText,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (externalResources.isNotEmpty()) {
+                    externalResources.forEachIndexed { index, resource ->
+                        if (index > 0) {
+                            Text(
+                                text = "•",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        
+                        val tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            when (resource.providerName.lowercase()) {
+                                "jellyfin" -> {
+                                    Box(
+                                        modifier = Modifier.size(12.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Canvas(modifier = Modifier.fillMaxSize()) {
+                                            val path = androidx.compose.ui.graphics.Path().apply {
+                                                moveTo(size.width / 2f, 1f)
+                                                lineTo(size.width - 1f, size.height - 1f)
+                                                lineTo(1f, size.height - 1f)
+                                                close()
+                                            }
+                                            drawPath(
+                                                path = path,
+                                                color = tint,
+                                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                                    width = 1.5.dp.toPx(),
+                                                    join = androidx.compose.ui.graphics.StrokeJoin.Round
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                                "audiobookshelf" -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Book,
+                                        contentDescription = null,
+                                        tint = tint,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                                else -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Layers,
+                                        contentDescription = null,
+                                        tint = tint,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
+                            
+                            val providerLabel = resource.providerName.lowercase().replaceFirstChar {
+                                if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString()
+                            }
+                            
+                            Text(
+                                text = providerLabel,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                    
+                    Text(
+                        text = "•",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                Text(
+                    text = authorText,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1
+                )
+            }
+
             if (item.duration > 0) {
                 Text(
                     text = durationText,

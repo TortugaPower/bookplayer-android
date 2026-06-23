@@ -177,6 +177,32 @@ class LibraryViewModel(
         }
     }
 
+    suspend fun getExternalResource(itemUuid: String, provider: String): com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity? {
+        return repository.getExternalResource(itemUuid, provider)
+    }
+
+    fun getExternalResourcesForBook(itemUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>> {
+        return repository.getExternalResourcesForBook(itemUuid)
+    }
+
+    fun saveHardcoverLink(itemUuid: String, bookId: String) {
+        viewModelScope.launch {
+            val entity = com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity(
+                providerName = "hardcover",
+                providerId = bookId,
+                syncStatus = "synced",
+                libraryItemUuid = itemUuid
+            )
+            repository.saveExternalResource(entity)
+        }
+    }
+
+    fun removeHardcoverLink(itemUuid: String) {
+        viewModelScope.launch {
+            repository.deleteExternalResource(itemUuid, "hardcover")
+        }
+    }
+
     fun updateArtwork(context: android.content.Context, item: LibraryItemEntity, imageUri: android.net.Uri?) {
         viewModelScope.launch {
             if (imageUri == null) {

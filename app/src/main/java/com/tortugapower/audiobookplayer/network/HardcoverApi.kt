@@ -184,4 +184,53 @@ object HardcoverService {
             emptyList()
         }
     }
+
+    suspend fun getBook(token: String, id: String): HardcoverBook? {
+        if (token.isBlank() || id.isBlank()) return null
+        val authHeader = if (token.startsWith("Bearer ", ignoreCase = true)) token else "Bearer $token"
+        val graphQLQuery = """
+            query GetBook(${'$'}id: Int!) {
+              books_by_pk(id: ${'$'}id) {
+                id
+                title
+                image {
+                  url
+                }
+                contributions {
+                  author {
+                    name
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+
+        val request = GraphQLRequest(
+            query = graphQLQuery,
+            variables = mapOf("id" to id.toInt())
+        )
+
+        return try {
+            val response = api.postQuery(authHeader, request)
+            if (response.isSuccessful) {
+                val body = response.body()
+                if (body?.errors != null && body.errors.isNotEmpty()) {
+                    android.util.Log.e("HardcoverService", "GraphQL Errors (getBook): ${body.errors}")
+                }
+                val data = body?.data
+                val bookObj = data?.getAsJsonObject("books_by_pk")
+                if (bookObj != null) {
+                    gson.fromJson(bookObj, HardcoverBook::class.java)
+                } else {
+                    null
+                }
+            } else {
+                android.util.Log.e("HardcoverService", "HTTP Error getting book: ${response.code()}")
+                null
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("HardcoverService", "Error getting book by id: $id", e)
+            null
+        }
+    }
 }

@@ -72,3 +72,26 @@ data class BookmarkEntity(
     var note: String? = null,
     val type: BookmarkType = BookmarkType.USER
 )
+
+@Entity(
+    tableName = "external_resources",
+    foreignKeys = [
+        ForeignKey(
+            entity = LibraryItemEntity::class,
+            parentColumns = ["uuid"],
+            childColumns = ["libraryItemUuid"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("libraryItemUuid")]
+)
+data class ExternalResourceEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val providerName: String,
+    val providerId: String,
+    val syncStatus: String,
+    val lastSyncedAt: Long? = null,
+    val processedFile: Boolean = false,
+    val libraryItemUuid: String,
+    val hostId: String? = null
+)
