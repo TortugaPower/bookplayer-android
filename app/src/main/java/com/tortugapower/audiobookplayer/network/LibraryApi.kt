@@ -51,4 +51,10 @@ interface LibraryApi {
 
     @POST("/v1/library/uuids")
     suspend fun matchUuids(@Body params: Map<String, Any?>): Response<MatchUuidsResponse>
+
+    @PUT("/v1/library/external")
+    suspend fun uploadExternalResource(@Body params: Map<String, Any?>): Response<Unit>
+
+    @POST("/v1/library/external_set")
+    suspend fun setExternalResourceToDownload(@Body params: Map<String, Any?>): Response<Unit>
 }

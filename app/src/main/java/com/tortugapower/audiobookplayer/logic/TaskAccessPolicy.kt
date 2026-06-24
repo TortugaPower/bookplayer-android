@@ -22,6 +22,12 @@ object TaskAccessPolicy {
      * Checks if the given account tier can execute a specific task type.
      */
     fun canExecuteTask(tier: AccountTier?, jobType: String): Boolean {
+        if (jobType == SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH || 
+            jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS ||
+            jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE) {
+            return true
+        }
+
         if (!canAccessSyncService(tier)) return false
 
         // specific restriction: only PRO can upload files or artwork

@@ -233,4 +233,40 @@ object HardcoverService {
             null
         }
     }
+
+    suspend fun saveUserBookStatus(token: String, bookId: Int, statusId: Int): Int? {
+        if (token.isBlank()) return null
+        val authHeader = if (token.startsWith("Bearer ", ignoreCase = true)) token else "Bearer $token"
+        val graphQLQuery = """
+            mutation InsertUserBook(${'$'}book_id: Int!, ${'$'}status_id: Int!) {
+              insert_user_book(
+                object: {book_id: ${'$'}book_id, status_id: ${'$'}status_id}
+              ) {
+                id
+              }
+            }
+        """.trimIndent()
+
+        val request = GraphQLRequest(
+            query = graphQLQuery,
+            variables = mapOf(
+                "book_id" to bookId,
+                "status_id" to statusId
+            )
+        )
+
+        return try {
+            val response = api.postQuery(authHeader, request)
+            if (response.isSuccessful) {
+                val body = response.body()
+                val data = body?.data
+                val insertUserBook = data?.getAsJsonObject("insert_user_book")
+                insertUserBook?.get("id")?.asInt
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
 }

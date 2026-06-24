@@ -176,7 +176,7 @@ object PlaybackManager {
                             scope.launch {
                                 val current = _currentItem.value ?: return@launch
                                 val db = AppDatabase.getDatabase(appContext)
-                                val repository = RoomLibraryRepository(db.libraryDao())
+                                val repository = RoomLibraryRepository(appContext, db.libraryDao())
                                 val nextItem = repository.getAdjacentItem(current.uuid, next = true)
                                 if (nextItem != null) {
                                     playItem(appContext, nextItem)
@@ -349,7 +349,7 @@ object PlaybackManager {
     }
 
     private fun getRepository(context: Context): LibraryRepository {
-        return repository ?: RoomLibraryRepository(AppDatabase.getDatabase(context).libraryDao())
+        return repository ?: RoomLibraryRepository(context, AppDatabase.getDatabase(context).libraryDao())
     }
 
     private fun startProgressTracker(context: Context) {

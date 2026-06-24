@@ -217,6 +217,8 @@
     <string name="sync_task_download_audio">تحميل الملف الصوتي</string>
     <string name="sync_task_sync_identifiers">مزامنة المعرفات</string>
     <string name="sync_task_match_library_ids">مطابقة معرفات المكتبة</string>
+    <string name="sync_task_upload_external_resource">رفع مورد خارجي</string>
+    <string name="sync_task_set_external_resource_to_download">حالة تنزيل المورد الخارجي</string>
 
     <!-- Settings Sections -->
     <string name="settings_integrations_section">التكاملات</string>

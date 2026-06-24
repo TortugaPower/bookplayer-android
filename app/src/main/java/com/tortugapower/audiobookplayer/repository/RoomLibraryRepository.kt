@@ -10,12 +10,20 @@ import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 
 class RoomLibraryRepository(
+    private val context: android.content.Context,
     private val libraryDao: LibraryDao
 ) : LibraryRepository {
+
+    private val syncTaskRepository by lazy {
+        com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository(
+            com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context).syncTaskDao()
+        )
+    }
 
     override fun getRootItems(): Flow<List<LibraryItemEntity>> = 
         libraryDao.getRootItems()
@@ -57,10 +65,34 @@ class RoomLibraryRepository(
             val item = libraryDao.getItemById(uuid) ?: return@withContext
             item.currentTime = currentTime
             item.isFinished = isFinished
-            item.percentCompleted = if (item.duration > 0) (currentTime / item.duration).coerceIn(0.0, 1.0) else 0.0
-            if (isFinished) item.percentCompleted = 1.0
+            val currentPercent = if (item.duration > 0) (currentTime / item.duration).coerceIn(0.0, 1.0) else 0.0
+            item.percentCompleted = if (isFinished) 1.0 else currentPercent
             item.lastPlayDate = System.currentTimeMillis()
             libraryDao.updateItem(item)
+
+            // Hardcover Progress Integration
+            try {
+                val hardcoverResource = libraryDao.getExternalResource(uuid, "hardcover")
+                if (hardcoverResource != null) {
+                    val hardcoverToken = com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getToken(context).first()
+                    if (hardcoverToken.isNotBlank()) {
+                        if (isFinished) {
+                            if (hardcoverResource.syncStatus != "read") {
+                                libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "read"))
+                                SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, uuid, 3)
+                            }
+                        } else {
+                            val threshold = com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getReadingThreshold(context).first()
+                            if (item.percentCompleted >= threshold && hardcoverResource.syncStatus != "reading" && hardcoverResource.syncStatus != "read") {
+                                libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "reading"))
+                                SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, uuid, 2)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("RoomLibraryRepository", "Error tracking hardcover progress", e)
+            }
 
             // Recursively update parents
             updateParentFolders(item.relativePath)

@@ -29,7 +29,8 @@ class ExternalLibraryViewModel(
     private val _error = MutableStateFlow<UiText?>(null)
     val error: StateFlow<UiText?> = _error.asStateFlow()
 
-    private var server: ExternalServerEntity? = null
+    var server: ExternalServerEntity? = null
+        private set
     private var totalCount = 0
     private var isLastPage = false
     private val pageSize = 50

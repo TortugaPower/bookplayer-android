@@ -217,6 +217,8 @@
     <string name="sync_task_download_audio">オーディオのダウンロード</string>
     <string name="sync_task_sync_identifiers">識別子の同期</string>
     <string name="sync_task_match_library_ids">ライブラリIDの照合</string>
+    <string name="sync_task_upload_external_resource">外部リソースのアップロード</string>
+    <string name="sync_task_set_external_resource_to_download">外部リソースのダウンロード状況</string>
 
     <!-- Settings Sections -->
     <string name="settings_integrations_section">連携</string>

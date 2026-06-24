@@ -21,7 +21,20 @@ interface AudiobookshelfApi {
         @Query("desc") desc: Int = 0,
         @Query("include") include: String = "media"
     ): Response<AudiobookshelfItemsResponse>
+
+    @PATCH("api/me/progress/{id}")
+    suspend fun updateProgress(
+        @Header("Authorization") auth: String,
+        @Path("id") itemId: String,
+        @Body request: AudiobookshelfProgressRequest
+    ): Response<Unit>
 }
+
+data class AudiobookshelfProgressRequest(
+    val progress: Double,
+    val currentTime: Double,
+    val isFinished: Boolean
+)
 
 data class AudiobookshelfLoginRequest(
     val username: String?,

@@ -116,6 +116,9 @@ interface LibraryDao {
     @Query("SELECT * FROM external_resources WHERE libraryItemUuid = :itemUuid")
     fun getExternalResourcesForBookFlow(itemUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>>
 
+    @Query("SELECT * FROM external_resources WHERE libraryItemUuid = :itemUuid")
+    suspend fun getExternalResourcesForBookSync(itemUuid: String): List<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity)
 

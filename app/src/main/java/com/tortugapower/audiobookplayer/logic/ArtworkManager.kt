@@ -91,6 +91,22 @@ object ArtworkManager {
         }
     }
 
+    fun downloadAndSaveArtwork(context: Context, urlString: String, destFile: File): Boolean {
+        return try {
+            val url = java.net.URL(urlString)
+            val connection = url.openConnection() as java.net.HttpURLConnection
+            connection.doInput = true
+            connection.connect()
+            connection.inputStream.use { input ->
+                val bytes = input.readBytes()
+                saveProcessedBitmap(bytes, destFile)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     fun deleteArtwork(path: String?) {
         if (path == null || path.startsWith("http")) return
         try {

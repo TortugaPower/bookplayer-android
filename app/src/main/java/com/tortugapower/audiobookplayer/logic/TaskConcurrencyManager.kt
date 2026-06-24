@@ -86,14 +86,16 @@ class TaskConcurrencyManager(
                     }
 
                     // Check policy before execution
-                    val account = accountRepository.getAccount()
-                    if (account == null) {
+                    val isHardcoverQueue = queueKey == SyncTaskFactory.QUEUE_HARDCOVER
+                    val isMediaServerQueue = queueKey == "jellyfin" || queueKey == "audiobookshelf"
+                    val account = if (isHardcoverQueue || isMediaServerQueue) null else accountRepository.getAccount()
+                    if (account == null && !isHardcoverQueue && !isMediaServerQueue) {
                         Log.w(TAG, "⚠️ Account info not available. Leaving task PENDING and pausing worker for queue $queueKey.")
                         delay(5000)
                         break
                     }
 
-                    if (TaskAccessPolicy.canExecuteTask(account.tier, task.jobType)) {
+                    if (isHardcoverQueue || TaskAccessPolicy.canExecuteTask(account?.tier, task.jobType)) {
                         val success = executeTask(task)
                         if (!success) {
                             Log.w(TAG, "🛑 Queue $queueKey worker paused due to failure. Recovery time: 5s")

@@ -217,6 +217,8 @@
     <string name="sync_task_download_audio">오디오 다운로드</string>
     <string name="sync_task_sync_identifiers">식별자 동기화</string>
     <string name="sync_task_match_library_ids">라이브러리 ID 매칭</string>
+    <string name="sync_task_upload_external_resource">외부 리소스 업로드</string>
+    <string name="sync_task_set_external_resource_to_download">외부 리소스 다운로드 상태</string>
 
     <!-- Settings Sections -->
     <string name="settings_integrations_section">연동</string>

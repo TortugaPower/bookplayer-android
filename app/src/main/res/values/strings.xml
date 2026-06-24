@@ -313,6 +313,8 @@
     <string name="sync_task_download_audio">Download Audio</string>
     <string name="sync_task_sync_identifiers">Sync Identifiers</string>
     <string name="sync_task_match_library_ids">Match Library IDs</string>
+    <string name="sync_task_upload_external_resource">Upload External Resource</string>
+    <string name="sync_task_set_external_resource_to_download">Download External Resource Status</string>
 
     <!-- Settings Sections -->
     <string name="settings_integrations_section">Integrations</string>

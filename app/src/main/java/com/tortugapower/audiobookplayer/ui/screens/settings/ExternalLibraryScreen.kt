@@ -126,7 +126,15 @@ fun ExternalLibraryScreen(
                                 scope.launch {
                                     val url = viewModel.getStreamUrl(item.entity)
                                     val fileName = item.entity.originalFileName ?: "${item.entity.title}.mp3"
-                                    importViewModel.startDownload(context, url, fileName, item.customHeaders)
+                                    importViewModel.startDownload(
+                                        context = context,
+                                        url = url,
+                                        fileName = fileName,
+                                        headers = item.customHeaders,
+                                        providerName = viewModel.server?.type?.name?.lowercase(),
+                                        providerId = item.entity.uuid,
+                                        hostId = viewModel.server?.id?.toString()
+                                    )
                                 }
                             }
                             selectedItems.clear()
