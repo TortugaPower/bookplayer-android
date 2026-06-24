@@ -96,7 +96,7 @@ fun LibraryScreen(
     val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
 
     val libraryViewModel: LibraryViewModel = viewModel ?: viewModel(
-        factory = LibraryViewModelFactory(context.applicationContext as Application, RoomLibraryRepository(database.libraryDao()), syncTaskRepository)
+        factory = LibraryViewModelFactory(context.applicationContext as Application, RoomLibraryRepository(context.applicationContext, database.libraryDao()), syncTaskRepository)
     )
 
     val currentPath by libraryViewModel.currentPath.collectAsState()

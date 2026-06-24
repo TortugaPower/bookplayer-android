@@ -22,7 +22,17 @@ data class SyncableItem(
     @SerializedName("url") val remoteURL: String?,
     @SerializedName("thumbnail") val artworkURL: String?,
     val speed: Double?,
-    @SerializedName("lastPlayDate") val lastPlayDateTimestamp: Double?
+    @SerializedName("lastPlayDate") val lastPlayDateTimestamp: Double?,
+    val externalResources: List<SyncableExternalResource>? = null
+)
+
+data class SyncableExternalResource(
+    val providerName: String,
+    val providerId: String,
+    val syncStatus: String,
+    val lastSyncedAt: Double?,
+    val processedFile: Boolean,
+    val hostId: String?
 )
 
 data class UploadItemResponse(

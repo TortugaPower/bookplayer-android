@@ -40,7 +40,20 @@ interface JellyfinApi {
     suspend fun logout(
         @Header("X-Emby-Authorization") authHeader: String
     ): Response<Unit>
+    
+    @POST("Users/me/Items/{itemId}/UserData")
+    suspend fun updateUserData(
+        @Header("X-Emby-Authorization") authHeader: String,
+        @Path("itemId") itemId: String,
+        @Body request: JellyfinUserDataRequest
+    ): Response<Unit>
 }
+
+data class JellyfinUserDataRequest(
+    @SerializedName("PlaybackPositionTicks") val playbackPositionTicks: Long,
+    @SerializedName("PlayedPercentage") val playedPercentage: Double?,
+    @SerializedName("Played") val played: Boolean
+)
 
 data class JellyfinSystemInfo(
     @SerializedName("ServerName") val serverName: String

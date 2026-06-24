@@ -6,6 +6,7 @@ import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 class SyncingLibraryRepository(
     private val delegate: LibraryRepository,
@@ -45,6 +46,31 @@ class SyncingLibraryRepository(
 
     override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {
         delegate.updateItemProgress(uuid, currentTime, isFinished)
+
+        // Update progress for non-hardcover external resources
+        try {
+            val externalResources = delegate.getExternalResourcesForBook(uuid).first()
+            val item = delegate.getItemById(uuid)
+            if (item != null) {
+                externalResources.forEach { resource ->
+                    if (resource.providerName != "hardcover") {
+                        SyncTaskFactory.createExternalUpdateTask(
+                            syncTaskRepository,
+                            libraryItemUuid = uuid,
+                            providerName = resource.providerName,
+                            providerId = resource.providerId,
+                            hostId = resource.hostId,
+                            currentTime = currentTime,
+                            percentCompleted = item.percentCompleted,
+                            isFinished = isFinished
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("SyncingLibraryRepository", "Error queuing external resource progress update", e)
+        }
+
         if (isSubscribed()) {
             val item = delegate.getItemById(uuid)
             if (item != null) {

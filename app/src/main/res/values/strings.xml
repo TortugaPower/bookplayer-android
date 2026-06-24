@@ -340,6 +340,8 @@
     <string name="profile_days_listened">Days Listened</string>
     <string name="profile_stats">Stats</string>
     <string name="profile_listening_history">Listening history</string>
+    <string name="sync_task_upload_external_resource">Upload External Resource</string>
+    <string name="sync_task_set_external_resource_to_download">Download External Resource Status</string>
 
     <string name="profile_week">Week</string>
     <string name="profile_daily_average">Daily Average</string>

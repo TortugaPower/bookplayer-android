@@ -30,7 +30,7 @@ class BookPlayerApplication : Application() {
 
         // Global Initialization
         val database = AppDatabase.getDatabase(this)
-        val baseLibraryRepository = RoomLibraryRepository(database.libraryDao())
+        val baseLibraryRepository = RoomLibraryRepository(this, database.libraryDao())
         val syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
         val accountRepository = RoomAccountRepository(database.accountDao())
         

@@ -214,6 +214,8 @@
     <string name="sync_task_download_audio">Скачать аудио</string>
     <string name="sync_task_sync_identifiers">Синхронизировать идентификаторы</string>
     <string name="sync_task_match_library_ids">Сопоставить ID библиотеки</string>
+    <string name="sync_task_upload_external_resource">Загрузить внешний ресурс</string>
+    <string name="sync_task_set_external_resource_to_download">Статус загрузки внешнего ресурса</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">ОБЗОР</string>

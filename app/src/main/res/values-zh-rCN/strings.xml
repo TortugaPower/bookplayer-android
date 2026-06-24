@@ -215,6 +215,8 @@
     <string name="sync_task_download_audio">下载音频</string>
     <string name="sync_task_sync_identifiers">同步标识符</string>
     <string name="sync_task_match_library_ids">匹配库 ID</string>
+    <string name="sync_task_upload_external_resource">上传外部资源</string>
+    <string name="sync_task_set_external_resource_to_download">下载外部资源状态</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">概览</string>

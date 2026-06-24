@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
@@ -18,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import java.io.File
 import java.io.FileOutputStream
 
@@ -96,7 +98,15 @@ object ImportManager : ImportService {
         }
     }
 
-    override fun startDownload(context: Context, url: String, fileName: String, headers: Map<String, String>?) {
+    override fun startDownload(
+        context: Context,
+        url: String,
+        fileName: String,
+        headers: Map<String, String>?,
+        providerName: String?,
+        providerId: String?,
+        hostId: String?
+    ) {
         if (url.isBlank()) {
             skippedItemsCount++
             // Optionally, show a toast message to the user: "Invalid download URL"
@@ -148,7 +158,13 @@ object ImportManager : ImportService {
                                         input.copyTo(output)
                                     }
                                 }
-                                newlyImportedFile = ImportFile(sanitizedFileName, destFile)
+                                newlyImportedFile = ImportFile(
+                                    name = sanitizedFileName,
+                                    file = destFile,
+                                    providerName = providerName,
+                                    providerId = providerId,
+                                    hostId = hostId
+                                )
                             } else {
                                 android.util.Log.e("ImportManager", "Download failed: ${response.code}")
                             }
@@ -242,6 +258,19 @@ object ImportManager : ImportService {
                         )
                         if (chapters.isNotEmpty()) libraryDao.insertChapters(chapters)
 
+                        // Create local external resource if imported from media server
+                        var externalResource: ExternalResourceEntity? = null
+                        if (!importFile.providerName.isNullOrBlank() && !importFile.providerId.isNullOrBlank()) {
+                            externalResource = ExternalResourceEntity(
+                                providerName = importFile.providerName,
+                                providerId = importFile.providerId,
+                                syncStatus = "synced",
+                                libraryItemUuid = entity.uuid,
+                                hostId = importFile.hostId
+                            )
+                            libraryDao.insertExternalResource(externalResource)
+                        }
+
                         // 5. Create Sync Tasks (only if session is active)
                         val accountRepository = RoomAccountRepository(database.accountDao())
                         val account = accountRepository.getAccount()
@@ -253,6 +282,20 @@ object ImportManager : ImportService {
                             if (hasArtwork && isPro) {
                                 SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, entity)
                             }
+                            if (externalResource != null) {
+                                SyncTaskFactory.createUploadExternalResourceTask(syncTaskRepository, externalResource)
+                            }
+                        }
+
+                        // Hardcover Auto-match Integration
+                        try {
+                            val hardcoverToken = HardcoverSettingsManager.getToken(context).first()
+                            val autoMatch = HardcoverSettingsManager.getAutoMatchBooks(context).first()
+                            if (hardcoverToken.isNotBlank() && autoMatch) {
+                                SyncTaskFactory.createHardcoverAutoMatchTask(syncTaskRepository, entity.uuid)
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("ImportManager", "Failed to enqueue hardcover auto-match task", e)
                         }
                     }
                 }

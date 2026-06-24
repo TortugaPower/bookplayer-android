@@ -187,6 +187,10 @@ class LibraryViewModel(
 
     fun saveHardcoverLink(itemUuid: String, bookId: String) {
         viewModelScope.launch {
+            val token = com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getToken(appContext).first()
+            val book = com.tortugapower.audiobookplayer.network.HardcoverService.getBook(token, bookId)
+            val artworkUrl = book?.image?.url
+
             val entity = com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity(
                 providerName = "hardcover",
                 providerId = bookId,
@@ -194,6 +198,24 @@ class LibraryViewModel(
                 libraryItemUuid = itemUuid
             )
             repository.saveExternalResource(entity)
+
+            if (!artworkUrl.isNullOrBlank()) {
+                val item = repository.getItemById(itemUuid)
+                if (item != null && item.artworkURL.isNullOrBlank()) {
+                    val artworkDir = java.io.File(appContext.filesDir, "Artworks")
+                    if (!artworkDir.exists()) artworkDir.mkdirs()
+                    val fileName = "${java.util.UUID.randomUUID()}.jpg"
+                    val destFile = java.io.File(artworkDir, fileName)
+                    val success = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        com.tortugapower.audiobookplayer.logic.ArtworkManager.downloadAndSaveArtwork(appContext, artworkUrl, destFile)
+                    }
+                    if (success) {
+                        item.artworkURL = destFile.absolutePath
+                        repository.updateItem(item)
+                        repository.updateArtworkSync(item)
+                    }
+                }
+            }
         }
     }
 

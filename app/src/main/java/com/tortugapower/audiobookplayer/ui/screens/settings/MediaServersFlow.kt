@@ -242,7 +242,15 @@ fun MediaServersFlow(
                                     val url = extLibViewModel.getStreamUrl(item.entity)
                                     if (url.isNotBlank()) {
                                         val fileName = item.entity.originalFileName ?: "${item.entity.title}.mp3"
-                                        importViewModel.startDownload(context, url, fileName, item.customHeaders)
+                                        importViewModel.startDownload(
+                                            context = context,
+                                            url = url,
+                                            fileName = fileName,
+                                            headers = item.customHeaders,
+                                            providerName = extLibViewModel.server?.type?.name?.lowercase(),
+                                            providerId = item.entity.uuid,
+                                            hostId = extLibViewModel.server?.id?.toString()
+                                        )
                                         onDismiss()
                                     }
                                 }

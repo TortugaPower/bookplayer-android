@@ -6,7 +6,10 @@ import java.io.File
 
 data class ImportFile(
     val name: String,
-    val file: File
+    val file: File,
+    val providerName: String? = null,
+    val providerId: String? = null,
+    val hostId: String? = null
 )
 
 /**
@@ -21,7 +24,15 @@ interface ImportService {
     var showImportSheet: Boolean
 
     fun startImport(context: Context, uris: List<Uri>)
-    fun startDownload(context: Context, url: String, fileName: String, headers: Map<String, String>? = null)
+    fun startDownload(
+        context: Context,
+        url: String,
+        fileName: String,
+        headers: Map<String, String>? = null,
+        providerName: String? = null,
+        providerId: String? = null,
+        hostId: String? = null
+    )
     fun removeFile(importFile: ImportFile)
     fun clearImport()
     fun acceptImport(context: Context)

@@ -73,7 +73,7 @@ fun MainScreen() {
 
     val context = LocalContext.current
     val database = remember { AppDatabase.getDatabase(context) }
-    val baseLibraryRepository = remember { RoomLibraryRepository(database.libraryDao()) }
+    val baseLibraryRepository = remember { RoomLibraryRepository(context.applicationContext, database.libraryDao()) }
     val syncTaskRepository = remember { RoomSyncTaskRepository(database.syncTaskDao()) }
     val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
     val externalServerRepository = remember { ExternalServerRepository(database.externalServerDao()) }
