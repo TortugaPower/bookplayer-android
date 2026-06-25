@@ -295,4 +295,14 @@
     <string name="external_item_detail_unknown_value_fallback">Unbekannt</string>
     <string name="external_item_detail_genres_label">Genres</string>
     <string name="external_item_detail_none_value_fallback">Keine</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">Hardcover-Suche</string>
+    <string name="hardcover_unlink">Verknüpfung aufheben</string>
+    <string name="hardcover_token_missing">Hardcover-API-Token fehlt</string>
+    <string name="hardcover_configure_token_hint">Um Bücher zu suchen und zu verknüpfen, konfigurieren Sie Ihr API-Token in Einstellungen > Hardcover-Einstellungen.</string>
+    <string name="hardcover_no_popular_books_found">Keine beliebten Bücher gefunden</string>
+    <string name="hardcover_no_books_found">Keine Bücher gefunden</string>
+    <string name="hardcover_popular_on">Beliebt auf Hardcover</string>
+    <string name="hardcover_search_placeholder">Bücher suchen…</string>
 </resources>

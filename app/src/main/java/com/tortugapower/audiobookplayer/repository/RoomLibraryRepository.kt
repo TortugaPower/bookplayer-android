@@ -438,7 +438,6 @@ class RoomLibraryRepository(
                     }
                     if (streamPath.isNotEmpty()) {
                         item.remoteURL = "$sanitizedUrl$streamPath"
-                        android.util.Log.d("RoomLibraryRepository", "🌐 Resolved stream remoteURL for ${item.title}: ${item.remoteURL}")
                     }
                 }
             }

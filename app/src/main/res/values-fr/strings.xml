@@ -295,4 +295,14 @@
     <string name="external_item_detail_unknown_value_fallback">Inconnu</string>
     <string name="external_item_detail_genres_label">Genres</string>
     <string name="external_item_detail_none_value_fallback">Aucun</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">Recherche Hardcover</string>
+    <string name="hardcover_unlink">Dissocier</string>
+    <string name="hardcover_token_missing">Le jeton API Hardcover est manquant</string>
+    <string name="hardcover_configure_token_hint">Pour rechercher et associer des livres, configurez votre jeton API dans Paramètres > Paramètres Hardcover.</string>
+    <string name="hardcover_no_popular_books_found">Aucun livre populaire trouvé</string>
+    <string name="hardcover_no_books_found">Aucun livre trouvé</string>
+    <string name="hardcover_popular_on">Populaire sur Hardcover</string>
+    <string name="hardcover_search_placeholder">Rechercher des livres…</string>
 </resources>

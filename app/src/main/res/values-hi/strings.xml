@@ -296,4 +296,14 @@
     <string name="external_item_detail_unknown_value_fallback">अज्ञात</string>
     <string name="external_item_detail_genres_label">शैलियां</string>
     <string name="external_item_detail_none_value_fallback">कोई नहीं</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">हार्डकवर खोज</string>
+    <string name="hardcover_unlink">अनलिंक करें</string>
+    <string name="hardcover_token_missing">हार्डकवर एपीआई टोकन गायब है</string>
+    <string name="hardcover_configure_token_hint">पुस्तकों को खोजने और लिंक करने के लिए, सेटिंग्स > हार्डकवर सेटिंग्स में अपना एपीआई टोकन कॉन्फ़िगर करें।</string>
+    <string name="hardcover_no_popular_books_found">कोई लोकप्रिय पुस्तकें नहीं मिलीं</string>
+    <string name="hardcover_no_books_found">कोई पुस्तकें नहीं मिलीं</string>
+    <string name="hardcover_popular_on">हार्डकवर पर लोकप्रिय</string>
+    <string name="hardcover_search_placeholder">पुस्तकों की खोज करें...</string>
 </resources>
