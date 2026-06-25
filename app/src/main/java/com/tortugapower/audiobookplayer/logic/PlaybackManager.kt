@@ -11,6 +11,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.service.AudioPlayerService
@@ -304,26 +305,23 @@ object PlaybackManager {
                             // Update navigation states
                             val next = getRepository(appContext).getAdjacentItem(item.uuid, next = true) != null
                             val prev = getRepository(appContext).getAdjacentItem(item.uuid, next = false) != null
-                            launch(Dispatchers.Main) {
-                                _hasNextItem.value = next
-                                _hasPreviousItem.value = prev
-                            }
-
+                            
                             // Build the playback model (back-filling artwork) and the Media3 playlist.
                             val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
+                            val refreshedItem = refreshRemoteUrlsIfNecessary(appContext, item, isBound, processedDir)
                             val playable = if (isBound) {
-                                val subItems = getRepository(appContext).getItemsInPathSync(item.relativePath ?: "")
+                                val subItems = getRepository(appContext).getItemsInPathSync(refreshedItem.relativePath ?: "")
                                 val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                                 extractMissingArtwork(books, appContext)
                                 books.forEach { ensureChaptersExtracted(it, appContext) }
                                 val chaptersBySubBook = books.associate {
                                     it.uuid to getRepository(appContext).getChaptersForBook(it.uuid).first()
                                 }
-                                PlayableItemBuilder.buildBound(item, subItems, chaptersBySubBook)
+                                PlayableItemBuilder.buildBound(refreshedItem, subItems, chaptersBySubBook)
                             } else {
-                                extractMissingArtwork(listOf(item), appContext)
-                                ensureChaptersExtracted(item, appContext)
-                                PlayableItemBuilder.buildSingle(item, getRepository(appContext).getChaptersForBook(item.uuid).first())
+                                extractMissingArtwork(listOf(refreshedItem), appContext)
+                                ensureChaptersExtracted(refreshedItem, appContext)
+                                PlayableItemBuilder.buildSingle(refreshedItem, getRepository(appContext).getChaptersForBook(refreshedItem.uuid).first())
                             }
                             _currentPlayable.value = playable
                             _currentTimeline.value = if (isBound) playable.timeline else null
@@ -332,11 +330,13 @@ object PlaybackManager {
                             if (mediaItems.isNotEmpty()) {
                                 // For a single BOOK the player offset is just the saved whole-book time.
                                 val local = if (isBound) {
-                                    playable.timeline.toLocal((item.currentTime * 1000).toLong())
+                                    playable.timeline.toLocal((refreshedItem.currentTime * 1000).toLong())
                                 } else {
-                                    BoundTimeline.PlayerPosition(0, (item.currentTime * 1000).toLong())
+                                    BoundTimeline.PlayerPosition(0, (refreshedItem.currentTime * 1000).toLong())
                                 }
                                 launch(Dispatchers.Main) {
+                                    _hasNextItem.value = next
+                                    _hasPreviousItem.value = prev
                                     _isTransitioning.value = true
 
                                     mediaController.setMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
@@ -347,10 +347,10 @@ object PlaybackManager {
                                     applyVolume(_volumeBoost.value, _playbackVolume.value)
 
                                     // Finalize restoration
-                                    _currentItem.value = item
+                                    _currentItem.value = refreshedItem
                                     // Seed the intended whole-book position (positionMs is whole-book);
                                     // prepare() is async so the live player is still 0 here.
-                                    _positionMs.value = (item.currentTime * 1000).toLong()
+                                    _positionMs.value = (refreshedItem.currentTime * 1000).toLong()
                                 }
                             }
                         }
@@ -636,22 +636,25 @@ object PlaybackManager {
         scope.launch(Dispatchers.Main) {
             val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
             // Gather the backing items, back-fill any missing artwork, then build the playback model.
-            val playable = withContext(Dispatchers.IO) {
-                if (isBound) {
-                    val subItems = getRepository(context).getItemsInPathSync(item.relativePath ?: "")
+            val (playable, refreshedItem) = withContext(Dispatchers.IO) {
+                val refreshedItem = refreshRemoteUrlsIfNecessary(context, item, isBound, processedDir)
+                val p = if (isBound) {
+                    val subItems = getRepository(context).getItemsInPathSync(refreshedItem.relativePath ?: "")
                     val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                     extractMissingArtwork(books, context)
                     books.forEach { ensureChaptersExtracted(it, context) }
                     val chaptersBySubBook = books.associate {
                         it.uuid to getRepository(context).getChaptersForBook(it.uuid).first()
                     }
-                    PlayableItemBuilder.buildBound(item, subItems, chaptersBySubBook)
+                    PlayableItemBuilder.buildBound(refreshedItem, subItems, chaptersBySubBook)
                 } else {
-                    extractMissingArtwork(listOf(item), context)
-                    ensureChaptersExtracted(item, context)
-                    PlayableItemBuilder.buildSingle(item, getRepository(context).getChaptersForBook(item.uuid).first())
+                    extractMissingArtwork(listOf(refreshedItem), context)
+                    ensureChaptersExtracted(refreshedItem, context)
+                    PlayableItemBuilder.buildSingle(refreshedItem, getRepository(context).getChaptersForBook(refreshedItem.uuid).first())
                 }
+                Pair(p, refreshedItem)
             }
+            _currentItem.value = refreshedItem
             _currentPlayable.value = playable
             // BOUND books expose a whole-book timeline to the session; single books pass through.
             _currentTimeline.value = if (isBound) playable.timeline else null
@@ -660,9 +663,9 @@ object PlaybackManager {
             if (mediaItems.isNotEmpty()) {
                 // Resolve the saved whole-book time into the player coordinate (file + offset) it maps to.
                 val local = if (isBound) {
-                    playable.timeline.toLocal((item.currentTime * 1000).toLong())
+                    playable.timeline.toLocal((refreshedItem.currentTime * 1000).toLong())
                 } else {
-                    BoundTimeline.PlayerPosition(0, (item.currentTime * 1000).toLong())
+                    BoundTimeline.PlayerPosition(0, (refreshedItem.currentTime * 1000).toLong())
                 }
                 // Seed the whole-book position for the UI (positionMs is whole-book); the real player is
                 // seeded in file coordinates just below.
@@ -872,6 +875,80 @@ object PlaybackManager {
         scope.launch {
             PlaybackSettingsManager.setVolumeBoost(context, !_volumeBoost.value)
         }
+    }
+
+    private suspend fun refreshRemoteUrlsIfNecessary(context: Context, item: LibraryItemEntity, isBound: Boolean, processedDir: File): LibraryItemEntity {
+        val repo = getRepository(context)
+        val isLocal = if (isBound) {
+            val subItems = repo.getItemsInPathSync(item.relativePath ?: "")
+            subItems.all { sub ->
+                val file = sub.relativePath?.let { File(processedDir, it) }
+                file != null && file.exists()
+            }
+        } else {
+            val file = item.relativePath?.let { File(processedDir, it) }
+            file != null && file.exists()
+        }
+
+        if (!isLocal) {
+            // First resolve external server stream URLs (Jellyfin/Audiobookshelf)
+            val resolvedItem = repo.resolveStreamingUrl(item)
+            
+            try {
+                if (isBound) {
+                    val response = NetworkClient.libraryApi.getContents(resolvedItem.relativePath ?: "")
+                    if (response.isSuccessful && response.body() != null) {
+                        val body = response.body()!!
+                        val subItems = repo.getItemsInPathSync(resolvedItem.relativePath ?: "")
+                        val resolvedSubItems = repo.resolveStreamingUrls(subItems)
+                        body.content.forEach { remoteSub ->
+                            val localSub = resolvedSubItems.find { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }
+                            if (localSub != null && !remoteSub.remoteURL.isNullOrEmpty()) {
+                                localSub.remoteURL = remoteSub.remoteURL
+                                if (!remoteSub.artworkURL.isNullOrEmpty()) {
+                                    localSub.artworkURL = remoteSub.artworkURL
+                                }
+                                repo.updateItem(localSub)
+                            }
+                        }
+                        android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
+                    } else {
+                        // Fallback: save resolved sub-book URLs to DB
+                        val subItems = repo.getItemsInPathSync(resolvedItem.relativePath ?: "")
+                        val resolvedSubItems = repo.resolveStreamingUrls(subItems)
+                        resolvedSubItems.forEach { repo.updateItem(it) }
+                    }
+                } else if (!resolvedItem.remoteURL.isNullOrEmpty()) {
+                    val hasExternalResource = resolvedItem.externalResources.any { it.syncStatus == "stream" || it.syncStatus == "downloaded" }
+                    if (!hasExternalResource) {
+                        // Only query Bookplayer API signed URLs if it's not a Jellyfin/Audiobookshelf item
+                        val response = NetworkClient.libraryApi.getRemoteFileURL(
+                            path = resolvedItem.relativePath ?: "",
+                            uuid = resolvedItem.uuid
+                        )
+                        if (response.isSuccessful && response.body() != null) {
+                            val body = response.body()!!
+                            val remoteItem = body.content.firstOrNull { it.uuid == resolvedItem.uuid || it.relativePath == resolvedItem.relativePath }
+                            if (remoteItem != null && !remoteItem.remoteURL.isNullOrEmpty()) {
+                                resolvedItem.remoteURL = remoteItem.remoteURL
+                                if (!remoteItem.artworkURL.isNullOrEmpty()) {
+                                    resolvedItem.artworkURL = remoteItem.artworkURL
+                                }
+                                repo.updateItem(resolvedItem)
+                                android.util.Log.d("PlaybackManager", "✅ Refreshed remote URL for single item: ${resolvedItem.title}")
+                            }
+                        }
+                    } else {
+                        repo.updateItem(resolvedItem)
+                    }
+                }
+            } catch (e: Exception) {
+                // Fallback: update DB with resolved Jellyfin/ABS streaming URLs even if cloud fetch fails
+                repo.updateItem(resolvedItem)
+                android.util.Log.e("PlaybackManager", "❌ Failed to refresh remote URL(s): ${e.message}")
+            }
+        }
+        return repo.getItemById(item.uuid) ?: item
     }
 
     fun release() {

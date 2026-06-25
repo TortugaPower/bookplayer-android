@@ -215,6 +215,10 @@
     <string name="sync_task_sync_identifiers">Synchroniser les identifiants</string>
     <string name="sync_task_match_library_ids">Faire correspondre les IDs de bibliothèque</string>
     <string name="sync_task_upload_external_resource">Téléverser la ressource externe</string>
+    <string name="sync_task_delete_external_resource">Supprimer la ressource externe</string>
+    <string name="sync_task_hardcover_auto_match">Association automatique Hardcover</string>
+    <string name="sync_task_hardcover_update_status">Mettre à jour le statut Hardcover</string>
+    <string name="sync_task_external_update">Mise à jour du statut externe</string>
     <string name="sync_task_set_external_resource_to_download">Statut de téléchargement de la ressource externe</string>
 
     <!-- Profile Stats -->

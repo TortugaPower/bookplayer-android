@@ -35,6 +35,7 @@ fun ItemDetailSheet(
     
     val navController = rememberNavController()
     var linkedBook by remember { mutableStateOf<HardcoverBook?>(null) }
+    var initialBookId by remember { mutableStateOf<String?>(null) }
     var token by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
@@ -48,6 +49,7 @@ fun ItemDetailSheet(
                 val book = com.tortugapower.audiobookplayer.network.HardcoverService.getBook(token, resource.providerId)
                 if (book != null) {
                     linkedBook = book
+                    initialBookId = book.id
                 }
             }
         }
@@ -102,6 +104,7 @@ fun ItemDetailSheet(
                         artworkURL = null
                     },
                     linkedBook = linkedBook,
+                    initialBookId = initialBookId,
                     onNavigateToBrowser = {
                         navController.navigate("browser")
                     },

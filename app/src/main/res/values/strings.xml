@@ -341,6 +341,10 @@
     <string name="profile_stats">Stats</string>
     <string name="profile_listening_history">Listening history</string>
     <string name="sync_task_upload_external_resource">Upload External Resource</string>
+    <string name="sync_task_delete_external_resource">Delete External Resource</string>
+    <string name="sync_task_hardcover_auto_match">Hardcover Auto-Match</string>
+    <string name="sync_task_hardcover_update_status">Update Hardcover Status</string>
+    <string name="sync_task_external_update">External Status Update</string>
     <string name="sync_task_set_external_resource_to_download">Download External Resource Status</string>
 
     <string name="profile_week">Week</string>

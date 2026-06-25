@@ -728,6 +728,8 @@ fun LibraryScreen(
                                     item = item,
                                     isSelected = isSelected,
                                     isSelectMode = isSelectMode,
+                                    syncTaskRepository = syncTaskRepository,
+                                    libraryViewModel = libraryViewModel,
                                     modifier = if (isSelectMode) {
                                         Modifier.pointerInput(item.uuid, reorderableItems) {
                                             var dragAccumulator = 0f
@@ -786,9 +788,7 @@ fun LibraryScreen(
                                             isSelectMode = true
                                             selectedItemUuids = setOf(item.uuid)
                                         }
-                                    },
-                                    syncTaskRepository = syncTaskRepository,
-                                    libraryViewModel = libraryViewModel
+                                    }
                                 )
                             }
                         }
@@ -829,12 +829,7 @@ fun LibraryListItem(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val externalResources by if (libraryViewModel != null) {
-        remember(item.uuid) { libraryViewModel.getExternalResourcesForBook(item.uuid) }
-            .collectAsState(initial = emptyList())
-    } else {
-        remember { mutableStateOf(emptyList<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>()) }
-    }
+    val externalResources = item.externalResources
 
     val isLocal = remember(item.relativePath, item.type) {
         if (item.type == ItemType.FOLDER) true
@@ -914,7 +909,7 @@ fun LibraryListItem(
             Modifier.background(Color.Transparent)
         }
 
-        val showCloud = !isLocal && !item.remoteURL.isNullOrEmpty()
+        val showCloud = !isLocal
         val artworkModifier = Modifier
             .size(56.dp)
             .clip(RoundedCornerShape(8.dp))
@@ -928,7 +923,8 @@ fun LibraryListItem(
                         onClick = {
                             syncTaskRepository?.let { repo ->
                                 scope.launch {
-                                    SyncTaskFactory.createDownloadFileTask(repo, item)
+                                    val resolvedItem = libraryViewModel?.resolveStreamingUrl(item) ?: item
+                                    SyncTaskFactory.createDownloadFileTask(repo, resolvedItem)
                                     context.startService(android.content.Intent(context, com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost::class.java))
                                 }
                             }

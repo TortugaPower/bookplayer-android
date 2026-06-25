@@ -158,4 +158,28 @@ interface LibraryDao {
 
     @Query("DELETE FROM external_resources WHERE libraryItemUuid = :itemUuid AND providerName = :provider")
     suspend fun deleteExternalResource(itemUuid: String, provider: String)
+
+    @Transaction
+    @Query("SELECT * FROM library_items WHERE relativePath NOT LIKE '%/%' ORDER BY orderRank ASC")
+    fun getRootItemsWithResources(): Flow<List<com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources>>
+
+    @Transaction
+    @Query("SELECT * FROM library_items WHERE relativePath LIKE :path || '/%' AND relativePath NOT LIKE :path || '/%/%' ORDER BY orderRank ASC")
+    fun getItemsInPathWithResources(path: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources>>
+
+    @Transaction
+    @Query("SELECT * FROM library_items WHERE type = 'BOOK' AND title LIKE '%' || :query || '%' ORDER BY title ASC")
+    fun searchBooksWithResources(query: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources>>
+
+    @Transaction
+    @Query("SELECT * FROM library_items WHERE uuid = :uuid")
+    suspend fun getItemByIdWithResources(uuid: String): com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources?
+
+    @Transaction
+    @Query("SELECT * FROM library_items WHERE relativePath = :path LIMIT 1")
+    suspend fun getItemByPathWithResources(path: String): com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources?
+
+    @Transaction
+    @Query("SELECT * FROM library_items WHERE relativePath LIKE :path || '/%' AND relativePath NOT LIKE :path || '/%/%' ORDER BY orderRank ASC")
+    suspend fun getItemsInPathSyncWithResources(path: String): List<com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources>
 }

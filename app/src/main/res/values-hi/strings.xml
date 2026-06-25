@@ -216,6 +216,10 @@
     <string name="sync_task_sync_identifiers">आइडेंटिफ़ायर सिंक करें</string>
     <string name="sync_task_match_library_ids">लाइब्रेरी आईडी मिलान करें</string>
     <string name="sync_task_upload_external_resource">बाहरी संसाधन अपलोड करें</string>
+    <string name="sync_task_delete_external_resource">बाहरी संसाधन हटाएं</string>
+    <string name="sync_task_hardcover_auto_match">हार्डकवर ऑटो-मैच</string>
+    <string name="sync_task_hardcover_update_status">हार्डकवर स्थिति अपडेट करें</string>
+    <string name="sync_task_external_update">बाहरी स्थिति अपडेट</string>
     <string name="sync_task_set_external_resource_to_download">बाहरी संसाधन डाउनलोड स्थिति</string>
 
     <!-- Profile Stats -->

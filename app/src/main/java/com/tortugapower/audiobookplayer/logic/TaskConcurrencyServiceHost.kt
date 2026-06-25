@@ -66,6 +66,7 @@ class TaskConcurrencyServiceHost : Service() {
             MatchUuidsProcessor(this, repository),
             HardcoverProcessor(this),
             UploadExternalResourceProcessor(),
+            DeleteExternalResourceProcessor(),
             SetExternalResourceToDownloadProcessor(),
             ExternalUpdateProcessor(this)
         )

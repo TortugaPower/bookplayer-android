@@ -49,6 +49,7 @@ fun ItemDetailsContent(
     onUpdateArtwork: (Uri) -> Unit,
     onDeleteArtwork: () -> Unit,
     linkedBook: HardcoverBook?,
+    initialBookId: String? = null,
     onNavigateToBrowser: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -94,10 +95,13 @@ fun ItemDetailsContent(
                 text = stringResource(R.string.common_save),
                 onClick = {
                     viewModel.updateItemDetails(item, title, author)
-                    if (linkedBook != null) {
-                        viewModel.saveHardcoverLink(item.uuid, linkedBook.id)
-                    } else {
-                        viewModel.removeHardcoverLink(item.uuid)
+                    val hasChanged = linkedBook?.id != initialBookId
+                    if (hasChanged) {
+                        if (linkedBook != null) {
+                            viewModel.saveHardcoverLink(item.uuid, linkedBook.id)
+                        } else {
+                            viewModel.removeHardcoverLink(item.uuid)
+                        }
                     }
                     onDismiss()
                 }

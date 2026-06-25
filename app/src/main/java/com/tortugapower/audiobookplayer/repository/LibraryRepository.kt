@@ -46,4 +46,6 @@ interface LibraryRepository {
     fun getExternalResourcesForBook(itemUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>>
     suspend fun saveExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity)
     suspend fun deleteExternalResource(itemUuid: String, provider: String)
+    suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity
+    suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity>
 }
