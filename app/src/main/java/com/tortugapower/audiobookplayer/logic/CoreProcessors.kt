@@ -36,7 +36,6 @@ class FetchContentsProcessor(
         val normalizedPath = if (path.endsWith("/")) path.removeSuffix("/") else path
         
         val response = NetworkClient.libraryApi.getContents(path)
-        Log.d("FetchContentsProcessor", "📥 Fetched contents for path '$path': ${gson.toJson(response.body())}")
         
         if (response.isSuccessful && response.body() != null) {
             val contents = response.body()!!
@@ -281,7 +280,6 @@ class MetadataUploadProcessor(
         if (response.isSuccessful && response.body() != null) {
             val uploadResponse = response.body()!!
             val uploadUrl = uploadResponse.content.url
-            Log.d("MetadataUploadProcessor", "✅ Metadata uploaded successfully for ${payload["title"]}. Response URL: $uploadUrl")
             
             if (!uploadUrl.isNullOrEmpty()) {
                 val database = AppDatabase.getDatabase(context)
@@ -399,8 +397,6 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
             Log.e("DownloadFileProcessor", "❌ Missing remoteURL or relativePath")
             return false
         }
-
-        Log.d("DownloadFileProcessor", "🚀 Starting download: $remoteURL to $relativePath")
 
         val processedDir = File(context.filesDir, "Processed")
         if (!processedDir.exists()) processedDir.mkdirs()

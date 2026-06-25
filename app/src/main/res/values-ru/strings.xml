@@ -346,4 +346,14 @@
     <string name="external_item_detail_genres_label">Жанры</string>
     <string name="external_item_detail_none_value_fallback">Нет</string>
     <string name="external_item_detail_unknown_author_fallback">Неизвестный автор</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">Поиск Hardcover</string>
+    <string name="hardcover_unlink">Отвязать</string>
+    <string name="hardcover_token_missing">Отсутствует API-токен Hardcover</string>
+    <string name="hardcover_configure_token_hint">Чтобы искать и связывать книги, настройте API-токен в разделе Настройки > Настройки Hardcover.</string>
+    <string name="hardcover_no_popular_books_found">Популярные книги не найдены</string>
+    <string name="hardcover_no_books_found">Книги не найдены</string>
+    <string name="hardcover_popular_on">Популярно на Hardcover</string>
+    <string name="hardcover_search_placeholder">Поиск книг…</string>
 </resources>

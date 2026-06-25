@@ -99,7 +99,7 @@ fun HardcoverBrowser(
             }
 
             Text(
-                text = "Hardcover Search",
+                text = stringResource(R.string.hardcover_search_title),
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
@@ -110,7 +110,7 @@ fun HardcoverBrowser(
                     onClick = { onBookSelected(null) }
                 ) {
                     Text(
-                        text = "Unlink",
+                        text = stringResource(R.string.hardcover_unlink),
                         color = MaterialTheme.colorScheme.error,
                         fontWeight = FontWeight.Bold
                     )
@@ -134,14 +134,14 @@ fun HardcoverBrowser(
                     modifier = Modifier.padding(24.dp)
                 ) {
                     Text(
-                        text = "Hardcover API token is missing",
+                        text = stringResource(R.string.hardcover_token_missing),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "To search and link books, configure your API token in Settings > Hardcover Settings.",
+                        text = stringResource(R.string.hardcover_configure_token_hint),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -151,7 +151,7 @@ fun HardcoverBrowser(
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             } else if (books.isEmpty()) {
                 Text(
-                    text = if (searchQuery.isBlank()) "No popular books found" else "No books found",
+                    text = if (searchQuery.isBlank()) stringResource(R.string.hardcover_no_popular_books_found) else stringResource(R.string.hardcover_no_books_found),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyLarge
                 )
@@ -159,7 +159,7 @@ fun HardcoverBrowser(
                 Column(modifier = Modifier.fillMaxSize()) {
                     if (searchQuery.isBlank()) {
                         Text(
-                            text = "Popular on Hardcover",
+                            text = stringResource(R.string.hardcover_popular_on),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -222,12 +222,12 @@ fun HardcoverBrowser(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = { Text("Search books...") },
+            placeholder = { Text(stringResource(R.string.hardcover_search_placeholder)) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             trailingIcon = {
                 if (searchQuery.isNotEmpty()) {
                     IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear")
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_clear))
                     }
                 }
             },

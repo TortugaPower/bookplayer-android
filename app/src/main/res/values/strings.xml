@@ -441,4 +441,14 @@
     <string name="external_item_detail_genres_label">Genres</string>
     <string name="external_item_detail_none_value_fallback">None</string>
     <string name="external_item_detail_unknown_author_fallback">Unknown author</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">Hardcover Search</string>
+    <string name="hardcover_unlink">Unlink</string>
+    <string name="hardcover_token_missing">Hardcover API token is missing</string>
+    <string name="hardcover_configure_token_hint">To search and link books, configure your API token in Settings > Hardcover Settings.</string>
+    <string name="hardcover_no_popular_books_found">No popular books found</string>
+    <string name="hardcover_no_books_found">No books found</string>
+    <string name="hardcover_popular_on">Popular on Hardcover</string>
+    <string name="hardcover_search_placeholder">Search books…</string>
 </resources>

@@ -338,4 +338,14 @@
     <string name="external_item_detail_genres_label">장르</string>
     <string name="external_item_detail_none_value_fallback">없음</string>
     <string name="external_item_detail_unknown_author_fallback">알 수 없는 저자</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">하드커버 검색</string>
+    <string name="hardcover_unlink">연결 해제</string>
+    <string name="hardcover_token_missing">하드커버 API 토큰이 없습니다</string>
+    <string name="hardcover_configure_token_hint">책을 검색하고 연결하려면 설정 > 하드커버 설정에서 API 토큰을 구성하십시오.</string>
+    <string name="hardcover_no_popular_books_found">인기 도서를 찾을 수 없습니다</string>
+    <string name="hardcover_no_books_found">책을 찾을 수 없습니다</string>
+    <string name="hardcover_popular_on">하드커버 인기 도서</string>
+    <string name="hardcover_search_placeholder">책 검색…</string>
 </resources>

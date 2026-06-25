@@ -88,7 +88,6 @@ class TaskConcurrencyServiceHost : Service() {
         // Observe active queues to update notification
         serviceScope.launch {
             taskConcurrencyManager.activeQueues.collectLatest { activeQueues ->
-                Log.d(TAG, "🔄 Active queues updated: $activeQueues")
                 if (activeQueues.isEmpty()) {
                     updateNotification("Idle")
                 } else {

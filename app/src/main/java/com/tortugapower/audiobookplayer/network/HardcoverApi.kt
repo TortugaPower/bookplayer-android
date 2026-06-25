@@ -88,13 +88,9 @@ object HardcoverService {
             val response = api.postQuery(authHeader, request)
             if (response.isSuccessful) {
                 val body = response.body()
-                if (body?.errors != null && body.errors.isNotEmpty()) {
-                    android.util.Log.e("HardcoverService", "GraphQL Errors: ${body.errors}")
-                }
                 val data = body?.data
                 val search = data?.getAsJsonObject("search")
                 val resultsElement = search?.get("results")
-                android.util.Log.d("HardcoverService", "resultsElement: $resultsElement")
                 
                 if (resultsElement == null) {
                     emptyList()
@@ -107,7 +103,6 @@ object HardcoverService {
                     gson.fromJson<List<HardcoverBook>>(jsonStr, type) ?: emptyList()
                 } else if (resultsElement.isJsonObject) {
                     val obj = resultsElement.asJsonObject
-                    android.util.Log.d("HardcoverService", "results is JsonObject. Keys: ${obj.keySet()}")
                     if (obj.has("hits")) {
                         val hitsArray = obj.getAsJsonArray("hits")
                         val parsedBooks = mutableListOf<HardcoverBook>()
@@ -168,9 +163,6 @@ object HardcoverService {
             val response = api.postQuery(authHeader, request)
             if (response.isSuccessful) {
                 val body = response.body()
-                if (body?.errors != null && body.errors.isNotEmpty()) {
-                    android.util.Log.e("HardcoverService", "GraphQL Errors (popular): ${body.errors}")
-                }
                 val data = body?.data
                 val books = data?.getAsJsonArray("books")
                 val type = object : TypeToken<List<HardcoverBook>>() {}.type
@@ -214,9 +206,6 @@ object HardcoverService {
             val response = api.postQuery(authHeader, request)
             if (response.isSuccessful) {
                 val body = response.body()
-                if (body?.errors != null && body.errors.isNotEmpty()) {
-                    android.util.Log.e("HardcoverService", "GraphQL Errors (getBook): ${body.errors}")
-                }
                 val data = body?.data
                 val bookObj = data?.getAsJsonObject("books_by_pk")
                 if (bookObj != null) {

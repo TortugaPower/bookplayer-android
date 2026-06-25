@@ -338,4 +338,14 @@
     <string name="external_item_detail_genres_label">ジャンル</string>
     <string name="external_item_detail_none_value_fallback">なし</string>
     <string name="external_item_detail_unknown_author_fallback">不明な著者</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">Hardcover検索</string>
+    <string name="hardcover_unlink">リンク解除</string>
+    <string name="hardcover_token_missing">Hardcover APIトークンがありません</string>
+    <string name="hardcover_configure_token_hint">本を検索してリンクするには、設定 > Hardcover設定でAPIトークンを設定してください。</string>
+    <string name="hardcover_no_popular_books_found">人気の本が見つかりませんでした</string>
+    <string name="hardcover_no_books_found">本が見つかりませんでした</string>
+    <string name="hardcover_popular_on">Hardcoverで人気</string>
+    <string name="hardcover_search_placeholder">本を検索…</string>
 </resources>

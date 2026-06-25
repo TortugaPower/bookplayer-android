@@ -338,4 +338,14 @@
     <string name="external_item_detail_genres_label">流派</string>
     <string name="external_item_detail_none_value_fallback">无</string>
     <string name="external_item_detail_unknown_author_fallback">未知作者</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">Hardcover 搜索</string>
+    <string name="hardcover_unlink">取消链接</string>
+    <string name="hardcover_token_missing">缺少 Hardcover API 令牌</string>
+    <string name="hardcover_configure_token_hint">要搜索和链接书籍，请在 设置 > Hardcover 设置 中配置您的 API 令牌。</string>
+    <string name="hardcover_no_popular_books_found">未找到热门书籍</string>
+    <string name="hardcover_no_books_found">未找到书籍</string>
+    <string name="hardcover_popular_on">Hardcover 热门</string>
+    <string name="hardcover_search_placeholder">搜索书籍…</string>
 </resources>
