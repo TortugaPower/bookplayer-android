@@ -187,4 +187,31 @@ class SyncingLibraryRepository(
         }
         delegate.deleteBookmark(bookmark)
     }
+
+    override suspend fun saveExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity) {
+        val existing = delegate.getExternalResource(externalResource.libraryItemUuid, externalResource.providerName)
+        if (existing != null) {
+            if (existing.providerId == externalResource.providerId) {
+                return
+            }
+            delegate.deleteExternalResource(externalResource.libraryItemUuid, externalResource.providerName)
+            if (isSubscribed()) {
+                SyncTaskFactory.createDeleteExternalResourceTask(syncTaskRepository, existing)
+            }
+        }
+        delegate.saveExternalResource(externalResource)
+        if (isSubscribed()) {
+            SyncTaskFactory.createUploadExternalResourceTask(syncTaskRepository, externalResource)
+        }
+    }
+
+    override suspend fun deleteExternalResource(itemUuid: String, provider: String) {
+        val existing = delegate.getExternalResource(itemUuid, provider)
+        if (existing != null) {
+            delegate.deleteExternalResource(itemUuid, provider)
+            if (isSubscribed()) {
+                SyncTaskFactory.createDeleteExternalResourceTask(syncTaskRepository, existing)
+            }
+        }
+    }
 }

@@ -4,6 +4,9 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
 import androidx.room.Index
+import androidx.room.Embedded
+import androidx.room.Relation
+import androidx.room.Ignore
 
 enum class ItemType {
     FOLDER, BOUND, BOOK
@@ -26,6 +29,18 @@ data class LibraryItemEntity(
     var lastPlayDate: Long? = null,
     var parentFolderUuid: String? = null,
     var type: ItemType
+) {
+    @Ignore
+    var externalResources: List<ExternalResourceEntity> = emptyList()
+}
+
+data class LibraryItemWithExternalResources(
+    @Embedded val item: LibraryItemEntity,
+    @Relation(
+        parentColumn = "uuid",
+        entityColumn = "libraryItemUuid"
+    )
+    val externalResources: List<ExternalResourceEntity>
 )
 
 @Entity(

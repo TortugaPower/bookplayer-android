@@ -218,6 +218,10 @@
     <string name="sync_task_sync_identifiers">同步标识符</string>
     <string name="sync_task_match_library_ids">匹配库 ID</string>
     <string name="sync_task_upload_external_resource">上传外部资源</string>
+    <string name="sync_task_delete_external_resource">删除外部资源</string>
+    <string name="sync_task_hardcover_auto_match">Hardcover 自动匹配</string>
+    <string name="sync_task_hardcover_update_status">更新 Hardcover 状态</string>
+    <string name="sync_task_external_update">外部状态更新</string>
     <string name="sync_task_set_external_resource_to_download">下载外部资源状态</string>
 
     <!-- Settings Sections -->

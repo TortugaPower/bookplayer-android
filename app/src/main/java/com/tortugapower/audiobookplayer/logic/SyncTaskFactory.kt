@@ -32,6 +32,7 @@ object SyncTaskFactory {
     const val JOB_HARDCOVER_AUTO_MATCH = "hardcover_auto_match"
     const val JOB_HARDCOVER_UPDATE_STATUS = "hardcover_update_status"
     const val JOB_UPLOAD_EXTERNAL_RESOURCE = "upload_external_resource"
+    const val JOB_DELETE_EXTERNAL_RESOURCE = "delete_external_resource"
     const val JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD = "set_external_resource_to_download"
     const val JOB_EXTERNAL_UPDATE = "external_update"
 
@@ -239,6 +240,22 @@ object SyncTaskFactory {
             "status" to status
         )
         enqueue(repository, QUEUE_HARDCOVER, JOB_HARDCOVER_UPDATE_STATUS, "${itemUuid}_$status", payload)
+    }
+
+    suspend fun createDeleteExternalResourceTask(
+        repository: SyncTaskRepository,
+        externalResource: ExternalResourceEntity
+    ) {
+        val taskId = "${externalResource.libraryItemUuid}_${externalResource.providerName}_delete"
+        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_DELETE_EXTERNAL_RESOURCE, taskId)
+        if (existing != null) return
+
+        val payload = mapOf(
+            "uuid" to externalResource.libraryItemUuid,
+            "providerName" to externalResource.providerName,
+            "providerId" to externalResource.providerId
+        )
+        enqueue(repository, QUEUE_SYNC, JOB_DELETE_EXTERNAL_RESOURCE, taskId, payload)
     }
 
     suspend fun createUploadExternalResourceTask(

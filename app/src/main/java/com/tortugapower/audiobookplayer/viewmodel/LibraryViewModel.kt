@@ -199,9 +199,9 @@ class LibraryViewModel(
             )
             repository.saveExternalResource(entity)
 
-            if (!artworkUrl.isNullOrBlank()) {
-                val item = repository.getItemById(itemUuid)
-                if (item != null && item.artworkURL.isNullOrBlank()) {
+            val item = repository.getItemById(itemUuid)
+            if (item != null) {
+                if (item.artworkURL.isNullOrBlank() && !artworkUrl.isNullOrBlank()) {
                     val artworkDir = java.io.File(appContext.filesDir, "Artworks")
                     if (!artworkDir.exists()) artworkDir.mkdirs()
                     val fileName = "${java.util.UUID.randomUUID()}.jpg"
@@ -212,9 +212,23 @@ class LibraryViewModel(
                     if (success) {
                         item.artworkURL = destFile.absolutePath
                         repository.updateItem(item)
-                        repository.updateArtworkSync(item)
                     }
                 }
+                
+                // Upload artwork if present (either existing or downloaded)
+                if (!item.artworkURL.isNullOrBlank()) {
+                    repository.updateArtworkSync(item)
+                }
+            }
+
+            // Set book status as 'Want to Read' (status code 1) on Hardcover if preference is enabled
+            val autoAdd = com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getAutoAddToWantToRead(appContext).first()
+            if (autoAdd && token.isNotBlank()) {
+                com.tortugapower.audiobookplayer.logic.SyncTaskFactory.createHardcoverUpdateStatusTask(
+                    syncTaskRepository,
+                    itemUuid,
+                    1
+                )
             }
         }
     }
@@ -260,5 +274,9 @@ class LibraryViewModel(
             item.artworkURL = null
             repository.updateItem(item)
         }
+    }
+
+    suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity {
+        return repository.resolveStreamingUrl(item)
     }
 }

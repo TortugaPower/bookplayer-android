@@ -501,9 +501,15 @@ object PlaybackManager {
         val processedDir = File(context.filesDir, "Processed")
         
         scope.launch(Dispatchers.Main) {
+            val item = withContext(Dispatchers.IO) {
+                getRepository(context).resolveStreamingUrl(item)
+            }
+            _currentItem.value = item
+
             if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
                 val subItems = withContext(Dispatchers.IO) {
-                    getRepository(context).getItemsInPathSync(item.relativePath ?: "")
+                    val rawItems = getRepository(context).getItemsInPathSync(item.relativePath ?: "")
+                    getRepository(context).resolveStreamingUrls(rawItems)
                 }
                 val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                 val mediaItems = books.map { subItem ->

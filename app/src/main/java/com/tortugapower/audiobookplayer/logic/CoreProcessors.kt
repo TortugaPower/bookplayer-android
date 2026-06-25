@@ -723,6 +723,27 @@ class UploadExternalResourceProcessor : TaskProcessor {
     }
 }
 
+class DeleteExternalResourceProcessor : TaskProcessor {
+    private val gson = Gson()
+
+    override suspend fun process(task: SyncTaskEntity): Boolean {
+        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
+        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
+
+        val response = NetworkClient.libraryApi.deleteExternalResource(payload)
+        if (!response.isSuccessful) {
+            val errBody = response.errorBody()?.string()
+            Log.e("DeleteExternalResourceProcessor", "🛑 Server returned error code ${response.code()}: $errBody")
+            return false
+        }
+        return true
+    }
+
+    override fun canHandle(jobType: String): Boolean {
+        return jobType == SyncTaskFactory.JOB_DELETE_EXTERNAL_RESOURCE
+    }
+}
+
 class SetExternalResourceToDownloadProcessor : TaskProcessor {
     private val gson = Gson()
 

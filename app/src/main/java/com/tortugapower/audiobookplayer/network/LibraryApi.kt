@@ -55,6 +55,9 @@ interface LibraryApi {
     @PUT("/v1/library/external")
     suspend fun uploadExternalResource(@Body params: Map<String, Any?>): Response<Unit>
 
+    @HTTP(method = "DELETE", path = "/v1/library/external", hasBody = true)
+    suspend fun deleteExternalResource(@Body params: Map<String, Any?>): Response<Unit>
+
     @POST("/v1/library/external_set")
     suspend fun setExternalResourceToDownload(@Body params: Map<String, Any?>): Response<Unit>
 }
