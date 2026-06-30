@@ -378,4 +378,15 @@
     <string name="storage_management_sort_label">فرز</string>
     <string name="storage_management_sort_by_size">فرز حسب الحجم</string>
     <string name="storage_management_sort_by_name">فرز حسب الاسم</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">المحذوفة مؤخراً</string>
+    <string name="storage_cloud_deleted_total_size">حجم النسخة الاحتياطية</string>
+    <string name="storage_cloud_deleted_restore_all">استعادة الكل</string>
+    <string name="storage_cloud_deleted_restore_button">استعادة</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">حذف نهائي</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">هل أنت متأكد من أنك تريد حذف هذا الملف نهائيًا؟ لا يمكن التراجع عن هذا الإجراء.</string>
+    <string name="storage_cloud_deleted_delete_button">حذف</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">استعادة جميع الملفات</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">هل أنت متأكد من أنك تريد استعادة جميع ملفات الصوت المحذوفة إلى مكتبتك؟</string>
 </resources>

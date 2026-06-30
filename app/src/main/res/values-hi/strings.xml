@@ -366,4 +366,15 @@
     <string name="storage_management_sort_label">क्रमबद्ध करें</string>
     <string name="storage_management_sort_by_size">आकार के अनुसार क्रमबद्ध करें</string>
     <string name="storage_management_sort_by_name">नाम के अनुसार क्रमबद्ध करें</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">हाल ही में हटाए गए</string>
+    <string name="storage_cloud_deleted_total_size">बैकअप का आकार</string>
+    <string name="storage_cloud_deleted_restore_all">सभी पुनर्स्थापित करें</string>
+    <string name="storage_cloud_deleted_restore_button">पुनर्स्थापित करें</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">स्थायी रूप से हटाएं</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">क्या आप वाकई इस फ़ाइल को स्थायी रूप से हटाना चाहते हैं? यह कार्रवाई पूर्ववत नहीं की जा सकती।</string>
+    <string name="storage_cloud_deleted_delete_button">हटाएं</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">सभी फ़ाइलें पुनर्स्थापित करें</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">क्या आप वाकई हटाए गए सभी ऑडियो फ़ाइलों को अपनी लाइब्रेरी में पुनर्स्थापित करना चाहते हैं?</string>
 </resources>

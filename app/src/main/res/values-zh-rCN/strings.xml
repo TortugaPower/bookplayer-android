@@ -364,4 +364,15 @@
     <string name="storage_management_sort_label">排序</string>
     <string name="storage_management_sort_by_size">按大小排序</string>
     <string name="storage_management_sort_by_name">按名称排序</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">最近删除</string>
+    <string name="storage_cloud_deleted_total_size">备份大小</string>
+    <string name="storage_cloud_deleted_restore_all">全部恢复</string>
+    <string name="storage_cloud_deleted_restore_button">恢复</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">永久删除</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">您确定要永久删除此文件吗？此操作无法撤销。</string>
+    <string name="storage_cloud_deleted_delete_button">删除</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">恢复所有文件</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">您确定要将所有已删除的音频文件恢复到您的书架中吗？</string>
 </resources>
