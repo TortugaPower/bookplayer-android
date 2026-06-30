@@ -9,7 +9,8 @@ data class ImportFile(
     val file: File,
     val providerName: String? = null,
     val providerId: String? = null,
-    val hostId: String? = null
+    val hostId: String? = null,
+    val isFileOnly: Boolean = false
 )
 
 /**

@@ -362,4 +362,20 @@
     <string name="hardcover_no_books_found">لم يتم العثور على كتب</string>
     <string name="hardcover_popular_on">شائع على هاردكفر</string>
     <string name="hardcover_search_placeholder">البحث عن كتب...</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">إدارة التخزين</string>
+    <string name="settings_manage_files_label">إدارة ملفاتك</string>
+    <string name="settings_files_removed_label">الملفات المحذوفة (عمليات المزامنة)</string>
+    <string name="storage_management_title">إدارة التخزين</string>
+    <string name="storage_management_total_space">إجمالي المساحة المستخدمة</string>
+    <string name="storage_management_artwork_cache">حجم ذاكرة التخزين المؤقت للأغلفة</string>
+    <string name="storage_management_file_count_single">%1$d ملف</string>
+    <string name="storage_management_file_count_multiple">%1$d ملفات</string>
+    <string name="storage_management_remove_confirm_title">إزالة الملف</string>
+    <string name="storage_management_remove_confirm_text">هل أنت متأكد من أنك تريد إزالة الملف الذي تم تنزيله لهذا الكتاب الصوتي؟</string>
+    <string name="storage_management_remove_button">إزالة</string>
+    <string name="storage_management_sort_label">فرز</string>
+    <string name="storage_management_sort_by_size">فرز حسب الحجم</string>
+    <string name="storage_management_sort_by_name">فرز حسب الاسم</string>
 </resources>

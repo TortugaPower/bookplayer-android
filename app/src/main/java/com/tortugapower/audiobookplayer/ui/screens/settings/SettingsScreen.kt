@@ -48,6 +48,7 @@ fun SettingsScreen(
     onNavigateToTipJar: () -> Unit,
     onNavigateToMediaServers: () -> Unit,
     onNavigateToHardcover: () -> Unit,
+    onNavigateToStorageManagement: () -> Unit,
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -165,6 +166,18 @@ fun SettingsScreen(
                 SettingsItem(
                     label = stringResource(R.string.hardcover_settings_title),
                     onClick = onNavigateToHardcover,
+                )
+            }
+
+            settingsSection(titleRes = R.string.settings_storage_management_section) {
+                SettingsItem(
+                    label = stringResource(R.string.settings_manage_files_label),
+                    onClick = onNavigateToStorageManagement,
+                )
+                HorizontalDivider()
+                SettingsItem(
+                    label = stringResource(R.string.settings_files_removed_label),
+                    onClick = { /* Placeholder / No-op */ },
                 )
             }
 

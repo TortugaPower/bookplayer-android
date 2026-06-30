@@ -350,4 +350,20 @@
     <string name="hardcover_no_books_found">Aucun livre trouvé</string>
     <string name="hardcover_popular_on">Populaire sur Hardcover</string>
     <string name="hardcover_search_placeholder">Rechercher des livres…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">Gestion du stockage</string>
+    <string name="settings_manage_files_label">Gérer vos fichiers</string>
+    <string name="settings_files_removed_label">Fichiers supprimés (opérations de synchronisation)</string>
+    <string name="storage_management_title">Gestion du stockage</string>
+    <string name="storage_management_total_space">Espace total utilisé</string>
+    <string name="storage_management_artwork_cache">Taille du cache des illustrations</string>
+    <string name="storage_management_file_count_single">%1$d FICHIER</string>
+    <string name="storage_management_file_count_multiple">%1$d FICHIERS</string>
+    <string name="storage_management_remove_confirm_title">Supprimer le fichier</string>
+    <string name="storage_management_remove_confirm_text">Voulez-vous vraiment supprimer le fichier téléchargé pour ce livre audio ?</string>
+    <string name="storage_management_remove_button">Supprimer</string>
+    <string name="storage_management_sort_label">Trier</string>
+    <string name="storage_management_sort_by_size">Trier par taille</string>
+    <string name="storage_management_sort_by_name">Trier par nom</string>
 </resources>

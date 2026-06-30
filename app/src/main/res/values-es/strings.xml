@@ -350,4 +350,20 @@
     <string name="hardcover_no_books_found">No se encontraron libros</string>
     <string name="hardcover_popular_on">Popular en Hardcover</string>
     <string name="hardcover_search_placeholder">Buscar libros…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">Almacenamiento</string>
+    <string name="settings_manage_files_label">Gestionar tus archivos</string>
+    <string name="settings_files_removed_label">Archivos eliminados (sinc.)</string>
+    <string name="storage_management_title">Almacenamiento</string>
+    <string name="storage_management_total_space">Espacio total utilizado</string>
+    <string name="storage_management_artwork_cache">Tamaño de caché de portadas</string>
+    <string name="storage_management_file_count_single">%1$d ARCHIVO</string>
+    <string name="storage_management_file_count_multiple">%1$d ARCHIVOS</string>
+    <string name="storage_management_remove_confirm_title">Eliminar archivo</string>
+    <string name="storage_management_remove_confirm_text">¿Estás seguro de que deseas eliminar el archivo descargado de este audiolibro?</string>
+    <string name="storage_management_remove_button">Eliminar</string>
+    <string name="storage_management_sort_label">Ordenar</string>
+    <string name="storage_management_sort_by_size">Ordenar por tamaño</string>
+    <string name="storage_management_sort_by_name">Ordenar por nombre</string>
 </resources>
