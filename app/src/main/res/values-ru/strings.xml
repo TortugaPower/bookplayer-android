@@ -321,4 +321,15 @@
     <string name="storage_management_sort_label">Сортировка</string>
     <string name="storage_management_sort_by_size">По размеру</string>
     <string name="storage_management_sort_by_name">По названию</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">Недавно удаленные</string>
+    <string name="storage_cloud_deleted_total_size">Размер резервной копии</string>
+    <string name="storage_cloud_deleted_restore_all">Восстановить все</string>
+    <string name="storage_cloud_deleted_restore_button">Восстановить</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">Удалить навсегда</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">Вы действительно хотите навсегда удалить этот файл? Это действие нельзя отменить.</string>
+    <string name="storage_cloud_deleted_delete_button">Удалить</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">Восстановить все файлы</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">Вы действительно хотите восстановить все удаленные аудиофайлы обратно в библиотеку?</string>
 </resources>

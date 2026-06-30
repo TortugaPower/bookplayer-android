@@ -321,4 +321,15 @@
     <string name="storage_management_sort_label">Ordenar</string>
     <string name="storage_management_sort_by_size">Ordenar por tamaño</string>
     <string name="storage_management_sort_by_name">Ordenar por nombre</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">Eliminados recientemente</string>
+    <string name="storage_cloud_deleted_total_size">Tamaño de copia de seguridad</string>
+    <string name="storage_cloud_deleted_restore_all">Restaurar todo</string>
+    <string name="storage_cloud_deleted_restore_button">Restaurar</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">Eliminar permanentemente</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">¿Estás seguro de que deseas eliminar permanentemente este archivo? Esta acción no se puede deshacer.</string>
+    <string name="storage_cloud_deleted_delete_button">Eliminar</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">Restaurar todos los archivos</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">¿Estás seguro de que deseas restaurar todos los archivos de audio eliminados a tu biblioteca?</string>
 </resources>

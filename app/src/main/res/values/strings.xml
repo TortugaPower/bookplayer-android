@@ -422,4 +422,15 @@
     <string name="storage_management_sort_label">Sort</string>
     <string name="storage_management_sort_by_size">Sort by Size</string>
     <string name="storage_management_sort_by_name">Sort by Name</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">Recently Removed</string>
+    <string name="storage_cloud_deleted_total_size">Total backup size</string>
+    <string name="storage_cloud_deleted_restore_all">Restore All</string>
+    <string name="storage_cloud_deleted_restore_button">Restore</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">Delete Permanently</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">Are you sure you want to permanently delete this file? This action cannot be undone.</string>
+    <string name="storage_cloud_deleted_delete_button">Delete</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">Restore All Files</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">Are you sure you want to restore all removed audio files back to your library?</string>
 </resources>

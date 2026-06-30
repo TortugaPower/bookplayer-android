@@ -322,4 +322,15 @@
     <string name="storage_management_sort_label">並べ替え</string>
     <string name="storage_management_sort_by_size">サイズ順</string>
     <string name="storage_management_sort_by_name">名前順</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">最近削除された項目</string>
+    <string name="storage_cloud_deleted_total_size">バックアップ容量</string>
+    <string name="storage_cloud_deleted_restore_all">すべて復元</string>
+    <string name="storage_cloud_deleted_restore_button">復元</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">完全に削除</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">このファイルを完全に削除してもよろしいですか？この操作は取り消せません。</string>
+    <string name="storage_cloud_deleted_delete_button">削除</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">すべてのファイルを復元</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">削除されたすべてのオーディオファイルをライブラリに復元してもよろしいですか？</string>
 </resources>
