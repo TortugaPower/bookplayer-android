@@ -306,4 +306,20 @@
     <string name="hardcover_no_books_found">未找到书籍</string>
     <string name="hardcover_popular_on">Hardcover 热门</string>
     <string name="hardcover_search_placeholder">搜索书籍…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">存储管理</string>
+    <string name="settings_manage_files_label">管理您的文件</string>
+    <string name="settings_files_removed_label">已删除的文件 (同步)</string>
+    <string name="storage_management_title">存储管理</string>
+    <string name="storage_management_total_space">总使用空间</string>
+    <string name="storage_management_artwork_cache">封面缓存大小</string>
+    <string name="storage_management_file_count_single">%1$d 个文件</string>
+    <string name="storage_management_file_count_multiple">%1$d 个文件</string>
+    <string name="storage_management_remove_confirm_title">删除文件</string>
+    <string name="storage_management_remove_confirm_text">您确定要删除此有声书的已下载文件吗？</string>
+    <string name="storage_management_remove_button">删除</string>
+    <string name="storage_management_sort_label">排序</string>
+    <string name="storage_management_sort_by_size">按大小排序</string>
+    <string name="storage_management_sort_by_name">按名称排序</string>
 </resources>

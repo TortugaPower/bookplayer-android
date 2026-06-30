@@ -305,4 +305,20 @@
     <string name="hardcover_no_books_found">Keine Bücher gefunden</string>
     <string name="hardcover_popular_on">Beliebt auf Hardcover</string>
     <string name="hardcover_search_placeholder">Bücher suchen…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">Speicherverwaltung</string>
+    <string name="settings_manage_files_label">Dateien verwalten</string>
+    <string name="settings_files_removed_label">Gelöschte Dateien (Synchronisationsvorgänge)</string>
+    <string name="storage_management_title">Speicherverwaltung</string>
+    <string name="storage_management_total_space">Gesamter belegter Speicherplatz</string>
+    <string name="storage_management_artwork_cache">Größe des Cover-Caches</string>
+    <string name="storage_management_file_count_single">%1$d DATEI</string>
+    <string name="storage_management_file_count_multiple">%1$d DATEIEN</string>
+    <string name="storage_management_remove_confirm_title">Datei entfernen</string>
+    <string name="storage_management_remove_confirm_text">Sind Sie sicher, dass Sie die heruntergeladene Datei für dieses Hörbuch entfernen möchten?</string>
+    <string name="storage_management_remove_button">Entfernen</string>
+    <string name="storage_management_sort_label">Sortieren</string>
+    <string name="storage_management_sort_by_size">Nach Größe sortieren</string>
+    <string name="storage_management_sort_by_name">Nach Name sortieren</string>
 </resources>

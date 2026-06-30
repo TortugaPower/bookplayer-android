@@ -305,4 +305,20 @@
     <string name="hardcover_no_books_found">Книги не найдены</string>
     <string name="hardcover_popular_on">Популярно на Hardcover</string>
     <string name="hardcover_search_placeholder">Поиск книг…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">Управление хранилищем</string>
+    <string name="settings_manage_files_label">Управление файлами</string>
+    <string name="settings_files_removed_label">Удаленные файлы (синхронизация)</string>
+    <string name="storage_management_title">Управление хранилищем</string>
+    <string name="storage_management_total_space">Всего занято места</string>
+    <string name="storage_management_artwork_cache">Размер кэша обложек</string>
+    <string name="storage_management_file_count_single">%1$d ФАЙЛ</string>
+    <string name="storage_management_file_count_multiple">%1$d ФАЙЛОВ</string>
+    <string name="storage_management_remove_confirm_title">Удалить файл</string>
+    <string name="storage_management_remove_confirm_text">Вы действительно хотите удалить загруженный файл этой аудиокниги?</string>
+    <string name="storage_management_remove_button">Удалить</string>
+    <string name="storage_management_sort_label">Сортировка</string>
+    <string name="storage_management_sort_by_size">По размеру</string>
+    <string name="storage_management_sort_by_name">По названию</string>
 </resources>

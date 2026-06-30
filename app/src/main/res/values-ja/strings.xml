@@ -306,4 +306,20 @@
     <string name="hardcover_no_books_found">本が見つかりませんでした</string>
     <string name="hardcover_popular_on">Hardcoverで人気</string>
     <string name="hardcover_search_placeholder">本を検索…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">ストレージ管理</string>
+    <string name="settings_manage_files_label">ファイルの管理</string>
+    <string name="settings_files_removed_label">削除されたファイル（同期）</string>
+    <string name="storage_management_title">ストレージ管理</string>
+    <string name="storage_management_total_space">合計使用容量</string>
+    <string name="storage_management_artwork_cache">アートワークのキャッシュサイズ</string>
+    <string name="storage_management_file_count_single">%1$d 個のファイル</string>
+    <string name="storage_management_file_count_multiple">%1$d 個のファイル</string>
+    <string name="storage_management_remove_confirm_title">ファイルを削除</string>
+    <string name="storage_management_remove_confirm_text">このオーディオブックのダウンロード済みファイルを削除してもよろしいですか？</string>
+    <string name="storage_management_remove_button">削除</string>
+    <string name="storage_management_sort_label">並べ替え</string>
+    <string name="storage_management_sort_by_size">サイズ順</string>
+    <string name="storage_management_sort_by_name">名前順</string>
 </resources>

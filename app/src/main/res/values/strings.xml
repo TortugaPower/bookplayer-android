@@ -406,4 +406,20 @@
     <string name="hardcover_no_books_found">No books found</string>
     <string name="hardcover_popular_on">Popular on Hardcover</string>
     <string name="hardcover_search_placeholder">Search books…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">Storage Management</string>
+    <string name="settings_manage_files_label">Manage your files</string>
+    <string name="settings_files_removed_label">Files removed (sync operations)</string>
+    <string name="storage_management_title">Storage Management</string>
+    <string name="storage_management_total_space">Total space used</string>
+    <string name="storage_management_artwork_cache">Artwork cache size</string>
+    <string name="storage_management_file_count_single">%1$d FILE</string>
+    <string name="storage_management_file_count_multiple">%1$d FILES</string>
+    <string name="storage_management_remove_confirm_title">Remove File</string>
+    <string name="storage_management_remove_confirm_text">Are you sure you want to remove the downloaded file for this audiobook?</string>
+    <string name="storage_management_remove_button">Remove</string>
+    <string name="storage_management_sort_label">Sort</string>
+    <string name="storage_management_sort_by_size">Sort by Size</string>
+    <string name="storage_management_sort_by_name">Sort by Name</string>
 </resources>

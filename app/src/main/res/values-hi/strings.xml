@@ -306,4 +306,20 @@
     <string name="hardcover_no_books_found">कोई पुस्तकें नहीं मिलीं</string>
     <string name="hardcover_popular_on">हार्डकवर पर लोकप्रिय</string>
     <string name="hardcover_search_placeholder">पुस्तकों की खोज करें...</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">भंडारण प्रबंधन</string>
+    <string name="settings_manage_files_label">अपनी फ़ाइलें प्रबंधित करें</string>
+    <string name="settings_files_removed_label">हटाई गई फ़ाइलें (सिंक कार्य)</string>
+    <string name="storage_management_title">भंडारण प्रबंधन</string>
+    <string name="storage_management_total_space">कुल प्रयुक्त स्थान</string>
+    <string name="storage_management_artwork_cache">कवर फ़ोटो कैशे आकार</string>
+    <string name="storage_management_file_count_single">%1$d फ़ाइल</string>
+    <string name="storage_management_file_count_multiple">%1$d फ़ाइलें</string>
+    <string name="storage_management_remove_confirm_title">फ़ाइल निकालें</string>
+    <string name="storage_management_remove_confirm_text">क्या आप वाकई इस ऑडियोबुक की डाउनलोड की गई फ़ाइल को हटाना चाहते हैं?</string>
+    <string name="storage_management_remove_button">निकालें</string>
+    <string name="storage_management_sort_label">क्रमबद्ध करें</string>
+    <string name="storage_management_sort_by_size">आकार के अनुसार क्रमबद्ध करें</string>
+    <string name="storage_management_sort_by_name">नाम के अनुसार क्रमबद्ध करें</string>
 </resources>

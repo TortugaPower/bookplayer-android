@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.RemoveCircle
@@ -148,9 +149,9 @@ fun ImportListItem(file: ImportFile, onRemove: () -> Unit) {
         Spacer(modifier = Modifier.width(16.dp))
 
         Icon(
-            imageVector = Icons.Filled.AudioFile,
+            imageVector = if (file.isFileOnly) Icons.Filled.Description else Icons.Filled.AudioFile,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = if (file.isFileOnly) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(24.dp)
         )
 
