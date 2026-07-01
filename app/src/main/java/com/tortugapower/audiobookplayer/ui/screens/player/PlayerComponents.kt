@@ -51,6 +51,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -217,12 +221,19 @@ fun QuickSpeedLabelButton(label: String, isSelected: Boolean, onClick: () -> Uni
 
 @Composable
 fun SeekButton(isForward: Boolean, seconds: Int, onClick: () -> Unit) {
+    // TalkBack reads the whole control as "Rewind/Fast forward N seconds" (mirrors iOS VoiceOver),
+    // not the bare interval number. The number Text and icon are decorative and merged away.
+    val label = stringResource(
+        if (isForward) R.string.player_seek_forward_seconds else R.string.player_seek_rewind_seconds,
+        seconds
+    )
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .clip(CircleShape)
             .clickable { onClick() }
             .padding(8.dp)
+            .semantics(mergeDescendants = true) { contentDescription = label }
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
@@ -238,7 +249,9 @@ fun SeekButton(isForward: Boolean, seconds: Int, onClick: () -> Unit) {
                     fontSize = 14.sp // Slightly increased from 12sp
                 ),
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 4.dp) // Optical alignment
+                modifier = Modifier
+                    .padding(top = 4.dp) // Optical alignment
+                    .clearAndSetSemantics {} // announced via the parent's contentDescription
             )
         }
     }

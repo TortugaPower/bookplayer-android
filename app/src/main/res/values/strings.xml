@@ -122,6 +122,9 @@
     <!-- Media notification / lock-screen controls -->
     <string name="media_action_rewind">Rewind</string>
     <string name="media_action_fast_forward">Fast forward</string>
+    <!-- Accessibility labels for the in-app transport buttons (mirrors iOS "Rewind %@" / "Fast Forward %@") -->
+    <string name="player_seek_rewind_seconds">Rewind %1$d seconds</string>
+    <string name="player_seek_forward_seconds">Fast forward %1$d seconds</string>
 
     <!-- App Icons -->
     <string name="app_icon_author">By your friends at BookPlayer</string>
@@ -188,7 +191,7 @@
     <string name="player_add_note_title">Add note</string>
     <string name="player_note_placeholder">Note</string>
     <string name="player_bookmarks_title">Bookmarks</string>
-    <string name="player_add_bookmark">Add bookmark</string>
+    <string name="player_add_bookmark">Create bookmark</string>
     <string name="player_bookmarks_manual">Manual</string>
     <string name="player_controls_title">Player Controls</string>
     <string name="player_set_speed">Set playback speed</string>

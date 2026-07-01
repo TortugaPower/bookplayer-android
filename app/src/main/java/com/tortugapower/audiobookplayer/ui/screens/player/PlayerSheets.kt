@@ -102,7 +102,7 @@ fun ChaptersListSheet(
             LazyColumn(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(chapters) { chapter ->
+                items(chapters, key = { it.id }) { chapter ->
                     val isPlaying = absolutePosition >= (chapter.start * 1000) &&
                                     absolutePosition < ((chapter.start + chapter.duration) * 1000)
 
@@ -739,12 +739,16 @@ fun ExtendedControlsSheet(
     }
 
     if (showListActionPicker) {
+        // Display localized labels but keep the stable English key ("Chapters"/"Bookmarks") that is
+        // persisted via DataStore and compared against in PlayerScreen.
+        val chaptersLabel = stringResource(R.string.player_chapters_title)
+        val bookmarksLabel = stringResource(R.string.player_bookmarks_title)
         OptionsPickerDialog(
             title = stringResource(R.string.player_list_button_action_title),
-            options = listOf("Chapters", "Bookmarks"),
-            currentValue = viewModel.listButtonOpens,
-            onValueSelected = {
-                viewModel.updateListButtonOpens(context, it)
+            options = listOf(chaptersLabel, bookmarksLabel),
+            currentValue = if (viewModel.listButtonOpens == "Bookmarks") bookmarksLabel else chaptersLabel,
+            onValueSelected = { selected ->
+                viewModel.updateListButtonOpens(context, if (selected == bookmarksLabel) "Bookmarks" else "Chapters")
                 showListActionPicker = false
             },
             onDismiss = { showListActionPicker = false }
@@ -938,7 +942,11 @@ viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                SettingsRowPicker(stringResource(R.string.player_settings_list_opens), viewModel.listButtonOpens) { showListActionPicker = true }
+                SettingsRowPicker(
+                    stringResource(R.string.player_settings_list_opens),
+                    if (viewModel.listButtonOpens == "Bookmarks") stringResource(R.string.player_bookmarks_title)
+                    else stringResource(R.string.player_chapters_title)
+                ) { showListActionPicker = true }
             }
             Text(
                 stringResource(R.string.player_settings_list_opens_desc),
