@@ -81,6 +81,7 @@ import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
+import com.tortugapower.audiobookplayer.logic.BoundTimeline
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
@@ -146,10 +147,7 @@ fun PlayerScreen(
         val p = viewModel.player ?: return@LaunchedEffect
         if (p.playbackState != Player.STATE_READY && p.playbackState != Player.STATE_BUFFERING) return@LaunchedEffect
         position = if (currentItem?.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-            val chapters = viewModel.chapters.value
-            val idx = p.currentMediaItemIndex
-            if (idx >= 0 && idx < chapters.size) (chapters[idx].start * 1000).toLong() + rawPositionMs
-            else rawPositionMs
+            BoundTimeline.of(viewModel.chapters.value).toAbsoluteMs(p.currentMediaItemIndex, rawPositionMs)
         } else {
             rawPositionMs
         }
@@ -294,19 +292,13 @@ fun PlayerScreen(
                     } else {
                         position
                     }
-                    chapters.indexOfFirst { pos >= (it.start * 1000) && pos < ((it.start + it.duration) * 1000) }
+                    BoundTimeline.of(chapters).indexAt(pos)
                 }
             }
             val currentChapter = chapters.getOrNull(currentChapterIndex)
 
-            val isLocal = remember(currentItem.relativePath, currentItem.type) {
-                if (currentItem.type == com.tortugapower.audiobookplayer.database.entities.ItemType.FOLDER) true
-                else if (currentItem.relativePath == null) false
-                else {
-                    val processedDir = java.io.File(context.filesDir, "Processed")
-                    java.io.File(processedDir, currentItem.relativePath!!).exists()
-                }
-            }
+            // isLocal is computed off the main thread in the ViewModel (no File.exists in composition).
+            val isLocal by viewModel.isCurrentItemLocal.collectAsStateWithLifecycle()
 
             Column(
                 modifier = Modifier

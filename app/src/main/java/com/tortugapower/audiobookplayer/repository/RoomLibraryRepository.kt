@@ -297,11 +297,13 @@ class RoomLibraryRepository(
             val currentItem = libraryDao.getItemById(currentItemUuid) ?: return@withContext null
             val path = currentItem.relativePath?.substringBeforeLast('/', "") ?: ""
             
+            // Playable siblings are BOOKs and BOUND books (folders are containers, not playable), so
+            // skip-to-next/previous works from a bound book too — not just standalone books.
             val siblings = if (path.isEmpty()) {
                 libraryDao.getRootItemsSync()
             } else {
                 libraryDao.getItemsInPathSync(path)
-            }.filter { it.type == ItemType.BOOK }
+            }.filter { it.type == ItemType.BOOK || it.type == ItemType.BOUND }
 
             val currentIndex = siblings.indexOfFirst { it.uuid == currentItemUuid }
             if (currentIndex == -1) return@withContext null

@@ -91,7 +91,18 @@ class AudioPlayerService : MediaSessionService() {
                 .setDisplayName(getString(R.string.media_action_fast_forward))
                 .build()
 
-            mediaSession = MediaSession.Builder(this, p)
+            // Wrap the ExoPlayer so the session (and thus the OS notification scrubber) reports a
+            // whole-book timeline for BOUND books in book context, matching the in-app player. The
+            // real ExoPlayer `p` keeps its per-file playlist (gapless auto-advance); the service still
+            // drives `p` directly for media-button seeks and the LoudnessEnhancer / wake mode.
+            val sessionPlayer = BookTimelinePlayer(
+                wrapped = p,
+                timelineFlow = PlaybackManager.currentTimeline,
+                chapterContextFlow = PlaybackManager.useChapterContext,
+                scope = serviceScope
+            )
+
+            mediaSession = MediaSession.Builder(this, sessionPlayer)
                 .setSessionActivity(pendingIntent)
                 .setCallback(CustomMediaSessionCallback())
                 .setMediaButtonPreferences(listOf(rewindButton, forwardButton))
@@ -127,13 +138,16 @@ class AudioPlayerService : MediaSessionService() {
         return if (scheme == "http" || scheme == "https") C.WAKE_MODE_NETWORK else C.WAKE_MODE_LOCAL
     }
 
-    /** Seek the player relative to its current position by the live configured interval. */
+    /**
+     * Seek the player by the live configured interval. Delegates to PlaybackManager so a BOUND book's
+     * skip crosses sub-book (chapter) boundaries on the whole-book timeline instead of clamping inside
+     * the current file — same behavior as the in-app transport controls.
+     */
     private fun seekRelative(forward: Boolean) {
         val p = player ?: return
         val seconds = if (forward) PlaybackManager.forwardInterval.value else PlaybackManager.rewindInterval.value
         val deltaMs = seconds * 1000L
-        val target = p.currentPosition + (if (forward) deltaMs else -deltaMs)
-        p.seekTo(target.coerceAtLeast(0L))
+        PlaybackManager.seekRelativeAcrossChapters(p, if (forward) deltaMs else -deltaMs)
     }
 
     private inner class CustomMediaSessionCallback : MediaSession.Callback {

@@ -9,12 +9,15 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
+import com.tortugapower.audiobookplayer.logic.BoundTimeline
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class PlayerViewModel(
     application: Application,
@@ -36,6 +39,12 @@ class PlayerViewModel(
         seekTrigger++
     }
 
+    private fun isItemLocal(item: com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity): Boolean = when {
+        item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.FOLDER -> true
+        item.relativePath == null -> false
+        else -> java.io.File(java.io.File(appContext.filesDir, "Processed"), item.relativePath!!).exists()
+    }
+
     // Bookmark & Chapter States
     var showBookmarkConfirmation by mutableStateOf(false)
     var showAddNoteDialog by mutableStateOf(false)
@@ -54,6 +63,11 @@ class PlayerViewModel(
 
     private val _chapters = MutableStateFlow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>>(emptyList())
     val chapters: StateFlow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>> = _chapters.asStateFlow()
+
+    // Whether the current item plays from a local file (vs. needs streaming). Computed off the main
+    // thread (File.exists) so the player UI never touches the filesystem during composition.
+    private val _isCurrentItemLocal = MutableStateFlow(false)
+    val isCurrentItemLocal: StateFlow<Boolean> = _isCurrentItemLocal.asStateFlow()
 
     var isRepeatEnabled by mutableStateOf(false)
 
@@ -92,6 +106,14 @@ class PlayerViewModel(
             }
         }
 
+        // Resolve local-vs-streamed off the main thread whenever the item changes (keeps File.exists
+        // out of composition); collectLatest cancels a stale check if the item changes again.
+        viewModelScope.launch {
+            PlaybackManager.currentItem.collectLatest { item ->
+                _isCurrentItemLocal.value = item != null && withContext(Dispatchers.IO) { isItemLocal(item) }
+            }
+        }
+
         // Observe Current Item and update lists (Using Stable collectLatest)
         viewModelScope.launch {
             PlaybackManager.currentItem.collectLatest { item ->
@@ -100,52 +122,22 @@ class PlayerViewModel(
                     hasNextItem = repository.getAdjacentItem(item.uuid, next = true) != null
                     hasPreviousItem = repository.getAdjacentItem(item.uuid, next = false) != null
 
-                    // Launch child coroutines to collect database flows
-                    // collectLatest automatically cancels previous collections when item changes
+                    // collectLatest automatically cancels this when the item changes.
                     launch {
                         repository.getBookmarksForBook(item.uuid).collect { _bookmarks.value = it }
                     }
-                    launch {
-                        if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-                            item.relativePath?.let { path ->
-                                val subItems = repository.getItemsInPathSync(path)
-                                var currentStart = 0.0
-                                val volumeChapters = subItems.mapIndexed { index, subItem ->
-                                    val chapter = com.tortugapower.audiobookplayer.database.entities.ChapterEntity(
-                                        id = (index + 1).toLong(),
-                                        bookUuid = item.uuid,
-                                        title = subItem.title,
-                                        start = currentStart,
-                                        duration = subItem.duration,
-                                        index = index
-                                    )
-                                    currentStart += subItem.duration
-                                    chapter
-                                }
-                                _chapters.value = volumeChapters
-                            }
-                        } else {
-                            repository.getChaptersForBook(item.uuid).collect { dbChapters ->
-                                if (dbChapters.isEmpty()) {
-                                    _chapters.value = listOf(
-                                        com.tortugapower.audiobookplayer.database.entities.ChapterEntity(
-                                            bookUuid = item.uuid,
-                                            title = item.title,
-                                            start = 0.0,
-                                            duration = item.duration,
-                                            index = 0
-                                        )
-                                    )
-                                } else {
-                                    _chapters.value = dbChapters
-                                }
-                            }
-                        }
-                    }
                 } else {
                     _bookmarks.value = emptyList()
-                    _chapters.value = emptyList()
                 }
+            }
+        }
+
+        // Chapters come from the single playback model (PlayableItem), which the player builds once on
+        // load — for both BOUND books (sub-books) and single books (embedded markers / synthetic) — so
+        // the chapter list always matches what's playing instead of being re-derived here.
+        viewModelScope.launch {
+            PlaybackManager.currentPlayable.collectLatest { playable ->
+                _chapters.value = playable?.chapterEntities ?: emptyList()
             }
         }
     }
@@ -178,12 +170,9 @@ class PlayerViewModel(
     }
 
     fun seekToChapter(chapter: com.tortugapower.audiobookplayer.database.entities.ChapterEntity) {
-        val item = currentItem.value ?: return
-        if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-            PlaybackManager.seekTo(chapter.index, 0L)
-        } else {
-            PlaybackManager.seekTo((chapter.start * 1000).toLong())
-        }
+        // chapter.start is whole-book seconds (cumulative for BOUND, embedded offset for single books);
+        // seekWholeBook maps it into whatever coordinate space the session currently exposes.
+        PlaybackManager.seekWholeBook((chapter.start * 1000).toLong())
         showChaptersList = false
         notifySeek()
     }
@@ -196,8 +185,10 @@ class PlayerViewModel(
 
     fun addBookmark() {
         val item = PlaybackManager.currentItem.value ?: return
-        val player = PlaybackManager.player ?: return
-        val currentTime = (player.currentPosition / 1000).toDouble()
+        if (PlaybackManager.player == null) return
+        // Whole-book seconds, so a bookmark made in any context (and on a BOUND book) round-trips
+        // through seekToBookmark -> seekWholeBook correctly.
+        val currentTime = PlaybackManager.currentWholeBookMs() / 1000.0
 
         viewModelScope.launch {
             val existing = repository.getBookmarkAtTime(item.uuid, currentTime)
@@ -349,17 +340,33 @@ class PlayerViewModel(
     fun setPlaybackVolume(context: Context, volume: Float) { PlaybackManager.setPlaybackVolume(context, volume) }
     fun toggleVolumeBoost(context: Context) { PlaybackManager.toggleVolumeBoost(context) }
     
+    // The chapter index the player is currently in. For BOUND books each sub-book is its own
+    // MediaItem, so the chapter IS `currentMediaItemIndex` — the player's `currentPosition` is
+    // per-item (resets each chapter), NOT the whole-book offset the cumulative `chapter.start`s use.
+    // For a single item with embedded chapters, locate it by the whole-book position. -1 if none.
+    private fun currentChapterIndex(): Int {
+        val p = player ?: return -1
+        val chs = chapters.value
+        if (chs.isEmpty()) return -1
+        val tl = BoundTimeline.of(chs)
+        return if (currentItem.value?.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
+            // The session may expose a single whole-book window (book context, currentMediaItemIndex==0)
+            // or the per-file playlist (chapter context). toAbsoluteMs is invariant across both, so
+            // locate the chapter from the whole-book position rather than the (mode-dependent) index.
+            tl.indexAt(tl.toAbsoluteMs(p.currentMediaItemIndex, p.currentPosition))
+        } else {
+            // Single item with embedded chapters: locate by whole-book position (shared scan).
+            tl.indexAt(p.currentPosition)
+        }
+    }
+
     fun playNext(context: Context) {
         if (useChapterContext) {
-            val p = player
             val currentChapters = chapters.value
-            if (p != null && currentChapters.isNotEmpty()) {
-                val currentPos = p.currentPosition / 1000.0
-                val currentIndex = currentChapters.indexOfFirst { currentPos >= it.start && currentPos < (it.start + it.duration) }
-                if (currentIndex != -1 && currentIndex < currentChapters.size - 1) {
-                    seekToChapter(currentChapters[currentIndex + 1])
-                    return
-                }
+            val currentIndex = currentChapterIndex()
+            if (currentIndex != -1 && currentIndex < currentChapters.size - 1) {
+                seekToChapter(currentChapters[currentIndex + 1])
+                return
             }
         }
         PlaybackManager.playNext(context)
@@ -369,18 +376,23 @@ class PlayerViewModel(
         if (useChapterContext) {
             val p = player
             val currentChapters = chapters.value
-            if (p != null && currentChapters.isNotEmpty()) {
-                val currentPos = p.currentPosition / 1000.0
-                val currentIndex = currentChapters.indexOfFirst { currentPos >= it.start && currentPos < (it.start + it.duration) }
-                if (currentIndex != -1) {
-                    // If more than 3 seconds into chapter, go to start of current chapter
-                    if (currentPos - currentChapters[currentIndex].start > 3.0) {
-                        seekToChapter(currentChapters[currentIndex])
-                        return
-                    } else if (currentIndex > 0) {
-                        seekToChapter(currentChapters[currentIndex - 1])
-                        return
-                    }
+            val currentIndex = currentChapterIndex()
+            if (p != null && currentIndex != -1) {
+                val bound = currentItem.value?.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
+                // Seconds elapsed within the current chapter: per-item position for BOUND (each chapter
+                // is its own MediaItem), else whole-book position minus the chapter's cumulative start.
+                val secsIntoChapter = if (bound) {
+                    p.currentPosition / 1000.0
+                } else {
+                    (p.currentPosition / 1000.0) - currentChapters[currentIndex].start
+                }
+                // If more than 3 seconds into the chapter, restart it; otherwise go to the previous one.
+                if (secsIntoChapter > 3.0) {
+                    seekToChapter(currentChapters[currentIndex])
+                    return
+                } else if (currentIndex > 0) {
+                    seekToChapter(currentChapters[currentIndex - 1])
+                    return
                 }
             }
         }
@@ -398,24 +410,8 @@ class PlayerViewModel(
     }
 
     fun seekToAbsolute(positionMs: Long) {
-        val item = currentItem.value ?: return
-        if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-            val targetPosSecs = positionMs / 1000.0
-            val currentChapters = chapters.value
-            if (currentChapters.isNotEmpty()) {
-                val targetIndex = currentChapters.indexOfFirst { targetPosSecs >= it.start && targetPosSecs < (it.start + it.duration) }
-                if (targetIndex != -1) {
-                    val relativeTimeMs = ((targetPosSecs - currentChapters[targetIndex].start) * 1000).toLong()
-                    PlaybackManager.seekTo(targetIndex, relativeTimeMs)
-                } else {
-                    PlaybackManager.seekTo(positionMs)
-                }
-            } else {
-                PlaybackManager.seekTo(positionMs)
-            }
-        } else {
-            PlaybackManager.seekTo(positionMs)
-        }
+        // Whole-book ms; seekWholeBook handles the BOUND book/chapter-context coordinate mapping.
+        PlaybackManager.seekWholeBook(positionMs)
         notifySeek()
     }
 }
