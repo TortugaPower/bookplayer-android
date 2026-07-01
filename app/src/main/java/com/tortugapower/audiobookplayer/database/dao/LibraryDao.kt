@@ -185,4 +185,7 @@ interface LibraryDao {
     @Transaction
     @Query("SELECT * FROM library_items WHERE relativePath LIKE :path || '/%' AND relativePath NOT LIKE :path || '/%/%' ORDER BY orderRank ASC")
     suspend fun getItemsInPathSyncWithResources(path: String): List<com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources>
+
+    @Query("SELECT * FROM library_items WHERE type = 'BOOK' AND lastPlayDate IS NOT NULL AND isFinished = 0 ORDER BY lastPlayDate DESC LIMIT :limit")
+    suspend fun getRecentUnfinishedBooksSync(limit: Int): List<LibraryItemEntity>
 }
