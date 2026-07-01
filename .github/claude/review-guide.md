@@ -65,14 +65,15 @@ layout, and conventions before judging anything.
 - Naming drift, dead code, magic numbers, missing KDoc on public APIs, missing `@Preview` for new
   Composables.
 
-## How to post your review
+## Reporting findings
 
-- Post specific issues as **inline comments on the exact changed line** using the inline-comment tool.
-  Each inline comment: severity prefix (🔴/🟡/🔵), the problem, and the concrete fix.
-- Post **one short top-level summary comment**: the scope of the PR in a sentence, the verdict, and the
-  finding counts (e.g. `2 error · 3 warn · 1 info`). Put the detail inline, not in the summary — avoid
-  dumping a long wall-of-text review.
+Your findings are consumed by an automated harness (it posts the comments, de-duplicates them across
+pushes, and resolves stale ones) — **do not post comments or create reviews yourself.** The exact JSON
+shape to emit is defined by the output contract in your system prompt.
+
+- Report each issue with its severity, file, the **changed line** it applies to, and a concrete fix.
+  Tie every finding to a line the PR actually changed.
 - **Confidence bar:** false positives erode trust. When you are not sure, downgrade the severity (or drop
-  the comment) rather than assert a problem that may not exist. It is better to miss a minor nit than to
+  the finding) rather than assert a problem that may not exist. It is better to miss a minor nit than to
   flag a non-issue with confidence.
 - This review is advisory — a human still merges. Be direct and concrete; skip praise padding.
