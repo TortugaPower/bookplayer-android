@@ -25,6 +25,7 @@ import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -229,6 +230,9 @@ class AudioPlayerService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        // Stop the settings + BookTimelinePlayer collectors before releasing the player, so a late
+        // flow emission can't drive invalidateState()/getState() against a released ExoPlayer.
+        serviceScope.cancel()
         mediaSession?.run {
             player.release()
             release()
