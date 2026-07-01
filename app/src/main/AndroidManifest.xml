@@ -195,12 +195,28 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </service>
-
         <service
             android:name=".logic.TaskConcurrencyServiceHost"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- App Widget Provider registration -->
+        <receiver
+            android:name=".widget.AudioWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_PLAY_PAUSE" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_PREVIOUS" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_NEXT" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_PLAY_BOOK" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/audio_widget_info" />
+        </receiver>
+
 
         <!-- Shares the generated debug .txt as a content:// URI (Settings → Support). -->
         <provider

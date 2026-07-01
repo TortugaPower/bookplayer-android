@@ -1,6 +1,10 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.ComponentName
+import android.appwidget.AppWidgetManager
+import android.content.Intent
+import com.tortugapower.audiobookplayer.widget.AudioWidgetProvider
+import kotlinx.coroutines.flow.combine
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -120,6 +124,22 @@ object PlaybackManager {
         repository = libraryRepository
         val appContext = context.applicationContext
         this.appContext = appContext
+
+        scope.launch {
+            combine(_currentItem, _isPlaying) { item, playing -> Pair(item, playing) }
+                .collect {
+                    appContext.let { ctx ->
+                        val intent = Intent(ctx, AudioWidgetProvider::class.java).apply {
+                            action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                        }
+                        val ids = AppWidgetManager.getInstance(ctx).getAppWidgetIds(
+                            ComponentName(ctx, AudioWidgetProvider::class.java)
+                        )
+                        intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+                        ctx.sendBroadcast(intent)
+                    }
+                }
+        }
 
         // Restart the position tracker whenever a UI collector (re)appears while playing, so it
         // re-enters the fast tick rate immediately instead of waiting out a slow background delay.
