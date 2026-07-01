@@ -4,6 +4,8 @@ import android.content.ComponentName
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import com.tortugapower.audiobookplayer.widget.AudioWidgetProvider
+import com.tortugapower.audiobookplayer.widget.AudioWidgetSmallProvider
+import com.tortugapower.audiobookplayer.widget.AudioWidgetLargeProvider
 import kotlinx.coroutines.flow.combine
 import android.content.Context
 import androidx.media3.common.MediaItem
@@ -137,6 +139,24 @@ object PlaybackManager {
                         )
                         intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
                         ctx.sendBroadcast(intent)
+
+                        val smallIntent = Intent(ctx, AudioWidgetSmallProvider::class.java).apply {
+                            action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                        }
+                        val smallIds = AppWidgetManager.getInstance(ctx).getAppWidgetIds(
+                            ComponentName(ctx, AudioWidgetSmallProvider::class.java)
+                        )
+                        smallIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, smallIds)
+                        ctx.sendBroadcast(smallIntent)
+
+                        val largeIntent = Intent(ctx, AudioWidgetLargeProvider::class.java).apply {
+                            action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                        }
+                        val largeIds = AppWidgetManager.getInstance(ctx).getAppWidgetIds(
+                            ComponentName(ctx, AudioWidgetLargeProvider::class.java)
+                        )
+                        largeIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, largeIds)
+                        ctx.sendBroadcast(largeIntent)
                     }
                 }
         }

@@ -26,8 +26,8 @@
             android:padding="4dp">
 
             <FrameLayout
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
                 android:background="@drawable/widget_placeholder_background"
                 android:clipToOutline="true">
                 <ImageView
@@ -124,9 +124,9 @@
             <!-- Slot 1 -->
             <FrameLayout
                 android:id="@+id/widget_recent_1"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginEnd="8dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginEnd="6dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/widget_placeholder_background"
@@ -154,9 +154,9 @@
             <!-- Slot 2 -->
             <FrameLayout
                 android:id="@+id/widget_recent_2"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginEnd="8dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginEnd="6dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/widget_placeholder_background"
@@ -184,9 +184,9 @@
             <!-- Slot 3 -->
             <FrameLayout
                 android:id="@+id/widget_recent_3"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginEnd="8dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginEnd="6dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/widget_placeholder_background"
@@ -214,9 +214,9 @@
             <!-- Slot 4 -->
             <FrameLayout
                 android:id="@+id/widget_recent_4"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginEnd="8dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginEnd="6dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/widget_placeholder_background"
@@ -244,8 +244,9 @@
             <!-- Slot 5 -->
             <FrameLayout
                 android:id="@+id/widget_recent_5"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginEnd="6dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/widget_placeholder_background"
@@ -258,6 +259,35 @@
                     android:visibility="gone" />
                 <TextView
                     android:id="@+id/widget_recent_placeholder_text_5"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:ellipsize="end"
+                    android:padding="3dp"
+                    android:maxLines="3"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <!-- Slot 6 -->
+            <FrameLayout
+                android:id="@+id/widget_recent_6"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/widget_placeholder_background"
+                android:clipToOutline="true">
+                <ImageView
+                    android:id="@+id/widget_recent_artwork_6"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone" />
+                <TextView
+                    android:id="@+id/widget_recent_placeholder_text_6"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:gravity="center"

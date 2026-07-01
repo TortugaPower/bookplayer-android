@@ -208,14 +208,51 @@
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_PLAY_PAUSE" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_PREVIOUS" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_NEXT" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_REWIND" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_FORWARD" />
                 <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_PLAY_BOOK" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/audio_widget_info" />
         </receiver>
+
+        <!-- App Widget Small Provider registration -->
+        <receiver
+            android:name=".widget.AudioWidgetSmallProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.small.ACTION_PLAY_PAUSE" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.small.ACTION_REWIND" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.small.ACTION_FORWARD" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/audio_widget_small_info" />
+        </receiver>
+
+        <!-- App Widget Large Provider registration -->
+        <receiver
+            android:name=".widget.AudioWidgetLargeProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.large.ACTION_PLAY_PAUSE" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.large.ACTION_REWIND" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.large.ACTION_FORWARD" />
+                <action android:name="com.tortugapower.audiobookplayer.widget.large.ACTION_PLAY_BOOK" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/audio_widget_large_info" />
+        </receiver>
+
+        <!-- App Widget Large Service registration -->
+        <service
+            android:name=".widget.AudioWidgetLargeService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
 
 
         <!-- Shares the generated debug .txt as a content:// URI (Settings → Support). -->
