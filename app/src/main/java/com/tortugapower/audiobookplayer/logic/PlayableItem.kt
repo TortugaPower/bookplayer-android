@@ -70,11 +70,17 @@ class PlayableItem(
 
     /**
      * Chapters grouped into the distinct backing files they play from, preserving order — one group
-     * becomes one Media3 `MediaItem`. For a BOUND book each sub-book is its own file (one group each);
-     * for a single book all chapters share one file (a single group). Chapters with a null
-     * [PlayableChapter.relativePath] never merge (each stands alone).
+     * becomes one Media3 `MediaItem`.
+     *
+     * A single (non-BOUND) book ALWAYS plays from one backing file: all its chapters share that file,
+     * so it collapses to a single group — even when streamed with a null `relativePath` (otherwise
+     * null-path chapters would each stand alone and a streamed book with embedded chapters would emit
+     * N MediaItems for the same remote URL and replay itself). Only a BOUND book spans multiple files,
+     * one group per distinct consecutive [PlayableChapter.relativePath] (null paths never merge).
      */
     fun fileGroups(): List<List<PlayableChapter>> {
+        if (chapters.isEmpty()) return emptyList()
+        if (!isBoundBook) return listOf(chapters)
         val groups = mutableListOf<MutableList<PlayableChapter>>()
         for (chapter in chapters) {
             val last = groups.lastOrNull()

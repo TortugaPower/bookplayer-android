@@ -104,6 +104,21 @@ class PlayableItemBuilderTest {
     }
 
     @Test
+    fun fileGroups_streamedSingleBookWithChaptersIsStillOneGroup() {
+        // A streamed single book has a null relativePath; with multiple embedded chapters it must NOT
+        // fan out into N MediaItems for the same remote URL — a single book is always one backing file.
+        val book = entity("streamed", ItemType.BOOK, duration = 600.0, relativePath = null)
+            .copy(remoteURL = "https://example.com/streamed.m4b")
+        val dbChapters = listOf(
+            ChapterEntity(bookUuid = "streamed", title = "One", start = 0.0, duration = 200.0, index = 0),
+            ChapterEntity(bookUuid = "streamed", title = "Two", start = 200.0, duration = 400.0, index = 1)
+        )
+        val groups = PlayableItemBuilder.buildSingle(book, dbChapters).fileGroups()
+        assertEquals(1, groups.size)
+        assertEquals(2, groups[0].size)
+    }
+
+    @Test
     fun fileGroups_boundBookIsOneFilePerSubBook() {
         val folder = entity("vol", ItemType.BOUND)
         val subs = listOf(
