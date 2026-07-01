@@ -122,9 +122,6 @@
     <!-- Media notification / lock-screen controls -->
     <string name="media_action_rewind">Rewind</string>
     <string name="media_action_fast_forward">Fast forward</string>
-    <!-- Accessibility labels for the in-app transport buttons (mirrors iOS "Rewind %@" / "Fast Forward %@") -->
-    <string name="player_seek_rewind_seconds">Rewind %1$d seconds</string>
-    <string name="player_seek_forward_seconds">Fast forward %1$d seconds</string>
 
     <!-- App Icons -->
     <string name="app_icon_author">By your friends at BookPlayer</string>
@@ -168,11 +165,12 @@
     <string name="player_next">Next</string>
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">Chapter 1 of 1</string>
-    <string name="player_play_pause">Play/Pause</string>
     <string name="player_seek_position">%1$s of %2$s</string>
     <string name="player_play">Play</string>
     <string name="player_pause">Pause</string>
+    <!-- In-app transport button labels (mirrors iOS "Rewind %@" / "Fast Forward %@"); shared with the mini player -->
     <string name="player_rewind_seconds">Rewind %1$d seconds</string>
+    <string name="player_forward_seconds">Fast forward %1$d seconds</string>
     <string name="miniplayer_now_playing">Mini player, currently playing %1$s by %2$s</string>
     <string name="miniplayer_show_player">Show player</string>
     <string name="pro_welcome_title">Welcome to BookPlayer Pro!</string>

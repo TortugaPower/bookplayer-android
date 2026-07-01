@@ -692,7 +692,8 @@ private fun PlayerTransportControls(
         ) {
             Icon(
                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = stringResource(R.string.player_play_pause),
+                // Label by the action the tap performs, like iOS VoiceOver: "Pause" while playing, "Play" while paused.
+                contentDescription = stringResource(if (isPlaying) R.string.player_pause else R.string.player_play),
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.fillMaxSize()
             )

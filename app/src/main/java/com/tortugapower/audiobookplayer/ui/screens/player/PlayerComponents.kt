@@ -224,7 +224,7 @@ fun SeekButton(isForward: Boolean, seconds: Int, onClick: () -> Unit) {
     // TalkBack reads the whole control as "Rewind/Fast forward N seconds" (mirrors iOS VoiceOver),
     // not the bare interval number. The number Text and icon are decorative and merged away.
     val label = stringResource(
-        if (isForward) R.string.player_seek_forward_seconds else R.string.player_seek_rewind_seconds,
+        if (isForward) R.string.player_forward_seconds else R.string.player_rewind_seconds,
         seconds
     )
     Box(
