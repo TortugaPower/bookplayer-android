@@ -728,18 +728,22 @@ private fun PlayerBottomBar(
         PlayerBottomButton(
             icon = Icons.Default.NightsStay,
             label = sleepLabel,
+            contentDescription = stringResource(R.string.player_sleep_timer_title),
             onClick = onSleep
         )
         PlayerBottomButton(
             icon = Icons.Default.BookmarkBorder,
+            contentDescription = stringResource(R.string.player_add_bookmark),
             onClick = onBookmark
         )
         PlayerBottomButton(
             icon = Icons.AutoMirrored.Filled.List,
+            contentDescription = stringResource(R.string.player_chapters_title),
             onClick = onList
         )
         PlayerBottomButton(
             icon = Icons.Default.MoreHoriz,
+            contentDescription = stringResource(R.string.common_more),
             onClick = onMore
         )
     }

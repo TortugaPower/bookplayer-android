@@ -248,6 +248,7 @@ fun SeekButton(isForward: Boolean, seconds: Int, onClick: () -> Unit) {
 fun PlayerBottomButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     label: String? = null,
+    contentDescription: String? = null,
     onClick: () -> Unit = {}
 ) {
     Box(
@@ -265,9 +266,11 @@ fun PlayerBottomButton(
             horizontalArrangement = Arrangement.Center
         ) {
             if (icon != null) {
+                // When there's no visible label the icon is the only content, so it must carry the
+                // control's accessible name for TalkBack (decorative only when a label is present).
                 Icon(
                     imageVector = icon,
-                    contentDescription = null,
+                    contentDescription = if (label == null) contentDescription else null,
                     tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(20.dp)
                 )

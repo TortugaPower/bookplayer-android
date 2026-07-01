@@ -188,6 +188,7 @@
     <string name="player_add_note_title">Add note</string>
     <string name="player_note_placeholder">Note</string>
     <string name="player_bookmarks_title">Bookmarks</string>
+    <string name="player_add_bookmark">Add bookmark</string>
     <string name="player_bookmarks_manual">Manual</string>
     <string name="player_controls_title">Player Controls</string>
     <string name="player_set_speed">Set playback speed</string>

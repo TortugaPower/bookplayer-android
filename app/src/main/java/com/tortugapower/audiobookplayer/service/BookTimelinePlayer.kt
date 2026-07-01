@@ -61,10 +61,8 @@ class BookTimelinePlayer(
 
     override fun getState(): SimpleBasePlayer.State {
         val base = super.getState()
-        val timeline = timelineFlow.value
-        if (timeline == null || timeline.isEmpty || chapterContextFlow.value) {
-            return base // single book or chapter context: per-file pass-through
-        }
+        if (!isVirtualizing()) return base // single book or chapter context: per-file pass-through
+        val timeline = timelineFlow.value ?: return base
 
         // Book context for a BOUND book: collapse the per-file playlist into one whole-book window.
         val totalMs = timeline.totalDurationMs
@@ -114,7 +112,7 @@ class BookTimelinePlayer(
 
     override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
         val timeline = timelineFlow.value
-        if (timeline != null && !timeline.isEmpty && !chapterContextFlow.value) {
+        if (isVirtualizing() && timeline != null) {
             // positionMs is in the virtual whole-book window; map back to (sub-book, per-item offset).
             val local = timeline.toLocal(positionMs.coerceAtLeast(0L))
             return super.handleSeek(local.mediaItemIndex, local.positionMs, Player.COMMAND_SEEK_TO_MEDIA_ITEM)

@@ -637,11 +637,6 @@ object PlaybackManager {
         seekWholeBook(positionMs)
     }
 
-    fun seekTo(mediaItemIndex: Int, positionMs: Long) {
-        val p = player ?: return
-        p.seekTo(mediaItemIndex, positionMs)
-    }
-
     fun playNext(context: Context) {
         scope.launch {
             val current = _currentItem.value ?: return@launch
