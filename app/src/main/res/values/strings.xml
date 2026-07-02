@@ -165,11 +165,12 @@
     <string name="player_next">Next</string>
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">Chapter 1 of 1</string>
-    <string name="player_play_pause">Play/Pause</string>
     <string name="player_seek_position">%1$s of %2$s</string>
     <string name="player_play">Play</string>
     <string name="player_pause">Pause</string>
+    <!-- In-app transport button labels (mirrors iOS "Rewind %@" / "Fast Forward %@"); shared with the mini player -->
     <string name="player_rewind_seconds">Rewind %1$d seconds</string>
+    <string name="player_forward_seconds">Fast forward %1$d seconds</string>
     <string name="miniplayer_now_playing">Mini player, currently playing %1$s by %2$s</string>
     <string name="miniplayer_show_player">Show player</string>
     <string name="pro_welcome_title">Welcome to BookPlayer Pro!</string>
@@ -188,6 +189,7 @@
     <string name="player_add_note_title">Add note</string>
     <string name="player_note_placeholder">Note</string>
     <string name="player_bookmarks_title">Bookmarks</string>
+    <string name="player_add_bookmark">Create bookmark</string>
     <string name="player_bookmarks_manual">Manual</string>
     <string name="player_controls_title">Player Controls</string>
     <string name="player_set_speed">Set playback speed</string>

@@ -37,6 +37,9 @@ object PlaybackManager {
     private var repository: LibraryRepository? = null
     private var appContext: Context? = null
 
+    // --- Observable playback state, the app-scoped source of truth. Collect from Compose via
+    // collectAsStateWithLifecycle; read `.value` from non-Compose code. Only PlaybackManager writes it. ---
+
     private val _currentItem = MutableStateFlow<LibraryItemEntity?>(null)
     val currentItem: StateFlow<LibraryItemEntity?> = _currentItem.asStateFlow()
 
@@ -67,8 +70,34 @@ object PlaybackManager {
     private val _playbackVolume = MutableStateFlow(1.0f)
     val playbackVolume: StateFlow<Float> = _playbackVolume.asStateFlow()
 
+    /**
+     * Current playback position in ms — the RAW position of the current media item. For BOUND books the
+     * UI must add the current chapter's cumulative start (see PlayerScreen); it's NOT the whole-book
+     * position. Emitted while playing and re-seeded on seek/load; ticks fast only while a collector is
+     * active (see [startProgressTracker]). 0 before anything plays.
+     */
     private val _positionMs = MutableStateFlow(0L)
     val positionMs: StateFlow<Long> = _positionMs.asStateFlow()
+
+    // The whole-book timeline for the current BOUND book (null for a single BOOK). Built once when a
+    // BOUND book is loaded (playItem / restore) so progress persistence and any per-item<->whole-book
+    // conversion read from one cached source instead of re-reading sub-books from the DB each tick.
+    // Exposed as a flow so the session-side BookTimelinePlayer can virtualize a whole-book timeline.
+    private val _currentTimeline = MutableStateFlow<BoundTimeline?>(null)
+    val currentTimeline: StateFlow<BoundTimeline?> = _currentTimeline.asStateFlow()
+
+    // The in-memory playback model for the current book (chapters, whole-book times, metadata), built
+    // once per load by PlayableItemBuilder. The single source for the chapter list and whole-book
+    // position; null only before anything is loaded. (For a single BOOK, _currentTimeline stays null so
+    // the session passes through, but _currentPlayable still carries the chapters for the UI.)
+    private val _currentPlayable = MutableStateFlow<PlayableItem?>(null)
+    val currentPlayable: StateFlow<PlayableItem?> = _currentPlayable.asStateFlow()
+
+    // Mirror of the user's chapter-vs-book context preference. The session-side player virtualizes a
+    // whole-book window only when book context is active (false); chapter context passes the per-file
+    // playlist through (the notification then shows the current chapter, which is already correct).
+    private val _useChapterContext = MutableStateFlow(false)
+    val useChapterContext: StateFlow<Boolean> = _useChapterContext.asStateFlow()
 
     private var lastPauseTime: Long = 0
     private var smartRewindEnabled = true
@@ -169,92 +198,37 @@ object PlaybackManager {
                                 _hasPreviousItem.value = prev
                             }
 
-                            val mediaItems = if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
+                            // Build the playback model (back-filling artwork) and the Media3 playlist.
+                            val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
+                            val playable = if (isBound) {
                                 val subItems = getRepository(appContext).getItemsInPathSync(item.relativePath ?: "")
-                                subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }.map { subItem ->
-                                    val file = File(processedDir, subItem.relativePath ?: "")
-                                    val uri = if (file.exists()) {
-                                        android.util.Log.d("PlaybackManager", "📄 Restoration: Using local file for ${subItem.title}")
-                                        android.net.Uri.fromFile(file)
-                                    } else if (!subItem.remoteURL.isNullOrEmpty()) {
-                                        android.util.Log.d("PlaybackManager", "🌐 Restoration: Using remote URL for ${subItem.title}")
-                                        android.net.Uri.parse(subItem.remoteURL)
-                                    } else {
-                                        android.util.Log.w("PlaybackManager", "⚠️ Restoration: No source available for ${subItem.title}")
-                                        android.net.Uri.EMPTY
-                                    }
-
-                                    MediaItem.Builder()
-                                        .setMediaId(subItem.uuid)
-                                        .setUri(uri)
-                                        .setMediaMetadata(
-                                            MediaMetadata.Builder()
-                                                .setTitle(subItem.title)
-                                                .setArtist(subItem.author ?: item.author ?: "Unknown author")
-                                                .setArtworkUri(subItem.artworkURL?.let { 
-                                                    if (it.startsWith("http")) android.net.Uri.parse(it) 
-                                                    else android.net.Uri.fromFile(java.io.File(it)) 
-                                                })
-                                                .build()
-                                        )
-                                        .build()
-                                }
+                                extractMissingArtwork(
+                                    subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK },
+                                    appContext
+                                )
+                                PlayableItemBuilder.buildBound(item, subItems)
                             } else {
-                                val file = File(processedDir, item.relativePath ?: "")
-                                val uri = if (file.exists()) {
-                                    android.util.Log.d("PlaybackManager", "📄 Restoration: Using local file for ${item.title}")
-                                    android.net.Uri.fromFile(file)
-                                } else if (!item.remoteURL.isNullOrEmpty()) {
-                                    android.util.Log.d("PlaybackManager", "🌐 Restoration: Using remote URL for ${item.title}")
-                                    android.net.Uri.parse(item.remoteURL)
+                                extractMissingArtwork(listOf(item), appContext)
+                                PlayableItemBuilder.buildSingle(item, getRepository(appContext).getChaptersForBook(item.uuid).first())
+                            }
+                            _currentPlayable.value = playable
+                            _currentTimeline.value = if (isBound) playable.timeline else null
+
+                            val mediaItems = buildMediaItems(playable, processedDir)
+                            if (mediaItems.isNotEmpty()) {
+                                // For a single BOOK the player offset is just the saved whole-book time.
+                                val local = if (isBound) {
+                                    playable.timeline.toLocal((item.currentTime * 1000).toLong())
                                 } else {
-                                    android.util.Log.w("PlaybackManager", "⚠️ Restoration: No source available for ${item.title}")
-                                    null
+                                    BoundTimeline.PlayerPosition(0, (item.currentTime * 1000).toLong())
                                 }
 
-                                if (uri != null && uri != android.net.Uri.EMPTY) {
-                                    listOf(MediaItem.Builder()
-                                        .setUri(uri)
-                                        .setMediaId(item.uuid)
-                                        .setMediaMetadata(
-                                            MediaMetadata.Builder()
-                                                .setTitle(item.title)
-                                                .setArtist(item.author ?: "Unknown author")
-                                                .setArtworkUri(item.artworkURL?.let { 
-                                                    if (it.startsWith("http")) android.net.Uri.parse(it) 
-                                                    else android.net.Uri.fromFile(java.io.File(it)) 
-                                                })
-                                                .build()
-                                        )
-                                        .build())
-                                } else emptyList()
-                            }
-
-                            if (mediaItems.isNotEmpty()) {
                                 launch(Dispatchers.Main) {
                                     _isTransitioning.value = true
 
-                                    var targetIndex = 0
-                                    var targetOffset = item.currentTime
-                                    if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-                                        val subItems = withContext(Dispatchers.IO) {
-                                            getRepository(appContext).getItemsInPathSync(item.relativePath ?: "")
-                                        }
-                                        val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
-                                        var cumulative = 0.0
-                                        for (i in books.indices) {
-                                            if (item.currentTime >= cumulative && item.currentTime < cumulative + books[i].duration) {
-                                                targetIndex = i
-                                                targetOffset = item.currentTime - cumulative
-                                                break
-                                            }
-                                            cumulative += books[i].duration
-                                        }
-                                    }
-
-                                    mediaController.setMediaItems(mediaItems, targetIndex, (targetOffset * 1000).toLong())
+                                    mediaController.setMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
                                     mediaController.prepare()
-                                    
+
                                     // Apply speed and volume
                                     mediaController.setPlaybackSpeed(_playbackSpeed.value)
                                     applyVolume(_volumeBoost.value, _playbackVolume.value)
@@ -263,7 +237,7 @@ object PlaybackManager {
                                     _currentItem.value = item
                                     // Seed from the intended offset, not the live player: prepare() is
                                     // async so currentPosition is still 0 here (matches playItem).
-                                    _positionMs.value = (targetOffset * 1000).toLong()
+                                    _positionMs.value = local.positionMs
                                 }
                             }
                         }
@@ -293,6 +267,9 @@ object PlaybackManager {
                 PlaybackSettingsManager.getForwardInterval(appContext).collectLatest { _forwardInterval.value = it }
             }
             launch {
+                PlaybackSettingsManager.getUseChapterContext(appContext).collectLatest { _useChapterContext.value = it }
+            }
+            launch {
                 PlaybackSettingsManager.getSmartRewind(appContext).collectLatest { smartRewindEnabled = it }
             }
             launch {
@@ -315,6 +292,58 @@ object PlaybackManager {
 
     private fun getRepository(context: Context): LibraryRepository {
         return repository ?: RoomLibraryRepository(AppDatabase.getDatabase(context).libraryDao())
+    }
+
+    /** Back-fill embedded artwork for any item missing it (extract -> save -> persist). Runs on IO. */
+    private suspend fun extractMissingArtwork(items: List<LibraryItemEntity>, context: Context) {
+        val processedDir = File(context.filesDir, "Processed")
+        val artworkDir = File(context.filesDir, "Artworks")
+        for (entity in items) {
+            if (entity.artworkURL != null) continue
+            val file = File(processedDir, entity.relativePath ?: "")
+            if (!file.exists()) continue
+            if (!artworkDir.exists()) artworkDir.mkdirs()
+            val artworkFile = File(artworkDir, "${entity.uuid}.jpg")
+            if (ArtworkManager.extractAndSaveArtwork(file, artworkFile)) {
+                entity.artworkURL = artworkFile.absolutePath
+                getRepository(context).updateItem(entity)
+            }
+        }
+    }
+
+    /**
+     * Build the Media3 playlist for a [playable]: one MediaItem per backing file (see
+     * [PlayableItem.fileGroups]). A file holding a single chapter (e.g. a BOUND sub-book) shows that
+     * chapter's title; a file holding the whole book shows the book title. Artwork falls back to the
+     * book's. This is the one place MediaItems are built for both BOUND and single books.
+     */
+    private fun buildMediaItems(playable: PlayableItem, processedDir: File): List<MediaItem> {
+        return playable.fileGroups().map { group ->
+            val first = group.first()
+            val file = first.relativePath?.let { File(processedDir, it) }
+            val uri = when {
+                file != null && file.exists() -> android.net.Uri.fromFile(file)
+                !first.remoteURL.isNullOrEmpty() -> android.net.Uri.parse(first.remoteURL)
+                else -> android.net.Uri.EMPTY
+            }
+            val mediaTitle = if (group.size == 1) first.title else playable.title
+            val artwork = first.artworkURL ?: playable.artworkURL
+            MediaItem.Builder()
+                .setMediaId(first.uuid.ifEmpty { first.relativePath ?: "${playable.uuid}#${first.index}" })
+                .setUri(uri)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(mediaTitle)
+                        .setArtist(playable.author ?: "Unknown author")
+                        .setAlbumTitle(playable.title)
+                        .setArtworkUri(artwork?.let {
+                            if (it.startsWith("http")) android.net.Uri.parse(it)
+                            else android.net.Uri.fromFile(File(it))
+                        })
+                        .build()
+                )
+                .build()
+        }
     }
 
     private fun startProgressTracker(context: Context) {
@@ -354,27 +383,25 @@ object PlaybackManager {
         if (!isPlayerActive && !forceFinished) return
 
         val currentPos = if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-            var totalPos = p.currentPosition / 1000.0
-            val currentIndex = p.currentMediaItemIndex
-            
-            // We need the chapters (sub-books) to calculate total position
-            // Since this is called frequently, we'll use a simplified check or assume the caller handles it.
-            // For now, let's just use the current position if we can't easily get cumulative start.
-            // Actually, let's just get the items in path sync.
-            scope.launch(Dispatchers.IO) {
-                val repo = getRepository(context)
-                val subItems = repo.getItemsInPathSync(item.relativePath ?: "")
-                val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
-                if (currentIndex >= 0 && currentIndex < books.size) {
-                    var cumulativeStart = 0.0
-                    for (i in 0 until currentIndex) {
-                        cumulativeStart += books[i].duration
-                    }
-                    val finalTotalPos = cumulativeStart + totalPos
-                    repo.updateItemProgress(item.uuid, finalTotalPos, forceFinished || (finalTotalPos >= item.duration - 1.0 && item.duration > 0))
+            // Read the player coordinate on the calling (main) thread before any IO hop.
+            val idx = p.currentMediaItemIndex
+            val rawMs = p.currentPosition
+            val timeline = _currentTimeline.value
+            if (timeline != null && !timeline.isEmpty) {
+                // Whole-book seconds straight from the cached timeline — no per-tick DB read, no race
+                // between near-simultaneous persists (pause + seek), and it falls through to the same
+                // persistence path as a single BOOK below.
+                timeline.toAbsoluteMs(idx, rawMs) / 1000.0
+            } else {
+                // Timeline not built yet (rare, e.g. a persist racing the load): re-read sub-books once.
+                scope.launch(Dispatchers.IO) {
+                    val repo = getRepository(context)
+                    val fallback = BoundTimeline.fromSubBooks(item.uuid, repo.getItemsInPathSync(item.relativePath ?: ""))
+                    val pos = fallback.toAbsoluteMs(idx, rawMs) / 1000.0
+                    repo.updateItemProgress(item.uuid, pos, forceFinished || (pos >= item.duration - 1.0 && item.duration > 0))
                 }
+                return // handled in scope
             }
-            return // handled in scope
         } else {
             p.currentPosition / 1000.0
         }
@@ -466,132 +493,43 @@ object PlaybackManager {
         val processedDir = File(context.filesDir, "Processed")
         
         scope.launch(Dispatchers.Main) {
-            if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-                val subItems = withContext(Dispatchers.IO) {
-                    getRepository(context).getItemsInPathSync(item.relativePath ?: "")
-                }
-                val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
-                val mediaItems = books.map { subItem ->
-                    val file = File(processedDir, subItem.relativePath ?: "")
-
-                    // Try to extract artwork if missing
-                    if (subItem.artworkURL == null && file.exists()) {
-                        val artworkDir = File(context.filesDir, "Artworks")
-                        if (!artworkDir.exists()) artworkDir.mkdirs()
-                        val artworkFile = File(artworkDir, "${subItem.uuid}.jpg")
-                        if (ArtworkManager.extractAndSaveArtwork(file, artworkFile)) {
-                            subItem.artworkURL = artworkFile.absolutePath
-                            withContext(Dispatchers.IO) {
-                                repository?.updateItem(subItem)
-                            }
-                        }
-                    }
-
-                    val uri = if (file.exists()) {
-                        android.util.Log.d("PlaybackManager", "📄 Playback: Using local file for ${subItem.title}")
-                        android.net.Uri.fromFile(file)
-                    } else if (!subItem.remoteURL.isNullOrEmpty()) {
-                        android.util.Log.d("PlaybackManager", "🌐 Playback: Using remote URL for ${subItem.title}")
-                        android.net.Uri.parse(subItem.remoteURL)
-                    } else {
-                        android.util.Log.w("PlaybackManager", "⚠️ Playback: No source available for ${subItem.title}")
-                        android.net.Uri.EMPTY
-                    }
-
-                    MediaItem.Builder()
-                        .setMediaId(subItem.uuid)
-                        .setUri(uri)
-                        .setMediaMetadata(
-                            MediaMetadata.Builder()
-                                .setTitle(subItem.title)
-                                .setArtist(subItem.author ?: item.author ?: "Unknown author")
-                                .setArtworkUri(subItem.artworkURL?.let { 
-                                    if (it.startsWith("http")) android.net.Uri.parse(it) 
-                                    else android.net.Uri.fromFile(java.io.File(it)) 
-                                })
-                                .build()
-                        )
-                        .build()
-                }
-
-
-                if (mediaItems.isNotEmpty()) {
-                    // Find correct sub-book and position
-                    var targetIndex = 0
-                    var targetOffset = item.currentTime
-                    var cumulative = 0.0
-                    for (i in books.indices) {
-                        if (item.currentTime >= cumulative && item.currentTime < cumulative + books[i].duration) {
-                            targetIndex = i
-                            targetOffset = item.currentTime - cumulative
-                            break
-                        }
-                        cumulative += books[i].duration
-                    }
-
-                    // Seed the chapter-relative offset so the UI's (chapterStart + positionMs) is correct.
-                    _positionMs.value = (targetOffset * 1000).toLong()
-                    player?.setMediaItems(mediaItems, targetIndex, (targetOffset * 1000).toLong())
-                    player?.prepare()
-                    if (autoplay) {
-                        player?.play()
-                        _showPlayerScreen.value = true
-                    }
-                    player?.setPlaybackSpeed(_playbackSpeed.value)
-                    applyVolume(_volumeBoost.value, _playbackVolume.value)
-                }
-            } else {
-                val file = File(processedDir, item.relativePath ?: "")
-                
-                // Try to extract artwork if missing
-                if (item.artworkURL == null && file.exists()) {
-                    val artworkDir = File(context.filesDir, "Artworks")
-                    if (!artworkDir.exists()) artworkDir.mkdirs()
-                    val artworkFile = File(artworkDir, "${item.uuid}.jpg")
-                    if (ArtworkManager.extractAndSaveArtwork(file, artworkFile)) {
-                        item.artworkURL = artworkFile.absolutePath
-                        withContext(Dispatchers.IO) {
-                            repository?.updateItem(item)
-                        }
-                    }
-                }
-
-                val uri = if (file.exists()) {
-                    android.util.Log.d("PlaybackManager", "📄 Playback: Using local file for ${item.title}")
-                    android.net.Uri.fromFile(file)
-                } else if (!item.remoteURL.isNullOrEmpty()) {
-                    android.util.Log.d("PlaybackManager", "🌐 Playback: Using remote URL for ${item.title}")
-                    android.net.Uri.parse(item.remoteURL)
+            val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
+            // Gather the backing items, back-fill any missing artwork, then build the playback model.
+            val playable = withContext(Dispatchers.IO) {
+                if (isBound) {
+                    val subItems = getRepository(context).getItemsInPathSync(item.relativePath ?: "")
+                    extractMissingArtwork(
+                        subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK },
+                        context
+                    )
+                    PlayableItemBuilder.buildBound(item, subItems)
                 } else {
-                    android.util.Log.w("PlaybackManager", "⚠️ Playback: No source available for ${item.title}")
-                    null
+                    extractMissingArtwork(listOf(item), context)
+                    PlayableItemBuilder.buildSingle(item, getRepository(context).getChaptersForBook(item.uuid).first())
                 }
+            }
+            _currentPlayable.value = playable
+            // BOUND books expose a whole-book timeline to the session; single books pass through.
+            _currentTimeline.value = if (isBound) playable.timeline else null
 
-                if (uri != null && uri != android.net.Uri.EMPTY) {
-                    val mediaItem = MediaItem.Builder()
-                        .setUri(uri)
-                        .setMediaId(item.uuid)
-                        .setMediaMetadata(
-                            MediaMetadata.Builder()
-                                .setTitle(item.title)
-                                .setArtist(item.author ?: "Unknown author")
-                                .setArtworkUri(item.artworkURL?.let { 
-                                    if (it.startsWith("http")) android.net.Uri.parse(it) 
-                                    else android.net.Uri.fromFile(java.io.File(it)) 
-                                })
-                                .build()
-                        )
-                        .build()
-                    
-                    player?.setMediaItem(mediaItem, (item.currentTime * 1000).toLong())
-                    player?.prepare()
-                    if (autoplay) {
-                        player?.play()
-                        _showPlayerScreen.value = true
-                    }
-                    player?.setPlaybackSpeed(_playbackSpeed.value)
-                    applyVolume(_volumeBoost.value, _playbackVolume.value)
+            val mediaItems = buildMediaItems(playable, processedDir)
+            if (mediaItems.isNotEmpty()) {
+                // Resolve the saved whole-book time into the player coordinate (file + offset) it maps to.
+                val local = if (isBound) {
+                    playable.timeline.toLocal((item.currentTime * 1000).toLong())
+                } else {
+                    BoundTimeline.PlayerPosition(0, (item.currentTime * 1000).toLong())
                 }
+                // Seed the per-item offset so the UI's (chapterStart + positionMs) is correct.
+                _positionMs.value = local.positionMs
+                player?.setMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
+                player?.prepare()
+                if (autoplay) {
+                    player?.play()
+                    _showPlayerScreen.value = true
+                }
+                player?.setPlaybackSpeed(_playbackSpeed.value)
+                applyVolume(_volumeBoost.value, _playbackVolume.value)
             }
         }
     }
@@ -626,22 +564,77 @@ object PlaybackManager {
 
     fun seekForward() {
         val p = player ?: return
-        p.seekTo(p.currentPosition + (_forwardInterval.value * 1000L))
+        seekWholeBook(currentWholeBookMs(p) + _forwardInterval.value * 1000L)
     }
 
     fun seekBackward() {
         val p = player ?: return
-        p.seekTo(p.currentPosition - (_rewindInterval.value * 1000L))
+        seekWholeBook(currentWholeBookMs(p) - _rewindInterval.value * 1000L)
     }
 
+    /** Current whole-book position (ms) of the loaded book — for callers like bookmark creation. */
+    fun currentWholeBookMs(): Long = player?.let { currentWholeBookMs(it) } ?: 0L
+
+    /** Current playback position in whole-book ms, read from the (possibly virtualized) controller. */
+    private fun currentWholeBookMs(p: Player): Long {
+        val timeline = _currentTimeline.value
+        // toAbsoluteMs(idx, pos) is invariant across modes: book context exposes a single window so
+        // idx==0 and pos is already whole-book (chapter 0 start is 0); chapter context passes through
+        // so idx/pos are per-file. Both yield whole-book ms.
+        return if (timeline != null && !timeline.isEmpty) {
+            timeline.toAbsoluteMs(p.currentMediaItemIndex, p.currentPosition)
+        } else {
+            p.currentPosition
+        }
+    }
+
+    /**
+     * Seek to an absolute whole-book position (ms) via the app's controller, in whichever coordinate
+     * space the session currently exposes:
+     *  - BOUND + book context: the session is a single whole-book window, so seek the whole-book ms
+     *    directly (BookTimelinePlayer maps it back to the right sub-book).
+     *  - BOUND + chapter context: the session passes the per-file playlist through, so map to
+     *    (sub-book index, per-item offset) here.
+     *  - single BOOK: position is already whole-book.
+     * The service's media-button handler seeks the real ExoPlayer directly via
+     * [seekRelativeAcrossChapters] instead (it bypasses the session).
+     */
+    fun seekWholeBook(wholeBookMs: Long) {
+        val p = player ?: return
+        val timeline = _currentTimeline.value
+        if (timeline != null && !timeline.isEmpty) {
+            if (_useChapterContext.value) {
+                val local = timeline.toLocal(wholeBookMs)
+                p.seekTo(local.mediaItemIndex, local.positionMs)
+            } else {
+                p.seekTo(wholeBookMs.coerceIn(0L, timeline.totalDurationMs))
+            }
+        } else {
+            p.seekTo(wholeBookMs.coerceAtLeast(0L))
+        }
+    }
+
+    /**
+     * Seek the REAL ExoPlayer by [deltaMs] (negative = backward), crossing sub-book boundaries on the
+     * whole-book timeline. Used by [AudioPlayerService]'s media-button / Bluetooth handlers, which hold
+     * the real player and operate in per-file coordinates (they bypass the virtualizing session). The
+     * in-app controls go through [seekForward]/[seekBackward]/[seekWholeBook] instead.
+     */
+    fun seekRelativeAcrossChapters(player: Player, deltaMs: Long) {
+        val timeline = _currentTimeline.value
+        if (timeline != null && !timeline.isEmpty) {
+            val absMs = timeline.toAbsoluteMs(player.currentMediaItemIndex, player.currentPosition) + deltaMs
+            val clamped = absMs.coerceIn(0L, timeline.totalDurationMs)
+            val local = timeline.toLocal(clamped)
+            player.seekTo(local.mediaItemIndex, local.positionMs)
+        } else {
+            player.seekTo((player.currentPosition + deltaMs).coerceAtLeast(0L))
+        }
+    }
+
+    /** Seek to an absolute whole-book position. Alias kept for existing callers; see [seekWholeBook]. */
     fun seekTo(positionMs: Long) {
-        val p = player ?: return
-        p.seekTo(positionMs)
-    }
-
-    fun seekTo(mediaItemIndex: Int, positionMs: Long) {
-        val p = player ?: return
-        p.seekTo(mediaItemIndex, positionMs)
+        seekWholeBook(positionMs)
     }
 
     fun playNext(context: Context) {
