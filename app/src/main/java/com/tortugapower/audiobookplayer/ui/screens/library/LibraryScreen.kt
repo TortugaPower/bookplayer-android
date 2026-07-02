@@ -137,7 +137,8 @@ fun LibraryScreen(
         val selectedItems = remember(selectedItemUuids) { items.filter { it.uuid in selectedItemUuids } }
         var volumeName by remember { mutableStateOf(selectedItems.firstOrNull()?.title ?: "") }
         val focusRequester = remember { FocusRequester() }
-        val isNameDuplicate = items.any { it.title.equals(volumeName, ignoreCase = true) }
+        val expectedRelativePath = if (currentPath == null) volumeName else "$currentPath/$volumeName"
+        val isNameDuplicate = items.any { it.relativePath?.equals(expectedRelativePath, ignoreCase = true) == true }
         val isNameValid = volumeName.isNotEmpty() && volumeName.all { it.isLetterOrDigit() || it == ' ' || it == '_' || it == '-' } && !isNameDuplicate
 
         LaunchedEffect(Unit) {
@@ -266,7 +267,8 @@ fun LibraryScreen(
 
     if (showCreateFolderDialog) {
         var folderName by remember { mutableStateOf("") }
-        val isNameDuplicate = items.any { it.title.equals(folderName, ignoreCase = true) }
+        val expectedRelativePath = if (currentPath == null) folderName else "$currentPath/$folderName"
+        val isNameDuplicate = items.any { it.relativePath?.equals(expectedRelativePath, ignoreCase = true) == true }
         val isNameValid = folderName.isNotEmpty() && folderName.all { it.isLetterOrDigit() || it == '_' || it == '-' } && !isNameDuplicate
 
         AlertDialog(
