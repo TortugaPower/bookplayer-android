@@ -47,6 +47,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -81,7 +82,12 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.common.C
+import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
@@ -324,6 +330,7 @@ fun PlayerScreen(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 PlayerArtwork(
+                    player = viewModel.player,
                     artworkURL = chapterArtworkURL ?: currentItem.artworkURL,
                     isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
                     showCloudBadge = !isLocal && !currentItem.remoteURL.isNullOrEmpty()
@@ -422,12 +429,28 @@ fun PlayerScreen(
 
 @Composable
 private fun PlayerArtwork(
+    player: Player?,
     artworkURL: String?,
     isBuffering: Boolean,
     showCloudBadge: Boolean
 ) {
+    var hasVideo by remember { mutableStateOf(false) }
+
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                hasVideo = tracks.isTypeSelected(C.TRACK_TYPE_VIDEO)
+            }
+        }
+        player?.addListener(listener)
+        hasVideo = player?.currentTracks?.isTypeSelected(C.TRACK_TYPE_VIDEO) == true
+        onDispose {
+            player?.removeListener(listener)
+        }
+    }
+
     val context = LocalContext.current
-    val artworkBackground = if (artworkURL == null) {
+    val artworkBackground = if (artworkURL == null && !hasVideo) {
         Modifier.background(
             Brush.verticalGradient(
                 colors = listOf(
@@ -448,7 +471,21 @@ private fun PlayerArtwork(
             .then(artworkBackground),
         contentAlignment = Alignment.Center
     ) {
-        if (artworkURL != null) {
+        if (hasVideo && player != null) {
+            AndroidView(
+                factory = { context ->
+                    PlayerView(context).apply {
+                        this.player = player
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                update = { view ->
+                    view.player = player
+                }
+            )
+        } else if (artworkURL != null) {
             AsyncImage(
                 model = artworkURL,
                 contentDescription = null,
