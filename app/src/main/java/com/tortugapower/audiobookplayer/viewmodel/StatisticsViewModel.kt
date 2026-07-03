@@ -74,7 +74,7 @@ class StatisticsViewModel(
             val yesterdayTime = sessions.filter { it.startTime in startOfYesterday until startOfToday }.sumOf { it.duration }
 
             if (yesterdayTime == 0L) {
-                if (todayTime > 0L) 100 else null
+                null // no baseline — a percentage against zero is undefined, so show no label
             } else {
                 (((todayTime - yesterdayTime).toDouble() / yesterdayTime.toDouble()) * 100).toInt()
             }
@@ -97,7 +97,7 @@ class StatisticsViewModel(
             val prevWeekTime = sessions.filter { it.startTime in startOfPrevWeek until startOfThisWeek }.sumOf { it.duration }
 
             if (prevWeekTime == 0L) {
-                if (thisWeekTime > 0L) 100 else null
+                null // no baseline — a percentage against zero is undefined, so show no label
             } else {
                 (((thisWeekTime - prevWeekTime).toDouble() / prevWeekTime.toDouble()) * 100).toInt()
             }
