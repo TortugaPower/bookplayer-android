@@ -48,6 +48,11 @@ object ImportManager : ImportService {
     // on the Main-confined [scope], so no synchronization is needed.
     private val activeDownloadFileNames = mutableSetOf<String>()
 
+    // One shared client for all downloads (per-instance connection pools/dispatchers are wasteful).
+    // Default timeouts are deliberate: the 10s read timeout surfaces stalled servers, while the
+    // absence of a whole-call timeout keeps multi-minute audiobook downloads legal.
+    private val downloadClient by lazy { okhttp3.OkHttpClient() }
+
     override fun startImport(context: Context, uris: List<Uri>) {
         scope.launch {
             isImporting = true
@@ -131,12 +136,11 @@ object ImportManager : ImportService {
 
                 try {
                     withContext(Dispatchers.IO) {
-                        val client = okhttp3.OkHttpClient()
                         val requestBuilder = okhttp3.Request.Builder().url(url)
                         headers?.forEach { (key, value) ->
                             requestBuilder.addHeader(key, value)
                         }
-                        val response = client.newCall(requestBuilder.build()).execute()
+                        val response = downloadClient.newCall(requestBuilder.build()).execute()
                         response.use { // Ensure response is closed
                             if (response.isSuccessful && response.body != null) {
                                 response.body!!.byteStream().use { input ->

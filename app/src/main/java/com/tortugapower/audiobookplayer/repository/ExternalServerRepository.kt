@@ -3,7 +3,9 @@ package com.tortugapower.audiobookplayer.repository
 import com.tortugapower.audiobookplayer.database.dao.ExternalServerDao
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.logic.CredentialCipher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
 /**
@@ -14,7 +16,10 @@ import kotlinx.coroutines.flow.map
  */
 class ExternalServerRepository(private val externalServerDao: ExternalServerDao) {
     val allServers: Flow<List<ExternalServerEntity>> =
-        externalServerDao.getAllServers().map { servers -> servers.map { it.decrypted() } }
+        externalServerDao.getAllServers()
+            .map { servers -> servers.map { it.decrypted() } }
+            // Keep decryption off the collector's (usually Main) thread.
+            .flowOn(Dispatchers.Default)
 
     suspend fun getServerById(id: Long): ExternalServerEntity? {
         return externalServerDao.getServerById(id)?.decrypted()

@@ -25,17 +25,30 @@ object CredentialCipher {
     private const val GCM_IV_LENGTH = 12
     private const val GCM_TAG_LENGTH_BITS = 128
 
+    // Cached after the first load: Keystore access is binder IPC, and decrypt runs once per
+    // credential value per emission — without the cache that's many round-trips per list read.
+    @Volatile
+    private var cachedKey: SecretKey? = null
+
     private fun getOrCreateKey(): SecretKey {
-        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
-        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-        generator.init(
-            KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .build()
-        )
-        return generator.generateKey()
+        cachedKey?.let { return it }
+        synchronized(this) {
+            cachedKey?.let { return it }
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            val existing = (keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey
+            val key = existing ?: run {
+                val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+                generator.init(
+                    KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .build()
+                )
+                generator.generateKey()
+            }
+            cachedKey = key
+            return key
+        }
     }
 
     fun encrypt(plaintext: String): String {
