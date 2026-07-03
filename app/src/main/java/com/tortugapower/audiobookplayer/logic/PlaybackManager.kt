@@ -178,6 +178,16 @@ object PlaybackManager {
         val appContext = context.applicationContext
         this.appContext = appContext
 
+        // Seed the external-server header map eagerly (off the main thread), so the runBlocking
+        // fallback inside getHeadersForUri stays a cold-restore edge case rather than the norm.
+        scope.launch(Dispatchers.IO) {
+            try {
+                seedExternalHostHeaders(appContext)
+            } catch (e: Exception) {
+                android.util.Log.w("PlaybackManager", "Failed to seed external host headers", e)
+            }
+        }
+
         // Restart the position tracker whenever a UI collector (re)appears while playing, so it
         // re-enters the fast tick rate immediately instead of waiting out a slow background delay.
         scope.launch {

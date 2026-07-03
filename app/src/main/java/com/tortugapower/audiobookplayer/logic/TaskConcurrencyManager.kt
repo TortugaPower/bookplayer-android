@@ -124,15 +124,6 @@ class TaskConcurrencyManager(
         collectorJob = null
     }
 
-    override suspend fun enqueueTask(task: SyncTaskEntity) {
-        val account = accountRepository.getAccount()
-        if (TaskAccessPolicy.canExecuteTask(account?.tier, task.jobType)) {
-            repository.saveTask(task)
-        } else {
-            Log.w(TAG, "🚫 Policy blocked enqueuing task: ${task.jobType} for tier ${account?.tier ?: "NONE"}. Discarding.")
-        }
-    }
-
     override fun setMaxConcurrentQueues(n: Int) {
         maxQueues = n
         queueSemaphore = Semaphore(n)

@@ -29,11 +29,6 @@ interface TaskConcurrencyService {
     fun stopProcessing()
 
     /**
-     * Add a new task to be processed.
-     */
-    suspend fun enqueueTask(task: SyncTaskEntity)
-
-    /**
      * Set the maximum number of concurrent queues.
      */
     fun setMaxConcurrentQueues(n: Int)
