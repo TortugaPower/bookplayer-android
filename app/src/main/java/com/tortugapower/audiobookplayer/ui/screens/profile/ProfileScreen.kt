@@ -61,7 +61,6 @@ fun ProfileScreen(
 
     // Use cached account state from ViewModel
     val account by viewModel.account.collectAsStateWithLifecycle()
-    val isSubscribed by viewModel.isSubscribed.collectAsStateWithLifecycle()
     val todayListenedTime by viewModel.todayListenedTime.collectAsStateWithLifecycle()
     val totalPlaytime by viewModel.totalPlaytime.collectAsStateWithLifecycle()
     val mostListenedBookArtwork by viewModel.mostListenedBookArtwork.collectAsStateWithLifecycle()
@@ -209,30 +208,28 @@ fun ProfileScreen(
             artworkUrl = mostListenedBookArtwork
         )
 
-        if (isSubscribed) {
-            Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
-            Text(
-                text = stringResource(R.string.profile_activity),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 8.dp)
-            )
+        Text(
+            text = stringResource(R.string.profile_activity),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 8.dp)
+        )
 
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-            ) {
-                Column {
-                    ActivityRow(stringResource(R.string.profile_stats), Icons.Default.BarChart, onClick = onNavigateToStatistics)
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                    ActivityRow(stringResource(R.string.profile_listening_history), Icons.Default.History, onClick = onNavigateToHistory)
-                }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        ) {
+            Column {
+                ActivityRow(stringResource(R.string.profile_stats), Icons.Default.BarChart, onClick = onNavigateToStatistics)
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                ActivityRow(stringResource(R.string.profile_listening_history), Icons.Default.History, onClick = onNavigateToHistory)
             }
-
-            Spacer(modifier = Modifier.height(32.dp))
         }
+
+        Spacer(modifier = Modifier.height(32.dp))
 
         // Queued Tasks Button
         if (account != null && (account!!.tier == AccountTier.PRO || account!!.tier == AccountTier.LITE)) {
@@ -259,38 +256,6 @@ fun ProfileScreen(
             }
         }
 
-            }
-
-            // BookPlayer Pro Section
-            if (account?.tier != AccountTier.PRO) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.pro_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = { showProSheet = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF3482F6) // Approximate blue from screenshot
-                        ),
-                        shape = RoundedCornerShape(24.dp),
-                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.pro_learn_more),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                }
             }
         }
     }

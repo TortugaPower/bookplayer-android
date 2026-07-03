@@ -33,11 +33,6 @@ class ProfileViewModel(
             initialValue = null
         )
 
-    val isSubscribed: StateFlow<Boolean> = account.map { 
-        it != null && (it.tier == com.tortugapower.audiobookplayer.database.entities.AccountTier.PRO || 
-                      it.tier == com.tortugapower.audiobookplayer.database.entities.AccountTier.LITE)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
     val totalPlaytime: StateFlow<Long> = statisticsDao.getTotalPlaytimeFlow()
         .map { it ?: 0L }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)

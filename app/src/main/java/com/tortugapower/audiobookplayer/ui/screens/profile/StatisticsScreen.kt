@@ -6,7 +6,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -75,7 +74,7 @@ fun StatisticsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                PillTabSelector(
+                StatsTabSelector(
                     selectedTab = selectedTab,
                     onTabSelected = {
                         selectedTab = it
@@ -387,57 +386,24 @@ fun StatisticsScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PillTabSelector(
+fun StatsTabSelector(
     selectedTab: Int,
     onTabSelected: (Int) -> Unit
 ) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth(0.6f)
-            .height(36.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(2.dp)
-                .selectableGroup(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val tabs = listOf(
-                stringResource(R.string.profile_today),
-                stringResource(R.string.profile_week)
-            )
-            tabs.forEachIndexed { index, title ->
-                val isSelected = selectedTab == index
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(
-                            if (isSelected) MaterialTheme.colorScheme.surface
-                            else Color.Transparent
-                        )
-                        .selectable(
-                            selected = isSelected,
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            role = Role.Tab,
-                            onClick = { onTabSelected(index) }
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isSelected) MaterialTheme.colorScheme.onSurface
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+    val tabs = listOf(
+        stringResource(R.string.profile_today),
+        stringResource(R.string.profile_week)
+    )
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth(0.6f)) {
+        tabs.forEachIndexed { index, title ->
+            SegmentedButton(
+                selected = selectedTab == index,
+                onClick = { onTabSelected(index) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = tabs.size)
+            ) {
+                Text(title)
             }
         }
     }
