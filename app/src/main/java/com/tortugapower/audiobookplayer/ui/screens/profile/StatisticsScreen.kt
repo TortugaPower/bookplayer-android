@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tortugapower.audiobookplayer.R
-import com.tortugapower.audiobookplayer.viewmodel.ProfileViewModel
+import com.tortugapower.audiobookplayer.viewmodel.StatisticsViewModel
 import java.util.Calendar
 import java.util.Locale
 import java.text.SimpleDateFormat
@@ -34,7 +34,7 @@ import java.text.SimpleDateFormat
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatisticsScreen(
-    viewModel: ProfileViewModel,
+    viewModel: StatisticsViewModel,
     onBack: () -> Unit
 ) {
     val todayHourlyStats by viewModel.todayHourlyStats.collectAsStateWithLifecycle()

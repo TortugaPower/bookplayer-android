@@ -293,7 +293,8 @@ class StatisticsManagerTest {
 
         override fun getTotalPlaytimeFlow(): Flow<Long?> = TODO()
         override fun getMostListenedBookArtworkFlow(): Flow<String?> = TODO()
-        override fun getAllSessionsFlow(): Flow<List<PlaybackSessionEntity>> = TODO()
+        override fun getSessionsSince(cutoff: Long): Flow<List<PlaybackSessionEntity>> = TODO()
+        override fun getRecentSessions(limit: Int): Flow<List<PlaybackSessionEntity>> = TODO()
         override fun getDaysListenedFlow(): Flow<Int> = TODO()
     }
 }

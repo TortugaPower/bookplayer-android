@@ -84,8 +84,15 @@ fun MainScreen() {
 
     val profileViewModel: ProfileViewModel = viewModel(
         factory = ProfileViewModelFactory(
-            accountRepository, 
+            accountRepository,
             syncTaskRepository,
+            database.statisticsDao(),
+            database.libraryDao()
+        )
+    )
+
+    val statisticsViewModel: StatisticsViewModel = viewModel(
+        factory = StatisticsViewModelFactory(
             database.statisticsDao(),
             database.libraryDao()
         )
@@ -164,13 +171,13 @@ fun MainScreen() {
                     }
                     composable("statistics") {
                         StatisticsScreen(
-                            viewModel = profileViewModel,
+                            viewModel = statisticsViewModel,
                             onBack = { navController.popBackStack() }
                         )
                     }
                     composable("listeningHistory") {
                         ListeningHistoryScreen(
-                            viewModel = profileViewModel,
+                            viewModel = statisticsViewModel,
                             onBack = { navController.popBackStack() }
                         )
                     }

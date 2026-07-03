@@ -24,7 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.PlaybackSessionEntity
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
-import com.tortugapower.audiobookplayer.viewmodel.ProfileViewModel
+import com.tortugapower.audiobookplayer.viewmodel.StatisticsViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -32,7 +32,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListeningHistoryScreen(
-    viewModel: ProfileViewModel,
+    viewModel: StatisticsViewModel,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current

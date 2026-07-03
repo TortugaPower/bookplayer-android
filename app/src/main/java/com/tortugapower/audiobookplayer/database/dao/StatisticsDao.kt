@@ -24,8 +24,11 @@ interface StatisticsDao {
     @Query("SELECT library_items.artworkURL FROM playback_sessions JOIN library_items ON playback_sessions.bookUuid = library_items.uuid GROUP BY playback_sessions.bookUuid ORDER BY SUM(playback_sessions.duration) DESC LIMIT 1")
     fun getMostListenedBookArtworkFlow(): Flow<String?>
 
-    @Query("SELECT * FROM playback_sessions ORDER BY startTime DESC")
-    fun getAllSessionsFlow(): Flow<List<PlaybackSessionEntity>>
+    @Query("SELECT * FROM playback_sessions WHERE startTime >= :cutoff ORDER BY startTime DESC")
+    fun getSessionsSince(cutoff: Long): Flow<List<PlaybackSessionEntity>>
+
+    @Query("SELECT * FROM playback_sessions ORDER BY startTime DESC LIMIT :limit")
+    fun getRecentSessions(limit: Int): Flow<List<PlaybackSessionEntity>>
 
     @Query("SELECT COUNT(DISTINCT strftime('%Y-%m-%d', startTime / 1000, 'unixepoch', 'localtime')) FROM playback_sessions")
     fun getDaysListenedFlow(): Flow<Int>
