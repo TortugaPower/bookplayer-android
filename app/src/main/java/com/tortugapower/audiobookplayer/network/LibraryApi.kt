@@ -22,6 +22,13 @@ interface LibraryApi {
         @Query("sign") sign: Boolean = true
     ): Response<ContentsResponse>
 
+    @GET("/v1/library")
+    suspend fun getRemoteFileURL(
+        @Query("relativePath") path: String,
+        @Query("uuid") uuid: String?,
+        @Query("sign") sign: Boolean = true
+    ): Response<ContentsResponse>
+
     @PUT("/v1/library")
     suspend fun uploadMetadata(@Body params: Map<String, Any?>): Response<UploadItemResponse>
 
