@@ -16,6 +16,11 @@ import com.tortugapower.audiobookplayer.logic.ThemeManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.ui.screens.MainScreen
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerTheme
+import android.os.Build
+import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
 
@@ -31,6 +36,7 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         ThemeManager.initialize(this)
+        setupDynamicShortcuts()
 
         // Only handle the launch intent on a fresh start. On a recreate (locale/density change, or
         // process-death restore from recents) the same ACTION_VIEW/SEND intent would otherwise be
@@ -89,8 +95,20 @@ class MainActivity : ComponentActivity() {
                 if (identifier != null) {
                     PlaybackManager.playItemByPath(this, identifier, autoplay, showPlayer)
                 } else {
-                    if (autoplay) PlaybackManager.togglePlayPause()
-                    if (showPlayer) PlaybackManager.setShowPlayer(true)
+                    if (PlaybackManager.currentItem.value != null) {
+                        if (autoplay) PlaybackManager.togglePlayPause()
+                        if (showPlayer) PlaybackManager.setShowPlayer(true)
+                    } else {
+                        lifecycleScope.launch {
+                            val lastUuid = PlaybackSettingsManager.getLastItemUuid(this@MainActivity).first()
+                            if (lastUuid != null) {
+                                PlaybackManager.playItemByPath(this@MainActivity, lastUuid, autoplay, showPlayer)
+                            } else {
+                                if (autoplay) PlaybackManager.togglePlayPause()
+                                if (showPlayer) PlaybackManager.setShowPlayer(true)
+                            }
+                        }
+                    }
                 }
             }
             "download" -> {
@@ -112,6 +130,8 @@ class MainActivity : ComponentActivity() {
                 if (seconds != null) {
                     com.tortugapower.audiobookplayer.logic.SleepTimerManager.configureTimerWithSeconds(seconds)
                 }
+                PlaybackManager.setShowPlayer(true)
+                PlaybackManager.triggerSleepTimerMenu()
             }
         }
     }
@@ -120,5 +140,33 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         // We don't necessarily want to release the player here if it should play in background,
         // but for now let's keep it simple. Actually, the service handles the background.
+    }
+
+    private fun setupDynamicShortcuts() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            val shortcutManager = getSystemService(android.content.pm.ShortcutManager::class.java) ?: return
+            val playLastShortcut = android.content.pm.ShortcutInfo.Builder(this, "shortcut_play_last")
+                .setShortLabel("Play Last Played")
+                .setLongLabel("Resume last played book")
+                .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
+                .setIntent(Intent(Intent.ACTION_VIEW, Uri.parse("bookplayer://play?autoplay=true")))
+                .build()
+            val rewindShortcut = android.content.pm.ShortcutInfo.Builder(this, "shortcut_rewind")
+                .setShortLabel("Rewind")
+                .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
+                .setIntent(Intent(Intent.ACTION_VIEW, Uri.parse("bookplayer://skipRewind")))
+                .build()
+            val forwardShortcut = android.content.pm.ShortcutInfo.Builder(this, "shortcut_forward")
+                .setShortLabel("Forward")
+                .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
+                .setIntent(Intent(Intent.ACTION_VIEW, Uri.parse("bookplayer://skipForward")))
+                .build()
+            val sleepShortcut = android.content.pm.ShortcutInfo.Builder(this, "shortcut_sleep_timer")
+                .setShortLabel("Set Sleep Timer")
+                .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
+                .setIntent(Intent(Intent.ACTION_VIEW, Uri.parse("bookplayer://sleep")))
+                .build()
+            shortcutManager.dynamicShortcuts = listOf(playLastShortcut, rewindShortcut, forwardShortcut, sleepShortcut)
+        }
     }
 }

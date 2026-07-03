@@ -158,6 +158,7 @@ fun MoreOptionsSheet(
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     val currentItem by viewModel.currentItem.collectAsStateWithLifecycle()
     ModalBottomSheet(
@@ -186,6 +187,10 @@ fun MoreOptionsSheet(
             }
             BookmarkDialogButton(text = if (viewModel.isRepeatEnabled) stringResource(R.string.player_repeat_off) else stringResource(R.string.player_repeat_on)) {
                 viewModel.toggleRepeat()
+            }
+            BookmarkDialogButton(text = "Add Shortcut to Home Screen") {
+                viewModel.showMoreOptions = false
+                viewModel.createHomeScreenShortcut(context)
             }
         }
     }

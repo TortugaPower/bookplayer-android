@@ -231,6 +231,12 @@ object PlaybackManager {
     private val _useChapterContext = MutableStateFlow(false)
     val useChapterContext: StateFlow<Boolean> = _useChapterContext.asStateFlow()
 
+    private val _showSleepTimerTrigger = MutableStateFlow(false)
+    val showSleepTimerTrigger: StateFlow<Boolean> = _showSleepTimerTrigger.asStateFlow()
+
+    fun triggerSleepTimerMenu() { _showSleepTimerTrigger.value = true }
+    fun clearSleepTimerTrigger() { _showSleepTimerTrigger.value = false }
+
     private var lastPauseTime: Long = 0
     private var smartRewindEnabled = true
     private var smartRewindLimit = 30
@@ -833,7 +839,7 @@ object PlaybackManager {
     fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {
         updateProgress(context, itemToUpdate = _currentItem.value)
         scope.launch(Dispatchers.IO) {
-            val item = getRepository(context).getItemByPath(path)
+            val item = getRepository(context).getItemById(path) ?: getRepository(context).getItemByPath(path)
             if (item != null) {
                 launch(Dispatchers.Main) {
                     playItem(context, item)

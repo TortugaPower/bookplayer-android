@@ -149,6 +149,14 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val isHidden = offsetY.value >= screenHeightPx
 
+    val showSleepTimerTrigger by PlaybackManager.showSleepTimerTrigger.collectAsStateWithLifecycle()
+    LaunchedEffect(showSleepTimerTrigger) {
+        if (showSleepTimerTrigger) {
+            viewModel.showSleepTimerMenu = true
+            PlaybackManager.clearSleepTimerTrigger()
+        }
+    }
+
     LaunchedEffect(showPlayerScreen, screenHeightPx) {
         if (showPlayerScreen) {
             offsetY.animateTo(0f, tween(400))
