@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.logic.ListeningStatsCalculator
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.network.NetworkClient
@@ -14,7 +15,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
-import java.util.Calendar
 
 class ProfileViewModel(
     private val accountRepository: AccountRepository,
@@ -43,24 +43,13 @@ class ProfileViewModel(
     val mostListenedBookArtwork: StateFlow<String?> = statisticsDao.getMostListenedBookArtworkFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    private fun startOfTodayMillis(): Long {
-        val cal = Calendar.getInstance()
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        return cal.timeInMillis
-    }
-
     // The card only needs today's sessions. The query cutoff is fixed at the creation day's
     // midnight, which stays a superset of the mapper's live "today" filter as time moves on.
-    val todayListenedTime: StateFlow<Long> = statisticsDao.getSessionsSince(startOfTodayMillis())
-        .map { sessions ->
-            val startOfToday = startOfTodayMillis()
-            sessions.filter { it.startTime >= startOfToday }.sumOf { it.duration }
-        }
-        .flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+    val todayListenedTime: StateFlow<Long> =
+        statisticsDao.getSessionsSince(ListeningStatsCalculator.startOfDay(System.currentTimeMillis()))
+            .map { sessions -> ListeningStatsCalculator.todayListenedTime(sessions, System.currentTimeMillis()) }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
     val syncTasks: StateFlow<List<SyncTaskEntity>> = syncTaskRepository.getAllTasks()
         .stateIn(
