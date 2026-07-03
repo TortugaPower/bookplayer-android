@@ -50,8 +50,6 @@
     <string name="profile_setup_account">إعداد الحساب</string>
     <string name="profile_tier_label">المستوى: %1$s</string>
     <string name="profile_not_signed_in">لم يتم تسجيل الدخول</string>
-    <string name="profile_listening_time_value">0 دقيقة</string>
-    <string name="profile_total_listening_time">إجمالي وقت الاستماع</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -221,10 +219,35 @@
     <!-- Profile Stats -->
     <string name="profile_overview">نظرة عامة</string>
     <string name="profile_activity">النشاط</string>
-    <string name="profile_listening_time">وقت الاستماع</string>
-    <string name="profile_unlock_pro_stats">افتح Pro لعرض الإحصاءات</string>
     <string name="profile_today">اليوم</string>
-    <string name="profile_favorite_book">المفضل: %1$s</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">إجمالي الاستماع: %1$s</string>
+    <string name="profile_time_hours">%1$d س</string>
+    <plurals name="profile_unit_days">
+        <item quantity="one">%1$d يوم</item>
+        <item quantity="other">%1$d يوم</item>
+        <item quantity="zero">%1$d يوم</item>
+        <item quantity="two">%1$d يوم</item>
+        <item quantity="few">%1$d أيام</item>
+        <item quantity="many">%1$d يومًا</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="one">%1$d شهر</item>
+        <item quantity="other">%1$d شهر</item>
+        <item quantity="zero">%1$d شهر</item>
+        <item quantity="two">%1$d شهر</item>
+        <item quantity="few">%1$d أشهر</item>
+        <item quantity="many">%1$d شهرًا</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="one">%1$d سنة</item>
+        <item quantity="other">%1$d سنة</item>
+        <item quantity="zero">%1$d سنة</item>
+        <item quantity="two">%1$d سنة</item>
+        <item quantity="few">%1$d سنوات</item>
+        <item quantity="many">%1$d سنة</item>
+    </plurals>
     <string name="profile_completed_books">الكتب المكتملة</string>
     <string name="profile_days_listened">الأيام المستمعة</string>
     <string name="profile_stats">الإحصائيات</string>

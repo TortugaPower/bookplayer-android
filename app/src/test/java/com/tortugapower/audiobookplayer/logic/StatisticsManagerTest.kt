@@ -1,8 +1,8 @@
 package com.tortugapower.audiobookplayer.logic
 
-import android.content.Context
 import android.content.ContextWrapper
 import com.tortugapower.audiobookplayer.database.dao.StatisticsDao
+import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.PlaybackSessionEntity
 import kotlinx.coroutines.CoroutineScope
@@ -26,8 +26,11 @@ class StatisticsManagerTest {
     private val fakeDao = FakeStatisticsDao()
     private var timeCurrent = 1000L
 
+    private lateinit var originalScope: CoroutineScope
+
     @Before
     fun setUp() {
+        originalScope = StatisticsManager.scope
         StatisticsManager.scope = testScope
         StatisticsManager.testDao = fakeDao
         StatisticsManager.timeProvider = { timeCurrent }
@@ -36,27 +39,30 @@ class StatisticsManagerTest {
 
     @After
     fun tearDown() {
+        StatisticsManager.scope = originalScope
         StatisticsManager.testDao = null
         StatisticsManager.timeProvider = { System.currentTimeMillis() }
     }
 
+    private fun makeItem(uuid: String, title: String) = LibraryItemEntity(
+        uuid = uuid,
+        title = title,
+        author = "Author One",
+        duration = 100.0,
+        currentTime = 0.0,
+        percentCompleted = 0.0,
+        isFinished = false,
+        relativePath = "path/$uuid",
+        remoteURL = null,
+        artworkURL = null,
+        orderRank = 1,
+        type = ItemType.BOOK,
+        lastPlayDate = null
+    )
+
     @Test
     fun testSessionLifecycle_startNewSession() = runBlocking {
-        val item = LibraryItemEntity(
-            uuid = "book-1",
-            title = "Book One",
-            author = "Author One",
-            duration = 100.0,
-            currentTime = 0.0,
-            percentCompleted = 0.0,
-            isFinished = false,
-            relativePath = "path/1",
-            remoteURL = null,
-            artworkURL = null,
-            orderRank = 1,
-            type = com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK,
-            lastPlayDate = null
-        )
+        val item = makeItem("book-1", "Book One")
 
         // Start playback
         timeCurrent = 10_000L
@@ -72,21 +78,7 @@ class StatisticsManagerTest {
 
     @Test
     fun testSessionLifecycle_keepExistingSession() = runBlocking {
-        val item = LibraryItemEntity(
-            uuid = "book-1",
-            title = "Book One",
-            author = "Author One",
-            duration = 100.0,
-            currentTime = 0.0,
-            percentCompleted = 0.0,
-            isFinished = false,
-            relativePath = "path/1",
-            remoteURL = null,
-            artworkURL = null,
-            orderRank = 1,
-            type = com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK,
-            lastPlayDate = null
-        )
+        val item = makeItem("book-1", "Book One")
 
         // Start session
         timeCurrent = 10_000L
@@ -104,21 +96,7 @@ class StatisticsManagerTest {
 
     @Test
     fun testSessionLifecycle_stopActiveSession_longSession() = runBlocking {
-        val item = LibraryItemEntity(
-            uuid = "book-1",
-            title = "Book One",
-            author = "Author One",
-            duration = 100.0,
-            currentTime = 0.0,
-            percentCompleted = 0.0,
-            isFinished = false,
-            relativePath = "path/1",
-            remoteURL = null,
-            artworkURL = null,
-            orderRank = 1,
-            type = com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK,
-            lastPlayDate = null
-        )
+        val item = makeItem("book-1", "Book One")
 
         // Start session
         timeCurrent = 10_000L
@@ -138,21 +116,7 @@ class StatisticsManagerTest {
 
     @Test
     fun testSessionLifecycle_stopActiveSession_shortSession() = runBlocking {
-        val item = LibraryItemEntity(
-            uuid = "book-1",
-            title = "Book One",
-            author = "Author One",
-            duration = 100.0,
-            currentTime = 0.0,
-            percentCompleted = 0.0,
-            isFinished = false,
-            relativePath = "path/1",
-            remoteURL = null,
-            artworkURL = null,
-            orderRank = 1,
-            type = com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK,
-            lastPlayDate = null
-        )
+        val item = makeItem("book-1", "Book One")
 
         // Start session
         timeCurrent = 10_000L
@@ -169,22 +133,30 @@ class StatisticsManagerTest {
     }
 
     @Test
+    fun testSessionLifecycle_switchingBooks_stopsPreviousAndStartsNew() = runBlocking {
+        val bookOne = makeItem("book-1", "Book One")
+        val bookTwo = makeItem("book-2", "Book Two")
+
+        timeCurrent = 10_000L
+        StatisticsManager.setPlaybackState(dummyContext, bookOne, isPlaying = true)
+
+        // Switching to another book must finalize book-1's session and start book-2's
+        timeCurrent = 15_000L
+        StatisticsManager.setPlaybackState(dummyContext, bookTwo, isPlaying = true)
+
+        assertEquals(2, fakeDao.sessions.size)
+        val finished = fakeDao.sessions.first { it.bookUuid == "book-1" }
+        assertEquals(15_000L, finished.endTime)
+        assertEquals(5000L, finished.duration)
+
+        val active = fakeDao.getActiveSession()
+        assertEquals("book-2", active?.bookUuid)
+        assertEquals(15_000L, active?.startTime)
+    }
+
+    @Test
     fun testSessionLifecycle_heartbeatUpdate() = runBlocking {
-        val item = LibraryItemEntity(
-            uuid = "book-1",
-            title = "Book One",
-            author = "Author One",
-            duration = 100.0,
-            currentTime = 0.0,
-            percentCompleted = 0.0,
-            isFinished = false,
-            relativePath = "path/1",
-            remoteURL = null,
-            artworkURL = null,
-            orderRank = 1,
-            type = com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK,
-            lastPlayDate = null
-        )
+        val item = makeItem("book-1", "Book One")
 
         // Start session
         timeCurrent = 10_000L
@@ -196,6 +168,100 @@ class StatisticsManagerTest {
 
         val session = fakeDao.sessions.first()
         assertEquals(10000L, session.duration) // Updated to 10s (20000 - 10000)
+    }
+
+    @Test
+    fun testHeartbeat_noActiveSession_isNoop() = runBlocking {
+        timeCurrent = 10_000L
+        StatisticsManager.updateActiveSessionDuration(dummyContext)
+
+        assertTrue(fakeDao.sessions.isEmpty())
+    }
+
+    // Process killed mid-playback: the session is left open (endTime == null) and the next
+    // playback event arrives much later. The offline gap must NOT count as listening time.
+
+    @Test
+    fun testOrphanedSession_differentBook_finalizedAtLastHeartbeat() = runBlocking {
+        val bookOne = makeItem("book-1", "Book One")
+        val bookTwo = makeItem("book-2", "Book Two")
+
+        timeCurrent = 10_000L
+        StatisticsManager.setPlaybackState(dummyContext, bookOne, isPlaying = true)
+        timeCurrent = 20_000L
+        StatisticsManager.updateActiveSessionDuration(dummyContext) // last heartbeat: 10s
+        // ... process dies, no stop event; user comes back much later and plays another book
+
+        timeCurrent = 1_000_000L
+        StatisticsManager.setPlaybackState(dummyContext, bookTwo, isPlaying = true)
+
+        val orphan = fakeDao.sessions.first { it.bookUuid == "book-1" }
+        assertEquals("Orphan must close at its last heartbeat, not at wall-clock now",
+            20_000L, orphan.endTime)
+        assertEquals(10_000L, orphan.duration)
+
+        val active = fakeDao.getActiveSession()
+        assertEquals("book-2", active?.bookUuid)
+        assertEquals(1_000_000L, active?.startTime)
+    }
+
+    @Test
+    fun testOrphanedSession_sameBook_notResumed() = runBlocking {
+        val item = makeItem("book-1", "Book One")
+
+        timeCurrent = 10_000L
+        StatisticsManager.setPlaybackState(dummyContext, item, isPlaying = true)
+        timeCurrent = 20_000L
+        StatisticsManager.updateActiveSessionDuration(dummyContext) // last heartbeat: 10s
+        // ... process dies; user resumes the SAME book much later
+
+        timeCurrent = 1_000_000L
+        StatisticsManager.setPlaybackState(dummyContext, item, isPlaying = true)
+
+        assertEquals(2, fakeDao.sessions.size)
+        val orphan = fakeDao.sessions.first { it.endTime != null }
+        assertEquals(20_000L, orphan.endTime)
+        assertEquals(10_000L, orphan.duration)
+
+        val active = fakeDao.getActiveSession()
+        assertEquals("A fresh session starts instead of resuming the stale one",
+            1_000_000L, active?.startTime)
+    }
+
+    @Test
+    fun testOrphanedSession_withoutHeartbeat_isDeleted() = runBlocking {
+        val bookOne = makeItem("book-1", "Book One")
+        val bookTwo = makeItem("book-2", "Book Two")
+
+        timeCurrent = 10_000L
+        StatisticsManager.setPlaybackState(dummyContext, bookOne, isPlaying = true)
+        // ... process dies before the first heartbeat ever persists a duration
+
+        timeCurrent = 1_000_000L
+        StatisticsManager.setPlaybackState(dummyContext, bookTwo, isPlaying = true)
+
+        assertTrue("Orphan with no recorded listening time is dropped",
+            fakeDao.sessions.none { it.bookUuid == "book-1" })
+        assertEquals("book-2", fakeDao.getActiveSession()?.bookUuid)
+    }
+
+    @Test
+    fun testOrphanedSession_heartbeatDoesNotInflateIt() = runBlocking {
+        val item = makeItem("book-1", "Book One")
+
+        timeCurrent = 10_000L
+        StatisticsManager.setPlaybackState(dummyContext, item, isPlaying = true)
+        timeCurrent = 20_000L
+        StatisticsManager.updateActiveSessionDuration(dummyContext) // last heartbeat: 10s
+        // ... process dies; a heartbeat fires much later (e.g. stale WorkManager/timer state)
+
+        timeCurrent = 1_000_000L
+        StatisticsManager.updateActiveSessionDuration(dummyContext)
+
+        val session = fakeDao.sessions.first()
+        assertEquals("Stale session is closed, not extended", 20_000L, session.endTime)
+        assertEquals(10_000L, session.duration)
+        assertNull(fakeDao.getActiveSession())
     }
 
     private class FakeStatisticsDao : StatisticsDao {
@@ -220,15 +286,13 @@ class StatisticsManagerTest {
             sessions.removeIf { it.id == session.id }
         }
 
+        // Mirrors the production query: most recent open session wins.
         override suspend fun getActiveSession(): PlaybackSessionEntity? {
-            return sessions.find { it.endTime == null }
+            return sessions.filter { it.endTime == null }.maxByOrNull { it.startTime }
         }
 
         override fun getTotalPlaytimeFlow(): Flow<Long?> = TODO()
-        override fun getUniqueBooksFlow(): Flow<Int> = TODO()
-        override fun getUniqueAuthorsFlow(): Flow<Int> = TODO()
-        override fun getFavoriteBookArtworkFlow(): Flow<String?> = TODO()
-        override fun getFavoriteBookTitleFlow(): Flow<String?> = TODO()
+        override fun getMostListenedBookArtworkFlow(): Flow<String?> = TODO()
         override fun getAllSessionsFlow(): Flow<List<PlaybackSessionEntity>> = TODO()
         override fun getDaysListenedFlow(): Flow<Int> = TODO()
     }

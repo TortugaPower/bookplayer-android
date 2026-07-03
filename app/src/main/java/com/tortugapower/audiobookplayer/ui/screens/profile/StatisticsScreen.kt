@@ -2,24 +2,30 @@ package com.tortugapower.audiobookplayer.ui.screens.profile
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.viewmodel.ProfileViewModel
 import java.util.Calendar
@@ -32,18 +38,13 @@ fun StatisticsScreen(
     viewModel: ProfileViewModel,
     onBack: () -> Unit
 ) {
-    val todayHourlyStats by viewModel.todayHourlyStats.collectAsState()
-    val weekDailyStats by viewModel.weekDailyStats.collectAsState()
-    val todayChangePercent by viewModel.todayChangePercent.collectAsState()
-    val weekChangePercent by viewModel.weekChangePercent.collectAsState()
+    val todayHourlyStats by viewModel.todayHourlyStats.collectAsStateWithLifecycle()
+    val weekDailyStats by viewModel.weekDailyStats.collectAsStateWithLifecycle()
+    val todayChangePercent by viewModel.todayChangePercent.collectAsStateWithLifecycle()
+    val weekChangePercent by viewModel.weekChangePercent.collectAsStateWithLifecycle()
 
-    var selectedTab by remember { mutableStateOf(0) } // 0 = Today, 1 = Week
-    var selectedBarIndex by remember { mutableStateOf<Int?>(null) }
-
-    // Reset selected bar when tab changes
-    LaunchedEffect(selectedTab) {
-        selectedBarIndex = null
-    }
+    var selectedTab by rememberSaveable { mutableStateOf(0) } // 0 = Today, 1 = Week
+    var selectedBarIndex by rememberSaveable { mutableStateOf<Int?>(null) }
 
     Scaffold(
         topBar = {
@@ -76,7 +77,11 @@ fun StatisticsScreen(
             ) {
                 PillTabSelector(
                     selectedTab = selectedTab,
-                    onTabSelected = { selectedTab = it }
+                    onTabSelected = {
+                        selectedTab = it
+                        // A bar index from one tab is meaningless in the other (24 vs 7 bars).
+                        selectedBarIndex = null
+                    }
                 )
             }
 
@@ -85,6 +90,7 @@ fun StatisticsScreen(
             // Percentage change (-13% or +5%)
             val changePercent = if (selectedTab == 0) todayChangePercent else weekChangePercent
             if (changePercent != null) {
+                val isDark = isSystemInDarkTheme()
                 Text(
                     text = if (changePercent >= 0) {
                         stringResource(R.string.profile_change_more, changePercent)
@@ -92,7 +98,11 @@ fun StatisticsScreen(
                         stringResource(R.string.profile_change_less, kotlin.math.abs(changePercent))
                     },
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                    color = if (changePercent >= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
+                    color = if (changePercent >= 0) {
+                        if (isDark) Color(0xFF81C784) else Color(0xFF2E7D32)
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    }
                 )
             } else {
                 Spacer(modifier = Modifier.height(20.dp))
@@ -134,18 +144,26 @@ fun StatisticsScreen(
                 )
 
                 // Date Range Label on the right
+                val todayStr = stringResource(R.string.profile_today)
+                val dateFormatter = remember { SimpleDateFormat("d MMM", Locale.getDefault()) }
                 val dateLabel = if (selectedTab == 0) {
                     if (selectedBarIndex == null) {
-                        val todayStr = stringResource(R.string.profile_today)
-                        SimpleDateFormat("d MMM", Locale.getDefault()).format(Calendar.getInstance().time) + " - $todayStr"
+                        val todayDateStr = remember(dateFormatter) {
+                            dateFormatter.format(Calendar.getInstance().time)
+                        }
+                        stringResource(R.string.profile_date_range, todayDateStr, todayStr)
                     } else {
                         val hour = selectedBarIndex!!
-                        val nextHour = (hour + 1) % 24
-                        "$hour – $nextHour"
+                        stringResource(R.string.profile_hour_range, hour, (hour + 1) % 24)
                     }
                 } else {
                     if (selectedBarIndex == null) {
-                        getWeekRangeLabel()
+                        val weekStartStr = remember(dateFormatter) {
+                            val cal = Calendar.getInstance()
+                            cal.add(Calendar.DAY_OF_YEAR, -6)
+                            dateFormatter.format(cal.time)
+                        }
+                        stringResource(R.string.profile_date_range, weekStartStr, todayStr)
                     } else {
                         weekDailyStats.getOrNull(selectedBarIndex!!)?.first ?: ""
                     }
@@ -224,15 +242,33 @@ fun StatisticsScreen(
                                 label = "barHeight"
                             )
 
+                            // TalkBack: name each bar by its hour range / weekday plus its
+                            // duration, since the chart is otherwise purely visual.
+                            val barPeriodLabel = if (selectedTab == 0) {
+                                stringResource(R.string.profile_hour_range, index, (index + 1) % 24)
+                            } else {
+                                weekDailyStats.getOrNull(index)?.first ?: ""
+                            }
+                            val barMinutes = value / 60000
+                            val barValueLabel = if (barMinutes < 60) {
+                                stringResource(R.string.profile_time_minutes, barMinutes)
+                            } else {
+                                stringResource(R.string.profile_time_hours_minutes, barMinutes / 60, barMinutes % 60)
+                            }
+                            val barDescription = "$barPeriodLabel, $barValueLabel"
+
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxHeight()
-                                    .clickable(
+                                    .selectable(
+                                        selected = isSelected,
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = null,
+                                        role = Role.Button,
                                         onClick = { selectedBarIndex = if (selectedBarIndex == index) null else index }
-                                    ),
+                                    )
+                                    .semantics { contentDescription = barDescription },
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Bottom
                             ) {
@@ -242,14 +278,8 @@ fun StatisticsScreen(
                                     contentAlignment = Alignment.BottomCenter
                                 ) {
                                     if (isSelected && value > 0L) {
-                                        val min = value / 60000
-                                        val valLabel = if (min < 60) {
-                                            stringResource(R.string.profile_time_minutes, min)
-                                        } else {
-                                            stringResource(R.string.profile_time_hours_minutes, min / 60, min % 60)
-                                        }
                                         Text(
-                                            text = valLabel,
+                                            text = barValueLabel,
                                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 8.sp, fontWeight = FontWeight.Bold),
                                             color = MaterialTheme.colorScheme.primary
                                         )
@@ -370,7 +400,10 @@ fun PillTabSelector(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(2.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(2.dp)
+                .selectableGroup(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             val tabs = listOf(
@@ -388,9 +421,11 @@ fun PillTabSelector(
                             if (isSelected) MaterialTheme.colorScheme.surface
                             else Color.Transparent
                         )
-                        .clickable(
+                        .selectable(
+                            selected = isSelected,
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
+                            role = Role.Tab,
                             onClick = { onTabSelected(index) }
                         ),
                     contentAlignment = Alignment.Center
@@ -415,14 +450,4 @@ fun formatYLabel(valueMs: Long, maxValMs: Long): String {
     } else {
         String.format(Locale.US, "%.1f", mins / 60.0) // Show hours (e.g. 1.5, 2.0)
     }
-}
-
-@Composable
-fun getWeekRangeLabel(): String {
-    val cal = Calendar.getInstance()
-    val sdf = SimpleDateFormat("d MMM", Locale.getDefault())
-    val endLabel = stringResource(R.string.profile_today)
-    cal.add(Calendar.DAY_OF_YEAR, -6)
-    val startLabel = sdf.format(cal.time)
-    return "$startLabel - $endLabel"
 }

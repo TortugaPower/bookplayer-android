@@ -50,8 +50,6 @@
     <string name="profile_setup_account">アカウント設定</string>
     <string name="profile_tier_label">ティア: %1$s</string>
     <string name="profile_not_signed_in">サインインしていません</string>
-    <string name="profile_listening_time_value">0分</string>
-    <string name="profile_total_listening_time">総再生時間</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -221,10 +219,20 @@
     <!-- Profile Stats -->
     <string name="profile_overview">概要</string>
     <string name="profile_activity">アクティビティ</string>
-    <string name="profile_listening_time">再生時間</string>
-    <string name="profile_unlock_pro_stats">統計を表示するにはProをアンロック</string>
     <string name="profile_today">今日</string>
-    <string name="profile_favorite_book">お気に入り: %1$s</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">合計: %1$s</string>
+    <string name="profile_time_hours">%1$d時間</string>
+    <plurals name="profile_unit_days">
+        <item quantity="other">%1$d日</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="other">%1$dか月</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="other">%1$d年</item>
+    </plurals>
     <string name="profile_completed_books">読了した本</string>
     <string name="profile_days_listened">聴いた日数</string>
     <string name="profile_stats">統計</string>

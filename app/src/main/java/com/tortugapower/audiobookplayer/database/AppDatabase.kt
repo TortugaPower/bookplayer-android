@@ -101,12 +101,20 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_playback_sessions_bookUuid` ON `playback_sessions` (`bookUuid`)")
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS `book_completions` (
-                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-                        `bookUuid` TEXT NOT NULL, 
-                        `bookTitle` TEXT NOT NULL, 
-                        `authorName` TEXT, 
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `bookUuid` TEXT NOT NULL,
+                        `bookTitle` TEXT NOT NULL,
+                        `authorName` TEXT,
                         `completionDate` INTEGER NOT NULL
                     )
+                """)
+                // Backfill books the user finished before this table existed, so the
+                // "Completed Books" stat doesn't restart at 0. Folders are containers whose
+                // isFinished is derived from their children, not completions themselves.
+                db.execSQL("""
+                    INSERT INTO `book_completions` (`bookUuid`, `bookTitle`, `authorName`, `completionDate`)
+                    SELECT `uuid`, `title`, `author`, COALESCE(`lastPlayDate`, 0)
+                    FROM `library_items` WHERE `isFinished` = 1 AND `type` != 'FOLDER'
                 """)
             }
         }

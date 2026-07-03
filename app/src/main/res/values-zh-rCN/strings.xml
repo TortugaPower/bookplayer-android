@@ -50,8 +50,6 @@
     <string name="profile_setup_account">设置账户</string>
     <string name="profile_tier_label">等级: %1$s</string>
     <string name="profile_not_signed_in">未登录</string>
-    <string name="profile_listening_time_value">0分钟</string>
-    <string name="profile_total_listening_time">累计收听时间</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -221,10 +219,20 @@
     <!-- Profile Stats -->
     <string name="profile_overview">概览</string>
     <string name="profile_activity">活动</string>
-    <string name="profile_listening_time">听书时间</string>
-    <string name="profile_unlock_pro_stats">解锁 Pro 以查看统计数据</string>
     <string name="profile_today">今天</string>
-    <string name="profile_favorite_book">最爱：%1$s</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">总收听：%1$s</string>
+    <string name="profile_time_hours">%1$d小时</string>
+    <plurals name="profile_unit_days">
+        <item quantity="other">%1$d天</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="other">%1$d个月</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="other">%1$d年</item>
+    </plurals>
     <string name="profile_completed_books">已读完的书籍</string>
     <string name="profile_days_listened">听书天数</string>
     <string name="profile_stats">统计</string>

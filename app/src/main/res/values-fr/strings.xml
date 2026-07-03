@@ -51,8 +51,6 @@
     <string name="profile_setup_account">Configurer le compte</string>
     <string name="profile_tier_label">Niveau : %1$s</string>
     <string name="profile_not_signed_in">Non connecté</string>
-    <string name="profile_listening_time_value">0m</string>
-    <string name="profile_total_listening_time">Temps d\'écoute total</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -220,10 +218,23 @@
     <!-- Profile Stats -->
     <string name="profile_overview">APERÇU</string>
     <string name="profile_activity">ACTIVITÉ</string>
-    <string name="profile_listening_time">Temps d\'écoute</string>
-    <string name="profile_unlock_pro_stats">Débloquez Pro pour voir les statistiques</string>
     <string name="profile_today">Aujourd\'hui</string>
-    <string name="profile_favorite_book">Favori : %1$s</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">Total écouté : %1$s</string>
+    <string name="profile_time_hours">%1$d h</string>
+    <plurals name="profile_unit_days">
+        <item quantity="one">%1$d jour</item>
+        <item quantity="other">%1$d jours</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="one">%1$d mois</item>
+        <item quantity="other">%1$d mois</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="one">%1$d an</item>
+        <item quantity="other">%1$d ans</item>
+    </plurals>
     <string name="profile_completed_books">Livres terminés</string>
     <string name="profile_days_listened">Jours écoutés</string>
     <string name="profile_stats">Statistiques</string>

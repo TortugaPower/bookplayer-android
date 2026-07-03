@@ -60,8 +60,6 @@
     <string name="profile_setup_account">Set Up Account</string>
     <string name="profile_tier_label">Tier: %1$s</string>
     <string name="profile_not_signed_in">Not signed in</string>
-    <string name="profile_listening_time_value">0m</string>
-    <string name="profile_total_listening_time">Total Listening Time</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -167,6 +165,7 @@
     <string name="player_chapter_default">Chapter 1 of 1</string>
     <string name="player_seek_position">%1$s of %2$s</string>
     <string name="player_play">Play</string>
+    <string name="player_play_pause">Play / Pause</string>
     <string name="player_pause">Pause</string>
     <!-- In-app transport button labels (mirrors iOS "Rewind %@" / "Fast Forward %@"); shared with the mini player -->
     <string name="player_rewind_seconds">Rewind %1$d seconds</string>
@@ -319,10 +318,23 @@
     <!-- Profile Stats -->
     <string name="profile_overview">OVERVIEW</string>
     <string name="profile_activity">ACTIVITY</string>
-    <string name="profile_listening_time">Listening Time</string>
-    <string name="profile_unlock_pro_stats">Unlock Pro to see stats</string>
     <string name="profile_today">Today</string>
-    <string name="profile_favorite_book">Favorite: %1$s</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">Total listened: %1$s</string>
+    <string name="profile_time_hours">%1$dh</string>
+    <plurals name="profile_unit_days">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="one">%1$d month</item>
+        <item quantity="other">%1$d months</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="one">%1$d year</item>
+        <item quantity="other">%1$d years</item>
+    </plurals>
     <string name="profile_completed_books">Completed Books</string>
     <string name="profile_days_listened">Days Listened</string>
     <string name="profile_stats">Stats</string>

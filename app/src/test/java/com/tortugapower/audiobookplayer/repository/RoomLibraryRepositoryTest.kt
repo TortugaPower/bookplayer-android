@@ -90,6 +90,58 @@ class RoomLibraryRepositoryTest {
         assertEquals(1.0, saved?.percentCompleted ?: 0.0, 0.001)
     }
 
+    @Test
+    fun testUpdateItemProgress_refinishing_doesNotDuplicateCompletion() = runBlocking {
+        val oldItem = LibraryItemEntity(
+            uuid = "book-1",
+            title = "Book One",
+            author = "Author One",
+            duration = 100.0,
+            currentTime = 90.0,
+            percentCompleted = 0.9,
+            isFinished = false,
+            relativePath = "book-1.mp3",
+            remoteURL = null,
+            artworkURL = null,
+            orderRank = 1,
+            type = ItemType.BOOK,
+            lastPlayDate = null
+        )
+        fakeDao.items[oldItem.uuid] = oldItem
+
+        // Finish, un-finish, then finish again — a single completion row must survive the cycle
+        repository.updateItemProgress(uuid = "book-1", currentTime = 100.0, isFinished = true)
+        repository.updateItemProgress(uuid = "book-1", currentTime = 50.0, isFinished = false)
+        repository.updateItemProgress(uuid = "book-1", currentTime = 100.0, isFinished = true)
+
+        assertEquals(1, fakeDao.completions.size)
+    }
+
+    @Test
+    fun testUpdateItem_alreadyFinished_doesNotTrackCompletion() = runBlocking {
+        val oldItem = LibraryItemEntity(
+            uuid = "book-1",
+            title = "Book One",
+            author = "Author One",
+            duration = 100.0,
+            currentTime = 100.0,
+            percentCompleted = 1.0,
+            isFinished = true,
+            relativePath = "path/1",
+            remoteURL = null,
+            artworkURL = null,
+            orderRank = 1,
+            type = ItemType.BOOK,
+            lastPlayDate = null
+        )
+        fakeDao.items[oldItem.uuid] = oldItem
+
+        // Re-saving an already-finished item is not a new completion
+        repository.updateItem(oldItem.copy(currentTime = 100.0))
+
+        assertTrue(fakeDao.completions.isEmpty())
+    }
+
     private class FakeLibraryDao : LibraryDao {
         val items = mutableMapOf<String, LibraryItemEntity>()
         val completions = mutableListOf<BookCompletionEntity>()
@@ -100,6 +152,10 @@ class RoomLibraryRepositoryTest {
 
         override suspend fun insertCompletion(completion: BookCompletionEntity) {
             completions.add(completion)
+        }
+
+        override suspend fun hasCompletion(bookUuid: String): Boolean {
+            return completions.any { it.bookUuid == bookUuid }
         }
 
         override suspend fun updateItem(item: LibraryItemEntity) {

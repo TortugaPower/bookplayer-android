@@ -50,8 +50,6 @@
     <string name="profile_setup_account">खाता सेट करें</string>
     <string name="profile_tier_label">टियर: %1$s</string>
     <string name="profile_not_signed_in">साइन इन नहीं किया</string>
-    <string name="profile_listening_time_value">0 मि</string>
-    <string name="profile_total_listening_time">कुल सुनने का समय</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer प्रो</string>
@@ -221,10 +219,23 @@
     <!-- Profile Stats -->
     <string name="profile_overview">अवलोकन</string>
     <string name="profile_activity">गतिविधि</string>
-    <string name="profile_listening_time">सुनने का समय</string>
-    <string name="profile_unlock_pro_stats">आंकड़े देखने के लिए Pro अनलॉक करें</string>
     <string name="profile_today">आज</string>
-    <string name="profile_favorite_book">पसंदीदा: %1$s</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">कुल सुना: %1$s</string>
+    <string name="profile_time_hours">%1$d घंटे</string>
+    <plurals name="profile_unit_days">
+        <item quantity="one">%1$d दिन</item>
+        <item quantity="other">%1$d दिन</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="one">%1$d महीना</item>
+        <item quantity="other">%1$d महीने</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="one">%1$d साल</item>
+        <item quantity="other">%1$d साल</item>
+    </plurals>
     <string name="profile_completed_books">पूरी की गई किताबें</string>
     <string name="profile_days_listened">सुने गए दिन</string>
     <string name="profile_stats">आंकड़े</string>

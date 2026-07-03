@@ -20,6 +20,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.PlaybackSessionEntity
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
@@ -35,7 +36,7 @@ fun ListeningHistoryScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val history by viewModel.playbackHistory.collectAsState()
+    val history by viewModel.playbackHistory.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -105,7 +106,8 @@ fun HistoryItemRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick),
+            // The action label tells TalkBack what tapping the row does ("double tap to Play").
+            .clickable(onClickLabel = stringResource(R.string.player_play), onClick = onClick),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp)
     ) {
@@ -175,9 +177,11 @@ fun HistoryItemRow(
             Spacer(modifier = Modifier.width(16.dp))
 
             // Duration tag
-            val durationLabel = remember(session.duration) {
-                val min = session.duration / 60000
-                if (min < 60) "${min}m" else "${min / 60}h ${min % 60}m"
+            val min = session.duration / 60000
+            val durationLabel = if (min < 60) {
+                stringResource(R.string.profile_time_minutes, min)
+            } else {
+                stringResource(R.string.profile_time_hours_minutes, min / 60, min % 60)
             }
 
             Surface(

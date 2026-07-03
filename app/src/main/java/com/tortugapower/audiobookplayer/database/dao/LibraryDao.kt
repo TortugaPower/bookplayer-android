@@ -52,6 +52,18 @@ interface LibraryDao {
     @Insert
     suspend fun insertCompletion(completion: BookCompletionEntity)
 
+    @Query("SELECT EXISTS(SELECT 1 FROM book_completions WHERE bookUuid = :bookUuid)")
+    suspend fun hasCompletion(bookUuid: String): Boolean
+
+    // One completion row per book: re-finishing (or two concurrent progress updates racing on the
+    // same finish) must not grow the table. Transactional so check-then-insert can't interleave.
+    @Transaction
+    suspend fun insertCompletionIfMissing(completion: BookCompletionEntity) {
+        if (!hasCompletion(completion.bookUuid)) {
+            insertCompletion(completion)
+        }
+    }
+
     @Query("SELECT * FROM library_items")
     suspend fun getAllItemsSync(): List<LibraryItemEntity>
 

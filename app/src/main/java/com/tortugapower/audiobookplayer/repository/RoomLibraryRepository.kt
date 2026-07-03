@@ -16,7 +16,7 @@ import java.io.File
 
 class RoomLibraryRepository(
     private val libraryDao: LibraryDao,
-    var timeProvider: () -> Long = { System.currentTimeMillis() }
+    private val timeProvider: () -> Long = { System.currentTimeMillis() }
 ) : LibraryRepository {
 
     override fun getRootItems(): Flow<List<LibraryItemEntity>> = 
@@ -61,7 +61,7 @@ class RoomLibraryRepository(
                     authorName = item.author,
                     completionDate = timeProvider()
                 )
-                libraryDao.insertCompletion(completion)
+                libraryDao.insertCompletionIfMissing(completion)
             }
             libraryDao.updateItem(item)
         }
@@ -82,7 +82,7 @@ class RoomLibraryRepository(
                     authorName = item.author,
                     completionDate = timeProvider()
                 )
-                libraryDao.insertCompletion(completion)
+                libraryDao.insertCompletionIfMissing(completion)
             }
             item.lastPlayDate = timeProvider()
             libraryDao.updateItem(item)

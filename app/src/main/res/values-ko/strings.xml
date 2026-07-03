@@ -50,8 +50,6 @@
     <string name="profile_setup_account">계정 설정</string>
     <string name="profile_tier_label">등급: %1$s</string>
     <string name="profile_not_signed_in">로그인하지 않음</string>
-    <string name="profile_listening_time_value">0분</string>
-    <string name="profile_total_listening_time">총 청취 시간</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -221,10 +219,20 @@
     <!-- Profile Stats -->
     <string name="profile_overview">개요</string>
     <string name="profile_activity">활동</string>
-    <string name="profile_listening_time">청취 시간</string>
-    <string name="profile_unlock_pro_stats">Pro를 잠금 해제하여 통계 보기</string>
     <string name="profile_today">오늘</string>
-    <string name="profile_favorite_book">즐겨찾기: %1$s</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">총 청취: %1$s</string>
+    <string name="profile_time_hours">%1$d시간</string>
+    <plurals name="profile_unit_days">
+        <item quantity="other">%1$d일</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="other">%1$d개월</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="other">%1$d년</item>
+    </plurals>
     <string name="profile_completed_books">완료한 책</string>
     <string name="profile_days_listened">청취한 일수</string>
     <string name="profile_stats">통계</string>

@@ -48,25 +48,35 @@ class ProfileViewModel(
     val daysListened: StateFlow<Int> = statisticsDao.getDaysListenedFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val favoriteBookArtwork: StateFlow<String?> = statisticsDao.getFavoriteBookArtworkFlow()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
-    val favoriteBookTitle: StateFlow<String?> = statisticsDao.getFavoriteBookTitleFlow()
+    val mostListenedBookArtwork: StateFlow<String?> = statisticsDao.getMostListenedBookArtworkFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val allSessionsSharedFlow: SharedFlow<List<PlaybackSessionEntity>> = statisticsDao.getAllSessionsFlow()
         .flowOn(Dispatchers.IO)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
 
+    private fun startOfTodayMillis(): Long {
+        val cal = Calendar.getInstance()
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
+
+    val todayListenedTime: StateFlow<Long> = allSessionsSharedFlow
+        .map { sessions ->
+            val startOfToday = startOfTodayMillis()
+            sessions.filter { it.startTime >= startOfToday }.sumOf { it.duration }
+        }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
     val todayHourlyStats: StateFlow<List<Long>> = allSessionsSharedFlow
         .map { sessions ->
             val hourly = MutableList(24) { 0L }
+            val startOfToday = startOfTodayMillis()
             val cal = Calendar.getInstance()
-            cal.set(Calendar.HOUR_OF_DAY, 0)
-            cal.set(Calendar.MINUTE, 0)
-            cal.set(Calendar.SECOND, 0)
-            cal.set(Calendar.MILLISECOND, 0)
-            val startOfToday = cal.timeInMillis
 
             sessions.filter { it.startTime >= startOfToday }.forEach { session ->
                 cal.timeInMillis = session.startTime
@@ -82,12 +92,7 @@ class ProfileViewModel(
 
     val todayChangePercent: StateFlow<Int?> = allSessionsSharedFlow
         .map { sessions ->
-            val cal = Calendar.getInstance()
-            cal.set(Calendar.HOUR_OF_DAY, 0)
-            cal.set(Calendar.MINUTE, 0)
-            cal.set(Calendar.SECOND, 0)
-            cal.set(Calendar.MILLISECOND, 0)
-            val startOfToday = cal.timeInMillis
+            val startOfToday = startOfTodayMillis()
             val startOfYesterday = startOfToday - 24 * 60 * 60 * 1000
 
             val todayTime = sessions.filter { it.startTime >= startOfToday }.sumOf { it.duration }

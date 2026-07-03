@@ -2,7 +2,6 @@
 
 package com.tortugapower.audiobookplayer.ui.screens.profile
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,13 +16,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
@@ -59,15 +60,13 @@ fun ProfileScreen(
     val context = LocalContext.current
 
     // Use cached account state from ViewModel
-    val account by viewModel.account.collectAsState()
-    val isSubscribed by viewModel.isSubscribed.collectAsState()
-    val totalPlaytime by viewModel.totalPlaytime.collectAsState()
-    val completedBooks by viewModel.completedBooks.collectAsState()
-    val daysListened by viewModel.daysListened.collectAsState()
-    val favoriteBookArtwork by viewModel.favoriteBookArtwork.collectAsState()
-    val favoriteBookTitle by viewModel.favoriteBookTitle.collectAsState()
-    val pendingTasksCount by viewModel.pendingTasksCount.collectAsState()
-    val lastSyncTimestamp by viewModel.lastSyncTimestamp.collectAsState()
+    val account by viewModel.account.collectAsStateWithLifecycle()
+    val isSubscribed by viewModel.isSubscribed.collectAsStateWithLifecycle()
+    val todayListenedTime by viewModel.todayListenedTime.collectAsStateWithLifecycle()
+    val totalPlaytime by viewModel.totalPlaytime.collectAsStateWithLifecycle()
+    val mostListenedBookArtwork by viewModel.mostListenedBookArtwork.collectAsStateWithLifecycle()
+    val pendingTasksCount by viewModel.pendingTasksCount.collectAsStateWithLifecycle()
+    val lastSyncTimestamp by viewModel.lastSyncTimestamp.collectAsStateWithLifecycle()
 
     var showProSheet by remember { mutableStateOf(false) }
     var showAuthSheet by remember { mutableStateOf(false) }
@@ -205,32 +204,10 @@ fun ProfileScreen(
         )
 
         OverviewMainCard(
+            todayPlaytime = todayListenedTime,
             totalPlaytime = totalPlaytime,
-            favoriteBookArtwork = favoriteBookArtwork,
-            favoriteBookTitle = favoriteBookTitle,
-            isLocked = false,
-            onLockClick = { showProSheet = true }
+            artworkUrl = mostListenedBookArtwork
         )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            OverviewSmallStatBox(
-                value = completedBooks.toString(),
-                label = stringResource(R.string.profile_completed_books),
-                modifier = Modifier.weight(1f),
-                isLocked = false
-            )
-            OverviewSmallStatBox(
-                value = daysListened.toString(),
-                label = stringResource(R.string.profile_days_listened),
-                modifier = Modifier.weight(1f),
-                isLocked = false
-            )
-        }
 
         if (isSubscribed) {
             Spacer(modifier = Modifier.height(32.dp))
@@ -319,15 +296,33 @@ fun ProfileScreen(
     }
 }
 
+/**
+ * Formats a total listening duration using only its largest unit ("47 min", "3h", "2 days",
+ * "1 month", "1 year"), for the overview card's total-listened caption.
+ */
+@Composable
+private fun formatLargestUnit(durationMs: Long): String {
+    val minutes = durationMs / 60000
+    val hours = minutes / 60
+    val days = hours / 24
+    val months = days / 30
+    val years = days / 365
+    return when {
+        years > 0 -> pluralStringResource(R.plurals.profile_unit_years, years.toInt(), years.toInt())
+        months > 0 -> pluralStringResource(R.plurals.profile_unit_months, months.toInt(), months.toInt())
+        days > 0 -> pluralStringResource(R.plurals.profile_unit_days, days.toInt(), days.toInt())
+        hours > 0 -> stringResource(R.string.profile_time_hours, hours)
+        else -> stringResource(R.string.profile_time_minutes, minutes)
+    }
+}
+
 @Composable
 fun OverviewMainCard(
+    todayPlaytime: Long,
     totalPlaytime: Long,
-    favoriteBookArtwork: String?,
-    favoriteBookTitle: String?,
-    isLocked: Boolean,
-    onLockClick: () -> Unit
+    artworkUrl: String?
 ) {
-    val totalMinutes = totalPlaytime / 60000
+    val totalMinutes = todayPlaytime / 60000
     val displayTime = if (totalMinutes < 60) {
         stringResource(R.string.profile_time_minutes, totalMinutes)
     } else {
@@ -338,115 +333,65 @@ fun OverviewMainCard(
         modifier = Modifier
             .fillMaxWidth()
             .height(180.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(enabled = isLocked, onClick = onLockClick),
-        color = if (isLocked) Color.DarkGray else MaterialTheme.colorScheme.primary
+            .clip(RoundedCornerShape(20.dp)),
+        color = MaterialTheme.colorScheme.primary
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (!isLocked) {
-                if (favoriteBookArtwork != null) {
-                    AsyncImage(
-                        model = favoriteBookArtwork,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.5f))
-                    )
-                } else {
-                    Image(
-                        painter = painterResource(id = R.drawable.app_logo),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(end = 16.dp)
-                            .size(130.dp),
-                        alpha = 0.3f,
-                        contentScale = ContentScale.Fit
-                    )
-                }
+            if (artworkUrl != null) {
+                AsyncImage(
+                    model = artworkUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                // Darkening gradient so the white text stays readable over any artwork.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.Black.copy(alpha = 0.35f),
+                                1f to Color.Black.copy(alpha = 0.75f)
+                            )
+                        )
+                )
+            } else {
+                Image(
+                    painter = painterResource(id = R.drawable.app_logo),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 16.dp)
+                        .size(130.dp),
+                    alpha = 0.3f,
+                    contentScale = ContentScale.Fit
+                )
             }
 
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.Bottom
+                    .padding(20.dp)
             ) {
                 Text(
-                    text = stringResource(R.string.profile_listening_time),
+                    text = stringResource(R.string.profile_today),
                     style = MaterialTheme.typography.titleMedium,
-                    color = if (isLocked) Color.LightGray else Color.White
+                    color = Color.White
                 )
+
+                Spacer(modifier = Modifier.weight(1f))
+
                 Text(
-                    text = if (isLocked) "— —" else displayTime,
+                    text = displayTime,
                     style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
                     color = Color.White
                 )
                 Text(
-                    text = if (isLocked) stringResource(R.string.profile_unlock_pro_stats) else stringResource(R.string.profile_today),
+                    text = stringResource(R.string.profile_total_listened, formatLargestUnit(totalPlaytime)),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (isLocked) Color.LightGray else Color.White.copy(alpha = 0.7f)
-                )
-
-                if (!isLocked && !favoriteBookTitle.isNullOrEmpty()) {
-                    Text(
-                        text = stringResource(R.string.profile_favorite_book, favoriteBookTitle),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.8f),
-                        modifier = Modifier.padding(top = 4.dp),
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            if (isLocked) {
-                Icon(
-                    imageVector = Icons.Default.Lock,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.3f),
-                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).size(32.dp)
+                    color = Color.White.copy(alpha = 0.7f)
                 )
             }
-        }
-    }
-}
-
-@Composable
-fun OverviewSmallStatBox(
-    value: String,
-    label: String,
-    isLocked: Boolean,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier
-            .height(100.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = if (isLocked) "—" else value,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
         }
     }
 }
@@ -455,7 +400,6 @@ fun OverviewSmallStatBox(
 fun ActivityRow(
     label: String,
     icon: ImageVector,
-    isLocked: Boolean = false,
     onClick: () -> Unit
 ) {
     Row(
@@ -471,22 +415,13 @@ fun ActivityRow(
             text = label,
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyLarge,
-            color = if (isLocked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface
         )
-        if (isLocked) {
-            Icon(
-                imageVector = Icons.Default.Lock,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                modifier = Modifier.size(16.dp)
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-            )
-        }
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+        )
     }
 }
 
