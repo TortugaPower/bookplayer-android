@@ -110,7 +110,7 @@ class MainActivity : ComponentActivity() {
             "sleep" -> {
                 val seconds = uri.getQueryParameter("seconds")?.toIntOrNull()
                 if (seconds != null) {
-                    com.tortugapower.audiobookplayer.logic.SleepTimerManager.configureTimerWithSeconds(this, seconds)
+                    com.tortugapower.audiobookplayer.logic.SleepTimerManager.configureTimerWithSeconds(seconds)
                 }
             }
         }

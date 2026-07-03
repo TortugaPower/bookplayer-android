@@ -209,6 +209,8 @@
     <string name="player_timer_45m">45 minutes</string>
     <string name="player_timer_1h">1 hour</string>
     <string name="player_timer_end_chapter">End of Chapter</string>
+    <!-- Sleep button label while end-of-chapter is armed (no numeric countdown); mirrors iOS "Active" -->
+    <string name="player_timer_active">Active</string>
     <string name="player_timer_custom">Custom</string>
     <string name="player_rewind_interval_title">Rewind Interval</string>
     <string name="player_forward_interval_title">Forward Interval</string>

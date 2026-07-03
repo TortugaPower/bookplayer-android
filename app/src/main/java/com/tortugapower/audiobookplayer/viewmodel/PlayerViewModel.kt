@@ -235,12 +235,18 @@ class PlayerViewModel(
         showSleepTimerMenu = false
     }
 
+    fun startSleepTimerEndOfChapter() {
+        com.tortugapower.audiobookplayer.logic.SleepTimerManager.startTimerUntilEndOfChapter()
+        showSleepTimerMenu = false
+    }
+
     fun stopSleepTimer() {
         com.tortugapower.audiobookplayer.logic.SleepTimerManager.stopTimer()
         showSleepTimerMenu = false
     }
 
     val sleepTimerActive get() = com.tortugapower.audiobookplayer.logic.SleepTimerManager.isActive
+    val sleepTimerIsEndOfChapter get() = com.tortugapower.audiobookplayer.logic.SleepTimerManager.isEndOfChapter
     val sleepTimerRemaining get() = com.tortugapower.audiobookplayer.logic.SleepTimerManager.formatRemainingTime()
 
     fun loadSettings(context: Context) {

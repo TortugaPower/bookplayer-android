@@ -661,8 +661,7 @@ fun SleepTimerSheet(
                             if (minutes == 0) {
                                 viewModel.stopSleepTimer()
                             } else if (minutes == -1) {
-                                // TODO: Implement End of Chapter
-                                onDismiss()
+                                viewModel.startSleepTimerEndOfChapter()
                             } else {
                                 viewModel.startSleepTimer(minutes)
                             }

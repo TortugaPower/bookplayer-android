@@ -384,7 +384,11 @@ fun PlayerScreen(
 
                 PlayerBottomBar(
                     speedLabel = "${if (playbackSpeed % 1.0f == 0.0f) playbackSpeed.toInt() else playbackSpeed}x",
-                    sleepLabel = if (viewModel.sleepTimerActive) viewModel.sleepTimerRemaining else null,
+                    sleepLabel = when {
+                        viewModel.sleepTimerIsEndOfChapter -> stringResource(R.string.player_timer_active)
+                        viewModel.sleepTimerActive -> viewModel.sleepTimerRemaining
+                        else -> null
+                    },
                     onSpeed = { viewModel.toggleControlsSheet() },
                     onSleep = { viewModel.toggleSleepTimerMenu() },
                     onBookmark = { viewModel.addBookmark() },
