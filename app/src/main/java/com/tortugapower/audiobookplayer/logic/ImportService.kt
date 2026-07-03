@@ -16,10 +16,12 @@ data class ImportFile(
 interface ImportService {
     val importedFiles: List<ImportFile>
     val isImporting: Boolean
+    val activeDownloadCount: Int
     val skippedItemsCount: Int
     var showImportSheet: Boolean
 
     fun startImport(context: Context, uris: List<Uri>)
+    fun startDownload(context: Context, url: String, fileName: String, headers: Map<String, String>? = null)
     fun removeFile(importFile: ImportFile)
     fun clearImport()
     fun acceptImport(context: Context)

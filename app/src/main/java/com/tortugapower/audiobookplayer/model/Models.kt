@@ -13,3 +13,9 @@ data class Chapter(
 data class PlayableItem(
     val chapters: List<Chapter>
 )
+
+data class ExternalLibraryItem(
+    val entity: com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity,
+    val genres: String? = null,
+    val customHeaders: Map<String, String>? = null
+)

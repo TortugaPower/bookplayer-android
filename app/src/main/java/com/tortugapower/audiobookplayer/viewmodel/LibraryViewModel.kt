@@ -173,9 +173,6 @@ class LibraryViewModel(
                 item.title = newTitle
                 item.author = newAuthor
                 repository.updateItem(item)
-                
-                // Enqueue sync task
-                com.tortugapower.audiobookplayer.logic.SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
             }
         }
     }
@@ -201,8 +198,8 @@ class LibraryViewModel(
                     com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
                     item.artworkURL = destFile.absolutePath
                     
-                    // Enqueue sync task for artwork
-                    com.tortugapower.audiobookplayer.logic.SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, item)
+                    // Enqueue sync task for artwork (validation is inside repository)
+                    repository.updateArtworkSync(item)
                 }
             }
             repository.updateItem(item)

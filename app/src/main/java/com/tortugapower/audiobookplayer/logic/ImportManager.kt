@@ -4,11 +4,14 @@ import android.content.Context
 import android.net.Uri
 import android.media.MediaMetadataRetriever
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
+import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,10 +34,24 @@ object ImportManager : ImportService {
     override var isImporting by mutableStateOf(false)
         private set
 
+    override var activeDownloadCount by mutableIntStateOf(0)
+        private set
+
     override var skippedItemsCount by mutableStateOf(0)
         private set
 
     override var showImportSheet by mutableStateOf(false)
+
+    // Filenames with a download in flight. The DB dedup check can't see these (a downloaded file
+    // only reaches the DB once the user accepts the import), so without this two concurrent
+    // downloads of the same book would write to the same destination file at once. Only touched
+    // on the Main-confined [scope], so no synchronization is needed.
+    private val activeDownloadFileNames = mutableSetOf<String>()
+
+    // One shared client for all downloads (per-instance connection pools/dispatchers are wasteful).
+    // Default timeouts are deliberate: the 10s read timeout surfaces stalled servers, while the
+    // absence of a whole-call timeout keeps multi-minute audiobook downloads legal.
+    private val downloadClient by lazy { okhttp3.OkHttpClient() }
 
     override fun startImport(context: Context, uris: List<Uri>) {
         scope.launch {
@@ -76,6 +93,86 @@ object ImportManager : ImportService {
             skippedItemsCount += currentSkipped
             isImporting = false
             showImportSheet = true
+        }
+    }
+
+    override fun startDownload(context: Context, url: String, fileName: String, headers: Map<String, String>?) {
+        if (url.isBlank()) {
+            skippedItemsCount++
+            // Optionally, show a toast message to the user: "Invalid download URL"
+            android.util.Log.e("ImportManager", "Download skipped: Invalid URL provided.")
+            return
+        }
+
+        activeDownloadCount++
+        scope.launch {
+            val sanitizedFileName = FilenameUtils.sanitizeFilename(fileName)
+
+            // Claim the filename before the first suspension point (this scope is Main-confined),
+            // so a second download of the same book can't race this one onto the same file.
+            if (!activeDownloadFileNames.add(sanitizedFileName)) {
+                skippedItemsCount++
+                activeDownloadCount--
+                if (activeDownloadCount == 0) {
+                    showImportSheet = true
+                }
+                return@launch
+            }
+
+            val backupDir = File(context.filesDir, "BPBackup")
+            if (!backupDir.exists()) backupDir.mkdirs()
+
+            val database = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
+            val libraryDao = database.libraryDao()
+
+            try {
+                if (libraryDao.existsWithFileName(sanitizedFileName)) {
+                    skippedItemsCount++
+                    return@launch
+                }
+
+                val destFile = File(backupDir, sanitizedFileName)
+                var newlyImportedFile: ImportFile? = null
+
+                try {
+                    withContext(Dispatchers.IO) {
+                        val requestBuilder = okhttp3.Request.Builder().url(url)
+                        headers?.forEach { (key, value) ->
+                            requestBuilder.addHeader(key, value)
+                        }
+                        val response = downloadClient.newCall(requestBuilder.build()).execute()
+                        response.use { // Ensure response is closed
+                            if (response.isSuccessful && response.body != null) {
+                                response.body!!.byteStream().use { input ->
+                                    FileOutputStream(destFile).use { output ->
+                                        input.copyTo(output)
+                                    }
+                                }
+                                newlyImportedFile = ImportFile(sanitizedFileName, destFile)
+                            } else {
+                                android.util.Log.e("ImportManager", "Download failed: ${response.code}")
+                            }
+                        }
+                    }
+
+                    newlyImportedFile?.let {
+                        importedFiles = importedFiles + it
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("ImportManager", "Download failed with exception for URL: $url", e)
+                    // Don't leave a partial file behind: it's invisible to the import sheet and
+                    // the DB dedup check, so nothing would ever clean it up.
+                    if (newlyImportedFile == null && destFile.exists()) {
+                        destFile.delete()
+                    }
+                }
+            } finally {
+                activeDownloadFileNames.remove(sanitizedFileName)
+                activeDownloadCount--
+                if (activeDownloadCount == 0 && (importedFiles.isNotEmpty() || skippedItemsCount > 0)) {
+                    showImportSheet = true
+                }
+            }
         }
     }
 
@@ -139,10 +236,17 @@ object ImportManager : ImportService {
                         )
                         libraryDao.insertItem(entity)
                         
-                        // 5. Create Sync Tasks
-                        SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, entity)
-                        if (hasArtwork) {
-                            SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, entity)
+                        // 5. Create Sync Tasks (only if session is active)
+                        val accountRepository = RoomAccountRepository(database.accountDao())
+                        val account = accountRepository.getAccount()
+                        val isSubscribed = account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)
+                        val isPro = account != null && account.tier == AccountTier.PRO
+
+                        if (isSubscribed) {
+                            SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, entity)
+                            if (hasArtwork && isPro) {
+                                SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, entity)
+                            }
                         }
                     }
                 }
@@ -189,4 +293,6 @@ object ImportManager : ImportService {
         }
         return result
     }
+
+
 }

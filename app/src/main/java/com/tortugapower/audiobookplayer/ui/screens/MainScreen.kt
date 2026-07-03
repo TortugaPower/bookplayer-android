@@ -5,7 +5,6 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -19,7 +18,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -31,12 +32,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
+import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.ui.components.CustomBottomNavigation
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
@@ -52,6 +55,8 @@ import com.tortugapower.audiobookplayer.ui.screens.profile.ProfileScreen
 import com.tortugapower.audiobookplayer.ui.screens.profile.StatisticsScreen
 import com.tortugapower.audiobookplayer.ui.screens.profile.ListeningHistoryScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.SettingsScreen
+import com.tortugapower.audiobookplayer.ui.screens.settings.MediaServersFlow
+import com.tortugapower.audiobookplayer.repository.ExternalLibraryRepository
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.QueuedTasksScreen
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.TaskDetailScreen
 import com.tortugapower.audiobookplayer.ui.screens.themes.ThemesScreen
@@ -64,12 +69,14 @@ fun MainScreen() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val importViewModel: ImportViewModel = viewModel()
-    
+
     val context = LocalContext.current
     val database = remember { AppDatabase.getDatabase(context) }
     val baseLibraryRepository = remember { RoomLibraryRepository(database.libraryDao()) }
     val syncTaskRepository = remember { RoomSyncTaskRepository(database.syncTaskDao()) }
     val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
+    val externalServerRepository = remember { ExternalServerRepository(database.externalServerDao()) }
+    val externalLibraryRepository = remember { ExternalLibraryRepository() }
     
     val libraryRepository = remember { 
         SyncingLibraryRepository(baseLibraryRepository, syncTaskRepository, accountRepository)
@@ -81,6 +88,22 @@ fun MainScreen() {
 
     val showPlayerScreen by PlaybackManager.showPlayerScreen.collectAsStateWithLifecycle()
     val currentPlaybackItem by PlaybackManager.currentItem.collectAsStateWithLifecycle()
+
+    // A mid-playback 401/403 from an external server: plain error alert, no re-auth routing
+    // (the user re-authenticates from Media Servers).
+    val externalStreamAuthError by PlaybackManager.externalStreamAuthError.collectAsStateWithLifecycle()
+    if (externalStreamAuthError) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { PlaybackManager.clearExternalStreamAuthError() },
+            title = { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(id = R.string.common_error)) },
+            text = { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(id = R.string.playback_error_session_expired)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { PlaybackManager.clearExternalStreamAuthError() }) {
+                    androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(id = R.string.common_ok))
+                }
+            }
+        )
+    }
 
     val profileViewModel: ProfileViewModel = viewModel(
         factory = ProfileViewModelFactory(
@@ -101,6 +124,10 @@ fun MainScreen() {
     val libraryViewModel: LibraryViewModel = viewModel(
         factory = LibraryViewModelFactory(context.applicationContext as Application, libraryRepository, syncTaskRepository)
     )
+
+
+
+    var showMediaServersFlow by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -159,7 +186,13 @@ fun MainScreen() {
                     popEnterTransition = { EnterTransition.None },
                     popExitTransition = { ExitTransition.None }
                 ) {
-                    composable(Screen.Library.route) { LibraryScreen(viewModel = libraryViewModel) }
+                    composable(Screen.Library.route) { 
+                        LibraryScreen(
+                            viewModel = libraryViewModel,
+                            importViewModel = importViewModel,
+                            onNavigateToMediaServers = { showMediaServersFlow = true }
+                        ) 
+                    }
                     composable(Screen.Profile.route) { 
                         ProfileScreen(
                             viewModel = profileViewModel,
@@ -221,12 +254,12 @@ fun MainScreen() {
                                 )
                             } else null
                         }
-                    ) {
+                    ) { 
                         SettingsScreen(
                             onNavigateToThemes = { navController.navigate("themes") },
                             onNavigateToAppIcons = { navController.navigate("appicons") },
-                            onNavigateToTipJar = { navController.navigate("tipjar") },
-                        )
+                            onNavigateToTipJar = { navController.navigate("tipjar") }
+                        ) 
                     }
                     
                     composable(
@@ -238,16 +271,10 @@ fun MainScreen() {
                             )
                         },
                         exitTransition = {
-                            slideOutOfContainer(
-                                AnimatedContentTransitionScope.SlideDirection.Right,
-                                animationSpec = tween(400)
-                            )
+                            fadeOut(animationSpec = tween(400))
                         },
                         popEnterTransition = {
-                            slideIntoContainer(
-                                AnimatedContentTransitionScope.SlideDirection.Left,
-                                animationSpec = tween(400)
-                            )
+                            fadeIn(animationSpec = tween(400))
                         },
                         popExitTransition = {
                             slideOutOfContainer(
@@ -318,6 +345,7 @@ fun MainScreen() {
                     ) {
                         AppIconsScreen(onBack = { navController.popBackStack() })
                     }
+                
                 }
 
                 if (importViewModel.isImporting) {
@@ -334,9 +362,18 @@ fun MainScreen() {
                 if (importViewModel.showImportSheet) {
                     ImportSheet(importViewModel)
                 }
+
+                if (showMediaServersFlow) {
+                    MediaServersFlow(
+                        externalServerRepository = externalServerRepository,
+                        externalLibraryRepository = externalLibraryRepository,
+                        importViewModel = importViewModel,
+                        onDismiss = { showMediaServersFlow = false }
+                    )
+                }
               }
 
-                // Floating mini player overlay — drawn over content, bottom-aligned (just above
+// Floating mini player overlay — drawn over content, bottom-aligned (just above
                 // the docked bottom nav). Hidden on the full-screen themes route.
                 if (miniPlayerVisible) {
                     MiniPlayer(modifier = Modifier.align(Alignment.BottomCenter))

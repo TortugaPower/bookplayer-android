@@ -168,6 +168,7 @@
     <string name="library_view_style">व्यू स्टाइल</string>
     <string name="library_folder_empty">0 फ़ाइलें</string>
     <string name="library_unknown_author">अज्ञात लेखक</string>
+    <string name="library_unknown_title">अज्ञात शीर्षक</string>
     <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_convert_to_volume">Convert to volume</string>
@@ -249,4 +250,70 @@
     <string name="profile_change_less_last_week">पिछले सप्ताह से %1$d%% कम</string>
     <string name="profile_time_minutes">%1$d मिनट</string>
     <string name="profile_time_hours_minutes">%1$d घंटे %2$d मिनट</string>
+    <!-- Media Servers -->
+    <string name="media_servers_title">मीडिया सर्वर</string>
+    <string name="media_servers_edit_button_description">मीडिया सर्वर संपादित करें</string>
+
+    <!-- Media Servers Screen -->
+    <string name="media_servers_add_button_description">जोड़ें</string>
+    <string name="media_servers_no_servers_added">कोई सर्वर जोड़ा नहीं गया है</string>
+    <string name="media_servers_info_button_description">जानकारी</string>
+    <string name="media_servers_delete_button_description">हटाएं</string>
+    <string name="media_servers_anonymous_username">गुमनाम</string>
+
+    <!-- Server Info Sheet -->
+    <string name="media_servers_connection_details_title">कनेक्शन विवरण</string>
+    <string name="media_servers_server_section_title">सर्वर</string>
+    <string name="media_servers_name_label">नाम</string>
+    <string name="media_servers_url_label">यूआरएल</string>
+    <string name="media_servers_login_section_title">लॉगिन</string>
+    <string name="media_servers_username_label">उपयोगकर्ता नाम</string>
+    <string name="media_servers_custom_headers_section_title">कस्टम हेडर</string>
+
+    <!-- Add Server Sheet -->
+    <string name="media_servers_add_server_connect_button">कनेक्ट करें</string>
+    <string name="media_servers_add_server_sign_in_button">साइन इन करें</string>
+    <string name="media_servers_add_server_url_label">सर्वर URL</string>
+    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_custom_headers_label">कस्टम HTTP हेडर</string>
+    <string name="media_servers_add_server_header_name_placeholder">हेडर का नाम</string>
+    <string name="media_servers_add_server_header_value_placeholder">हेडर का मान</string>
+    <string name="media_servers_add_server_add_header_button">हेडर जोड़ें</string>
+    <string name="media_servers_add_server_headers_description">यहां जोड़े गए हेडर इस सर्वर पर भेजे गए प्रत्येक अनुरोध से जुड़े होते हैं।</string>
+    <string name="media_servers_add_server_username_placeholder">उपयोगकर्ता नाम</string>
+    <string name="media_servers_add_server_password_placeholder">पासवर्ड</string>
+    <string name="media_servers_add_server_connect_to_server">अपने %1$s सर्वर से कनेक्ट करें</string>
+    <string name="media_servers_error_auth_failed">प्रमाणीकरण विफल: %1$s</string>
+    <string name="media_servers_error_connection_failed">कनेक्शन त्रुटि: %1$s</string>
+    <string name="media_servers_error_server_not_found">सर्वर नहीं मिला</string>
+    <string name="media_servers_error_failed_to_fetch_library">लाइब्रेरी प्राप्त करने में विफल</string>
+    <string name="media_servers_error_session_expired">%1$s के लिए आपका सत्र समाप्त हो गया है। जारी रखने के लिए फिर से साइन इन करें।</string>
+    <string name="playback_error_session_expired">प्लेबैक विफल: आपके मीडिया सर्वर का सत्र समाप्त हो गया है। मीडिया सर्वर से फिर से साइन इन करें।</string>
+
+    <!-- External Library Screen -->
+    <string name="external_library_selected_items_count">%1$d चयनित</string>
+    <string name="external_library_stop_search_description">खोज रोकें</string>
+    <string name="external_library_authors_tab_title">लेखक</string>
+    <string name="external_library_no_results_found">कोई परिणाम नहीं मिला</string>
+    <string name="external_library_try_different_search_term">कोई भिन्न खोज शब्द आज़माएँ</string>
+    <string name="external_library_no_authors_found">कोई लेखक नहीं मिला</string>
+    <string name="external_library_downloading_one_item">1 आइटम डाउनलोड हो रहा है...</string>
+    <string name="external_library_downloading_multiple_items">%1$d आइटम डाउनलोड हो रहे हैं...</string>
+    <string name="external_library_books_tab_label">पुस्तकें</string>
+    <string name="external_library_authors_tab_label">लेखक</string>
+    <string name="external_library_download_failed">डाउनलोड शुरू नहीं हो सका</string>
+    <string name="external_library_picker_title">लाइब्रेरी</string>
+    <string name="external_library_switch_library">लाइब्रेरी बदलें</string>
+    <string name="external_library_no_libraries">कोई लाइब्रेरी उपलब्ध नहीं</string>
+    <string name="external_library_audiobook_library_caption">ऑडियोबुक लाइब्रेरी</string>
+
+    <!-- External Item Detail Screen -->
+    <string name="external_item_detail_back_button_description">पीछे</string>
+    <string name="external_item_detail_duration_fallback">0मि 0से</string>
+    <string name="external_item_detail_stream_button">स्ट्रीम</string>
+    <string name="external_item_detail_file_path_label">फ़ाइल पथ</string>
+    <string name="external_item_detail_unknown_value_fallback">अज्ञात</string>
+    <string name="external_item_detail_genres_label">शैलियां</string>
+    <string name="external_item_detail_none_value_fallback">कोई नहीं</string>
+    <string name="external_item_detail_unknown_author_fallback">अज्ञात लेखक</string>
 </resources>

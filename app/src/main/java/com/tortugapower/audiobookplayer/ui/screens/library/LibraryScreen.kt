@@ -84,7 +84,8 @@ private const val FolderNavDurationMillis = 400
 @Composable
 fun LibraryScreen(
     importViewModel: ImportViewModel = viewModel(),
-    viewModel: LibraryViewModel? = null
+    viewModel: LibraryViewModel? = null,
+    onNavigateToMediaServers: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -136,7 +137,8 @@ fun LibraryScreen(
         val selectedItems = remember(selectedItemUuids) { items.filter { it.uuid in selectedItemUuids } }
         var volumeName by remember { mutableStateOf(selectedItems.firstOrNull()?.title ?: "") }
         val focusRequester = remember { FocusRequester() }
-        val isNameDuplicate = items.any { it.title.equals(volumeName, ignoreCase = true) }
+        val expectedRelativePath = if (currentPath == null) volumeName else "$currentPath/$volumeName"
+        val isNameDuplicate = items.any { it.relativePath?.equals(expectedRelativePath, ignoreCase = true) == true }
         val isNameValid = volumeName.isNotEmpty() && volumeName.all { it.isLetterOrDigit() || it == ' ' || it == '_' || it == '-' } && !isNameDuplicate
 
         LaunchedEffect(Unit) {
@@ -265,7 +267,8 @@ fun LibraryScreen(
 
     if (showCreateFolderDialog) {
         var folderName by remember { mutableStateOf("") }
-        val isNameDuplicate = items.any { it.title.equals(folderName, ignoreCase = true) }
+        val expectedRelativePath = if (currentPath == null) folderName else "$currentPath/$folderName"
+        val isNameDuplicate = items.any { it.relativePath?.equals(expectedRelativePath, ignoreCase = true) == true }
         val isNameValid = folderName.isNotEmpty() && folderName.all { it.isLetterOrDigit() || it == '_' || it == '-' } && !isNameDuplicate
 
         AlertDialog(
@@ -574,6 +577,24 @@ fun LibraryScreen(
                     }
                 }
             } else {
+                if (importViewModel.activeDownloadCount > 0) {
+                    IconButton(onClick = { importViewModel.showImportSheet = true }) {
+                        BadgedBox(
+                            badge = {
+                                Badge {
+                                    val count = importViewModel.activeDownloadCount
+                                    Text(if (count > 9) "9+" else count.toString())
+                                }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.FileDownload,
+                                contentDescription = stringResource(R.string.common_download),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
                 IconButton(onClick = { showSearchScreen = true }) {
                     Icon(Icons.Default.Search, contentDescription = stringResource(R.string.common_search))
                 }
@@ -601,6 +622,14 @@ fun LibraryScreen(
                                 launcher.launch(arrayOf("audio/*"))
                             },
                             leadingIcon = { Icon(Icons.Default.FileDownload, null) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.media_servers_title)) },
+                            onClick = {
+                                showMenu = false
+                                onNavigateToMediaServers()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Dns, null) },
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.library_create_folder_title)) },
@@ -961,7 +990,7 @@ fun LibraryListItem(
             modifier = Modifier.weight(1f).clearAndSetSemantics { }
         ) {
             Text(
-                text = item.title,
+                text = item.title.ifBlank { stringResource(R.string.library_unknown_title) },
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold,

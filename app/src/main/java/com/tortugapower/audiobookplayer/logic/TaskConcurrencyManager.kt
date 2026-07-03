@@ -87,7 +87,13 @@ class TaskConcurrencyManager(
 
                     // Check policy before execution
                     val account = accountRepository.getAccount()
-                    if (TaskAccessPolicy.canExecuteTask(account?.tier, task.jobType)) {
+                    if (account == null) {
+                        Log.w(TAG, "⚠️ Account info not available. Leaving task PENDING and pausing worker for queue $queueKey.")
+                        delay(5000)
+                        break
+                    }
+
+                    if (TaskAccessPolicy.canExecuteTask(account.tier, task.jobType)) {
                         val success = executeTask(task)
                         if (!success) {
                             Log.w(TAG, "🛑 Queue $queueKey worker paused due to failure. Recovery time: 5s")
@@ -96,12 +102,8 @@ class TaskConcurrencyManager(
                             delay(300) // Small breather between tasks
                         }
                     } else {
-                        Log.w(TAG, "🚫 Policy restricted task ${task.jobType} for queue $queueKey")
-                        repository.updateTask(task.copy(
-                            status = SyncTaskStatus.PENDING,
-                            errorMessage = "Account tier restricted this task"
-                        ))
-                        break // Stop worker for this restricted queue
+                        Log.w(TAG, "🚫 Policy restricted task ${task.jobType} for queue $queueKey. Discarding.")
+                        repository.deleteTask(task)
                     }
                 }
             } finally {
@@ -120,15 +122,6 @@ class TaskConcurrencyManager(
         queueJobs.clear()
         collectorJob?.cancel()
         collectorJob = null
-    }
-
-    override suspend fun enqueueTask(task: SyncTaskEntity) {
-        val account = accountRepository.getAccount()
-        if (TaskAccessPolicy.canExecuteTask(account?.tier, task.jobType)) {
-            repository.saveTask(task)
-        } else {
-            throw IllegalStateException("Account tier ${account?.tier ?: "NONE"} cannot create task of type ${task.jobType}")
-        }
     }
 
     override fun setMaxConcurrentQueues(n: Int) {

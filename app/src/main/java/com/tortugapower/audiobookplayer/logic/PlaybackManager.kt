@@ -27,12 +27,75 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 object PlaybackManager {
     val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var player: Player? = null
         private set
+
+    // Playback headers for external media servers, keyed by the stream URL's authority (host:port).
+    // Registered when playItem receives headers and seeded from the external_servers table on a
+    // miss, so internal re-entries (auto-advance, next/previous) and session restore after process
+    // death resolve the same auth as the original play without threading headers through every call
+    // site. Keying by authority also pins the headers to their server's host: a request to any other
+    // host (including a redirect target) resolves nothing.
+    private val externalHostHeaders = ConcurrentHashMap<String, Map<String, String>>()
+    @Volatile private var externalHeadersSeeded = false
+
+    private fun hostKey(uri: android.net.Uri): String? = uri.authority?.lowercase()
+
+    /** Register/refresh the playback headers for a server's host (e.g. on play or after re-auth). */
+    fun registerHeadersForUri(uri: android.net.Uri, headers: Map<String, String>) {
+        hostKey(uri)?.let { externalHostHeaders[it] = headers }
+    }
+
+    /**
+     * The auth headers to attach to a playback request for [uri], or null if the URI doesn't belong
+     * to a configured external server. Called from Media3's loading threads (never the main thread);
+     * a miss seeds the map from the DB once per process, which covers restoring a persisted session
+     * URI after process death.
+     */
+    fun getHeadersForUri(uri: android.net.Uri): Map<String, String>? {
+        val key = hostKey(uri) ?: return null
+        externalHostHeaders[key]?.let { return it }
+        if (!externalHeadersSeeded) {
+            val context = appContext ?: return null
+            kotlinx.coroutines.runBlocking { seedExternalHostHeaders(context) }
+        }
+        return externalHostHeaders[key]
+    }
+
+    /** In-memory-only check (safe on the main thread): is [uri] a registered external-server host? */
+    fun hasHeadersForUri(uri: android.net.Uri): Boolean =
+        hostKey(uri)?.let { externalHostHeaders.containsKey(it) } ?: false
+
+    // Set when a stream from an external server fails with 401/403 — the stored session died
+    // mid-playback. The UI surfaces it as a plain error alert (no re-auth routing by design).
+    private val _externalStreamAuthError = MutableStateFlow(false)
+    val externalStreamAuthError: StateFlow<Boolean> = _externalStreamAuthError.asStateFlow()
+
+    fun reportExternalStreamAuthError() {
+        _externalStreamAuthError.value = true
+    }
+
+    fun clearExternalStreamAuthError() {
+        _externalStreamAuthError.value = false
+    }
+
+    private suspend fun seedExternalHostHeaders(context: Context) {
+        // Through the repository, not the DAO: stored credentials are encrypted at rest.
+        val servers = com.tortugapower.audiobookplayer.repository.ExternalServerRepository(
+            AppDatabase.getDatabase(context).externalServerDao()
+        ).allServers.first()
+        for (server in servers) {
+            val headers = ExternalServiceUtils.playbackHeaders(server.type, server.token, server.customHeaders) ?: continue
+            registerHeadersForUri(android.net.Uri.parse(server.url), headers)
+        }
+        externalHeadersSeeded = true
+    }
+
 
     private var repository: LibraryRepository? = null
     private var appContext: Context? = null
@@ -114,6 +177,16 @@ object PlaybackManager {
         repository = libraryRepository
         val appContext = context.applicationContext
         this.appContext = appContext
+
+        // Seed the external-server header map eagerly (off the main thread), so the runBlocking
+        // fallback inside getHeadersForUri stays a cold-restore edge case rather than the norm.
+        scope.launch(Dispatchers.IO) {
+            try {
+                seedExternalHostHeaders(appContext)
+            } catch (e: Exception) {
+                android.util.Log.w("PlaybackManager", "Failed to seed external host headers", e)
+            }
+        }
 
         // Restart the position tracker whenever a UI collector (re)appears while playing, so it
         // re-enters the fast tick rate immediately instead of waiting out a slow background delay.
@@ -224,7 +297,6 @@ object PlaybackManager {
                                 } else {
                                     BoundTimeline.PlayerPosition(0, (item.currentTime * 1000).toLong())
                                 }
-
                                 launch(Dispatchers.Main) {
                                     _isTransitioning.value = true
 
@@ -319,24 +391,29 @@ object PlaybackManager {
      * chapter's title; a file holding the whole book shows the book title. Artwork falls back to the
      * book's. This is the one place MediaItems are built for both BOUND and single books.
      */
-    private fun buildMediaItems(playable: PlayableItem, processedDir: File): List<MediaItem> {
+    private fun buildMediaItems(playable: PlayableItem, processedDir: File, headers: Map<String, String>? = null): List<MediaItem> {
         return playable.fileGroups().map { group ->
             val first = group.first()
             val file = first.relativePath?.let { File(processedDir, it) }
             val uri = when {
                 file != null && file.exists() -> android.net.Uri.fromFile(file)
-                !first.remoteURL.isNullOrEmpty() -> android.net.Uri.parse(first.remoteURL)
+                !first.remoteURL.isNullOrEmpty() -> {
+                    val baseUri = android.net.Uri.parse(first.remoteURL)
+                    headers?.let { registerHeadersForUri(baseUri, it) }
+                    baseUri
+                }
                 else -> android.net.Uri.EMPTY
             }
             val mediaTitle = if (group.size == 1) first.title else playable.title
             val artwork = first.artworkURL ?: playable.artworkURL
+            val fallbackAuthor = appContext?.getString(com.tortugapower.audiobookplayer.R.string.library_unknown_author) ?: "Unknown author"
             MediaItem.Builder()
                 .setMediaId(first.uuid.ifEmpty { first.relativePath ?: "${playable.uuid}#${first.index}" })
                 .setUri(uri)
                 .setMediaMetadata(
                     MediaMetadata.Builder()
                         .setTitle(mediaTitle)
-                        .setArtist(playable.author ?: "Unknown author")
+                        .setArtist(playable.author ?: fallbackAuthor)
                         .setAlbumTitle(playable.title)
                         .setArtworkUri(artwork?.let {
                             if (it.startsWith("http")) android.net.Uri.parse(it)
@@ -450,7 +527,7 @@ object PlaybackManager {
         playItem(context, item, autoplay = false)
     }
 
-    fun playItem(context: Context, item: LibraryItemEntity, autoplay: Boolean = true) {
+    fun playItem(context: Context, item: LibraryItemEntity, autoplay: Boolean = true, headers: Map<String, String>? = null) {
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
             _showPlayerScreen.value = true
@@ -515,7 +592,7 @@ object PlaybackManager {
             // BOUND books expose a whole-book timeline to the session; single books pass through.
             _currentTimeline.value = if (isBound) playable.timeline else null
 
-            val mediaItems = buildMediaItems(playable, processedDir)
+            val mediaItems = buildMediaItems(playable, processedDir, headers)
             if (mediaItems.isNotEmpty()) {
                 // Resolve the saved whole-book time into the player coordinate (file + offset) it maps to.
                 val local = if (isBound) {

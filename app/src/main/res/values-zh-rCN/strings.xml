@@ -168,6 +168,7 @@
     <string name="library_view_style">查看样式</string>
     <string name="library_folder_empty">0 个文件</string>
     <string name="library_unknown_author">未知作者</string>
+    <string name="library_unknown_title">未知标题</string>
     <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_convert_to_volume">Convert to volume</string>
@@ -247,4 +248,70 @@
     <string name="profile_change_less_last_week">比上周少%1$d%%</string>
     <string name="profile_time_minutes">%1$d 分钟</string>
     <string name="profile_time_hours_minutes">%1$d 小时 %2$d 分钟</string>
+    <!-- Media Servers -->
+    <string name="media_servers_title">媒体服务器</string>
+    <string name="media_servers_edit_button_description">编辑媒体服务器</string>
+
+    <!-- Media Servers Screen -->
+    <string name="media_servers_add_button_description">添加</string>
+    <string name="media_servers_no_servers_added">未添加服务器</string>
+    <string name="media_servers_info_button_description">信息</string>
+    <string name="media_servers_delete_button_description">删除</string>
+    <string name="media_servers_anonymous_username">匿名</string>
+
+    <!-- Server Info Sheet -->
+    <string name="media_servers_connection_details_title">连接详情</string>
+    <string name="media_servers_server_section_title">服务器</string>
+    <string name="media_servers_name_label">名称</string>
+    <string name="media_servers_url_label">URL</string>
+    <string name="media_servers_login_section_title">登录</string>
+    <string name="media_servers_username_label">用户名</string>
+    <string name="media_servers_custom_headers_section_title">自定义请求头</string>
+
+    <!-- Add Server Sheet -->
+    <string name="media_servers_add_server_connect_button">连接</string>
+    <string name="media_servers_add_server_sign_in_button">登录</string>
+    <string name="media_servers_add_server_url_label">服务器 URL</string>
+    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_custom_headers_label">自定义 HTTP 请求头</string>
+    <string name="media_servers_add_server_header_name_placeholder">请求头名称</string>
+    <string name="media_servers_add_server_header_value_placeholder">请求头值</string>
+    <string name="media_servers_add_server_add_header_button">添加请求头</string>
+    <string name="media_servers_add_server_headers_description">此处添加的请求头将附加到发送到此服务器的每个请求中。</string>
+    <string name="media_servers_add_server_username_placeholder">用户名</string>
+    <string name="media_servers_add_server_password_placeholder">密码</string>
+    <string name="media_servers_add_server_connect_to_server">连接到您的%1$s服务器</string>
+    <string name="media_servers_error_auth_failed">身份验证失败：%1$s</string>
+    <string name="media_servers_error_connection_failed">连接错误：%1$s</string>
+    <string name="media_servers_error_server_not_found">未找到服务器</string>
+    <string name="media_servers_error_failed_to_fetch_library">获取媒体库失败</string>
+    <string name="media_servers_error_session_expired">您在 %1$s 的会话已过期。请重新登录以继续。</string>
+    <string name="playback_error_session_expired">播放失败：您的媒体服务器会话已过期。请从媒体服务器重新登录。</string>
+
+    <!-- External Library Screen -->
+    <string name="external_library_selected_items_count">已选择 %1$d 项</string>
+    <string name="external_library_stop_search_description">停止搜索</string>
+    <string name="external_library_authors_tab_title">作者</string>
+    <string name="external_library_no_results_found">未找到结果</string>
+    <string name="external_library_try_different_search_term">尝试不同的搜索词</string>
+    <string name="external_library_no_authors_found">未找到作者</string>
+    <string name="external_library_downloading_one_item">正在下载 1 项...</string>
+    <string name="external_library_downloading_multiple_items">正在下载 %1$d 项...</string>
+    <string name="external_library_books_tab_label">书籍</string>
+    <string name="external_library_authors_tab_label">作者</string>
+    <string name="external_library_download_failed">无法开始下载</string>
+    <string name="external_library_picker_title">媒体库</string>
+    <string name="external_library_switch_library">切换媒体库</string>
+    <string name="external_library_no_libraries">没有可用的媒体库</string>
+    <string name="external_library_audiobook_library_caption">有声书媒体库</string>
+
+    <!-- External Item Detail Screen -->
+    <string name="external_item_detail_back_button_description">返回</string>
+    <string name="external_item_detail_duration_fallback">0分0秒</string>
+    <string name="external_item_detail_stream_button">串流</string>
+    <string name="external_item_detail_file_path_label">文件路径</string>
+    <string name="external_item_detail_unknown_value_fallback">未知</string>
+    <string name="external_item_detail_genres_label">流派</string>
+    <string name="external_item_detail_none_value_fallback">无</string>
+    <string name="external_item_detail_unknown_author_fallback">未知作者</string>
 </resources>

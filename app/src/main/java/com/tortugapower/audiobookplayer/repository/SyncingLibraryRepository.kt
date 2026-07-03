@@ -18,6 +18,11 @@ class SyncingLibraryRepository(
         return account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)
     }
 
+    private suspend fun isPro(): Boolean {
+        val account = accountRepository.getAccount()
+        return account != null && account.tier == AccountTier.PRO
+    }
+
     override suspend fun saveItem(item: LibraryItemEntity) {
         delegate.saveItem(item)
         if (isSubscribed()) {
@@ -29,6 +34,12 @@ class SyncingLibraryRepository(
         delegate.updateItem(item)
         if (isSubscribed()) {
             SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
+        }
+    }
+
+    override suspend fun updateArtworkSync(item: LibraryItemEntity) {
+        if (isPro()) {
+            SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, item)
         }
     }
 
@@ -69,12 +80,12 @@ class SyncingLibraryRepository(
     }
 
     override suspend fun moveItems(context: Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {
-        val oldPaths = items.map { it.uuid to it.relativePath }.toMap()
         delegate.moveItems(context, items, targetFolderPath)
         if (isSubscribed()) {
+            val destinationFolder = targetFolderPath?.let { delegate.getItemByPath(it) }
+            val destinationUuid = destinationFolder?.uuid ?: ""
             items.forEach { item ->
-                val oldPath = oldPaths[item.uuid]
-                SyncTaskFactory.createMoveTask(syncTaskRepository, item, oldPath ?: "", item.relativePath ?: "")
+                SyncTaskFactory.createMoveTask(syncTaskRepository, item, item.uuid, destinationUuid)
             }
         }
     }
@@ -113,7 +124,7 @@ class SyncingLibraryRepository(
                     val oldPath = oldPaths[item.uuid] ?: ""
                     val newPath = item.relativePath ?: ""
                     if (oldPath != newPath) {
-                        SyncTaskFactory.createMoveTask(syncTaskRepository, item, oldPath, newPath)
+                        SyncTaskFactory.createMoveTask(syncTaskRepository, item, item.uuid, volumeItem.uuid)
                     }
                 }
             }

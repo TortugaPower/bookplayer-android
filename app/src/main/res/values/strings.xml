@@ -265,6 +265,7 @@
     <string name="library_view_style">View Style</string>
     <string name="library_folder_empty">0 Files</string>
     <string name="library_unknown_author">Unknown author</string>
+    <string name="library_unknown_title">Unknown Title</string>
     <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_convert_to_volume">Convert to volume</string>
@@ -289,7 +290,6 @@
     <string name="import_disclaimer">Transferring files may take a while, please make sure the number of files is complete before proceeding.</string>
     <string name="import_files_count">%1$d Files</string>
     <string name="import_skipped_items">%1$d items were skipped because they already exist in the library</string>
-
     <!-- Interval/Duration -->
     <string name="interval_seconds">%1$d secs</string>
     <string name="interval_1_min">1 min</string>
@@ -349,4 +349,70 @@
     <string name="profile_change_less_last_week">%1$d%% less than last week</string>
     <string name="profile_time_minutes">%1$d min</string>
     <string name="profile_time_hours_minutes">%1$dh %2$dm</string>
+    <!-- Media Servers -->
+    <string name="media_servers_title">Media Servers</string>
+    <string name="media_servers_edit_button_description">Edit media servers</string>
+
+    <!-- Media Servers Screen -->
+    <string name="media_servers_add_button_description">Add</string>
+    <string name="media_servers_no_servers_added">No servers added</string>
+    <string name="media_servers_info_button_description">Info</string>
+    <string name="media_servers_delete_button_description">Delete</string>
+    <string name="media_servers_anonymous_username">Anonymous</string>
+
+    <!-- Server Info Sheet -->
+    <string name="media_servers_connection_details_title">Connection Details</string>
+    <string name="media_servers_server_section_title">SERVER</string>
+    <string name="media_servers_name_label">Name</string>
+    <string name="media_servers_url_label">URL</string>
+    <string name="media_servers_login_section_title">LOGIN</string>
+    <string name="media_servers_username_label">Username</string>
+    <string name="media_servers_custom_headers_section_title">CUSTOM HEADERS</string>
+
+    <!-- Add Server Sheet -->
+    <string name="media_servers_add_server_connect_button">Connect</string>
+    <string name="media_servers_add_server_sign_in_button">Sign In</string>
+    <string name="media_servers_add_server_url_label">Server URL</string>
+    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_custom_headers_label">Custom HTTP Headers</string>
+    <string name="media_servers_add_server_header_name_placeholder">Header name</string>
+    <string name="media_servers_add_server_header_value_placeholder">Header value</string>
+    <string name="media_servers_add_server_add_header_button">Add Header</string>
+    <string name="media_servers_add_server_headers_description">Headers added here are attached to every request sent to this server.</string>
+    <string name="media_servers_add_server_username_placeholder">Username</string>
+    <string name="media_servers_add_server_password_placeholder">Password</string>
+    <string name="media_servers_add_server_connect_to_server">Connect to your %1$s server</string>
+    <string name="media_servers_error_auth_failed">Authentication failed: %1$s</string>
+    <string name="media_servers_error_connection_failed">Connection error: %1$s</string>
+    <string name="media_servers_error_server_not_found">Server not found</string>
+    <string name="media_servers_error_failed_to_fetch_library">Failed to fetch library</string>
+    <string name="media_servers_error_session_expired">Your session for %1$s expired. Sign in again to continue.</string>
+    <string name="playback_error_session_expired">Playback failed: your media server session expired. Sign in again from Media Servers.</string>
+
+    <!-- External Library Screen -->
+    <string name="external_library_selected_items_count">%1$d selected</string>
+    <string name="external_library_stop_search_description">Stop search</string>
+    <string name="external_library_authors_tab_title">Authors</string>
+    <string name="external_library_no_results_found">No results found</string>
+    <string name="external_library_try_different_search_term">Try a different search term</string>
+    <string name="external_library_no_authors_found">No authors found</string>
+    <string name="external_library_downloading_one_item">Downloading 1 item...</string>
+    <string name="external_library_downloading_multiple_items">Downloading %1$d items...</string>
+    <string name="external_library_books_tab_label">Books</string>
+    <string name="external_library_authors_tab_label">Authors</string>
+    <string name="external_library_download_failed">Unable to start download</string>
+    <string name="external_library_picker_title">Library</string>
+    <string name="external_library_switch_library">Switch library</string>
+    <string name="external_library_no_libraries">No libraries available</string>
+    <string name="external_library_audiobook_library_caption">Audiobook library</string>
+
+    <!-- External Item Detail Screen -->
+    <string name="external_item_detail_back_button_description">Back</string>
+    <string name="external_item_detail_duration_fallback">0m 0s</string>
+    <string name="external_item_detail_stream_button">Stream</string>
+    <string name="external_item_detail_file_path_label">File Path</string>
+    <string name="external_item_detail_unknown_value_fallback">Unknown</string>
+    <string name="external_item_detail_genres_label">Genres</string>
+    <string name="external_item_detail_none_value_fallback">None</string>
+    <string name="external_item_detail_unknown_author_fallback">Unknown author</string>
 </resources>

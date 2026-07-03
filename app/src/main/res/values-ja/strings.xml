@@ -168,6 +168,7 @@
     <string name="library_view_style">表示スタイル</string>
     <string name="library_folder_empty">0個のファイル</string>
     <string name="library_unknown_author">不明な著者</string>
+    <string name="library_unknown_title">不明なタイトル</string>
     <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_convert_to_volume">Convert to volume</string>
@@ -247,4 +248,70 @@
     <string name="profile_change_less_last_week">先週より%1$d%%少ない</string>
     <string name="profile_time_minutes">%1$d 分</string>
     <string name="profile_time_hours_minutes">%1$d 時間 %2$d 分</string>
+    <!-- Media Servers -->
+    <string name="media_servers_title">メディアサーバー</string>
+    <string name="media_servers_edit_button_description">メディアサーバーを編集</string>
+
+    <!-- Media Servers Screen -->
+    <string name="media_servers_add_button_description">追加</string>
+    <string name="media_servers_no_servers_added">サーバーが追加されていません</string>
+    <string name="media_servers_info_button_description">情報</string>
+    <string name="media_servers_delete_button_description">削除</string>
+    <string name="media_servers_anonymous_username">匿名</string>
+
+    <!-- Server Info Sheet -->
+    <string name="media_servers_connection_details_title">接続の詳細</string>
+    <string name="media_servers_server_section_title">サーバー</string>
+    <string name="media_servers_name_label">名前</string>
+    <string name="media_servers_url_label">URL</string>
+    <string name="media_servers_login_section_title">ログイン</string>
+    <string name="media_servers_username_label">ユーザー名</string>
+    <string name="media_servers_custom_headers_section_title">カスタムヘッダー</string>
+
+    <!-- Add Server Sheet -->
+    <string name="media_servers_add_server_connect_button">接続</string>
+    <string name="media_servers_add_server_sign_in_button">サインイン</string>
+    <string name="media_servers_add_server_url_label">サーバー URL</string>
+    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
+    <string name="media_servers_add_server_custom_headers_label">カスタム HTTP ヘッダー</string>
+    <string name="media_servers_add_server_header_name_placeholder">ヘッダー名</string>
+    <string name="media_servers_add_server_header_value_placeholder">ヘッダー値</string>
+    <string name="media_servers_add_server_add_header_button">ヘッダーを追加</string>
+    <string name="media_servers_add_server_headers_description">ここに追加されたヘッダーは、このサーバーに送信されるすべてのリクエストに添付されます。</string>
+    <string name="media_servers_add_server_username_placeholder">ユーザー名</string>
+    <string name="media_servers_add_server_password_placeholder">パスワード</string>
+    <string name="media_servers_add_server_connect_to_server">あなたの%1$sサーバーに接続</string>
+    <string name="media_servers_error_auth_failed">認証に失敗しました: %1$s</string>
+    <string name="media_servers_error_connection_failed">接続エラー: %1$s</string>
+    <string name="media_servers_error_server_not_found">サーバーが見つかりません</string>
+    <string name="media_servers_error_failed_to_fetch_library">ライブラリを取得できませんでした</string>
+    <string name="media_servers_error_session_expired">%1$s のセッションの有効期限が切れました。続行するには再度サインインしてください。</string>
+    <string name="playback_error_session_expired">再生に失敗しました: メディアサーバーのセッションの有効期限が切れました。メディアサーバーから再度サインインしてください。</string>
+
+    <!-- External Library Screen -->
+    <string name="external_library_selected_items_count">%1$d件選択済み</string>
+    <string name="external_library_stop_search_description">検索を停止</string>
+    <string name="external_library_authors_tab_title">著者</string>
+    <string name="external_library_no_results_found">結果が見つかりません</string>
+    <string name="external_library_try_different_search_term">別の検索語句を試してください</string>
+    <string name="external_library_no_authors_found">著者が見つかりません</string>
+    <string name="external_library_downloading_one_item">1アイテムをダウンロード中...</string>
+    <string name="external_library_downloading_multiple_items">%1$dアイテムをダウンロード中...</string>
+    <string name="external_library_books_tab_label">書籍</string>
+    <string name="external_library_authors_tab_label">著者</string>
+    <string name="external_library_download_failed">ダウンロードを開始できませんでした</string>
+    <string name="external_library_picker_title">ライブラリ</string>
+    <string name="external_library_switch_library">ライブラリを切り替える</string>
+    <string name="external_library_no_libraries">利用可能なライブラリがありません</string>
+    <string name="external_library_audiobook_library_caption">オーディオブックライブラリ</string>
+
+    <!-- External Item Detail Screen -->
+    <string name="external_item_detail_back_button_description">戻る</string>
+    <string name="external_item_detail_duration_fallback">0分0秒</string>
+    <string name="external_item_detail_stream_button">ストリーム</string>
+    <string name="external_item_detail_file_path_label">ファイルパス</string>
+    <string name="external_item_detail_unknown_value_fallback">不明</string>
+    <string name="external_item_detail_genres_label">ジャンル</string>
+    <string name="external_item_detail_none_value_fallback">なし</string>
+    <string name="external_item_detail_unknown_author_fallback">不明な著者</string>
 </resources>
