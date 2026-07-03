@@ -1,9 +1,16 @@
 package com.tortugapower.audiobookplayer.ui.screens.player
 
+import android.content.Intent
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
@@ -29,6 +36,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowLeft
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
@@ -41,11 +50,19 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material3.ExperimentalMaterial3Api
-import android.content.Intent
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import android.graphics.Bitmap
+import android.view.LayoutInflater
+import android.view.TextureView
+import android.view.View
+import android.view.ViewGroup
+import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -282,145 +299,184 @@ fun PlayerScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-        if (currentItem != null) {
-            // Single source of truth for chapters: the currentPlayable snapshot. The index (via the
-            // tested BoundTimeline.indexAt / chapterIndexAt), the current chapter, and the per-file
-            // artwork all read from THIS one snapshot, so they can't disagree during a track transition.
-            val currentPlayable by viewModel.currentPlayable.collectAsStateWithLifecycle()
-            val chapters = currentPlayable?.chapterEntities ?: emptyList()
-            // derivedStateOf so readers only recompose when the computed index actually changes — not on
-            // every ~500ms position tick. Keyed on `duration` (the only non-State input);
-            // position/isDragging/dragPosition/useChapterContext/currentPlayable are State and tracked.
-            val currentChapterIndex by remember(duration) {
-                derivedStateOf {
-                    val pos = if (isDragging && !viewModel.useChapterContext) {
-                        (dragPosition * duration).toLong()
-                    } else {
-                        position
+            var isFullscreen by remember { mutableStateOf(false) }
+            val player = viewModel.player
+            var hasVideo by remember { mutableStateOf(false) }
+            DisposableEffect(player) {
+                val listener = object : Player.Listener {
+                    override fun onTracksChanged(tracks: Tracks) {
+                        hasVideo = tracks.isTypeSelected(C.TRACK_TYPE_VIDEO)
                     }
-                    // Reuse the tested chapter-layer lookup instead of re-implementing the half-open
-                    // [start, end) scan + clamp here; whole-book positions work for embedded chapters too.
-                    currentPlayable?.chapterIndexAt(pos) ?: -1
+                }
+                player?.addListener(listener)
+                hasVideo = player?.currentTracks?.isTypeSelected(C.TRACK_TYPE_VIDEO) == true
+                onDispose {
+                    player?.removeListener(listener)
                 }
             }
-            val currentChapter = chapters.getOrNull(currentChapterIndex)
 
-            // Artwork follows the current chapter's backing file (per-file, matching iOS), falling back to
-            // the book's. Per-file artwork lives on PlayableChapter — same snapshot, same index as above.
-            val chapterArtworkURL = currentPlayable?.chapters?.getOrNull(currentChapterIndex)?.artworkURL
-
-            // isLocal is computed off the main thread in the ViewModel (no File.exists in composition).
-            val isLocal by viewModel.isCurrentItemLocal.collectAsStateWithLifecycle()
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(
-                    modifier = Modifier
-                        .padding(vertical = 12.dp)
-                        .width(40.dp)
-                        .height(4.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                PlayerArtwork(
-                    player = viewModel.player,
-                    artworkURL = chapterArtworkURL ?: currentItem.artworkURL,
-                    isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
-                    showCloudBadge = !isLocal && !currentItem.remoteURL.isNullOrEmpty()
-                )
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                // The chevrons always navigate chapters: back can restart/step to a previous chapter for
-                // any loaded book (or previous item); forward is available when there's a next chapter or item.
-                val canGoBack = viewModel.hasPreviousItem || chapters.isNotEmpty()
-                val canGoForward = viewModel.hasNextItem || chapters.size > 1
-
-                PlayerTitleNavRow(
-                    title = if (viewModel.useChapterContext && currentChapter != null) currentChapter.title else currentItem.title,
-                    canGoBack = canGoBack,
-                    canGoForward = canGoForward,
-                    // Double chevron when there's no previous/next chapter (tap crosses to prev/next book).
-                    hasPreviousChapter = currentChapterIndex > 0,
-                    hasNextChapter = currentChapterIndex in 0 until (chapters.size - 1),
-                    onPrevious = { viewModel.playPrevious(context) },
-                    onNext = { viewModel.playNext(context) }
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                PlayerProgressSection(
-                    state = PlayerProgressUiState(
-                        position = position,
-                        duration = duration,
-                        isDragging = isDragging,
-                        dragPosition = dragPosition,
-                        currentChapter = currentChapter,
-                        currentChapterIndex = currentChapterIndex,
-                        chaptersCount = chapters.size,
-                        useChapterContext = viewModel.useChapterContext,
-                        useRemainingTime = viewModel.useRemainingTime,
-                    ),
-                    onValueChange = {
-                        isDragging = true
-                        dragPosition = it
-                    },
-                    onValueChangeFinished = {
-                        val newPos = if (viewModel.useChapterContext && currentChapter != null) {
-                            (currentChapter.start * 1000).toLong() + (dragPosition * currentChapter.duration * 1000).toLong()
-                        } else {
+            if (currentItem != null) {
+                // Single source of truth for chapters: the currentPlayable snapshot. The index (via the
+                // tested BoundTimeline.indexAt / chapterIndexAt), the current chapter, and the per-file
+                // artwork all read from THIS one snapshot, so they can't disagree during a track transition.
+                val currentPlayable by viewModel.currentPlayable.collectAsStateWithLifecycle()
+                val chapters = currentPlayable?.chapterEntities ?: emptyList()
+                // derivedStateOf so the chapter scan only re-runs (and readers only recompose) when the
+                // computed index actually changes — not on every ~500ms position tick. Keyed on `duration`
+                // since that's the only non-State input; position/isDragging/dragPosition/useChapterContext/
+                // chapters are State and tracked automatically.
+                val currentChapterIndex by remember(duration) {
+                    derivedStateOf {
+                        val pos = if (isDragging && !viewModel.useChapterContext) {
                             (dragPosition * duration).toLong()
-                        }
-                        viewModel.seekToAbsolute(newPos)
-                        position = newPos
-                        isDragging = false
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(48.dp))
-
-                PlayerTransportControls(
-                    isPlaying = isPlaying,
-                    rewindInterval = viewModel.rewindInterval,
-                    forwardInterval = viewModel.forwardInterval,
-                    playPauseFocusRequester = playPauseFocusRequester,
-                    onRewind = { viewModel.seekBackward() },
-                    onPlayPause = { viewModel.togglePlayPause() },
-                    onForward = { viewModel.seekForward() }
-                )
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                val sleepActive by viewModel.sleepTimerActive.collectAsStateWithLifecycle()
-                val sleepEndOfChapter by viewModel.sleepTimerIsEndOfChapter.collectAsStateWithLifecycle()
-                val sleepRemaining by viewModel.sleepTimerRemaining.collectAsStateWithLifecycle()
-
-                PlayerBottomBar(
-                    speedLabel = "${if (playbackSpeed % 1.0f == 0.0f) playbackSpeed.toInt() else playbackSpeed}x",
-                    sleepLabel = when {
-                        sleepEndOfChapter -> stringResource(R.string.player_timer_active)
-                        sleepActive -> sleepRemaining
-                        else -> null
-                    },
-                    onSpeed = { viewModel.toggleControlsSheet() },
-                    onSleep = { viewModel.toggleSleepTimerMenu() },
-                    onBookmark = { viewModel.addBookmark() },
-                    onList = {
-                        if (viewModel.listButtonOpens == "Chapters") {
-                            viewModel.showChaptersList = true
                         } else {
-                            viewModel.showBookmarksList = true
+                            position
                         }
-                    },
-                    onMore = { viewModel.toggleMoreOptions() }
-                )
+                        // Reuse the tested chapter-layer lookup instead of re-implementing the half-open
+                        // [start, end) scan + clamp here; whole-book positions work for embedded chapters too.
+                        currentPlayable?.chapterIndexAt(pos) ?: -1
+                    }
+                }
+                val currentChapter = chapters.getOrNull(currentChapterIndex)
+
+                // Artwork follows the current chapter's backing file (per-file, matching iOS), falling back to
+                // the book's. Per-file artwork lives on PlayableChapter — same snapshot, same index as above.
+                val chapterArtworkURL = currentPlayable?.chapters?.getOrNull(currentChapterIndex)?.artworkURL
+
+                // isLocal is computed off the main thread in the ViewModel (no File.exists in composition).
+                val isLocal by viewModel.isCurrentItemLocal.collectAsStateWithLifecycle()
+
+                if (isFullscreen && hasVideo) {
+                    BackHandler { isFullscreen = false }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black)
+                    ) {
+                        PlayerArtwork(
+                            player = viewModel.player,
+                            artworkURL = currentItem.artworkURL,
+                            isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
+                            showCloudBadge = false,
+                            hasVideo = hasVideo,
+                            isFullscreen = true,
+                            onToggleFullscreen = { isFullscreen = false }
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .padding(vertical = 12.dp)
+                                .width(40.dp)
+                                .height(4.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                        )
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        PlayerArtwork(
+                            player = viewModel.player,
+                            artworkURL = chapterArtworkURL ?: currentItem.artworkURL,
+                            isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
+                            showCloudBadge = !isLocal && !currentItem.remoteURL.isNullOrEmpty(),
+                            hasVideo = hasVideo,
+                            isFullscreen = false,
+                            onToggleFullscreen = { isFullscreen = true }
+                        )
+
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    // The chevrons always navigate chapters: back can restart/step to a previous chapter for
+                    // any loaded book (or previous item); forward is available when there's a next chapter or item.
+                    val canGoBack = viewModel.hasPreviousItem || chapters.isNotEmpty()
+                    val canGoForward = viewModel.hasNextItem || chapters.size > 1
+
+                    PlayerTitleNavRow(
+                        title = if (viewModel.useChapterContext && currentChapter != null) currentChapter.title else currentItem.title,
+                        canGoBack = canGoBack,
+                        canGoForward = canGoForward,
+                        // Double chevron when there's no previous/next chapter (tap crosses to prev/next book).
+                        hasPreviousChapter = currentChapterIndex > 0,
+                        hasNextChapter = currentChapterIndex in 0 until (chapters.size - 1),
+                        onPrevious = { viewModel.playPrevious(context) },
+                        onNext = { viewModel.playNext(context) }
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    PlayerProgressSection(
+                        state = PlayerProgressUiState(
+                            position = position,
+                            duration = duration,
+                            isDragging = isDragging,
+                            dragPosition = dragPosition,
+                            currentChapter = currentChapter,
+                            currentChapterIndex = currentChapterIndex,
+                            chaptersCount = chapters.size,
+                            useChapterContext = viewModel.useChapterContext,
+                            useRemainingTime = viewModel.useRemainingTime,
+                        ),
+                        onValueChange = {
+                            isDragging = true
+                            dragPosition = it
+                        },
+                        onValueChangeFinished = {
+                            val newPos = if (viewModel.useChapterContext && currentChapter != null) {
+                                (currentChapter.start * 1000).toLong() + (dragPosition * currentChapter.duration * 1000).toLong()
+                            } else {
+                                (dragPosition * duration).toLong()
+                            }
+                            viewModel.seekToAbsolute(newPos)
+                            position = newPos
+                            isDragging = false
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(48.dp))
+
+                    PlayerTransportControls(
+                        isPlaying = isPlaying,
+                        rewindInterval = viewModel.rewindInterval,
+                        forwardInterval = viewModel.forwardInterval,
+                        playPauseFocusRequester = playPauseFocusRequester,
+                        onRewind = { viewModel.seekBackward() },
+                        onPlayPause = { viewModel.togglePlayPause() },
+                        onForward = { viewModel.seekForward() }
+                    )
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    val sleepActive by viewModel.sleepTimerActive.collectAsStateWithLifecycle()
+                    val sleepEndOfChapter by viewModel.sleepTimerIsEndOfChapter.collectAsStateWithLifecycle()
+                    val sleepRemaining by viewModel.sleepTimerRemaining.collectAsStateWithLifecycle()
+
+                    PlayerBottomBar(
+                        speedLabel = "${if (playbackSpeed % 1.0f == 0.0f) playbackSpeed.toInt() else playbackSpeed}x",
+                        sleepLabel = when {
+                            sleepEndOfChapter -> stringResource(R.string.player_timer_active)
+                            sleepActive -> sleepRemaining
+                            else -> null
+                        },
+                        onSpeed = { viewModel.toggleControlsSheet() },
+                        onSleep = { viewModel.toggleSleepTimerMenu() },
+                        onBookmark = { viewModel.addBookmark() },
+                        onList = {
+                            if (viewModel.listButtonOpens == "Chapters") {
+                                viewModel.showChaptersList = true
+                            } else {
+                                viewModel.showBookmarksList = true
+                            }
+                        },
+                        onMore = { viewModel.toggleMoreOptions() }
+                    )
+                }
             }
         }
     }
@@ -432,25 +488,41 @@ private fun PlayerArtwork(
     player: Player?,
     artworkURL: String?,
     isBuffering: Boolean,
-    showCloudBadge: Boolean
+    showCloudBadge: Boolean,
+    hasVideo: Boolean,
+    isFullscreen: Boolean = false,
+    onToggleFullscreen: () -> Unit = {}
 ) {
-    var hasVideo by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var showControls by remember { mutableStateOf(true) }
+    var blurredBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
-    DisposableEffect(player) {
-        val listener = object : Player.Listener {
-            override fun onTracksChanged(tracks: Tracks) {
-                hasVideo = tracks.isTypeSelected(C.TRACK_TYPE_VIDEO)
+    val playerView = remember(context) {
+        val pv = LayoutInflater.from(context).inflate(R.layout.video_player_view, null) as PlayerView
+        pv.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+        pv
+    }
+
+    LaunchedEffect(hasVideo, player) {
+        if (hasVideo && player != null) {
+            while (true) {
+                val textureView = findTextureView(playerView)
+                if (textureView != null) {
+                    try {
+                        val bmp = textureView.getBitmap(32, 32)
+                        if (bmp != null) blurredBitmap = bmp
+                    } catch (e: Exception) {}
+                }
+                delay(250)
             }
-        }
-        player?.addListener(listener)
-        hasVideo = player?.currentTracks?.isTypeSelected(C.TRACK_TYPE_VIDEO) == true
-        onDispose {
-            player?.removeListener(listener)
+        } else {
+            blurredBitmap = null
         }
     }
 
-    val context = LocalContext.current
-    val artworkBackground = if (artworkURL == null && !hasVideo) {
+    val artworkBackground = if (isFullscreen) {
+        Modifier.background(Color.Black)
+    } else if (artworkURL == null && !hasVideo) {
         Modifier.background(
             Brush.verticalGradient(
                 colors = listOf(
@@ -463,23 +535,46 @@ private fun PlayerArtwork(
         Modifier.background(Color.Transparent)
     }
 
-    Box(
-        modifier = Modifier
+    val artworkModifier = if (isFullscreen) {
+        Modifier.fillMaxSize()
+    } else {
+        Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
             .clip(RoundedCornerShape(24.dp))
-            .then(artworkBackground),
+    }
+
+    val clickableModifier = if (hasVideo) {
+        Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null
+        ) {
+            showControls = !showControls
+        }
+    } else {
+        Modifier
+    }
+
+    Box(
+        modifier = artworkModifier
+            .then(artworkBackground)
+            .then(clickableModifier),
         contentAlignment = Alignment.Center
     ) {
         if (hasVideo && player != null) {
+            if (blurredBitmap != null) {
+                Image(
+                    bitmap = blurredBitmap!!.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize().blur(20.dp),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))
+                )
+            }
             AndroidView(
-                factory = { context ->
-                    PlayerView(context).apply {
-                        this.player = player
-                        useController = false
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                    }
-                },
+                factory = { playerView },
                 modifier = Modifier.fillMaxSize(),
                 update = { view ->
                     view.player = player
@@ -520,38 +615,73 @@ private fun PlayerArtwork(
                 )
             }
         }
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
-            IconButton(
-                onClick = {
-                    val intent = Intent("com.android.settings.panel.action.MEDIA_OUTPUT").apply {
-                        putExtra("com.android.settings.panel.extra.PACKAGE_NAME", context.packageName)
+        AnimatedVisibility(
+            visible = !hasVideo || showControls,
+            enter = fadeIn(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(300)),
+            modifier = Modifier.align(Alignment.TopEnd)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (hasVideo) {
+                    IconButton(
+                        onClick = onToggleFullscreen,
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                            contentDescription = if (isFullscreen) "Exit Fullscreen" else "Fullscreen",
+                            tint = Color.White
+                        )
                     }
-                    try {
-                        context.startActivity(intent)
-                    } catch (e: Exception) {
+                }
+                IconButton(
+                    onClick = {
+                        val intent = Intent("com.android.settings.panel.action.MEDIA_OUTPUT").apply {
+                            putExtra("com.android.settings.panel.extra.PACKAGE_NAME", context.packageName)
+                        }
                         try {
-                            val fallbackIntent = Intent("android.settings.CAST_SETTINGS")
-                            context.startActivity(fallbackIntent)
-                        } catch (ex: Exception) {
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
                             try {
-                                val btIntent = Intent("android.settings.BLUETOOTH_SETTINGS")
-                                context.startActivity(btIntent)
-                            } catch (error: Exception) {
-                                // Silent fail
+                                val fallbackIntent = Intent("android.settings.CAST_SETTINGS")
+                                context.startActivity(fallbackIntent)
+                            } catch (ex: Exception) {
+                                try {
+                                    val btIntent = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
+                                    context.startActivity(btIntent)
+                                } catch (error: Exception) {
+                                    // Silent fail
+                                }
                             }
                         }
-                    }
-                },
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Cast,
-                    contentDescription = stringResource(R.string.player_cast),
-                    tint = MaterialTheme.colorScheme.onSecondary
-                )
+                    },
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Cast,
+                        contentDescription = stringResource(R.string.player_cast),
+                        tint = Color.White
+                    )
+                }
             }
         }
     }
+}
+
+private fun findTextureView(view: View): TextureView? {
+    if (view is TextureView) return view
+    if (view is ViewGroup) {
+        for (i in 0 until view.childCount) {
+            val child = view.getChildAt(i)
+            val result = findTextureView(child)
+            if (result != null) return result
+        }
+    }
+    return null
 }
 
 @Composable
