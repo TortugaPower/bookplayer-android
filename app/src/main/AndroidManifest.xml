@@ -201,36 +201,6 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- App Widget Provider registration -->
-        <receiver
-            android:name=".widget.AudioWidgetProvider"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_PLAY_PAUSE" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_REWIND" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_FORWARD" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.ACTION_PLAY_BOOK" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/audio_widget_info" />
-        </receiver>
-
-        <!-- App Widget Small Provider registration -->
-        <receiver
-            android:name=".widget.AudioWidgetSmallProvider"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.small.ACTION_PLAY_PAUSE" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.small.ACTION_REWIND" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.small.ACTION_FORWARD" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/audio_widget_small_info" />
-        </receiver>
 
         <!-- App Widget Large Provider registration -->
         <receiver
