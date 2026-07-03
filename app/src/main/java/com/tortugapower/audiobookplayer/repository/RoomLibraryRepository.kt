@@ -6,6 +6,7 @@ import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
+import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.R
 import kotlinx.coroutines.Dispatchers
@@ -14,7 +15,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class RoomLibraryRepository(
-    private val libraryDao: LibraryDao
+    private val libraryDao: LibraryDao,
+    private val timeProvider: () -> Long = { System.currentTimeMillis() }
 ) : LibraryRepository {
 
     override fun getRootItems(): Flow<List<LibraryItemEntity>> = 
@@ -49,17 +51,40 @@ class RoomLibraryRepository(
         }
     }
 
-    override suspend fun updateItem(item: LibraryItemEntity) =
-        libraryDao.updateItem(item)
+    override suspend fun updateItem(item: LibraryItemEntity) {
+        withContext(Dispatchers.IO) {
+            val oldItem = libraryDao.getItemById(item.uuid)
+            if (oldItem != null && item.isFinished && !oldItem.isFinished) {
+                val completion = BookCompletionEntity(
+                    bookUuid = item.uuid,
+                    bookTitle = item.title,
+                    authorName = item.author,
+                    completionDate = timeProvider()
+                )
+                libraryDao.insertCompletionIfMissing(completion)
+            }
+            libraryDao.updateItem(item)
+        }
+    }
 
     override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {
         withContext(Dispatchers.IO) {
             val item = libraryDao.getItemById(uuid) ?: return@withContext
+            val wasFinished = item.isFinished
             item.currentTime = currentTime
             item.isFinished = isFinished
             item.percentCompleted = if (item.duration > 0) (currentTime / item.duration).coerceIn(0.0, 1.0) else 0.0
             if (isFinished) item.percentCompleted = 1.0
-            item.lastPlayDate = System.currentTimeMillis()
+            if (isFinished && !wasFinished) {
+                val completion = BookCompletionEntity(
+                    bookUuid = item.uuid,
+                    bookTitle = item.title,
+                    authorName = item.author,
+                    completionDate = timeProvider()
+                )
+                libraryDao.insertCompletionIfMissing(completion)
+            }
+            item.lastPlayDate = timeProvider()
             libraryDao.updateItem(item)
 
             // Recursively update parents

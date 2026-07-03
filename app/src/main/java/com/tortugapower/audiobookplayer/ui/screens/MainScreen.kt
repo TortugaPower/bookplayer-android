@@ -49,6 +49,8 @@ import com.tortugapower.audiobookplayer.ui.screens.library.ImportSheet
 import com.tortugapower.audiobookplayer.ui.screens.library.LibraryScreen
 import com.tortugapower.audiobookplayer.ui.screens.player.PlayerScreen
 import com.tortugapower.audiobookplayer.ui.screens.profile.ProfileScreen
+import com.tortugapower.audiobookplayer.ui.screens.profile.StatisticsScreen
+import com.tortugapower.audiobookplayer.ui.screens.profile.ListeningHistoryScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.SettingsScreen
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.QueuedTasksScreen
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.TaskDetailScreen
@@ -81,7 +83,19 @@ fun MainScreen() {
     val currentPlaybackItem by PlaybackManager.currentItem.collectAsStateWithLifecycle()
 
     val profileViewModel: ProfileViewModel = viewModel(
-        factory = ProfileViewModelFactory(accountRepository, syncTaskRepository)
+        factory = ProfileViewModelFactory(
+            accountRepository,
+            syncTaskRepository,
+            database.statisticsDao(),
+            database.libraryDao()
+        )
+    )
+
+    val statisticsViewModel: StatisticsViewModel = viewModel(
+        factory = StatisticsViewModelFactory(
+            database.statisticsDao(),
+            database.libraryDao()
+        )
     )
 
     val libraryViewModel: LibraryViewModel = viewModel(
@@ -150,8 +164,22 @@ fun MainScreen() {
                         ProfileScreen(
                             viewModel = profileViewModel,
                             onNavigateToAccountDetails = { navController.navigate("accountDetails") },
-                            onNavigateToQueuedTasks = { navController.navigate("queuedTasks") }
+                            onNavigateToQueuedTasks = { navController.navigate("queuedTasks") },
+                            onNavigateToStatistics = { navController.navigate("statistics") },
+                            onNavigateToHistory = { navController.navigate("listeningHistory") }
                         ) 
+                    }
+                    composable("statistics") {
+                        StatisticsScreen(
+                            viewModel = statisticsViewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("listeningHistory") {
+                        ListeningHistoryScreen(
+                            viewModel = statisticsViewModel,
+                            onBack = { navController.popBackStack() }
+                        )
                     }
                     composable("accountDetails") {
                         AccountDetailsScreen(

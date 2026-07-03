@@ -50,8 +50,6 @@
     <string name="profile_setup_account">إعداد الحساب</string>
     <string name="profile_tier_label">المستوى: %1$s</string>
     <string name="profile_not_signed_in">لم يتم تسجيل الدخول</string>
-    <string name="profile_listening_time_value">0 دقيقة</string>
-    <string name="profile_total_listening_time">إجمالي وقت الاستماع</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -83,7 +81,6 @@
     <string name="player_next">التالي</string>
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">الفصل 1 من 1</string>
-    <string name="player_play_pause">تشغيل/إيقاف مؤقت</string>
     <string name="player_chapters_title">الفصول</string>
     <string name="player_chapter_details">البداية: %1$s - المدة: %2$s</string>
     <string name="player_jump_to_start">انتقال إلى البداية</string>
@@ -218,4 +215,50 @@
     <string name="sync_task_sync_identifiers">مزامنة المعرفات</string>
     <string name="sync_task_match_library_ids">مطابقة معرفات المكتبة</string>
 
+    <!-- Profile Stats -->
+    <string name="profile_overview">نظرة عامة</string>
+    <string name="profile_activity">النشاط</string>
+    <string name="profile_today">اليوم</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">إجمالي الاستماع: %1$s</string>
+    <string name="profile_time_hours">%1$d س</string>
+    <plurals name="profile_unit_days">
+        <item quantity="one">%1$d يوم</item>
+        <item quantity="other">%1$d يوم</item>
+        <item quantity="zero">%1$d يوم</item>
+        <item quantity="two">%1$d يوم</item>
+        <item quantity="few">%1$d أيام</item>
+        <item quantity="many">%1$d يومًا</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="one">%1$d شهر</item>
+        <item quantity="other">%1$d شهر</item>
+        <item quantity="zero">%1$d شهر</item>
+        <item quantity="two">%1$d شهر</item>
+        <item quantity="few">%1$d أشهر</item>
+        <item quantity="many">%1$d شهرًا</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="one">%1$d سنة</item>
+        <item quantity="other">%1$d سنة</item>
+        <item quantity="zero">%1$d سنة</item>
+        <item quantity="two">%1$d سنة</item>
+        <item quantity="few">%1$d سنوات</item>
+        <item quantity="many">%1$d سنة</item>
+    </plurals>
+    <string name="profile_completed_books">الكتب المكتملة</string>
+    <string name="profile_days_listened">الأيام المستمعة</string>
+    <string name="profile_stats">الإحصائيات</string>
+    <string name="profile_listening_history">سجل الاستماع</string>
+    <string name="profile_week">الأسبوع</string>
+    <string name="profile_daily_average">المعدل اليومي</string>
+    <string name="history_book_not_found">لم يتم العثور على الكتاب الصوتي في المكتبة</string>
+    <string name="history_empty">لا يوجد سجل استماع بعد</string>
+    <string name="profile_change_more_yesterday">%1$d%% أكثر من الأمس</string>
+    <string name="profile_change_less_yesterday">%1$d%% أقل من الأمس</string>
+    <string name="profile_change_more_last_week">%1$d%% أكثر من الأسبوع الماضي</string>
+    <string name="profile_change_less_last_week">%1$d%% أقل من الأسبوع الماضي</string>
+    <string name="profile_time_minutes">%1$d دقيقة</string>
+    <string name="profile_time_hours_minutes">%1$d ساعة %2$d دقيقة</string>
 </resources>

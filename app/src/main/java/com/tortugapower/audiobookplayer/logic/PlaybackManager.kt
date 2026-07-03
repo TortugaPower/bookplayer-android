@@ -149,6 +149,7 @@ object PlaybackManager {
                             }
                             startProgressTracker(appContext)
                         }
+                        StatisticsManager.setPlaybackState(appContext, _currentItem.value, playing)
                     }
 
                     override fun onPositionDiscontinuity(
@@ -166,6 +167,7 @@ object PlaybackManager {
                         _playbackState.value = state
                         if (state == Player.STATE_ENDED) {
                             updateProgress(appContext, forceFinished = true)
+                            StatisticsManager.setPlaybackState(appContext, _currentItem.value, false)
                             // Auto-play next item
                             scope.launch {
                                 val current = _currentItem.value ?: return@launch
@@ -367,6 +369,7 @@ object PlaybackManager {
                 if (PlaybackTickPolicy.shouldPersist(now, lastProgressPersistMs)) {
                     lastProgressPersistMs = now
                     updateProgress(context)
+                    StatisticsManager.updateActiveSessionDuration(context)
                 }
             }
         }

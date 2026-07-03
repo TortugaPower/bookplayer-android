@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.logic.ListeningStatsCalculator
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.network.NetworkClient
@@ -13,10 +14,13 @@ import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 
 class ProfileViewModel(
     private val accountRepository: AccountRepository,
-    private val syncTaskRepository: SyncTaskRepository
+    private val syncTaskRepository: SyncTaskRepository,
+    private val statisticsDao: com.tortugapower.audiobookplayer.database.dao.StatisticsDao,
+    private val libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
 ) : ViewModel() {
 
     val account: StateFlow<AccountEntity?> = accountRepository.getAccountFlow()
@@ -25,6 +29,27 @@ class ProfileViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = null
         )
+
+    val totalPlaytime: StateFlow<Long> = statisticsDao.getTotalPlaytimeFlow()
+        .map { it ?: 0L }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val completedBooks: StateFlow<Int> = libraryDao.getCompletedBooksCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val daysListened: StateFlow<Int> = statisticsDao.getDaysListenedFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val mostListenedBookArtwork: StateFlow<String?> = statisticsDao.getMostListenedBookArtworkFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    // The card only needs today's sessions. The query cutoff is fixed at the creation day's
+    // midnight, which stays a superset of the mapper's live "today" filter as time moves on.
+    val todayListenedTime: StateFlow<Long> =
+        statisticsDao.getSessionsSince(ListeningStatsCalculator.startOfDay(System.currentTimeMillis()))
+            .map { sessions -> ListeningStatsCalculator.todayListenedTime(sessions, System.currentTimeMillis()) }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
     val syncTasks: StateFlow<List<SyncTaskEntity>> = syncTaskRepository.getAllTasks()
         .stateIn(

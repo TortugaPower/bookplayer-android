@@ -51,8 +51,6 @@
     <string name="profile_setup_account">Настроить аккаунт</string>
     <string name="profile_tier_label">Уровень: %1$s</string>
     <string name="profile_not_signed_in">Вы не вошли</string>
-    <string name="profile_listening_time_value">0м</string>
-    <string name="profile_total_listening_time">Общее время прослушивания</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -84,7 +82,6 @@
     <string name="player_next">Вперед</string>
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">Глава 1 из 1</string>
-    <string name="player_play_pause">Воспроизведение/Пауза</string>
     <string name="player_chapters_title">Главы</string>
     <string name="player_chapter_details">Начало: %1$s - Длительность: %2$s</string>
     <string name="player_jump_to_start">Перейти в начало</string>
@@ -217,4 +214,45 @@
     <string name="sync_task_sync_identifiers">Синхронизировать идентификаторы</string>
     <string name="sync_task_match_library_ids">Сопоставить ID библиотеки</string>
 
+    <!-- Profile Stats -->
+    <string name="profile_overview">ОБЗОР</string>
+    <string name="profile_activity">АКТИВНОСТЬ</string>
+    <string name="profile_today">Сегодня</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">Всего прослушано: %1$s</string>
+    <string name="profile_time_hours">%1$d ч</string>
+    <plurals name="profile_unit_days">
+        <item quantity="one">%1$d день</item>
+        <item quantity="other">%1$d дня</item>
+        <item quantity="few">%1$d дня</item>
+        <item quantity="many">%1$d дней</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="one">%1$d месяц</item>
+        <item quantity="other">%1$d месяца</item>
+        <item quantity="few">%1$d месяца</item>
+        <item quantity="many">%1$d месяцев</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="one">%1$d год</item>
+        <item quantity="other">%1$d года</item>
+        <item quantity="few">%1$d года</item>
+        <item quantity="many">%1$d лет</item>
+    </plurals>
+    <string name="profile_completed_books">Завершенные книги</string>
+    <string name="profile_days_listened">Дней прослушано</string>
+    <string name="profile_stats">Статистика</string>
+    <string name="profile_listening_history">История прослушивания</string>
+
+    <string name="profile_week">Неделя</string>
+    <string name="profile_daily_average">Среднее за день</string>
+    <string name="history_book_not_found">Аудиокнига не найдена в библиотеке</string>
+    <string name="history_empty">История прослушивания пуста</string>
+    <string name="profile_change_more_yesterday">на %1$d%% больше, чем вчера</string>
+    <string name="profile_change_less_yesterday">на %1$d%% меньше, чем вчера</string>
+    <string name="profile_change_more_last_week">на %1$d%% больше, чем на прошлой неделе</string>
+    <string name="profile_change_less_last_week">на %1$d%% меньше, чем на прошлой неделе</string>
+    <string name="profile_time_minutes">%1$d мин</string>
+    <string name="profile_time_hours_minutes">%1$d ч %2$d м</string>
 </resources>

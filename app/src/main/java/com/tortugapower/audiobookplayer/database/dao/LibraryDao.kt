@@ -5,6 +5,7 @@ import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -44,6 +45,24 @@ interface LibraryDao {
 
     @Query("SELECT * FROM library_items WHERE type = 'BOOK'")
     suspend fun getAllBooksSync(): List<LibraryItemEntity>
+
+    @Query("SELECT COUNT(DISTINCT bookUuid) FROM book_completions")
+    fun getCompletedBooksCount(): Flow<Int>
+
+    @Insert
+    suspend fun insertCompletion(completion: BookCompletionEntity)
+
+    @Query("SELECT EXISTS(SELECT 1 FROM book_completions WHERE bookUuid = :bookUuid)")
+    suspend fun hasCompletion(bookUuid: String): Boolean
+
+    // One completion row per book: re-finishing (or two concurrent progress updates racing on the
+    // same finish) must not grow the table. Transactional so check-then-insert can't interleave.
+    @Transaction
+    suspend fun insertCompletionIfMissing(completion: BookCompletionEntity) {
+        if (!hasCompletion(completion.bookUuid)) {
+            insertCompletion(completion)
+        }
+    }
 
     @Query("SELECT * FROM library_items")
     suspend fun getAllItemsSync(): List<LibraryItemEntity>

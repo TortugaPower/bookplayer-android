@@ -72,3 +72,12 @@ data class BookmarkEntity(
     var note: String? = null,
     val type: BookmarkType = BookmarkType.USER
 )
+
+@Entity(tableName = "book_completions")
+data class BookCompletionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bookUuid: String,
+    val bookTitle: String,
+    val authorName: String?,
+    val completionDate: Long
+)

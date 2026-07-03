@@ -50,8 +50,6 @@
     <string name="profile_setup_account">アカウント設定</string>
     <string name="profile_tier_label">ティア: %1$s</string>
     <string name="profile_not_signed_in">サインインしていません</string>
-    <string name="profile_listening_time_value">0分</string>
-    <string name="profile_total_listening_time">総再生時間</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -83,7 +81,6 @@
     <string name="player_next">次へ</string>
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">第1章 (全1章)</string>
-    <string name="player_play_pause">再生/一時停止</string>
     <string name="player_chapters_title">チャプター</string>
     <string name="player_chapter_details">開始: %1$s - 長さ: %2$s</string>
     <string name="player_jump_to_start">最初に戻る</string>
@@ -218,4 +215,36 @@
     <string name="sync_task_sync_identifiers">識別子の同期</string>
     <string name="sync_task_match_library_ids">ライブラリIDの照合</string>
 
+    <!-- Profile Stats -->
+    <string name="profile_overview">概要</string>
+    <string name="profile_activity">アクティビティ</string>
+    <string name="profile_today">今日</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">合計: %1$s</string>
+    <string name="profile_time_hours">%1$d時間</string>
+    <plurals name="profile_unit_days">
+        <item quantity="other">%1$d日</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="other">%1$dか月</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="other">%1$d年</item>
+    </plurals>
+    <string name="profile_completed_books">読了した本</string>
+    <string name="profile_days_listened">聴いた日数</string>
+    <string name="profile_stats">統計</string>
+    <string name="profile_listening_history">再生履歴</string>
+
+    <string name="profile_week">週</string>
+    <string name="profile_daily_average">1日平均</string>
+    <string name="history_book_not_found">ライブラリにオーディオブックが見つかりません</string>
+    <string name="history_empty">再生履歴はまだありません</string>
+    <string name="profile_change_more_yesterday">昨日より%1$d%%多い</string>
+    <string name="profile_change_less_yesterday">昨日より%1$d%%少ない</string>
+    <string name="profile_change_more_last_week">先週より%1$d%%多い</string>
+    <string name="profile_change_less_last_week">先週より%1$d%%少ない</string>
+    <string name="profile_time_minutes">%1$d 分</string>
+    <string name="profile_time_hours_minutes">%1$d 時間 %2$d 分</string>
 </resources>

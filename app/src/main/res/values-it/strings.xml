@@ -51,8 +51,6 @@
     <string name="profile_setup_account">Configura account</string>
     <string name="profile_tier_label">Livello: %1$s</string>
     <string name="profile_not_signed_in">Non connesso</string>
-    <string name="profile_listening_time_value">0m</string>
-    <string name="profile_total_listening_time">Tempo totale di ascolto</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -84,7 +82,6 @@
     <string name="player_next">Successivo</string>
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">Capitolo 1 di 1</string>
-    <string name="player_play_pause">Riproduci/Pausa</string>
     <string name="player_chapters_title">Capitoli</string>
     <string name="player_chapter_details">Inizio: %1$s - Durata: %2$s</string>
     <string name="player_jump_to_start">Vai all\'inizio</string>
@@ -217,4 +214,39 @@
     <string name="sync_task_sync_identifiers">Sincronizza identificatori</string>
     <string name="sync_task_match_library_ids">Corrispondenza ID libreria</string>
 
+    <!-- Profile Stats -->
+    <string name="profile_overview">PANORAMICA</string>
+    <string name="profile_activity">ATTIVITÀ</string>
+    <string name="profile_today">Oggi</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">Totale ascoltato: %1$s</string>
+    <string name="profile_time_hours">%1$dh</string>
+    <plurals name="profile_unit_days">
+        <item quantity="one">%1$d giorno</item>
+        <item quantity="other">%1$d giorni</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="one">%1$d mese</item>
+        <item quantity="other">%1$d mesi</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="one">%1$d anno</item>
+        <item quantity="other">%1$d anni</item>
+    </plurals>
+    <string name="profile_completed_books">Libri completati</string>
+    <string name="profile_days_listened">Giorni ascoltati</string>
+    <string name="profile_stats">Statistiche</string>
+    <string name="profile_listening_history">Cronologia di ascolto</string>
+
+    <string name="profile_week">Settimana</string>
+    <string name="profile_daily_average">Media giornaliera</string>
+    <string name="history_book_not_found">Audiolibro non trovato nella libreria</string>
+    <string name="history_empty">Ancora nessuna cronologia di ascolto</string>
+    <string name="profile_change_more_yesterday">%1$d%% in più di ieri</string>
+    <string name="profile_change_less_yesterday">%1$d%% in meno di ieri</string>
+    <string name="profile_change_more_last_week">%1$d%% in più della settimana scorsa</string>
+    <string name="profile_change_less_last_week">%1$d%% in meno della settimana scorsa</string>
+    <string name="profile_time_minutes">%1$d min</string>
+    <string name="profile_time_hours_minutes">%1$dh %2$dm</string>
 </resources>

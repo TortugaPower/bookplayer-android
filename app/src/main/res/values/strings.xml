@@ -60,8 +60,6 @@
     <string name="profile_setup_account">Set Up Account</string>
     <string name="profile_tier_label">Tier: %1$s</string>
     <string name="profile_not_signed_in">Not signed in</string>
-    <string name="profile_listening_time_value">0m</string>
-    <string name="profile_total_listening_time">Total Listening Time</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -315,5 +313,40 @@
     <string name="sync_task_download_audio">Download Audio</string>
     <string name="sync_task_sync_identifiers">Sync Identifiers</string>
     <string name="sync_task_match_library_ids">Match Library IDs</string>
+    
+    <!-- Profile Stats -->
+    <string name="profile_overview">OVERVIEW</string>
+    <string name="profile_activity">ACTIVITY</string>
+    <string name="profile_today">Today</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">Total listened: %1$s</string>
+    <string name="profile_time_hours">%1$dh</string>
+    <plurals name="profile_unit_days">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="one">%1$d month</item>
+        <item quantity="other">%1$d months</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="one">%1$d year</item>
+        <item quantity="other">%1$d years</item>
+    </plurals>
+    <string name="profile_completed_books">Completed Books</string>
+    <string name="profile_days_listened">Days Listened</string>
+    <string name="profile_stats">Stats</string>
+    <string name="profile_listening_history">Listening history</string>
 
+    <string name="profile_week">Week</string>
+    <string name="profile_daily_average">Daily Average</string>
+    <string name="history_book_not_found">Audiobook not found in library</string>
+    <string name="history_empty">No listening history yet</string>
+    <string name="profile_change_more_yesterday">%1$d%% more than yesterday</string>
+    <string name="profile_change_less_yesterday">%1$d%% less than yesterday</string>
+    <string name="profile_change_more_last_week">%1$d%% more than last week</string>
+    <string name="profile_change_less_last_week">%1$d%% less than last week</string>
+    <string name="profile_time_minutes">%1$d min</string>
+    <string name="profile_time_hours_minutes">%1$dh %2$dm</string>
 </resources>

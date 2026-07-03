@@ -50,8 +50,6 @@
     <string name="profile_setup_account">设置账户</string>
     <string name="profile_tier_label">等级: %1$s</string>
     <string name="profile_not_signed_in">未登录</string>
-    <string name="profile_listening_time_value">0分钟</string>
-    <string name="profile_total_listening_time">累计收听时间</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
@@ -83,7 +81,6 @@
     <string name="player_next">下一个</string>
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">第 1 章 (共 1 章)</string>
-    <string name="player_play_pause">播放/暂停</string>
     <string name="player_chapters_title">章节</string>
     <string name="player_chapter_details">开始: %1$s - 时长: %2$s</string>
     <string name="player_jump_to_start">跳转至开始</string>
@@ -218,4 +215,36 @@
     <string name="sync_task_sync_identifiers">同步标识符</string>
     <string name="sync_task_match_library_ids">匹配库 ID</string>
 
+    <!-- Profile Stats -->
+    <string name="profile_overview">概览</string>
+    <string name="profile_activity">活动</string>
+    <string name="profile_today">今天</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">总收听：%1$s</string>
+    <string name="profile_time_hours">%1$d小时</string>
+    <plurals name="profile_unit_days">
+        <item quantity="other">%1$d天</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="other">%1$d个月</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="other">%1$d年</item>
+    </plurals>
+    <string name="profile_completed_books">已读完的书籍</string>
+    <string name="profile_days_listened">听书天数</string>
+    <string name="profile_stats">统计</string>
+    <string name="profile_listening_history">听书历史</string>
+
+    <string name="profile_week">周</string>
+    <string name="profile_daily_average">日均</string>
+    <string name="history_book_not_found">库中未找到有声书</string>
+    <string name="history_empty">暂无听书历史</string>
+    <string name="profile_change_more_yesterday">比昨天多%1$d%%</string>
+    <string name="profile_change_less_yesterday">比昨天少%1$d%%</string>
+    <string name="profile_change_more_last_week">比上周多%1$d%%</string>
+    <string name="profile_change_less_last_week">比上周少%1$d%%</string>
+    <string name="profile_time_minutes">%1$d 分钟</string>
+    <string name="profile_time_hours_minutes">%1$d 小时 %2$d 分钟</string>
 </resources>

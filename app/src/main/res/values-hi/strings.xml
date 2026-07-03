@@ -50,8 +50,6 @@
     <string name="profile_setup_account">खाता सेट करें</string>
     <string name="profile_tier_label">टियर: %1$s</string>
     <string name="profile_not_signed_in">साइन इन नहीं किया</string>
-    <string name="profile_listening_time_value">0 मि</string>
-    <string name="profile_total_listening_time">कुल सुनने का समय</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer प्रो</string>
@@ -83,7 +81,6 @@
     <string name="player_next">अगला</string>
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">अध्याय 1 का 1</string>
-    <string name="player_play_pause">चलाएं/रोकें</string>
     <string name="player_chapters_title">अध्याय</string>
     <string name="player_chapter_details">प्रारंभ: %1$s - अवधि: %2$s</string>
     <string name="player_jump_to_start">शुरुआत पर जाएं</string>
@@ -218,4 +215,38 @@
     <string name="sync_task_sync_identifiers">आइडेंटिफ़ायर सिंक करें</string>
     <string name="sync_task_match_library_ids">लाइब्रेरी आईडी मिलान करें</string>
 
+    <!-- Profile Stats -->
+    <string name="profile_overview">अवलोकन</string>
+    <string name="profile_activity">गतिविधि</string>
+    <string name="profile_today">आज</string>
+    <string name="profile_hour_range">%1$d – %2$d</string>
+    <string name="profile_date_range">%1$s – %2$s</string>
+    <string name="profile_total_listened">कुल सुना: %1$s</string>
+    <string name="profile_time_hours">%1$d घंटे</string>
+    <plurals name="profile_unit_days">
+        <item quantity="one">%1$d दिन</item>
+        <item quantity="other">%1$d दिन</item>
+    </plurals>
+    <plurals name="profile_unit_months">
+        <item quantity="one">%1$d महीना</item>
+        <item quantity="other">%1$d महीने</item>
+    </plurals>
+    <plurals name="profile_unit_years">
+        <item quantity="one">%1$d साल</item>
+        <item quantity="other">%1$d साल</item>
+    </plurals>
+    <string name="profile_completed_books">पूरी की गई किताबें</string>
+    <string name="profile_days_listened">सुने गए दिन</string>
+    <string name="profile_stats">आंकड़े</string>
+    <string name="profile_listening_history">सुनने का इतिहास</string>
+    <string name="profile_week">सप्ताह</string>
+    <string name="profile_daily_average">दैनिक औसत</string>
+    <string name="history_book_not_found">लाइब्रेरी में ऑडियोबुक नहीं मिला</string>
+    <string name="history_empty">अभी तक कोई सुनने का इतिहास नहीं है</string>
+    <string name="profile_change_more_yesterday">कल से %1$d%% अधिक</string>
+    <string name="profile_change_less_yesterday">कल से %1$d%% कम</string>
+    <string name="profile_change_more_last_week">पिछले सप्ताह से %1$d%% अधिक</string>
+    <string name="profile_change_less_last_week">पिछले सप्ताह से %1$d%% कम</string>
+    <string name="profile_time_minutes">%1$d मिनट</string>
+    <string name="profile_time_hours_minutes">%1$d घंटे %2$d मिनट</string>
 </resources>
