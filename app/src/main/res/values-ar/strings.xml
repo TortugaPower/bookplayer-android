@@ -255,8 +255,10 @@
     <string name="profile_daily_average">المعدل اليومي</string>
     <string name="history_book_not_found">لم يتم العثور على الكتاب الصوتي في المكتبة</string>
     <string name="history_empty">لا يوجد سجل استماع بعد</string>
-    <string name="profile_change_more">%1$d%% أكثر من جلستك الأخيرة</string>
-    <string name="profile_change_less">%1$d%% أقل من جلستك الأخيرة</string>
+    <string name="profile_change_more_yesterday">%1$d%% أكثر من الأمس</string>
+    <string name="profile_change_less_yesterday">%1$d%% أقل من الأمس</string>
+    <string name="profile_change_more_last_week">%1$d%% أكثر من الأسبوع الماضي</string>
+    <string name="profile_change_less_last_week">%1$d%% أقل من الأسبوع الماضي</string>
     <string name="profile_time_minutes">%1$d دقيقة</string>
     <string name="profile_time_hours_minutes">%1$d ساعة %2$d دقيقة</string>
 </resources>

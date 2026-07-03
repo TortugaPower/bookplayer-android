@@ -243,8 +243,10 @@
     <string name="profile_daily_average">Promedio diario</string>
     <string name="history_book_not_found">Audiolibro no encontrado en la biblioteca</string>
     <string name="history_empty">Aún no hay historial de reproducción</string>
-    <string name="profile_change_more">%1$d%% más que tu última sesión</string>
-    <string name="profile_change_less">%1$d%% menos que tu última sesión</string>
+    <string name="profile_change_more_yesterday">%1$d%% más que ayer</string>
+    <string name="profile_change_less_yesterday">%1$d%% menos que ayer</string>
+    <string name="profile_change_more_last_week">%1$d%% más que la semana pasada</string>
+    <string name="profile_change_less_last_week">%1$d%% menos que la semana pasada</string>
     <string name="profile_time_minutes">%1$d min</string>
     <string name="profile_time_hours_minutes">%1$dh %2$dm</string>
 </resources>

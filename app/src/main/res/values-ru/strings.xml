@@ -249,8 +249,10 @@
     <string name="profile_daily_average">Среднее за день</string>
     <string name="history_book_not_found">Аудиокнига не найдена в библиотеке</string>
     <string name="history_empty">История прослушивания пуста</string>
-    <string name="profile_change_more">%1$d%% больше, чем за прошлый сеанс</string>
-    <string name="profile_change_less">%1$d%% меньше, чем за прошлый сеанс</string>
+    <string name="profile_change_more_yesterday">на %1$d%% больше, чем вчера</string>
+    <string name="profile_change_less_yesterday">на %1$d%% меньше, чем вчера</string>
+    <string name="profile_change_more_last_week">на %1$d%% больше, чем на прошлой неделе</string>
+    <string name="profile_change_less_last_week">на %1$d%% меньше, чем на прошлой неделе</string>
     <string name="profile_time_minutes">%1$d мин</string>
     <string name="profile_time_hours_minutes">%1$d ч %2$d м</string>
 </resources>

@@ -243,8 +243,10 @@
     <string name="profile_daily_average">दैनिक औसत</string>
     <string name="history_book_not_found">लाइब्रेरी में ऑडियोबुक नहीं मिला</string>
     <string name="history_empty">अभी तक कोई सुनने का इतिहास नहीं है</string>
-    <string name="profile_change_more">आपके पिछले सत्र की तुलना में %1$d%% अधिक</string>
-    <string name="profile_change_less">आपके पिछले सत्र की तुलना में %1$d%% कम</string>
+    <string name="profile_change_more_yesterday">कल से %1$d%% अधिक</string>
+    <string name="profile_change_less_yesterday">कल से %1$d%% कम</string>
+    <string name="profile_change_more_last_week">पिछले सप्ताह से %1$d%% अधिक</string>
+    <string name="profile_change_less_last_week">पिछले सप्ताह से %1$d%% कम</string>
     <string name="profile_time_minutes">%1$d मिनट</string>
     <string name="profile_time_hours_minutes">%1$d घंटे %2$d मिनट</string>
 </resources>

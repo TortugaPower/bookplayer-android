@@ -241,8 +241,10 @@
     <string name="profile_daily_average">일일 평균</string>
     <string name="history_book_not_found">라이브러리에서 오디오북을 찾을 수 없습니다</string>
     <string name="history_empty">청취 기록이 아직 없습니다</string>
-    <string name="profile_change_more">지난 세션보다 %1$d%% 증가</string>
-    <string name="profile_change_less">지난 세션보다 %1$d%% 감소</string>
+    <string name="profile_change_more_yesterday">어제보다 %1$d%% 증가</string>
+    <string name="profile_change_less_yesterday">어제보다 %1$d%% 감소</string>
+    <string name="profile_change_more_last_week">지난주보다 %1$d%% 증가</string>
+    <string name="profile_change_less_last_week">지난주보다 %1$d%% 감소</string>
     <string name="profile_time_minutes">%1$d 분</string>
     <string name="profile_time_hours_minutes">%1$d 시간 %2$d 분</string>
 </resources>

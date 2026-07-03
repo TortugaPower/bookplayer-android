@@ -96,10 +96,16 @@ fun StatisticsScreen(
             if (changePercent != null) {
                 val isDark = isSystemInDarkTheme()
                 Text(
-                    text = if (changePercent >= 0) {
-                        stringResource(R.string.profile_change_more, changePercent)
-                    } else {
-                        stringResource(R.string.profile_change_less, kotlin.math.abs(changePercent))
+                    // The Today tab compares against yesterday; the Week tab against last week.
+                    text = when {
+                        selectedTab == 0 && changePercent >= 0 ->
+                            stringResource(R.string.profile_change_more_yesterday, changePercent)
+                        selectedTab == 0 ->
+                            stringResource(R.string.profile_change_less_yesterday, kotlin.math.abs(changePercent))
+                        changePercent >= 0 ->
+                            stringResource(R.string.profile_change_more_last_week, changePercent)
+                        else ->
+                            stringResource(R.string.profile_change_less_last_week, kotlin.math.abs(changePercent))
                     },
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                     color = if (changePercent >= 0) {

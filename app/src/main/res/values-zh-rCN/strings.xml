@@ -241,8 +241,10 @@
     <string name="profile_daily_average">日均</string>
     <string name="history_book_not_found">库中未找到有声书</string>
     <string name="history_empty">暂无听书历史</string>
-    <string name="profile_change_more">比上次播放多 %1$d%%</string>
-    <string name="profile_change_less">比上次播放少 %1$d%%</string>
+    <string name="profile_change_more_yesterday">比昨天多%1$d%%</string>
+    <string name="profile_change_less_yesterday">比昨天少%1$d%%</string>
+    <string name="profile_change_more_last_week">比上周多%1$d%%</string>
+    <string name="profile_change_less_last_week">比上周少%1$d%%</string>
     <string name="profile_time_minutes">%1$d 分钟</string>
     <string name="profile_time_hours_minutes">%1$d 小时 %2$d 分钟</string>
 </resources>
