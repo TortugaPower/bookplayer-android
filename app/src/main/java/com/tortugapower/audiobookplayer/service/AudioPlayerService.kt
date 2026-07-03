@@ -9,6 +9,7 @@ import androidx.core.content.IntentCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
@@ -29,11 +30,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
+import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.session.CacheBitmapLoader
 
 class AudioPlayerService : MediaSessionService() {
 
@@ -58,19 +61,12 @@ class AudioPlayerService : MediaSessionService() {
                 val delegate = httpDataSourceFactory.createDataSource()
                 return object : HttpDataSource by delegate {
                     override fun open(dataSpec: DataSpec): Long {
-                        val uri = dataSpec.uri
-                        val key = uri.getQueryParameter("bp_header_key")
-                        if (key != null) {
-                            val headers = PlaybackManager.getHeaders(key)
-                            headers?.forEach { (k, v) -> delegate.setRequestProperty(k, v) }
-                            
-                            val cleanUri = uri.buildUpon().clearQuery().apply {
-                                uri.queryParameterNames.filter { it != "bp_header_key" }.forEach { name ->
-                                    appendQueryParameter(name, uri.getQueryParameter(name))
-                                }
-                            }.build()
-                            
-                            return delegate.open(dataSpec.withUri(cleanUri))
+                        // Attach auth only when the request host belongs to a configured external
+                        // server (resolved by authority in PlaybackManager), and reset any properties
+                        // from a previous open so headers never bleed onto another host's request.
+                        delegate.clearAllRequestProperties()
+                        PlaybackManager.getHeadersForUri(dataSpec.uri)?.forEach { (k, v) ->
+                            delegate.setRequestProperty(k, v)
                         }
                         return delegate.open(dataSpec)
                     }
@@ -104,6 +100,25 @@ class AudioPlayerService : MediaSessionService() {
             p.addListener(object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     p.setWakeMode(wakeModeFor(mediaItem))
+                }
+
+                // Surface a 401/403 on an external-server stream as an app-level error (the stored
+                // session died mid-playback). Detected here on the REAL player — the full cause
+                // chain doesn't survive the session-controller bundling that PlaybackManager sees.
+                override fun onPlayerError(error: PlaybackException) {
+                    var cause: Throwable? = error
+                    while (cause != null) {
+                        if (cause is HttpDataSource.InvalidResponseCodeException &&
+                            (cause.responseCode == 401 || cause.responseCode == 403)
+                        ) {
+                            val uri = p.currentMediaItem?.localConfiguration?.uri
+                            if (uri != null && PlaybackManager.hasHeadersForUri(uri)) {
+                                PlaybackManager.reportExternalStreamAuthError()
+                            }
+                            return
+                        }
+                        cause = cause.cause
+                    }
                 }
             })
 
@@ -150,6 +165,14 @@ class AudioPlayerService : MediaSessionService() {
                 .setSessionActivity(pendingIntent)
                 .setCallback(CustomMediaSessionCallback())
                 .setMediaButtonPreferences(listOf(rewindButton, forwardButton))
+                // Load notification artwork through the same data source factory as playback, so
+                // external-server covers (auth via headers, not URL tokens) render in the media
+                // notification too.
+                .setBitmapLoader(
+                    CacheBitmapLoader(
+                        DataSourceBitmapLoader(DataSourceBitmapLoader.DEFAULT_EXECUTOR_SERVICE.get(), dataSourceFactory)
+                    )
+                )
                 .build()
 
             // Initialize LoudnessEnhancer

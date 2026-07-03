@@ -17,7 +17,7 @@ class AudiobookshelfService : ExternalService {
         val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
 
         val okHttpClientBuilder = OkHttpClient.Builder()
-        headers?.forEach { (key, value) ->
+        ExternalServiceUtils.sanitizeCustomHeaders(headers)?.forEach { (key, value) ->
             okHttpClientBuilder.addInterceptor(Interceptor { chain ->
                 val original = chain.request()
                 val requestBuilder = original.newBuilder().header(key, value)
@@ -62,30 +62,49 @@ class AudiobookshelfService : ExternalService {
         }
     }
 
-    override suspend fun getLibrary(url: String, token: String, startIndex: Int, limit: Int, headers: Map<String, String>?): LibraryResult {
+    override suspend fun getLibraries(url: String, token: String, headers: Map<String, String>?): List<com.tortugapower.audiobookplayer.network.ExternalLibraryInfo> {
+        val api = getApi(url, headers)
+        val response = api.getLibraries(getAuthHeader(token))
+        if (response.code() == 401 || response.code() == 403) throw com.tortugapower.audiobookplayer.network.SessionExpiredException()
+        if (!response.isSuccessful || response.body() == null) {
+            val errorMsg = "Audiobookshelf API error fetching libraries: ${response.code()} ${response.message()}"
+            android.util.Log.e("AudiobookshelfService", errorMsg)
+            throw Exception(errorMsg)
+        }
+        // Only book libraries — podcasts are dropped, matching iOS (see ExternalService).
+        return response.body()!!.libraries
+            .filter { it.mediaType == "book" }
+            .map {
+                com.tortugapower.audiobookplayer.network.ExternalLibraryInfo(
+                    id = it.id,
+                    name = it.name,
+                    subtitleResId = com.tortugapower.audiobookplayer.R.string.external_library_audiobook_library_caption
+                )
+            }
+    }
+
+    override suspend fun getLibrary(url: String, token: String, startIndex: Int, limit: Int, headers: Map<String, String>?, libraryId: String?): LibraryResult {
         return try {
             val api = getApi(url, headers)
             val auth = getAuthHeader(token)
-            
-            // 1. Get libraries to find an audiobook library
-            val libResponse = api.getLibraries(auth)
-            if (!libResponse.isSuccessful || libResponse.body() == null) {
-                val errorMsg = "Audiobookshelf API error fetching libraries: ${libResponse.code()} ${libResponse.message()}"
-                android.util.Log.e("AudiobookshelfService", errorMsg)
-                throw Exception(errorMsg)
-            }
-            
-            val libraries = libResponse.body()!!.libraries
-            val targetLibrary = libraries.find { it.type == "audiobook" } ?: libraries.firstOrNull()
-            
-            if (targetLibrary == null) {
-                return LibraryResult(emptyList(), 0)
-            }
 
-            // 2. Get items from that library
+            // Use the user's selected library; fall back to discovering the first book library
+            // when no selection has been made yet.
+            val targetLibraryId = libraryId ?: run {
+                val libResponse = api.getLibraries(auth)
+                if (libResponse.code() == 401 || libResponse.code() == 403) throw com.tortugapower.audiobookplayer.network.SessionExpiredException()
+                if (!libResponse.isSuccessful || libResponse.body() == null) {
+                    val errorMsg = "Audiobookshelf API error fetching libraries: ${libResponse.code()} ${libResponse.message()}"
+                    android.util.Log.e("AudiobookshelfService", errorMsg)
+                    throw Exception(errorMsg)
+                }
+                val libraries = libResponse.body()!!.libraries
+                (libraries.find { it.mediaType == "book" } ?: libraries.firstOrNull())?.id
+            } ?: return LibraryResult(emptyList(), 0)
+
             // startIndex to page: page = startIndex / limit
             val page = ExternalServiceUtils.calculatePage(startIndex, limit)
-            val itemsResponse = api.getLibraryItems(auth, targetLibrary.id, limit, page, include = "media")
+            val itemsResponse = api.getLibraryItems(auth, targetLibraryId, limit, page, include = "media")
 
             if (itemsResponse.isSuccessful && itemsResponse.body() != null) {
                 val body = itemsResponse.body()!!
@@ -102,7 +121,9 @@ class AudiobookshelfService : ExternalService {
                         author = metadata?.authorName,
                         duration = item.media?.duration ?: 0.0,
                         type = com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK,
-                        artworkURL = if (item.media?.coverPath != null) "${sanitizedUrl}api/items/${item.id}/cover?token=$token" else null,
+                        // No token in the URL: tokens in query strings end up in server/proxy logs
+                        // and image caches. Consumers attach customHeaders instead.
+                        artworkURL = if (item.media?.coverPath != null) "${sanitizedUrl}api/items/${item.id}/cover" else null,
                         remoteURL = "${sanitizedUrl}api/items/${item.id}/download",
                         relativePath = null,
                         originalFileName = realFileName
@@ -110,10 +131,12 @@ class AudiobookshelfService : ExternalService {
                     ExternalLibraryItem(
                         entity = entity,
                         genres = metadata?.genres?.joinToString(", "),
-                        customHeaders = ExternalServiceUtils.mergeHeaders(headers, "Authorization", "Bearer $token")
+                        customHeaders = ExternalServiceUtils.playbackHeaders(com.tortugapower.audiobookplayer.database.entities.ExternalServiceType.AUDIOBOOKSHELF, token, headers)
                     )
                 }
                 LibraryResult(items, body.total)
+            } else if (itemsResponse.code() == 401 || itemsResponse.code() == 403) {
+                throw com.tortugapower.audiobookplayer.network.SessionExpiredException()
             } else {
                 val errorMsg = "Audiobookshelf API error fetching items: ${itemsResponse.code()} ${itemsResponse.message()}"
                 android.util.Log.e("AudiobookshelfService", errorMsg)
@@ -132,8 +155,16 @@ class AudiobookshelfService : ExternalService {
 
     override suspend fun getThumbnailUrl(url: String, token: String, item: LibraryItemEntity): String? {
         val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
-        // We can't easily check coverPath here without a full item fetch, 
+        // We can't easily check coverPath here without a full item fetch,
         // but we rely on the library list to have populated it correctly.
         return item.artworkURL
+    }
+
+    override suspend fun revokeToken(url: String, token: String, headers: Map<String, String>?) {
+        try {
+            getApi(url, headers).logout(getAuthHeader(token))
+        } catch (e: Exception) {
+            android.util.Log.w("AudiobookshelfService", "Failed to revoke token (ignored)", e)
+        }
     }
 }

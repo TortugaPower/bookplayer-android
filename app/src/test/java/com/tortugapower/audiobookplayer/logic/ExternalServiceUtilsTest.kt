@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.logic
 
+import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -54,5 +55,87 @@ class ExternalServiceUtilsTest {
         val merged = ExternalServiceUtils.mergeHeaders(existing, "Key", "NewValue")
         assertEquals(1, merged.size)
         assertEquals("NewValue", merged["Key"])
+    }
+
+    @Test
+    fun testPlaybackHeaders_jellyfinAuthFormat() {
+        val headers = ExternalServiceUtils.playbackHeaders(ExternalServiceType.JELLYFIN, "abc123")
+        assertEquals("MediaBrowser Token=\"abc123\"", headers?.get("Authorization"))
+    }
+
+    @Test
+    fun testPlaybackHeaders_audiobookshelfAuthFormat() {
+        val headers = ExternalServiceUtils.playbackHeaders(ExternalServiceType.AUDIOBOOKSHELF, "abc123")
+        assertEquals("Bearer abc123", headers?.get("Authorization"))
+    }
+
+    @Test
+    fun testPlaybackHeaders_mergesCustomHeaders() {
+        val custom = mapOf("X-Custom" to "value")
+        val headers = ExternalServiceUtils.playbackHeaders(ExternalServiceType.AUDIOBOOKSHELF, "abc123", custom)
+        assertEquals(2, headers?.size)
+        assertEquals("value", headers?.get("X-Custom"))
+        assertEquals("Bearer abc123", headers?.get("Authorization"))
+    }
+
+    @Test
+    fun testPlaybackHeaders_nullTokenReturnsCustomHeadersOnly() {
+        val custom = mapOf("X-Custom" to "value")
+        assertEquals(custom, ExternalServiceUtils.playbackHeaders(ExternalServiceType.JELLYFIN, null, custom))
+        assertNull(ExternalServiceUtils.playbackHeaders(ExternalServiceType.JELLYFIN, null, null))
+    }
+
+    @Test
+    fun testSanitizeCustomHeaders_dropsAuthorizationCaseInsensitive() {
+        val headers = mapOf(
+            "authorization" to "Bearer stolen",
+            "AUTHORIZATION" to "Bearer stolen2",
+            "X-Custom" to "value"
+        )
+        assertEquals(mapOf("X-Custom" to "value"), ExternalServiceUtils.sanitizeCustomHeaders(headers))
+    }
+
+    @Test
+    fun testSanitizeCustomHeaders_nullPassthrough() {
+        assertNull(ExternalServiceUtils.sanitizeCustomHeaders(null))
+    }
+
+    @Test
+    fun testCanonicalServerKey_collapsesVariantsOfSameServer() {
+        val expected = "https://media.example.com/audiobookshelf"
+        assertEquals(expected, ExternalServiceUtils.canonicalServerKey("https://media.example.com/audiobookshelf"))
+        assertEquals(expected, ExternalServiceUtils.canonicalServerKey("https://media.example.com/audiobookshelf/"))
+        assertEquals(expected, ExternalServiceUtils.canonicalServerKey("HTTPS://MEDIA.EXAMPLE.COM/audiobookshelf"))
+        assertEquals(expected, ExternalServiceUtils.canonicalServerKey("https://media.example.com:443/audiobookshelf"))
+        assertEquals(expected, ExternalServiceUtils.canonicalServerKey("  https://media.example.com/audiobookshelf/  "))
+    }
+
+    @Test
+    fun testCanonicalServerKey_keepsDistinctServersDistinct() {
+        assertNotEquals(
+            ExternalServiceUtils.canonicalServerKey("http://192.168.1.10:8096"),
+            ExternalServiceUtils.canonicalServerKey("http://192.168.1.10:8097")
+        )
+        assertNotEquals(
+            ExternalServiceUtils.canonicalServerKey("https://a.example.com"),
+            ExternalServiceUtils.canonicalServerKey("https://b.example.com")
+        )
+        assertNotEquals(
+            ExternalServiceUtils.canonicalServerKey("http://example.com"),
+            ExternalServiceUtils.canonicalServerKey("https://example.com")
+        )
+    }
+
+    @Test
+    fun testCanonicalServerKey_nonDefaultPortPreserved() {
+        assertEquals(
+            "http://192.168.1.10:8096",
+            ExternalServiceUtils.canonicalServerKey("http://192.168.1.10:8096/")
+        )
+    }
+
+    @Test
+    fun testCanonicalServerKey_unparseableFallsBackToTrimmedLowercase() {
+        assertEquals("not a url", ExternalServiceUtils.canonicalServerKey(" Not a URL/ "))
     }
 }

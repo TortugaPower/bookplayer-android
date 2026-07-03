@@ -129,13 +129,14 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS `external_servers` (
-                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-                        `name` TEXT NOT NULL, 
-                        `type` TEXT NOT NULL, 
-                        `url` TEXT NOT NULL, 
-                        `username` TEXT, 
-                        `token` TEXT, 
-                        `customHeaders` TEXT
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `url` TEXT NOT NULL,
+                        `username` TEXT,
+                        `token` TEXT,
+                        `customHeaders` TEXT,
+                        `selectedLibraryId` TEXT
                     )
                 """)
             }

@@ -358,14 +358,24 @@ fun AddServerSheet(
     isConnecting: Boolean,
     errorMessage: String?,
     onDismiss: () -> Unit,
-    onConnect: (String, String, String?, String?, Map<String, String>?) -> Unit
+    onConnect: (String, String, String?, String?, Map<String, String>?) -> Unit,
+    // Re-auth mode: prefill from the saved server and start at the credentials step with the
+    // URL locked, so signing in again replaces the token on the same logical server.
+    initialUrl: String = "",
+    initialUsername: String = "",
+    initialHeaders: Map<String, String>? = null,
+    lockUrl: Boolean = false
 ) {
-    var url by remember { mutableStateOf("") }
-    var username by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf(initialUrl) }
+    var username by remember { mutableStateOf(initialUsername) }
     var password by remember { mutableStateOf("") }
-    val headers = remember { mutableStateListOf<Pair<String, String>>() }
-    
-    var currentStep by remember { mutableStateOf(1) }
+    val headers = remember {
+        mutableStateListOf<Pair<String, String>>().apply {
+            initialHeaders?.forEach { (k, v) -> add(k to v) }
+        }
+    }
+
+    var currentStep by remember { mutableStateOf(if (lockUrl) 2 else 1) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
@@ -384,8 +394,8 @@ fun AddServerSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(onClick = { if (currentStep == 1) onDismiss() else currentStep = 1 }, enabled = !isConnecting) {
-                    Text(if (currentStep == 1) stringResource(id = R.string.common_cancel) else stringResource(id = R.string.common_back), color = MaterialTheme.colorScheme.primary)
+                TextButton(onClick = { if (currentStep == 1 || lockUrl) onDismiss() else currentStep = 1 }, enabled = !isConnecting) {
+                    Text(if (currentStep == 1 || lockUrl) stringResource(id = R.string.common_cancel) else stringResource(id = R.string.common_back), color = MaterialTheme.colorScheme.primary)
                 }
                 
                 Text(

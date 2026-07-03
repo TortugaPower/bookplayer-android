@@ -35,40 +35,68 @@ object PlaybackManager {
     var player: Player? = null
         private set
 
-    private const val MAX_REGISTRY_SIZE = 100
-    private const val PRUNE_COUNT = 10
-    private val headerRegistry = ConcurrentHashMap<String, Map<String, String>>()
-    private val headerKeys = LinkedHashSet<String>()
+    // Playback headers for external media servers, keyed by the stream URL's authority (host:port).
+    // Registered when playItem receives headers and seeded from the external_servers table on a
+    // miss, so internal re-entries (auto-advance, next/previous) and session restore after process
+    // death resolve the same auth as the original play without threading headers through every call
+    // site. Keying by authority also pins the headers to their server's host: a request to any other
+    // host (including a redirect target) resolves nothing.
+    private val externalHostHeaders = ConcurrentHashMap<String, Map<String, String>>()
+    @Volatile private var externalHeadersSeeded = false
 
-    fun getHeaders(key: String): Map<String, String>? {
-        synchronized(headerRegistry) {
-            if (headerKeys.contains(key)) {
-                headerKeys.remove(key)
-                headerKeys.add(key)
-            }
-            return headerRegistry[key]
-        }
+    private fun hostKey(uri: android.net.Uri): String? = uri.authority?.lowercase()
+
+    /** Register/refresh the playback headers for a server's host (e.g. on play or after re-auth). */
+    fun registerHeadersForUri(uri: android.net.Uri, headers: Map<String, String>) {
+        hostKey(uri)?.let { externalHostHeaders[it] = headers }
     }
 
-    private fun registerHeaders(headers: Map<String, String>): String {
-        synchronized(headerRegistry) {
-            if (headerRegistry.size >= MAX_REGISTRY_SIZE) {
-                repeat(PRUNE_COUNT) {
-                    val oldestKey = headerKeys.firstOrNull()
-                    if (oldestKey != null) {
-                        headerKeys.remove(oldestKey)
-                        headerRegistry.remove(oldestKey)
-                    }
-                }
-                android.util.Log.w("PlaybackManager", "🧹 Pruned headerRegistry. Removed $PRUNE_COUNT entries.")
-            }
-            val key = java.util.UUID.randomUUID().toString()
-            headerRegistry[key] = headers
-            headerKeys.add(key)
-            return key
+    /**
+     * The auth headers to attach to a playback request for [uri], or null if the URI doesn't belong
+     * to a configured external server. Called from Media3's loading threads (never the main thread);
+     * a miss seeds the map from the DB once per process, which covers restoring a persisted session
+     * URI after process death.
+     */
+    fun getHeadersForUri(uri: android.net.Uri): Map<String, String>? {
+        val key = hostKey(uri) ?: return null
+        externalHostHeaders[key]?.let { return it }
+        if (!externalHeadersSeeded) {
+            val context = appContext ?: return null
+            kotlinx.coroutines.runBlocking { seedExternalHostHeaders(context) }
         }
+        return externalHostHeaders[key]
     }
-    
+
+    /** In-memory-only check (safe on the main thread): is [uri] a registered external-server host? */
+    fun hasHeadersForUri(uri: android.net.Uri): Boolean =
+        hostKey(uri)?.let { externalHostHeaders.containsKey(it) } ?: false
+
+    // Set when a stream from an external server fails with 401/403 — the stored session died
+    // mid-playback. The UI surfaces it as a plain error alert (no re-auth routing by design).
+    private val _externalStreamAuthError = MutableStateFlow(false)
+    val externalStreamAuthError: StateFlow<Boolean> = _externalStreamAuthError.asStateFlow()
+
+    fun reportExternalStreamAuthError() {
+        _externalStreamAuthError.value = true
+    }
+
+    fun clearExternalStreamAuthError() {
+        _externalStreamAuthError.value = false
+    }
+
+    private suspend fun seedExternalHostHeaders(context: Context) {
+        // Through the repository, not the DAO: stored credentials are encrypted at rest.
+        val servers = com.tortugapower.audiobookplayer.repository.ExternalServerRepository(
+            AppDatabase.getDatabase(context).externalServerDao()
+        ).allServers.first()
+        for (server in servers) {
+            val headers = ExternalServiceUtils.playbackHeaders(server.type, server.token, server.customHeaders) ?: continue
+            registerHeadersForUri(android.net.Uri.parse(server.url), headers)
+        }
+        externalHeadersSeeded = true
+    }
+
+
     private var repository: LibraryRepository? = null
     private var appContext: Context? = null
 
@@ -360,11 +388,8 @@ object PlaybackManager {
             val uri = when {
                 file != null && file.exists() -> android.net.Uri.fromFile(file)
                 !first.remoteURL.isNullOrEmpty() -> {
-                    var baseUri = android.net.Uri.parse(first.remoteURL)
-                    headers?.let {
-                        val key = registerHeaders(it)
-                        baseUri = baseUri.buildUpon().appendQueryParameter("bp_header_key", key).build()
-                    }
+                    val baseUri = android.net.Uri.parse(first.remoteURL)
+                    headers?.let { registerHeadersForUri(baseUri, it) }
                     baseUri
                 }
                 else -> android.net.Uri.EMPTY
@@ -726,9 +751,5 @@ object PlaybackManager {
         }
         player = null
         controllerFuture = null
-        synchronized(headerRegistry) {
-            headerRegistry.clear()
-            headerKeys.clear()
-        }
     }
 }

@@ -169,6 +169,7 @@
     <string name="library_view_style">Stile visualizzazione</string>
     <string name="library_folder_empty">0 File</string>
     <string name="library_unknown_author">Autore sconosciuto</string>
+    <string name="library_unknown_title">Titolo sconosciuto</string>
     <string name="library_chapter_count">%1$d capitoli</string>
     <string name="library_convert_to_folder">Converti in cartella</string>
     <string name="library_convert_to_volume">Converti in volume</string>
@@ -282,6 +283,12 @@
     <string name="media_servers_add_server_username_placeholder">Nome utente</string>
     <string name="media_servers_add_server_password_placeholder">Password</string>
     <string name="media_servers_add_server_connect_to_server">Connettiti al tuo server %1$s</string>
+    <string name="media_servers_error_auth_failed">Autenticazione non riuscita: %1$s</string>
+    <string name="media_servers_error_connection_failed">Errore di connessione: %1$s</string>
+    <string name="media_servers_error_server_not_found">Server non trovato</string>
+    <string name="media_servers_error_failed_to_fetch_library">Impossibile recuperare la libreria</string>
+    <string name="media_servers_error_session_expired">La tua sessione per %1$s è scaduta. Accedi di nuovo per continuare.</string>
+    <string name="playback_error_session_expired">Riproduzione non riuscita: la sessione del server multimediale è scaduta. Accedi di nuovo da Server multimediali.</string>
 
     <!-- External Library Screen -->
     <string name="external_library_selected_items_count">%1$d selezionati</string>
@@ -294,6 +301,11 @@
     <string name="external_library_downloading_multiple_items">Scaricamento di %1$d elementi...</string>
     <string name="external_library_books_tab_label">Libri</string>
     <string name="external_library_authors_tab_label">Autori</string>
+    <string name="external_library_download_failed">Impossibile avviare il download</string>
+    <string name="external_library_picker_title">Libreria</string>
+    <string name="external_library_switch_library">Cambia libreria</string>
+    <string name="external_library_no_libraries">Nessuna libreria disponibile</string>
+    <string name="external_library_audiobook_library_caption">Libreria di audiolibri</string>
 
     <!-- External Item Detail Screen -->
     <string name="external_item_detail_back_button_description">Indietro</string>

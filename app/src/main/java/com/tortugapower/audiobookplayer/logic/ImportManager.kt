@@ -42,6 +42,12 @@ object ImportManager : ImportService {
 
     override var showImportSheet by mutableStateOf(false)
 
+    // Filenames with a download in flight. The DB dedup check can't see these (a downloaded file
+    // only reaches the DB once the user accepts the import), so without this two concurrent
+    // downloads of the same book would write to the same destination file at once. Only touched
+    // on the Main-confined [scope], so no synchronization is needed.
+    private val activeDownloadFileNames = mutableSetOf<String>()
+
     override fun startImport(context: Context, uris: List<Uri>) {
         scope.launch {
             isImporting = true
@@ -96,13 +102,10 @@ object ImportManager : ImportService {
         activeDownloadCount++
         scope.launch {
             val sanitizedFileName = FilenameUtils.sanitizeFilename(fileName)
-            val backupDir = File(context.filesDir, "BPBackup")
-            if (!backupDir.exists()) backupDir.mkdirs()
 
-            val database = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
-            val libraryDao = database.libraryDao()
-
-            if (libraryDao.existsWithFileName(sanitizedFileName)) {
+            // Claim the filename before the first suspension point (this scope is Main-confined),
+            // so a second download of the same book can't race this one onto the same file.
+            if (!activeDownloadFileNames.add(sanitizedFileName)) {
                 skippedItemsCount++
                 activeDownloadCount--
                 if (activeDownloadCount == 0) {
@@ -111,39 +114,56 @@ object ImportManager : ImportService {
                 return@launch
             }
 
-            val destFile = File(backupDir, sanitizedFileName)
+            val backupDir = File(context.filesDir, "BPBackup")
+            if (!backupDir.exists()) backupDir.mkdirs()
+
+            val database = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
+            val libraryDao = database.libraryDao()
 
             try {
+                if (libraryDao.existsWithFileName(sanitizedFileName)) {
+                    skippedItemsCount++
+                    return@launch
+                }
+
+                val destFile = File(backupDir, sanitizedFileName)
                 var newlyImportedFile: ImportFile? = null
-                
-                withContext(Dispatchers.IO) {
-                    val client = okhttp3.OkHttpClient()
-                    val requestBuilder = okhttp3.Request.Builder().url(url)
-                    headers?.forEach { (key, value) ->
-                        requestBuilder.addHeader(key, value)
-                    }
-                    val response = client.newCall(requestBuilder.build()).execute()
-                    response.use { // Ensure response is closed
-                        if (response.isSuccessful && response.body != null) {
-                            response.body!!.byteStream().use { input ->
-                                FileOutputStream(destFile).use { output ->
-                                    input.copyTo(output)
+
+                try {
+                    withContext(Dispatchers.IO) {
+                        val client = okhttp3.OkHttpClient()
+                        val requestBuilder = okhttp3.Request.Builder().url(url)
+                        headers?.forEach { (key, value) ->
+                            requestBuilder.addHeader(key, value)
+                        }
+                        val response = client.newCall(requestBuilder.build()).execute()
+                        response.use { // Ensure response is closed
+                            if (response.isSuccessful && response.body != null) {
+                                response.body!!.byteStream().use { input ->
+                                    FileOutputStream(destFile).use { output ->
+                                        input.copyTo(output)
+                                    }
                                 }
+                                newlyImportedFile = ImportFile(sanitizedFileName, destFile)
+                            } else {
+                                android.util.Log.e("ImportManager", "Download failed: ${response.code}")
                             }
-                            newlyImportedFile = ImportFile(sanitizedFileName, destFile)
-                        } else {
-                            android.util.Log.e("ImportManager", "Download failed: ${response.code}")
                         }
                     }
+
+                    newlyImportedFile?.let {
+                        importedFiles = importedFiles + it
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("ImportManager", "Download failed with exception for URL: $url", e)
+                    // Don't leave a partial file behind: it's invisible to the import sheet and
+                    // the DB dedup check, so nothing would ever clean it up.
+                    if (newlyImportedFile == null && destFile.exists()) {
+                        destFile.delete()
+                    }
                 }
-                
-                newlyImportedFile?.let {
-                    importedFiles = importedFiles + it
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                android.util.Log.e("ImportManager", "Download failed with exception for URL: $url", e)
             } finally {
+                activeDownloadFileNames.remove(sanitizedFileName)
                 activeDownloadCount--
                 if (activeDownloadCount == 0 && (importedFiles.isNotEmpty() || skippedItemsCount > 0)) {
                     showImportSheet = true

@@ -386,6 +386,8 @@
     <string name="media_servers_error_connection_failed">Connection error: %1$s</string>
     <string name="media_servers_error_server_not_found">Server not found</string>
     <string name="media_servers_error_failed_to_fetch_library">Failed to fetch library</string>
+    <string name="media_servers_error_session_expired">Your session for %1$s expired. Sign in again to continue.</string>
+    <string name="playback_error_session_expired">Playback failed: your media server session expired. Sign in again from Media Servers.</string>
 
     <!-- External Library Screen -->
     <string name="external_library_selected_items_count">%1$d selected</string>
@@ -398,6 +400,11 @@
     <string name="external_library_downloading_multiple_items">Downloading %1$d items...</string>
     <string name="external_library_books_tab_label">Books</string>
     <string name="external_library_authors_tab_label">Authors</string>
+    <string name="external_library_download_failed">Unable to start download</string>
+    <string name="external_library_picker_title">Library</string>
+    <string name="external_library_switch_library">Switch library</string>
+    <string name="external_library_no_libraries">No libraries available</string>
+    <string name="external_library_audiobook_library_caption">Audiobook library</string>
 
     <!-- External Item Detail Screen -->
     <string name="external_item_detail_back_button_description">Back</string>

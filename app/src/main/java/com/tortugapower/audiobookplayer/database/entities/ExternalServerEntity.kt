@@ -15,5 +15,7 @@ data class ExternalServerEntity(
     val url: String,
     val username: String? = null,
     val token: String? = null,
-    val customHeaders: Map<String, String>? = null
+    val customHeaders: Map<String, String>? = null,
+    // Which of the server's libraries the user browses; null = not chosen yet (service default).
+    val selectedLibraryId: String? = null
 )

@@ -169,6 +169,7 @@
     <string name="library_view_style">Ansichtsstil</string>
     <string name="library_folder_empty">0 Dateien</string>
     <string name="library_unknown_author">Unbekannter Autor</string>
+    <string name="library_unknown_title">Unbekannter Titel</string>
     <string name="library_chapter_count">%1$d Kapitel</string>
     <string name="library_convert_to_folder">In Ordner umwandeln</string>
     <string name="library_convert_to_volume">In Volume umwandeln</string>
@@ -282,6 +283,12 @@
     <string name="media_servers_add_server_username_placeholder">Benutzername</string>
     <string name="media_servers_add_server_password_placeholder">Passwort</string>
     <string name="media_servers_add_server_connect_to_server">Verbinden Sie sich mit Ihrem %1$s-Server</string>
+    <string name="media_servers_error_auth_failed">Authentifizierung fehlgeschlagen: %1$s</string>
+    <string name="media_servers_error_connection_failed">Verbindungsfehler: %1$s</string>
+    <string name="media_servers_error_server_not_found">Server nicht gefunden</string>
+    <string name="media_servers_error_failed_to_fetch_library">Bibliothek konnte nicht geladen werden</string>
+    <string name="media_servers_error_session_expired">Ihre Sitzung für %1$s ist abgelaufen. Melden Sie sich erneut an, um fortzufahren.</string>
+    <string name="playback_error_session_expired">Wiedergabe fehlgeschlagen: Ihre Medienserver-Sitzung ist abgelaufen. Melden Sie sich unter Medienserver erneut an.</string>
 
     <!-- External Library Screen -->
     <string name="external_library_selected_items_count">%1$d ausgewählt</string>
@@ -294,6 +301,11 @@
     <string name="external_library_downloading_multiple_items">Lade %1$d Elemente herunter...</string>
     <string name="external_library_books_tab_label">Bücher</string>
     <string name="external_library_authors_tab_label">Autoren</string>
+    <string name="external_library_download_failed">Download konnte nicht gestartet werden</string>
+    <string name="external_library_picker_title">Bibliothek</string>
+    <string name="external_library_switch_library">Bibliothek wechseln</string>
+    <string name="external_library_no_libraries">Keine Bibliotheken verfügbar</string>
+    <string name="external_library_audiobook_library_caption">Hörbuch-Bibliothek</string>
 
     <!-- External Item Detail Screen -->
     <string name="external_item_detail_back_button_description">Zurück</string>

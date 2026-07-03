@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileDownload
@@ -37,6 +38,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import com.tortugapower.audiobookplayer.ui.UiText
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
@@ -47,7 +50,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
+import com.tortugapower.audiobookplayer.network.ExternalLibraryInfo
 import com.tortugapower.audiobookplayer.viewmodel.ExternalLibraryViewModel
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
 import kotlinx.coroutines.launch
@@ -63,15 +68,50 @@ fun ExternalLibraryScreen(
     serverName: String,
     onBack: () -> Unit,
     onItemClick: (ExternalLibraryItem) -> Unit,
-    onActionStarted: () -> Unit = {}
+    onActionStarted: () -> Unit = {},
+    onReauthRequested: () -> Unit = {}
 ) {
     val items by viewModel.items.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
+    val availableLibraries by viewModel.availableLibraries.collectAsState()
+    val resolvedLibraryId by viewModel.resolvedLibraryId.collectAsState()
+    val noLibraries by viewModel.noLibraries.collectAsState()
+    val serverHeaders by viewModel.serverHeaders.collectAsState()
     val activeDownloadCount = importViewModel.activeDownloadCount
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
+
+    var showLibraryPicker by remember { mutableStateOf(false) }
+    // iOS parity: several libraries and nothing resolved → the picker auto-presents.
+    LaunchedEffect(availableLibraries, resolvedLibraryId) {
+        if ((availableLibraries?.size ?: 0) > 1 && resolvedLibraryId == null) {
+            showLibraryPicker = true
+        }
+    }
+
+    // iOS parity: expired session gets Connection Details/Cancel only — no Retry. The alert
+    // stays up until re-auth succeeds (retryAfterReauth clears the state), so dismissing the
+    // re-auth sheet without signing in lands back here instead of on a broken screen.
+    val sessionExpiredServerName by viewModel.sessionExpiredServerName.collectAsState()
+    sessionExpiredServerName?.let { expiredName ->
+        AlertDialog(
+            onDismissRequest = onBack,
+            title = { Text(stringResource(id = R.string.common_error)) },
+            text = { Text(stringResource(id = R.string.media_servers_error_session_expired, expiredName.ifBlank { serverName })) },
+            confirmButton = {
+                TextButton(onClick = onReauthRequested) {
+                    Text(stringResource(id = R.string.media_servers_connection_details_title))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onBack) {
+                    Text(stringResource(id = R.string.common_cancel))
+                }
+            }
+        )
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -121,16 +161,29 @@ fun ExternalLibraryScreen(
                         }
                     },
                     actions = {
+                        val downloadFailedMessage = stringResource(id = R.string.external_library_download_failed)
                         IconButton(onClick = {
-                            selectedItems.forEach { item ->
-                                scope.launch {
+                            val itemsToDownload = selectedItems.toList()
+                            selectedItems.clear()
+                            scope.launch {
+                                // Same guard as the single-item path: getStreamUrl returns "" when
+                                // the server can't be resolved. Only dismiss the flow if something
+                                // actually started; otherwise tell the user instead of failing silently.
+                                var startedAny = false
+                                itemsToDownload.forEach { item ->
                                     val url = viewModel.getStreamUrl(item.entity)
-                                    val fileName = item.entity.originalFileName ?: "${item.entity.title}.mp3"
-                                    importViewModel.startDownload(context, url, fileName, item.customHeaders)
+                                    if (url.isNotBlank()) {
+                                        val fileName = item.entity.originalFileName ?: "${item.entity.title}.mp3"
+                                        importViewModel.startDownload(context, url, fileName, item.customHeaders)
+                                        startedAny = true
+                                    }
+                                }
+                                if (startedAny) {
+                                    onActionStarted()
+                                } else {
+                                    android.widget.Toast.makeText(context, downloadFailedMessage, android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
-                            selectedItems.clear()
-                            onActionStarted()
                         }) {
                             Icon(Icons.Default.FileDownload, contentDescription = stringResource(id = R.string.common_download))
                         }
@@ -193,6 +246,13 @@ fun ExternalLibraryScreen(
                         }
                     },
                     actions = {
+                        // Same rule as iOS: the switch affordance only exists when there is
+                        // actually more than one library to switch between.
+                        if ((availableLibraries?.size ?: 0) > 1) {
+                            IconButton(onClick = { showLibraryPicker = true }) {
+                                Icon(Icons.Default.AccountBalance, contentDescription = stringResource(id = R.string.external_library_switch_library))
+                            }
+                        }
                         IconButton(onClick = { isSearchActive = true }) {
                             Icon(Icons.Default.Search, contentDescription = stringResource(id = R.string.common_search))
                         }
@@ -206,8 +266,26 @@ fun ExternalLibraryScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            if (isLoading && items.isEmpty()) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            if (noLibraries) {
+                // ONLY shown when the libraries fetch succeeded with zero eligible results —
+                // fetch errors take the error branch below, so this can't appear spuriously.
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.LibraryBooks,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = stringResource(id = R.string.external_library_no_libraries),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
             } else if (error != null && items.isEmpty()) {
                 Text(
                     text = error!!.asString(),
@@ -215,6 +293,10 @@ fun ExternalLibraryScreen(
                     modifier = Modifier.align(Alignment.Center).padding(16.dp),
                     textAlign = TextAlign.Center
                 )
+            } else if (resolvedLibraryId == null || (isLoading && items.isEmpty())) {
+                // Resolving libraries / picker pending / first page loading. Mirrors iOS keeping
+                // the browser disabled until a library is resolved.
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             } else if (selectedTab == LibraryTab.BOOKS || activeAuthorFilter != null) {
                 val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
                 
@@ -433,6 +515,110 @@ fun ExternalLibraryScreen(
             }
         }
     }
+
+    if (showLibraryPicker) {
+        ModalBottomSheet(
+            onDismissRequest = {
+                showLibraryPicker = false
+                // iOS parity: cancelling with nothing selected leaves the browser entirely;
+                // with a selection it just closes the picker.
+                if (resolvedLibraryId == null) onBack()
+            }
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+                Text(
+                    text = stringResource(id = R.string.external_library_picker_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                LazyColumn {
+                    items(availableLibraries.orEmpty()) { library ->
+                        LibraryPickerRow(
+                            library = library,
+                            isSelected = library.id == resolvedLibraryId,
+                            headers = serverHeaders,
+                            onClick = {
+                                viewModel.selectLibrary(library.id)
+                                showLibraryPicker = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A selectable library: 50dp artwork (or placeholder), name, optional caption, checkmark. */
+@Composable
+private fun LibraryPickerRow(
+    library: ExternalLibraryInfo,
+    isSelected: Boolean,
+    headers: Map<String, String>?,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .semantics { selected = isSelected }
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            modifier = Modifier
+                .size(50.dp)
+                .clip(RoundedCornerShape(8.dp)),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            if (library.artworkUrl != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(library.artworkUrl)
+                        .apply { headers?.forEach { (k, v) -> addHeader(k, v) } }
+                        .build(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.LibraryBooks,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = library.name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            library.subtitleResId?.let { subtitle ->
+                Text(
+                    text = stringResource(id = subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        if (isSelected) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -449,7 +635,9 @@ fun ExternalBookItem(
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
-            ),
+            )
+            // Announce multi-select state to screen readers; visually it's only an overlay + check.
+            .semantics { selected = isSelected },
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
@@ -465,7 +653,11 @@ fun ExternalBookItem(
             ) {
                 if (item.entity.artworkURL != null) {
                     AsyncImage(
-                        model = item.entity.artworkURL,
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(item.entity.artworkURL)
+                            // External-server covers authenticate via headers, not URL tokens.
+                            .apply { item.customHeaders?.forEach { (k, v) -> addHeader(k, v) } }
+                            .build(),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop

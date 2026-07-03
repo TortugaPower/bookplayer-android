@@ -8,6 +8,10 @@ interface AudiobookshelfApi {
     @POST("login")
     suspend fun login(@Body request: AudiobookshelfLoginRequest): Response<AudiobookshelfLoginResponse>
 
+    // Revokes the session behind the supplied token.
+    @POST("logout")
+    suspend fun logout(@Header("Authorization") auth: String): Response<Unit>
+
     @GET("api/libraries")
     suspend fun getLibraries(@Header("Authorization") auth: String): Response<AudiobookshelfLibrariesResponse>
 
@@ -49,7 +53,8 @@ data class AudiobookshelfLibrariesResponse(
 data class AudiobookshelfLibrary(
     val id: String,
     val name: String,
-    val type: String
+    // "book" or "podcast" — what iOS filters on for the library picker.
+    val mediaType: String?
 )
 
 data class AudiobookshelfItemsResponse(

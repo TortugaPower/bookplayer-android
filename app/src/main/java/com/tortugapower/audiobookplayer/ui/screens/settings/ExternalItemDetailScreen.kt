@@ -27,7 +27,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 
 @Composable
@@ -76,7 +78,11 @@ fun ExternalItemDetailScreen(
             ) {
                 if (item.entity.artworkURL != null) {
                     AsyncImage(
-                        model = item.entity.artworkURL,
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(item.entity.artworkURL)
+                            // External-server covers authenticate via headers, not URL tokens.
+                            .apply { item.customHeaders?.forEach { (k, v) -> addHeader(k, v) } }
+                            .build(),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -103,11 +109,12 @@ fun ExternalItemDetailScreen(
             
             Spacer(modifier = Modifier.height(8.dp))
             
-            // Meta info (duration | size)
+            // Meta info (duration)
             val durationText = if (item.entity.duration > 0) {
-                val m = (item.entity.duration / 60).toInt()
+                val h = (item.entity.duration / 3600).toInt()
+                val m = ((item.entity.duration % 3600) / 60).toInt()
                 val s = (item.entity.duration % 60).toInt()
-                "${m}m ${s}s"
+                if (h > 0) stringResource(R.string.duration_hms, h, m, s) else stringResource(R.string.duration_ms, m, s)
             } else stringResource(id = R.string.external_item_detail_duration_fallback)
             
             Text(

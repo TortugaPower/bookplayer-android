@@ -14,6 +14,7 @@
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">192.168.100.165</domain> <!-- LAN dev host -->
         <domain includeSubdomains="true">giannis-macbook-pro.whale-escalator.ts.net</domain> <!-- Tailscale dev host -->
+        <domain includeSubdomains="true">ds224plus.whale-escalator.ts.net</domain> <!-- Tailscale NAS (Jellyfin/ABS) -->
     </domain-config>
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>

@@ -169,6 +169,7 @@
     <string name="library_view_style">Стиль отображения</string>
     <string name="library_folder_empty">0 Файлов</string>
     <string name="library_unknown_author">Неизвестный автор</string>
+    <string name="library_unknown_title">Неизвестное название</string>
     <string name="library_chapter_count">%1$d глав</string>
     <string name="library_convert_to_folder">Преобразовать в папку</string>
     <string name="library_convert_to_volume">Преобразовать в том</string>
@@ -288,6 +289,12 @@
     <string name="media_servers_add_server_username_placeholder">Имя пользователя</string>
     <string name="media_servers_add_server_password_placeholder">Пароль</string>
     <string name="media_servers_add_server_connect_to_server">Подключитесь к вашему серверу %1$s</string>
+    <string name="media_servers_error_auth_failed">Ошибка аутентификации: %1$s</string>
+    <string name="media_servers_error_connection_failed">Ошибка подключения: %1$s</string>
+    <string name="media_servers_error_server_not_found">Сервер не найден</string>
+    <string name="media_servers_error_failed_to_fetch_library">Не удалось получить библиотеку</string>
+    <string name="media_servers_error_session_expired">Ваша сессия для %1$s истекла. Войдите снова, чтобы продолжить.</string>
+    <string name="playback_error_session_expired">Ошибка воспроизведения: сессия медиасервера истекла. Войдите снова в разделе «Медиасерверы».</string>
 
     <!-- External Library Screen -->
     <string name="external_library_selected_items_count">%1$d выбрано</string>
@@ -300,6 +307,11 @@
     <string name="external_library_downloading_multiple_items">Загрузка %1$d элементов...</string>
     <string name="external_library_books_tab_label">Книги</string>
     <string name="external_library_authors_tab_label">Авторы</string>
+    <string name="external_library_download_failed">Не удалось начать загрузку</string>
+    <string name="external_library_picker_title">Библиотека</string>
+    <string name="external_library_switch_library">Сменить библиотеку</string>
+    <string name="external_library_no_libraries">Нет доступных библиотек</string>
+    <string name="external_library_audiobook_library_caption">Библиотека аудиокниг</string>
 
     <!-- External Item Detail Screen -->
     <string name="external_item_detail_back_button_description">Назад</string>

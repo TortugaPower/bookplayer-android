@@ -32,6 +32,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
@@ -87,6 +88,22 @@ fun MainScreen() {
 
     val showPlayerScreen by PlaybackManager.showPlayerScreen.collectAsStateWithLifecycle()
     val currentPlaybackItem by PlaybackManager.currentItem.collectAsStateWithLifecycle()
+
+    // A mid-playback 401/403 from an external server: plain error alert, no re-auth routing
+    // (the user re-authenticates from Media Servers).
+    val externalStreamAuthError by PlaybackManager.externalStreamAuthError.collectAsStateWithLifecycle()
+    if (externalStreamAuthError) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { PlaybackManager.clearExternalStreamAuthError() },
+            title = { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(id = R.string.common_error)) },
+            text = { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(id = R.string.playback_error_session_expired)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { PlaybackManager.clearExternalStreamAuthError() }) {
+                    androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(id = R.string.common_ok))
+                }
+            }
+        )
+    }
 
     val profileViewModel: ProfileViewModel = viewModel(
         factory = ProfileViewModelFactory(

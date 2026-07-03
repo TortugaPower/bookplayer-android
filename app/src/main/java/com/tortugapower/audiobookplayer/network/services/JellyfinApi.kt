@@ -20,13 +20,26 @@ interface JellyfinApi {
         @Query("StartIndex") startIndex: Int? = null,
         @Query("Limit") limit: Int? = null,
         @Query("SortBy") sortBy: String? = "SortName",
-        @Query("SortOrder") sortOrder: String? = "Ascending"
+        @Query("SortOrder") sortOrder: String? = "Ascending",
+        @Query("ParentId") parentId: String? = null
+    ): Response<JellyfinItemsResponse>
+
+    // The authenticated user's top-level views (libraries); the user is inferred from the token.
+    @GET("UserViews")
+    suspend fun getUserViews(
+        @Header("X-Emby-Authorization") authHeader: String
     ): Response<JellyfinItemsResponse>
 
     @GET("System/Info")
     suspend fun getSystemInfo(
         @Header("X-Emby-Authorization") authHeader: String
     ): Response<JellyfinSystemInfo>
+
+    // Revokes the session behind the supplied token.
+    @POST("Sessions/Logout")
+    suspend fun logout(
+        @Header("X-Emby-Authorization") authHeader: String
+    ): Response<Unit>
 }
 
 data class JellyfinSystemInfo(
