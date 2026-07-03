@@ -43,7 +43,8 @@ import com.tortugapower.audiobookplayer.ui.screens.auth.AuthSheet
 
 /**
  * The Profile tab. Shows the account summary (or a "set up account" prompt when signed out),
- * listening stats, and a Pro upsell. Opens the Pro/auth sheets and, after sign-in, presents the
+ * the listening overview card, and links to the Stats and Listening History screens. Tapping
+ * the account card while signed out opens the Pro/auth sheets; after sign-in, presents the
  * "Complete Your Account" paywall to non-subscribers (mirrors iOS `handleSignInResult`).
  *
  * @param onNavigateToAccountDetails navigate to the account-details screen (signed-in users)
