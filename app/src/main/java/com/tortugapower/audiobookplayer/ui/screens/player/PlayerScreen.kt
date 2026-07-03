@@ -27,6 +27,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowLeft
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
@@ -39,6 +41,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material3.ExperimentalMaterial3Api
+import android.content.Intent
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -419,6 +422,7 @@ private fun PlayerArtwork(
     isBuffering: Boolean,
     showCloudBadge: Boolean
 ) {
+    val context = LocalContext.current
     val artworkBackground = if (artworkURL == null) {
         Modifier.background(
             Brush.verticalGradient(
@@ -477,7 +481,26 @@ private fun PlayerArtwork(
         }
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
             IconButton(
-                onClick = { },
+                onClick = {
+                    val intent = Intent("com.android.settings.panel.action.MEDIA_OUTPUT").apply {
+                        putExtra("com.android.settings.panel.extra.PACKAGE_NAME", context.packageName)
+                    }
+                    try {
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        try {
+                            val fallbackIntent = Intent("android.settings.CAST_SETTINGS")
+                            context.startActivity(fallbackIntent)
+                        } catch (ex: Exception) {
+                            try {
+                                val btIntent = Intent("android.settings.BLUETOOTH_SETTINGS")
+                                context.startActivity(btIntent)
+                            } catch (error: Exception) {
+                                // Silent fail
+                            }
+                        }
+                    }
+                },
                 modifier = Modifier.padding(16.dp)
             ) {
                 Icon(
