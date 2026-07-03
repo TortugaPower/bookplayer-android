@@ -1,12 +1,15 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
+import android.content.Intent
+import android.appwidget.AppWidgetManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerThemeSpec
+import com.tortugapower.audiobookplayer.widget.AudioWidgetLargeProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -92,19 +95,39 @@ object ThemeManager {
     /** Switch the active theme and persist the choice asynchronously. */
     fun setTheme(context: Context, theme: BookPlayerThemeSpec) {
         currentTheme = theme
-        scope.launch { PlaybackSettingsManager.setThemeTitle(context, theme.title) }
+        scope.launch {
+            PlaybackSettingsManager.setThemeTitle(context, theme.title)
+            updateWidgets(context)
+        }
     }
 
     /** When true, the variant follows the OS dark-mode setting; when false, [useDarkVariant] decides. */
     fun setUseSystemMode(context: Context, enabled: Boolean) {
         useSystemMode = enabled
-        scope.launch { PlaybackSettingsManager.setUseSystemMode(context, enabled) }
+        scope.launch {
+            PlaybackSettingsManager.setUseSystemMode(context, enabled)
+            updateWidgets(context)
+        }
     }
 
     /** Manual dark/light override. Only consulted when [useSystemMode] is false. */
     fun setUseDarkVariant(context: Context, enabled: Boolean) {
         useDarkVariant = enabled
-        scope.launch { PlaybackSettingsManager.setUseDarkVariant(context, enabled) }
+        scope.launch {
+            PlaybackSettingsManager.setUseDarkVariant(context, enabled)
+            updateWidgets(context)
+        }
+    }
+
+    private fun updateWidgets(context: Context) {
+        val intent = Intent(context, AudioWidgetLargeProvider::class.java).apply {
+            action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+        }
+        val ids = AppWidgetManager.getInstance(context).getAppWidgetIds(
+            android.content.ComponentName(context, AudioWidgetLargeProvider::class.java)
+        )
+        intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+        context.sendBroadcast(intent)
     }
 
     private fun loadThemesFromAssets(context: Context): List<BookPlayerThemeSpec> {
