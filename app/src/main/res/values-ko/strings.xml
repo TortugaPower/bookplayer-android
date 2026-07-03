@@ -81,7 +81,6 @@
     <string name="player_next">다음</string>
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">1장 (총 1장)</string>
-    <string name="player_play_pause">재생/일시정지</string>
     <string name="player_chapters_title">챕터</string>
     <string name="player_chapter_details">시작: %1$s - 시간: %2$s</string>
     <string name="player_jump_to_start">처음으로 이동</string>

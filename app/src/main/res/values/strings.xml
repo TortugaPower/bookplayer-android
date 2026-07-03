@@ -165,7 +165,6 @@
     <string name="player_chapter_default">Chapter 1 of 1</string>
     <string name="player_seek_position">%1$s of %2$s</string>
     <string name="player_play">Play</string>
-    <string name="player_play_pause">Play / Pause</string>
     <string name="player_pause">Pause</string>
     <!-- In-app transport button labels (mirrors iOS "Rewind %@" / "Fast Forward %@"); shared with the mini player -->
     <string name="player_rewind_seconds">Rewind %1$d seconds</string>

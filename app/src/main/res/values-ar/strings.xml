@@ -81,7 +81,6 @@
     <string name="player_next">التالي</string>
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">الفصل 1 من 1</string>
-    <string name="player_play_pause">تشغيل/إيقاف مؤقت</string>
     <string name="player_chapters_title">الفصول</string>
     <string name="player_chapter_details">البداية: %1$s - المدة: %2$s</string>
     <string name="player_jump_to_start">انتقال إلى البداية</string>

@@ -81,7 +81,6 @@
     <string name="player_next">अगला</string>
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">अध्याय 1 का 1</string>
-    <string name="player_play_pause">चलाएं/रोकें</string>
     <string name="player_chapters_title">अध्याय</string>
     <string name="player_chapter_details">प्रारंभ: %1$s - अवधि: %2$s</string>
     <string name="player_jump_to_start">शुरुआत पर जाएं</string>
