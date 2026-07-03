@@ -5,14 +5,15 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingStart="0dp"
-    android:paddingEnd="0dp"
+    android:paddingStart="4dp"
+    android:paddingEnd="4dp"
     android:paddingTop="8dp"
     android:paddingBottom="8dp"
     android:background="?android:attr/selectableItemBackground">
 
     <!-- Cover Frame: Artwork or Text Fallback with Rounded Corners Natively -->
     <FrameLayout
+        android:id="@+id/widget_item_artwork_container"
         android:layout_width="56dp"
         android:layout_height="56dp"
         android:background="@drawable/widget_placeholder_background"

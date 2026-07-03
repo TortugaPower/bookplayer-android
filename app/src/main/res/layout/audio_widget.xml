@@ -8,6 +8,7 @@
 
     <!-- Single Bordered Rectangle Card Container -->
     <LinearLayout
+        android:id="@+id/widget_card_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/widget_background"
@@ -26,6 +27,7 @@
             android:padding="4dp">
 
             <FrameLayout
+                android:id="@+id/widget_artwork_container"
                 android:layout_width="56dp"
                 android:layout_height="56dp"
                 android:background="@drawable/widget_placeholder_background"
@@ -106,6 +108,7 @@
 
         <!-- Divider Line -->
         <FrameLayout
+            android:id="@+id/widget_divider"
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:background="#2BFFFFFF"
