@@ -58,8 +58,12 @@ class PlayableItem(
      */
     val timeline: BoundTimeline = BoundTimeline.of(chapters)
 
-    /** Chapters projected to the DB entity type the player UI (chapter list, labels) consumes. */
-    val chapterEntities: List<ChapterEntity> get() = chapters.map {
+    /**
+     * Chapters projected to the DB entity type the player UI (chapter list, labels) consumes. Computed
+     * once at construction (like [timeline]) since [chapters] is immutable — avoids re-mapping on every
+     * read and gives a stable list reference for Compose `remember`/equality.
+     */
+    val chapterEntities: List<ChapterEntity> = chapters.map {
         ChapterEntity(
             id = (it.index + 1).toLong(),
             bookUuid = uuid,
