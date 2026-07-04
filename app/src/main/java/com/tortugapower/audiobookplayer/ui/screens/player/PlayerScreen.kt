@@ -30,6 +30,8 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowLeft
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Pause
@@ -325,15 +327,18 @@ fun PlayerScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // In chapter context, we can always go back (to start of chapter or previous chapter/item)
-                // if hasPreviousItem is true OR we are in a volume/book with chapters.
-                val canGoBack = viewModel.hasPreviousItem || (viewModel.useChapterContext && chapters.isNotEmpty())
-                val canGoForward = viewModel.hasNextItem || (viewModel.useChapterContext && chapters.isNotEmpty())
+                // The chevrons always navigate chapters: back can restart/step to a previous chapter for
+                // any loaded book (or previous item); forward is available when there's a next chapter or item.
+                val canGoBack = viewModel.hasPreviousItem || chapters.isNotEmpty()
+                val canGoForward = viewModel.hasNextItem || chapters.size > 1
 
                 PlayerTitleNavRow(
                     title = if (viewModel.useChapterContext && currentChapter != null) currentChapter.title else currentItem.title,
                     canGoBack = canGoBack,
                     canGoForward = canGoForward,
+                    // Double chevron when there's no previous/next chapter (tap crosses to prev/next book).
+                    hasPreviousChapter = currentChapterIndex > 0,
+                    hasNextChapter = currentChapterIndex in 0 until (chapters.size - 1),
                     onPrevious = { viewModel.playPrevious(context) },
                     onNext = { viewModel.playNext(context) }
                 )
@@ -489,6 +494,8 @@ private fun PlayerTitleNavRow(
     title: String,
     canGoBack: Boolean,
     canGoForward: Boolean,
+    hasPreviousChapter: Boolean,
+    hasNextChapter: Boolean,
     onPrevious: () -> Unit,
     onNext: () -> Unit
 ) {
@@ -503,7 +510,9 @@ private fun PlayerTitleNavRow(
             modifier = Modifier.offset(x = (-12).dp).alpha(if (canGoBack) 1f else 0.3f)
         ) {
             Icon(
-                imageVector = Icons.Default.ChevronLeft,
+                // Single chevron steps to the previous chapter; a double chevron signals there is no
+                // previous chapter, so the tap crosses to the previous book (iOS parity).
+                imageVector = if (hasPreviousChapter) Icons.Default.ChevronLeft else Icons.Default.KeyboardDoubleArrowLeft,
                 contentDescription = stringResource(R.string.player_prev),
                 tint = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.size(32.dp)
@@ -526,7 +535,8 @@ private fun PlayerTitleNavRow(
             modifier = Modifier.offset(x = 12.dp).alpha(if (canGoForward) 1f else 0.3f)
         ) {
             Icon(
-                imageVector = Icons.Default.ChevronRight,
+                // Double chevron signals there is no next chapter, so the tap crosses to the next book.
+                imageVector = if (hasNextChapter) Icons.Default.ChevronRight else Icons.Default.KeyboardDoubleArrowRight,
                 contentDescription = stringResource(R.string.player_next),
                 tint = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.size(32.dp)

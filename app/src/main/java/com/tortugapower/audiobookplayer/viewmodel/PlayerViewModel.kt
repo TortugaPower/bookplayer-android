@@ -366,43 +366,35 @@ class PlayerViewModel(
         }
     }
 
+    // The <> chevrons always navigate chapters (iOS parity — not gated on chapter context), falling
+    // through to the previous/next book only at the book's chapter boundaries.
     fun playNext(context: Context) {
-        if (useChapterContext) {
-            val currentChapters = chapters.value
-            val currentIndex = currentChapterIndex()
-            if (currentIndex != -1 && currentIndex < currentChapters.size - 1) {
-                seekToChapter(currentChapters[currentIndex + 1])
-                return
-            }
+        val currentChapters = chapters.value
+        val currentIndex = currentChapterIndex()
+        if (currentIndex != -1 && currentIndex < currentChapters.size - 1) {
+            seekToChapter(currentChapters[currentIndex + 1])
+            return
         }
         PlaybackManager.playNext(context)
     }
 
     fun playPrevious(context: Context) {
-        if (useChapterContext) {
-            val p = player
-            val currentChapters = chapters.value
-            val currentIndex = currentChapterIndex()
-            if (p != null && currentIndex != -1) {
-                val bound = currentItem.value?.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
-                // Seconds elapsed within the current chapter: per-item position for BOUND (each chapter
-                // is its own MediaItem), else whole-book position minus the chapter's cumulative start.
-                val secsIntoChapter = if (bound) {
-                    p.currentPosition / 1000.0
-                } else {
-                    (p.currentPosition / 1000.0) - currentChapters[currentIndex].start
-                }
-                // If more than 3 seconds into the chapter, restart it; otherwise go to the previous one.
-                if (secsIntoChapter > 3.0) {
-                    seekToChapter(currentChapters[currentIndex])
-                    return
-                } else if (currentIndex > 0) {
-                    seekToChapter(currentChapters[currentIndex - 1])
-                    return
-                }
+        val currentChapters = chapters.value
+        val currentIndex = currentChapterIndex()
+        if (currentIndex != -1 && currentChapters.isNotEmpty()) {
+            // ms elapsed within the current chapter (mode-agnostic: whole-book position minus the
+            // chapter's cumulative start). >3s in → restart the chapter; otherwise go to the previous.
+            val msIntoChapter =
+                PlaybackManager.currentWholeBookMs() - (currentChapters[currentIndex].start * 1000).toLong()
+            if (msIntoChapter > com.tortugapower.audiobookplayer.logic.ChapterSkipPolicy.CHAPTER_START_THRESHOLD_MS) {
+                seekToChapter(currentChapters[currentIndex])
+                return
+            } else if (currentIndex > 0) {
+                seekToChapter(currentChapters[currentIndex - 1])
+                return
             }
         }
-        PlaybackManager.playPrevious(context)
+        PlaybackManager.playPrevious(context) // near start & first chapter → previous book
     }
 
     fun togglePlayPause() { PlaybackManager.togglePlayPause() }
