@@ -156,6 +156,21 @@ object PlaybackManager {
     private val _currentPlayable = MutableStateFlow<PlayableItem?>(null)
     val currentPlayable: StateFlow<PlayableItem?> = _currentPlayable.asStateFlow()
 
+    // The current chapter index (whole-book), advancing even across embedded chapters WITHIN one file
+    // (which fire no MediaItem transition). Drives the per-chapter Now Playing title. -1 when nothing
+    // is loaded. PUSHED by refreshCurrentChapterIndex() from the progress tracker, seeks, and file
+    // transitions — deliberately NOT a hot combine(_positionMs, …): an Eagerly/global-scope flow would
+    // keep a permanent _positionMs collector, pinning subscriptionCount > 0 forever and defeating the
+    // tick-rate battery optimization (see startProgressTracker). Updates therefore follow the tracker
+    // cadence (fast foreground, slow when backgrounded) — the same ≤10s title lag we already accept.
+    private val _currentChapterIndex = MutableStateFlow(-1)
+    val currentChapterIndex: StateFlow<Int> = _currentChapterIndex.asStateFlow()
+
+    private fun refreshCurrentChapterIndex() {
+        val next = _currentPlayable.value?.chapterIndexAt(currentWholeBookMs()) ?: -1
+        if (_currentChapterIndex.value != next) _currentChapterIndex.value = next
+    }
+
     // Mirror of the user's chapter-vs-book context preference. The session-side player virtualizes a
     // whole-book window only when book context is active (false); chapter context passes the per-file
     // playlist through (the notification then shows the current chapter, which is already correct).
@@ -232,6 +247,7 @@ object PlaybackManager {
                     ) {
                         if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                             _positionMs.value = player?.currentPosition ?: 0L
+                            refreshCurrentChapterIndex()
                             updateProgress(appContext)
                         }
                     }
@@ -245,6 +261,9 @@ object PlaybackManager {
                         ) {
                             SleepTimerManager.onChapterBoundaryReached()
                         }
+                        // A file boundary can also be a chapter boundary (classic one-file-per-chapter
+                        // BOUND); refresh so the Now Playing title updates immediately, not next tick.
+                        refreshCurrentChapterIndex()
                     }
 
                     override fun onPlaybackStateChanged(state: Int) {
@@ -294,13 +313,16 @@ object PlaybackManager {
                             val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
                             val playable = if (isBound) {
                                 val subItems = getRepository(appContext).getItemsInPathSync(item.relativePath ?: "")
-                                extractMissingArtwork(
-                                    subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK },
-                                    appContext
-                                )
-                                PlayableItemBuilder.buildBound(item, subItems)
+                                val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
+                                extractMissingArtwork(books, appContext)
+                                books.forEach { ensureChaptersExtracted(it, appContext) }
+                                val chaptersBySubBook = books.associate {
+                                    it.uuid to getRepository(appContext).getChaptersForBook(it.uuid).first()
+                                }
+                                PlayableItemBuilder.buildBound(item, subItems, chaptersBySubBook)
                             } else {
                                 extractMissingArtwork(listOf(item), appContext)
+                                ensureChaptersExtracted(item, appContext)
                                 PlayableItemBuilder.buildSingle(item, getRepository(appContext).getChaptersForBook(item.uuid).first())
                             }
                             _currentPlayable.value = playable
@@ -403,6 +425,41 @@ object PlaybackManager {
     }
 
     /**
+     * Extract & store a single BOOK's embedded chapters on first play if none are stored yet — covers
+     * synced books and imports predating chapter extraction (iOS's loadChaptersIfNeeded parity).
+     */
+    private suspend fun ensureChaptersExtracted(item: LibraryItemEntity, context: Context) {
+        if (item.type != com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK) return
+        val repo = getRepository(context)
+        if (repo.getChaptersForBook(item.uuid).first().isNotEmpty()) return
+        val file = File(File(context.filesDir, "Processed"), item.relativePath ?: return)
+        if (!file.exists()) return
+        val extracted = ChapterExtractionService.extractChapterEntities(file, item.uuid, (item.duration * 1000).toLong())
+        val toStore = if (extracted.isNotEmpty()) {
+            extracted
+        } else {
+            // No embedded chapters: persist ONE synthetic chapter spanning the file so we don't re-read
+            // and re-parse the whole file (up to the 64 MB moov / 16 MB ID3 scan) on every subsequent
+            // play — for a BOUND book that otherwise repeats per sub-book on each play/restore. This
+            // mirrors PlayableItemBuilder's synthetic fallback, so the flattened chapter list is identical.
+            listOf(
+                com.tortugapower.audiobookplayer.database.entities.ChapterEntity(
+                    bookUuid = item.uuid,
+                    title = item.title,
+                    start = 0.0,
+                    duration = item.duration,
+                    index = 0
+                )
+            )
+        }
+        // Idempotent (delete-then-insert in one transaction): the isNotEmpty() guard above is only an
+        // optimization to skip re-parsing, not a lock — two concurrent first-play loads of the same
+        // synced book can both pass it. The transactional replace means the book ends with exactly one
+        // set of chapters, never a doubled list. See PR #20 review.
+        repo.replaceChaptersForBook(item.uuid, toStore)
+    }
+
+    /**
      * Build the Media3 playlist for a [playable]: one MediaItem per backing file (see
      * [PlayableItem.fileGroups]). A file holding a single chapter (e.g. a BOUND sub-book) shows that
      * chapter's title; a file holding the whole book shows the book title. Artwork falls back to the
@@ -457,6 +514,9 @@ object PlaybackManager {
                 if (!_isPlaying.value) break
                 // Emit the live position for the UI.
                 _positionMs.value = player?.currentPosition ?: 0L
+                // Advance the whole-book chapter index at the same cadence (covers embedded chapters
+                // within a file, which fire no MediaItem transition).
+                refreshCurrentChapterIndex()
                 // Persist progress on a ~10s WALL-CLOCK cadence (field-backed, so loop restarts don't
                 // reset it and push persistence back indefinitely).
                 val now = System.currentTimeMillis()
@@ -483,21 +543,14 @@ object PlaybackManager {
             // Read the player coordinate on the calling (main) thread before any IO hop.
             val idx = p.currentMediaItemIndex
             val rawMs = p.currentPosition
-            val timeline = _currentTimeline.value
+            // Whole-book seconds straight from the cached timeline — no per-tick DB read, no race
+            // between near-simultaneous persists, and it falls through to the same persistence path as
+            // a single BOOK below.
+            val timeline = _currentTimeline.value ?: _currentPlayable.value?.timeline
             if (timeline != null && !timeline.isEmpty) {
-                // Whole-book seconds straight from the cached timeline — no per-tick DB read, no race
-                // between near-simultaneous persists (pause + seek), and it falls through to the same
-                // persistence path as a single BOOK below.
                 timeline.toAbsoluteMs(idx, rawMs) / 1000.0
             } else {
-                // Timeline not built yet (rare, e.g. a persist racing the load): re-read sub-books once.
-                scope.launch(Dispatchers.IO) {
-                    val repo = getRepository(context)
-                    val fallback = BoundTimeline.fromSubBooks(item.uuid, repo.getItemsInPathSync(item.relativePath ?: ""))
-                    val pos = fallback.toAbsoluteMs(idx, rawMs) / 1000.0
-                    repo.updateItemProgress(item.uuid, pos, forceFinished || (pos >= item.duration - 1.0 && item.duration > 0))
-                }
-                return // handled in scope
+                return // timeline not built yet (rare, e.g. a persist racing the load); next tick persists
             }
         } else {
             p.currentPosition / 1000.0
@@ -595,13 +648,16 @@ object PlaybackManager {
             val playable = withContext(Dispatchers.IO) {
                 if (isBound) {
                     val subItems = getRepository(context).getItemsInPathSync(item.relativePath ?: "")
-                    extractMissingArtwork(
-                        subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK },
-                        context
-                    )
-                    PlayableItemBuilder.buildBound(item, subItems)
+                    val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
+                    extractMissingArtwork(books, context)
+                    books.forEach { ensureChaptersExtracted(it, context) }
+                    val chaptersBySubBook = books.associate {
+                        it.uuid to getRepository(context).getChaptersForBook(it.uuid).first()
+                    }
+                    PlayableItemBuilder.buildBound(item, subItems, chaptersBySubBook)
                 } else {
                     extractMissingArtwork(listOf(item), context)
+                    ensureChaptersExtracted(item, context)
                     PlayableItemBuilder.buildSingle(item, getRepository(context).getChaptersForBook(item.uuid).first())
                 }
             }

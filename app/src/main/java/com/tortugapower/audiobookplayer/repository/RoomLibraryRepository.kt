@@ -321,6 +321,12 @@ class RoomLibraryRepository(
     override fun getChaptersForBook(bookUuid: String) =
         libraryDao.getChaptersForBook(bookUuid)
 
+    override suspend fun insertChapters(chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) =
+        libraryDao.insertChapters(chapters)
+
+    override suspend fun replaceChaptersForBook(bookUuid: String, chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) =
+        libraryDao.replaceChaptersForBook(bookUuid, chapters)
+
     override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? {
         return withContext(Dispatchers.IO) {
             val currentItem = libraryDao.getItemById(currentItemUuid) ?: return@withContext null

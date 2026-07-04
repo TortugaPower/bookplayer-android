@@ -9,7 +9,6 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
-import com.tortugapower.audiobookplayer.logic.BoundTimeline
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
@@ -339,6 +338,7 @@ class PlayerViewModel(
     val isPlaying: StateFlow<Boolean> get() = PlaybackManager.isPlaying
     val playbackState: StateFlow<Int> get() = PlaybackManager.playbackState
     val currentItem: StateFlow<com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity?> get() = PlaybackManager.currentItem
+    val currentPlayable: StateFlow<com.tortugapower.audiobookplayer.logic.PlayableItem?> get() = PlaybackManager.currentPlayable
     val player get() = PlaybackManager.player
     val isTransitioning: StateFlow<Boolean> get() = PlaybackManager.isTransitioning
 
@@ -346,25 +346,10 @@ class PlayerViewModel(
     fun setPlaybackVolume(context: Context, volume: Float) { PlaybackManager.setPlaybackVolume(context, volume) }
     fun toggleVolumeBoost(context: Context) { PlaybackManager.toggleVolumeBoost(context) }
     
-    // The chapter index the player is currently in. For BOUND books each sub-book is its own
-    // MediaItem, so the chapter IS `currentMediaItemIndex` — the player's `currentPosition` is
-    // per-item (resets each chapter), NOT the whole-book offset the cumulative `chapter.start`s use.
-    // For a single item with embedded chapters, locate it by the whole-book position. -1 if none.
-    private fun currentChapterIndex(): Int {
-        val p = player ?: return -1
-        val chs = chapters.value
-        if (chs.isEmpty()) return -1
-        val tl = BoundTimeline.of(chs)
-        return if (currentItem.value?.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-            // The session may expose a single whole-book window (book context, currentMediaItemIndex==0)
-            // or the per-file playlist (chapter context). toAbsoluteMs is invariant across both, so
-            // locate the chapter from the whole-book position rather than the (mode-dependent) index.
-            tl.indexAt(tl.toAbsoluteMs(p.currentMediaItemIndex, p.currentPosition))
-        } else {
-            // Single item with embedded chapters: locate by whole-book position (shared scan).
-            tl.indexAt(p.currentPosition)
-        }
-    }
+    // The chapter the player is currently in — located from the whole-book position via the file-aware
+    // timeline (handles multiple chapters per file). -1 if nothing is loaded.
+    private fun currentChapterIndex(): Int =
+        PlaybackManager.currentPlayable.value?.chapterIndexAt(PlaybackManager.currentWholeBookMs()) ?: -1
 
     // The <> chevrons always navigate chapters (iOS parity — not gated on chapter context), falling
     // through to the previous/next book only at the book's chapter boundaries.

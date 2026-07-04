@@ -51,22 +51,28 @@ class PlayableItem(
     var percentCompleted: Double,
     var isFinished: Boolean
 ) {
-    /** Whole-book chapter timeline used for per-item <-> whole-book conversion (see [BoundTimeline]). */
-    val timeline: BoundTimeline = BoundTimeline.of(
-        chapters.map {
-            ChapterEntity(
-                id = (it.index + 1).toLong(),
-                bookUuid = uuid,
-                title = it.title,
-                start = it.start,
-                duration = it.duration,
-                index = it.index
-            )
-        }
-    )
+    /**
+     * Two-layer whole-book timeline (file layer + chapter layer) for per-file <-> whole-book
+     * conversion. Built from the full [chapters] so it keeps each chapter's `relativePath` and
+     * `chapterOffset` — required to group chapters into files (see [BoundTimeline]).
+     */
+    val timeline: BoundTimeline = BoundTimeline.of(chapters)
 
-    /** Chapters projected to the DB entity type the player UI (chapter list, labels) consumes. */
-    val chapterEntities: List<ChapterEntity> get() = timeline.chapters
+    /**
+     * Chapters projected to the DB entity type the player UI (chapter list, labels) consumes. Computed
+     * once at construction (like [timeline]) since [chapters] is immutable — avoids re-mapping on every
+     * read and gives a stable list reference for Compose `remember`/equality.
+     */
+    val chapterEntities: List<ChapterEntity> = chapters.map {
+        ChapterEntity(
+            id = (it.index + 1).toLong(),
+            bookUuid = uuid,
+            title = it.title,
+            start = it.start,
+            duration = it.duration,
+            index = it.index
+        )
+    }
 
     /**
      * Chapters grouped into the distinct backing files they play from, preserving order — one group

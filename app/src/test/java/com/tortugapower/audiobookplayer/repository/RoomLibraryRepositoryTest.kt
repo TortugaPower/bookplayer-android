@@ -189,6 +189,7 @@ class RoomLibraryRepositoryTest {
         override suspend fun getDescendantsOfPath(path: String): List<LibraryItemEntity> = TODO()
         override fun getChaptersForBook(bookUuid: String): Flow<List<ChapterEntity>> = TODO()
         override suspend fun insertChapters(chapters: List<ChapterEntity>) = TODO()
+        override suspend fun deleteChaptersForBook(bookUuid: String) = TODO()
         override fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>> = TODO()
         override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? = TODO()
         override suspend fun insertBookmark(bookmark: BookmarkEntity): Long = TODO()
