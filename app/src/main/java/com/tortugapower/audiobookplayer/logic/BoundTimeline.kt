@@ -84,8 +84,16 @@ class BoundTimeline private constructor(
 
         /**
          * Group consecutive chapters that share the same (non-null) backing file into file spans — one
-         * per MediaItem. Kept identical to [PlayableItem.fileGroups] so file indices line up 1:1 with
-         * the playlist built by `PlaybackManager.buildMediaItems`.
+         * per MediaItem, so file indices line up 1:1 with the playlist built by
+         * `PlaybackManager.buildMediaItems`.
+         *
+         * This matches [PlayableItem.fileGroups] for BOUND books — the only case that consults the file
+         * layer (`toLocal`/`toAbsoluteMs`/`fileCount`) — because their sub-books always carry a non-null
+         * `relativePath`. It intentionally does NOT reproduce fileGroups' non-BOUND short-circuit (which
+         * collapses ALL chapters into one group): a single book with N embedded chapters and a null
+         * `relativePath` would yield N spans here vs. 1 group there. That divergence is inert — single
+         * books seed `PlayerPosition(0, currentTime)` and read the raw player position, never the file
+         * layer. A future caller that DOES use the file layer for single books must add the guard here.
          */
         private fun buildFiles(chapters: List<PlayableChapter>): List<FileSpan> {
             val spans = ArrayList<FileSpan>()
