@@ -56,7 +56,7 @@ class PlayableItem(
      * conversion. Built from the full [chapters] so it keeps each chapter's `relativePath` and
      * `chapterOffset` — required to group chapters into files (see [BoundTimeline]).
      */
-    val timeline: BoundTimeline = BoundTimeline.of(chapters)
+    val timeline: BoundTimeline = BoundTimeline.of(chapters, isBoundBook)
 
     /**
      * Chapters projected to the DB entity type the player UI (chapter list, labels) consumes. Computed
