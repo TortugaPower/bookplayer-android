@@ -203,10 +203,10 @@ class LibraryViewModel(
             if (item != null) {
                 if (item.artworkURL.isNullOrBlank() && !artworkUrl.isNullOrBlank()) {
                     val artworkDir = java.io.File(appContext.filesDir, "Artworks")
-                    if (!artworkDir.exists()) artworkDir.mkdirs()
                     val fileName = "${java.util.UUID.randomUUID()}.jpg"
                     val destFile = java.io.File(artworkDir, fileName)
                     val success = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        if (!artworkDir.exists()) artworkDir.mkdirs()
                         com.tortugapower.audiobookplayer.logic.ArtworkManager.downloadAndSaveArtwork(appContext, artworkUrl, destFile)
                     }
                     if (success) {
