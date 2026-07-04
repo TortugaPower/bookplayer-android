@@ -536,9 +536,11 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
     }
 
     private suspend fun getWidgetThemeColors(context: Context): WidgetThemeColors {
+        // The cold-start fallback (ThemeManager not seeded yet) reads assets + DataStore — disk
+        // IO that must not run on the Main-dispatcher widgetScope.
         val theme = if (ThemeManager.isReady) {
             ThemeManager.currentTheme
-        } else {
+        } else withContext(Dispatchers.IO) {
             val loaded = try {
                 context.assets.open("Themes.json").use { stream ->
                     java.io.InputStreamReader(stream, Charsets.UTF_8).use { reader ->
@@ -559,10 +561,14 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
         }
 
         val useSystemMode = if (ThemeManager.isReady) ThemeManager.useSystemMode else {
-            try { PlaybackSettingsManager.getUseSystemMode(context).first() } catch (e: Exception) { true }
+            withContext(Dispatchers.IO) {
+                try { PlaybackSettingsManager.getUseSystemMode(context).first() } catch (e: Exception) { true }
+            }
         }
         val useDarkVariant = if (ThemeManager.isReady) ThemeManager.useDarkVariant else {
-            try { PlaybackSettingsManager.getUseDarkVariant(context).first() } catch (e: Exception) { true }
+            withContext(Dispatchers.IO) {
+                try { PlaybackSettingsManager.getUseDarkVariant(context).first() } catch (e: Exception) { true }
+            }
         }
 
         val isSystemDark = (context.resources.configuration.uiMode and
