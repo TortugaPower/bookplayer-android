@@ -159,8 +159,8 @@
 
     <!-- Player -->
     <string name="player_cast">Cast</string>
-    <string name="player_prev">Prev</string>
-    <string name="player_next">Next</string>
+    <string name="player_prev">Previous chapter</string>
+    <string name="player_next">Next chapter</string>
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">Chapter 1 of 1</string>
     <string name="player_seek_position">%1$s of %2$s</string>

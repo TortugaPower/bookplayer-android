@@ -666,12 +666,24 @@ object PlaybackManager {
 
     fun seekForward() {
         val p = player ?: return
-        seekWholeBook(currentWholeBookMs(p) + _forwardInterval.value * 1000L)
+        seekWholeBook(chapterAdjustedForwardTarget(currentWholeBookMs(p), _forwardInterval.value * 1000L))
     }
 
     fun seekBackward() {
         val p = player ?: return
-        seekWholeBook(currentWholeBookMs(p) - _rewindInterval.value * 1000L)
+        seekWholeBook(chapterAdjustedRewindTarget(currentWholeBookMs(p), _rewindInterval.value * 1000L))
+    }
+
+    /** Whole-book ms target for a rewind, clamped to the current chapter (see [ChapterSkipPolicy]). */
+    private fun chapterAdjustedRewindTarget(currentMs: Long, intervalMs: Long): Long {
+        val chapter = currentPlayable.value?.chapterAt(currentMs) ?: return currentMs - intervalMs
+        return ChapterSkipPolicy.rewindTarget(currentMs, intervalMs, (chapter.start * 1000).toLong())
+    }
+
+    /** Whole-book ms target for a forward skip, clamped to the current chapter (see [ChapterSkipPolicy]). */
+    private fun chapterAdjustedForwardTarget(currentMs: Long, intervalMs: Long): Long {
+        val chapter = currentPlayable.value?.chapterAt(currentMs) ?: return currentMs + intervalMs
+        return ChapterSkipPolicy.forwardTarget(currentMs, intervalMs, (chapter.end * 1000).toLong())
     }
 
     /** Current whole-book position (ms) of the loaded book — for callers like bookmark creation. */
@@ -724,13 +736,23 @@ object PlaybackManager {
      */
     fun seekRelativeAcrossChapters(player: Player, deltaMs: Long) {
         val timeline = _currentTimeline.value
+        val currentAbs = if (timeline != null && !timeline.isEmpty) {
+            timeline.toAbsoluteMs(player.currentMediaItemIndex, player.currentPosition)
+        } else {
+            player.currentPosition
+        }
+        // Clamp to the current chapter (same rule as the in-app buttons) before seeking.
+        val chapter = currentPlayable.value?.chapterAt(currentAbs)
+        val targetAbs = when {
+            chapter == null -> currentAbs + deltaMs
+            deltaMs < 0 -> ChapterSkipPolicy.rewindTarget(currentAbs, -deltaMs, (chapter.start * 1000).toLong())
+            else -> ChapterSkipPolicy.forwardTarget(currentAbs, deltaMs, (chapter.end * 1000).toLong())
+        }
         if (timeline != null && !timeline.isEmpty) {
-            val absMs = timeline.toAbsoluteMs(player.currentMediaItemIndex, player.currentPosition) + deltaMs
-            val clamped = absMs.coerceIn(0L, timeline.totalDurationMs)
-            val local = timeline.toLocal(clamped)
+            val local = timeline.toLocal(targetAbs.coerceIn(0L, timeline.totalDurationMs))
             player.seekTo(local.mediaItemIndex, local.positionMs)
         } else {
-            player.seekTo((player.currentPosition + deltaMs).coerceAtLeast(0L))
+            player.seekTo(targetAbs.coerceAtLeast(0L))
         }
     }
 
