@@ -134,10 +134,10 @@ object PlaybackManager {
     val playbackVolume: StateFlow<Float> = _playbackVolume.asStateFlow()
 
     /**
-     * Current playback position in ms — the RAW position of the current media item. For BOUND books the
-     * UI must add the current chapter's cumulative start (see PlayerScreen); it's NOT the whole-book
-     * position. Emitted while playing and re-seeded on seek/load; ticks fast only while a collector is
-     * active (see [startProgressTracker]). 0 before anything plays.
+     * Current playback position in WHOLE-BOOK ms — already inverted from the (possibly virtualized)
+     * session window via [controllerToWholeBookMs], so consumers (PlayerScreen) use it directly with no
+     * further mapping. Emitted while playing and re-seeded on seek/load; ticks fast only while a
+     * collector is active (see [startProgressTracker]). 0 before anything plays.
      */
     private val _positionMs = MutableStateFlow(0L)
     val positionMs: StateFlow<Long> = _positionMs.asStateFlow()
@@ -246,7 +246,7 @@ object PlaybackManager {
                         reason: Int
                     ) {
                         if (reason == Player.DISCONTINUITY_REASON_SEEK) {
-                            _positionMs.value = player?.currentPosition ?: 0L
+                            _positionMs.value = currentWholeBookMs()
                             refreshCurrentChapterIndex()
                             updateProgress(appContext)
                         }
@@ -348,9 +348,9 @@ object PlaybackManager {
 
                                     // Finalize restoration
                                     _currentItem.value = item
-                                    // Seed from the intended offset, not the live player: prepare() is
-                                    // async so currentPosition is still 0 here (matches playItem).
-                                    _positionMs.value = local.positionMs
+                                    // Seed the intended whole-book position (positionMs is whole-book);
+                                    // prepare() is async so the live player is still 0 here.
+                                    _positionMs.value = (item.currentTime * 1000).toLong()
                                 }
                             }
                         }
@@ -512,8 +512,9 @@ object PlaybackManager {
                 val step = PlaybackTickPolicy.tickStepMs(_positionMs.subscriptionCount.value > 0)
                 kotlinx.coroutines.delay(step)
                 if (!_isPlaying.value) break
-                // Emit the live position for the UI.
-                _positionMs.value = player?.currentPosition ?: 0L
+                // Emit the live WHOLE-BOOK position for the UI (positionMs is whole-book; invert the
+                // session window, which may be per-chapter or whole-book).
+                _positionMs.value = currentWholeBookMs()
                 // Advance the whole-book chapter index at the same cadence (covers embedded chapters
                 // within a file, which fire no MediaItem transition).
                 refreshCurrentChapterIndex()
@@ -539,22 +540,14 @@ object PlaybackManager {
         val isPlayerActive = p.playbackState == Player.STATE_READY || p.playbackState == Player.STATE_BUFFERING
         if (!isPlayerActive && !forceFinished) return
 
-        val currentPos = if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-            // Read the player coordinate on the calling (main) thread before any IO hop.
-            val idx = p.currentMediaItemIndex
-            val rawMs = p.currentPosition
-            // Whole-book seconds straight from the cached timeline — no per-tick DB read, no race
-            // between near-simultaneous persists, and it falls through to the same persistence path as
-            // a single BOOK below.
-            val timeline = _currentTimeline.value ?: _currentPlayable.value?.timeline
-            if (timeline != null && !timeline.isEmpty) {
-                timeline.toAbsoluteMs(idx, rawMs) / 1000.0
-            } else {
-                return // timeline not built yet (rare, e.g. a persist racing the load); next tick persists
-            }
-        } else {
-            p.currentPosition / 1000.0
+        val timeline = _currentPlayable.value?.timeline
+        if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND &&
+            (timeline == null || timeline.isEmpty)) {
+            return // timeline not built yet (rare, e.g. a persist racing the load); next tick persists
         }
+        // Whole-book seconds, inverting whatever window the session presents (book/chapter/single) on the
+        // calling (main) thread before any IO hop.
+        val currentPos = controllerToWholeBookMs(p.currentMediaItemIndex, p.currentPosition) / 1000.0
 
         val totalDuration = item.duration
         val isFinished = forceFinished || (currentPos >= totalDuration - 1.0 && totalDuration > 0)
@@ -620,11 +613,9 @@ object PlaybackManager {
         
         _isTransitioning.value = true
         _currentItem.value = item
-        // For BOUND books the per-chapter offset is seeded in the BOUND branch below (the UI adds the
-        // chapter's cumulative start); only non-BOUND can use the whole-book currentTime directly.
-        if (item.type != com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-            _positionMs.value = (item.currentTime * 1000).toLong()
-        }
+        // Seed the UI's whole-book position immediately (positionMs is whole-book); the async playable
+        // build below re-seeds the same value once the timeline is known.
+        _positionMs.value = (item.currentTime * 1000).toLong()
 
         // Update navigation states
         scope.launch(Dispatchers.IO) {
@@ -673,8 +664,9 @@ object PlaybackManager {
                 } else {
                     BoundTimeline.PlayerPosition(0, (item.currentTime * 1000).toLong())
                 }
-                // Seed the per-item offset so the UI's (chapterStart + positionMs) is correct.
-                _positionMs.value = local.positionMs
+                // Seed the whole-book position for the UI (positionMs is whole-book); the real player is
+                // seeded in file coordinates just below.
+                _positionMs.value = (item.currentTime * 1000).toLong()
                 player?.setMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
                 player?.prepare()
                 if (autoplay) {
@@ -745,16 +737,39 @@ object PlaybackManager {
     /** Current whole-book position (ms) of the loaded book — for callers like bookmark creation. */
     fun currentWholeBookMs(): Long = player?.let { currentWholeBookMs(it) } ?: 0L
 
-    /** Current playback position in whole-book ms, read from the (possibly virtualized) controller. */
-    private fun currentWholeBookMs(p: Player): Long {
-        val timeline = _currentTimeline.value
-        // toAbsoluteMs(idx, pos) is invariant across modes: book context exposes a single window so
-        // idx==0 and pos is already whole-book (chapter 0 start is 0); chapter context passes through
-        // so idx/pos are per-file. Both yield whole-book ms.
-        return if (timeline != null && !timeline.isEmpty) {
-            timeline.toAbsoluteMs(p.currentMediaItemIndex, p.currentPosition)
-        } else {
-            p.currentPosition
+    /** Current playback position in whole-book ms, inverting the virtualized controller window. */
+    private fun currentWholeBookMs(p: Player): Long =
+        controllerToWholeBookMs(p.currentMediaItemIndex, p.currentPosition)
+
+    /**
+     * True when the session controller is CURRENTLY presenting the per-chapter playlist
+     * ([com.tortugapower.audiobookplayer.service.BookTimelinePlayer]'s CHAPTER mode). Keyed on the
+     * controller's reported window count — a snapshot consistent with the index/position we read in the
+     * same breath — NOT on [_useChapterContext], which is set synchronously and can LEAD the controller
+     * across the IPC hop on a context toggle. BookTimelinePlayer (the producer) keys off the flag; this
+     * consumer must key off what's actually presented, or a toggle mid-tick would invert with the wrong
+     * layer and momentarily misread the position (a corrupted persist if it coincided with a save).
+     */
+    private fun isControllerShowingChapters(playable: PlayableItem): Boolean {
+        // >1 chapter so we never ambiguously match a 1-window whole-book/passthrough; when chapters ==
+        // files (classic BOUND) both layers agree anyway, so a coincidental match is harmless.
+        return playable.chapters.size > 1 && (player?.mediaItemCount ?: 0) == playable.chapters.size
+    }
+
+    /**
+     * Invert a controller (virtualized session) coordinate to whole-book ms, matching whatever window
+     * BookTimelinePlayer is currently presenting:
+     *  - CHAPTER playlist: `(chapterIndex, chapter-relative)` via the chapter layer.
+     *  - whole-book window / single-book passthrough: `(fileIndex, per-file)` via the file layer (which
+     *    is identity at file 0 for the 1-window/single-file cases).
+     */
+    private fun controllerToWholeBookMs(mediaItemIndex: Int, positionMs: Long): Long {
+        val playable = _currentPlayable.value
+        val timeline = playable?.timeline
+        return when {
+            timeline == null || timeline.isEmpty -> positionMs
+            isControllerShowingChapters(playable) -> timeline.wholeBookOfChapter(mediaItemIndex, positionMs)
+            else -> timeline.toAbsoluteMs(mediaItemIndex, positionMs)
         }
     }
 
@@ -771,16 +786,17 @@ object PlaybackManager {
      */
     fun seekWholeBook(wholeBookMs: Long) {
         val p = player ?: return
-        val timeline = _currentTimeline.value
-        if (timeline != null && !timeline.isEmpty) {
-            if (_useChapterContext.value) {
-                val local = timeline.toLocal(wholeBookMs)
-                p.seekTo(local.mediaItemIndex, local.positionMs)
-            } else {
-                p.seekTo(wholeBookMs.coerceIn(0L, timeline.totalDurationMs))
+        val playable = _currentPlayable.value
+        val timeline = playable?.timeline
+        when {
+            timeline == null || timeline.isEmpty -> p.seekTo(wholeBookMs.coerceAtLeast(0L))
+            isControllerShowingChapters(playable) -> {
+                // CHAPTER window: seek by (chapter index, offset within the chapter).
+                val cp = timeline.chapterLocalOf(wholeBookMs.coerceIn(0L, timeline.totalDurationMs))
+                p.seekTo(cp.chapterIndex, cp.positionMs)
             }
-        } else {
-            p.seekTo(wholeBookMs.coerceAtLeast(0L))
+            // WHOLE_BOOK window (BOUND book context) or single-book passthrough: the window is whole-book.
+            else -> p.seekTo(wholeBookMs.coerceIn(0L, timeline.totalDurationMs))
         }
     }
 
@@ -791,7 +807,10 @@ object PlaybackManager {
      * in-app controls go through [seekForward]/[seekBackward]/[seekWholeBook] instead.
      */
     fun seekRelativeAcrossChapters(player: Player, deltaMs: Long) {
-        val timeline = _currentTimeline.value
+        // Operates on the REAL (file) playlist, so the file layer of the whole-book timeline applies to
+        // both BOUND and single books (single = one file span, identity). Sourced from _currentPlayable
+        // like the rest of the file (not _currentTimeline).
+        val timeline = _currentPlayable.value?.timeline
         val currentAbs = if (timeline != null && !timeline.isEmpty) {
             timeline.toAbsoluteMs(player.currentMediaItemIndex, player.currentPosition)
         } else {

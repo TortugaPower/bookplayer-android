@@ -24,7 +24,8 @@ class BoundTimelineTest {
             chapter(0, 0.0, 100.0, "a.mp3"),
             chapter(1, 100.0, 200.0, "b.mp3"),
             chapter(2, 300.0, 50.0, "c.mp3")
-        )
+        ),
+        isBoundBook = true
     )
 
     // One file, three embedded chapters (offsets 0/100/200 within the file; total 300s).
@@ -33,7 +34,8 @@ class BoundTimelineTest {
             chapter(0, 0.0, 100.0, "big.m4b", offset = 0.0),
             chapter(1, 100.0, 100.0, "big.m4b", offset = 100.0),
             chapter(2, 200.0, 100.0, "big.m4b", offset = 200.0)
-        )
+        ),
+        isBoundBook = true
     )
 
     // File "a" with 1 chapter, file "b" with 2 embedded chapters.
@@ -42,7 +44,8 @@ class BoundTimelineTest {
             chapter(0, 0.0, 100.0, "a.mp3", offset = 0.0),
             chapter(1, 100.0, 100.0, "b.m4b", offset = 0.0),
             chapter(2, 200.0, 100.0, "b.m4b", offset = 100.0)
-        )
+        ),
+        isBoundBook = true
     )
 
     @Test
@@ -83,10 +86,80 @@ class BoundTimelineTest {
 
     @Test
     fun empty_isHandled() {
-        val t = BoundTimeline.of(emptyList())
+        val t = BoundTimeline.of(emptyList(), isBoundBook = false)
         assertEquals(0, t.fileCount)
         assertEquals(0L, t.totalDurationMs)
         assertEquals(-1, t.indexAt(0L))
         assertEquals(BoundTimeline.PlayerPosition(0, 5_000L), t.toLocal(5_000L)) // raw passthrough when no files
+    }
+
+    // Single (non-BOUND) streamed book: chapters carry a null relativePath. buildFiles must still yield
+    // ONE file span (== the single MediaItem fileGroups produces), NOT one per chapter — otherwise the
+    // file-layer seek mapping the notification now relies on would break.
+    private fun singleStreamedEmbedded() = BoundTimeline.of(
+        listOf(
+            chapter(0, 0.0, 100.0, null, offset = 0.0),
+            chapter(1, 100.0, 100.0, null, offset = 100.0),
+            chapter(2, 200.0, 100.0, null, offset = 200.0)
+        ),
+        isBoundBook = false
+    )
+
+    @Test
+    fun singleBook_nullPath_isOneFileSpanNotPerChapter() {
+        val t = singleStreamedEmbedded()
+        assertEquals(1, t.fileCount) // one MediaItem, matching PlayableItem.fileGroups
+        assertEquals(3, t.chapters.size)
+        assertEquals(300_000L, t.totalDurationMs)
+        assertEquals(250_000L, t.toAbsoluteMs(mediaItemIndex = 0, rawPositionMs = 250_000L))
+        assertEquals(BoundTimeline.PlayerPosition(0, 250_000L), t.toLocal(250_000L)) // always file 0
+    }
+
+    @Test
+    fun chapterLayer_wholeBookRoundTrip() {
+        val t = embeddedInOneFile() // chapters at 0/100/200s, each 100s
+        // whole-book 250s -> chapter 2, 50s into it
+        assertEquals(BoundTimeline.ChapterPosition(2, 50_000L), t.chapterLocalOf(250_000L))
+        // inverse
+        assertEquals(250_000L, t.wholeBookOfChapter(2, 50_000L))
+        assertEquals(100_000L, t.chapterDurationMs(1))
+        // clamps
+        assertEquals(BoundTimeline.ChapterPosition(0, 0L), t.chapterLocalOf(-5_000L))
+        assertEquals(0L, t.wholeBookOfChapter(0, -10L))
+    }
+
+    @Test
+    fun chapterLayer_boundMultiFile() {
+        val t = mixed() // chapters 0@0 / 1@100 / 2@200s; file a=[0,100), file b=[100,300)
+        assertEquals(BoundTimeline.ChapterPosition(2, 50_000L), t.chapterLocalOf(250_000L))
+        assertEquals(250_000L, t.wholeBookOfChapter(2, 50_000L))
+        assertEquals(100_000L, t.chapterDurationMs(2))
+    }
+
+    @Test
+    fun chapterLayer_clampsAndOutOfRange() {
+        val t = embeddedInOneFile()
+        assertEquals(0L, t.chapterDurationMs(99)) // out of range -> 0
+        assertEquals(0L, t.chapterDurationMs(-1))
+        // wholeBookOfChapter clamps the index into range (99 -> last chapter, index 2)
+        assertEquals(t.wholeBookOfChapter(2, 0L), t.wholeBookOfChapter(99, 0L))
+        // chapterLocalOf at exactly totalDurationMs clamps to the last chapter (the boundary that feeds
+        // BookTimelinePlayer's coerceIn guard).
+        assertEquals(2, t.chapterLocalOf(t.totalDurationMs).chapterIndex)
+    }
+
+    @Test
+    fun chapterLayer_zeroDurationChapter_reportsZeroDuration() {
+        // A degenerate 0-duration chapter: chapterDurationMs must be 0 (the input BookTimelinePlayer's
+        // coerceIn(positionMs, maxOf(positionMs, chapterDurMs)) guard has to tolerate without throwing).
+        val t = BoundTimeline.of(
+            listOf(
+                chapter(0, 0.0, 100.0, "x.m4b", offset = 0.0),
+                chapter(1, 100.0, 0.0, "x.m4b", offset = 100.0),
+                chapter(2, 100.0, 50.0, "x.m4b", offset = 100.0)
+            ),
+            isBoundBook = false
+        )
+        assertEquals(0L, t.chapterDurationMs(1))
     }
 }

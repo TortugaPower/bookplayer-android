@@ -16,12 +16,13 @@ package com.tortugapower.audiobookplayer.logic
  * `BoundTimelineTest`.
  */
 class BoundTimeline private constructor(
-    val chapters: List<PlayableChapter>
+    val chapters: List<PlayableChapter>,
+    private val isBoundBook: Boolean
 ) {
     private data class FileSpan(val startMs: Long, val durationMs: Long)
 
     /** One entry per backing file (== one MediaItem), in playback order. */
-    private val files: List<FileSpan> = buildFiles(chapters)
+    private val files: List<FileSpan> = buildFiles(chapters, isBoundBook)
 
     /** Whole-book duration in ms: the end of the last chapter. 0 when empty. */
     val totalDurationMs: Long =
@@ -76,26 +77,59 @@ class BoundTimeline private constructor(
         }
     }
 
+    // --- chapter layer <-> whole-book (for the CHAPTER-context notification window) ---
+    //
+    // These mirror the file-layer toAbsoluteMs/toLocal but key on the CHAPTER index instead of the file
+    // index, so the OS notification can present a per-chapter scrubber (iOS `currentTimeInContext` /
+    // `durationTimeInContext` parity). Pure + unit-tested so the coordinate math doesn't live in the
+    // untestable BookTimelinePlayer.
+
+    private fun chapterStartMs(index: Int): Long =
+        ((chapters.getOrNull(index)?.start ?: 0.0) * 1000).toLong()
+
+    /** Whole-book ms for a chapter-relative position (chapter index + offset within the chapter). */
+    fun wholeBookOfChapter(chapterIndex: Int, positionMs: Long): Long {
+        if (chapters.isEmpty()) return positionMs.coerceAtLeast(0L)
+        val idx = chapterIndex.coerceIn(0, chapters.lastIndex)
+        return chapterStartMs(idx) + positionMs.coerceAtLeast(0L)
+    }
+
+    /** Chapter index + offset within that chapter for a whole-book position — inverse of the above. */
+    fun chapterLocalOf(absoluteMs: Long): ChapterPosition {
+        if (chapters.isEmpty()) return ChapterPosition(0, absoluteMs.coerceAtLeast(0L))
+        val idx = indexAt(absoluteMs)
+        return ChapterPosition(idx, (absoluteMs - chapterStartMs(idx)).coerceAtLeast(0L))
+    }
+
+    /** Duration (ms) of the chapter at [chapterIndex]. 0 when there are no chapters. */
+    fun chapterDurationMs(chapterIndex: Int): Long {
+        val ch = chapters.getOrNull(chapterIndex) ?: return 0L
+        return (ch.duration * 1000).toLong()
+    }
+
     data class PlayerPosition(val mediaItemIndex: Int, val positionMs: Long)
+    data class ChapterPosition(val chapterIndex: Int, val positionMs: Long)
 
     companion object {
         /** Build a timeline from a book's flattened whole-book chapter list. */
-        fun of(chapters: List<PlayableChapter>): BoundTimeline = BoundTimeline(chapters)
+        fun of(chapters: List<PlayableChapter>, isBoundBook: Boolean): BoundTimeline =
+            BoundTimeline(chapters, isBoundBook)
 
         /**
-         * Group consecutive chapters that share the same (non-null) backing file into file spans — one
-         * per MediaItem, so file indices line up 1:1 with the playlist built by
-         * `PlaybackManager.buildMediaItems`.
-         *
-         * This matches [PlayableItem.fileGroups] for BOUND books — the only case that consults the file
-         * layer (`toLocal`/`toAbsoluteMs`/`fileCount`) — because their sub-books always carry a non-null
-         * `relativePath`. It intentionally does NOT reproduce fileGroups' non-BOUND short-circuit (which
-         * collapses ALL chapters into one group): a single book with N embedded chapters and a null
-         * `relativePath` would yield N spans here vs. 1 group there. That divergence is inert — single
-         * books seed `PlayerPosition(0, currentTime)` and read the raw player position, never the file
-         * layer. A future caller that DOES use the file layer for single books must add the guard here.
+         * Group chapters into file spans — one per MediaItem — so file indices line up 1:1 with the
+         * playlist built by `PlaybackManager.buildMediaItems`, matching [PlayableItem.fileGroups]:
+         *  - **non-BOUND**: exactly ONE span for the whole book (fileGroups short-circuits to one group),
+         *    even when `relativePath` is null (streamed). This makes `toLocal`/`toAbsoluteMs`/`fileCount`
+         *    correct for single books, which the CHAPTER-context notification window now relies on.
+         *  - **BOUND**: one span per run of consecutive chapters sharing a non-null `relativePath`.
          */
-        private fun buildFiles(chapters: List<PlayableChapter>): List<FileSpan> {
+        private fun buildFiles(chapters: List<PlayableChapter>, isBoundBook: Boolean): List<FileSpan> {
+            if (chapters.isEmpty()) return emptyList()
+            if (!isBoundBook) {
+                // One backing file spanning the whole book (base 0 .. last chapter end).
+                val last = chapters.last()
+                return listOf(FileSpan(0L, ((last.start + last.duration) * 1000).toLong()))
+            }
             val spans = ArrayList<FileSpan>()
             var i = 0
             while (i < chapters.size) {

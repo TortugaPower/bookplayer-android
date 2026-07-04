@@ -137,22 +137,14 @@ fun PlayerScreen(
         }
     }
 
-    // Position comes from PlaybackManager.positionMs: it ticks while playing and is re-seeded on seek
-    // (onPositionDiscontinuity) and on load. We collect it lifecycle-aware, so the UI no longer polls
-    // the player or races its post-seek settle (the old 30-iteration loop is gone). For BOUND books,
-    // add the current chapter's cumulative start to the raw per-item position.
-    val rawPositionMs by PlaybackManager.positionMs.collectAsStateWithLifecycle()
-    LaunchedEffect(rawPositionMs, currentItem?.uuid, isDragging, isTransitioning, viewModel.seekTrigger) {
+    // PlaybackManager.positionMs is already WHOLE-BOOK ms (PlaybackManager inverts the session window,
+    // whatever mode it's in). It ticks while playing and is re-seeded on seek (onPositionDiscontinuity)
+    // and on load. Collected lifecycle-aware, so the UI no longer polls the player or races its
+    // post-seek settle (the old 30-iteration loop is gone).
+    val livePositionMs by PlaybackManager.positionMs.collectAsStateWithLifecycle()
+    LaunchedEffect(livePositionMs, isDragging, isTransitioning, viewModel.seekTrigger) {
         if (isDragging || isTransitioning) return@LaunchedEffect
-        val p = viewModel.player ?: return@LaunchedEffect
-        if (p.playbackState != Player.STATE_READY && p.playbackState != Player.STATE_BUFFERING) return@LaunchedEffect
-        val timeline = viewModel.currentPlayable.value?.timeline
-        position = if (currentItem?.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND && timeline != null) {
-            // Map the player's (file index, per-file position) to whole-book time via the file layer.
-            timeline.toAbsoluteMs(p.currentMediaItemIndex, rawPositionMs)
-        } else {
-            rawPositionMs
-        }
+        position = livePositionMs
     }
 
     if (viewModel.showControlsSheet) {
