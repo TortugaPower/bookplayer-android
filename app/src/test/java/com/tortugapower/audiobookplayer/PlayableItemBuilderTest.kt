@@ -45,7 +45,7 @@ class PlayableItemBuilderTest {
             entity("c", ItemType.BOOK, duration = 50.0, relativePath = "vol/c.mp3")
         )
 
-        val playable = PlayableItemBuilder.buildBound(folder, subs)
+        val playable = PlayableItemBuilder.buildBound(folder, subs, emptyMap())
 
         assertTrue(playable.isBoundBook)
         assertEquals(3, playable.chapters.size)
@@ -68,10 +68,39 @@ class PlayableItemBuilderTest {
             entity("b", ItemType.BOOK, duration = 200.0)
         )
 
-        val playable = PlayableItemBuilder.buildBound(folder, subs)
+        val playable = PlayableItemBuilder.buildBound(folder, subs, emptyMap())
 
         assertEquals(listOf("a", "b"), playable.chapters.map { it.title })
         assertEquals(300.0, playable.duration, 0.0001)
+    }
+
+    @Test
+    fun buildBound_flattensEachSubBooksEmbeddedChapters() {
+        // Sub-book "a" has 2 embedded chapters, "b" has none (→ one chapter spanning it).
+        val folder = entity("vol", ItemType.BOUND)
+        val subs = listOf(
+            entity("a", ItemType.BOOK, duration = 300.0, relativePath = "vol/a.m4b"),
+            entity("b", ItemType.BOOK, duration = 200.0, relativePath = "vol/b.mp3")
+        )
+        val chaptersBySubBook = mapOf(
+            "a" to listOf(
+                ChapterEntity(bookUuid = "a", title = "A1", start = 0.0, duration = 100.0, index = 0),
+                ChapterEntity(bookUuid = "a", title = "A2", start = 100.0, duration = 200.0, index = 1)
+            )
+        )
+
+        val playable = PlayableItemBuilder.buildBound(folder, subs, chaptersBySubBook)
+
+        // 3 chapters total, globally indexed, continuous whole-book starts.
+        assertEquals(listOf("A1", "A2", "b"), playable.chapters.map { it.title })
+        assertEquals(listOf(0, 1, 2), playable.chapters.map { it.index })
+        assertEquals(listOf(0.0, 100.0, 300.0), playable.chapters.map { it.start })
+        // chapterOffset = start within the file: 0/100 for the multi-chapter "a", 0 for single-chapter "b".
+        assertEquals(listOf(0.0, 100.0, 0.0), playable.chapters.map { it.chapterOffset })
+        assertEquals(listOf("vol/a.m4b", "vol/a.m4b", "vol/b.mp3"), playable.chapters.map { it.relativePath })
+        assertEquals(500.0, playable.duration, 0.0001)
+        // File layer collapses "a"'s two chapters into one MediaItem: 2 files, 3 chapters.
+        assertEquals(2, playable.fileGroups().size)
     }
 
     @Test
@@ -125,7 +154,7 @@ class PlayableItemBuilderTest {
             entity("a", ItemType.BOOK, duration = 100.0, relativePath = "vol/a.mp3"),
             entity("b", ItemType.BOOK, duration = 200.0, relativePath = "vol/b.mp3")
         )
-        val groups = PlayableItemBuilder.buildBound(folder, subs).fileGroups()
+        val groups = PlayableItemBuilder.buildBound(folder, subs, emptyMap()).fileGroups()
         assertEquals(2, groups.size)
         assertTrue(groups.all { it.size == 1 })
     }
@@ -149,7 +178,7 @@ class PlayableItemBuilderTest {
             entity("a", ItemType.BOOK, duration = 100.0),
             entity("b", ItemType.BOOK, duration = 200.0)
         )
-        val playable = PlayableItemBuilder.buildBound(folder, subs)
+        val playable = PlayableItemBuilder.buildBound(folder, subs, emptyMap())
 
         // 150s whole-book is inside chapter b ([100,300)).
         assertEquals("b", playable.chapterAt(150_000L)?.title)

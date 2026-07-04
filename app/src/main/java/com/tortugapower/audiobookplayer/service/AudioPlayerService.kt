@@ -158,6 +158,8 @@ class AudioPlayerService : MediaSessionService() {
                 wrapped = p,
                 timelineFlow = PlaybackManager.currentTimeline,
                 chapterContextFlow = PlaybackManager.useChapterContext,
+                playableFlow = PlaybackManager.currentPlayable,
+                chapterIndexFlow = PlaybackManager.currentChapterIndex,
                 scope = serviceScope
             )
 

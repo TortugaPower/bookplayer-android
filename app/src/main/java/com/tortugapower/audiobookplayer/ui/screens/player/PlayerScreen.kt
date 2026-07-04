@@ -83,7 +83,6 @@ import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
-import com.tortugapower.audiobookplayer.logic.BoundTimeline
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
@@ -148,8 +147,10 @@ fun PlayerScreen(
         if (isDragging || isTransitioning) return@LaunchedEffect
         val p = viewModel.player ?: return@LaunchedEffect
         if (p.playbackState != Player.STATE_READY && p.playbackState != Player.STATE_BUFFERING) return@LaunchedEffect
-        position = if (currentItem?.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) {
-            BoundTimeline.of(viewModel.chapters.value).toAbsoluteMs(p.currentMediaItemIndex, rawPositionMs)
+        val timeline = viewModel.currentPlayable.value?.timeline
+        position = if (currentItem?.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND && timeline != null) {
+            // Map the player's (file index, per-file position) to whole-book time via the file layer.
+            timeline.toAbsoluteMs(p.currentMediaItemIndex, rawPositionMs)
         } else {
             rawPositionMs
         }
@@ -294,10 +295,24 @@ fun PlayerScreen(
                     } else {
                         position
                     }
-                    BoundTimeline.of(chapters).indexAt(pos)
+                    // Chapter-layer lookup (half-open [start, end) with clamp) over the whole-book pos;
+                    // works for embedded chapters since chapter starts are already whole-book.
+                    val sec = pos / 1000.0
+                    val idx = chapters.indexOfFirst { sec >= it.start && sec < it.start + it.duration }
+                    when {
+                        chapters.isEmpty() -> -1
+                        idx != -1 -> idx
+                        sec <= 0.0 -> 0
+                        else -> chapters.lastIndex
+                    }
                 }
             }
             val currentChapter = chapters.getOrNull(currentChapterIndex)
+
+            // Artwork follows the current chapter's backing file (per-file, matching iOS), falling back
+            // to the book's. Only PlayableChapter carries per-file artwork, so read it from currentPlayable.
+            val currentPlayable by viewModel.currentPlayable.collectAsStateWithLifecycle()
+            val chapterArtworkURL = currentPlayable?.chapters?.getOrNull(currentChapterIndex)?.artworkURL
 
             // isLocal is computed off the main thread in the ViewModel (no File.exists in composition).
             val isLocal by viewModel.isCurrentItemLocal.collectAsStateWithLifecycle()
@@ -320,7 +335,7 @@ fun PlayerScreen(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 PlayerArtwork(
-                    artworkURL = currentItem.artworkURL,
+                    artworkURL = chapterArtworkURL ?: currentItem.artworkURL,
                     isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
                     showCloudBadge = !isLocal && !currentItem.remoteURL.isNullOrEmpty()
                 )

@@ -235,7 +235,13 @@ object ImportManager : ImportService {
                             orderRank = currentMaxRank
                         )
                         libraryDao.insertItem(entity)
-                        
+
+                        // 4b. Extract & store embedded chapters (file-local; flattened at play time).
+                        val chapters = ChapterExtractionService.extractChapterEntities(
+                            destinationFile, entity.uuid, (duration * 1000).toLong()
+                        )
+                        if (chapters.isNotEmpty()) libraryDao.insertChapters(chapters)
+
                         // 5. Create Sync Tasks (only if session is active)
                         val accountRepository = RoomAccountRepository(database.accountDao())
                         val account = accountRepository.getAccount()
