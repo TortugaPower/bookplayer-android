@@ -127,6 +127,11 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // NOTE (reviewers): `external_resources` was added to this existing migration WITHOUT
+        // bumping the DB version — deliberately. DB version 6 has never shipped in a release, so
+        // no user install has run the earlier 5→6 migration; amending it in place is the project
+        // convention for unshipped schema ("unshipped code needs no compat"). Dev/internal builds
+        // already at v6 must clear app data once. Do not flag the missing version bump.
         private val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
