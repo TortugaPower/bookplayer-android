@@ -45,7 +45,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -283,11 +282,14 @@ fun PlayerScreen(
                 .navigationBarsPadding()
         ) {
         if (currentItem != null) {
-            val chapters by viewModel.chapters.collectAsState()
-            // derivedStateOf so the chapter scan only re-runs (and readers only recompose) when the
-            // computed index actually changes — not on every ~500ms position tick. Keyed on `duration`
-            // since that's the only non-State input; position/isDragging/dragPosition/useChapterContext/
-            // chapters are State and tracked automatically.
+            // Single source of truth for chapters: the currentPlayable snapshot. The index (via the
+            // tested BoundTimeline.indexAt / chapterIndexAt), the current chapter, and the per-file
+            // artwork all read from THIS one snapshot, so they can't disagree during a track transition.
+            val currentPlayable by viewModel.currentPlayable.collectAsStateWithLifecycle()
+            val chapters = currentPlayable?.chapterEntities ?: emptyList()
+            // derivedStateOf so readers only recompose when the computed index actually changes — not on
+            // every ~500ms position tick. Keyed on `duration` (the only non-State input);
+            // position/isDragging/dragPosition/useChapterContext/currentPlayable are State and tracked.
             val currentChapterIndex by remember(duration) {
                 derivedStateOf {
                     val pos = if (isDragging && !viewModel.useChapterContext) {
@@ -295,23 +297,15 @@ fun PlayerScreen(
                     } else {
                         position
                     }
-                    // Chapter-layer lookup (half-open [start, end) with clamp) over the whole-book pos;
-                    // works for embedded chapters since chapter starts are already whole-book.
-                    val sec = pos / 1000.0
-                    val idx = chapters.indexOfFirst { sec >= it.start && sec < it.start + it.duration }
-                    when {
-                        chapters.isEmpty() -> -1
-                        idx != -1 -> idx
-                        sec <= 0.0 -> 0
-                        else -> chapters.lastIndex
-                    }
+                    // Reuse the tested chapter-layer lookup instead of re-implementing the half-open
+                    // [start, end) scan + clamp here; whole-book positions work for embedded chapters too.
+                    currentPlayable?.chapterIndexAt(pos) ?: -1
                 }
             }
             val currentChapter = chapters.getOrNull(currentChapterIndex)
 
-            // Artwork follows the current chapter's backing file (per-file, matching iOS), falling back
-            // to the book's. Only PlayableChapter carries per-file artwork, so read it from currentPlayable.
-            val currentPlayable by viewModel.currentPlayable.collectAsStateWithLifecycle()
+            // Artwork follows the current chapter's backing file (per-file, matching iOS), falling back to
+            // the book's. Per-file artwork lives on PlayableChapter — same snapshot, same index as above.
             val chapterArtworkURL = currentPlayable?.chapters?.getOrNull(currentChapterIndex)?.artworkURL
 
             // isLocal is computed off the main thread in the ViewModel (no File.exists in composition).
