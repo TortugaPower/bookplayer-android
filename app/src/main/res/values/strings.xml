@@ -452,6 +452,9 @@
     <string name="hardcover_link_book">Link Book</string>
     <string name="hardcover_search_on_hardcover">Search on Hardcover</string>
     <string name="widget_no_books_in_progress">No books in progress</string>
+    <string name="sync_queue_sync">Sync Tasks</string>
+    <string name="sync_queue_file">File Tasks</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
     <string name="hardcover_popular_on">Popular on Hardcover</string>
     <string name="hardcover_search_placeholder">Search books…</string>
 

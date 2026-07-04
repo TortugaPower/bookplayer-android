@@ -357,6 +357,9 @@
     <string name="hardcover_link_book">Привязать книгу</string>
     <string name="hardcover_search_on_hardcover">Поиск в Hardcover</string>
     <string name="widget_no_books_in_progress">Нет книг в процессе</string>
+    <string name="sync_queue_sync">Задачи синхронизации</string>
+    <string name="sync_queue_file">Задачи с файлами</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
     <string name="hardcover_popular_on">Популярно на Hardcover</string>
     <string name="hardcover_search_placeholder">Поиск книг…</string>
 

@@ -349,6 +349,9 @@
     <string name="hardcover_link_book">本をリンク</string>
     <string name="hardcover_search_on_hardcover">Hardcoverで検索</string>
     <string name="widget_no_books_in_progress">進行中の本はありません</string>
+    <string name="sync_queue_sync">同期タスク</string>
+    <string name="sync_queue_file">ファイルタスク</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
     <string name="hardcover_popular_on">Hardcoverで人気</string>
     <string name="hardcover_search_placeholder">本を検索…</string>
 

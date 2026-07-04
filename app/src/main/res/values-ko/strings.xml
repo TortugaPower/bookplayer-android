@@ -349,6 +349,9 @@
     <string name="hardcover_link_book">책 연결</string>
     <string name="hardcover_search_on_hardcover">Hardcover에서 검색</string>
     <string name="widget_no_books_in_progress">진행 중인 책이 없습니다</string>
+    <string name="sync_queue_sync">동기화 작업</string>
+    <string name="sync_queue_file">파일 작업</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
     <string name="hardcover_popular_on">하드커버 인기 도서</string>
     <string name="hardcover_search_placeholder">책 검색…</string>
 

@@ -351,6 +351,9 @@
     <string name="hardcover_link_book">Vincular libro</string>
     <string name="hardcover_search_on_hardcover">Buscar en Hardcover</string>
     <string name="widget_no_books_in_progress">No hay libros en progreso</string>
+    <string name="sync_queue_sync">Tareas de sincronización</string>
+    <string name="sync_queue_file">Tareas de archivos</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
     <string name="hardcover_popular_on">Popular en Hardcover</string>
     <string name="hardcover_search_placeholder">Buscar libros…</string>
 

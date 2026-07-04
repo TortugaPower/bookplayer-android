@@ -30,11 +30,12 @@ import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.viewmodel.ProfileViewModel
 
+@Composable
 private fun getQueueTitle(queueKey: String, count: Int): String {
     val name = when (queueKey.lowercase()) {
-        "sync" -> "Sync Tasks"
-        "file" -> "File Tasks"
-        "audiobookshelf" -> "Audiobookshelf"
+        "sync" -> stringResource(R.string.sync_queue_sync)
+        "file" -> stringResource(R.string.sync_queue_file)
+        "audiobookshelf" -> stringResource(R.string.sync_queue_audiobookshelf)
         else -> queueKey.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
     }
     return "$name ($count)"

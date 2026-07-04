@@ -202,16 +202,15 @@
             android:foregroundServiceType="dataSync" />
 
 
-        <!-- App Widget Large Provider registration -->
+        <!-- App Widget Large Provider registration. Not exported: the system delivers
+             APPWIDGET_UPDATE with system privilege, and the playback-control actions arrive via
+             this app's own explicit PendingIntents — keeping them out of the intent-filter and
+             the receiver private stops other apps from driving playback. -->
         <receiver
             android:name=".widget.AudioWidgetLargeProvider"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.large.ACTION_PLAY_PAUSE" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.large.ACTION_REWIND" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.large.ACTION_FORWARD" />
-                <action android:name="com.tortugapower.audiobookplayer.widget.large.ACTION_PLAY_BOOK" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"

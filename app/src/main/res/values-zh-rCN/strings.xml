@@ -349,6 +349,9 @@
     <string name="hardcover_link_book">关联书籍</string>
     <string name="hardcover_search_on_hardcover">在 Hardcover 上搜索</string>
     <string name="widget_no_books_in_progress">没有进行中的书籍</string>
+    <string name="sync_queue_sync">同步任务</string>
+    <string name="sync_queue_file">文件任务</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
     <string name="hardcover_popular_on">Hardcover 热门</string>
     <string name="hardcover_search_placeholder">搜索书籍…</string>
 
