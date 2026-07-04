@@ -5,7 +5,9 @@ import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -17,7 +19,9 @@ class RoomLibraryRepositoryTest {
 
     private var timeCurrent = 1000L
     private val fakeDao = FakeLibraryDao()
-    private val repository = RoomLibraryRepository(fakeDao) { timeCurrent }
+    // The context is only dereferenced on the Hardcover path, which these tests never reach
+    // (FakeLibraryDao reports no linked hardcover resource).
+    private val repository = RoomLibraryRepository(android.content.ContextWrapper(null), fakeDao) { timeCurrent }
 
     @Test
     fun testUpdateItem_tracksCompletion() = runBlocking {
@@ -197,5 +201,21 @@ class RoomLibraryRepositoryTest {
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) = TODO()
         override suspend fun updateChaptersUuid(oldUuid: String, newUuid: String) = TODO()
         override suspend fun updateBookmarksUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun getItemByFileName(fileName: String): LibraryItemEntity? =
+            items.values.find { it.originalFileName == fileName }
+        // updateItemProgress probes for a linked hardcover resource inside a catch(Exception);
+        // TODO()'s NotImplementedError would escape it, so return "none" instead.
+        override suspend fun getExternalResource(itemUuid: String, provider: String): ExternalResourceEntity? = null
+        override fun getExternalResourcesForBookFlow(itemUuid: String): Flow<List<ExternalResourceEntity>> = TODO()
+        override suspend fun getExternalResourcesForBookSync(itemUuid: String): List<ExternalResourceEntity> = TODO()
+        override suspend fun insertExternalResource(externalResource: ExternalResourceEntity) = TODO()
+        override suspend fun deleteExternalResource(itemUuid: String, provider: String) = TODO()
+        override fun getRootItemsWithResources(): Flow<List<LibraryItemWithExternalResources>> = TODO()
+        override fun getItemsInPathWithResources(path: String): Flow<List<LibraryItemWithExternalResources>> = TODO()
+        override fun searchBooksWithResources(query: String): Flow<List<LibraryItemWithExternalResources>> = TODO()
+        override suspend fun getItemByIdWithResources(uuid: String): LibraryItemWithExternalResources? = TODO()
+        override suspend fun getItemByPathWithResources(path: String): LibraryItemWithExternalResources? = TODO()
+        override suspend fun getItemsInPathSyncWithResources(path: String): List<LibraryItemWithExternalResources> = TODO()
+        override suspend fun getRecentUnfinishedBooksSync(limit: Int): List<LibraryItemEntity> = TODO()
     }
 }
