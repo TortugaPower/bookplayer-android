@@ -39,5 +39,6 @@ interface LibraryRepository {
 
     fun getChaptersForBook(bookUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>>
     suspend fun insertChapters(chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>)
+    suspend fun replaceChaptersForBook(bookUuid: String, chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>)
     suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity?
 }

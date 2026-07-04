@@ -94,6 +94,21 @@ interface LibraryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChapters(chapters: List<ChapterEntity>)
 
+    @Query("DELETE FROM chapters WHERE bookUuid = :bookUuid")
+    suspend fun deleteChaptersForBook(bookUuid: String)
+
+    /**
+     * Idempotently set a book's chapters. Delete-then-insert in one transaction so two concurrent
+     * first-play back-fills of the same synced book (both passing an "is empty?" check) can't leave
+     * duplicated rows — the last transaction wins with exactly one set. `ChapterEntity` has no unique
+     * index on `(bookUuid, index)`, so `insertChapters`' REPLACE cannot dedupe on its own.
+     */
+    @Transaction
+    suspend fun replaceChaptersForBook(bookUuid: String, chapters: List<ChapterEntity>) {
+        deleteChaptersForBook(bookUuid)
+        insertChapters(chapters)
+    }
+
     @Query("SELECT * FROM bookmarks WHERE bookUuid = :bookUuid ORDER BY time ASC")
     fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>>
 

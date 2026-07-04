@@ -434,26 +434,29 @@ object PlaybackManager {
         if (repo.getChaptersForBook(item.uuid).first().isNotEmpty()) return
         val file = File(File(context.filesDir, "Processed"), item.relativePath ?: return)
         if (!file.exists()) return
-        val chapters = ChapterExtractionService.extractChapterEntities(file, item.uuid, (item.duration * 1000).toLong())
-        if (chapters.isNotEmpty()) {
-            repo.insertChapters(chapters)
+        val extracted = ChapterExtractionService.extractChapterEntities(file, item.uuid, (item.duration * 1000).toLong())
+        val toStore = if (extracted.isNotEmpty()) {
+            extracted
         } else {
             // No embedded chapters: persist ONE synthetic chapter spanning the file so we don't re-read
             // and re-parse the whole file (up to the 64 MB moov / 16 MB ID3 scan) on every subsequent
             // play — for a BOUND book that otherwise repeats per sub-book on each play/restore. This
             // mirrors PlayableItemBuilder's synthetic fallback, so the flattened chapter list is identical.
-            repo.insertChapters(
-                listOf(
-                    com.tortugapower.audiobookplayer.database.entities.ChapterEntity(
-                        bookUuid = item.uuid,
-                        title = item.title,
-                        start = 0.0,
-                        duration = item.duration,
-                        index = 0
-                    )
+            listOf(
+                com.tortugapower.audiobookplayer.database.entities.ChapterEntity(
+                    bookUuid = item.uuid,
+                    title = item.title,
+                    start = 0.0,
+                    duration = item.duration,
+                    index = 0
                 )
             )
         }
+        // Idempotent (delete-then-insert in one transaction): the isNotEmpty() guard above is only an
+        // optimization to skip re-parsing, not a lock — two concurrent first-play loads of the same
+        // synced book can both pass it. The transactional replace means the book ends with exactly one
+        // set of chapters, never a doubled list. See PR #20 review.
+        repo.replaceChaptersForBook(item.uuid, toStore)
     }
 
     /**
