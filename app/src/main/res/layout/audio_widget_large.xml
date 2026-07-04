@@ -84,7 +84,7 @@
                     android:src="@drawable/ic_prev"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
                     android:scaleType="centerInside"
-                    android:contentDescription="Previous track" />
+                    android:contentDescription="@string/media_action_rewind" />
 
                 <ImageButton
                     android:id="@+id/widget_play_pause_btn"
@@ -93,7 +93,7 @@
                     android:src="@drawable/ic_play"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
                     android:scaleType="centerInside"
-                    android:contentDescription="Play or Pause" />
+                    android:contentDescription="@string/player_play" />
 
                 <ImageButton
                     android:id="@+id/widget_next_btn"
@@ -102,7 +102,7 @@
                     android:src="@drawable/ic_next"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
                     android:scaleType="centerInside"
-                    android:contentDescription="Next track" />
+                    android:contentDescription="@string/media_action_fast_forward" />
             </LinearLayout>
         </LinearLayout>
 
@@ -136,7 +136,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:gravity="center"
-                android:text="No books in progress"
+                android:text="@string/widget_no_books_in_progress"
                 android:textColor="#80FFFFFF"
                 android:textSize="14sp"
                 android:visibility="gone" />

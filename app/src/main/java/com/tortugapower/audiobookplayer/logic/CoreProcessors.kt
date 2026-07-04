@@ -194,7 +194,9 @@ class FetchContentsProcessor(
                     providerName = remoteRes.providerName,
                     providerId = remoteRes.providerId,
                     syncStatus = remoteRes.syncStatus,
-                    lastSyncedAt = remoteRes.lastSyncedAt?.let { (it * 1000).toLong() } ?: localRes?.lastSyncedAt,
+                    lastSyncedAt = remoteRes.lastSyncedAt
+                        ?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
+                        ?: localRes?.lastSyncedAt,
                     processedFile = remoteRes.processedFile,
                     libraryItemUuid = uuid!!,
                     hostId = remoteRes.hostId
@@ -766,6 +768,40 @@ class ExternalUpdateProcessor(
 ) : TaskProcessor {
     private val gson = Gson()
 
+    companion object {
+        // One base client for all executions; per-server variants derive via newBuilder(),
+        // which shares this client's connection pool and dispatcher threads.
+        private val baseHttpClient by lazy { okhttp3.OkHttpClient() }
+    }
+
+    private fun buildApiClient(sanitizedUrl: String, customHeaders: Map<String, String>?): retrofit2.Retrofit {
+        val okHttpClientBuilder = baseHttpClient.newBuilder()
+        customHeaders?.forEach { (key, value) ->
+            okHttpClientBuilder.addInterceptor { chain ->
+                val request = chain.request().newBuilder().header(key, value).build()
+                chain.proceed(request)
+            }
+        }
+        return retrofit2.Retrofit.Builder()
+            .client(okHttpClientBuilder.build())
+            .baseUrl(sanitizedUrl)
+            .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+            .build()
+    }
+
+    // A progress update is superseded by the next flush, and re-auth requires user action, so a
+    // client-error response can never succeed on retry — discard instead of wedging the queue.
+    private fun handleResponse(providerName: String, response: retrofit2.Response<*>): Boolean {
+        if (response.isSuccessful) return true
+        val permanent = response.code() in listOf(400, 401, 403, 404)
+        Log.e(
+            "ExternalUpdateProcessor",
+            "🛑 $providerName progress update failed with ${response.code()}" +
+                if (permanent) " — discarding task" else " — will retry"
+        )
+        return permanent
+    }
+
     private fun getDeviceId(): String {
         return try {
             val isAppInitialized = try {
@@ -807,9 +843,10 @@ class ExternalUpdateProcessor(
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
 
-        val uuid = payload["uuid"] as? String ?: return false
-        val providerName = payload["providerName"] as? String ?: return false
-        val providerId = payload["providerId"] as? String ?: return false
+        // Malformed payloads can never self-heal; discard instead of retrying forever.
+        val uuid = payload["uuid"] as? String ?: return true
+        val providerName = payload["providerName"] as? String ?: return true
+        val providerId = payload["providerId"] as? String ?: return true
         val hostIdStr = payload["hostId"] as? String
         val currentTime = (payload["currentTime"] as? Double) ?: 0.0
         val percentCompleted = (payload["percentCompleted"] as? Double) ?: 0.0
@@ -833,8 +870,9 @@ class ExternalUpdateProcessor(
         }
 
         if (server == null) {
-            Log.e("ExternalUpdateProcessor", "❌ No server configured or found for provider '$providerName' and hostId '$hostIdStr'")
-            return false
+            // Server was removed by the user; the task is unfulfillable — discard it.
+            Log.e("ExternalUpdateProcessor", "❌ No server configured or found for provider '$providerName' and hostId '$hostIdStr'. Discarding task.")
+            return true
         }
 
         val url = server.url
@@ -855,25 +893,12 @@ class ExternalUpdateProcessor(
                         played = played
                     )
 
-                    val okHttpClientBuilder = okhttp3.OkHttpClient.Builder()
-                    customHeaders?.forEach { (key, value) ->
-                        okHttpClientBuilder.addInterceptor { chain ->
-                            val request = chain.request().newBuilder().header(key, value).build()
-                            chain.proceed(request)
-                        }
-                    }
-                    val okHttpClient = okHttpClientBuilder.build()
-
-                    val api = retrofit2.Retrofit.Builder()
-                        .client(okHttpClient)
-                        .baseUrl(sanitizedUrl)
-                        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
-                        .build()
+                    val api = buildApiClient(sanitizedUrl, customHeaders)
                         .create(com.tortugapower.audiobookplayer.network.services.JellyfinApi::class.java)
 
                     val authHeader = getJellyfinAuthHeader(token)
                     val response = api.updateUserData(authHeader, providerId, requestBody)
-                    response.isSuccessful
+                    handleResponse(providerName, response)
                 }
                 "audiobookshelf" -> {
                     val requestBody = com.tortugapower.audiobookplayer.network.services.AudiobookshelfProgressRequest(
@@ -882,27 +907,15 @@ class ExternalUpdateProcessor(
                         isFinished = isFinished
                     )
 
-                    val okHttpClientBuilder = okhttp3.OkHttpClient.Builder()
-                    customHeaders?.forEach { (key, value) ->
-                        okHttpClientBuilder.addInterceptor { chain ->
-                            val request = chain.request().newBuilder().header(key, value).build()
-                            chain.proceed(request)
-                        }
-                    }
-                    val okHttpClient = okHttpClientBuilder.build()
-
-                    val api = retrofit2.Retrofit.Builder()
-                        .client(okHttpClient)
-                        .baseUrl(sanitizedUrl)
-                        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
-                        .build()
+                    val api = buildApiClient(sanitizedUrl, customHeaders)
                         .create(com.tortugapower.audiobookplayer.network.services.AudiobookshelfApi::class.java)
 
                     val authHeader = "Bearer $token"
                     val response = api.updateProgress(authHeader, providerId, requestBody)
-                    response.isSuccessful
+                    handleResponse(providerName, response)
                 }
-                else -> false
+                // Unknown provider names never become known on retry — discard.
+                else -> true
             }
         } catch (e: Exception) {
             Log.e("ExternalUpdateProcessor", "💥 Exception updating progress: ${e.message}", e)

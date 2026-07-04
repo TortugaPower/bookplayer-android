@@ -40,6 +40,12 @@ object PlaybackManager {
     var player: Player? = null
         private set
 
+    // Completed once the last-played-item restore has populated the playlist (or determined
+    // there's nothing to restore). awaitPlayer gates on it so a widget tap that cold-starts the
+    // process neither no-ops on an empty playlist nor gets its playItem clobbered by a
+    // late-finishing restore.
+    private val restoreSettled = kotlinx.coroutines.CompletableDeferred<Unit>()
+
     // Playback headers for external media servers, keyed by the stream URL's authority (host:port).
     // Registered when playItem receives headers and seeded from the external_servers table on a
     // miss, so internal re-entries (auto-advance, next/previous) and session restore after process
@@ -212,16 +218,18 @@ object PlaybackManager {
             combine(_currentItem, _isPlaying) { item, playing -> Pair(item, playing) }
                 .collect {
                     appContext.let { ctx ->
-
-
-                        val largeIntent = Intent(ctx, AudioWidgetLargeProvider::class.java).apply {
-                            action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-                        }
                         val largeIds = AppWidgetManager.getInstance(ctx).getAppWidgetIds(
                             ComponentName(ctx, AudioWidgetLargeProvider::class.java)
                         )
-                        largeIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, largeIds)
-                        ctx.sendBroadcast(largeIntent)
+                        // No widgets placed — skip the broadcast (this also covers the
+                        // combine's immediate emission at cold start).
+                        if (largeIds.isNotEmpty()) {
+                            val largeIntent = Intent(ctx, AudioWidgetLargeProvider::class.java).apply {
+                                action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                            }
+                            largeIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, largeIds)
+                            ctx.sendBroadcast(largeIntent)
+                        }
                     }
                 }
         }
@@ -318,64 +326,12 @@ object PlaybackManager {
 
                 // Restore last played item after controller is ready
                 scope.launch(Dispatchers.IO) {
-                    val lastUuid = PlaybackSettingsManager.getLastItemUuid(appContext).first()
-                    if (lastUuid != null) {
-                        val item = getRepository(appContext).getItemById(lastUuid)
-                        if (item != null) {
-                            val processedDir = File(appContext.filesDir, "Processed")
-                            
-                            // Update navigation states
-                            val next = getRepository(appContext).getAdjacentItem(item.uuid, next = true) != null
-                            val prev = getRepository(appContext).getAdjacentItem(item.uuid, next = false) != null
-                            
-                            // Build the playback model (back-filling artwork) and the Media3 playlist.
-                            val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
-                            val refreshedItem = refreshRemoteUrlsIfNecessary(appContext, item, isBound, processedDir)
-                            val playable = if (isBound) {
-                                val subItems = getRepository(appContext).getItemsInPathSync(refreshedItem.relativePath ?: "")
-                                val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
-                                extractMissingArtwork(books, appContext)
-                                books.forEach { ensureChaptersExtracted(it, appContext) }
-                                val chaptersBySubBook = books.associate {
-                                    it.uuid to getRepository(appContext).getChaptersForBook(it.uuid).first()
-                                }
-                                PlayableItemBuilder.buildBound(refreshedItem, subItems, chaptersBySubBook)
-                            } else {
-                                extractMissingArtwork(listOf(refreshedItem), appContext)
-                                ensureChaptersExtracted(refreshedItem, appContext)
-                                PlayableItemBuilder.buildSingle(refreshedItem, getRepository(appContext).getChaptersForBook(refreshedItem.uuid).first())
-                            }
-                            _currentPlayable.value = playable
-                            _currentTimeline.value = if (isBound) playable.timeline else null
-
-                            val mediaItems = buildMediaItems(playable, processedDir)
-                            if (mediaItems.isNotEmpty()) {
-                                // For a single BOOK the player offset is just the saved whole-book time.
-                                val local = if (isBound) {
-                                    playable.timeline.toLocal((refreshedItem.currentTime * 1000).toLong())
-                                } else {
-                                    BoundTimeline.PlayerPosition(0, (refreshedItem.currentTime * 1000).toLong())
-                                }
-                                launch(Dispatchers.Main) {
-                                    _hasNextItem.value = next
-                                    _hasPreviousItem.value = prev
-                                    _isTransitioning.value = true
-
-                                    mediaController.setMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
-                                    mediaController.prepare()
-
-                                    // Apply speed and volume
-                                    mediaController.setPlaybackSpeed(_playbackSpeed.value)
-                                    applyVolume(_volumeBoost.value, _playbackVolume.value)
-
-                                    // Finalize restoration
-                                    _currentItem.value = refreshedItem
-                                    // Seed the intended whole-book position (positionMs is whole-book);
-                                    // prepare() is async so the live player is still 0 here.
-                                    _positionMs.value = (refreshedItem.currentTime * 1000).toLong()
-                                }
-                            }
-                        }
+                    try {
+                        restoreLastPlayedItem(appContext, mediaController)
+                    } finally {
+                        // Settle even when there was nothing to restore, so awaitPlayer callers
+                        // (widget taps on a cold-started process) stop waiting.
+                        restoreSettled.complete(Unit)
                     }
                 }
 
@@ -383,6 +339,7 @@ object PlaybackManager {
                 mediaController.setPlaybackSpeed(_playbackSpeed.value)
                 applyVolume(_volumeBoost.value, _playbackVolume.value)
             } catch (e: Exception) {
+                restoreSettled.complete(Unit)
                 e.printStackTrace()
             }
         }, MoreExecutors.directExecutor())
@@ -721,6 +678,104 @@ object PlaybackManager {
     /** Pause playback (no-op if already paused). Used by the sleep timer so it never accidentally resumes. */
     fun pause() {
         player?.pause()
+    }
+
+    /**
+     * Rebuilds the last-played book into the controller (playlist, saved position, speed/volume).
+     * Runs on IO; the final player mutation hops to Main and is AWAITED, so when this returns the
+     * playlist is actually populated — [awaitPlayer] relies on that via [restoreSettled].
+     */
+    private suspend fun restoreLastPlayedItem(appContext: Context, mediaController: MediaController) {
+        val lastUuid = PlaybackSettingsManager.getLastItemUuid(appContext).first() ?: return
+        val item = getRepository(appContext).getItemById(lastUuid) ?: return
+        val processedDir = File(appContext.filesDir, "Processed")
+
+        // Update navigation states
+        val next = getRepository(appContext).getAdjacentItem(item.uuid, next = true) != null
+        val prev = getRepository(appContext).getAdjacentItem(item.uuid, next = false) != null
+
+        // Build the playback model (back-filling artwork) and the Media3 playlist.
+        val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
+        val refreshedItem = refreshRemoteUrlsIfNecessary(appContext, item, isBound, processedDir)
+        val playable = if (isBound) {
+            val subItems = getRepository(appContext).getItemsInPathSync(refreshedItem.relativePath ?: "")
+            val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
+            extractMissingArtwork(books, appContext)
+            books.forEach { ensureChaptersExtracted(it, appContext) }
+            val chaptersBySubBook = books.associate {
+                it.uuid to getRepository(appContext).getChaptersForBook(it.uuid).first()
+            }
+            PlayableItemBuilder.buildBound(refreshedItem, subItems, chaptersBySubBook)
+        } else {
+            extractMissingArtwork(listOf(refreshedItem), appContext)
+            ensureChaptersExtracted(refreshedItem, appContext)
+            PlayableItemBuilder.buildSingle(refreshedItem, getRepository(appContext).getChaptersForBook(refreshedItem.uuid).first())
+        }
+        _currentPlayable.value = playable
+        _currentTimeline.value = if (isBound) playable.timeline else null
+
+        val mediaItems = buildMediaItems(playable, processedDir)
+        if (mediaItems.isNotEmpty()) {
+            // For a single BOOK the player offset is just the saved whole-book time.
+            val local = if (isBound) {
+                playable.timeline.toLocal((refreshedItem.currentTime * 1000).toLong())
+            } else {
+                BoundTimeline.PlayerPosition(0, (refreshedItem.currentTime * 1000).toLong())
+            }
+            withContext(Dispatchers.Main) {
+                _hasNextItem.value = next
+                _hasPreviousItem.value = prev
+                _isTransitioning.value = true
+
+                mediaController.setMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
+                mediaController.prepare()
+
+                // Apply speed and volume
+                mediaController.setPlaybackSpeed(_playbackSpeed.value)
+                applyVolume(_volumeBoost.value, _playbackVolume.value)
+
+                // Finalize restoration
+                _currentItem.value = refreshedItem
+                // Seed the intended whole-book position (positionMs is whole-book);
+                // prepare() is async so the live player is still 0 here.
+                _positionMs.value = (refreshedItem.currentTime * 1000).toLong()
+            }
+        }
+    }
+
+    /**
+     * Persists progress, then stops playback and unloads the current item. Must be called on the
+     * main thread. Used when the loaded book's backing file is about to be deleted (Storage
+     * Management), so ExoPlayer releases the file instead of stalling mid-playback.
+     */
+    fun stopAndUnloadCurrentItem(context: Context) {
+        updateProgress(context, itemToUpdate = _currentItem.value)
+        player?.stop()
+        player?.clearMediaItems()
+        _isPlaying.value = false
+        _currentItem.value = null
+        _currentPlayable.value = null
+        _currentTimeline.value = null
+        _positionMs.value = 0L
+        _showPlayerScreen.value = false
+        scope.launch {
+            PlaybackSettingsManager.setLastItemUuid(context, null)
+        }
+    }
+
+    /**
+     * Suspends until the MediaController has connected AND the last-played-item restore has
+     * settled, or [timeoutMs] elapses. Entry points that can arrive before initialization
+     * completes (e.g. a widget tap cold-starting the process) must await this instead of hitting
+     * the `player ?: return` no-op guards — a bound-but-unpopulated player would make play/pause
+     * and seeks silently no-op, and a playItem could be overwritten by the in-flight restore.
+     */
+    suspend fun awaitPlayer(timeoutMs: Long = 5_000): Player? {
+        return kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+            while (player == null) kotlinx.coroutines.delay(50)
+            restoreSettled.await()
+            player
+        }
     }
 
     fun togglePlayPause() {

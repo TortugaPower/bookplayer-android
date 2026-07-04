@@ -346,6 +346,9 @@
     <string name="hardcover_configure_token_hint">책을 검색하고 연결하려면 설정 > 하드커버 설정에서 API 토큰을 구성하십시오.</string>
     <string name="hardcover_no_popular_books_found">인기 도서를 찾을 수 없습니다</string>
     <string name="hardcover_no_books_found">책을 찾을 수 없습니다</string>
+    <string name="hardcover_link_book">책 연결</string>
+    <string name="hardcover_search_on_hardcover">Hardcover에서 검색</string>
+    <string name="widget_no_books_in_progress">진행 중인 책이 없습니다</string>
     <string name="hardcover_popular_on">하드커버 인기 도서</string>
     <string name="hardcover_search_placeholder">책 검색…</string>
 

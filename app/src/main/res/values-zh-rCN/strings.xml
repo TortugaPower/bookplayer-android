@@ -346,6 +346,9 @@
     <string name="hardcover_configure_token_hint">要搜索和链接书籍，请在 设置 > Hardcover 设置 中配置您的 API 令牌。</string>
     <string name="hardcover_no_popular_books_found">未找到热门书籍</string>
     <string name="hardcover_no_books_found">未找到书籍</string>
+    <string name="hardcover_link_book">关联书籍</string>
+    <string name="hardcover_search_on_hardcover">在 Hardcover 上搜索</string>
+    <string name="widget_no_books_in_progress">没有进行中的书籍</string>
     <string name="hardcover_popular_on">Hardcover 热门</string>
     <string name="hardcover_search_placeholder">搜索书籍…</string>
 

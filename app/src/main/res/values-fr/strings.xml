@@ -348,6 +348,9 @@
     <string name="hardcover_configure_token_hint">Pour rechercher et associer des livres, configurez votre jeton API dans Paramètres > Paramètres Hardcover.</string>
     <string name="hardcover_no_popular_books_found">Aucun livre populaire trouvé</string>
     <string name="hardcover_no_books_found">Aucun livre trouvé</string>
+    <string name="hardcover_link_book">Associer le livre</string>
+    <string name="hardcover_search_on_hardcover">Rechercher sur Hardcover</string>
+    <string name="widget_no_books_in_progress">Aucun livre en cours</string>
     <string name="hardcover_popular_on">Populaire sur Hardcover</string>
     <string name="hardcover_search_placeholder">Rechercher des livres…</string>
 

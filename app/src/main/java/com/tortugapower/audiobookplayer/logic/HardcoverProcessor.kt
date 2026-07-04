@@ -23,8 +23,9 @@ class HardcoverProcessor(
         
         val token = HardcoverSettingsManager.getToken(context).first()
         if (token.isBlank()) {
-            Log.w("HardcoverProcessor", "Hardcover API token is blank, cannot proceed with task: ${task.jobType}")
-            return false
+            // iOS no-ops all Hardcover work when unauthorized; discard so the queue doesn't wedge.
+            Log.w("HardcoverProcessor", "Hardcover API token is blank, discarding task: ${task.jobType}")
+            return true
         }
 
         val database = AppDatabase.getDatabase(context)
@@ -112,25 +113,24 @@ class HardcoverProcessor(
                 }
 
                 Log.d("HardcoverProcessor", "Updating Hardcover status for book ID ${resource.providerId} to status $statusId")
+                // Hardcover status updates are fire-and-forget on iOS (log the failure, don't
+                // retry); mirror that by discarding the task on any failure.
                 try {
                     val hardcoverBookId = resource.providerId.toIntOrNull()
                     if (hardcoverBookId != null) {
                         val userBookId = HardcoverService.saveUserBookStatus(token, hardcoverBookId, statusId)
                         if (userBookId != null) {
                             Log.d("HardcoverProcessor", "Successfully updated Hardcover status (userBookId: $userBookId)")
-                            true
                         } else {
                             Log.e("HardcoverProcessor", "Failed to update status on Hardcover (saveUserBookStatus returned null)")
-                            false
                         }
                     } else {
                         Log.e("HardcoverProcessor", "Invalid providerId format: ${resource.providerId}")
-                        true
                     }
                 } catch (e: Exception) {
                     Log.e("HardcoverProcessor", "Exception updating hardcover status", e)
-                    false
                 }
+                true
             }
 
             else -> false

@@ -37,13 +37,32 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
         const val ACTION_FORWARD = "com.tortugapower.audiobookplayer.widget.large.ACTION_FORWARD"
         const val ACTION_PLAY_BOOK = "com.tortugapower.audiobookplayer.widget.large.ACTION_PLAY_BOOK"
         const val EXTRA_BOOK_UUID = "com.tortugapower.audiobookplayer.widget.large.EXTRA_BOOK_UUID"
+
+        // RemoteViews.setColorStateList (i.e. setBackgroundTintList/setImageTintList) is only
+        // remotable on API 31+; calling it below that throws at inflate time on the launcher side.
+
+        /** Background tint on 31+; below, keep the layout's default so the rounded drawable survives. */
+        private fun RemoteViews.setBackgroundTintCompat(viewId: Int, color: Int) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                setColorStateList(viewId, "setBackgroundTintList", android.content.res.ColorStateList.valueOf(color))
+            }
+        }
+
+        /** Image tint on 31+; below, ImageView.setColorFilter(int) has been remotable forever. */
+        private fun RemoteViews.setImageTintCompat(viewId: Int, color: Int) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                setColorStateList(viewId, "setImageTintList", android.content.res.ColorStateList.valueOf(color))
+            } else {
+                setInt(viewId, "setColorFilter", color)
+            }
+        }
     }
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         val currentBook = PlaybackManager.currentItem.value
         val isPlaying = PlaybackManager.isPlaying.value
 
-        widgetScope.launch {
+        goAsyncLaunch {
             val db = AppDatabase.getDatabase(context)
             for (appWidgetId in appWidgetIds) {
                 val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
@@ -61,10 +80,33 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
         val currentBook = PlaybackManager.currentItem.value
         val isPlaying = PlaybackManager.isPlaying.value
-        widgetScope.launch {
+        goAsyncLaunch {
             val db = AppDatabase.getDatabase(context)
             updateWidget(context, appWidgetManager, appWidgetId, newOptions, db, currentBook, isPlaying)
         }
+    }
+
+    /**
+     * Runs [block] on the widget scope while holding the receiver alive via goAsync(); without it
+     * the process becomes killable the moment onReceive/onUpdate returns, dropping in-flight
+     * DB queries, artwork loads, and widget updates.
+     */
+    private fun goAsyncLaunch(block: suspend () -> Unit) {
+        val pendingResult = goAsync()
+        widgetScope.launch {
+            try {
+                block()
+            } catch (e: Exception) {
+                android.util.Log.e("AudioWidgetLarge", "Widget work failed", e)
+            } finally {
+                pendingResult.finish()
+            }
+        }
+    }
+
+    /** Awaits the MediaController (widget taps can cold-start the process) before controlling playback. */
+    private fun runWithPlayer(block: () -> Unit) = goAsyncLaunch {
+        if (PlaybackManager.awaitPlayer() != null) block()
     }
 
     private suspend fun updateWidget(
@@ -95,18 +137,17 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
         val views = RemoteViews(context.packageName, layoutRes)
 
         // Apply theme colors to container backgrounds and dividers
-        val bgStateList = android.content.res.ColorStateList.valueOf(colors.backgroundColor)
-        views.setColorStateList(R.id.widget_card_container, "setBackgroundTintList", bgStateList)
-        views.setColorStateList(R.id.widget_artwork_container, "setBackgroundTintList", android.content.res.ColorStateList.valueOf(colors.placeholderBgColor))
+        views.setBackgroundTintCompat(R.id.widget_card_container, colors.backgroundColor)
+        views.setBackgroundTintCompat(R.id.widget_artwork_container, colors.placeholderBgColor)
         if (!isTinyHeight) {
             views.setInt(R.id.widget_divider, "setBackgroundColor", colors.separatorColor)
             views.setTextColor(R.id.widget_empty_view, colors.textColorSecondary)
         }
 
         // Apply theme colors to media control buttons
-        views.setColorStateList(R.id.widget_play_pause_btn, "setImageTintList", android.content.res.ColorStateList.valueOf(colors.accentColor))
-        views.setColorStateList(R.id.widget_prev_btn, "setImageTintList", android.content.res.ColorStateList.valueOf(colors.textColorPrimary))
-        views.setColorStateList(R.id.widget_next_btn, "setImageTintList", android.content.res.ColorStateList.valueOf(colors.textColorPrimary))
+        views.setImageTintCompat(R.id.widget_play_pause_btn, colors.accentColor)
+        views.setImageTintCompat(R.id.widget_prev_btn, colors.textColorPrimary)
+        views.setImageTintCompat(R.id.widget_next_btn, colors.textColorPrimary)
 
         // 1. Setup now playing details
         if (currentBook != null) {
@@ -148,6 +189,10 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
             views.setImageViewResource(
                 R.id.widget_play_pause_btn,
                 if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+            )
+            views.setContentDescription(
+                R.id.widget_play_pause_btn,
+                context.getString(if (isPlaying) R.string.player_pause else R.string.player_play)
             )
         } else {
             // No book loaded
@@ -213,12 +258,12 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
                 if (i < recentBooks.size) {
                     val book = recentBooks[i]
                     views.setViewVisibility(slot.first, View.VISIBLE)
-                    views.setColorStateList(slot.first, "setBackgroundTintList", android.content.res.ColorStateList.valueOf(colors.placeholderBgColor))
+                    views.setBackgroundTintCompat(slot.first, colors.placeholderBgColor)
                     views.setTextColor(slot.third.second, colors.textColorPrimary)
 
                     val artworkPath = book.artworkURL
                     if (!artworkPath.isNullOrEmpty()) {
-                        val bitmap = loadArtworkBitmap(context, artworkPath, 150)
+                        val bitmap = loadArtworkBitmap(context, artworkPath, 96)
                         if (bitmap != null) {
                             views.setImageViewBitmap(slot.second, bitmap)
                             views.setViewVisibility(slot.second, View.VISIBLE)
@@ -295,21 +340,21 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
                     itemViews.setTextColor(R.id.widget_item_title, colors.textColorPrimary)
                     itemViews.setTextColor(R.id.widget_item_author, colors.textColorSecondary)
                     itemViews.setTextColor(R.id.widget_item_placeholder_text, colors.textColorPrimary)
-                    itemViews.setColorStateList(R.id.widget_item_artwork_container, "setBackgroundTintList", android.content.res.ColorStateList.valueOf(colors.placeholderBgColor))
+                    itemViews.setBackgroundTintCompat(R.id.widget_item_artwork_container, colors.placeholderBgColor)
 
                     val iconIndex = Math.abs(book.uuid.hashCode()) % appIcons.size
                     val fallbackIcon = appIcons[iconIndex]
 
                     val artworkPath = book.artworkURL
                     if (!artworkPath.isNullOrEmpty()) {
-                        val bitmap = loadArtworkBitmap(context, artworkPath, 150)
+                        val bitmap = loadArtworkBitmap(context, artworkPath, 96)
                         if (bitmap != null) {
                             itemViews.setInt(R.id.widget_item_artwork, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
                             itemViews.setImageViewBitmap(R.id.widget_item_artwork, bitmap)
                             itemViews.setViewVisibility(R.id.widget_item_artwork, View.VISIBLE)
                             itemViews.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
                         } else {
-                            val fallbackBitmap = loadArtworkBitmap(context, fallbackIcon, 150)
+                            val fallbackBitmap = loadArtworkBitmap(context, fallbackIcon, 96)
                             if (fallbackBitmap != null) {
                                 val bgColor = detectBackgroundColor(fallbackBitmap)
                                 itemViews.setInt(R.id.widget_item_artwork, "setBackgroundColor", bgColor)
@@ -322,7 +367,7 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
                             itemViews.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
                         }
                     } else {
-                        val fallbackBitmap = loadArtworkBitmap(context, fallbackIcon, 150)
+                        val fallbackBitmap = loadArtworkBitmap(context, fallbackIcon, 96)
                         if (fallbackBitmap != null) {
                             val bgColor = detectBackgroundColor(fallbackBitmap)
                             itemViews.setInt(R.id.widget_item_artwork, "setBackgroundColor", bgColor)
@@ -380,7 +425,13 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
             views.setPendingIntentTemplate(R.id.widget_list, clickPendingIntent)
         }
 
-        appWidgetManager.updateAppWidget(appWidgetId, views)
+        try {
+            appWidgetManager.updateAppWidget(appWidgetId, views)
+        } catch (e: Exception) {
+            // A too-large RemoteViews payload (many embedded bitmaps) can blow the Binder
+            // transaction limit; a stale widget beats crashing the app.
+            android.util.Log.e("AudioWidgetLarge", "updateAppWidget failed for id $appWidgetId", e)
+        }
 
         if (!isSmallHeight && !isTinyHeight && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             // Legacy update trigger using reflection to bypass compiler deprecation warnings
@@ -414,22 +465,16 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
         val action = intent.action ?: return
 
         when (action) {
-            ACTION_PLAY_PAUSE -> {
-                PlaybackManager.togglePlayPause()
-            }
-            ACTION_REWIND -> {
-                PlaybackManager.seekBackward()
-            }
-            ACTION_FORWARD -> {
-                PlaybackManager.seekForward()
-            }
+            ACTION_PLAY_PAUSE -> runWithPlayer { PlaybackManager.togglePlayPause() }
+            ACTION_REWIND -> runWithPlayer { PlaybackManager.seekBackward() }
+            ACTION_FORWARD -> runWithPlayer { PlaybackManager.seekForward() }
             ACTION_PLAY_BOOK -> {
                 val uuid = intent.getStringExtra(EXTRA_BOOK_UUID)
                 if (uuid != null) {
-                    widgetScope.launch {
+                    goAsyncLaunch {
                         val db = AppDatabase.getDatabase(context)
                         val item = db.libraryDao().getItemById(uuid)
-                        if (item != null) {
+                        if (item != null && PlaybackManager.awaitPlayer() != null) {
                             PlaybackManager.playItem(context, item, autoplay = true)
                         }
                     }

@@ -348,6 +348,9 @@
     <string name="hardcover_configure_token_hint">Para buscar y vincular libros, configure su token de API en Ajustes > Ajustes de Hardcover.</string>
     <string name="hardcover_no_popular_books_found">No se encontraron libros populares</string>
     <string name="hardcover_no_books_found">No se encontraron libros</string>
+    <string name="hardcover_link_book">Vincular libro</string>
+    <string name="hardcover_search_on_hardcover">Buscar en Hardcover</string>
+    <string name="widget_no_books_in_progress">No hay libros en progreso</string>
     <string name="hardcover_popular_on">Popular en Hardcover</string>
     <string name="hardcover_search_placeholder">Buscar libros…</string>
 

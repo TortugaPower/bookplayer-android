@@ -30,7 +30,9 @@ data class SyncableExternalResource(
     val providerName: String,
     val providerId: String,
     val syncStatus: String,
-    val lastSyncedAt: Double?,
+    // ISO-8601 string: unlike lastPlayDate (epoch-seconds integer column), the API's
+    // last_synced_at is a timestamp column serialized as a JS Date.
+    val lastSyncedAt: String?,
     val processedFile: Boolean,
     val hostId: String?
 )

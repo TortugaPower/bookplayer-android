@@ -360,6 +360,9 @@
     <string name="hardcover_configure_token_hint">للبحث عن الكتب وربطها، قم بتهيئة رمز الوصول الخاص بك في الإعدادات > إعدادات هاردكفر.</string>
     <string name="hardcover_no_popular_books_found">لم يتم العثور على كتب شائعة</string>
     <string name="hardcover_no_books_found">لم يتم العثور على كتب</string>
+    <string name="hardcover_link_book">ربط الكتاب</string>
+    <string name="hardcover_search_on_hardcover">البحث في Hardcover</string>
+    <string name="widget_no_books_in_progress">لا توجد كتب قيد التقدم</string>
     <string name="hardcover_popular_on">شائع على هاردكفر</string>
     <string name="hardcover_search_placeholder">البحث عن كتب...</string>
 

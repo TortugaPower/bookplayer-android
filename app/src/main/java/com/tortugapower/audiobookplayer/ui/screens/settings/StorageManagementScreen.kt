@@ -25,7 +25,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
@@ -60,37 +62,40 @@ fun StorageManagementScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var itemToDelete by remember { mutableStateOf<LibraryItemEntity?>(null) }
 
-    val localBooks = remember(books) {
-        books.mapNotNull { book ->
-            val path = book.relativePath
-            if (!path.isNullOrEmpty()) {
-                val file = File(processedDir, path)
-                if (file.exists() && file.isFile) {
-                    book to file
+    // Directory walks and per-file stat calls are disk IO — computed off the main thread and
+    // re-run whenever the library flow emits (removals update the DB, which re-triggers this).
+    var stats by remember { mutableStateOf(StorageStats()) }
+    LaunchedEffect(books) {
+        stats = withContext(Dispatchers.IO) {
+            val localBooks = books.mapNotNull { book ->
+                val path = book.relativePath
+                if (!path.isNullOrEmpty()) {
+                    val file = File(processedDir, path)
+                    if (file.exists() && file.isFile) {
+                        book to file
+                    } else null
                 } else null
-            } else null
+            }
+            StorageStats(
+                localBooks = localBooks,
+                sizesByUuid = localBooks.associate { it.first.uuid to it.second.length() },
+                totalSpace = if (processedDir.exists()) {
+                    processedDir.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
+                } else 0L,
+                artworkSpace = if (artworkDir.exists()) {
+                    artworkDir.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
+                } else 0L
+            )
         }
     }
 
-    val totalSpace = remember(localBooks) {
-        if (processedDir.exists()) {
-            processedDir.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
-        } else 0L
-    }
+    val totalSpaceStr = remember(stats) { Formatter.formatShortFileSize(context, stats.totalSpace) }
+    val artworkSpaceStr = remember(stats) { Formatter.formatShortFileSize(context, stats.artworkSpace) }
 
-    val artworkSpace = remember(localBooks) {
-        if (artworkDir.exists()) {
-            artworkDir.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
-        } else 0L
-    }
-
-    val totalSpaceStr = remember(totalSpace) { Formatter.formatShortFileSize(context, totalSpace) }
-    val artworkSpaceStr = remember(artworkSpace) { Formatter.formatShortFileSize(context, artworkSpace) }
-
-    val sortedBooks = remember(localBooks, sortBy) {
+    val sortedBooks = remember(stats, sortBy) {
         when (sortBy) {
-            SortType.SIZE -> localBooks.sortedByDescending { it.second.length() }
-            SortType.NAME -> localBooks.sortedBy { it.first.title }
+            SortType.SIZE -> stats.localBooks.sortedByDescending { stats.sizesByUuid[it.first.uuid] ?: 0L }
+            SortType.NAME -> stats.localBooks.sortedBy { it.first.title }
         }
     }
 
@@ -148,7 +153,8 @@ fun StorageManagementScreen(
                     )
                     Icon(
                         imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = "Sort Menu",
+                        // Decorative: the enclosing TextButton already reads its "Sort" label.
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -254,7 +260,9 @@ fun StorageManagementScreen(
             }
 
             items(sortedBooks, key = { it.first.uuid }) { (book, file) ->
-                val sizeStr = remember(file) { Formatter.formatShortFileSize(context, file.length()) }
+                val sizeStr = remember(stats, book.uuid) {
+                    Formatter.formatShortFileSize(context, stats.sizesByUuid[book.uuid] ?: 0L)
+                }
                 StorageFileListItem(
                     title = book.title,
                     fileName = book.originalFileName ?: file.name,
@@ -284,14 +292,14 @@ fun StorageFileListItem(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.RemoveCircle,
-                contentDescription = "Remove File",
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier
-                    .size(28.dp)
-                    .clickable { onRemoveClick() }
-            )
+            IconButton(onClick = onRemoveClick) {
+                Icon(
+                    imageVector = Icons.Default.RemoveCircle,
+                    contentDescription = stringResource(R.string.storage_management_remove_button),
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.width(16.dp))
 
@@ -329,7 +337,27 @@ private fun MaterialTheme.outlineVariantColor(): Color {
     return colorScheme.onSurface.copy(alpha = 0.08f)
 }
 
+/** Disk-derived screen state, computed off the main thread (see the LaunchedEffect above). */
+private data class StorageStats(
+    val localBooks: List<Pair<LibraryItemEntity, File>> = emptyList(),
+    val sizesByUuid: Map<String, Long> = emptyMap(),
+    val totalSpace: Long = 0L,
+    val artworkSpace: Long = 0L
+)
+
 suspend fun removeLocalFile(context: Context, repository: LibraryRepository, item: LibraryItemEntity) {
+    // If this book (or the BOUND book containing it) is loaded, stop playback and release the
+    // file before deleting it, so ExoPlayer doesn't stall on a vanished data source.
+    val current = PlaybackManager.currentItem.value
+    val backsCurrentPlayback = current != null && (
+        current.uuid == item.uuid ||
+            (current.type == ItemType.BOUND && !current.relativePath.isNullOrEmpty() &&
+                item.relativePath?.startsWith(current.relativePath + "/") == true)
+        )
+    if (backsCurrentPlayback) {
+        withContext(Dispatchers.Main) { PlaybackManager.stopAndUnloadCurrentItem(context) }
+    }
+
     withContext(Dispatchers.IO) {
         val processedDir = File(context.filesDir, "Processed")
         val relativePath = item.relativePath

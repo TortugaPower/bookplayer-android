@@ -60,25 +60,29 @@ fun StorageCloudDeletedScreen(
     // Trigger state to force reload of files from disk
     var reloadTrigger by remember { mutableIntStateOf(0) }
 
-    val activeImportFiles = remember {
-        ImportManager.importedFiles.map { it.file.absolutePath }.toSet()
+    // State read during composition, so in-flight imports appearing/finishing re-key the effect
+    // below (a one-shot remember{} snapshot would go stale while the screen is open).
+    val activeImportFiles = ImportManager.importedFiles
+
+    // listFiles() + per-file length() are disk IO — computed off the main thread.
+    var snapshot by remember { mutableStateOf(BackupSnapshot()) }
+    LaunchedEffect(reloadTrigger, activeImportFiles) {
+        snapshot = withContext(Dispatchers.IO) {
+            val activePaths = activeImportFiles.map { it.file.absolutePath }.toSet()
+            val files = if (backupDir.exists()) {
+                backupDir.listFiles()?.filter { it.isFile && !activePaths.contains(it.absolutePath) } ?: emptyList()
+            } else emptyList()
+            val sizes = files.associate { it.absolutePath to it.length() }
+            BackupSnapshot(files = files, sizesByPath = sizes, totalSpace = sizes.values.sum())
+        }
     }
+    val backupFiles = snapshot.files
 
-    val backupFiles = remember(reloadTrigger) {
-        if (backupDir.exists()) {
-            backupDir.listFiles()?.filter { it.isFile && !activeImportFiles.contains(it.absolutePath) } ?: emptyList()
-        } else emptyList()
-    }
+    val totalSpaceStr = remember(snapshot) { Formatter.formatShortFileSize(context, snapshot.totalSpace) }
 
-    val totalSpace = remember(backupFiles) {
-        backupFiles.sumOf { it.length() }
-    }
-
-    val totalSpaceStr = remember(totalSpace) { Formatter.formatShortFileSize(context, totalSpace) }
-
-    val sortedFiles = remember(backupFiles, sortBy) {
+    val sortedFiles = remember(snapshot, sortBy) {
         when (sortBy) {
-            SortType.SIZE -> backupFiles.sortedByDescending { it.length() }
+            SortType.SIZE -> backupFiles.sortedByDescending { snapshot.sizesByPath[it.absolutePath] ?: 0L }
             SortType.NAME -> backupFiles.sortedBy { it.name }
         }
     }
@@ -92,10 +96,14 @@ fun StorageCloudDeletedScreen(
                 TextButton(
                     onClick = {
                         val file = fileToDelete
-                        if (file != null && file.exists()) {
-                            file.delete()
-                            reloadTrigger++
-                            fileToDelete = null
+                        if (file != null) {
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    if (file.exists()) file.delete()
+                                }
+                                reloadTrigger++
+                                fileToDelete = null
+                            }
                         }
                     }
                 ) {
@@ -177,7 +185,8 @@ fun StorageCloudDeletedScreen(
                     )
                     Icon(
                         imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = "Sort Menu",
+                        // Decorative: the enclosing TextButton already reads its "Sort" label.
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -259,7 +268,9 @@ fun StorageCloudDeletedScreen(
             }
 
             items(sortedFiles, key = { it.absolutePath }) { file ->
-                val sizeStr = remember(file) { Formatter.formatShortFileSize(context, file.length()) }
+                val sizeStr = remember(snapshot, file.absolutePath) {
+                    Formatter.formatShortFileSize(context, snapshot.sizesByPath[file.absolutePath] ?: 0L)
+                }
                 StorageBackupFileListItem(
                     fileName = file.name,
                     sizeStr = sizeStr,
@@ -296,14 +307,14 @@ fun StorageBackupFileListItem(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.RemoveCircle,
-                contentDescription = "Delete permanently",
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier
-                    .size(28.dp)
-                    .clickable { onDeleteClick() }
-            )
+            IconButton(onClick = onDeleteClick) {
+                Icon(
+                    imageVector = Icons.Default.RemoveCircle,
+                    contentDescription = stringResource(R.string.storage_cloud_deleted_delete_button),
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.width(16.dp))
 
@@ -346,6 +357,13 @@ fun StorageBackupFileListItem(
     }
 }
 
+/** Disk-derived screen state, computed off the main thread (see the LaunchedEffect above). */
+private data class BackupSnapshot(
+    val files: List<File> = emptyList(),
+    val sizesByPath: Map<String, Long> = emptyMap(),
+    val totalSpace: Long = 0L
+)
+
 private fun getDuration(file: File): Double {
     val retriever = MediaMetadataRetriever()
     return try {
@@ -374,8 +392,12 @@ suspend fun restoreBackupFile(context: Context, file: File, repository: LibraryR
         val hasArtwork = ArtworkManager.extractAndSaveArtwork(file, artworkFile)
         
         val destinationFile = File(processedDir, file.name)
-        file.renameTo(destinationFile)
-        
+        if (!file.renameTo(destinationFile)) {
+            // Don't insert a library row pointing at a file that never made it to Processed/.
+            android.util.Log.e("StorageCloudDeleted", "Failed to move ${file.name} to Processed; skipping restore")
+            return@withContext
+        }
+
         val database = AppDatabase.getDatabase(context)
         val libraryDao = database.libraryDao()
         val currentMaxRank = libraryDao.getMaxRootOrderRank() ?: -1

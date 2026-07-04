@@ -449,6 +449,9 @@
     <string name="hardcover_configure_token_hint">To search and link books, configure your API token in Settings > Hardcover Settings.</string>
     <string name="hardcover_no_popular_books_found">No popular books found</string>
     <string name="hardcover_no_books_found">No books found</string>
+    <string name="hardcover_link_book">Link Book</string>
+    <string name="hardcover_search_on_hardcover">Search on Hardcover</string>
+    <string name="widget_no_books_in_progress">No books in progress</string>
     <string name="hardcover_popular_on">Popular on Hardcover</string>
     <string name="hardcover_search_placeholder">Search books…</string>
 

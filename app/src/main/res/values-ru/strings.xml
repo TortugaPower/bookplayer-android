@@ -354,6 +354,9 @@
     <string name="hardcover_configure_token_hint">Чтобы искать и связывать книги, настройте API-токен в разделе Настройки > Настройки Hardcover.</string>
     <string name="hardcover_no_popular_books_found">Популярные книги не найдены</string>
     <string name="hardcover_no_books_found">Книги не найдены</string>
+    <string name="hardcover_link_book">Привязать книгу</string>
+    <string name="hardcover_search_on_hardcover">Поиск в Hardcover</string>
+    <string name="widget_no_books_in_progress">Нет книг в процессе</string>
     <string name="hardcover_popular_on">Популярно на Hardcover</string>
     <string name="hardcover_search_placeholder">Поиск книг…</string>
 

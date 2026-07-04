@@ -352,13 +352,13 @@ fun ItemDetailsContent(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = linkedBook?.title ?: "Link Book",
+                            text = linkedBook?.title ?: stringResource(R.string.hardcover_link_book),
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = linkedBook?.getAuthorName() ?: "Search on Hardcover",
+                            text = linkedBook?.getAuthorName() ?: stringResource(R.string.hardcover_search_on_hardcover),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
