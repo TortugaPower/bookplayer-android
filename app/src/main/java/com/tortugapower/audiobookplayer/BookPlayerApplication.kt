@@ -1,7 +1,10 @@
 package com.tortugapower.audiobookplayer
 
 import android.app.Application
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
@@ -18,11 +21,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-class BookPlayerApplication : Application() {
+class BookPlayerApplication : Application(), ImageLoaderFactory {
     companion object {
         lateinit var instance: BookPlayerApplication
             private set
     }
+
+    /**
+     * App-wide Coil loader with our [EmbeddedArtworkFetcher] registered, so the library list can resolve
+     * embedded cover art (via the [com.tortugapower.audiobookplayer.logic.ItemArtwork] model) for items
+     * with no stored artworkURL. Only appends the fetcher — Coil's default memory/disk caches and the
+     * built-in http/file/uri fetchers are all retained. (The widget passes String artworkURLs, so it
+     * uses the default fetchers, not this one.)
+     */
+    override fun newImageLoader(): ImageLoader =
+        ImageLoader.Builder(this)
+            .components { add(EmbeddedArtworkFetcher.Factory(applicationContext)) }
+            .build()
 
     override fun onCreate() {
         super.onCreate()
