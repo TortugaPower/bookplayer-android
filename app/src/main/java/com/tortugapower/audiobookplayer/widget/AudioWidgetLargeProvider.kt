@@ -20,6 +20,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import coil.imageLoader
@@ -149,11 +152,7 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
         currentBook: com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity?,
         isPlaying: Boolean
     ) {
-        val minWidth = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0) ?: 0
         val minHeight = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0) ?: 0
-        val maxWidth = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 0) ?: 0
-        val maxHeight = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0) ?: 0
-        android.util.Log.d("AudioWidgetLarge", "Resized details - id: $appWidgetId, minW: $minWidth, minH: $minHeight, maxW: $maxWidth, maxH: $maxHeight")
 
         val colors = getWidgetThemeColors(context)
 
@@ -187,35 +186,9 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
             views.setTextColor(R.id.widget_title, colors.textColorPrimary)
             views.setTextColor(R.id.widget_author, colors.textColorSecondary)
 
-            // Load artwork via Coil
-            val artworkPath = currentBook.artworkURL
-            if (!artworkPath.isNullOrEmpty()) {
-                val bitmap = loadArtworkBitmap(context, artworkPath, 200)
-                if (bitmap != null) {
-                    views.setInt(R.id.widget_artwork, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
-                    views.setImageViewBitmap(R.id.widget_artwork, bitmap)
-                } else {
-                    val fallbackBitmap = loadArtworkBitmap(context, R.mipmap.ic_launcher, 200)
-                    if (fallbackBitmap != null) {
-                        val bgColor = detectBackgroundColor(fallbackBitmap)
-                        views.setInt(R.id.widget_artwork, "setBackgroundColor", bgColor)
-                        views.setImageViewBitmap(R.id.widget_artwork, fallbackBitmap)
-                    } else {
-                        views.setInt(R.id.widget_artwork, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
-                        views.setImageViewResource(R.id.widget_artwork, R.mipmap.ic_launcher)
-                    }
-                }
-            } else {
-                val fallbackBitmap = loadArtworkBitmap(context, R.mipmap.ic_launcher, 200)
-                if (fallbackBitmap != null) {
-                    val bgColor = detectBackgroundColor(fallbackBitmap)
-                    views.setInt(R.id.widget_artwork, "setBackgroundColor", bgColor)
-                    views.setImageViewBitmap(R.id.widget_artwork, fallbackBitmap)
-                } else {
-                    views.setInt(R.id.widget_artwork, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
-                    views.setImageViewResource(R.id.widget_artwork, R.mipmap.ic_launcher)
-                }
-            }
+            // Load artwork via Coil, falling back to the app icon.
+            val artwork = currentBook.artworkURL?.takeIf { it.isNotEmpty() }?.let { loadArtworkBitmap(context, it, 200) }
+            applyArtwork(context, views, R.id.widget_artwork, artwork, R.mipmap.ic_launcher, 200)
 
             views.setImageViewResource(
                 R.id.widget_play_pause_btn,
@@ -231,15 +204,7 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.widget_author, "")
             views.setTextColor(R.id.widget_title, colors.textColorPrimary)
             views.setTextColor(R.id.widget_author, colors.textColorSecondary)
-            val fallbackBitmap = loadArtworkBitmap(context, R.mipmap.ic_launcher, 200)
-            if (fallbackBitmap != null) {
-                val bgColor = detectBackgroundColor(fallbackBitmap)
-                views.setInt(R.id.widget_artwork, "setBackgroundColor", bgColor)
-                views.setImageViewBitmap(R.id.widget_artwork, fallbackBitmap)
-            } else {
-                views.setInt(R.id.widget_artwork, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
-                views.setImageViewResource(R.id.widget_artwork, R.mipmap.ic_launcher)
-            }
+            applyArtwork(context, views, R.id.widget_artwork, null, R.mipmap.ic_launcher, 200)
             views.setImageViewResource(R.id.widget_play_pause_btn, R.drawable.ic_play)
         }
 
@@ -274,6 +239,7 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
             val recentBooks = withContext(Dispatchers.IO) {
                 db.libraryDao().getRecentUnfinishedBooksSync(6)
             }
+            val covers = decodeCovers(context, recentBooks, 96)
 
             val slots = listOf(
                 Triple(R.id.widget_recent_1, R.id.widget_recent_artwork_1, Pair(0, R.id.widget_recent_placeholder_text_1)),
@@ -292,32 +258,13 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
                     views.setBackgroundTintCompat(slot.first, colors.placeholderBgColor)
                     views.setTextColor(slot.third.second, colors.textColorPrimary)
 
-                    val artworkPath = book.artworkURL
-                    if (!artworkPath.isNullOrEmpty()) {
-                        val bitmap = loadArtworkBitmap(context, artworkPath, 96)
-                        if (bitmap != null) {
-                            views.setImageViewBitmap(slot.second, bitmap)
-                            views.setViewVisibility(slot.second, View.VISIBLE)
-                            views.setViewVisibility(slot.third.second, View.GONE)
-                        } else {
-                            val maxLetters = 15
-                            val placeholderText = if (book.title.length > maxLetters) {
-                                  book.title.substring(0, maxLetters - 3) + "..."
-                            } else {
-                                  book.title
-                            }
-                            views.setTextViewText(slot.third.second, placeholderText)
-                            views.setViewVisibility(slot.second, View.GONE)
-                            views.setViewVisibility(slot.third.second, View.VISIBLE)
-                        }
+                    val cover = covers[i]
+                    if (cover != null) {
+                        views.setImageViewBitmap(slot.second, cover)
+                        views.setViewVisibility(slot.second, View.VISIBLE)
+                        views.setViewVisibility(slot.third.second, View.GONE)
                     } else {
-                        val maxLetters = 15
-                        val placeholderText = if (book.title.length > maxLetters) {
-                            book.title.substring(0, maxLetters - 3) + "..."
-                        } else {
-                            book.title
-                        }
-                        views.setTextViewText(slot.third.second, placeholderText)
+                        views.setTextViewText(slot.third.second, placeholderTitle(book.title))
                         views.setViewVisibility(slot.second, View.GONE)
                         views.setViewVisibility(slot.third.second, View.VISIBLE)
                     }
@@ -352,6 +299,7 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
             // 4. Setup ListView adapter
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 // Modern API 31+ using RemoteCollectionItems
+                val covers = decodeCovers(context, recentBooks, 96)
                 val itemsBuilder = RemoteViews.RemoteCollectionItems.Builder()
                 val appIcons = intArrayOf(
                     R.mipmap.ic_launcher,
@@ -373,43 +321,10 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
                     itemViews.setTextColor(R.id.widget_item_placeholder_text, colors.textColorPrimary)
                     itemViews.setBackgroundTintCompat(R.id.widget_item_artwork_container, colors.placeholderBgColor)
 
-                    val iconIndex = Math.abs(book.uuid.hashCode()) % appIcons.size
-                    val fallbackIcon = appIcons[iconIndex]
-
-                    val artworkPath = book.artworkURL
-                    if (!artworkPath.isNullOrEmpty()) {
-                        val bitmap = loadArtworkBitmap(context, artworkPath, 96)
-                        if (bitmap != null) {
-                            itemViews.setInt(R.id.widget_item_artwork, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
-                            itemViews.setImageViewBitmap(R.id.widget_item_artwork, bitmap)
-                            itemViews.setViewVisibility(R.id.widget_item_artwork, View.VISIBLE)
-                            itemViews.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
-                        } else {
-                            val fallbackBitmap = loadArtworkBitmap(context, fallbackIcon, 96)
-                            if (fallbackBitmap != null) {
-                                val bgColor = detectBackgroundColor(fallbackBitmap)
-                                itemViews.setInt(R.id.widget_item_artwork, "setBackgroundColor", bgColor)
-                                itemViews.setImageViewBitmap(R.id.widget_item_artwork, fallbackBitmap)
-                            } else {
-                                itemViews.setInt(R.id.widget_item_artwork, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
-                                itemViews.setImageViewResource(R.id.widget_item_artwork, fallbackIcon)
-                            }
-                            itemViews.setViewVisibility(R.id.widget_item_artwork, View.VISIBLE)
-                            itemViews.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
-                        }
-                    } else {
-                        val fallbackBitmap = loadArtworkBitmap(context, fallbackIcon, 96)
-                        if (fallbackBitmap != null) {
-                            val bgColor = detectBackgroundColor(fallbackBitmap)
-                            itemViews.setInt(R.id.widget_item_artwork, "setBackgroundColor", bgColor)
-                            itemViews.setImageViewBitmap(R.id.widget_item_artwork, fallbackBitmap)
-                        } else {
-                            itemViews.setInt(R.id.widget_item_artwork, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
-                            itemViews.setImageViewResource(R.id.widget_item_artwork, fallbackIcon)
-                        }
-                        itemViews.setViewVisibility(R.id.widget_item_artwork, View.VISIBLE)
-                        itemViews.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
-                    }
+                    val fallbackIcon = appIcons[Math.abs(book.uuid.hashCode()) % appIcons.size]
+                    applyArtwork(context, itemViews, R.id.widget_item_artwork, covers[i], fallbackIcon, 96)
+                    itemViews.setViewVisibility(R.id.widget_item_artwork, View.VISIBLE)
+                    itemViews.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
 
                     val fillInIntent = Intent().apply {
                         putExtra(EXTRA_BOOK_UUID, book.uuid)
@@ -513,6 +428,53 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
             }
         }
     }
+
+    /**
+     * Decode each book's primary cover CONCURRENTLY (the serial per-item decodes were the main
+     * first-paint cost). One nullable bitmap per book, aligned by index; null when the book has no
+     * artwork path or decoding failed — the caller applies its own fallback.
+     */
+    private suspend fun decodeCovers(
+        context: Context,
+        books: List<com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity>,
+        size: Int
+    ): List<Bitmap?> = coroutineScope {
+        books.map { book ->
+            async { book.artworkURL?.takeIf { it.isNotEmpty() }?.let { loadArtworkBitmap(context, it, size) } }
+        }.awaitAll()
+    }
+
+    /**
+     * Set [artworkViewId] to [primary]; if null, fall back to [fallbackIconRes] tinted with its detected
+     * background color, then to the raw resource if even that fails to decode. Shared by the now-playing
+     * header and the recents rows (was copy-pasted at each site).
+     */
+    private suspend fun applyArtwork(
+        context: Context,
+        views: RemoteViews,
+        artworkViewId: Int,
+        primary: Bitmap?,
+        fallbackIconRes: Int,
+        fallbackSize: Int
+    ) {
+        if (primary != null) {
+            views.setInt(artworkViewId, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
+            views.setImageViewBitmap(artworkViewId, primary)
+            return
+        }
+        val fallback = loadArtworkBitmap(context, fallbackIconRes, fallbackSize)
+        if (fallback != null) {
+            views.setInt(artworkViewId, "setBackgroundColor", detectBackgroundColor(fallback))
+            views.setImageViewBitmap(artworkViewId, fallback)
+        } else {
+            views.setInt(artworkViewId, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
+            views.setImageViewResource(artworkViewId, fallbackIconRes)
+        }
+    }
+
+    /** Truncate a title for the compact recents placeholder (shown when a cover fails to load). */
+    private fun placeholderTitle(title: String, maxLetters: Int = 15): String =
+        if (title.length > maxLetters) title.substring(0, maxLetters - 3) + "..." else title
 
     private suspend fun loadArtworkBitmap(context: Context, data: Any, targetSize: Int): Bitmap? {
         return try {
