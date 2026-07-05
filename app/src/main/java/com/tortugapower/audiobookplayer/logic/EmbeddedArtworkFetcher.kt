@@ -85,31 +85,29 @@ class EmbeddedArtworkFetcher(
         if (key != null && noArtKeys.contains(key)) return null // known to have no embedded art
 
         val processedDir = File(appContext.filesDir, "Processed").absolutePath
-        val result = when (
+        // DataSource comes straight from the resolved source — no second disk stat.
+        val (result, dataSource) = when (
             val source = resolveArtworkSource(processedDir, data.relativePath, data.remoteURL) { File(it).isFile }
         ) {
-            is ArtworkSource.Local -> extractPicture(source.path, headers = null)
+            is ArtworkSource.Local -> extractPicture(source.path, headers = null) to DataSource.DISK
             is ArtworkSource.Remote -> {
                 // Stream the remote file's metadata, capped (Semaphore) and interruptible+timed so a
                 // stalled server can't permanently consume a permit and kill remote artwork app-wide.
                 // (setDataSource is a blocking JNI call; runInterruptible lets the timeout/cancellation
                 // interrupt the worker thread — best-effort, as MediaMetadataRetriever may ignore it.)
                 val headers = PlaybackManager.getHeadersForUri(Uri.parse(source.url))
-                remoteSemaphore.withPermit {
+                val extracted = remoteSemaphore.withPermit {
                     withTimeoutOrNull(REMOTE_TIMEOUT_MS) {
                         runInterruptible(Dispatchers.IO) { extractPicture(source.url, headers) }
                     }
                 } ?: ExtractResult.Failed
+                extracted to DataSource.NETWORK
             }
             ArtworkSource.None -> return null
         }
 
         return when (result) {
-            is ExtractResult.Found -> sourceResult(
-                result.bytes,
-                if (data.relativePath != null && File(processedDir, data.relativePath).isFile)
-                    DataSource.DISK else DataSource.NETWORK
-            )
+            is ExtractResult.Found -> sourceResult(result.bytes, dataSource)
             ExtractResult.Empty -> {
                 if (key != null) noArtKeys.add(key)
                 null // -> Coil falls back to the caller's placeholder
