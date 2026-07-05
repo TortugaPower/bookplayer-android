@@ -60,6 +60,26 @@ object HardcoverService {
     val api: HardcoverApi by lazy { retrofit.create(HardcoverApi::class.java) }
     private val gson = Gson()
 
+    /**
+     * Normalizes a book title into a Hardcover search query: strips part/volume/chapter
+     * numbering and leading track numbers, collapses whitespace, and appends the author when
+     * present. Shared by the browser UI and the auto-match processor so their search
+     * normalization can't drift.
+     */
+    fun buildSearchString(title: String, author: String): String {
+        var cleaned = title
+        val patterns = listOf(
+            Regex("(?i)\\b(book|part|chapter|volume|vol\\.?)\\s+\\d+\\b"),
+            Regex("(?i)\\b\\d+\\s*-\\s*"),
+            Regex("(?i)^\\d+\\.\\s*")
+        )
+        for (pattern in patterns) {
+            cleaned = pattern.replace(cleaned, "")
+        }
+        cleaned = Regex("\\s+").replace(cleaned, " ").trim()
+        return if (author.isEmpty()) cleaned else "$cleaned, $author"
+    }
+
     suspend fun searchBooks(token: String, query: String): List<HardcoverBook> {
         if (token.isBlank()) return emptyList()
         val authHeader = if (token.startsWith("Bearer ", ignoreCase = true)) token else "Bearer $token"

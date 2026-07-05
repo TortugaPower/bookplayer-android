@@ -27,20 +27,6 @@ import com.tortugapower.audiobookplayer.network.HardcoverBook
 import com.tortugapower.audiobookplayer.network.HardcoverService
 import kotlinx.coroutines.delay
 
-fun buildSearchString(title: String, author: String): String {
-    var cleaned = title
-    val patterns = listOf(
-        Regex("(?i)\\b(book|part|chapter|volume|vol\\.?)\\s+\\d+\\b"),
-        Regex("(?i)\\b\\d+\\s*-\\s*"),
-        Regex("(?i)^\\d+\\.\\s*")
-    )
-    for (pattern in patterns) {
-        cleaned = pattern.replace(cleaned, "")
-    }
-    cleaned = Regex("\\s+").replace(cleaned, " ").trim()
-    return if (author.isEmpty()) cleaned else "$cleaned, $author"
-}
-
 @Composable
 fun HardcoverBrowser(
     token: String,

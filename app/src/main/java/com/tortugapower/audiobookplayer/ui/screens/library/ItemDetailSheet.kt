@@ -128,7 +128,7 @@ fun ItemDetailSheet(
             ) {
                 HardcoverBrowser(
                     token = token,
-                    initialQuery = buildSearchString(title, author),
+                    initialQuery = com.tortugapower.audiobookplayer.network.HardcoverService.buildSearchString(title, author),
                     linkedBook = linkedBook,
                     onBookSelected = { book ->
                         linkedBook = book

@@ -39,7 +39,7 @@ class HardcoverProcessor(
                 Log.d("HardcoverProcessor", "Performing auto-match for item: ${item.title}")
 
                 // 1. Search books on Hardcover
-                val searchQuery = buildSearchString(item.title, item.author ?: "")
+                val searchQuery = HardcoverService.buildSearchString(item.title, item.author ?: "")
                 val searchResults = HardcoverService.searchBooks(token, searchQuery)
                 val firstMatch = searchResults.firstOrNull()
 
@@ -140,24 +140,5 @@ class HardcoverProcessor(
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH ||
                jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS
-    }
-
-    private fun buildSearchString(title: String, author: String): String {
-        var cleaned = title
-        val patterns = listOf(
-            "(?i)\\b(book|part|chapter|volume|vol\\.?)\\s+\\d+\\b",
-            "(?i)\\b\\d+\\s*-\\s*",
-            "(?i)^\\d+\\.\\s*"
-        )
-        for (pattern in patterns) {
-            cleaned = cleaned.replace(pattern.toRegex(), "")
-        }
-        cleaned = cleaned.replace("\\s+".toRegex(), " ").trim()
-
-        return if (author.isEmpty()) {
-            cleaned
-        } else {
-            "$cleaned, $author"
-        }
     }
 }
