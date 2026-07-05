@@ -121,6 +121,101 @@ class RoomLibraryRepositoryTest {
         assertEquals(1, fakeDao.completions.size)
     }
 
+    // --- Hardcover progress transitions (updateItemProgress) ---
+
+    private val syncTasks = FakeSyncTaskRepository()
+    private var hardcoverToken = "test-token"
+    private val hardcoverRepository = RoomLibraryRepository(
+        android.content.ContextWrapper(null),
+        fakeDao,
+        hardcoverTokenProvider = { hardcoverToken },
+        readingThresholdProvider = { 0.5f },
+        syncTaskRepositoryProvider = { syncTasks }
+    ) { timeCurrent }
+
+    private fun seedHardcoverBook(status: String, currentTime: Double = 10.0): LibraryItemEntity {
+        val item = LibraryItemEntity(
+            uuid = "book-1",
+            title = "Book One",
+            author = "Author One",
+            duration = 100.0,
+            currentTime = currentTime,
+            percentCompleted = currentTime / 100.0,
+            isFinished = false,
+            relativePath = "book-1.mp3",
+            remoteURL = null,
+            artworkURL = null,
+            orderRank = 1,
+            type = ItemType.BOOK,
+            lastPlayDate = null
+        )
+        fakeDao.items[item.uuid] = item
+        fakeDao.externalResource = ExternalResourceEntity(
+            id = 1L,
+            providerName = "hardcover",
+            providerId = "999",
+            syncStatus = status,
+            libraryItemUuid = item.uuid
+        )
+        return item
+    }
+
+    @Test
+    fun testUpdateItemProgress_finished_marksHardcoverRead_andEnqueuesStatusTask() = runBlocking {
+        seedHardcoverBook(status = "synced")
+
+        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 100.0, isFinished = true)
+
+        assertEquals("read", fakeDao.insertedExternalResources.single().syncStatus)
+        val task = syncTasks.tasks.single()
+        assertEquals(com.tortugapower.audiobookplayer.logic.SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS, task.jobType)
+        assertTrue(task.payload.contains("\"status\":3"))
+    }
+
+    @Test
+    fun testUpdateItemProgress_overThreshold_marksHardcoverReading_andEnqueuesStatusTask() = runBlocking {
+        seedHardcoverBook(status = "synced")
+
+        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 60.0, isFinished = false)
+
+        assertEquals("reading", fakeDao.insertedExternalResources.single().syncStatus)
+        val task = syncTasks.tasks.single()
+        assertEquals(com.tortugapower.audiobookplayer.logic.SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS, task.jobType)
+        assertTrue(task.payload.contains("\"status\":2"))
+    }
+
+    @Test
+    fun testUpdateItemProgress_underThreshold_leavesHardcoverUntouched() = runBlocking {
+        seedHardcoverBook(status = "synced")
+
+        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 20.0, isFinished = false)
+
+        assertTrue(fakeDao.insertedExternalResources.isEmpty())
+        assertTrue(syncTasks.tasks.isEmpty())
+    }
+
+    @Test
+    fun testUpdateItemProgress_alreadyRead_isNotDowngradedByProgress() = runBlocking {
+        seedHardcoverBook(status = "read")
+
+        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 60.0, isFinished = false)
+        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 100.0, isFinished = true)
+
+        assertTrue(fakeDao.insertedExternalResources.isEmpty())
+        assertTrue(syncTasks.tasks.isEmpty())
+    }
+
+    @Test
+    fun testUpdateItemProgress_blankToken_skipsHardcoverSync() = runBlocking {
+        seedHardcoverBook(status = "synced")
+        hardcoverToken = ""
+
+        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 100.0, isFinished = true)
+
+        assertTrue(fakeDao.insertedExternalResources.isEmpty())
+        assertTrue(syncTasks.tasks.isEmpty())
+    }
+
     @Test
     fun testUpdateItem_alreadyFinished_doesNotTrackCompletion() = runBlocking {
         val oldItem = LibraryItemEntity(
@@ -204,11 +299,17 @@ class RoomLibraryRepositoryTest {
         override suspend fun getItemByFileName(fileName: String): LibraryItemEntity? =
             items.values.find { it.originalFileName == fileName }
         // updateItemProgress probes for a linked hardcover resource inside a catch(Exception);
-        // TODO()'s NotImplementedError would escape it, so return "none" instead.
-        override suspend fun getExternalResource(itemUuid: String, provider: String): ExternalResourceEntity? = null
+        // TODO()'s NotImplementedError would escape it, so default to "none" instead.
+        var externalResource: ExternalResourceEntity? = null
+        val insertedExternalResources = mutableListOf<ExternalResourceEntity>()
+        override suspend fun getExternalResource(itemUuid: String, provider: String): ExternalResourceEntity? =
+            externalResource?.takeIf { it.libraryItemUuid == itemUuid && it.providerName == provider }
         override fun getExternalResourcesForBookFlow(itemUuid: String): Flow<List<ExternalResourceEntity>> = TODO()
         override suspend fun getExternalResourcesForBookSync(itemUuid: String): List<ExternalResourceEntity> = TODO()
-        override suspend fun insertExternalResource(externalResource: ExternalResourceEntity) = TODO()
+        override suspend fun insertExternalResource(externalResource: ExternalResourceEntity) {
+            insertedExternalResources.add(externalResource)
+            this.externalResource = externalResource
+        }
         override suspend fun deleteExternalResource(itemUuid: String, provider: String) = TODO()
         override fun getRootItemsWithResources(): Flow<List<LibraryItemWithExternalResources>> = TODO()
         override fun getItemsInPathWithResources(path: String): Flow<List<LibraryItemWithExternalResources>> = TODO()
@@ -217,5 +318,33 @@ class RoomLibraryRepositoryTest {
         override suspend fun getItemByPathWithResources(path: String): LibraryItemWithExternalResources? = TODO()
         override suspend fun getItemsInPathSyncWithResources(path: String): List<LibraryItemWithExternalResources> = TODO()
         override suspend fun getRecentUnfinishedBooksSync(limit: Int): List<LibraryItemEntity> = TODO()
+    }
+
+    private class FakeSyncTaskRepository : SyncTaskRepository {
+        val tasks = mutableListOf<com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity>()
+
+        override fun getAllTasks(): Flow<List<com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity>> = kotlinx.coroutines.flow.emptyFlow()
+        override suspend fun getPendingTasks(): List<com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity> = tasks
+        override suspend fun getTasksByStatus(status: com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus): List<com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity> = emptyList()
+        override suspend fun getTasksInQueueByStatus(queueKey: String, status: com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus): List<com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity> = emptyList()
+        override suspend fun getActiveQueueKeys(): List<String> = emptyList()
+        override suspend fun updateTask(task: com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity) {}
+        override suspend fun deleteTask(task: com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity) {}
+        override suspend fun clearCompletedTasks() {}
+        override suspend fun resetRunningTasks() {}
+        override suspend fun deleteAllTasks() {}
+        override suspend fun getTaskById(id: String): com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity? = null
+        override suspend fun countActiveTasks(): Int = tasks.size
+        override suspend fun countActiveTasksInQueue(queueKey: String): Int = 0
+        override suspend fun countActiveTasksByType(jobType: String): Int = 0
+        override suspend fun migrateTaskUuid(oldUuid: String, newUuid: String) {}
+
+        override suspend fun saveTask(task: com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity) {
+            tasks.add(task)
+        }
+
+        override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity? {
+            return tasks.find { it.jobType == jobType && it.taskID == taskId }
+        }
     }
 }

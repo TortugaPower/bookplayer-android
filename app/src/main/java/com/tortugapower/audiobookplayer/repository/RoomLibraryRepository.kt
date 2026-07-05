@@ -21,13 +21,24 @@ import java.io.File
 class RoomLibraryRepository(
     private val context: android.content.Context,
     private val libraryDao: LibraryDao,
+    // Injectable like timeProvider: DataStore and Room aren't available in unit tests, and the
+    // Hardcover progress transitions below need to be testable. timeProvider stays last so
+    // existing trailing-lambda call sites keep compiling.
+    private val hardcoverTokenProvider: suspend () -> String = {
+        com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getToken(context).first()
+    },
+    private val readingThresholdProvider: suspend () -> Float = {
+        com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getReadingThreshold(context).first()
+    },
+    syncTaskRepositoryProvider: (() -> SyncTaskRepository)? = null,
     private val timeProvider: () -> Long = { System.currentTimeMillis() }
 ) : LibraryRepository {
 
     private val syncTaskRepository by lazy {
-        com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository(
-            com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context).syncTaskDao()
-        )
+        syncTaskRepositoryProvider?.invoke()
+            ?: com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository(
+                com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context).syncTaskDao()
+            )
     }
 
     override fun getRootItems(): Flow<List<LibraryItemEntity>> = 
@@ -132,7 +143,7 @@ class RoomLibraryRepository(
             try {
                 val hardcoverResource = libraryDao.getExternalResource(uuid, "hardcover")
                 if (hardcoverResource != null) {
-                    val hardcoverToken = com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getToken(context).first()
+                    val hardcoverToken = hardcoverTokenProvider()
                     if (hardcoverToken.isNotBlank()) {
                         if (isFinished) {
                             if (hardcoverResource.syncStatus != "read") {
@@ -140,7 +151,7 @@ class RoomLibraryRepository(
                                 SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, uuid, 3)
                             }
                         } else {
-                            val threshold = com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getReadingThreshold(context).first()
+                            val threshold = readingThresholdProvider()
                             if (item.percentCompleted >= threshold && hardcoverResource.syncStatus != "reading" && hardcoverResource.syncStatus != "read") {
                                 libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "reading"))
                                 SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, uuid, 2)
