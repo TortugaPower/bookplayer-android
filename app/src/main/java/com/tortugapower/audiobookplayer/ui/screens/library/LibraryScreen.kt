@@ -59,6 +59,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.tortugapower.audiobookplayer.logic.ItemArtwork
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
@@ -937,6 +939,27 @@ fun LibraryListItem(
             if (item.artworkURL != null) {
                 AsyncImage(
                     model = item.artworkURL,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else if (item.type == ItemType.BOOK &&
+                (!item.relativePath.isNullOrEmpty() || !item.remoteURL.isNullOrEmpty())
+            ) {
+                // No stored artworkURL: extract the embedded cover from the local processed file, else
+                // stream the remote file's metadata (iOS parity — covers PRO cloud items not yet
+                // downloaded). BOOK only: BOUND/folder paths are directories, not audio files. Keyed by
+                // relativePath so the decoded cover is reused from the memory cache.
+                val artworkCacheKey = item.relativePath?.takeIf { it.isNotEmpty() } ?: item.remoteURL
+                val artworkRequest = remember(item.relativePath, item.remoteURL) {
+                    ImageRequest.Builder(context)
+                        .data(ItemArtwork(item.relativePath, item.remoteURL))
+                        .memoryCacheKey(artworkCacheKey)
+                        .crossfade(true)
+                        .build()
+                }
+                AsyncImage(
+                    model = artworkRequest,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
