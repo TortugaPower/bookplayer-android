@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.logic
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.util.LruCache
 import coil.ImageLoader
 import coil.decode.DataSource
 import coil.decode.ImageSource
@@ -17,8 +18,6 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import okio.Buffer
 import java.io.File
-import java.util.Collections
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Coil model for resolving a library item's EMBEDDED cover art when it has no explicit `artworkURL`
@@ -82,7 +81,7 @@ class EmbeddedArtworkFetcher(
 
     override suspend fun fetch(): FetchResult? {
         val key = data.relativePath?.takeIf { it.isNotEmpty() } ?: data.remoteURL
-        if (key != null && noArtKeys.contains(key)) return null // known to have no embedded art
+        if (key != null && noArtKeys.get(key) != null) return null // known to have no embedded art
 
         val processedDir = File(appContext.filesDir, "Processed").absolutePath
         // DataSource comes straight from the resolved source — no second disk stat.
@@ -109,7 +108,7 @@ class EmbeddedArtworkFetcher(
         return when (result) {
             is ExtractResult.Found -> sourceResult(result.bytes, dataSource)
             ExtractResult.Empty -> {
-                if (key != null) noArtKeys.add(key)
+                if (key != null) noArtKeys.put(key, true)
                 null // -> Coil falls back to the caller's placeholder
             }
             ExtractResult.Failed -> null
@@ -144,9 +143,12 @@ class EmbeddedArtworkFetcher(
 
     companion object {
         private const val REMOTE_TIMEOUT_MS = 15_000L
+        private const val NO_ART_CACHE_SIZE = 512
         // Cap concurrent remote extractions so scrolling a large cloud library can't spawn many retrievers.
         private val remoteSemaphore = Semaphore(3)
-        // Process-scoped: items confirmed to have NO embedded art, so we don't re-extract on every scroll.
-        private val noArtKeys: MutableSet<String> = Collections.newSetFromMap(ConcurrentHashMap())
+        // Bounded (LRU) process-scoped set of keys confirmed to have NO embedded art, so we don't
+        // re-extract on every scroll — capped so it can't grow unbounded; evicted keys just re-extract
+        // once. LruCache is internally synchronized. (Value is a dummy; only key presence matters.)
+        private val noArtKeys = LruCache<String, Boolean>(NO_ART_CACHE_SIZE)
     }
 }
