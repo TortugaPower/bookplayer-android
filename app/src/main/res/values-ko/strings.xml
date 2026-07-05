@@ -270,7 +270,7 @@
     <string name="hardcover_progress_tracking_section">진행률 추적</string>
     <string name="hardcover_reading_threshold">독서 기준치</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
-    <string name="hardcover_progress_tracking_hint">Hardcover 라이브러리에서 책을 **읽는 중**으로 표시하기 위해 필요한 최소 진행률 백분율을 설정합니다.</string>
+    <string name="hardcover_progress_tracking_hint">Hardcover 라이브러리에서 책을 읽는 중으로 표시하기 위해 필요한 최소 진행률 백분율을 설정합니다.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">미디어 서버</string>

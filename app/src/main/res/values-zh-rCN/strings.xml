@@ -270,7 +270,7 @@
     <string name="hardcover_progress_tracking_section">进度跟踪</string>
     <string name="hardcover_reading_threshold">阅读阈值</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
-    <string name="hardcover_progress_tracking_hint">设置在 Hardcover 库中将书籍标记为**正在阅读**所需的最低进度百分比。</string>
+    <string name="hardcover_progress_tracking_hint">设置在 Hardcover 库中将书籍标记为正在阅读所需的最低进度百分比。</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">媒体服务器</string>

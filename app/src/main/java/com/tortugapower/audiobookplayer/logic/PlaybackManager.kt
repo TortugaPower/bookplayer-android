@@ -215,20 +215,32 @@ object PlaybackManager {
         }
         
         scope.launch {
+            // iOS-style split (WidgetReloadService): a book change is a rare transition that
+            // rebuilds the whole widget; a play/pause flip only patches the button in place —
+            // no DB query, artwork reloads, or full RemoteViews payload per tap.
+            var lastItemUuid: String? = null
+            var seenFirstEmission = false
             combine(_currentItem, _isPlaying) { item, playing -> Pair(item, playing) }
-                .collect {
+                .collect { (item, playing) ->
                     appContext.let { ctx ->
-                        val largeIds = AppWidgetManager.getInstance(ctx).getAppWidgetIds(
-                            ComponentName(ctx, AudioWidgetLargeProvider::class.java)
-                        )
-                        // No widgets placed — skip the broadcast (this also covers the
-                        // combine's immediate emission at cold start).
-                        if (largeIds.isNotEmpty()) {
-                            val largeIntent = Intent(ctx, AudioWidgetLargeProvider::class.java).apply {
-                                action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                        val itemChanged = !seenFirstEmission || item?.uuid != lastItemUuid
+                        seenFirstEmission = true
+                        lastItemUuid = item?.uuid
+                        if (itemChanged) {
+                            val largeIds = AppWidgetManager.getInstance(ctx).getAppWidgetIds(
+                                ComponentName(ctx, AudioWidgetLargeProvider::class.java)
+                            )
+                            // No widgets placed — skip the broadcast (this also covers the
+                            // combine's immediate emission at cold start).
+                            if (largeIds.isNotEmpty()) {
+                                val largeIntent = Intent(ctx, AudioWidgetLargeProvider::class.java).apply {
+                                    action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                                }
+                                largeIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, largeIds)
+                                ctx.sendBroadcast(largeIntent)
                             }
-                            largeIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, largeIds)
-                            ctx.sendBroadcast(largeIntent)
+                        } else {
+                            AudioWidgetLargeProvider.pushPlayStateUpdate(ctx, playing)
                         }
                     }
                 }

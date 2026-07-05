@@ -272,7 +272,7 @@
     <string name="hardcover_progress_tracking_section">प्रगति ट्रैकिंग</string>
     <string name="hardcover_reading_threshold">पढ़ने की सीमा</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
-    <string name="hardcover_progress_tracking_hint">अपनी Hardcover लाइब्रेरी में किसी पुस्तक को **अभी पढ़ रहे हैं** के रूप में चिह्नित करने के लिए आवश्यक न्यूनतम प्रगति प्रतिशत निर्धारित करता है।</string>
+    <string name="hardcover_progress_tracking_hint">अपनी Hardcover लाइब्रेरी में किसी पुस्तक को अभी पढ़ रहे हैं के रूप में चिह्नित करने के लिए आवश्यक न्यूनतम प्रगति प्रतिशत निर्धारित करता है।</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">मीडिया सर्वर</string>

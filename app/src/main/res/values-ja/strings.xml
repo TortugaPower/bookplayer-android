@@ -270,7 +270,7 @@
     <string name="hardcover_progress_tracking_section">進捗トラッキング</string>
     <string name="hardcover_reading_threshold">読書しきい値</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
-    <string name="hardcover_progress_tracking_hint">Hardcoverライブラリで本を**読書中**にするために必要な最小進捗率を設定します。</string>
+    <string name="hardcover_progress_tracking_hint">Hardcoverライブラリで本を読書中にするために必要な最小進捗率を設定します。</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">メディアサーバー</string>

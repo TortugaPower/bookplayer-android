@@ -56,6 +56,37 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
                 setInt(viewId, "setColorFilter", color)
             }
         }
+
+        /**
+         * Cheap play/pause-only refresh: patches the live widget in place instead of the full
+         * rebuild (DB query + artwork loads + whole-RemoteViews Binder payload) that a broadcast
+         * to onUpdate costs. Mirrors iOS's immediate-vs-coalesced widget reload split. Safe
+         * because all three size layouts share the button id, tints persist as view properties
+         * across setImageViewResource, and any launcher-side re-inflate goes through a full
+         * onUpdate anyway (no stale-icon risk).
+         */
+        fun pushPlayStateUpdate(context: Context, isPlaying: Boolean) {
+            val manager = AppWidgetManager.getInstance(context)
+            val ids = manager.getAppWidgetIds(
+                android.content.ComponentName(context, AudioWidgetLargeProvider::class.java)
+            )
+            if (ids.isEmpty()) return
+
+            val views = RemoteViews(context.packageName, R.layout.audio_widget_large)
+            views.setImageViewResource(
+                R.id.widget_play_pause_btn,
+                if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+            )
+            views.setContentDescription(
+                R.id.widget_play_pause_btn,
+                context.getString(if (isPlaying) R.string.player_pause else R.string.player_play)
+            )
+            try {
+                manager.partiallyUpdateAppWidget(ids, views)
+            } catch (e: Exception) {
+                android.util.Log.e("AudioWidgetLarge", "Partial play-state update failed", e)
+            }
+        }
     }
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {

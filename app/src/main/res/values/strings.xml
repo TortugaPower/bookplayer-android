@@ -373,7 +373,7 @@
     <string name="hardcover_progress_tracking_section">Progress Tracking</string>
     <string name="hardcover_reading_threshold">Reading threshold</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
-    <string name="hardcover_progress_tracking_hint">Sets the minimum progress percentage required before a book is marked as **Currently Reading** in your Hardcover library.</string>
+    <string name="hardcover_progress_tracking_hint">Sets the minimum progress percentage required before a book is marked as Currently Reading in your Hardcover library.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">Media Servers</string>

@@ -284,7 +284,7 @@
     <string name="hardcover_progress_tracking_section">تتبع التقدم</string>
     <string name="hardcover_reading_threshold">حد القراءة</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
-    <string name="hardcover_progress_tracking_hint">يحدد الحد الأدنى لنسبة تقدم القراءة المطلوبة قبل وضع علامة على الكتاب كـ **يقرأ حاليًا** في مكتبة Hardcover الخاصة بك.</string>
+    <string name="hardcover_progress_tracking_hint">يحدد الحد الأدنى لنسبة تقدم القراءة المطلوبة قبل وضع علامة على الكتاب كـ يقرأ حاليًا في مكتبة Hardcover الخاصة بك.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">خوادم الوسائط</string>

@@ -272,7 +272,7 @@
     <string name="hardcover_progress_tracking_section">Seguimiento del progreso</string>
     <string name="hardcover_reading_threshold">Umbral de lectura</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
-    <string name="hardcover_progress_tracking_hint">Establece el porcentaje mínimo de progreso requerido para que un libro se marque como **Leyendo actualmente** en tu biblioteca de Hardcover.</string>
+    <string name="hardcover_progress_tracking_hint">Establece el porcentaje mínimo de progreso requerido para que un libro se marque como Leyendo actualmente en tu biblioteca de Hardcover.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">Servidores multimedia</string>

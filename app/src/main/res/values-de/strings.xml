@@ -272,7 +272,7 @@
     <string name="hardcover_progress_tracking_section">Fortschrittsverfolgung</string>
     <string name="hardcover_reading_threshold">Leseschwelle</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
-    <string name="hardcover_progress_tracking_hint">Legt den minimalen Fortschrittsprozentsatz fest, der erforderlich ist, bevor ein Buch in Ihrer Hardcover-Bibliothek als **Wird gerade gelesen** markiert wird.</string>
+    <string name="hardcover_progress_tracking_hint">Legt den minimalen Fortschrittsprozentsatz fest, der erforderlich ist, bevor ein Buch in Ihrer Hardcover-Bibliothek als Wird gerade gelesen markiert wird.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">Medienserver</string>

@@ -272,7 +272,7 @@
     <string name="hardcover_progress_tracking_section">Suivi de la progression</string>
     <string name="hardcover_reading_threshold">Seuil de lecture</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
-    <string name="hardcover_progress_tracking_hint">Définit le pourcentage de progression minimum requis avant qu\'un livre ne soit marqué comme **En cours de lecture** dans votre bibliothèque Hardcover.</string>
+    <string name="hardcover_progress_tracking_hint">Définit le pourcentage de progression minimum requis avant qu\'un livre ne soit marqué comme En cours de lecture dans votre bibliothèque Hardcover.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">Serveurs multimédias</string>
