@@ -177,6 +177,68 @@ class LibraryViewModel(
         }
     }
 
+    suspend fun getExternalResource(itemUuid: String, provider: String): com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity? {
+        return repository.getExternalResource(itemUuid, provider)
+    }
+
+    fun getExternalResourcesForBook(itemUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>> {
+        return repository.getExternalResourcesForBook(itemUuid)
+    }
+
+    fun saveHardcoverLink(itemUuid: String, bookId: String) {
+        viewModelScope.launch {
+            val token = com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getToken(appContext).first()
+            val book = com.tortugapower.audiobookplayer.network.HardcoverService.getBook(token, bookId)
+            val artworkUrl = book?.image?.url
+
+            val entity = com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity(
+                providerName = "hardcover",
+                providerId = bookId,
+                syncStatus = "synced",
+                libraryItemUuid = itemUuid
+            )
+            repository.saveExternalResource(entity)
+
+            val item = repository.getItemById(itemUuid)
+            if (item != null) {
+                if (item.artworkURL.isNullOrBlank() && !artworkUrl.isNullOrBlank()) {
+                    val artworkDir = java.io.File(appContext.filesDir, "Artworks")
+                    val fileName = "${java.util.UUID.randomUUID()}.jpg"
+                    val destFile = java.io.File(artworkDir, fileName)
+                    val success = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        if (!artworkDir.exists()) artworkDir.mkdirs()
+                        com.tortugapower.audiobookplayer.logic.ArtworkManager.downloadAndSaveArtwork(appContext, artworkUrl, destFile)
+                    }
+                    if (success) {
+                        item.artworkURL = destFile.absolutePath
+                        repository.updateItem(item)
+                    }
+                }
+                
+                // Upload artwork if present (either existing or downloaded)
+                if (!item.artworkURL.isNullOrBlank()) {
+                    repository.updateArtworkSync(item)
+                }
+            }
+
+            // Set book status as 'Want to Read' (status code 1) on Hardcover if preference is enabled
+            val autoAdd = com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getAutoAddToWantToRead(appContext).first()
+            if (autoAdd && token.isNotBlank()) {
+                com.tortugapower.audiobookplayer.logic.SyncTaskFactory.createHardcoverUpdateStatusTask(
+                    syncTaskRepository,
+                    itemUuid,
+                    1
+                )
+            }
+        }
+    }
+
+    fun removeHardcoverLink(itemUuid: String) {
+        viewModelScope.launch {
+            repository.deleteExternalResource(itemUuid, "hardcover")
+        }
+    }
+
     fun updateArtwork(context: android.content.Context, item: LibraryItemEntity, imageUri: android.net.Uri?) {
         viewModelScope.launch {
             if (imageUri == null) {
@@ -212,5 +274,9 @@ class LibraryViewModel(
             item.artworkURL = null
             repository.updateItem(item)
         }
+    }
+
+    suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity {
+        return repository.resolveStreamingUrl(item)
     }
 }

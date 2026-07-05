@@ -17,7 +17,7 @@ object ArtworkManager {
                 saveProcessedBitmap(bytes, destFile)
             } ?: false
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("ArtworkManager", "Error compressing and saving image: ${e.message}")
             false
         }
     }
@@ -29,7 +29,7 @@ object ArtworkManager {
             val picture = retriever.embeddedPicture ?: return false
             saveProcessedBitmap(picture, destFile)
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("ArtworkManager", "Error extracting and saving artwork: ${e.message}")
             false
         } finally {
             retriever.release()
@@ -86,7 +86,25 @@ object ArtworkManager {
             bitmap.recycle()
             true
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("ArtworkManager", "Error saving processed bitmap: ${e.message}")
+            false
+        }
+    }
+
+    fun downloadAndSaveArtwork(context: Context, urlString: String, destFile: File): Boolean {
+        return try {
+            val url = java.net.URL(urlString)
+            val connection = url.openConnection() as java.net.HttpURLConnection
+            connection.connectTimeout = 15000
+            connection.readTimeout = 15000
+            connection.doInput = true
+            connection.connect()
+            connection.inputStream.use { input ->
+                val bytes = input.readBytes()
+                saveProcessedBitmap(bytes, destFile)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ArtworkManager", "Error downloading and saving artwork: ${e.message}")
             false
         }
     }
@@ -97,7 +115,7 @@ object ArtworkManager {
             val file = File(path)
             if (file.exists()) file.delete()
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("ArtworkManager", "Error deleting artwork: ${e.message}")
         }
     }
 }

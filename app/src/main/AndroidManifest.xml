@@ -195,12 +195,34 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </service>
-
         <service
             android:name=".logic.TaskConcurrencyServiceHost"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+
+        <!-- App Widget Large Provider registration. Not exported: the system delivers
+             APPWIDGET_UPDATE with system privilege, and the playback-control actions arrive via
+             this app's own explicit PendingIntents — keeping them out of the intent-filter and
+             the receiver private stops other apps from driving playback. -->
+        <receiver
+            android:name=".widget.AudioWidgetLargeProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/audio_widget_large_info" />
+        </receiver>
+
+        <!-- App Widget Large Service registration -->
+        <service
+            android:name=".widget.AudioWidgetLargeService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
+
 
         <!-- Shares the generated debug .txt as a content:// URI (Settings → Support). -->
         <provider

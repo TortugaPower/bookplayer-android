@@ -214,6 +214,12 @@
     <string name="sync_task_download_audio">Audio herunterladen</string>
     <string name="sync_task_sync_identifiers">Identifikatoren synchronisieren</string>
     <string name="sync_task_match_library_ids">Bibliotheks-IDs abgleichen</string>
+    <string name="sync_task_upload_external_resource">Externe Ressource hochladen</string>
+    <string name="sync_task_delete_external_resource">Externe Ressource löschen</string>
+    <string name="sync_task_hardcover_auto_match">Hardcover automatischer Abgleich</string>
+    <string name="sync_task_hardcover_update_status">Hardcover-Status aktualisieren</string>
+    <string name="sync_task_external_update">Externes Status-Update</string>
+    <string name="sync_task_set_external_resource_to_download">Download-Status der externen Ressource</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">ÜBERSICHT</string>
@@ -250,6 +256,24 @@
     <string name="profile_change_less_last_week">%1$d%% weniger als letzte Woche</string>
     <string name="profile_time_minutes">%1$d Min.</string>
     <string name="profile_time_hours_minutes">%1$d Std. %2$d Min.</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">Integrationen</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Hardcover-Einstellungen</string>
+    <string name="hardcover_api_access_section">API-Zugriff</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">Sie finden Ihren Hardcover-API-Zugang unter %1$s.</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">Automatisierung</string>
+    <string name="hardcover_auto_match_books">Bücher automatisch abgleichen</string>
+    <string name="hardcover_auto_add_want_to_read">Automatisch zu „Möchte ich lesen“ hinzufügen</string>
+    <string name="hardcover_automation_hint">Synchronisieren Sie Ihren Lesefortschritt automatisch mit Hardcover. Wenn aktiviert, werden Bücher automatisch abgeglichen und Ihrer Bibliothek hinzugefügt.</string>
+    <string name="hardcover_progress_tracking_section">Fortschrittsverfolgung</string>
+    <string name="hardcover_reading_threshold">Leseschwelle</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">Legt den minimalen Fortschrittsprozentsatz fest, der erforderlich ist, bevor ein Buch in Ihrer Hardcover-Bibliothek als Wird gerade gelesen markiert wird.</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">Medienserver</string>
     <string name="media_servers_edit_button_description">Medienserver bearbeiten</string>
@@ -316,4 +340,47 @@
     <string name="external_item_detail_genres_label">Genres</string>
     <string name="external_item_detail_none_value_fallback">Keine</string>
     <string name="external_item_detail_unknown_author_fallback">Unbekannter Autor</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">Hardcover-Suche</string>
+    <string name="hardcover_unlink">Verknüpfung aufheben</string>
+    <string name="hardcover_token_missing">Hardcover-API-Token fehlt</string>
+    <string name="hardcover_configure_token_hint">Um Bücher zu suchen und zu verknüpfen, konfigurieren Sie Ihr API-Token in Einstellungen > Hardcover-Einstellungen.</string>
+    <string name="hardcover_no_popular_books_found">Keine beliebten Bücher gefunden</string>
+    <string name="hardcover_no_books_found">Keine Bücher gefunden</string>
+    <string name="hardcover_link_book">Buch verknüpfen</string>
+    <string name="hardcover_search_on_hardcover">Auf Hardcover suchen</string>
+    <string name="widget_no_books_in_progress">Keine begonnenen Bücher</string>
+    <string name="sync_queue_sync">Synchronisierungsaufgaben</string>
+    <string name="sync_queue_file">Dateiaufgaben</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
+    <string name="hardcover_popular_on">Beliebt auf Hardcover</string>
+    <string name="hardcover_search_placeholder">Bücher suchen…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">Speicherverwaltung</string>
+    <string name="settings_manage_files_label">Dateien verwalten</string>
+    <string name="settings_files_removed_label">Gelöschte Dateien (Synchronisationsvorgänge)</string>
+    <string name="storage_management_title">Speicherverwaltung</string>
+    <string name="storage_management_total_space">Gesamter belegter Speicherplatz</string>
+    <string name="storage_management_artwork_cache">Größe des Cover-Caches</string>
+    <string name="storage_management_file_count_single">%1$d DATEI</string>
+    <string name="storage_management_file_count_multiple">%1$d DATEIEN</string>
+    <string name="storage_management_remove_confirm_title">Datei entfernen</string>
+    <string name="storage_management_remove_confirm_text">Sind Sie sicher, dass Sie die heruntergeladene Datei für dieses Hörbuch entfernen möchten?</string>
+    <string name="storage_management_remove_button">Entfernen</string>
+    <string name="storage_management_sort_label">Sortieren</string>
+    <string name="storage_management_sort_by_size">Nach Größe sortieren</string>
+    <string name="storage_management_sort_by_name">Nach Name sortieren</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">Kürzlich entfernt</string>
+    <string name="storage_cloud_deleted_total_size">Größe des Backups</string>
+    <string name="storage_cloud_deleted_restore_all">Alle wiederherstellen</string>
+    <string name="storage_cloud_deleted_restore_button">Wiederherstellen</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">Endgültig löschen</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">Sind Sie sicher, dass Sie diese Datei dauerhaft löschen möchten? Diese Aktion kann nicht rückgängig gemacht werden.</string>
+    <string name="storage_cloud_deleted_delete_button">Löschen</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">Alle Dateien wiederherstellen</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">Sind Sie sicher, dass Sie alle entfernten Audiodateien wieder in Ihre Bibliothek aufnehmen möchten?</string>
 </resources>

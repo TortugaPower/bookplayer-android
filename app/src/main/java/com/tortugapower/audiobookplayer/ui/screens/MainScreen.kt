@@ -56,6 +56,9 @@ import com.tortugapower.audiobookplayer.ui.screens.profile.StatisticsScreen
 import com.tortugapower.audiobookplayer.ui.screens.profile.ListeningHistoryScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.SettingsScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.MediaServersFlow
+import com.tortugapower.audiobookplayer.ui.screens.settings.HardcoverSettingsScreen
+import com.tortugapower.audiobookplayer.ui.screens.settings.StorageManagementScreen
+import com.tortugapower.audiobookplayer.ui.screens.settings.StorageCloudDeletedScreen
 import com.tortugapower.audiobookplayer.repository.ExternalLibraryRepository
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.QueuedTasksScreen
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.TaskDetailScreen
@@ -72,7 +75,7 @@ fun MainScreen() {
 
     val context = LocalContext.current
     val database = remember { AppDatabase.getDatabase(context) }
-    val baseLibraryRepository = remember { RoomLibraryRepository(database.libraryDao()) }
+    val baseLibraryRepository = remember { RoomLibraryRepository(context.applicationContext, database.libraryDao()) }
     val syncTaskRepository = remember { RoomSyncTaskRepository(database.syncTaskDao()) }
     val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
     val externalServerRepository = remember { ExternalServerRepository(database.externalServerDao()) }
@@ -239,7 +242,7 @@ fun MainScreen() {
                     composable(
                         route = Screen.Settings.route,
                         exitTransition = {
-                            if (targetState.destination.route in setOf("themes", "tipjar", "appicons")) {
+                            if (targetState.destination.route in setOf("themes", "tipjar", "appicons", "hardcoverSettings", "storageManagement", "storageCloudDeleted")) {
                                 slideOutOfContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Left,
                                     animationSpec = tween(400)
@@ -247,7 +250,7 @@ fun MainScreen() {
                             } else null
                         },
                         popEnterTransition = {
-                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons")) {
+                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons", "hardcoverSettings", "storageManagement", "storageCloudDeleted")) {
                                 slideIntoContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Right,
                                     animationSpec = tween(400)
@@ -258,7 +261,11 @@ fun MainScreen() {
                         SettingsScreen(
                             onNavigateToThemes = { navController.navigate("themes") },
                             onNavigateToAppIcons = { navController.navigate("appicons") },
-                            onNavigateToTipJar = { navController.navigate("tipjar") }
+                            onNavigateToTipJar = { navController.navigate("tipjar") },
+                            onNavigateToMediaServers = { showMediaServersFlow = true },
+                            onNavigateToHardcover = { navController.navigate("hardcoverSettings") },
+                            onNavigateToStorageManagement = { navController.navigate("storageManagement") },
+                            onNavigateToStorageCloudDeleted = { navController.navigate("storageCloudDeleted") }
                         ) 
                     }
                     
@@ -344,6 +351,78 @@ fun MainScreen() {
                         }
                     ) {
                         AppIconsScreen(onBack = { navController.popBackStack() })
+                    }
+
+                    composable(
+                        route = "hardcoverSettings",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            fadeOut(animationSpec = tween(400))
+                        },
+                        popEnterTransition = {
+                            fadeIn(animationSpec = tween(400))
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) {
+                        HardcoverSettingsScreen(onBack = { navController.popBackStack() })
+                    }
+
+                    composable(
+                        route = "storageManagement",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            fadeOut(animationSpec = tween(400))
+                        },
+                        popEnterTransition = {
+                            fadeIn(animationSpec = tween(400))
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) {
+                        StorageManagementScreen(onBack = { navController.popBackStack() })
+                    }
+
+                    composable(
+                        route = "storageCloudDeleted",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            fadeOut(animationSpec = tween(400))
+                        },
+                        popEnterTransition = {
+                            fadeIn(animationSpec = tween(400))
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) {
+                        StorageCloudDeletedScreen(onBack = { navController.popBackStack() })
                     }
                 
                 }

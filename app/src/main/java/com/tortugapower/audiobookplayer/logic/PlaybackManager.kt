@@ -1,6 +1,10 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.ComponentName
+import android.appwidget.AppWidgetManager
+import android.content.Intent
+import com.tortugapower.audiobookplayer.widget.AudioWidgetLargeProvider
+import kotlinx.coroutines.flow.combine
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -11,6 +15,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.service.AudioPlayerService
@@ -34,6 +39,12 @@ object PlaybackManager {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var player: Player? = null
         private set
+
+    // Completed once the last-played-item restore has populated the playlist (or determined
+    // there's nothing to restore). awaitPlayer gates on it so a widget tap that cold-starts the
+    // process neither no-ops on an empty playlist nor gets its playItem clobbered by a
+    // late-finishing restore.
+    private val restoreSettled = kotlinx.coroutines.CompletableDeferred<Unit>()
 
     // Playback headers for external media servers, keyed by the stream URL's authority (host:port).
     // Registered when playItem receives headers and seeded from the external_servers table on a
@@ -202,6 +213,38 @@ object PlaybackManager {
                 android.util.Log.w("PlaybackManager", "Failed to seed external host headers", e)
             }
         }
+        
+        scope.launch {
+            // iOS-style split (WidgetReloadService): a book change is a rare transition that
+            // rebuilds the whole widget; a play/pause flip only patches the button in place —
+            // no DB query, artwork reloads, or full RemoteViews payload per tap.
+            var lastItemUuid: String? = null
+            var seenFirstEmission = false
+            combine(_currentItem, _isPlaying) { item, playing -> Pair(item, playing) }
+                .collect { (item, playing) ->
+                    appContext.let { ctx ->
+                        val itemChanged = !seenFirstEmission || item?.uuid != lastItemUuid
+                        seenFirstEmission = true
+                        lastItemUuid = item?.uuid
+                        if (itemChanged) {
+                            val largeIds = AppWidgetManager.getInstance(ctx).getAppWidgetIds(
+                                ComponentName(ctx, AudioWidgetLargeProvider::class.java)
+                            )
+                            // No widgets placed — skip the broadcast (this also covers the
+                            // combine's immediate emission at cold start).
+                            if (largeIds.isNotEmpty()) {
+                                val largeIntent = Intent(ctx, AudioWidgetLargeProvider::class.java).apply {
+                                    action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                                }
+                                largeIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, largeIds)
+                                ctx.sendBroadcast(largeIntent)
+                            }
+                        } else {
+                            AudioWidgetLargeProvider.pushPlayStateUpdate(ctx, playing)
+                        }
+                    }
+                }
+        }
 
         // Restart the position tracker whenever a UI collector (re)appears while playing, so it
         // re-enters the fast tick rate immediately instead of waiting out a slow background delay.
@@ -280,7 +323,7 @@ object PlaybackManager {
                                 scope.launch {
                                     val current = _currentItem.value ?: return@launch
                                     val db = AppDatabase.getDatabase(appContext)
-                                    val repository = RoomLibraryRepository(db.libraryDao())
+                                    val repository = RoomLibraryRepository(appContext, db.libraryDao())
                                     val nextItem = repository.getAdjacentItem(current.uuid, next = true)
                                     if (nextItem != null) {
                                         playItem(appContext, nextItem)
@@ -295,65 +338,12 @@ object PlaybackManager {
 
                 // Restore last played item after controller is ready
                 scope.launch(Dispatchers.IO) {
-                    val lastUuid = PlaybackSettingsManager.getLastItemUuid(appContext).first()
-                    if (lastUuid != null) {
-                        val item = getRepository(appContext).getItemById(lastUuid)
-                        if (item != null) {
-                            val processedDir = File(appContext.filesDir, "Processed")
-                            
-                            // Update navigation states
-                            val next = getRepository(appContext).getAdjacentItem(item.uuid, next = true) != null
-                            val prev = getRepository(appContext).getAdjacentItem(item.uuid, next = false) != null
-                            launch(Dispatchers.Main) {
-                                _hasNextItem.value = next
-                                _hasPreviousItem.value = prev
-                            }
-
-                            // Build the playback model (back-filling artwork) and the Media3 playlist.
-                            val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
-                            val playable = if (isBound) {
-                                val subItems = getRepository(appContext).getItemsInPathSync(item.relativePath ?: "")
-                                val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
-                                extractMissingArtwork(books, appContext)
-                                books.forEach { ensureChaptersExtracted(it, appContext) }
-                                val chaptersBySubBook = books.associate {
-                                    it.uuid to getRepository(appContext).getChaptersForBook(it.uuid).first()
-                                }
-                                PlayableItemBuilder.buildBound(item, subItems, chaptersBySubBook)
-                            } else {
-                                extractMissingArtwork(listOf(item), appContext)
-                                ensureChaptersExtracted(item, appContext)
-                                PlayableItemBuilder.buildSingle(item, getRepository(appContext).getChaptersForBook(item.uuid).first())
-                            }
-                            _currentPlayable.value = playable
-                            _currentTimeline.value = if (isBound) playable.timeline else null
-
-                            val mediaItems = buildMediaItems(playable, processedDir)
-                            if (mediaItems.isNotEmpty()) {
-                                // For a single BOOK the player offset is just the saved whole-book time.
-                                val local = if (isBound) {
-                                    playable.timeline.toLocal((item.currentTime * 1000).toLong())
-                                } else {
-                                    BoundTimeline.PlayerPosition(0, (item.currentTime * 1000).toLong())
-                                }
-                                launch(Dispatchers.Main) {
-                                    _isTransitioning.value = true
-
-                                    mediaController.setMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
-                                    mediaController.prepare()
-
-                                    // Apply speed and volume
-                                    mediaController.setPlaybackSpeed(_playbackSpeed.value)
-                                    applyVolume(_volumeBoost.value, _playbackVolume.value)
-
-                                    // Finalize restoration
-                                    _currentItem.value = item
-                                    // Seed the intended whole-book position (positionMs is whole-book);
-                                    // prepare() is async so the live player is still 0 here.
-                                    _positionMs.value = (item.currentTime * 1000).toLong()
-                                }
-                            }
-                        }
+                    try {
+                        restoreLastPlayedItem(appContext, mediaController)
+                    } finally {
+                        // Settle even when there was nothing to restore, so awaitPlayer callers
+                        // (widget taps on a cold-started process) stop waiting.
+                        restoreSettled.complete(Unit)
                     }
                 }
 
@@ -361,6 +351,7 @@ object PlaybackManager {
                 mediaController.setPlaybackSpeed(_playbackSpeed.value)
                 applyVolume(_volumeBoost.value, _playbackVolume.value)
             } catch (e: Exception) {
+                restoreSettled.complete(Unit)
                 e.printStackTrace()
             }
         }, MoreExecutors.directExecutor())
@@ -404,7 +395,7 @@ object PlaybackManager {
     }
 
     private fun getRepository(context: Context): LibraryRepository {
-        return repository ?: RoomLibraryRepository(AppDatabase.getDatabase(context).libraryDao())
+        return repository ?: RoomLibraryRepository(context, AppDatabase.getDatabase(context).libraryDao())
     }
 
     /** Back-fill embedded artwork for any item missing it (extract -> save -> persist). Runs on IO. */
@@ -636,22 +627,25 @@ object PlaybackManager {
         scope.launch(Dispatchers.Main) {
             val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
             // Gather the backing items, back-fill any missing artwork, then build the playback model.
-            val playable = withContext(Dispatchers.IO) {
-                if (isBound) {
-                    val subItems = getRepository(context).getItemsInPathSync(item.relativePath ?: "")
+            val (playable, refreshedItem) = withContext(Dispatchers.IO) {
+                val refreshedItem = refreshRemoteUrlsIfNecessary(context, item, isBound, processedDir)
+                val p = if (isBound) {
+                    val subItems = getRepository(context).getItemsInPathSync(refreshedItem.relativePath ?: "")
                     val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
                     extractMissingArtwork(books, context)
                     books.forEach { ensureChaptersExtracted(it, context) }
                     val chaptersBySubBook = books.associate {
                         it.uuid to getRepository(context).getChaptersForBook(it.uuid).first()
                     }
-                    PlayableItemBuilder.buildBound(item, subItems, chaptersBySubBook)
+                    PlayableItemBuilder.buildBound(refreshedItem, subItems, chaptersBySubBook)
                 } else {
-                    extractMissingArtwork(listOf(item), context)
-                    ensureChaptersExtracted(item, context)
-                    PlayableItemBuilder.buildSingle(item, getRepository(context).getChaptersForBook(item.uuid).first())
+                    extractMissingArtwork(listOf(refreshedItem), context)
+                    ensureChaptersExtracted(refreshedItem, context)
+                    PlayableItemBuilder.buildSingle(refreshedItem, getRepository(context).getChaptersForBook(refreshedItem.uuid).first())
                 }
+                Pair(p, refreshedItem)
             }
+            _currentItem.value = refreshedItem
             _currentPlayable.value = playable
             // BOUND books expose a whole-book timeline to the session; single books pass through.
             _currentTimeline.value = if (isBound) playable.timeline else null
@@ -660,9 +654,9 @@ object PlaybackManager {
             if (mediaItems.isNotEmpty()) {
                 // Resolve the saved whole-book time into the player coordinate (file + offset) it maps to.
                 val local = if (isBound) {
-                    playable.timeline.toLocal((item.currentTime * 1000).toLong())
+                    playable.timeline.toLocal((refreshedItem.currentTime * 1000).toLong())
                 } else {
-                    BoundTimeline.PlayerPosition(0, (item.currentTime * 1000).toLong())
+                    BoundTimeline.PlayerPosition(0, (refreshedItem.currentTime * 1000).toLong())
                 }
                 // Seed the whole-book position for the UI (positionMs is whole-book); the real player is
                 // seeded in file coordinates just below.
@@ -696,6 +690,104 @@ object PlaybackManager {
     /** Pause playback (no-op if already paused). Used by the sleep timer so it never accidentally resumes. */
     fun pause() {
         player?.pause()
+    }
+
+    /**
+     * Rebuilds the last-played book into the controller (playlist, saved position, speed/volume).
+     * Runs on IO; the final player mutation hops to Main and is AWAITED, so when this returns the
+     * playlist is actually populated — [awaitPlayer] relies on that via [restoreSettled].
+     */
+    private suspend fun restoreLastPlayedItem(appContext: Context, mediaController: MediaController) {
+        val lastUuid = PlaybackSettingsManager.getLastItemUuid(appContext).first() ?: return
+        val item = getRepository(appContext).getItemById(lastUuid) ?: return
+        val processedDir = File(appContext.filesDir, "Processed")
+
+        // Update navigation states
+        val next = getRepository(appContext).getAdjacentItem(item.uuid, next = true) != null
+        val prev = getRepository(appContext).getAdjacentItem(item.uuid, next = false) != null
+
+        // Build the playback model (back-filling artwork) and the Media3 playlist.
+        val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
+        val refreshedItem = refreshRemoteUrlsIfNecessary(appContext, item, isBound, processedDir)
+        val playable = if (isBound) {
+            val subItems = getRepository(appContext).getItemsInPathSync(refreshedItem.relativePath ?: "")
+            val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
+            extractMissingArtwork(books, appContext)
+            books.forEach { ensureChaptersExtracted(it, appContext) }
+            val chaptersBySubBook = books.associate {
+                it.uuid to getRepository(appContext).getChaptersForBook(it.uuid).first()
+            }
+            PlayableItemBuilder.buildBound(refreshedItem, subItems, chaptersBySubBook)
+        } else {
+            extractMissingArtwork(listOf(refreshedItem), appContext)
+            ensureChaptersExtracted(refreshedItem, appContext)
+            PlayableItemBuilder.buildSingle(refreshedItem, getRepository(appContext).getChaptersForBook(refreshedItem.uuid).first())
+        }
+        _currentPlayable.value = playable
+        _currentTimeline.value = if (isBound) playable.timeline else null
+
+        val mediaItems = buildMediaItems(playable, processedDir)
+        if (mediaItems.isNotEmpty()) {
+            // For a single BOOK the player offset is just the saved whole-book time.
+            val local = if (isBound) {
+                playable.timeline.toLocal((refreshedItem.currentTime * 1000).toLong())
+            } else {
+                BoundTimeline.PlayerPosition(0, (refreshedItem.currentTime * 1000).toLong())
+            }
+            withContext(Dispatchers.Main) {
+                _hasNextItem.value = next
+                _hasPreviousItem.value = prev
+                _isTransitioning.value = true
+
+                mediaController.setMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
+                mediaController.prepare()
+
+                // Apply speed and volume
+                mediaController.setPlaybackSpeed(_playbackSpeed.value)
+                applyVolume(_volumeBoost.value, _playbackVolume.value)
+
+                // Finalize restoration
+                _currentItem.value = refreshedItem
+                // Seed the intended whole-book position (positionMs is whole-book);
+                // prepare() is async so the live player is still 0 here.
+                _positionMs.value = (refreshedItem.currentTime * 1000).toLong()
+            }
+        }
+    }
+
+    /**
+     * Persists progress, then stops playback and unloads the current item. Must be called on the
+     * main thread. Used when the loaded book's backing file is about to be deleted (Storage
+     * Management), so ExoPlayer releases the file instead of stalling mid-playback.
+     */
+    fun stopAndUnloadCurrentItem(context: Context) {
+        updateProgress(context, itemToUpdate = _currentItem.value)
+        player?.stop()
+        player?.clearMediaItems()
+        _isPlaying.value = false
+        _currentItem.value = null
+        _currentPlayable.value = null
+        _currentTimeline.value = null
+        _positionMs.value = 0L
+        _showPlayerScreen.value = false
+        scope.launch {
+            PlaybackSettingsManager.setLastItemUuid(context, null)
+        }
+    }
+
+    /**
+     * Suspends until the MediaController has connected AND the last-played-item restore has
+     * settled, or [timeoutMs] elapses. Entry points that can arrive before initialization
+     * completes (e.g. a widget tap cold-starting the process) must await this instead of hitting
+     * the `player ?: return` no-op guards — a bound-but-unpopulated player would make play/pause
+     * and seeks silently no-op, and a playItem could be overwritten by the in-flight restore.
+     */
+    suspend fun awaitPlayer(timeoutMs: Long = 5_000): Player? {
+        return kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+            while (player == null) kotlinx.coroutines.delay(50)
+            restoreSettled.await()
+            player
+        }
     }
 
     fun togglePlayPause() {
@@ -872,6 +964,80 @@ object PlaybackManager {
         scope.launch {
             PlaybackSettingsManager.setVolumeBoost(context, !_volumeBoost.value)
         }
+    }
+
+    private suspend fun refreshRemoteUrlsIfNecessary(context: Context, item: LibraryItemEntity, isBound: Boolean, processedDir: File): LibraryItemEntity {
+        val repo = getRepository(context)
+        val isLocal = if (isBound) {
+            val subItems = repo.getItemsInPathSync(item.relativePath ?: "")
+            subItems.all { sub ->
+                val file = sub.relativePath?.let { File(processedDir, it) }
+                file != null && file.exists()
+            }
+        } else {
+            val file = item.relativePath?.let { File(processedDir, it) }
+            file != null && file.exists()
+        }
+
+        if (!isLocal) {
+            // First resolve external server stream URLs (Jellyfin/Audiobookshelf)
+            val resolvedItem = repo.resolveStreamingUrl(item)
+            
+            try {
+                if (isBound) {
+                    val response = NetworkClient.libraryApi.getContents(resolvedItem.relativePath ?: "")
+                    if (response.isSuccessful && response.body() != null) {
+                        val body = response.body()!!
+                        val subItems = repo.getItemsInPathSync(resolvedItem.relativePath ?: "")
+                        val resolvedSubItems = repo.resolveStreamingUrls(subItems)
+                        body.content.forEach { remoteSub ->
+                            val localSub = resolvedSubItems.find { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }
+                            if (localSub != null && !remoteSub.remoteURL.isNullOrEmpty()) {
+                                localSub.remoteURL = remoteSub.remoteURL
+                                if (!remoteSub.artworkURL.isNullOrEmpty()) {
+                                    localSub.artworkURL = remoteSub.artworkURL
+                                }
+                                repo.updateItem(localSub)
+                            }
+                        }
+                        android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
+                    } else {
+                        // Fallback: save resolved sub-book URLs to DB
+                        val subItems = repo.getItemsInPathSync(resolvedItem.relativePath ?: "")
+                        val resolvedSubItems = repo.resolveStreamingUrls(subItems)
+                        resolvedSubItems.forEach { repo.updateItem(it) }
+                    }
+                } else if (!resolvedItem.remoteURL.isNullOrEmpty()) {
+                    val hasExternalResource = resolvedItem.externalResources.any { it.syncStatus == "stream" || it.syncStatus == "downloaded" }
+                    if (!hasExternalResource) {
+                        // Only query Bookplayer API signed URLs if it's not a Jellyfin/Audiobookshelf item
+                        val response = NetworkClient.libraryApi.getRemoteFileURL(
+                            path = resolvedItem.relativePath ?: "",
+                            uuid = resolvedItem.uuid
+                        )
+                        if (response.isSuccessful && response.body() != null) {
+                            val body = response.body()!!
+                            val remoteItem = body.content.firstOrNull { it.uuid == resolvedItem.uuid || it.relativePath == resolvedItem.relativePath }
+                            if (remoteItem != null && !remoteItem.remoteURL.isNullOrEmpty()) {
+                                resolvedItem.remoteURL = remoteItem.remoteURL
+                                if (!remoteItem.artworkURL.isNullOrEmpty()) {
+                                    resolvedItem.artworkURL = remoteItem.artworkURL
+                                }
+                                repo.updateItem(resolvedItem)
+                                android.util.Log.d("PlaybackManager", "✅ Refreshed remote URL for single item: ${resolvedItem.title}")
+                            }
+                        }
+                    } else {
+                        repo.updateItem(resolvedItem)
+                    }
+                }
+            } catch (e: Exception) {
+                // Fallback: update DB with resolved Jellyfin/ABS streaming URLs even if cloud fetch fails
+                repo.updateItem(resolvedItem)
+                android.util.Log.e("PlaybackManager", "❌ Failed to refresh remote URL(s): ${e.message}")
+            }
+        }
+        return repo.getItemById(item.uuid) ?: item
     }
 
     fun release() {

@@ -340,6 +340,12 @@
     <string name="profile_days_listened">Days Listened</string>
     <string name="profile_stats">Stats</string>
     <string name="profile_listening_history">Listening history</string>
+    <string name="sync_task_upload_external_resource">Upload External Resource</string>
+    <string name="sync_task_delete_external_resource">Delete External Resource</string>
+    <string name="sync_task_hardcover_auto_match">Hardcover Auto-Match</string>
+    <string name="sync_task_hardcover_update_status">Update Hardcover Status</string>
+    <string name="sync_task_external_update">External Status Update</string>
+    <string name="sync_task_set_external_resource_to_download">Download External Resource Status</string>
 
     <string name="profile_week">Week</string>
     <string name="profile_daily_average">Daily Average</string>
@@ -351,6 +357,24 @@
     <string name="profile_change_less_last_week">%1$d%% less than last week</string>
     <string name="profile_time_minutes">%1$d min</string>
     <string name="profile_time_hours_minutes">%1$dh %2$dm</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">Integrations</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Hardcover Settings</string>
+    <string name="hardcover_api_access_section">API Access</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">You can find your Hardcover API access at %1$s.</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">Automation</string>
+    <string name="hardcover_auto_match_books">Auto-match books</string>
+    <string name="hardcover_auto_add_want_to_read">Auto-add to Want to Read</string>
+    <string name="hardcover_automation_hint">Automatically sync your reading progress with Hardcover. When enabled, books will be automatically matched and added to your library.</string>
+    <string name="hardcover_progress_tracking_section">Progress Tracking</string>
+    <string name="hardcover_reading_threshold">Reading threshold</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">Sets the minimum progress percentage required before a book is marked as Currently Reading in your Hardcover library.</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">Media Servers</string>
     <string name="media_servers_edit_button_description">Edit media servers</string>
@@ -417,4 +441,47 @@
     <string name="external_item_detail_genres_label">Genres</string>
     <string name="external_item_detail_none_value_fallback">None</string>
     <string name="external_item_detail_unknown_author_fallback">Unknown author</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">Hardcover Search</string>
+    <string name="hardcover_unlink">Unlink</string>
+    <string name="hardcover_token_missing">Hardcover API token is missing</string>
+    <string name="hardcover_configure_token_hint">To search and link books, configure your API token in Settings > Hardcover Settings.</string>
+    <string name="hardcover_no_popular_books_found">No popular books found</string>
+    <string name="hardcover_no_books_found">No books found</string>
+    <string name="hardcover_link_book">Link Book</string>
+    <string name="hardcover_search_on_hardcover">Search on Hardcover</string>
+    <string name="widget_no_books_in_progress">No books in progress</string>
+    <string name="sync_queue_sync">Sync Tasks</string>
+    <string name="sync_queue_file">File Tasks</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
+    <string name="hardcover_popular_on">Popular on Hardcover</string>
+    <string name="hardcover_search_placeholder">Search books…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">Storage Management</string>
+    <string name="settings_manage_files_label">Manage your files</string>
+    <string name="settings_files_removed_label">Files removed (sync operations)</string>
+    <string name="storage_management_title">Storage Management</string>
+    <string name="storage_management_total_space">Total space used</string>
+    <string name="storage_management_artwork_cache">Artwork cache size</string>
+    <string name="storage_management_file_count_single">%1$d FILE</string>
+    <string name="storage_management_file_count_multiple">%1$d FILES</string>
+    <string name="storage_management_remove_confirm_title">Remove File</string>
+    <string name="storage_management_remove_confirm_text">Are you sure you want to remove the downloaded file for this audiobook?</string>
+    <string name="storage_management_remove_button">Remove</string>
+    <string name="storage_management_sort_label">Sort</string>
+    <string name="storage_management_sort_by_size">Sort by Size</string>
+    <string name="storage_management_sort_by_name">Sort by Name</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">Recently Removed</string>
+    <string name="storage_cloud_deleted_total_size">Total backup size</string>
+    <string name="storage_cloud_deleted_restore_all">Restore All</string>
+    <string name="storage_cloud_deleted_restore_button">Restore</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">Delete Permanently</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">Are you sure you want to permanently delete this file? This action cannot be undone.</string>
+    <string name="storage_cloud_deleted_delete_button">Delete</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">Restore All Files</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">Are you sure you want to restore all removed audio files back to your library?</string>
 </resources>

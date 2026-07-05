@@ -96,7 +96,7 @@ fun LibraryScreen(
     val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
 
     val libraryViewModel: LibraryViewModel = viewModel ?: viewModel(
-        factory = LibraryViewModelFactory(context.applicationContext as Application, RoomLibraryRepository(database.libraryDao()), syncTaskRepository)
+        factory = LibraryViewModelFactory(context.applicationContext as Application, RoomLibraryRepository(context.applicationContext, database.libraryDao()), syncTaskRepository)
     )
 
     val currentPath by libraryViewModel.currentPath.collectAsState()
@@ -728,6 +728,8 @@ fun LibraryScreen(
                                     item = item,
                                     isSelected = isSelected,
                                     isSelectMode = isSelectMode,
+                                    syncTaskRepository = syncTaskRepository,
+                                    libraryViewModel = libraryViewModel,
                                     modifier = if (isSelectMode) {
                                         Modifier.pointerInput(item.uuid, reorderableItems) {
                                             var dragAccumulator = 0f
@@ -786,8 +788,7 @@ fun LibraryScreen(
                                             isSelectMode = true
                                             selectedItemUuids = setOf(item.uuid)
                                         }
-                                    },
-                                    syncTaskRepository = syncTaskRepository
+                                    }
                                 )
                             }
                         }
@@ -821,11 +822,14 @@ fun LibraryListItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
-    syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository? = null
+    syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository? = null,
+    libraryViewModel: com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel? = null
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    val externalResources = item.externalResources
 
     val isLocal = remember(item.relativePath, item.type) {
         if (item.type == ItemType.FOLDER) true
@@ -905,7 +909,7 @@ fun LibraryListItem(
             Modifier.background(Color.Transparent)
         }
 
-        val showCloud = !isLocal && !item.remoteURL.isNullOrEmpty()
+        val showCloud = !isLocal
         val artworkModifier = Modifier
             .size(56.dp)
             .clip(RoundedCornerShape(8.dp))
@@ -919,7 +923,8 @@ fun LibraryListItem(
                         onClick = {
                             syncTaskRepository?.let { repo ->
                                 scope.launch {
-                                    SyncTaskFactory.createDownloadFileTask(repo, item)
+                                    val resolvedItem = libraryViewModel?.resolveStreamingUrl(item) ?: item
+                                    SyncTaskFactory.createDownloadFileTask(repo, resolvedItem)
                                     context.startService(android.content.Intent(context, com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost::class.java))
                                 }
                             }
@@ -997,12 +1002,96 @@ fun LibraryListItem(
                 maxLines = 1
             )
 
-            Text(
-                text = authorText,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (externalResources.isNotEmpty()) {
+                    externalResources.forEachIndexed { index, resource ->
+                        if (index > 0) {
+                            Text(
+                                text = "•",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        
+                        val tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            when (resource.providerName.lowercase()) {
+                                "jellyfin" -> {
+                                    Box(
+                                        modifier = Modifier.size(12.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Canvas(modifier = Modifier.fillMaxSize()) {
+                                            val path = androidx.compose.ui.graphics.Path().apply {
+                                                moveTo(size.width / 2f, 1f)
+                                                lineTo(size.width - 1f, size.height - 1f)
+                                                lineTo(1f, size.height - 1f)
+                                                close()
+                                            }
+                                            drawPath(
+                                                path = path,
+                                                color = tint,
+                                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                                    width = 1.5.dp.toPx(),
+                                                    join = androidx.compose.ui.graphics.StrokeJoin.Round
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                                "audiobookshelf" -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Book,
+                                        contentDescription = null,
+                                        tint = tint,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                                else -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Layers,
+                                        contentDescription = null,
+                                        tint = tint,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
+                            
+                            val providerLabel = resource.providerName.lowercase().replaceFirstChar {
+                                if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString()
+                            }
+                            
+                            Text(
+                                text = providerLabel,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                    
+                    Text(
+                        text = "•",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                Text(
+                    text = authorText,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1
+                )
+            }
+
             if (item.duration > 0) {
                 Text(
                     text = durationText,

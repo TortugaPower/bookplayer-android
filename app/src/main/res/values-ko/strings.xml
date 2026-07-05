@@ -215,6 +215,12 @@
     <string name="sync_task_download_audio">오디오 다운로드</string>
     <string name="sync_task_sync_identifiers">식별자 동기화</string>
     <string name="sync_task_match_library_ids">라이브러리 ID 매칭</string>
+    <string name="sync_task_upload_external_resource">외부 리소스 업로드</string>
+    <string name="sync_task_delete_external_resource">외부 리소스 삭제</string>
+    <string name="sync_task_hardcover_auto_match">Hardcover 자동 매칭</string>
+    <string name="sync_task_hardcover_update_status">Hardcover 상태 업데이트</string>
+    <string name="sync_task_external_update">외부 상태 업데이트</string>
+    <string name="sync_task_set_external_resource_to_download">외부 리소스 다운로드 상태</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">개요</string>
@@ -248,6 +254,24 @@
     <string name="profile_change_less_last_week">지난주보다 %1$d%% 감소</string>
     <string name="profile_time_minutes">%1$d 분</string>
     <string name="profile_time_hours_minutes">%1$d 시간 %2$d 분</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">연동</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Hardcover 설정</string>
+    <string name="hardcover_api_access_section">API 액세스</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">Hardcover API 액세스 키는 %1$s에서 찾을 수 있습니다.</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">자동화</string>
+    <string name="hardcover_auto_match_books">책 자동 매칭</string>
+    <string name="hardcover_auto_add_want_to_read">자동으로 \'읽고 싶은 책\'에 추가</string>
+    <string name="hardcover_automation_hint">독서 진행 상황을 Hardcover와 자동으로 동기화합니다. 활성화하면 책이 자동으로 매칭되어 라이브러리에 추가됩니다.</string>
+    <string name="hardcover_progress_tracking_section">진행률 추적</string>
+    <string name="hardcover_reading_threshold">독서 기준치</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">Hardcover 라이브러리에서 책을 읽는 중으로 표시하기 위해 필요한 최소 진행률 백분율을 설정합니다.</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">미디어 서버</string>
     <string name="media_servers_edit_button_description">미디어 서버 편집</string>
@@ -314,4 +338,47 @@
     <string name="external_item_detail_genres_label">장르</string>
     <string name="external_item_detail_none_value_fallback">없음</string>
     <string name="external_item_detail_unknown_author_fallback">알 수 없는 저자</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">하드커버 검색</string>
+    <string name="hardcover_unlink">연결 해제</string>
+    <string name="hardcover_token_missing">하드커버 API 토큰이 없습니다</string>
+    <string name="hardcover_configure_token_hint">책을 검색하고 연결하려면 설정 > 하드커버 설정에서 API 토큰을 구성하십시오.</string>
+    <string name="hardcover_no_popular_books_found">인기 도서를 찾을 수 없습니다</string>
+    <string name="hardcover_no_books_found">책을 찾을 수 없습니다</string>
+    <string name="hardcover_link_book">책 연결</string>
+    <string name="hardcover_search_on_hardcover">Hardcover에서 검색</string>
+    <string name="widget_no_books_in_progress">진행 중인 책이 없습니다</string>
+    <string name="sync_queue_sync">동기화 작업</string>
+    <string name="sync_queue_file">파일 작업</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
+    <string name="hardcover_popular_on">하드커버 인기 도서</string>
+    <string name="hardcover_search_placeholder">책 검색…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">저장소 관리</string>
+    <string name="settings_manage_files_label">파일 관리</string>
+    <string name="settings_files_removed_label">삭제된 파일 (동기화)</string>
+    <string name="storage_management_title">저장소 관리</string>
+    <string name="storage_management_total_space">총 사용 공간</string>
+    <string name="storage_management_artwork_cache">커버 캐시 크기</string>
+    <string name="storage_management_file_count_single">%1$d개 파일</string>
+    <string name="storage_management_file_count_multiple">%1$d개 파일</string>
+    <string name="storage_management_remove_confirm_title">파일 제거</string>
+    <string name="storage_management_remove_confirm_text">이 오디오북의 다운로드된 파일을 제거하시겠습니까?</string>
+    <string name="storage_management_remove_button">제거</string>
+    <string name="storage_management_sort_label">정렬</string>
+    <string name="storage_management_sort_by_size">크기순 정렬</string>
+    <string name="storage_management_sort_by_name">이름순 정렬</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">최근 삭제된 항목</string>
+    <string name="storage_cloud_deleted_total_size">백업 크기</string>
+    <string name="storage_cloud_deleted_restore_all">모두 복구</string>
+    <string name="storage_cloud_deleted_restore_button">복구</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">영구 삭제</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">이 파일을 영구적으로 삭제하시겠습니까? 이 작업은 취소할 수 없습니다.</string>
+    <string name="storage_cloud_deleted_delete_button">삭제</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">모든 파일 복구</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">삭제된 모든 오디오 파일을 라이브러리로 복구하시겠습니까?</string>
 </resources>

@@ -215,6 +215,12 @@
     <string name="sync_task_download_audio">تحميل الملف الصوتي</string>
     <string name="sync_task_sync_identifiers">مزامنة المعرفات</string>
     <string name="sync_task_match_library_ids">مطابقة معرفات المكتبة</string>
+    <string name="sync_task_upload_external_resource">رفع مورد خارجي</string>
+    <string name="sync_task_delete_external_resource">حذف مورد خارجي</string>
+    <string name="sync_task_hardcover_auto_match">مطابقة تلقائية لـ Hardcover</string>
+    <string name="sync_task_hardcover_update_status">تحديث حالة Hardcover</string>
+    <string name="sync_task_external_update">تحديث الحالة الخارجية</string>
+    <string name="sync_task_set_external_resource_to_download">حالة تنزيل المورد الخارجي</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">نظرة عامة</string>
@@ -262,6 +268,24 @@
     <string name="profile_change_less_last_week">%1$d%% أقل من الأسبوع الماضي</string>
     <string name="profile_time_minutes">%1$d دقيقة</string>
     <string name="profile_time_hours_minutes">%1$d ساعة %2$d دقيقة</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">التكاملات</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">إعدادات Hardcover</string>
+    <string name="hardcover_api_access_section">الوصول إلى واجهة برمجة التطبيقات (API)</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">يمكنك العثور على وصول واجهة برمجة تطبيقات Hardcover الخاصة بك في %1$s.</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">الأتمتة</string>
+    <string name="hardcover_auto_match_books">مطابقة الكتب تلقائيًا</string>
+    <string name="hardcover_auto_add_want_to_read">الإضافة تلقائيًا إلى \"أرغب في قراءته\"</string>
+    <string name="hardcover_automation_hint">مزامنة تقدم القراءة تلقائيًا مع Hardcover. عند التمكين، سيتم مطابقة الكتب وإضافتها تلقائيًا إلى مكتبتك.</string>
+    <string name="hardcover_progress_tracking_section">تتبع التقدم</string>
+    <string name="hardcover_reading_threshold">حد القراءة</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">يحدد الحد الأدنى لنسبة تقدم القراءة المطلوبة قبل وضع علامة على الكتاب كـ يقرأ حاليًا في مكتبة Hardcover الخاصة بك.</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">خوادم الوسائط</string>
     <string name="media_servers_edit_button_description">تعديل خوادم الوسائط</string>
@@ -328,4 +352,47 @@
     <string name="external_item_detail_genres_label">الأنواع</string>
     <string name="external_item_detail_none_value_fallback">لا شيء</string>
     <string name="external_item_detail_unknown_author_fallback">مؤلف غير معروف</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">بحث هاردكفر</string>
+    <string name="hardcover_unlink">إلغاء الربط</string>
+    <string name="hardcover_token_missing">رمز الوصول لـ Hardcover API مفقود</string>
+    <string name="hardcover_configure_token_hint">للبحث عن الكتب وربطها، قم بتهيئة رمز الوصول الخاص بك في الإعدادات > إعدادات هاردكفر.</string>
+    <string name="hardcover_no_popular_books_found">لم يتم العثور على كتب شائعة</string>
+    <string name="hardcover_no_books_found">لم يتم العثور على كتب</string>
+    <string name="hardcover_link_book">ربط الكتاب</string>
+    <string name="hardcover_search_on_hardcover">البحث في Hardcover</string>
+    <string name="widget_no_books_in_progress">لا توجد كتب قيد التقدم</string>
+    <string name="sync_queue_sync">مهام المزامنة</string>
+    <string name="sync_queue_file">مهام الملفات</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
+    <string name="hardcover_popular_on">شائع على هاردكفر</string>
+    <string name="hardcover_search_placeholder">البحث عن كتب...</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">إدارة التخزين</string>
+    <string name="settings_manage_files_label">إدارة ملفاتك</string>
+    <string name="settings_files_removed_label">الملفات المحذوفة (عمليات المزامنة)</string>
+    <string name="storage_management_title">إدارة التخزين</string>
+    <string name="storage_management_total_space">إجمالي المساحة المستخدمة</string>
+    <string name="storage_management_artwork_cache">حجم ذاكرة التخزين المؤقت للأغلفة</string>
+    <string name="storage_management_file_count_single">%1$d ملف</string>
+    <string name="storage_management_file_count_multiple">%1$d ملفات</string>
+    <string name="storage_management_remove_confirm_title">إزالة الملف</string>
+    <string name="storage_management_remove_confirm_text">هل أنت متأكد من أنك تريد إزالة الملف الذي تم تنزيله لهذا الكتاب الصوتي؟</string>
+    <string name="storage_management_remove_button">إزالة</string>
+    <string name="storage_management_sort_label">فرز</string>
+    <string name="storage_management_sort_by_size">فرز حسب الحجم</string>
+    <string name="storage_management_sort_by_name">فرز حسب الاسم</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">المحذوفة مؤخراً</string>
+    <string name="storage_cloud_deleted_total_size">حجم النسخة الاحتياطية</string>
+    <string name="storage_cloud_deleted_restore_all">استعادة الكل</string>
+    <string name="storage_cloud_deleted_restore_button">استعادة</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">حذف نهائي</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">هل أنت متأكد من أنك تريد حذف هذا الملف نهائيًا؟ لا يمكن التراجع عن هذا الإجراء.</string>
+    <string name="storage_cloud_deleted_delete_button">حذف</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">استعادة جميع الملفات</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">هل أنت متأكد من أنك تريد استعادة جميع ملفات الصوت المحذوفة إلى مكتبتك؟</string>
 </resources>

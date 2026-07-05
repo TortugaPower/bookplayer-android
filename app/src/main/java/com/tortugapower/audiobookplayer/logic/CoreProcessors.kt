@@ -7,6 +7,7 @@ import com.google.gson.reflect.TypeToken
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.model.*
 import com.tortugapower.audiobookplayer.model.ArtworkResponse
@@ -18,6 +19,8 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.io.FileOutputStream
+import kotlinx.coroutines.flow.first
+import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 
 class FetchContentsProcessor(
     private val context: Context,
@@ -173,6 +176,34 @@ class FetchContentsProcessor(
         } else {
             libraryDao.updateItem(entity)
         }
+
+        // Sync external resources if provided
+        val remoteResources = remote.externalResources
+        if (remoteResources != null) {
+            val localResources = libraryDao.getExternalResourcesForBookSync(uuid!!)
+            val remoteProviders = remoteResources.map { it.providerName }.toSet()
+            localResources.forEach { localRes ->
+                if (localRes.providerName !in remoteProviders) {
+                    libraryDao.deleteExternalResource(uuid!!, localRes.providerName)
+                }
+            }
+            remoteResources.forEach { remoteRes ->
+                val localRes = localResources.find { it.providerName == remoteRes.providerName }
+                val resourceEntity = ExternalResourceEntity(
+                    id = localRes?.id ?: 0L,
+                    providerName = remoteRes.providerName,
+                    providerId = remoteRes.providerId,
+                    syncStatus = remoteRes.syncStatus,
+                    lastSyncedAt = remoteRes.lastSyncedAt
+                        ?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
+                        ?: localRes?.lastSyncedAt,
+                    processedFile = remoteRes.processedFile,
+                    libraryItemUuid = uuid!!,
+                    hostId = remoteRes.hostId
+                )
+                libraryDao.insertExternalResource(resourceEntity)
+            }
+        }
         
         return Pair(uuid!!, isNew)
     }
@@ -216,6 +247,13 @@ class SyncIdentifiersProcessor(
                         SyncTaskFactory.createUploadMetadataTask(repository, item)
                     }
                 }
+
+                // Enqueue upload tasks for any external resources linked to this item
+                val externalResources = libraryDao.getExternalResourcesForBookSync(item.uuid)
+                externalResources.forEach { resource ->
+                    Log.d("SyncIdentifiersProcessor", "📤 Account-wide sync: Queuing upload for external resource: ${resource.providerName}")
+                    SyncTaskFactory.createUploadExternalResourceTask(repository, resource)
+                }
             }
             
             SyncStatusManager.markIdentifiersAsSynced()
@@ -244,7 +282,6 @@ class MetadataUploadProcessor(
         if (response.isSuccessful && response.body() != null) {
             val uploadResponse = response.body()!!
             val uploadUrl = uploadResponse.content.url
-            Log.d("MetadataUploadProcessor", "✅ Metadata uploaded successfully for ${payload["title"]}. Response URL: $uploadUrl")
             
             if (!uploadUrl.isNullOrEmpty()) {
                 val database = AppDatabase.getDatabase(context)
@@ -362,8 +399,6 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
             Log.e("DownloadFileProcessor", "❌ Missing remoteURL or relativePath")
             return false
         }
-
-        Log.d("DownloadFileProcessor", "🚀 Starting download: $remoteURL to $relativePath")
 
         val processedDir = File(context.filesDir, "Processed")
         if (!processedDir.exists()) processedDir.mkdirs()
@@ -662,5 +697,233 @@ class SetBookmarkProcessor : TaskProcessor {
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_SET_BOOKMARK
+    }
+}
+
+class UploadExternalResourceProcessor : TaskProcessor {
+    private val gson = Gson()
+
+    override suspend fun process(task: SyncTaskEntity): Boolean {
+        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
+        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
+
+        val response = NetworkClient.libraryApi.uploadExternalResource(payload)
+        if (!response.isSuccessful) {
+            val errBody = response.errorBody()?.string()
+            Log.e("UploadExternalResourceProcessor", "🛑 Server returned error code ${response.code()}: $errBody")
+            return false
+        }
+        return true
+    }
+
+    override fun canHandle(jobType: String): Boolean {
+        return jobType == SyncTaskFactory.JOB_UPLOAD_EXTERNAL_RESOURCE
+    }
+}
+
+class DeleteExternalResourceProcessor : TaskProcessor {
+    private val gson = Gson()
+
+    override suspend fun process(task: SyncTaskEntity): Boolean {
+        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
+        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
+
+        val response = NetworkClient.libraryApi.deleteExternalResource(payload)
+        if (!response.isSuccessful) {
+            val errBody = response.errorBody()?.string()
+            Log.e("DeleteExternalResourceProcessor", "🛑 Server returned error code ${response.code()}: $errBody")
+            return false
+        }
+        return true
+    }
+
+    override fun canHandle(jobType: String): Boolean {
+        return jobType == SyncTaskFactory.JOB_DELETE_EXTERNAL_RESOURCE
+    }
+}
+
+class SetExternalResourceToDownloadProcessor : TaskProcessor {
+    private val gson = Gson()
+
+    override suspend fun process(task: SyncTaskEntity): Boolean {
+        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
+        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
+
+        val response = NetworkClient.libraryApi.setExternalResourceToDownload(payload)
+        if (!response.isSuccessful) {
+            val errBody = response.errorBody()?.string()
+            Log.e("SetExternalResourceToDownloadProcessor", "🛑 Server returned error code ${response.code()}: $errBody")
+            return false
+        }
+        return true
+    }
+
+    override fun canHandle(jobType: String): Boolean {
+        return jobType == SyncTaskFactory.JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD
+    }
+}
+
+class ExternalUpdateProcessor(
+    private val context: Context
+) : TaskProcessor {
+    private val gson = Gson()
+
+    companion object {
+        // One base client for all executions; per-server variants derive via newBuilder(),
+        // which shares this client's connection pool and dispatcher threads.
+        private val baseHttpClient by lazy { okhttp3.OkHttpClient() }
+    }
+
+    private fun buildApiClient(sanitizedUrl: String, customHeaders: Map<String, String>?): retrofit2.Retrofit {
+        val okHttpClientBuilder = baseHttpClient.newBuilder()
+        customHeaders?.forEach { (key, value) ->
+            okHttpClientBuilder.addInterceptor { chain ->
+                val request = chain.request().newBuilder().header(key, value).build()
+                chain.proceed(request)
+            }
+        }
+        return retrofit2.Retrofit.Builder()
+            .client(okHttpClientBuilder.build())
+            .baseUrl(sanitizedUrl)
+            .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+            .build()
+    }
+
+    // A progress update is superseded by the next flush, and re-auth requires user action, so a
+    // client-error response can never succeed on retry — discard instead of wedging the queue.
+    private fun handleResponse(providerName: String, response: retrofit2.Response<*>): Boolean {
+        if (response.isSuccessful) return true
+        val permanent = response.code() in listOf(400, 401, 403, 404)
+        Log.e(
+            "ExternalUpdateProcessor",
+            "🛑 $providerName progress update failed with ${response.code()}" +
+                if (permanent) " — discarding task" else " — will retry"
+        )
+        return permanent
+    }
+
+    private fun getDeviceId(): String {
+        return try {
+            val isAppInitialized = try {
+                com.tortugapower.audiobookplayer.BookPlayerApplication.instance
+                true
+            } catch (e: Exception) {
+                false
+            }
+            if (isAppInitialized) {
+                val appCtx = com.tortugapower.audiobookplayer.BookPlayerApplication.instance
+                val prefs = appCtx.getSharedPreferences("jellyfin_prefs", Context.MODE_PRIVATE)
+                var id = prefs.getString("device_id", null)
+                if (id == null) {
+                    id = java.util.UUID.randomUUID().toString()
+                    prefs.edit().putString("device_id", id).apply()
+                }
+                id
+            } else {
+                "BookPlayerAndroidID"
+            }
+        } catch (e: Exception) {
+            "BookPlayerAndroidID"
+        }
+    }
+
+    private fun getJellyfinAuthHeader(token: String? = null): String {
+        val device = "Android"
+        val deviceId = getDeviceId()
+        val client = "BookPlayer"
+        val version = "1.0.0"
+        var header = "MediaBrowser Client=\"$client\", Device=\"$device\", DeviceId=\"$deviceId\", Version=\"$version\""
+        if (token != null) {
+            header += ", Token=\"$token\""
+        }
+        return header
+    }
+
+    override suspend fun process(task: SyncTaskEntity): Boolean {
+        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
+        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
+
+        // Malformed payloads can never self-heal; discard instead of retrying forever.
+        val uuid = payload["uuid"] as? String ?: return true
+        val providerName = payload["providerName"] as? String ?: return true
+        val providerId = payload["providerId"] as? String ?: return true
+        val hostIdStr = payload["hostId"] as? String
+        val currentTime = (payload["currentTime"] as? Double) ?: 0.0
+        val percentCompleted = (payload["percentCompleted"] as? Double) ?: 0.0
+        val isFinished = (payload["isFinished"] as? Boolean) ?: false
+
+        val db = AppDatabase.getDatabase(context)
+        val serverDao = db.externalServerDao()
+
+        val server = if (!hostIdStr.isNullOrEmpty()) {
+            val hostId = hostIdStr.toLongOrNull()
+            if (hostId != null) serverDao.getServerById(hostId) else null
+        } else {
+            val serverType = when (providerName.lowercase()) {
+                "jellyfin" -> ExternalServiceType.JELLYFIN
+                "audiobookshelf" -> ExternalServiceType.AUDIOBOOKSHELF
+                else -> null
+            }
+            if (serverType != null) {
+                serverDao.getAllServers().first().find { it.type == serverType }
+            } else null
+        }
+
+        if (server == null) {
+            // Server was removed by the user; the task is unfulfillable — discard it.
+            Log.e("ExternalUpdateProcessor", "❌ No server configured or found for provider '$providerName' and hostId '$hostIdStr'. Discarding task.")
+            return true
+        }
+
+        val url = server.url
+        val token = server.token ?: ""
+        val customHeaders = server.customHeaders
+        val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
+
+        return try {
+            when (providerName.lowercase()) {
+                "jellyfin" -> {
+                    val ticks = (currentTime * 10_000_000).toLong()
+                    val playedPercentage = percentCompleted * 100.0
+                    val played = isFinished
+
+                    val requestBody = com.tortugapower.audiobookplayer.network.services.JellyfinUserDataRequest(
+                        playbackPositionTicks = ticks,
+                        playedPercentage = playedPercentage,
+                        played = played
+                    )
+
+                    val api = buildApiClient(sanitizedUrl, customHeaders)
+                        .create(com.tortugapower.audiobookplayer.network.services.JellyfinApi::class.java)
+
+                    val authHeader = getJellyfinAuthHeader(token)
+                    val response = api.updateUserData(authHeader, providerId, requestBody)
+                    handleResponse(providerName, response)
+                }
+                "audiobookshelf" -> {
+                    val requestBody = com.tortugapower.audiobookplayer.network.services.AudiobookshelfProgressRequest(
+                        progress = percentCompleted,
+                        currentTime = currentTime,
+                        isFinished = isFinished
+                    )
+
+                    val api = buildApiClient(sanitizedUrl, customHeaders)
+                        .create(com.tortugapower.audiobookplayer.network.services.AudiobookshelfApi::class.java)
+
+                    val authHeader = "Bearer $token"
+                    val response = api.updateProgress(authHeader, providerId, requestBody)
+                    handleResponse(providerName, response)
+                }
+                // Unknown provider names never become known on retry — discard.
+                else -> true
+            }
+        } catch (e: Exception) {
+            Log.e("ExternalUpdateProcessor", "💥 Exception updating progress: ${e.message}", e)
+            false
+        }
+    }
+
+    override fun canHandle(jobType: String): Boolean {
+        return jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE
     }
 }

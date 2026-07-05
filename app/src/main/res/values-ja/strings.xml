@@ -215,6 +215,12 @@
     <string name="sync_task_download_audio">オーディオのダウンロード</string>
     <string name="sync_task_sync_identifiers">識別子の同期</string>
     <string name="sync_task_match_library_ids">ライブラリIDの照合</string>
+    <string name="sync_task_upload_external_resource">外部リソースのアップロード</string>
+    <string name="sync_task_delete_external_resource">外部リソースの削除</string>
+    <string name="sync_task_hardcover_auto_match">Hardcover 自動マッチング</string>
+    <string name="sync_task_hardcover_update_status">Hardcover ステータスの更新</string>
+    <string name="sync_task_external_update">外部ステータスの更新</string>
+    <string name="sync_task_set_external_resource_to_download">外部リソースのダウンロード状況</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">概要</string>
@@ -248,6 +254,24 @@
     <string name="profile_change_less_last_week">先週より%1$d%%少ない</string>
     <string name="profile_time_minutes">%1$d 分</string>
     <string name="profile_time_hours_minutes">%1$d 時間 %2$d 分</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">連携</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Hardcover設定</string>
+    <string name="hardcover_api_access_section">APIアクセス</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">HardcoverのAPIアクセスは %1$s で確認できます。</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">自動化</string>
+    <string name="hardcover_auto_match_books">本を自動マッチングする</string>
+    <string name="hardcover_auto_add_want_to_read">自動的に「読みたい」に追加する</string>
+    <string name="hardcover_automation_hint">読書の進捗状況をHardcoverと自動的に同期します。有効にすると、本が自動的にマッチングされ、ライブラリに追加されます。</string>
+    <string name="hardcover_progress_tracking_section">進捗トラッキング</string>
+    <string name="hardcover_reading_threshold">読書しきい値</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">Hardcoverライブラリで本を読書中にするために必要な最小進捗率を設定します。</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">メディアサーバー</string>
     <string name="media_servers_edit_button_description">メディアサーバーを編集</string>
@@ -314,4 +338,47 @@
     <string name="external_item_detail_genres_label">ジャンル</string>
     <string name="external_item_detail_none_value_fallback">なし</string>
     <string name="external_item_detail_unknown_author_fallback">不明な著者</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">Hardcover検索</string>
+    <string name="hardcover_unlink">リンク解除</string>
+    <string name="hardcover_token_missing">Hardcover APIトークンがありません</string>
+    <string name="hardcover_configure_token_hint">本を検索してリンクするには、設定 > Hardcover設定でAPIトークンを設定してください。</string>
+    <string name="hardcover_no_popular_books_found">人気の本が見つかりませんでした</string>
+    <string name="hardcover_no_books_found">本が見つかりませんでした</string>
+    <string name="hardcover_link_book">本をリンク</string>
+    <string name="hardcover_search_on_hardcover">Hardcoverで検索</string>
+    <string name="widget_no_books_in_progress">進行中の本はありません</string>
+    <string name="sync_queue_sync">同期タスク</string>
+    <string name="sync_queue_file">ファイルタスク</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
+    <string name="hardcover_popular_on">Hardcoverで人気</string>
+    <string name="hardcover_search_placeholder">本を検索…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">ストレージ管理</string>
+    <string name="settings_manage_files_label">ファイルの管理</string>
+    <string name="settings_files_removed_label">削除されたファイル（同期）</string>
+    <string name="storage_management_title">ストレージ管理</string>
+    <string name="storage_management_total_space">合計使用容量</string>
+    <string name="storage_management_artwork_cache">アートワークのキャッシュサイズ</string>
+    <string name="storage_management_file_count_single">%1$d 個のファイル</string>
+    <string name="storage_management_file_count_multiple">%1$d 個のファイル</string>
+    <string name="storage_management_remove_confirm_title">ファイルを削除</string>
+    <string name="storage_management_remove_confirm_text">このオーディオブックのダウンロード済みファイルを削除してもよろしいですか？</string>
+    <string name="storage_management_remove_button">削除</string>
+    <string name="storage_management_sort_label">並べ替え</string>
+    <string name="storage_management_sort_by_size">サイズ順</string>
+    <string name="storage_management_sort_by_name">名前順</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">最近削除された項目</string>
+    <string name="storage_cloud_deleted_total_size">バックアップ容量</string>
+    <string name="storage_cloud_deleted_restore_all">すべて復元</string>
+    <string name="storage_cloud_deleted_restore_button">復元</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">完全に削除</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">このファイルを完全に削除してもよろしいですか？この操作は取り消せません。</string>
+    <string name="storage_cloud_deleted_delete_button">削除</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">すべてのファイルを復元</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">削除されたすべてのオーディオファイルをライブラリに復元してもよろしいですか？</string>
 </resources>

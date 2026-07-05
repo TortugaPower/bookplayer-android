@@ -63,7 +63,12 @@ class TaskConcurrencyServiceHost : Service() {
             DeleteBookmarkProcessor(),
             SetBookmarkProcessor(),
             DownloadFileProcessor(this),
-            MatchUuidsProcessor(this, repository)
+            MatchUuidsProcessor(this, repository),
+            HardcoverProcessor(this),
+            UploadExternalResourceProcessor(),
+            DeleteExternalResourceProcessor(),
+            SetExternalResourceToDownloadProcessor(),
+            ExternalUpdateProcessor(this)
         )
 
         taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)
@@ -83,7 +88,6 @@ class TaskConcurrencyServiceHost : Service() {
         // Observe active queues to update notification
         serviceScope.launch {
             taskConcurrencyManager.activeQueues.collectLatest { activeQueues ->
-                Log.d(TAG, "🔄 Active queues updated: $activeQueues")
                 if (activeQueues.isEmpty()) {
                     updateNotification("Idle")
                 } else {

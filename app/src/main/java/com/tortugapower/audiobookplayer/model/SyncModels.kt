@@ -22,7 +22,19 @@ data class SyncableItem(
     @SerializedName("url") val remoteURL: String?,
     @SerializedName("thumbnail") val artworkURL: String?,
     val speed: Double?,
-    @SerializedName("lastPlayDate") val lastPlayDateTimestamp: Double?
+    @SerializedName("lastPlayDate") val lastPlayDateTimestamp: Double?,
+    val externalResources: List<SyncableExternalResource>? = null
+)
+
+data class SyncableExternalResource(
+    val providerName: String,
+    val providerId: String,
+    val syncStatus: String,
+    // ISO-8601 string: unlike lastPlayDate (epoch-seconds integer column), the API's
+    // last_synced_at is a timestamp column serialized as a JS Date.
+    val lastSyncedAt: String?,
+    val processedFile: Boolean,
+    val hostId: String?
 )
 
 data class UploadItemResponse(

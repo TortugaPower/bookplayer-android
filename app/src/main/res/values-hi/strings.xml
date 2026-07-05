@@ -215,6 +215,12 @@
     <string name="sync_task_download_audio">ऑडियो डाउनलोड करें</string>
     <string name="sync_task_sync_identifiers">आइडेंटिफ़ायर सिंक करें</string>
     <string name="sync_task_match_library_ids">लाइब्रेरी आईडी मिलान करें</string>
+    <string name="sync_task_upload_external_resource">बाहरी संसाधन अपलोड करें</string>
+    <string name="sync_task_delete_external_resource">बाहरी संसाधन हटाएं</string>
+    <string name="sync_task_hardcover_auto_match">हार्डकवर ऑटो-मैच</string>
+    <string name="sync_task_hardcover_update_status">हार्डकवर स्थिति अपडेट करें</string>
+    <string name="sync_task_external_update">बाहरी स्थिति अपडेट</string>
+    <string name="sync_task_set_external_resource_to_download">बाहरी संसाधन डाउनलोड स्थिति</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">अवलोकन</string>
@@ -250,6 +256,24 @@
     <string name="profile_change_less_last_week">पिछले सप्ताह से %1$d%% कम</string>
     <string name="profile_time_minutes">%1$d मिनट</string>
     <string name="profile_time_hours_minutes">%1$d घंटे %2$d मिनट</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">एकीकरण</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Hardcover सेटिंग्स</string>
+    <string name="hardcover_api_access_section">API एक्सेस</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">आप %1$s पर अपना Hardcover API एक्सेस पा सकते हैं।</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">स्वचालन</string>
+    <string name="hardcover_auto_match_books">किताबों का स्वचालित मिलान करें</string>
+    <string name="hardcover_auto_add_want_to_read">स्वचालित रूप से \"पढ़ना चाहते हैं\" में जोड़ें</string>
+    <string name="hardcover_automation_hint">अपने पढ़ने की प्रगति को Hardcover के साथ स्वचालित रूप से सिंक करें। सक्षम होने पर, किताबें स्वचालित रूप से मिलान की जाएंगी और आपकी लाइब्रेरी में जोड़ी जाएंगी।</string>
+    <string name="hardcover_progress_tracking_section">प्रगति ट्रैकिंग</string>
+    <string name="hardcover_reading_threshold">पढ़ने की सीमा</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">अपनी Hardcover लाइब्रेरी में किसी पुस्तक को अभी पढ़ रहे हैं के रूप में चिह्नित करने के लिए आवश्यक न्यूनतम प्रगति प्रतिशत निर्धारित करता है।</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">मीडिया सर्वर</string>
     <string name="media_servers_edit_button_description">मीडिया सर्वर संपादित करें</string>
@@ -316,4 +340,47 @@
     <string name="external_item_detail_genres_label">शैलियां</string>
     <string name="external_item_detail_none_value_fallback">कोई नहीं</string>
     <string name="external_item_detail_unknown_author_fallback">अज्ञात लेखक</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">हार्डकवर खोज</string>
+    <string name="hardcover_unlink">अनलिंक करें</string>
+    <string name="hardcover_token_missing">हार्डकवर एपीआई टोकन गायब है</string>
+    <string name="hardcover_configure_token_hint">पुस्तकों को खोजने और लिंक करने के लिए, सेटिंग्स > हार्डकवर सेटिंग्स में अपना एपीआई टोकन कॉन्फ़िगर करें।</string>
+    <string name="hardcover_no_popular_books_found">कोई लोकप्रिय पुस्तकें नहीं मिलीं</string>
+    <string name="hardcover_no_books_found">कोई पुस्तकें नहीं मिलीं</string>
+    <string name="hardcover_link_book">पुस्तक लिंक करें</string>
+    <string name="hardcover_search_on_hardcover">Hardcover पर खोजें</string>
+    <string name="widget_no_books_in_progress">कोई पुस्तक प्रगति में नहीं</string>
+    <string name="sync_queue_sync">सिंक कार्य</string>
+    <string name="sync_queue_file">फ़ाइल कार्य</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
+    <string name="hardcover_popular_on">हार्डकवर पर लोकप्रिय</string>
+    <string name="hardcover_search_placeholder">पुस्तकों की खोज करें...</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">भंडारण प्रबंधन</string>
+    <string name="settings_manage_files_label">अपनी फ़ाइलें प्रबंधित करें</string>
+    <string name="settings_files_removed_label">हटाई गई फ़ाइलें (सिंक कार्य)</string>
+    <string name="storage_management_title">भंडारण प्रबंधन</string>
+    <string name="storage_management_total_space">कुल प्रयुक्त स्थान</string>
+    <string name="storage_management_artwork_cache">कवर फ़ोटो कैशे आकार</string>
+    <string name="storage_management_file_count_single">%1$d फ़ाइल</string>
+    <string name="storage_management_file_count_multiple">%1$d फ़ाइलें</string>
+    <string name="storage_management_remove_confirm_title">फ़ाइल निकालें</string>
+    <string name="storage_management_remove_confirm_text">क्या आप वाकई इस ऑडियोबुक की डाउनलोड की गई फ़ाइल को हटाना चाहते हैं?</string>
+    <string name="storage_management_remove_button">निकालें</string>
+    <string name="storage_management_sort_label">क्रमबद्ध करें</string>
+    <string name="storage_management_sort_by_size">आकार के अनुसार क्रमबद्ध करें</string>
+    <string name="storage_management_sort_by_name">नाम के अनुसार क्रमबद्ध करें</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">हाल ही में हटाए गए</string>
+    <string name="storage_cloud_deleted_total_size">बैकअप का आकार</string>
+    <string name="storage_cloud_deleted_restore_all">सभी पुनर्स्थापित करें</string>
+    <string name="storage_cloud_deleted_restore_button">पुनर्स्थापित करें</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">स्थायी रूप से हटाएं</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">क्या आप वाकई इस फ़ाइल को स्थायी रूप से हटाना चाहते हैं? यह कार्रवाई पूर्ववत नहीं की जा सकती।</string>
+    <string name="storage_cloud_deleted_delete_button">हटाएं</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">सभी फ़ाइलें पुनर्स्थापित करें</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">क्या आप वाकई हटाए गए सभी ऑडियो फ़ाइलों को अपनी लाइब्रेरी में पुनर्स्थापित करना चाहते हैं?</string>
 </resources>

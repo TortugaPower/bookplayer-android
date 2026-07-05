@@ -22,6 +22,13 @@ interface LibraryApi {
         @Query("sign") sign: Boolean = true
     ): Response<ContentsResponse>
 
+    @GET("/v1/library")
+    suspend fun getRemoteFileURL(
+        @Query("relativePath") path: String,
+        @Query("uuid") uuid: String?,
+        @Query("sign") sign: Boolean = true
+    ): Response<ContentsResponse>
+
     @PUT("/v1/library")
     suspend fun uploadMetadata(@Body params: Map<String, Any?>): Response<UploadItemResponse>
 
@@ -51,4 +58,13 @@ interface LibraryApi {
 
     @POST("/v1/library/uuids")
     suspend fun matchUuids(@Body params: Map<String, Any?>): Response<MatchUuidsResponse>
+
+    @PUT("/v1/library/external")
+    suspend fun uploadExternalResource(@Body params: Map<String, Any?>): Response<Unit>
+
+    @HTTP(method = "DELETE", path = "/v1/library/external", hasBody = true)
+    suspend fun deleteExternalResource(@Body params: Map<String, Any?>): Response<Unit>
+
+    @POST("/v1/library/external_set")
+    suspend fun setExternalResourceToDownload(@Body params: Map<String, Any?>): Response<Unit>
 }

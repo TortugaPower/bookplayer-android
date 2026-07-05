@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center_vertical"
+    android:background="@android:color/transparent">
+
+    <!-- Single Bordered Rectangle Card Container -->
+    <LinearLayout
+        android:id="@+id/widget_card_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/widget_background"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <!-- Header / Now Playing Area -->
+        <LinearLayout
+            android:id="@+id/widget_now_playing_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="4dp">
+
+            <FrameLayout
+                android:id="@+id/widget_artwork_container"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="@drawable/widget_placeholder_background"
+                android:clipToOutline="true">
+                <ImageView
+                    android:id="@+id/widget_artwork"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    android:src="@mipmap/ic_launcher" />
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="8dp">
+
+                <TextView
+                    android:id="@+id/widget_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/app_name"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:id="@+id/widget_author"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textColor="#B3FFFFFF"
+                    android:textSize="12sp"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+            </LinearLayout>
+
+            <!-- Controls Row -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center">
+
+                <ImageButton
+                    android:id="@+id/widget_prev_btn"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_prev"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:scaleType="centerInside"
+                    android:contentDescription="@string/media_action_rewind" />
+
+                <ImageButton
+                    android:id="@+id/widget_play_pause_btn"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:src="@drawable/ic_play"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:scaleType="centerInside"
+                    android:contentDescription="@string/player_play" />
+
+                <ImageButton
+                    android:id="@+id/widget_next_btn"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_next"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:scaleType="centerInside"
+                    android:contentDescription="@string/media_action_fast_forward" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Divider Line -->
+        <FrameLayout
+            android:id="@+id/widget_divider"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#2BFFFFFF"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Bottom Recently Played Horizontal Row (Artworks stacked horizontally) -->
+        <LinearLayout
+            android:id="@+id/widget_recents_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="start|center_vertical"
+            android:padding="4dp">
+
+            <!-- Slot 1 -->
+            <FrameLayout
+                android:id="@+id/widget_recent_1"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginEnd="6dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/widget_placeholder_background"
+                android:clipToOutline="true">
+                <ImageView
+                    android:id="@+id/widget_recent_artwork_1"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone" />
+                <TextView
+                    android:id="@+id/widget_recent_placeholder_text_1"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:ellipsize="end"
+                    android:padding="3dp"
+                    android:maxLines="3"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <!-- Slot 2 -->
+            <FrameLayout
+                android:id="@+id/widget_recent_2"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginEnd="6dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/widget_placeholder_background"
+                android:clipToOutline="true">
+                <ImageView
+                    android:id="@+id/widget_recent_artwork_2"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone" />
+                <TextView
+                    android:id="@+id/widget_recent_placeholder_text_2"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:ellipsize="end"
+                    android:padding="3dp"
+                    android:maxLines="3"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <!-- Slot 3 -->
+            <FrameLayout
+                android:id="@+id/widget_recent_3"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginEnd="6dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/widget_placeholder_background"
+                android:clipToOutline="true">
+                <ImageView
+                    android:id="@+id/widget_recent_artwork_3"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone" />
+                <TextView
+                    android:id="@+id/widget_recent_placeholder_text_3"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:ellipsize="end"
+                    android:padding="3dp"
+                    android:maxLines="3"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <!-- Slot 4 -->
+            <FrameLayout
+                android:id="@+id/widget_recent_4"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginEnd="6dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/widget_placeholder_background"
+                android:clipToOutline="true">
+                <ImageView
+                    android:id="@+id/widget_recent_artwork_4"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone" />
+                <TextView
+                    android:id="@+id/widget_recent_placeholder_text_4"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:ellipsize="end"
+                    android:padding="3dp"
+                    android:maxLines="3"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <!-- Slot 5 -->
+            <FrameLayout
+                android:id="@+id/widget_recent_5"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginEnd="6dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/widget_placeholder_background"
+                android:clipToOutline="true">
+                <ImageView
+                    android:id="@+id/widget_recent_artwork_5"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone" />
+                <TextView
+                    android:id="@+id/widget_recent_placeholder_text_5"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:ellipsize="end"
+                    android:padding="3dp"
+                    android:maxLines="3"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <!-- Slot 6 -->
+            <FrameLayout
+                android:id="@+id/widget_recent_6"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/widget_placeholder_background"
+                android:clipToOutline="true">
+                <ImageView
+                    android:id="@+id/widget_recent_artwork_6"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone" />
+                <TextView
+                    android:id="@+id/widget_recent_placeholder_text_6"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:ellipsize="end"
+                    android:padding="3dp"
+                    android:maxLines="3"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</LinearLayout>

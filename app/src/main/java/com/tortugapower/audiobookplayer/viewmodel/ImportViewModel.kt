@@ -20,6 +20,13 @@ class ImportViewModel(
     fun removeFile(file: ImportFile) = importService.removeFile(file)
     fun clearImport() = importService.clearImport()
     fun acceptImport(context: Context) = importService.acceptImport(context)
-    fun startDownload(context: Context, url: String, fileName: String, headers: Map<String, String>? = null) = 
-        importService.startDownload(context, url, fileName, headers)
+    fun startDownload(
+        context: Context,
+        url: String,
+        fileName: String,
+        headers: Map<String, String>? = null,
+        providerName: String? = null,
+        providerId: String? = null,
+        hostId: String? = null
+    ) = importService.startDownload(context, url, fileName, headers, providerName, providerId, hostId)
 }

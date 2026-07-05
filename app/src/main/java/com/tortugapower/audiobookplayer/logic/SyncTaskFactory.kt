@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.logic
 import com.google.gson.Gson
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import java.util.UUID
@@ -10,9 +11,9 @@ import java.util.UUID
 object SyncTaskFactory {
     private val gson = Gson()
 
-    // Queue Keys
     const val QUEUE_SYNC = "sync"
     const val QUEUE_FILE = "file"
+    const val QUEUE_HARDCOVER = "hardcover"
 
     // Job Types (matching Swift models where applicable)
     const val JOB_UPLOAD_METADATA = "upload_metadata"
@@ -28,6 +29,12 @@ object SyncTaskFactory {
     const val JOB_DOWNLOAD_FILE = "download_file"
     const val JOB_SYNC_IDENTIFIERS = "sync_identifiers"
     const val JOB_MATCH_UUIDS = "match_uuids"
+    const val JOB_HARDCOVER_AUTO_MATCH = "hardcover_auto_match"
+    const val JOB_HARDCOVER_UPDATE_STATUS = "hardcover_update_status"
+    const val JOB_UPLOAD_EXTERNAL_RESOURCE = "upload_external_resource"
+    const val JOB_DELETE_EXTERNAL_RESOURCE = "delete_external_resource"
+    const val JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD = "set_external_resource_to_download"
+    const val JOB_EXTERNAL_UPDATE = "external_update"
 
     suspend fun createSyncIdentifiersTask(repository: SyncTaskRepository): Boolean {
         if (!SyncStatusManager.checkAndMarkSyncIdentifiers()) return false
@@ -218,6 +225,104 @@ object SyncTaskFactory {
         // Use a unique ID for this task to avoid duplicates if multiple fetches generate IDs
         val taskId = "match_${java.util.UUID.randomUUID().toString().take(8)}"
         enqueue(repository, QUEUE_SYNC, JOB_MATCH_UUIDS, taskId, payload)
+    }
+
+    suspend fun createHardcoverAutoMatchTask(repository: SyncTaskRepository, itemUuid: String) {
+        val payload = mapOf(
+            "itemUuid" to itemUuid
+        )
+        enqueue(repository, QUEUE_HARDCOVER, JOB_HARDCOVER_AUTO_MATCH, itemUuid, payload)
+    }
+
+    suspend fun createHardcoverUpdateStatusTask(repository: SyncTaskRepository, itemUuid: String, status: Int) {
+        val payload = mapOf(
+            "itemUuid" to itemUuid,
+            "status" to status
+        )
+        enqueue(repository, QUEUE_HARDCOVER, JOB_HARDCOVER_UPDATE_STATUS, "${itemUuid}_$status", payload)
+    }
+
+    suspend fun createDeleteExternalResourceTask(
+        repository: SyncTaskRepository,
+        externalResource: ExternalResourceEntity
+    ) {
+        val taskId = "${externalResource.libraryItemUuid}_${externalResource.providerName}_delete"
+        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_DELETE_EXTERNAL_RESOURCE, taskId)
+        if (existing != null) return
+
+        val payload = mapOf(
+            "uuid" to externalResource.libraryItemUuid,
+            "providerName" to externalResource.providerName,
+            "providerId" to externalResource.providerId
+        )
+        enqueue(repository, QUEUE_SYNC, JOB_DELETE_EXTERNAL_RESOURCE, taskId, payload)
+    }
+
+    suspend fun createUploadExternalResourceTask(
+        repository: SyncTaskRepository,
+        externalResource: ExternalResourceEntity
+    ) {
+        val taskId = "${externalResource.libraryItemUuid}_${externalResource.providerName}"
+        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_UPLOAD_EXTERNAL_RESOURCE, taskId)
+        if (existing != null) return
+
+        val payload = mapOf(
+            "id" to java.util.UUID.randomUUID().toString(),
+            "uuid" to externalResource.libraryItemUuid,
+            "providerId" to externalResource.providerId,
+            "providerName" to externalResource.providerName,
+            "syncStatus" to externalResource.syncStatus,
+            "processedFile" to externalResource.processedFile,
+            "lastSyncedAt" to externalResource.lastSyncedAt,
+            "hostId" to externalResource.hostId
+        )
+        enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_EXTERNAL_RESOURCE, taskId, payload)
+    }
+
+    suspend fun createSetExternalResourceToDownloadTask(
+        repository: SyncTaskRepository,
+        uuid: String,
+        uploaded: Boolean
+    ) {
+        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD, uuid)
+        if (existing != null) return
+
+        val payload = mapOf(
+            "uuid" to uuid,
+            "uploaded" to uploaded
+        )
+        enqueue(repository, QUEUE_SYNC, JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD, uuid, payload)
+    }
+
+    suspend fun createExternalUpdateTask(
+        repository: SyncTaskRepository,
+        libraryItemUuid: String,
+        providerName: String,
+        providerId: String,
+        hostId: String?,
+        currentTime: Double,
+        percentCompleted: Double,
+        isFinished: Boolean
+    ) {
+        val taskId = "${libraryItemUuid}_${providerId}"
+        val queueKey = providerName.lowercase()
+        val payload = mapOf(
+            "uuid" to libraryItemUuid,
+            "providerName" to providerName,
+            "providerId" to providerId,
+            "hostId" to hostId,
+            "currentTime" to currentTime,
+            "percentCompleted" to percentCompleted,
+            "isFinished" to isFinished
+        )
+        val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_EXTERNAL_UPDATE, taskId)
+        if (existingTask != null) {
+            val updatedTask = existingTask.copy(payload = gson.toJson(payload))
+            android.util.Log.d("SyncTaskFactory", "🔄 Merging external update task for $taskId in queue $queueKey")
+            repository.updateTask(updatedTask)
+        } else {
+            enqueue(repository, queueKey, JOB_EXTERNAL_UPDATE, taskId, payload)
+        }
     }
 
     private suspend fun enqueue(

@@ -148,7 +148,6 @@ object SubscriptionManager {
         managementUrl = customerInfo.managementURL
 
         val activeEntitlements = customerInfo.entitlements.active.keys
-        Log.d(TAG, "Updating tier. Active entitlements: $activeEntitlements")
 
         val hasPro = customerInfo.entitlements["pro"]?.isActive == true
         val hasLite = customerInfo.entitlements["lite"]?.isActive == true

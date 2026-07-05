@@ -30,6 +30,17 @@ import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.viewmodel.ProfileViewModel
 
+@Composable
+private fun getQueueTitle(queueKey: String, count: Int): String {
+    val name = when (queueKey.lowercase()) {
+        "sync" -> stringResource(R.string.sync_queue_sync)
+        "file" -> stringResource(R.string.sync_queue_file)
+        "audiobookshelf" -> stringResource(R.string.sync_queue_audiobookshelf)
+        else -> queueKey.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
+    }
+    return "$name ($count)"
+}
+
 /**
  * Lists the sync-task queues (grouped by queue key), each showing its pending count and last-sync
  * time. Tapping a queue drills into [TaskDetailScreen].
@@ -102,7 +113,7 @@ fun QueuedTasksScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = if (queueKey == "sync") "Sync Tasks ($pendingInQueue)" else "File Tasks ($pendingInQueue)",
+                                        text = getQueueTitle(queueKey, pendingInQueue),
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -140,7 +151,7 @@ fun TaskDetailScreen(
     val filteredTasks = tasks.filter { it.queueKey == queueKey }
 
     val pendingCount = filteredTasks.count { it.status != SyncTaskStatus.COMPLETED }
-    val title = if (queueKey == "sync") "Sync Tasks ($pendingCount)" else "File Tasks ($pendingCount)"
+    val title = getQueueTitle(queueKey, pendingCount)
 
     BookPlayerTabScaffold(
         title = title,
@@ -191,6 +202,12 @@ fun TaskDetailScreen(
                        SyncTaskFactory.JOB_DOWNLOAD_FILE -> Icons.Default.Download to stringResource(R.string.sync_task_download_audio)
                        SyncTaskFactory.JOB_SYNC_IDENTIFIERS -> Icons.Default.Person to stringResource(R.string.sync_task_sync_identifiers)
                        SyncTaskFactory.JOB_MATCH_UUIDS -> Icons.Default.SyncAlt to stringResource(R.string.sync_task_match_library_ids)
+                       SyncTaskFactory.JOB_UPLOAD_EXTERNAL_RESOURCE -> Icons.Default.CloudUpload to stringResource(R.string.sync_task_upload_external_resource)
+                       SyncTaskFactory.JOB_DELETE_EXTERNAL_RESOURCE -> Icons.Default.Delete to stringResource(R.string.sync_task_delete_external_resource)
+                       SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH -> Icons.Default.Search to stringResource(R.string.sync_task_hardcover_auto_match)
+                       SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS -> Icons.Default.Check to stringResource(R.string.sync_task_hardcover_update_status)
+                       SyncTaskFactory.JOB_EXTERNAL_UPDATE -> Icons.Default.Dns to stringResource(R.string.sync_task_external_update)
+                       SyncTaskFactory.JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD -> Icons.Default.Download to stringResource(R.string.sync_task_set_external_resource_to_download)
                        else -> Icons.Default.Sync to stringResource(R.string.sync_task_generic)
                    }
 

@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
@@ -18,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import java.io.File
 import java.io.FileOutputStream
 
@@ -65,13 +67,20 @@ object ImportManager : ImportService {
             
             var currentSkipped = 0
             withContext(Dispatchers.IO) {
+                val processedDir = File(context.filesDir, "Processed")
                 uris.forEach { uri ->
                     val fileName = getFileName(context, uri) ?: "unknown_file_${System.currentTimeMillis()}"
                     
-                    // Check for duplicates
-                    if (libraryDao.existsWithFileName(fileName)) {
-                        currentSkipped++
-                        return@forEach
+                    val existingItem = libraryDao.getItemByFileName(fileName)
+                    var isFileOnly = false
+                    if (existingItem != null) {
+                        val relativePath = existingItem.relativePath
+                        val destFileInProcessed = if (!relativePath.isNullOrEmpty()) File(processedDir, relativePath) else File(processedDir, fileName)
+                        if (destFileInProcessed.exists()) {
+                            currentSkipped++
+                            return@forEach
+                        }
+                        isFileOnly = true
                     }
 
                     val destFile = File(backupDir, fileName)
@@ -82,7 +91,7 @@ object ImportManager : ImportService {
                                 input.copyTo(output)
                             }
                         }
-                        newFiles.add(ImportFile(fileName, destFile))
+                        newFiles.add(ImportFile(fileName, destFile, isFileOnly = isFileOnly))
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -96,7 +105,15 @@ object ImportManager : ImportService {
         }
     }
 
-    override fun startDownload(context: Context, url: String, fileName: String, headers: Map<String, String>?) {
+    override fun startDownload(
+        context: Context,
+        url: String,
+        fileName: String,
+        headers: Map<String, String>?,
+        providerName: String?,
+        providerId: String?,
+        hostId: String?
+    ) {
         if (url.isBlank()) {
             skippedItemsCount++
             // Optionally, show a toast message to the user: "Invalid download URL"
@@ -119,14 +136,33 @@ object ImportManager : ImportService {
                 return@launch
             }
 
-            val backupDir = File(context.filesDir, "BPBackup")
-            if (!backupDir.exists()) backupDir.mkdirs()
-
             val database = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
             val libraryDao = database.libraryDao()
 
+            val processedDir = File(context.filesDir, "Processed")
+            val existingItem = libraryDao.getItemByFileName(sanitizedFileName)
+            var isFileOnly = false
+            if (existingItem != null) {
+                val relativePath = existingItem.relativePath
+                val destFileInProcessed = if (!relativePath.isNullOrEmpty()) File(processedDir, relativePath) else File(processedDir, sanitizedFileName)
+                if (destFileInProcessed.exists()) {
+                    activeDownloadFileNames.remove(sanitizedFileName)
+                    skippedItemsCount++
+                    activeDownloadCount--
+                    if (activeDownloadCount == 0) {
+                        showImportSheet = true
+                    }
+                    return@launch
+                }
+                isFileOnly = true
+            }
+
+            val backupDir = File(context.filesDir, "BPBackup")
+            if (!backupDir.exists()) backupDir.mkdirs()
+
             try {
-                if (libraryDao.existsWithFileName(sanitizedFileName)) {
+                if (!isFileOnly && libraryDao.existsWithFileName(sanitizedFileName)) {
+                    activeDownloadFileNames.remove(sanitizedFileName)
                     skippedItemsCount++
                     return@launch
                 }
@@ -148,7 +184,14 @@ object ImportManager : ImportService {
                                         input.copyTo(output)
                                     }
                                 }
-                                newlyImportedFile = ImportFile(sanitizedFileName, destFile)
+                                newlyImportedFile = ImportFile(
+                                    name = sanitizedFileName,
+                                    file = destFile,
+                                    providerName = providerName,
+                                    providerId = providerId,
+                                    hostId = hostId,
+                                    isFileOnly = isFileOnly
+                                )
                             } else {
                                 android.util.Log.e("ImportManager", "Download failed: ${response.code}")
                             }
@@ -209,49 +252,114 @@ object ImportManager : ImportService {
                 var currentMaxRank = libraryDao.getMaxRootOrderRank() ?: -1
                 importedFiles.forEach { importFile ->
                     if (importFile.file.exists()) {
-                        // 1. Extract duration
-                        val duration = getDuration(importFile.file)
+                        if (importFile.isFileOnly) {
+                            val existingItem = libraryDao.getItemByFileName(importFile.name)
+                            if (existingItem != null) {
+                                val artworkDir = File(context.filesDir, "Artworks")
+                                if (!artworkDir.exists()) artworkDir.mkdirs()
+                                val artworkFile = File(artworkDir, "${java.util.UUID.randomUUID()}.jpg")
+                                val hasArtwork = ArtworkManager.extractAndSaveArtwork(importFile.file, artworkFile)
 
-                        // 2. Extract artwork if possible
-                        val artworkDir = File(context.filesDir, "Artworks")
-                        if (!artworkDir.exists()) artworkDir.mkdirs()
-                        val artworkFile = File(artworkDir, "${java.util.UUID.randomUUID()}.jpg")
-                        val hasArtwork = ArtworkManager.extractAndSaveArtwork(importFile.file, artworkFile)
+                                val targetPath = existingItem.relativePath ?: importFile.name
+                                val destinationFile = File(processedDir, targetPath)
+                                destinationFile.parentFile?.mkdirs()
+                                importFile.file.renameTo(destinationFile)
 
-                        // 3. Move file to 'Processed' folder
-                        val destinationFile = File(processedDir, importFile.name)
-                        importFile.file.renameTo(destinationFile)
+                                if (hasArtwork && existingItem.artworkURL.isNullOrEmpty()) {
+                                    existingItem.artworkURL = artworkFile.absolutePath
+                                }
+                                if (existingItem.relativePath.isNullOrEmpty()) {
+                                    existingItem.relativePath = importFile.name
+                                }
+                                libraryDao.updateItem(existingItem)
+                            } else {
+                                // Fallback
+                                val destinationFile = File(processedDir, importFile.name)
+                                importFile.file.renameTo(destinationFile)
+                                currentMaxRank++
+                                val entity = LibraryItemEntity(
+                                    uuid = java.util.UUID.randomUUID().toString(),
+                                    title = importFile.name.substringBeforeLast('.'),
+                                    originalFileName = importFile.name,
+                                    relativePath = importFile.name,
+                                    type = ItemType.BOOK,
+                                    duration = getDuration(destinationFile),
+                                    orderRank = currentMaxRank
+                                )
+                                libraryDao.insertItem(entity)
+                            }
+                        } else {
+                            // 1. Extract duration
+                            val duration = getDuration(importFile.file)
 
-                        // 4. Create and save LibraryItemEntity
-                        currentMaxRank++
-                        val entity = LibraryItemEntity(
-                            uuid = java.util.UUID.randomUUID().toString(),
-                            title = importFile.name.substringBeforeLast('.'),
-                            originalFileName = importFile.name,
-                            relativePath = importFile.name, // Root for now
-                            type = ItemType.BOOK,
-                            duration = duration,
-                            artworkURL = if (hasArtwork) artworkFile.absolutePath else null,
-                            orderRank = currentMaxRank
-                        )
-                        libraryDao.insertItem(entity)
+                            // 2. Extract artwork if possible
+                            val artworkDir = File(context.filesDir, "Artworks")
+                            if (!artworkDir.exists()) artworkDir.mkdirs()
+                            val artworkFile = File(artworkDir, "${java.util.UUID.randomUUID()}.jpg")
+                            val hasArtwork = ArtworkManager.extractAndSaveArtwork(importFile.file, artworkFile)
 
-                        // 4b. Extract & store embedded chapters (file-local; flattened at play time).
-                        val chapters = ChapterExtractionService.extractChapterEntities(
-                            destinationFile, entity.uuid, (duration * 1000).toLong()
-                        )
-                        if (chapters.isNotEmpty()) libraryDao.insertChapters(chapters)
+                            // 3. Move file to 'Processed' folder
+                            val destinationFile = File(processedDir, importFile.name)
+                            importFile.file.renameTo(destinationFile)
 
-                        // 5. Create Sync Tasks (only if session is active)
-                        val accountRepository = RoomAccountRepository(database.accountDao())
-                        val account = accountRepository.getAccount()
-                        val isSubscribed = account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)
-                        val isPro = account != null && account.tier == AccountTier.PRO
+                            // 4. Create and save LibraryItemEntity
+                            currentMaxRank++
+                            val entity = LibraryItemEntity(
+                                uuid = java.util.UUID.randomUUID().toString(),
+                                title = importFile.name.substringBeforeLast('.'),
+                                originalFileName = importFile.name,
+                                relativePath = importFile.name, // Root for now
+                                type = ItemType.BOOK,
+                                duration = duration,
+                                artworkURL = if (hasArtwork) artworkFile.absolutePath else null,
+                                orderRank = currentMaxRank
+                            )
+                            libraryDao.insertItem(entity)
 
-                        if (isSubscribed) {
-                            SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, entity)
-                            if (hasArtwork && isPro) {
-                                SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, entity)
+                            // 4b. Extract & store embedded chapters (file-local; flattened at play time).
+                            val chapters = ChapterExtractionService.extractChapterEntities(
+                                destinationFile, entity.uuid, (duration * 1000).toLong()
+                            )
+                            if (chapters.isNotEmpty()) libraryDao.insertChapters(chapters)
+
+                            // Create local external resource if imported from media server
+                            var externalResource: ExternalResourceEntity? = null
+                            if (!importFile.providerName.isNullOrBlank() && !importFile.providerId.isNullOrBlank()) {
+                                externalResource = ExternalResourceEntity(
+                                    providerName = importFile.providerName,
+                                    providerId = importFile.providerId,
+                                    syncStatus = "synced",
+                                    libraryItemUuid = entity.uuid,
+                                    hostId = importFile.hostId
+                                )
+                                libraryDao.insertExternalResource(externalResource)
+                            }
+                            
+                            // 5. Create Sync Tasks (only if session is active)
+                            val accountRepository = RoomAccountRepository(database.accountDao())
+                            val account = accountRepository.getAccount()
+                            val isSubscribed = account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)
+                            val isPro = account != null && account.tier == AccountTier.PRO
+
+                            if (isSubscribed) {
+                                SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, entity)
+                                if (hasArtwork && isPro) {
+                                    SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, entity)
+                                }
+                                if (externalResource != null) {
+                                    SyncTaskFactory.createUploadExternalResourceTask(syncTaskRepository, externalResource)
+                                }
+                            }
+
+                            // Hardcover Auto-match Integration
+                            try {
+                                val hardcoverToken = HardcoverSettingsManager.getToken(context).first()
+                                val autoMatch = HardcoverSettingsManager.getAutoMatchBooks(context).first()
+                                if (hardcoverToken.isNotBlank() && autoMatch) {
+                                    SyncTaskFactory.createHardcoverAutoMatchTask(syncTaskRepository, entity.uuid)
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.e("ImportManager", "Failed to enqueue hardcover auto-match task", e)
                             }
                         }
                     }

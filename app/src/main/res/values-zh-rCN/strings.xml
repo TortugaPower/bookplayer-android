@@ -215,6 +215,12 @@
     <string name="sync_task_download_audio">下载音频</string>
     <string name="sync_task_sync_identifiers">同步标识符</string>
     <string name="sync_task_match_library_ids">匹配库 ID</string>
+    <string name="sync_task_upload_external_resource">上传外部资源</string>
+    <string name="sync_task_delete_external_resource">删除外部资源</string>
+    <string name="sync_task_hardcover_auto_match">Hardcover 自动匹配</string>
+    <string name="sync_task_hardcover_update_status">更新 Hardcover 状态</string>
+    <string name="sync_task_external_update">外部状态更新</string>
+    <string name="sync_task_set_external_resource_to_download">下载外部资源状态</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">概览</string>
@@ -248,6 +254,24 @@
     <string name="profile_change_less_last_week">比上周少%1$d%%</string>
     <string name="profile_time_minutes">%1$d 分钟</string>
     <string name="profile_time_hours_minutes">%1$d 小时 %2$d 分钟</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">集成</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Hardcover 设置</string>
+    <string name="hardcover_api_access_section">API 访问</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">您可以在 %1$s 找到您的 Hardcover API 访问权限。</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">自动化</string>
+    <string name="hardcover_auto_match_books">自动匹配书籍</string>
+    <string name="hardcover_auto_add_want_to_read">自动添加到“想读”</string>
+    <string name="hardcover_automation_hint">自动将您的阅读进度同步到 Hardcover。启用后，书籍将自动匹配并添加到您的库中。</string>
+    <string name="hardcover_progress_tracking_section">进度跟踪</string>
+    <string name="hardcover_reading_threshold">阅读阈值</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">设置在 Hardcover 库中将书籍标记为正在阅读所需的最低进度百分比。</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">媒体服务器</string>
     <string name="media_servers_edit_button_description">编辑媒体服务器</string>
@@ -314,4 +338,47 @@
     <string name="external_item_detail_genres_label">流派</string>
     <string name="external_item_detail_none_value_fallback">无</string>
     <string name="external_item_detail_unknown_author_fallback">未知作者</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">Hardcover 搜索</string>
+    <string name="hardcover_unlink">取消链接</string>
+    <string name="hardcover_token_missing">缺少 Hardcover API 令牌</string>
+    <string name="hardcover_configure_token_hint">要搜索和链接书籍，请在 设置 > Hardcover 设置 中配置您的 API 令牌。</string>
+    <string name="hardcover_no_popular_books_found">未找到热门书籍</string>
+    <string name="hardcover_no_books_found">未找到书籍</string>
+    <string name="hardcover_link_book">关联书籍</string>
+    <string name="hardcover_search_on_hardcover">在 Hardcover 上搜索</string>
+    <string name="widget_no_books_in_progress">没有进行中的书籍</string>
+    <string name="sync_queue_sync">同步任务</string>
+    <string name="sync_queue_file">文件任务</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
+    <string name="hardcover_popular_on">Hardcover 热门</string>
+    <string name="hardcover_search_placeholder">搜索书籍…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">存储管理</string>
+    <string name="settings_manage_files_label">管理您的文件</string>
+    <string name="settings_files_removed_label">已删除的文件 (同步)</string>
+    <string name="storage_management_title">存储管理</string>
+    <string name="storage_management_total_space">总使用空间</string>
+    <string name="storage_management_artwork_cache">封面缓存大小</string>
+    <string name="storage_management_file_count_single">%1$d 个文件</string>
+    <string name="storage_management_file_count_multiple">%1$d 个文件</string>
+    <string name="storage_management_remove_confirm_title">删除文件</string>
+    <string name="storage_management_remove_confirm_text">您确定要删除此有声书的已下载文件吗？</string>
+    <string name="storage_management_remove_button">删除</string>
+    <string name="storage_management_sort_label">排序</string>
+    <string name="storage_management_sort_by_size">按大小排序</string>
+    <string name="storage_management_sort_by_name">按名称排序</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">最近删除</string>
+    <string name="storage_cloud_deleted_total_size">备份大小</string>
+    <string name="storage_cloud_deleted_restore_all">全部恢复</string>
+    <string name="storage_cloud_deleted_restore_button">恢复</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">永久删除</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">您确定要永久删除此文件吗？此操作无法撤销。</string>
+    <string name="storage_cloud_deleted_delete_button">删除</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">恢复所有文件</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">您确定要将所有已删除的音频文件恢复到您的书架中吗？</string>
 </resources>

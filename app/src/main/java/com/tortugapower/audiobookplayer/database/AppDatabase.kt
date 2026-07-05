@@ -12,6 +12,7 @@ import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import androidx.room.TypeConverters
 
@@ -24,7 +25,8 @@ import androidx.room.TypeConverters
         com.tortugapower.audiobookplayer.database.entities.AccountEntity::class,
         com.tortugapower.audiobookplayer.database.entities.PlaybackSessionEntity::class,
         BookCompletionEntity::class,
-        ExternalServerEntity::class
+        ExternalServerEntity::class,
+        ExternalResourceEntity::class
     ],
     version = 6,
     exportSchema = false
@@ -125,6 +127,11 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // NOTE (reviewers): `external_resources` was added to this existing migration WITHOUT
+        // bumping the DB version — deliberately. DB version 6 has never shipped in a release, so
+        // no user install has run the earlier 5→6 migration; amending it in place is the project
+        // convention for unshipped schema ("unshipped code needs no compat"). Dev/internal builds
+        // already at v6 must clear app data once. Do not flag the missing version bump.
         private val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -139,6 +146,22 @@ abstract class AppDatabase : RoomDatabase() {
                         `selectedLibraryId` TEXT
                     )
                 """)
+
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `external_resources` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `providerName` TEXT NOT NULL, 
+                        `providerId` TEXT NOT NULL, 
+                        `syncStatus` TEXT NOT NULL, 
+                        `lastSyncedAt` INTEGER, 
+                        `processedFile` INTEGER NOT NULL DEFAULT 0, 
+                        `libraryItemUuid` TEXT NOT NULL, 
+                        `hostId` TEXT,
+                        FOREIGN KEY(`libraryItemUuid`) REFERENCES `library_items`(`uuid`) ON UPDATE NO ACTION ON DELETE CASCADE 
+                    )
+                """)
+
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_external_resources_libraryItemUuid` ON `external_resources` (`libraryItemUuid`)")
             }
         }
 

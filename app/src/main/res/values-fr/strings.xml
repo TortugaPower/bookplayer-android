@@ -214,6 +214,12 @@
     <string name="sync_task_download_audio">Télécharger l\'audio</string>
     <string name="sync_task_sync_identifiers">Synchroniser les identifiants</string>
     <string name="sync_task_match_library_ids">Faire correspondre les IDs de bibliothèque</string>
+    <string name="sync_task_upload_external_resource">Téléverser la ressource externe</string>
+    <string name="sync_task_delete_external_resource">Supprimer la ressource externe</string>
+    <string name="sync_task_hardcover_auto_match">Association automatique Hardcover</string>
+    <string name="sync_task_hardcover_update_status">Mettre à jour le statut Hardcover</string>
+    <string name="sync_task_external_update">Mise à jour du statut externe</string>
+    <string name="sync_task_set_external_resource_to_download">Statut de téléchargement de la ressource externe</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">APERÇU</string>
@@ -250,6 +256,24 @@
     <string name="profile_change_less_last_week">%1$d%% de moins que la semaine dernière</string>
     <string name="profile_time_minutes">%1$d min</string>
     <string name="profile_time_hours_minutes">%1$dh %2$dm</string>
+    <!-- Settings Sections -->
+    <string name="settings_integrations_section">Intégrations</string>
+
+    <!-- Hardcover Settings -->
+    <string name="hardcover_settings_title">Paramètres Hardcover</string>
+    <string name="hardcover_api_access_section">Accès API</string>
+    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
+    <string name="hardcover_api_access_hint">Vous pouvez trouver vos accès API Hardcover sur %1$s.</string>
+    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
+    <string name="hardcover_automation_section">Automatisation</string>
+    <string name="hardcover_auto_match_books">Associer automatiquement les livres</string>
+    <string name="hardcover_auto_add_want_to_read">Ajouter automatiquement à « À lire »</string>
+    <string name="hardcover_automation_hint">Synchronisez automatiquement votre progression de lecture avec Hardcover. Lorsqu\'elle est activée, les livres seront automatiquement associés et ajoutés à votre bibliothèque.</string>
+    <string name="hardcover_progress_tracking_section">Suivi de la progression</string>
+    <string name="hardcover_reading_threshold">Seuil de lecture</string>
+    <string name="hardcover_reading_threshold_percent">%1$d%%</string>
+    <string name="hardcover_progress_tracking_hint">Définit le pourcentage de progression minimum requis avant qu\'un livre ne soit marqué comme En cours de lecture dans votre bibliothèque Hardcover.</string>
+
     <!-- Media Servers -->
     <string name="media_servers_title">Serveurs multimédias</string>
     <string name="media_servers_edit_button_description">Modifier les serveurs multimédias</string>
@@ -316,4 +340,47 @@
     <string name="external_item_detail_genres_label">Genres</string>
     <string name="external_item_detail_none_value_fallback">Aucun</string>
     <string name="external_item_detail_unknown_author_fallback">Auteur inconnu</string>
+
+    <!-- Hardcover Browser -->
+    <string name="hardcover_search_title">Recherche Hardcover</string>
+    <string name="hardcover_unlink">Dissocier</string>
+    <string name="hardcover_token_missing">Le jeton API Hardcover est manquant</string>
+    <string name="hardcover_configure_token_hint">Pour rechercher et associer des livres, configurez votre jeton API dans Paramètres > Paramètres Hardcover.</string>
+    <string name="hardcover_no_popular_books_found">Aucun livre populaire trouvé</string>
+    <string name="hardcover_no_books_found">Aucun livre trouvé</string>
+    <string name="hardcover_link_book">Associer le livre</string>
+    <string name="hardcover_search_on_hardcover">Rechercher sur Hardcover</string>
+    <string name="widget_no_books_in_progress">Aucun livre en cours</string>
+    <string name="sync_queue_sync">Tâches de synchronisation</string>
+    <string name="sync_queue_file">Tâches de fichiers</string>
+    <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
+    <string name="hardcover_popular_on">Populaire sur Hardcover</string>
+    <string name="hardcover_search_placeholder">Rechercher des livres…</string>
+
+    <!-- Storage Management -->
+    <string name="settings_storage_management_section">Gestion du stockage</string>
+    <string name="settings_manage_files_label">Gérer vos fichiers</string>
+    <string name="settings_files_removed_label">Fichiers supprimés (opérations de synchronisation)</string>
+    <string name="storage_management_title">Gestion du stockage</string>
+    <string name="storage_management_total_space">Espace total utilisé</string>
+    <string name="storage_management_artwork_cache">Taille du cache des illustrations</string>
+    <string name="storage_management_file_count_single">%1$d FICHIER</string>
+    <string name="storage_management_file_count_multiple">%1$d FICHIERS</string>
+    <string name="storage_management_remove_confirm_title">Supprimer le fichier</string>
+    <string name="storage_management_remove_confirm_text">Voulez-vous vraiment supprimer le fichier téléchargé pour ce livre audio ?</string>
+    <string name="storage_management_remove_button">Supprimer</string>
+    <string name="storage_management_sort_label">Trier</string>
+    <string name="storage_management_sort_by_size">Trier par taille</string>
+    <string name="storage_management_sort_by_name">Trier par nom</string>
+
+    <!-- Storage Cloud Deleted Recovery -->
+    <string name="storage_cloud_deleted_title">Supprimés récemment</string>
+    <string name="storage_cloud_deleted_total_size">Taille de la sauvegarde</string>
+    <string name="storage_cloud_deleted_restore_all">Tout restaurer</string>
+    <string name="storage_cloud_deleted_restore_button">Restaurer</string>
+    <string name="storage_cloud_deleted_delete_confirm_title">Supprimer définitivement</string>
+    <string name="storage_cloud_deleted_delete_confirm_text">Voulez-vous vraiment supprimer définitivement ce fichier ? Cette action est irréversible.</string>
+    <string name="storage_cloud_deleted_delete_button">Supprimer</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_title">Restaurer tous les fichiers</string>
+    <string name="storage_cloud_deleted_restore_all_confirm_text">Voulez-vous vraiment restaurer tous les fichiers audio supprimés dans votre bibliothèque ?</string>
 </resources>

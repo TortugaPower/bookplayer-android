@@ -10,6 +10,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.*
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
+import com.tortugapower.audiobookplayer.ui.screens.pro.BookPlayerProSheet
+import com.tortugapower.audiobookplayer.ui.screens.pro.PaywallSheet
+import com.tortugapower.audiobookplayer.ui.screens.auth.AuthSheet
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
@@ -46,6 +50,10 @@ fun SettingsScreen(
     onNavigateToThemes: () -> Unit,
     onNavigateToAppIcons: () -> Unit,
     onNavigateToTipJar: () -> Unit,
+    onNavigateToMediaServers: () -> Unit,
+    onNavigateToHardcover: () -> Unit,
+    onNavigateToStorageManagement: () -> Unit,
+    onNavigateToStorageCloudDeleted: () -> Unit,
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -63,6 +71,10 @@ fun SettingsScreen(
     val appIconTitleRes = remember { AppIconManager.currentIcon(context).titleRes }
     var showEmailFallback by remember { mutableStateOf(false) }
     var isGeneratingDebug by remember { mutableStateOf(false) }
+    var showProSheet by remember { mutableStateOf(false) }
+    var showAuthSheet by remember { mutableStateOf(false) }
+    var showPaywall by remember { mutableStateOf(false) }
+    val isPro = account?.tier == AccountTier.PRO
 
     // Shown when no email app can handle the compose intent — offers copy-to-clipboard (mirrors iOS).
     if (showEmailFallback) {
@@ -84,6 +96,35 @@ fun SettingsScreen(
                     Text(stringResource(R.string.common_cancel))
                 }
             },
+        )
+    }
+
+    if (showProSheet) {
+        BookPlayerProSheet(
+            onDismiss = { showProSheet = false },
+            onPasskeyClick = { showAuthSheet = true },
+            onAuthenticated = { hasSub ->
+                showProSheet = false
+                showAuthSheet = false
+                if (!hasSub) showPaywall = true
+            }
+        )
+    }
+
+    if (showAuthSheet) {
+        AuthSheet(
+            onDismiss = { showAuthSheet = false },
+            onAuthenticated = { hasSub ->
+                showProSheet = false
+                showAuthSheet = false
+                if (!hasSub) showPaywall = true
+            }
+        )
+    }
+
+    if (showPaywall) {
+        PaywallSheet(
+            onDismiss = { showPaywall = false }
         )
     }
 
@@ -151,6 +192,36 @@ fun SettingsScreen(
                     label = stringResource(R.string.settings_app_icon_label),
                     value = stringResource(appIconTitleRes),
                     onClick = onNavigateToAppIcons,
+                )
+            }
+
+            settingsSection(titleRes = R.string.settings_integrations_section) {
+                SettingsItem(
+                    label = stringResource(R.string.media_servers_title),
+                    onClick = onNavigateToMediaServers,
+                )
+                HorizontalDivider()
+                SettingsItem(
+                    label = stringResource(R.string.hardcover_settings_title),
+                    onClick = onNavigateToHardcover,
+                )
+            }
+
+            settingsSection(titleRes = R.string.settings_storage_management_section) {
+                SettingsItem(
+                    label = stringResource(R.string.settings_manage_files_label),
+                    onClick = onNavigateToStorageManagement,
+                )
+                HorizontalDivider()
+                SettingsItem(
+                    label = stringResource(R.string.settings_files_removed_label),
+                    onClick = {
+                        if (isPro) {
+                            onNavigateToStorageCloudDeleted()
+                        } else {
+                            showProSheet = true
+                        }
+                    },
                 )
             }
 

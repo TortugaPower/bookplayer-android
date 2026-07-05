@@ -4,6 +4,9 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
 import androidx.room.Index
+import androidx.room.Embedded
+import androidx.room.Relation
+import androidx.room.Ignore
 
 enum class ItemType {
     FOLDER, BOUND, BOOK
@@ -26,6 +29,18 @@ data class LibraryItemEntity(
     var lastPlayDate: Long? = null,
     var parentFolderUuid: String? = null,
     var type: ItemType
+) {
+    @Ignore
+    var externalResources: List<ExternalResourceEntity> = emptyList()
+}
+
+data class LibraryItemWithExternalResources(
+    @Embedded val item: LibraryItemEntity,
+    @Relation(
+        parentColumn = "uuid",
+        entityColumn = "libraryItemUuid"
+    )
+    val externalResources: List<ExternalResourceEntity>
 )
 
 @Entity(
@@ -80,4 +95,27 @@ data class BookCompletionEntity(
     val bookTitle: String,
     val authorName: String?,
     val completionDate: Long
+)
+
+@Entity(
+    tableName = "external_resources",
+    foreignKeys = [
+        ForeignKey(
+            entity = LibraryItemEntity::class,
+            parentColumns = ["uuid"],
+            childColumns = ["libraryItemUuid"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("libraryItemUuid")]
+)
+data class ExternalResourceEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val providerName: String,
+    val providerId: String,
+    val syncStatus: String,
+    val lastSyncedAt: Long? = null,
+    val processedFile: Boolean = false,
+    val libraryItemUuid: String,
+    val hostId: String? = null
 )

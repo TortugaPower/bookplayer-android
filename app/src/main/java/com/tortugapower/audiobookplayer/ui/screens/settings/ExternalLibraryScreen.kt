@@ -174,7 +174,15 @@ fun ExternalLibraryScreen(
                                     val url = viewModel.getStreamUrl(item.entity)
                                     if (url.isNotBlank()) {
                                         val fileName = item.entity.originalFileName ?: "${item.entity.title}.mp3"
-                                        importViewModel.startDownload(context, url, fileName, item.customHeaders)
+                                        importViewModel.startDownload(
+                                            context = context,
+                                            url = url,
+                                            fileName = fileName,
+                                            headers = item.customHeaders,
+                                            providerName = viewModel.server?.type?.name?.lowercase(),
+                                            providerId = item.entity.uuid,
+                                            hostId = viewModel.server?.id?.toString()
+                                        )
                                         startedAny = true
                                     }
                                 }

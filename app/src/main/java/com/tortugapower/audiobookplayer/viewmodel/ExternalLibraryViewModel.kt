@@ -66,7 +66,8 @@ class ExternalLibraryViewModel(
     private val _sessionExpiredServerName = MutableStateFlow<String?>(null)
     val sessionExpiredServerName: StateFlow<String?> = _sessionExpiredServerName.asStateFlow()
 
-    private var server: ExternalServerEntity? = null
+    var server: ExternalServerEntity? = null
+        private set
     private var totalCount = 0
     private val pageSize = 50
 

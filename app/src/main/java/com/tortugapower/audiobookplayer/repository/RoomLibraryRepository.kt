@@ -9,30 +9,76 @@ import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
+import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
 
 class RoomLibraryRepository(
+    private val context: android.content.Context,
     private val libraryDao: LibraryDao,
+    // Injectable like timeProvider: DataStore and Room aren't available in unit tests, and the
+    // Hardcover progress transitions below need to be testable. timeProvider stays last so
+    // existing trailing-lambda call sites keep compiling.
+    private val hardcoverTokenProvider: suspend () -> String = {
+        com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getToken(context).first()
+    },
+    private val readingThresholdProvider: suspend () -> Float = {
+        com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getReadingThreshold(context).first()
+    },
+    syncTaskRepositoryProvider: (() -> SyncTaskRepository)? = null,
     private val timeProvider: () -> Long = { System.currentTimeMillis() }
 ) : LibraryRepository {
 
+    private val syncTaskRepository by lazy {
+        syncTaskRepositoryProvider?.invoke()
+            ?: com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository(
+                com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context).syncTaskDao()
+            )
+    }
+
     override fun getRootItems(): Flow<List<LibraryItemEntity>> = 
-        libraryDao.getRootItems()
+        libraryDao.getRootItemsWithResources().map { list ->
+            list.map { wrapper ->
+                wrapper.item.apply {
+                    externalResources = wrapper.externalResources
+                }
+            }
+        }
 
     override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = 
-        libraryDao.getItemsInPath(path)
+        libraryDao.getItemsInPathWithResources(path).map { list ->
+            list.map { wrapper ->
+                wrapper.item.apply {
+                    externalResources = wrapper.externalResources
+                }
+            }
+        }
 
     override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> =
-        libraryDao.getItemsInPathSync(path)
+        libraryDao.getItemsInPathSyncWithResources(path).map { wrapper ->
+            wrapper.item.apply {
+                externalResources = wrapper.externalResources
+            }
+        }
 
     override suspend fun getItemById(uuid: String): LibraryItemEntity? = 
-        libraryDao.getItemById(uuid)
+        libraryDao.getItemByIdWithResources(uuid)?.let { wrapper ->
+            wrapper.item.apply {
+                externalResources = wrapper.externalResources
+            }
+        }
 
     override suspend fun getItemByPath(path: String): LibraryItemEntity? =
-        libraryDao.getItemByPath(path)
+        libraryDao.getItemByPathWithResources(path)?.let { wrapper ->
+            wrapper.item.apply {
+                externalResources = wrapper.externalResources
+            }
+        }
 
     override fun getFoldersInPath(path: String?): Flow<List<LibraryItemEntity>> {
         return if (path == null) libraryDao.getRootFolders() else libraryDao.getFoldersInPath(path)
@@ -42,7 +88,13 @@ class RoomLibraryRepository(
         libraryDao.getAllContainers()
 
     override fun searchBooks(query: String): Flow<List<LibraryItemEntity>> =
-        libraryDao.searchBooks(query)
+        libraryDao.searchBooksWithResources(query).map { list ->
+            list.map { wrapper ->
+                wrapper.item.apply {
+                    externalResources = wrapper.externalResources
+                }
+            }
+        }
 
     override suspend fun saveItem(item: LibraryItemEntity) {
         libraryDao.insertItem(item)
@@ -86,6 +138,30 @@ class RoomLibraryRepository(
             }
             item.lastPlayDate = timeProvider()
             libraryDao.updateItem(item)
+
+            // Hardcover Progress Integration
+            try {
+                val hardcoverResource = libraryDao.getExternalResource(uuid, "hardcover")
+                if (hardcoverResource != null) {
+                    val hardcoverToken = hardcoverTokenProvider()
+                    if (hardcoverToken.isNotBlank()) {
+                        if (isFinished) {
+                            if (hardcoverResource.syncStatus != "read") {
+                                libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "read"))
+                                SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, uuid, 3)
+                            }
+                        } else {
+                            val threshold = readingThresholdProvider()
+                            if (item.percentCompleted >= threshold && hardcoverResource.syncStatus != "reading" && hardcoverResource.syncStatus != "read") {
+                                libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "reading"))
+                                SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, uuid, 2)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("RoomLibraryRepository", "Error tracking hardcover progress", e)
+            }
 
             // Recursively update parents
             updateParentFolders(item.relativePath)
@@ -344,7 +420,85 @@ class RoomLibraryRepository(
             if (currentIndex == -1) return@withContext null
 
             val targetIndex = if (next) currentIndex + 1 else currentIndex - 1
-            siblings.getOrNull(targetIndex)
+            resolveRemoteUrlInRuntime(siblings.getOrNull(targetIndex))
         }
+    }
+
+    override suspend fun getExternalResource(itemUuid: String, provider: String): com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity? =
+        libraryDao.getExternalResource(itemUuid, provider)
+
+    override fun getExternalResourcesForBook(itemUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>> =
+        libraryDao.getExternalResourcesForBookFlow(itemUuid)
+
+    override suspend fun saveExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity) {
+        val existing = libraryDao.getExternalResource(externalResource.libraryItemUuid, externalResource.providerName)
+        if (existing != null) {
+            if (existing.providerId == externalResource.providerId) {
+                return
+            }
+            libraryDao.deleteExternalResource(externalResource.libraryItemUuid, externalResource.providerName)
+        }
+        libraryDao.insertExternalResource(externalResource)
+    }
+
+    override suspend fun deleteExternalResource(itemUuid: String, provider: String) =
+        libraryDao.deleteExternalResource(itemUuid, provider)
+
+    override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity {
+        val processedDir = File(context.filesDir, "Processed")
+        val hasLocalPath = !item.relativePath.isNullOrEmpty()
+        val file = if (hasLocalPath) File(processedDir, item.relativePath!!) else null
+        if (file?.exists() == true && file.isFile) {
+            return item
+        }
+        
+        try {
+            val extResource = item.externalResources.find { it.syncStatus == "stream" || it.syncStatus == "downloaded" }
+            if (extResource != null) {
+                val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
+                val serverDao = db.externalServerDao()
+                var server = if (!extResource.hostId.isNullOrEmpty()) {
+                    val hostId = extResource.hostId.toLongOrNull()
+                    if (hostId != null) serverDao.getServerById(hostId) else null
+                } else null
+                
+                if (server == null) {
+                    val serverType = when (extResource.providerName.lowercase()) {
+                        "jellyfin" -> ExternalServiceType.JELLYFIN
+                        "audiobookshelf" -> ExternalServiceType.AUDIOBOOKSHELF
+                        else -> null
+                    }
+                    if (serverType != null) {
+                        server = serverDao.getAllServers().first().find { it.type == serverType }
+                    }
+                }
+                
+                if (server != null) {
+                    val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(server.url)
+                    val streamPath = when (extResource.providerName.lowercase()) {
+                        "jellyfin" -> "Items/${extResource.providerId}/Download?api_key=${server.token ?: ""}"
+                        "audiobookshelf" -> "api/items/${extResource.providerId}/download?token=${server.token ?: ""}"
+                        else -> ""
+                    }
+                    if (streamPath.isNotEmpty()) {
+                        item.remoteURL = "$sanitizedUrl$streamPath"
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("RoomLibraryRepository", "Error resolving remote URL in runtime", e)
+        }
+        return item
+    }
+
+    override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> {
+        items.forEach { resolveStreamingUrl(it) }
+        return items
+    }
+
+    private suspend fun resolveRemoteUrlInRuntime(item: LibraryItemEntity?): LibraryItemEntity? {
+        if (item == null) return null
+        val fullItem = getItemById(item.uuid) ?: item
+        return resolveStreamingUrl(fullItem)
     }
 }
