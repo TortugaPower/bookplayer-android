@@ -23,7 +23,10 @@ import kotlinx.coroutines.withContext
  * otherwise run on the collector's thread (Main, for `collectAsState`). Mirrors `ExternalServerRepository`.
  */
 class RoomAccountRepository(
-    private val accountDao: AccountDao
+    private val accountDao: AccountDao,
+    // Injected so the encrypt-on-save / decrypt-on-read wiring is unit-testable with a fake (the real
+    // one uses the Android Keystore, which isn't available under JVM/Robolectric). Defaults to Keystore.
+    private val cipher: TokenCipher = KeystoreTokenCipher
 ) : AccountRepository {
     override fun getAccountFlow(): Flow<AccountEntity?> =
         accountDao.getAccountFlow()
@@ -35,7 +38,7 @@ class RoomAccountRepository(
     }
 
     override suspend fun saveAccount(account: AccountEntity) = withContext(Dispatchers.IO) {
-        accountDao.saveAccount(account.copy(apiToken = CredentialCipher.encrypt(account.apiToken)))
+        accountDao.saveAccount(account.copy(apiToken = cipher.encrypt(account.apiToken)))
     }
 
     override suspend fun deleteAccount() = withContext(Dispatchers.IO) {
@@ -43,5 +46,16 @@ class RoomAccountRepository(
     }
 
     private fun AccountEntity.withDecryptedToken(): AccountEntity =
-        copy(apiToken = CredentialCipher.decrypt(apiToken))
+        copy(apiToken = cipher.decrypt(apiToken))
+}
+
+/** Encrypt/decrypt indirection for the account token — lets tests substitute a fake for the Keystore. */
+interface TokenCipher {
+    fun encrypt(plaintext: String): String
+    fun decrypt(stored: String): String
+}
+
+private object KeystoreTokenCipher : TokenCipher {
+    override fun encrypt(plaintext: String): String = CredentialCipher.encrypt(plaintext)
+    override fun decrypt(stored: String): String = CredentialCipher.decrypt(stored)
 }

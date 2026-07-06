@@ -19,6 +19,10 @@ import javax.crypto.spec.GCMParameterSpec
  * plaintext fallback — this feature has never shipped, so no production rows predate encryption.
  */
 object CredentialCipher {
+    // Shared AES key for ALL app-stored credentials (external-server tokens AND the account API token).
+    // The alias string is deliberately NOT renamed despite now covering more than external servers:
+    // it's a Keystore alias, and changing it would orphan the existing key, making already-encrypted
+    // shipped external-server credentials undecryptable.
     private const val KEY_ALIAS = "external_server_credentials"
     private const val PREFIX = "bpenc1:"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
