@@ -48,4 +48,6 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver) // HttpRangeByteSourceTest
+    testImplementation(libs.robolectric)          // in-memory Room DAO tests (JVM)
+    testImplementation(libs.androidx.test.core)
 }
