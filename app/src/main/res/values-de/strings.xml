@@ -379,4 +379,26 @@
     <string name="storage_cloud_deleted_delete_button">Löschen</string>
     <string name="storage_cloud_deleted_restore_all_confirm_title">Alle Dateien wiederherstellen</string>
     <string name="storage_cloud_deleted_restore_all_confirm_text">Sind Sie sicher, dass Sie alle entfernten Audiodateien wieder in Ihre Bibliothek aufnehmen möchten?</string>
+
+    <!-- Launcher Shortcuts -->
+    <string name="shortcut_play_last_title">Zuletzt abgespielt wiedergeben</string>
+    <string name="shortcut_play_last_desc">Zuletzt gespieltes Buch fortsetzen</string>
+    <string name="shortcut_rewind_title">Zurückspulen</string>
+    <string name="shortcut_forward_title">Vorspulen</string>
+    <string name="shortcut_sleep_timer_title">Sleep-Timer einstellen</string>
+
+    <!-- Fullscreen Accessibility -->
+    <string name="player_enter_fullscreen">Vollbild</string>
+    <string name="player_exit_fullscreen">Vollbild beenden</string>
+
+    <!-- Cast Options Sheet -->
+    <string name="cast_option_media_output_title">AirPlay- &amp; Bluetooth-Geräte</string>
+    <string name="cast_option_media_output_desc">Wählen Sie kabellose Lautsprecher, Kopfhörer oder andere Bluetooth-Systeme.</string>
+    <string name="cast_option_wireless_display_title">Kabellose Displays &amp; Cast</string>
+    <string name="cast_option_wireless_display_desc">Bildschirm oder Audiostream auf TV, Google Cast oder Smart-TVs übertragen.</string>
+    <string name="cast_option_bluetooth_settings_title">Bluetooth-Einstellungen</string>
+    <string name="cast_option_bluetooth_settings_desc">Neues Gerät koppeln oder verbundene Bluetooth-Geräte verwalten.</string>
+
+    <string name="library_add_shortcut_to_home_screen">Verknüpfung zum Startbildschirm hinzufügen</string>
+    <string name="shortcut_play_item_desc">%1$s abspielen</string>
 </resources>

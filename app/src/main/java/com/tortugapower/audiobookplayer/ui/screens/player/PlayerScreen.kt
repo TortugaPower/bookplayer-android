@@ -515,21 +515,37 @@ private fun PlayerArtwork(
     var showControls by remember { mutableStateOf(true) }
     var blurredBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
-    val playerView = remember(context) {
-        val pv = LayoutInflater.from(context).inflate(R.layout.video_player_view, null) as PlayerView
-        pv.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-        pv
+    // Inflated only once a video track is selected — audio-only books (the common case on this
+    // screen) never pay for the Media3 PlayerView. Dropping to the else branch on audio books
+    // also lets Compose forget (and free) the view when a video book is swapped for one.
+    val playerView = if (hasVideo) {
+        remember(context) {
+            val pv = LayoutInflater.from(context).inflate(R.layout.video_player_view, null) as PlayerView
+            pv.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            pv
+        }
+    } else {
+        null
     }
 
-    LaunchedEffect(hasVideo, player) {
-        if (hasVideo && player != null) {
+    LaunchedEffect(hasVideo, player, playerView) {
+        if (hasVideo && player != null && playerView != null) {
+            var hasReportedError = false
             while (true) {
-                val textureView = findTextureView(playerView)
-                if (textureView != null) {
-                    try {
-                        val bmp = textureView.getBitmap(32, 32)
-                        if (bmp != null) blurredBitmap = bmp
-                    } catch (e: Exception) {}
+                if (player.isPlaying || blurredBitmap == null) {
+                    val textureView = findTextureView(playerView)
+                    if (textureView != null) {
+                        try {
+                            val bmp = textureView.getBitmap(32, 32)
+                            if (bmp != null) blurredBitmap = bmp
+                        } catch (e: Exception) {
+                            if (!hasReportedError) {
+                                android.util.Log.e("PlayerArtwork", "Failed to capture texture bitmap", e)
+                                io.sentry.Sentry.captureException(e)
+                                hasReportedError = true
+                            }
+                        }
+                    }
                 }
                 delay(250)
             }
@@ -579,7 +595,7 @@ private fun PlayerArtwork(
             .then(clickableModifier),
         contentAlignment = Alignment.Center
     ) {
-        if (hasVideo && player != null) {
+        if (hasVideo && player != null && playerView != null) {
             if (blurredBitmap != null) {
                 Image(
                     bitmap = blurredBitmap!!.asImageBitmap(),
@@ -596,6 +612,9 @@ private fun PlayerArtwork(
                 modifier = Modifier.fillMaxSize(),
                 update = { view ->
                     view.player = player
+                },
+                onRelease = { view ->
+                    view.player = null
                 }
             )
         } else if (artworkURL != null) {
@@ -651,7 +670,7 @@ private fun PlayerArtwork(
                     ) {
                         Icon(
                             imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                            contentDescription = if (isFullscreen) "Exit Fullscreen" else "Fullscreen",
+                            contentDescription = if (isFullscreen) stringResource(R.string.player_exit_fullscreen) else stringResource(R.string.player_enter_fullscreen),
                             tint = Color.White
                         )
                     }

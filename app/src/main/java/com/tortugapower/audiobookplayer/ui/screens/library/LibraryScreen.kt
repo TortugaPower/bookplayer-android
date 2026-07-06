@@ -533,7 +533,7 @@ fun LibraryScreen(
                                 leadingIcon = { Icon(Icons.Default.Info, null) }
                             )
                             DropdownMenuItem(
-                                text = { Text("Add Shortcut to Home Screen") },
+                                text = { Text(stringResource(R.string.library_add_shortcut_to_home_screen)) },
                                 onClick = {
                                     showMoreMenu = false
                                     createHomeScreenShortcut(context, scope, selectedItems[0])
@@ -1225,39 +1225,11 @@ fun PieProgressIcon(
 
 private fun createHomeScreenShortcut(context: android.content.Context, scope: kotlinx.coroutines.CoroutineScope, item: LibraryItemEntity) {
     scope.launch {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            val shortcutManager = context.getSystemService(android.content.pm.ShortcutManager::class.java) ?: return@launch
-            if (shortcutManager.isRequestPinShortcutSupported) {
-                val loader = context.imageLoader
-                val request = coil.request.ImageRequest.Builder(context)
-                    .data(item.artworkURL ?: com.tortugapower.audiobookplayer.R.mipmap.ic_launcher)
-                    .size(150)
-                    .allowHardware(false)
-                    .build()
-                val result = loader.execute(request)
-                val drawable = (result as? coil.request.SuccessResult)?.drawable
-                val bitmap = if (drawable != null) {
-                    if (drawable is android.graphics.drawable.BitmapDrawable) {
-                        drawable.bitmap
-                    } else {
-                        val w = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 150
-                        val h = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 150
-                        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
-                        val canvas = android.graphics.Canvas(bmp)
-                        drawable.setBounds(0, 0, w, h)
-                        drawable.draw(canvas)
-                        bmp
-                    }
-                } else null
-                val icon = if (bitmap != null) android.graphics.drawable.Icon.createWithBitmap(bitmap) else android.graphics.drawable.Icon.createWithResource(context, com.tortugapower.audiobookplayer.R.mipmap.ic_launcher)
-                val pinShortcutInfo = android.content.pm.ShortcutInfo.Builder(context, "shortcut_play_${item.uuid}")
-                    .setShortLabel(item.title)
-                    .setLongLabel("Play ${item.title}")
-                    .setIcon(icon)
-                    .setIntent(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("bookplayer://play?identifier=${item.uuid}&autoplay=true")))
-                    .build()
-                shortcutManager.requestPinShortcut(pinShortcutInfo, null)
-            }
-        }
+        com.tortugapower.audiobookplayer.logic.ShortcutHelper.createPinShortcut(
+            context = context,
+            itemUuid = item.uuid,
+            itemTitle = item.title,
+            itemArtworkUrl = item.artworkURL
+        )
     }
 }

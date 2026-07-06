@@ -194,7 +194,7 @@ fun MoreOptionsSheet(
             BookmarkDialogButton(text = if (viewModel.isRepeatEnabled) stringResource(R.string.player_repeat_off) else stringResource(R.string.player_repeat_on)) {
                 viewModel.toggleRepeat()
             }
-            BookmarkDialogButton(text = "Add Shortcut to Home Screen") {
+            BookmarkDialogButton(text = stringResource(R.string.library_add_shortcut_to_home_screen)) {
                 viewModel.showMoreOptions = false
                 viewModel.createHomeScreenShortcut(context)
             }
@@ -997,6 +997,12 @@ fun CastOptionsSheet(
 ) {
     val sheetState = rememberModalBottomSheetState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    // Resolved here (not in the click handlers, which aren't composable contexts) so the
+    // terminal fallbacks below can tell the user instead of appearing broken.
+    val castUnavailableMessage = stringResource(R.string.player_cast_unavailable)
+    val showCastUnavailable = {
+        android.widget.Toast.makeText(context, castUnavailableMessage, android.widget.Toast.LENGTH_SHORT).show()
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1021,8 +1027,8 @@ fun CastOptionsSheet(
 
             // Option 1: System Media Output Dialog (AirPlay & Bluetooth)
             RoutingOptionItem(
-                title = "AirPlay & Bluetooth Devices",
-                description = "Choose wireless speakers, headphones, or other Bluetooth systems.",
+                title = stringResource(R.string.cast_option_media_output_title),
+                description = stringResource(R.string.cast_option_media_output_desc),
                 icon = Icons.Outlined.Cast,
                 onClick = {
                     onDismiss()
@@ -1036,7 +1042,7 @@ fun CastOptionsSheet(
                             val fallbackIntent = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
                             context.startActivity(fallbackIntent)
                         } catch (ex: Exception) {
-                            // Silent fail
+                            showCastUnavailable()
                         }
                     }
                 }
@@ -1044,8 +1050,8 @@ fun CastOptionsSheet(
 
             // Option 2: Screen Cast / Wireless Displays
             RoutingOptionItem(
-                title = "Wireless Displays & Cast",
-                description = "Cast screen or audio stream to TV, Google Cast, or Smart TVs.",
+                title = stringResource(R.string.cast_option_wireless_display_title),
+                description = stringResource(R.string.cast_option_wireless_display_desc),
                 icon = Icons.Default.Tv,
                 onClick = {
                     onDismiss()
@@ -1053,15 +1059,15 @@ fun CastOptionsSheet(
                         val intent = Intent("android.settings.CAST_SETTINGS")
                         context.startActivity(intent)
                     } catch (e: Exception) {
-                        // Silent fail
+                        showCastUnavailable()
                     }
                 }
             )
 
             // Option 3: Bluetooth settings shortcut
             RoutingOptionItem(
-                title = "Bluetooth Settings",
-                description = "Pair a new device or manage connected Bluetooth accessories.",
+                title = stringResource(R.string.cast_option_bluetooth_settings_title),
+                description = stringResource(R.string.cast_option_bluetooth_settings_desc),
                 icon = Icons.Default.Bluetooth,
                 onClick = {
                     onDismiss()
@@ -1069,7 +1075,7 @@ fun CastOptionsSheet(
                         val intent = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
                         context.startActivity(intent)
                     } catch (e: Exception) {
-                        // Silent fail
+                        showCastUnavailable()
                     }
                 }
             )
