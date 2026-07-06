@@ -14,6 +14,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
@@ -35,6 +36,10 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 object PlaybackManager {
+    // Speed steps the Android Auto speed button cycles through (a picker isn't possible in the car).
+    // Chosen to line up with Media3's built-in ICON_PLAYBACK_SPEED_* glyphs so the button shows the speed.
+    private val SPEED_PRESETS = listOf(0.8f, 1.0f, 1.2f, 1.5f, 1.8f, 2.0f)
+
     val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var player: Player? = null
@@ -627,24 +632,7 @@ object PlaybackManager {
         scope.launch(Dispatchers.Main) {
             val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
             // Gather the backing items, back-fill any missing artwork, then build the playback model.
-            val (playable, refreshedItem) = withContext(Dispatchers.IO) {
-                val refreshedItem = refreshRemoteUrlsIfNecessary(context, item, isBound, processedDir)
-                val p = if (isBound) {
-                    val subItems = getRepository(context).getItemsInPathSync(refreshedItem.relativePath ?: "")
-                    val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
-                    extractMissingArtwork(books, context)
-                    books.forEach { ensureChaptersExtracted(it, context) }
-                    val chaptersBySubBook = books.associate {
-                        it.uuid to getRepository(context).getChaptersForBook(it.uuid).first()
-                    }
-                    PlayableItemBuilder.buildBound(refreshedItem, subItems, chaptersBySubBook)
-                } else {
-                    extractMissingArtwork(listOf(refreshedItem), context)
-                    ensureChaptersExtracted(refreshedItem, context)
-                    PlayableItemBuilder.buildSingle(refreshedItem, getRepository(context).getChaptersForBook(refreshedItem.uuid).first())
-                }
-                Pair(p, refreshedItem)
-            }
+            val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir)
             _currentItem.value = refreshedItem
             _currentPlayable.value = playable
             // BOUND books expose a whole-book timeline to the session; single books pass through.
@@ -683,8 +671,72 @@ object PlaybackManager {
                     if (!autoplay) player?.pause()
                     if (!showPlayer) _showPlayerScreen.value = false
                 }
+            } else {
+                // e.g. a stale Android Auto browse row for a deleted/moved item — don't silently vanish.
+                android.util.Log.w("PlaybackManager", "playItemByPath: no library item for path '$path'")
             }
         }
+    }
+
+    /** Builds the in-memory playback model (chapters, artwork back-fill, timeline) for [item]. Off the
+     *  main thread. Shared by [playItem] and the Android Auto browse resolver. */
+    private suspend fun buildPlayableModel(
+        context: Context,
+        item: LibraryItemEntity,
+        isBound: Boolean,
+        processedDir: File
+    ): Pair<PlayableItem, LibraryItemEntity> = withContext(Dispatchers.IO) {
+        val refreshedItem = refreshRemoteUrlsIfNecessary(context, item, isBound, processedDir)
+        val p = if (isBound) {
+            val subItems = getRepository(context).getItemsInPathSync(refreshedItem.relativePath ?: "")
+            val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
+            extractMissingArtwork(books, context)
+            books.forEach { ensureChaptersExtracted(it, context) }
+            val chaptersBySubBook = books.associate {
+                it.uuid to getRepository(context).getChaptersForBook(it.uuid).first()
+            }
+            PlayableItemBuilder.buildBound(refreshedItem, subItems, chaptersBySubBook)
+        } else {
+            extractMissingArtwork(listOf(refreshedItem), context)
+            ensureChaptersExtracted(refreshedItem, context)
+            PlayableItemBuilder.buildSingle(refreshedItem, getRepository(context).getChaptersForBook(refreshedItem.uuid).first())
+        }
+        Pair(p, refreshedItem)
+    }
+
+    /** File media items + start position, for an external session (Android Auto) to set on the player. */
+    data class SessionMediaItems(val items: List<MediaItem>, val startIndex: Int, val startPositionMs: Long)
+
+    /**
+     * Android Auto browse-play: load [path], set up the playback MODEL + player settings (currentItem/
+     * playable/timeline for [com.tortugapower.audiobookplayer.service.BookTimelinePlayer] virtualization,
+     * speed/volume), and RETURN the file media items + start position for the SESSION to set on its player
+     * itself. We must NOT set the player here (the session does that from the return value): pushing an
+     * empty/non-idle playlist would crash `SimpleBasePlayer.getState`. Returns null if [path] can't resolve.
+     */
+    suspend fun resolveSessionMediaItems(context: Context, path: String): SessionMediaItems? {
+        val item = getRepository(context).getItemByPath(path) ?: return null
+        if (_currentItem.value?.uuid != item.uuid) updateProgress(context, itemToUpdate = _currentItem.value)
+        if (item.isFinished) {
+            item.currentTime = 0.0; item.isFinished = false; item.percentCompleted = 0.0
+            getRepository(context).updateItemProgress(item.uuid, 0.0, false)
+        }
+        val processedDir = File(context.filesDir, "Processed")
+        val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
+        val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir)
+        val mediaItems = buildMediaItems(playable, processedDir, null)
+        if (mediaItems.isEmpty()) return null
+
+        _currentItem.value = refreshedItem
+        _currentPlayable.value = playable
+        _currentTimeline.value = if (isBound) playable.timeline else null
+        val local = if (isBound) playable.timeline.toLocal((refreshedItem.currentTime * 1000).toLong())
+                    else BoundTimeline.PlayerPosition(0, (refreshedItem.currentTime * 1000).toLong())
+        _positionMs.value = (refreshedItem.currentTime * 1000).toLong()
+        PlaybackSettingsManager.setLastItemUuid(context, item.uuid)
+        player?.setPlaybackSpeed(_playbackSpeed.value)
+        applyVolume(_volumeBoost.value, _playbackVolume.value)
+        return SessionMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
     }
 
     /** Pause playback (no-op if already paused). Used by the sleep timer so it never accidentally resumes. */
@@ -926,6 +978,45 @@ object PlaybackManager {
     /** Seek to an absolute whole-book position. Alias kept for existing callers; see [seekWholeBook]. */
     fun seekTo(positionMs: Long) {
         seekWholeBook(positionMs)
+    }
+
+    // --- Android Auto Now Playing helpers ---
+
+    /**
+     * Step the playback speed to the next preset (wrapping), since Android Auto can't present a speed
+     * picker. Persists it (the settings collector applies it to the player). Returns the new speed.
+     */
+    fun cyclePlaybackSpeed(context: Context): Float {
+        val next = nextSpeedPreset(_playbackSpeed.value)
+        setPlaybackSpeed(context, next)
+        return next
+    }
+
+    /** First speed preset strictly greater than [current], wrapping to the first. Pure (testable). */
+    internal fun nextSpeedPreset(current: Float): Float =
+        SPEED_PRESETS.firstOrNull { it > current + 0.001f } ?: SPEED_PRESETS.first()
+
+    /** Outcome of a car-initiated bookmark, so the caller can surface feedback. */
+    sealed interface BookmarkOutcome {
+        data class Created(val timeSeconds: Double) : BookmarkOutcome
+        data class Existed(val timeSeconds: Double) : BookmarkOutcome
+        data object Failed : BookmarkOutcome
+    }
+
+    /**
+     * Create a bookmark at the current whole-book position (dedup against an existing one), mirroring
+     * the in-app [PlayerViewModel.addBookmark]. Whole-book seconds so it round-trips like the in-app
+     * bookmarks; sync scheduling is handled by the repository.
+     */
+    suspend fun createBookmarkAtCurrentPosition(context: Context): BookmarkOutcome {
+        val item = _currentItem.value ?: return BookmarkOutcome.Failed
+        if (player == null) return BookmarkOutcome.Failed
+        val timeSeconds = currentWholeBookMs() / 1000.0
+        val repository = getRepository(context)
+        val existing = repository.getBookmarkAtTime(item.uuid, timeSeconds)
+        if (existing != null) return BookmarkOutcome.Existed(existing.time)
+        repository.addBookmark(BookmarkEntity(bookUuid = item.uuid, time = timeSeconds))
+        return BookmarkOutcome.Created(timeSeconds)
     }
 
     fun playNext(context: Context) {

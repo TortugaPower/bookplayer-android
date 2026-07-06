@@ -18,7 +18,10 @@ interface LibraryRepository {
     fun getAllContainers(): Flow<List<LibraryItemEntity>>
     
     fun searchBooks(query: String): Flow<List<LibraryItemEntity>>
-    
+
+    /** iOS-parity search (title OR author, incl. bound books, excludes folders, newest-played first). */
+    fun searchAllBooks(query: String): Flow<List<LibraryItemEntity>>
+
     suspend fun saveItem(item: LibraryItemEntity)
     suspend fun updateItem(item: LibraryItemEntity)
     suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean)

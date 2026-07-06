@@ -96,6 +96,15 @@ class RoomLibraryRepository(
             }
         }
 
+    override fun searchAllBooks(query: String): Flow<List<LibraryItemEntity>> =
+        libraryDao.searchAllBooksWithResources(query).map { list ->
+            list.map { wrapper ->
+                wrapper.item.apply {
+                    externalResources = wrapper.externalResources
+                }
+            }
+        }
+
     override suspend fun saveItem(item: LibraryItemEntity) {
         libraryDao.insertItem(item)
         withContext(Dispatchers.IO) {

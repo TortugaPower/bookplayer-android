@@ -36,6 +36,25 @@ object ArtworkManager {
         }
     }
 
+    /**
+     * Extract embedded artwork from a REMOTE audio URL (streaming just the metadata via range requests,
+     * with optional auth [headers]) and save it. Used by Android Auto browse to show covers for cloud
+     * items that aren't downloaded. Returns false if there's no embedded art or the stream fails.
+     */
+    fun extractAndSaveArtworkFromUri(uri: String, headers: Map<String, String>?, destFile: File): Boolean {
+        val retriever = android.media.MediaMetadataRetriever()
+        return try {
+            if (headers != null) retriever.setDataSource(uri, headers) else retriever.setDataSource(uri)
+            val picture = retriever.embeddedPicture ?: return false
+            saveProcessedBitmap(picture, destFile)
+        } catch (e: Exception) {
+            android.util.Log.e("ArtworkManager", "Error extracting remote artwork: ${e.message}")
+            false
+        } finally {
+            retriever.release()
+        }
+    }
+
     private fun saveProcessedBitmap(bytes: ByteArray, destFile: File): Boolean {
         return try {
             val options = BitmapFactory.Options().apply {
