@@ -302,7 +302,9 @@ class AudioPlayerService : MediaLibraryService() {
         val h = total / 3600
         val m = (total % 3600) / 60
         val s = total % 60
-        return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%d:%02d", m, s)
+        // Explicit locale so digits render as ASCII (not e.g. Arabic-Indic) and lint's DefaultLocale is happy.
+        val locale = java.util.Locale.getDefault()
+        return if (h > 0) String.format(locale, "%d:%02d:%02d", h, m, s) else String.format(locale, "%d:%02d", m, s)
     }
 
     /**
