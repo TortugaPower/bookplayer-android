@@ -15,7 +15,37 @@ import java.io.File
 object ChapterExtractionService {
 
     fun extractChapterEntities(file: File, bookUuid: String, totalDurationMs: Long): List<ChapterEntity> {
-        val extracted = AudioChapterExtractor.extractManualChapters(file, totalDurationMs) ?: return emptyList()
+        val source = try { FileByteSource(file) } catch (e: Exception) { return emptyList() }
+        return try {
+            toEntities(AudioChapterExtractor.extractManualChapters(source, file.extension.lowercase(), totalDurationMs), bookUuid)
+        } finally {
+            source.close()
+        }
+    }
+
+    /**
+     * Extract embedded chapters from a REMOTE file by scanning only the metadata region over HTTP
+     * `Range` requests (the m4b `moov` atom is often at EOF) — used for offloaded/streamed books, so
+     * chapters appear without downloading the whole file. Returns empty when the server doesn't honor
+     * `Range` or no chapters are found (caller keeps the synthetic chapter). [extension] picks the parser.
+     */
+    fun extractChapterEntitiesRemote(
+        url: String,
+        headers: Map<String, String>?,
+        extension: String,
+        bookUuid: String,
+        totalDurationMs: Long
+    ): List<ChapterEntity> {
+        val source = HttpRangeByteSource(url, headers)
+        return try {
+            toEntities(AudioChapterExtractor.extractManualChapters(source, extension, totalDurationMs), bookUuid)
+        } finally {
+            source.close()
+        }
+    }
+
+    private fun toEntities(extracted: List<ExtractedChapter>?, bookUuid: String): List<ChapterEntity> {
+        if (extracted.isNullOrEmpty()) return emptyList()
         return extracted.mapIndexed { index, chapter ->
             ChapterEntity(
                 bookUuid = bookUuid,

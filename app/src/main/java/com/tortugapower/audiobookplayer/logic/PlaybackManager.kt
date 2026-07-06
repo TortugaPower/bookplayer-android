@@ -44,6 +44,9 @@ object PlaybackManager {
     // hang playback (fail-soft: fall through to whatever's local).
     private const val CONTENTS_FETCH_TIMEOUT_MS = 15_000L
 
+    // Cap the per-process "already attempted remote chapter fetch" dedup set (cleared on overflow).
+    private const val REMOTE_ATTEMPT_CAP = 1000
+
     val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var player: Player? = null
@@ -459,6 +462,95 @@ object PlaybackManager {
         repo.replaceChaptersForBook(item.uuid, toStore)
     }
 
+    // Files we've already attempted a remote chapter fetch for this process, so we don't re-download the
+    // moov on every play of a not-downloaded book. Not persisted (a failed/empty remote fetch must NOT
+    // block real extraction once the file is downloaded, unlike the local synthetic-chapter marker).
+    private val remoteChapterAttempts = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /**
+     * Best-effort audio file extension for picking the chapter parser, from most to least reliable:
+     * the item's `relativePath`, then its `originalFileName` (set for external items whose relativePath
+     * is null, e.g. AudiobookShelf), then the remote URL's last path segment with any query/fragment
+     * stripped. A streaming URL like `Items/<id>/Download?api_key=...` yields no extension → we fall
+     * through rather than mis-detecting. Pure (no Android APIs) so it's unit-tested. Lowercased, no dot.
+     */
+    internal fun audioExtensionFor(item: LibraryItemEntity, url: String): String {
+        val fromUrl = url.substringBefore('?').substringBefore('#').substringAfterLast('/')
+        for (candidate in listOfNotNull(item.relativePath, item.originalFileName, fromUrl)) {
+            val ext = candidate.substringAfterLast('.', "")
+            if (ext.length in 1..5 && ext.all { it.isLetterOrDigit() }) return ext.lowercase()
+        }
+        return ""
+    }
+
+    /**
+     * Background (non-blocking) embedded-chapter extraction for OFFLOADED/streamed files: range-fetch the
+     * metadata region over HTTP and persist the chapters (iOS `loadChaptersIfNeeded` on a streamed asset).
+     * A single book then refreshes its timeline live; a bound book persists only (shows next reload —
+     * matching iOS, which doesn't rebuild the active bound timeline mid-session). At most once per file
+     * per process; downloaded files are left to the local [ensureChaptersExtracted] path.
+     */
+    private fun extractRemoteChaptersInBackground(context: Context, item: LibraryItemEntity, isBound: Boolean) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val processedDir = File(context.filesDir, "Processed")
+                val repo = getRepository(context)
+                val targets = if (isBound) {
+                    repo.getItemsInPathSync(item.relativePath ?: "")
+                        .filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
+                } else {
+                    listOf(item)
+                }
+                var extractedAny = false
+                for (sub in targets) {
+                    val rp = sub.relativePath
+                    if (rp != null && File(processedDir, rp).exists()) continue           // downloaded → local path handles it
+                    if (repo.getChaptersForBook(sub.uuid).first().isNotEmpty()) continue  // already have chapters
+                    // Bound the per-process dedup set (clear on overflow — a re-attempt is harmless).
+                    if (remoteChapterAttempts.size >= REMOTE_ATTEMPT_CAP) remoteChapterAttempts.clear()
+                    if (!remoteChapterAttempts.add(sub.uuid)) continue                    // attempted this session
+                    val resolved = repo.resolveStreamingUrl(sub)
+                    val url = resolved.remoteURL?.takeIf { it.isNotEmpty() } ?: continue
+                    val ext = audioExtensionFor(sub, url)
+                    val headers = getHeadersForUri(android.net.Uri.parse(url))
+                    val chapters = ChapterExtractionService.extractChapterEntitiesRemote(
+                        url, headers, ext, sub.uuid, (sub.duration * 1000).toLong()
+                    )
+                    // Only persist a genuinely multi-chapter result (a single span adds nothing over the
+                    // synthetic fallback, and persisting it would wrongly block real extraction after download).
+                    if (chapters.size > 1) {
+                        repo.replaceChaptersForBook(sub.uuid, chapters)
+                        extractedAny = true
+                    }
+                }
+                // Single book: swap in the richer chapter list live (bound = persist-only per iOS).
+                if (extractedAny && !isBound && _currentItem.value?.uuid == item.uuid) {
+                    rebuildCurrentPlayableChapters(context, item.uuid)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("PlaybackManager", "Remote chapter extraction failed: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Rebuild the current SINGLE book's in-memory playable from freshly-stored chapters (no player
+     * reload — one file, chapters are virtual), so the chapter list / notification title / `<>` nav
+     * update live mid-playback. No-op if the current item changed while the remote fetch ran.
+     */
+    private suspend fun rebuildCurrentPlayableChapters(context: Context, uuid: String) {
+        if (_currentItem.value?.uuid != uuid) return
+        val fresh = getRepository(context).getItemById(uuid) ?: return
+        if (fresh.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND) return
+        val chapters = getRepository(context).getChaptersForBook(uuid).first()
+        val playable = PlayableItemBuilder.buildSingle(fresh, chapters)
+        withContext(Dispatchers.Main) {
+            if (_currentItem.value?.uuid != uuid) return@withContext
+            _currentPlayable.value = playable
+            refreshCurrentChapterIndex()
+        }
+    }
+
     /**
      * Build the Media3 playlist for a [playable]: one MediaItem per backing file (see
      * [PlayableItem.fileGroups]). A file holding a single chapter (e.g. a BOUND sub-book) shows that
@@ -705,6 +797,9 @@ object PlaybackManager {
             ensureChaptersExtracted(refreshedItem, context)
             PlayableItemBuilder.buildSingle(refreshedItem, getRepository(context).getChaptersForBook(refreshedItem.uuid).first())
         }
+        // Fire-and-forget: for offloaded/streamed files, range-fetch embedded chapters in the background
+        // (doesn't block play start). Single book refreshes its timeline live; bound persists for reload.
+        extractRemoteChaptersInBackground(context, refreshedItem, isBound)
         Pair(p, refreshedItem)
     }
 
@@ -808,6 +903,8 @@ object PlaybackManager {
                 // prepare() is async so the live player is still 0 here.
                 _positionMs.value = (refreshedItem.currentTime * 1000).toLong()
             }
+            // Offloaded book restored on cold start: fetch embedded chapters in the background too.
+            extractRemoteChaptersInBackground(appContext, refreshedItem, isBound)
         }
     }
 

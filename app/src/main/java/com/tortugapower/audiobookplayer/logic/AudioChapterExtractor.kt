@@ -1,7 +1,6 @@
 package com.tortugapower.audiobookplayer.logic
 
 import java.io.File
-import java.io.RandomAccessFile
 
 /** One embedded chapter parsed from a file, with FILE-LOCAL timing (ms). */
 data class ExtractedChapter(val title: String, val startMs: Long, val durationMs: Long)
@@ -31,15 +30,25 @@ object AudioChapterExtractor {
      * is used to derive the last chapter's duration. Returns null when no chapters are found.
      */
     fun extractManualChapters(file: File, totalDurationMs: Long): List<ExtractedChapter>? {
-        // These parsers walk untrusted file bytes; a crafted/corrupt file must degrade to "no
-        // chapters", never crash the import batch or a play/restore. Guard the whole thing (the
-        // QuickTime path also has its own inner guard) so any parse exception becomes null.
+        val source = try { FileByteSource(file) } catch (e: Exception) { return null }
         return try {
-            val ext = file.extension.lowercase()
-            if (ext in QUICKTIME_EXTENSIONS) {
-                extractQuickTimeTextChapters(file, totalDurationMs) ?: extractId3Chapters(file, totalDurationMs)
+            extractManualChapters(source, file.extension.lowercase(), totalDurationMs)
+        } finally {
+            source.close()
+        }
+    }
+
+    /**
+     * Parse embedded chapters from any [SeekableByteSource] (local file OR remote HTTP-`Range` stream),
+     * choosing the parser by container [extension]. Same guarantees as the file overload: walks untrusted
+     * bytes, so a crafted/corrupt/unreachable source degrades to null (no chapters), never throws.
+     */
+    fun extractManualChapters(source: SeekableByteSource, extension: String, totalDurationMs: Long): List<ExtractedChapter>? {
+        return try {
+            if (extension in QUICKTIME_EXTENSIONS) {
+                extractQuickTimeTextChapters(source, totalDurationMs) ?: extractId3Chapters(source, totalDurationMs)
             } else {
-                extractId3Chapters(file, totalDurationMs)
+                extractId3Chapters(source, totalDurationMs)
             }
         } catch (e: Exception) {
             null
@@ -50,10 +59,11 @@ object AudioChapterExtractor {
     // MP4 / QuickTime text chapter track
     // ---------------------------------------------------------------------------------------------
 
-    private fun extractQuickTimeTextChapters(file: File, totalDurationMs: Long): List<ExtractedChapter>? {
-        val raf = try { RandomAccessFile(file, "r") } catch (e: Exception) { return null }
+    private fun extractQuickTimeTextChapters(source: SeekableByteSource, totalDurationMs: Long): List<ExtractedChapter>? {
         try {
-            val moov = readTopLevelBox(raf, "moov", raf.length()) ?: return null
+            val fileSize = source.size()
+            if (fileSize <= 0) return null
+            val moov = readTopLevelBox(source, "moov", fileSize) ?: return null
             val traks = childBoxes(moov, 0, moov.size).filter { it.type == "trak" }
             if (traks.isEmpty()) return null
 
@@ -69,15 +79,13 @@ object AudioChapterExtractor {
                 }
             }
             val chapterTrak = chapterTrackId?.let { trackById[it] } ?: return null
-            return parseTextChapters(moov, chapterTrak, raf, totalDurationMs)
+            return parseTextChapters(moov, chapterTrak, source, totalDurationMs)
         } catch (e: Exception) {
             return null
-        } finally {
-            try { raf.close() } catch (_: Exception) {}
         }
     }
 
-    private fun parseTextChapters(moov: ByteArray, trak: Box, raf: RandomAccessFile, totalDurationMs: Long): List<ExtractedChapter>? {
+    private fun parseTextChapters(moov: ByteArray, trak: Box, source: SeekableByteSource, totalDurationMs: Long): List<ExtractedChapter>? {
         val mdhd = descend(moov, trak, listOf("mdia", "mdhd")) ?: return null
         val stbl = descend(moov, trak, listOf("mdia", "minf", "stbl")) ?: return null
         if (mdhd.start >= mdhd.end) return null
@@ -108,7 +116,7 @@ object AudioChapterExtractor {
         for (i in 0 until sampleCount) {
             val (offset, size) = locations[i]
             if (size < 2 || size > MAX_SAMPLE_SIZE) continue
-            val sample = readBytes(raf, offset, size) ?: continue
+            val sample = readBytes(source, offset, size) ?: continue
             if (sample.size < 2) continue
             val titleLength = beU16(sample, 0)
             val titleEnd = minOf(2 + titleLength, sample.size)
@@ -216,28 +224,23 @@ object AudioChapterExtractor {
 
     // --- MP4 box navigation ---
 
-    private fun readTopLevelBox(raf: RandomAccessFile, name: String, fileSize: Long): ByteArray? {
+    private fun readTopLevelBox(source: SeekableByteSource, name: String, fileSize: Long): ByteArray? {
         var offset = 0L
-        val header = ByteArray(16)
         while (offset + 8 <= fileSize) {
-            raf.seek(offset)
-            val read = raf.read(header, 0, 16)
-            if (read < 8) return null
+            val header = source.readAt(offset, 16) ?: return null
+            if (header.size < 8) return null
             val size32 = beU32(header, 0)
             var boxSize = size32
             var headerSize = 8L
             when (size32) {
-                1L -> { if (read < 16) return null; boxSize = beU64(header, 8); headerSize = 16L }
+                1L -> { if (header.size < 16) return null; boxSize = beU64(header, 8); headerSize = 16L }
                 0L -> boxSize = fileSize - offset
             }
             if (boxSize < headerSize || boxSize > fileSize - offset) return null
             if (type4(header, 4) == name) {
                 val payloadLength = boxSize - headerSize
                 if (payloadLength > MAX_MOOV_SIZE) return null
-                val payload = ByteArray(payloadLength.toInt())
-                raf.seek(offset + headerSize)
-                raf.readFully(payload)
-                return payload
+                return readBytes(source, offset + headerSize, payloadLength.toInt())
             }
             offset += boxSize
         }
@@ -291,8 +294,8 @@ object AudioChapterExtractor {
     // ID3v2 CHAP frames
     // ---------------------------------------------------------------------------------------------
 
-    private fun extractId3Chapters(file: File, totalDurationMs: Long): List<ExtractedChapter>? {
-        val tag = readId3Tag(file) ?: return null
+    private fun extractId3Chapters(source: SeekableByteSource, totalDurationMs: Long): List<ExtractedChapter>? {
+        val tag = readId3Tag(source) ?: return null
         val major = tag.major
         val body = tag.body
 
@@ -329,26 +332,22 @@ object AudioChapterExtractor {
 
     private class Id3Tag(val major: Int, val body: ByteArray)
 
-    private fun readId3Tag(file: File): Id3Tag? {
-        val raf = try { RandomAccessFile(file, "r") } catch (e: Exception) { return null }
+    private fun readId3Tag(source: SeekableByteSource): Id3Tag? {
         try {
-            if (raf.length() < 10) return null
-            val head = ByteArray(10)
-            raf.seek(0)
-            raf.readFully(head)
+            val fileSize = source.size()
+            if (fileSize < 10) return null
+            val head = source.readAt(0, 10) ?: return null
+            if (head.size < 10) return null
             if (head[0].toInt() != 'I'.code || head[1].toInt() != 'D'.code || head[2].toInt() != '3'.code) return null
             val major = u8(head, 3)
             if (major < 3) return null // CHAP frames are ID3v2.3+
             val tagSize = synchsafe(head, 6)
             if (tagSize <= 0 || tagSize > MAX_ID3_TAG_SIZE) return null
-            val body = ByteArray(minOf(tagSize.toLong(), raf.length() - 10).toInt())
-            raf.seek(10)
-            raf.readFully(body)
+            val bodyLength = minOf(tagSize.toLong(), fileSize - 10).toInt()
+            val body = readBytes(source, 10, bodyLength) ?: return null
             return Id3Tag(major, body)
         } catch (e: Exception) {
             return null
-        } finally {
-            try { raf.close() } catch (_: Exception) {}
         }
     }
 
@@ -443,16 +442,11 @@ object AudioChapterExtractor {
         return String(bytes, Charsets.UTF_8)
     }
 
-    private fun readBytes(raf: RandomAccessFile, offset: Long, length: Int): ByteArray? {
+    /** Exactly [length] bytes at [offset], or null if the source can't provide the full range. */
+    private fun readBytes(source: SeekableByteSource, offset: Long, length: Int): ByteArray? {
         if (length <= 0) return null
-        return try {
-            raf.seek(offset)
-            val buffer = ByteArray(length)
-            raf.readFully(buffer)
-            buffer
-        } catch (e: Exception) {
-            null
-        }
+        val bytes = source.readAt(offset, length) ?: return null
+        return if (bytes.size == length) bytes else null
     }
 
     private fun u8(data: ByteArray, offset: Int): Int = data[offset].toInt() and 0xFF
