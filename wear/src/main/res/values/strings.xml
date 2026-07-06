@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">BookPlayer</string>
-    <!-- Scaffold placeholder shown until the sign-in handoff + mode UI land in a later slice. -->
-    <string name="wear_scaffold_placeholder">BookPlayer</string>
+
+    <!-- Sign-in prompt (no account on the watch yet). -->
+    <string name="wear_sign_in_title">Sign in on your phone</string>
+    <string name="wear_sign_in_body">Open BookPlayer on your phone and sign in to use it on your watch.</string>
+
+    <!-- Remote-controller mode (signed in, non-Pro tier). -->
+    <string name="wear_mode_remote_title">Remote control</string>
+    <string name="wear_mode_remote_body">Control playback from your watch — coming soon.</string>
+
+    <!-- Standalone mode (Pro tier). -->
+    <string name="wear_mode_standalone_title">Standalone</string>
+    <string name="wear_mode_standalone_body">Stream and download on your watch — coming soon.</string>
 </resources>

@@ -23,9 +23,10 @@ iOS BookPlayer app and shares the same BookPlayer backend (sync, auth, subscript
 ## Project layout
 
 Three Gradle modules: **`:core`** (a Compose-free, Media3-free Android library holding the sharable
-layers), **`:app`** (the phone app, which depends on `:core`), and **`:wear`** (the Wear OS app). `:wear`
-is currently a build-only Wear Compose scaffold; it will depend on `:core` as the sign-in handoff and
-standalone sync/playback land in later slices.
+layers), **`:app`** (the phone app), and **`:wear`** (the Wear OS app). Both `:app` and `:wear` depend
+on `:core`. `:wear` boots its own `WearApp` Application that wires `:core` (Room + network + RevenueCat)
+the same way the phone does; its UI is tier-gated (PRO → standalone, else → phone remote) with the
+per-mode experiences and the phone→watch sign-in handoff still landing in later slices.
 
 ```
 core/                      # shared Android library — NO Compose, NO Media3, NO app types
@@ -39,6 +40,7 @@ core/                      # shared Android library — NO Compose, NO Media3, N
                            #   PlayableItemBuilder/BoundTimeline, chapter extraction, settings,
                            #   SubscriptionManager, StatisticsManager, PlaybackSyncCoordinator (iface)
     core/                  # CoreContext (app-context holder, set by the host at startup)
+    datalayer/             # phone<->watch Wear Data Layer contract (WatchAuthPayload, WearDataLayer)
   src/main/res/            # base + values-* for :core-OWNED strings only
 app/                       # phone app — depends on :core
   src/main/java/com/tortugapower/audiobookplayer/
@@ -50,9 +52,10 @@ app/                       # phone app — depends on :core
                            #   tip/billing, support, passkey, sleep-timer, PlaybackManagerSyncCoordinator
     model/                 # Media3 glue (Extensions.kt)
   src/main/res/            # values/ + 10 localized values-* dirs (ar, de, es, fr, hi, it, ja, ko, ru, zh-rCN)
-wear/                      # Wear OS app — shares :app's applicationId (for pairing), minSdk 30
+wear/                      # Wear OS app — depends on :core; shares :app's applicationId (pairing), minSdk 30
   src/main/java/com/tortugapower/audiobookplayer/wear/
-    presentation/          # Wear Compose UI (MainActivity + WearApp scaffold for now)
+    WearApp.kt             # Application: wires :core (CoreContext/NetworkConstants/SubscriptionManager)
+    presentation/          # Wear Compose UI (MainActivity, WatchMode gate, WearRootViewModel)
 ```
 
 ## Module conventions (`:core` / `:app`)
