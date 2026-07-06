@@ -51,8 +51,9 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     // Wear-specific Compose (androidx.wear.compose.material), NOT the phone's material3.
+    // compose-foundation comes in transitively; it'll be declared directly once a later slice's UI
+    // uses it (ScalingLazyColumn, curved text, etc.) — kept off the graph for now to avoid a dead dep.
     implementation(libs.androidx.wear.compose.material)
-    implementation(libs.androidx.wear.compose.foundation)
 
     debugImplementation(libs.androidx.ui.tooling)
 }
