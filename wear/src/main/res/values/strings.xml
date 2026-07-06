@@ -6,6 +6,7 @@
     <string name="wear_sign_in_title">Sign in on your phone</string>
     <string name="wear_sign_in_body">Sign in to BookPlayer on your phone, then tap below.</string>
     <string name="wear_signin_button">Sign in with phone</string>
+    <string name="wear_signin_in_progress">Signing in…</string>
 
     <!-- Sign-in errors. -->
     <string name="wear_signin_error_not_reachable">Open BookPlayer on your phone and try again.</string>

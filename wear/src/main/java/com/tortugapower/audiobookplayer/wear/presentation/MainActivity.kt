@@ -79,6 +79,14 @@ private fun SignInScreen(state: SignInUiState, onSignIn: () -> Unit) {
         Spacer(Modifier.height(8.dp))
         if (state == SignInUiState.Loading) {
             CircularProgressIndicator()
+            Spacer(Modifier.height(8.dp))
+            // Visible + screen-reader feedback while the handoff is in flight (the bare spinner alone
+            // carries no semantics for TalkBack — accessibility is first-class for this app).
+            Text(
+                text = stringResource(R.string.wear_signin_in_progress),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.caption1,
+            )
         } else {
             Text(
                 text = stringResource(R.string.wear_sign_in_body),
