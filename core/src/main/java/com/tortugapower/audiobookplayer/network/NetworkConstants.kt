@@ -1,10 +1,21 @@
 package com.tortugapower.audiobookplayer.network
 
-import com.tortugapower.audiobookplayer.BuildConfig
-
+/**
+ * Network configuration + endpoints. `BASE_URL`/`GOOGLE_CLIENT_ID` are injected by the host app via
+ * [configure] at startup (before any network call) — they come from the app module's flavored
+ * `BuildConfig`, which a shared library module can't read. Each target (phone/Wear) supplies its own.
+ */
 object NetworkConstants {
-    val BASE_URL: String = BuildConfig.BASE_URL
-    val GOOGLE_CLIENT_ID: String = BuildConfig.GOOGLE_CLIENT_ID
+    lateinit var BASE_URL: String
+        private set
+    lateinit var GOOGLE_CLIENT_ID: String
+        private set
+
+    /** Must be called once at app startup, before the first use of [NetworkClient] or any endpoint. */
+    fun configure(baseUrl: String, googleClientId: String) {
+        BASE_URL = baseUrl
+        GOOGLE_CLIENT_ID = googleClientId
+    }
 
     // Auth Endpoints
     const val ENDPOINT_SEND_VERIFICATION_CODE = "/v1/passkey/verify-email/send"

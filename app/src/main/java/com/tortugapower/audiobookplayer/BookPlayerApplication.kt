@@ -43,6 +43,13 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         instance = this
 
+        // Provide :core with the app context + flavored BuildConfig before anything touches the network.
+        com.tortugapower.audiobookplayer.core.CoreContext.init(this)
+        com.tortugapower.audiobookplayer.network.NetworkConstants.configure(
+            baseUrl = BuildConfig.BASE_URL,
+            googleClientId = BuildConfig.GOOGLE_CLIENT_ID
+        )
+
         // Global Initialization
         val database = AppDatabase.getDatabase(this)
         val baseLibraryRepository = RoomLibraryRepository(this, database.libraryDao())

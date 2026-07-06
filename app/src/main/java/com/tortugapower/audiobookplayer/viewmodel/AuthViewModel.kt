@@ -448,8 +448,9 @@ class AuthViewModel(
             "rpId" to options.rpId,
             "userVerification" to "required"
         )
-        if (!options.allowCredentials.isNullOrEmpty()) {
-            map["allowCredentials"] = options.allowCredentials.map { cred ->
+        val allowCredentials = options.allowCredentials
+        if (!allowCredentials.isNullOrEmpty()) {
+            map["allowCredentials"] = allowCredentials.map { cred ->
                 mapOf(
                     "type" to cred.type,
                     "id" to cred.id,
