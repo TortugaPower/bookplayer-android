@@ -42,6 +42,10 @@ dependencies {
     // DataStore-backed settings that moved into :core (e.g. HardcoverSettingsManager).
     implementation(libs.androidx.datastore.preferences)
 
+    // RevenueCat — SubscriptionManager (tier gate) lives in :core, shared with Wear. `api` because its
+    // public methods (e.g. updateAccountTier(CustomerInfo)) expose RevenueCat types to consumers.
+    api(libs.purchases)
+
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver) // HttpRangeByteSourceTest
 }

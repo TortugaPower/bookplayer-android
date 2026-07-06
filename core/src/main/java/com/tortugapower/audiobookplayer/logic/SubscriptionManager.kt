@@ -3,19 +3,18 @@ package com.tortugapower.audiobookplayer.logic
 import android.content.Context
 import android.net.Uri
 import android.util.Log
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import com.revenuecat.purchases.*
 import com.revenuecat.purchases.interfaces.LogInCallback
 import com.revenuecat.purchases.interfaces.ReceiveCustomerInfoCallback
 import com.revenuecat.purchases.interfaces.UpdatedCustomerInfoListener
-import com.tortugapower.audiobookplayer.BuildConfig
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -32,23 +31,23 @@ object SubscriptionManager {
      * there's no store-managed subscription. The Android RC SDK has no `showManageSubscriptions()`
      * (unlike iOS); opening this URL is the equivalent. Compose-observable.
      */
-    var managementUrl: Uri? by mutableStateOf(null)
-        private set
+    private val _managementUrl = MutableStateFlow<Uri?>(null)
+    val managementUrl: StateFlow<Uri?> = _managementUrl.asStateFlow()
 
-    fun initialize(context: Context, repository: AccountRepository, syncRepository: SyncTaskRepository) {
+    fun initialize(context: Context, repository: AccountRepository, syncRepository: SyncTaskRepository, revenueCatApiKey: String) {
         accountRepository = repository
         syncTaskRepository = syncRepository
-        
+
         // At the beginning we work with RevenueCat sandbox
         Purchases.logLevel = LogLevel.DEBUG
-        
-        if (BuildConfig.REVENUECAT_API_KEY.isEmpty()) {
+
+        if (revenueCatApiKey.isEmpty()) {
             Log.e(TAG, "RevenueCat API Key is missing!")
             return
         }
 
         Purchases.configure(
-            PurchasesConfiguration.Builder(context, BuildConfig.REVENUECAT_API_KEY)
+            PurchasesConfiguration.Builder(context, revenueCatApiKey)
                 .build()
         )
 
@@ -106,7 +105,7 @@ object SubscriptionManager {
         // Switching users — drop the previous customer's management URL up front so a login failure
         // (onError doesn't repopulate it) can't leave the UI pointing at a stale/incorrect
         // subscription-management link. It's set again from the fresh customer info on success.
-        managementUrl = null
+        _managementUrl.value = null
         return suspendCancellableCoroutine { cont ->
             Purchases.sharedInstance.logIn(appUserId, object : LogInCallback {
                 override fun onReceived(customerInfo: CustomerInfo, created: Boolean) {
@@ -140,12 +139,11 @@ object SubscriptionManager {
         })
     }
 
-    // Always invoked from RevenueCat SDK callbacks, which dispatch on the main thread — so the
-    // `managementUrl` Compose snapshot write below is main-thread safe. Don't call this off the
-    // main thread (writing snapshot state from a background thread is undefined).
-    internal fun updateAccountTier(customerInfo: CustomerInfo) {
+    // Invoked from RevenueCat SDK callbacks and by the purchase/tip flows (in :app) after a purchase.
+    // `_managementUrl` is a StateFlow, so its write is thread-safe regardless of the calling thread.
+    fun updateAccountTier(customerInfo: CustomerInfo) {
         // Always refresh the management URL, even when the tier hasn't changed.
-        managementUrl = customerInfo.managementURL
+        _managementUrl.value = customerInfo.managementURL
 
         val activeEntitlements = customerInfo.entitlements.active.keys
 

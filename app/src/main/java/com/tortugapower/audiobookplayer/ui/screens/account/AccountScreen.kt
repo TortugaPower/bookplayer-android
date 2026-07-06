@@ -209,7 +209,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 ) {
                     AccountActionRow(Icons.Default.Settings, stringResource(R.string.account_manage_subscription)) {
-                        val url = SubscriptionManager.managementUrl?.toString()
+                        val url = SubscriptionManager.managementUrl.value?.toString()
                             ?: "https://play.google.com/store/account/subscriptions"
                         uriHandler.openUri(url)
                     }
