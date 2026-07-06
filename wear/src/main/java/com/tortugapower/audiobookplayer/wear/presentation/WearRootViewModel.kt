@@ -1,12 +1,11 @@
 package com.tortugapower.audiobookplayer.wear.presentation
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
-import com.tortugapower.audiobookplayer.wear.WearApp
-import com.tortugapower.audiobookplayer.wear.auth.WearAuthClient
+import com.tortugapower.audiobookplayer.repository.AccountRepository
+import com.tortugapower.audiobookplayer.wear.auth.WatchAuthenticator
 import com.tortugapower.audiobookplayer.wear.auth.WearAuthOutcome
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -30,9 +29,10 @@ sealed interface SignInUiState {
  * phone→watch sign-in handoff. On success it persists the transferred account (token Keystore-encrypted
  * by the repository) and re-checks the tier via RevenueCat — after which [mode] switches on its own.
  */
-class WearRootViewModel(application: Application) : AndroidViewModel(application) {
-    private val accountRepository = (application as WearApp).accountRepository
-    private val authClient = WearAuthClient(application)
+class WearRootViewModel(
+    private val accountRepository: AccountRepository,
+    private val authenticator: WatchAuthenticator,
+) : ViewModel() {
 
     val mode: StateFlow<WatchMode> = accountRepository.getAccountFlow()
         .map { watchModeFor(it) }
@@ -46,7 +46,7 @@ class WearRootViewModel(application: Application) : AndroidViewModel(application
         if (_signInState.value == SignInUiState.Loading) return
         _signInState.value = SignInUiState.Loading
         viewModelScope.launch {
-            _signInState.value = when (val outcome = authClient.requestAuth()) {
+            _signInState.value = when (val outcome = authenticator.requestAuth()) {
                 is WearAuthOutcome.Success -> {
                     val payload = outcome.payload
                     accountRepository.saveAccount(

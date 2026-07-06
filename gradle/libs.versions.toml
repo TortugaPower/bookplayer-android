@@ -32,6 +32,8 @@ revenuecat = "7.11.0"
 sentry = "7.18.1"
 konfetti = "2.0.5"
 playServicesWearable = "18.2.0"
+# Matches the coroutines version resolved across the project (strictly 1.7.3).
+coroutinesTest = "1.7.3"
 
 [libraries]
 purchases = { group = "com.revenuecat.purchases", name = "purchases", version.ref = "revenuecat" }
@@ -63,6 +65,7 @@ androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.re
 # documented extras keys Android Auto reads for content-style (list/grid) + per-item play progress.
 androidx-media = { group = "androidx.media", name = "media", version.ref = "media" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }

@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.wear.presentation
 
+import android.app.Application
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -42,7 +44,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun WearRoot(viewModel: WearRootViewModel = viewModel()) {
+fun WearRoot(
+    viewModel: WearRootViewModel = viewModel(
+        factory = WearRootViewModelFactory(LocalContext.current.applicationContext as Application),
+    ),
+) {
     val mode by viewModel.mode.collectAsStateWithLifecycle()
     val signInState by viewModel.signInState.collectAsStateWithLifecycle()
     MaterialTheme {
