@@ -6,15 +6,18 @@ package com.tortugapower.audiobookplayer.network
  * `BuildConfig`, which a shared library module can't read. Each target (phone/Wear) supplies its own.
  */
 object NetworkConstants {
-    lateinit var BASE_URL: String
-        private set
-    lateinit var GOOGLE_CLIENT_ID: String
-        private set
+    private var baseUrl: String? = null
+    private var googleClientId: String? = null
+
+    val BASE_URL: String
+        get() = baseUrl ?: error("NetworkConstants.configure() must be called (in Application.onCreate) before any network use")
+    val GOOGLE_CLIENT_ID: String
+        get() = googleClientId ?: error("NetworkConstants.configure() must be called (in Application.onCreate) before any network use")
 
     /** Must be called once at app startup, before the first use of [NetworkClient] or any endpoint. */
     fun configure(baseUrl: String, googleClientId: String) {
-        BASE_URL = baseUrl
-        GOOGLE_CLIENT_ID = googleClientId
+        this.baseUrl = baseUrl
+        this.googleClientId = googleClientId
     }
 
     // Auth Endpoints
