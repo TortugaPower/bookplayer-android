@@ -65,7 +65,15 @@ class HttpRangeByteSource(
     private var cacheData: ByteArray = ByteArray(0)
 
     override fun size(): Long {
-        if (totalSize < 0 && !unsupported) fetchRange(0, 0) // populates totalSize via Content-Range
+        // Prime the read-ahead cache with the file head (both parsers call size() then immediately read
+        // offset 0), so the first readAt is a cache hit — one round-trip for the head, not two. Also
+        // learns totalSize from the Content-Range of this same request.
+        if (totalSize < 0 && !unsupported && cacheStart < 0) {
+            fetchRange(0, readAheadBytes - 1L)?.let { bytes ->
+                cacheStart = 0
+                cacheData = bytes
+            }
+        }
         return totalSize
     }
 

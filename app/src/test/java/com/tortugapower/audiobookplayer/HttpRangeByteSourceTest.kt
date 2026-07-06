@@ -61,6 +61,16 @@ class HttpRangeByteSourceTest {
         src.close()
     }
 
+    @Test fun size_primesHeadCache_soFirstReadIsCacheHit() {
+        val count = serveRanges()
+        val src = HttpRangeByteSource(server.url("/f").toString(), headers = null, readAheadBytes = 1024)
+        assertEquals(4096L, src.size())
+        val afterSize = count()
+        assertArrayEquals(data.copyOfRange(0, 16), src.readAt(0, 16)) // within the primed head window
+        assertEquals("size() should prime the head; first read must not hit the network", afterSize, count())
+        src.close()
+    }
+
     @Test fun partialAtEof() {
         serveRanges()
         val src = HttpRangeByteSource(server.url("/f").toString(), headers = null, readAheadBytes = 64)
