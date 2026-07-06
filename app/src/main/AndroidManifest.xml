@@ -191,10 +191,20 @@
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
                 <action android:name="androidx.media3.session.MediaSessionService" />
+                <!-- Legacy MediaBrowserService action: how Android Auto DISCOVERS a media app. Media3's
+                     MediaLibraryService serves this protocol too but doesn't add the action itself. -->
+                <action android:name="android.media.browse.MediaBrowserService" />
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </service>
+
+        <!-- Declares this app as an Android Auto media app (browse tree via the MediaLibraryService above). -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
         <service
             android:name=".logic.TaskConcurrencyServiceHost"
             android:enabled="true"

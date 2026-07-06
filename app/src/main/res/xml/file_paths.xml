@@ -2,4 +2,7 @@
 <paths>
     <!-- Only the dedicated support/ subdir is shareable (build-info / debug .txt), not all of cacheDir. -->
     <cache-path name="support" path="support/" />
+    <!-- Cover art, so Android Auto's process can read it via a content:// URI (it can't read our
+         app-private file:// paths). Only the Artworks/ subdir of filesDir is exposed. -->
+    <files-path name="artworks" path="Artworks/" />
 </paths>

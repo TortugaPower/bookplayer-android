@@ -246,6 +246,15 @@
 
     <!-- Library -->
     <string name="library_title_default">Library</string>
+    <!-- Android Auto browse tab -->
+    <string name="auto_tab_recent">Recent</string>
+    <string name="auto_empty_recent">No recently played books</string>
+    <string name="auto_empty_library">No audiobooks yet</string>
+    <string name="auto_action_speed">Playback speed</string>
+    <string name="auto_action_bookmark">Add bookmark</string>
+    <string name="auto_bookmark_added">Bookmark added at %1$s</string>
+    <string name="auto_bookmark_exists">Already bookmarked here</string>
+    <string name="auto_bookmark_failed">Couldn\'t add bookmark</string>
     <string name="library_create_folder_title">Create Folder</string>
     <string name="library_folder_name_label">Folder Name</string>
     <string name="library_folder_name_error">Use only letters, numbers, \'-\' or \'_\'</string>

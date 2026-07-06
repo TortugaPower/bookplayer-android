@@ -318,6 +318,7 @@ class RoomLibraryRepositoryTest {
         override suspend fun getItemByPathWithResources(path: String): LibraryItemWithExternalResources? = TODO()
         override suspend fun getItemsInPathSyncWithResources(path: String): List<LibraryItemWithExternalResources> = TODO()
         override suspend fun getRecentUnfinishedBooksSync(limit: Int): List<LibraryItemEntity> = TODO()
+        override suspend fun getRecentPlayedItemsSync(limit: Int): List<LibraryItemEntity> = TODO()
     }
 
     private class FakeSyncTaskRepository : SyncTaskRepository {
