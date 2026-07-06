@@ -169,7 +169,6 @@
     <string name="library_folder_empty">0 फ़ाइलें</string>
     <string name="library_unknown_author">अज्ञात लेखक</string>
     <string name="library_unknown_title">अज्ञात शीर्षक</string>
-    <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_convert_to_volume">Convert to volume</string>
     <string name="library_open_folder">फ़ोल्डर खोलें</string>
@@ -307,8 +306,6 @@
     <string name="media_servers_add_server_username_placeholder">उपयोगकर्ता नाम</string>
     <string name="media_servers_add_server_password_placeholder">पासवर्ड</string>
     <string name="media_servers_add_server_connect_to_server">अपने %1$s सर्वर से कनेक्ट करें</string>
-    <string name="media_servers_error_auth_failed">प्रमाणीकरण विफल: %1$s</string>
-    <string name="media_servers_error_connection_failed">कनेक्शन त्रुटि: %1$s</string>
     <string name="media_servers_error_server_not_found">सर्वर नहीं मिला</string>
     <string name="media_servers_error_failed_to_fetch_library">लाइब्रेरी प्राप्त करने में विफल</string>
     <string name="media_servers_error_session_expired">%1$s के लिए आपका सत्र समाप्त हो गया है। जारी रखने के लिए फिर से साइन इन करें।</string>
@@ -329,7 +326,6 @@
     <string name="external_library_picker_title">लाइब्रेरी</string>
     <string name="external_library_switch_library">लाइब्रेरी बदलें</string>
     <string name="external_library_no_libraries">कोई लाइब्रेरी उपलब्ध नहीं</string>
-    <string name="external_library_audiobook_library_caption">ऑडियोबुक लाइब्रेरी</string>
 
     <!-- External Item Detail Screen -->
     <string name="external_item_detail_back_button_description">पीछे</string>

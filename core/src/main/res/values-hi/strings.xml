@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_chapter_count">%1$d Chapters</string>
+    <string name="media_servers_error_auth_failed">प्रमाणीकरण विफल: %1$s</string>
+    <string name="media_servers_error_connection_failed">कनेक्शन त्रुटि: %1$s</string>
+    <string name="external_library_audiobook_library_caption">ऑडियोबुक लाइब्रेरी</string>
+</resources>

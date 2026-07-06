@@ -169,7 +169,6 @@
     <string name="library_folder_empty">0 个文件</string>
     <string name="library_unknown_author">未知作者</string>
     <string name="library_unknown_title">未知标题</string>
-    <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_convert_to_volume">Convert to volume</string>
     <string name="library_open_folder">打开文件夹</string>
@@ -305,8 +304,6 @@
     <string name="media_servers_add_server_username_placeholder">用户名</string>
     <string name="media_servers_add_server_password_placeholder">密码</string>
     <string name="media_servers_add_server_connect_to_server">连接到您的%1$s服务器</string>
-    <string name="media_servers_error_auth_failed">身份验证失败：%1$s</string>
-    <string name="media_servers_error_connection_failed">连接错误：%1$s</string>
     <string name="media_servers_error_server_not_found">未找到服务器</string>
     <string name="media_servers_error_failed_to_fetch_library">获取媒体库失败</string>
     <string name="media_servers_error_session_expired">您在 %1$s 的会话已过期。请重新登录以继续。</string>
@@ -327,7 +324,6 @@
     <string name="external_library_picker_title">媒体库</string>
     <string name="external_library_switch_library">切换媒体库</string>
     <string name="external_library_no_libraries">没有可用的媒体库</string>
-    <string name="external_library_audiobook_library_caption">有声书媒体库</string>
 
     <!-- External Item Detail Screen -->
     <string name="external_item_detail_back_button_description">返回</string>

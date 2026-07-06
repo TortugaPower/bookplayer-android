@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_chapter_count">%1$d Chapters</string>
+    <string name="media_servers_error_auth_failed">فشلت المصادقة: %1$s</string>
+    <string name="media_servers_error_connection_failed">خطأ في الاتصال: %1$s</string>
+    <string name="external_library_audiobook_library_caption">مكتبة كتب صوتية</string>
+</resources>
