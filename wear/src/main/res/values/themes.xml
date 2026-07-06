@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Wear Compose draws its own surfaces; the activity only needs a bare, action-bar-less
+         DeviceDefault theme with a black window background (the standard Wear OS baseline). -->
+    <style name="Theme.BookPlayerWear" parent="@android:style/Theme.DeviceDefault">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>

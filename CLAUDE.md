@@ -22,9 +22,10 @@ iOS BookPlayer app and shares the same BookPlayer backend (sync, auth, subscript
 
 ## Project layout
 
-Two Gradle modules: **`:core`** (a Compose-free, Media3-free Android library holding the sharable
-layers) and **`:app`** (the phone app, which depends on `:core`). A **`:wear`** module is planned and
-will also depend on `:core`.
+Three Gradle modules: **`:core`** (a Compose-free, Media3-free Android library holding the sharable
+layers), **`:app`** (the phone app, which depends on `:core`), and **`:wear`** (the Wear OS app). `:wear`
+is currently a build-only Wear Compose scaffold; it will depend on `:core` as the sign-in handoff and
+standalone sync/playback land in later slices.
 
 ```
 core/                      # shared Android library — NO Compose, NO Media3, NO app types
@@ -49,6 +50,9 @@ app/                       # phone app — depends on :core
                            #   tip/billing, support, passkey, sleep-timer, PlaybackManagerSyncCoordinator
     model/                 # Media3 glue (Extensions.kt)
   src/main/res/            # values/ + 10 localized values-* dirs (ar, de, es, fr, hi, it, ja, ko, ru, zh-rCN)
+wear/                      # Wear OS app — shares :app's applicationId (for pairing), minSdk 30
+  src/main/java/com/tortugapower/audiobookplayer/wear/
+    presentation/          # Wear Compose UI (MainActivity + WearApp scaffold for now)
 ```
 
 ## Module conventions (`:core` / `:app`)

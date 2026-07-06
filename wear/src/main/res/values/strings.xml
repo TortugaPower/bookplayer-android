@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BookPlayer</string>
+    <!-- Scaffold placeholder shown until the sign-in handoff + mode UI land in a later slice. -->
+    <string name="wear_scaffold_placeholder">BookPlayer</string>
+</resources>
