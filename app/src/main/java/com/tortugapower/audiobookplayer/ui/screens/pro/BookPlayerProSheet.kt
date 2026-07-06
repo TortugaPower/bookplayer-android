@@ -49,6 +49,67 @@ fun BookPlayerProSheet(
     onPasskeyClick: () -> Unit,
     onAuthenticated: (hasSubscription: Boolean) -> Unit
 ) {
+    SubscriptionIntroSheet(
+        title = stringResource(R.string.pro_title),
+        onDismiss = onDismiss,
+        onPasskeyClick = onPasskeyClick,
+        onAuthenticated = onAuthenticated,
+        paywall = { dismissPaywall -> PaywallSheet(onDismiss = dismissPaywall) }
+    ) {
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Features
+        ProFeatureRow(
+            icon = Icons.Default.CloudUpload,
+            title = stringResource(R.string.pro_feature_cloud_sync_title),
+            description = stringResource(R.string.pro_feature_cloud_sync_desc)
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        ProFeatureRow(
+            icon = Icons.Default.Palette,
+            title = stringResource(R.string.pro_feature_themes_title),
+            description = stringResource(R.string.pro_feature_themes_desc)
+        )
+
+        Spacer(modifier = Modifier.height(48.dp))
+
+        // Disclaimer Section
+        Text(
+            text = stringResource(R.string.pro_disclaimer_header),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        DisclaimerItem(text = stringResource(R.string.pro_disclaimer_account))
+        DisclaimerItem(text = stringResource(R.string.pro_disclaimer_subscription))
+
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+/**
+ * Shared skeleton for subscription intro sheets ([BookPlayerProSheet], [StreamAndSyncSheet]):
+ * fixed header (close + [title]), scrollable [content] (feature rows + disclaimers), and pinned
+ * auth actions — a Continue button into [paywall] for signed-in users, or Google / passkey
+ * sign-in buttons when signed out.
+ *
+ * @param paywall the paywall sheet to stack when a signed-in user continues; receives its
+ *   dismiss callback
+ */
+@Composable
+internal fun SubscriptionIntroSheet(
+    title: String,
+    onDismiss: () -> Unit,
+    onPasskeyClick: () -> Unit,
+    onAuthenticated: (hasSubscription: Boolean) -> Unit,
+    paywall: @Composable (onDismiss: () -> Unit) -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val db = AppDatabase.getDatabase(context)
@@ -76,7 +137,7 @@ fun BookPlayerProSheet(
     var showPaywall by remember { mutableStateOf(false) }
 
     if (showPaywall) {
-        PaywallSheet(onDismiss = { showPaywall = false })
+        paywall { showPaywall = false }
     }
 
     ModalBottomSheet(
@@ -111,7 +172,7 @@ fun BookPlayerProSheet(
                     }
 
                     Text(
-                        text = stringResource(R.string.pro_title),
+                        text = title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -122,42 +183,9 @@ fun BookPlayerProSheet(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    // Features
-                    ProFeatureRow(
-                        icon = Icons.Default.CloudUpload,
-                        title = stringResource(R.string.pro_feature_cloud_sync_title),
-                        description = stringResource(R.string.pro_feature_cloud_sync_desc)
-                    )
-
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    ProFeatureRow(
-                        icon = Icons.Default.Palette,
-                        title = stringResource(R.string.pro_feature_themes_title),
-                        description = stringResource(R.string.pro_feature_themes_desc)
-                    )
-
-                    Spacer(modifier = Modifier.height(48.dp))
-
-                    // Disclaimer Section
-                    Text(
-                        text = stringResource(R.string.pro_disclaimer_header),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    DisclaimerItem(text = stringResource(R.string.pro_disclaimer_account))
-                    DisclaimerItem(text = stringResource(R.string.pro_disclaimer_subscription))
-
-                    Spacer(modifier = Modifier.height(24.dp))
-                }
+                        .verticalScroll(rememberScrollState()),
+                    content = content
+                )
 
                 // --- Pinned bottom: auth buttons (errors surface via AuthErrorDialog) ---
                 // Collect account state to determine if user is logged in

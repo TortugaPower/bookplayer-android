@@ -404,6 +404,8 @@ class RoomLibraryRepositoryTest {
         val insertedExternalResources = mutableListOf<ExternalResourceEntity>()
         override suspend fun getExternalResource(itemUuid: String, provider: String): ExternalResourceEntity? =
             externalResource?.takeIf { it.libraryItemUuid == itemUuid && it.providerName == provider }
+        override suspend fun getExternalResourceByProvider(providerName: String, providerId: String): ExternalResourceEntity? =
+            externalResource?.takeIf { it.providerName == providerName && it.providerId == providerId }
         override fun getExternalResourcesForBookFlow(itemUuid: String): Flow<List<ExternalResourceEntity>> = TODO()
         override suspend fun getExternalResourcesForBookSync(itemUuid: String): List<ExternalResourceEntity> = TODO()
         override suspend fun insertExternalResource(externalResource: ExternalResourceEntity) {

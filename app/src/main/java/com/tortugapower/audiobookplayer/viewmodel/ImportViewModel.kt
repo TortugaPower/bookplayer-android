@@ -29,4 +29,11 @@ class ImportViewModel(
         providerId: String? = null,
         hostId: String? = null
     ) = importService.startDownload(context, url, fileName, headers, providerName, providerId, hostId)
+
+    fun startStreamImport(
+        context: Context,
+        items: List<com.tortugapower.audiobookplayer.model.ExternalLibraryItem>,
+        providerName: String,
+        hostId: String?
+    ) = importService.startStreamImport(context, items, providerName, hostId)
 }

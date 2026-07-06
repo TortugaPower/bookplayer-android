@@ -219,10 +219,55 @@ object ImportManager : ImportService {
         }
     }
 
-    override fun removeFile(importFile: ImportFile) {
-        if (importFile.file.exists()) {
-            importFile.file.delete()
+    override fun startStreamImport(
+        context: Context,
+        items: List<com.tortugapower.audiobookplayer.model.ExternalLibraryItem>,
+        providerName: String,
+        hostId: String?
+    ) {
+        scope.launch {
+            val libraryDao = AppDatabase.getDatabase(context).libraryDao()
+
+            // Claimed on Main before suspending, so a second staging of the same items can't race.
+            val stagedProviderIds = importedFiles
+                .filter { it.isStream && it.providerName == providerName }
+                .mapNotNull { it.providerId }
+                .toMutableSet()
+
+            var currentSkipped = 0
+            val staged = mutableListOf<ImportFile>()
+            withContext(Dispatchers.IO) {
+                items.forEach { item ->
+                    val providerId = item.entity.uuid
+                    val alreadyImported =
+                        libraryDao.getExternalResourceByProvider(providerName, providerId) != null
+                    if (!stagedProviderIds.add(providerId) || alreadyImported) {
+                        currentSkipped++
+                        return@forEach
+                    }
+                    staged.add(
+                        ImportFile(
+                            name = item.entity.title,
+                            providerName = providerName,
+                            providerId = providerId,
+                            hostId = hostId,
+                            streamEntity = item.entity,
+                            artworkHeaders = item.customHeaders
+                        )
+                    )
+                }
+            }
+
+            importedFiles = importedFiles + staged
+            skippedItemsCount += currentSkipped
+            if (importedFiles.isNotEmpty() || skippedItemsCount > 0) {
+                showImportSheet = true
+            }
         }
+    }
+
+    override fun removeFile(importFile: ImportFile) {
+        importFile.file?.takeIf { it.exists() }?.delete()
         importedFiles = importedFiles.filter { it != importFile }
         if (importedFiles.isEmpty()) {
             showImportSheet = false
@@ -231,8 +276,8 @@ object ImportManager : ImportService {
     }
 
     override fun clearImport() {
-        importedFiles.forEach { 
-            if (it.file.exists()) it.file.delete()
+        importedFiles.forEach {
+            it.file?.takeIf { file -> file.exists() }?.delete()
         }
         importedFiles = emptyList()
         skippedItemsCount = 0
@@ -249,9 +294,32 @@ object ImportManager : ImportService {
             val syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
 
             withContext(Dispatchers.IO) {
+                val accountRepository = RoomAccountRepository(database.accountDao())
+                val account = accountRepository.getAccount()
+                val isSubscribed = account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)
+                val isPro = account != null && account.tier == AccountTier.PRO
+
                 var currentMaxRank = libraryDao.getMaxRootOrderRank() ?: -1
                 importedFiles.forEach { importFile ->
-                    if (importFile.file.exists()) {
+                    val streamEntity = importFile.streamEntity
+                    if (streamEntity != null && !importFile.providerName.isNullOrBlank()) {
+                        // Virtual import: no audio download. Fetch the (small) cover so the
+                        // library shows artwork without the server's auth headers.
+                        val artworkPath = downloadArtwork(context, streamEntity.artworkURL, importFile.artworkHeaders)
+                        val result = VirtualImportManager.importStreamItem(
+                            libraryDao = libraryDao,
+                            syncTaskRepository = syncTaskRepository,
+                            externalItem = streamEntity,
+                            providerName = importFile.providerName,
+                            hostId = importFile.hostId,
+                            artworkPath = artworkPath ?: streamEntity.artworkURL,
+                            enqueueSyncTasks = isSubscribed
+                        )
+                        if (!result.alreadyImported) {
+                            currentMaxRank = maxOf(currentMaxRank, result.item.orderRank)
+                            enqueueHardcoverAutoMatch(context, syncTaskRepository, result.item.uuid)
+                        }
+                    } else if (importFile.file != null && importFile.file.exists()) {
                         if (importFile.isFileOnly) {
                             val existingItem = libraryDao.getItemByFileName(importFile.name)
                             if (existingItem != null) {
@@ -336,11 +404,6 @@ object ImportManager : ImportService {
                             }
                             
                             // 5. Create Sync Tasks (only if session is active)
-                            val accountRepository = RoomAccountRepository(database.accountDao())
-                            val account = accountRepository.getAccount()
-                            val isSubscribed = account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)
-                            val isPro = account != null && account.tier == AccountTier.PRO
-
                             if (isSubscribed) {
                                 SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, entity)
                                 if (hasArtwork && isPro) {
@@ -352,15 +415,7 @@ object ImportManager : ImportService {
                             }
 
                             // Hardcover Auto-match Integration
-                            try {
-                                val hardcoverToken = HardcoverSettingsManager.getToken(context).first()
-                                val autoMatch = HardcoverSettingsManager.getAutoMatchBooks(context).first()
-                                if (hardcoverToken.isNotBlank() && autoMatch) {
-                                    SyncTaskFactory.createHardcoverAutoMatchTask(syncTaskRepository, entity.uuid)
-                                }
-                            } catch (e: Exception) {
-                                android.util.Log.e("ImportManager", "Failed to enqueue hardcover auto-match task", e)
-                            }
+                            enqueueHardcoverAutoMatch(context, syncTaskRepository, entity.uuid)
                         }
                     }
                 }
@@ -374,6 +429,48 @@ object ImportManager : ImportService {
 
     override fun dismissSheet() {
         showImportSheet = false
+    }
+
+    private suspend fun enqueueHardcoverAutoMatch(
+        context: Context,
+        syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository,
+        uuid: String
+    ) {
+        try {
+            val hardcoverToken = HardcoverSettingsManager.getToken(context).first()
+            val autoMatch = HardcoverSettingsManager.getAutoMatchBooks(context).first()
+            if (hardcoverToken.isNotBlank() && autoMatch) {
+                SyncTaskFactory.createHardcoverAutoMatchTask(syncTaskRepository, uuid)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ImportManager", "Failed to enqueue hardcover auto-match task", e)
+        }
+    }
+
+    // Fetches a media server's cover thumbnail into Artworks/ so streamed items display artwork
+    // without the server's auth headers. Best effort: returns null on any failure.
+    private fun downloadArtwork(context: Context, url: String?, headers: Map<String, String>?): String? {
+        if (url.isNullOrBlank()) return null
+        return try {
+            val artworkDir = File(context.filesDir, "Artworks")
+            if (!artworkDir.exists()) artworkDir.mkdirs()
+            val artworkFile = File(artworkDir, "${java.util.UUID.randomUUID()}.jpg")
+            val requestBuilder = okhttp3.Request.Builder().url(url)
+            headers?.forEach { (key, value) -> requestBuilder.addHeader(key, value) }
+            downloadClient.newCall(requestBuilder.build()).execute().use { response ->
+                if (response.isSuccessful && response.body != null) {
+                    response.body!!.byteStream().use { input ->
+                        FileOutputStream(artworkFile).use { output -> input.copyTo(output) }
+                    }
+                    artworkFile.absolutePath
+                } else {
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ImportManager", "Artwork download failed for $url", e)
+            null
+        }
     }
 
     private fun getDuration(file: File): Double {

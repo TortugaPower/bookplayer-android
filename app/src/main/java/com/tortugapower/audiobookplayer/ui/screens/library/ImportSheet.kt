@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.RemoveCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -149,7 +150,11 @@ fun ImportListItem(file: ImportFile, onRemove: () -> Unit) {
         Spacer(modifier = Modifier.width(16.dp))
 
         Icon(
-            imageVector = if (file.isFileOnly) Icons.Filled.Description else Icons.Filled.AudioFile,
+            imageVector = when {
+                file.isStream -> Icons.Filled.Podcasts
+                file.isFileOnly -> Icons.Filled.Description
+                else -> Icons.Filled.AudioFile
+            },
             contentDescription = null,
             tint = if (file.isFileOnly) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(24.dp)

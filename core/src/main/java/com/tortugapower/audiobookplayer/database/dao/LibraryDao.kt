@@ -150,6 +150,9 @@ interface LibraryDao {
     @Query("SELECT * FROM external_resources WHERE libraryItemUuid = :itemUuid AND providerName = :provider LIMIT 1")
     suspend fun getExternalResource(itemUuid: String, provider: String): com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity?
 
+    @Query("SELECT * FROM external_resources WHERE providerName = :providerName AND providerId = :providerId LIMIT 1")
+    suspend fun getExternalResourceByProvider(providerName: String, providerId: String): com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity?
+
     @Query("SELECT * FROM external_resources WHERE libraryItemUuid = :itemUuid")
     fun getExternalResourcesForBookFlow(itemUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>>
 

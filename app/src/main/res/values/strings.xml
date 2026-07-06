@@ -74,6 +74,17 @@
     <string name="pro_disclaimer_account">You only need an account with us if you plan to listen to your library across different devices</string>
     <string name="pro_disclaimer_subscription">Due to ongoing server costs for cloud storage and progress syncing, we require a subscription to offset the cost of this feature</string>
 
+    <!-- Lite (Stream & Sync) -->
+    <string name="lite_title">Stream &amp; Sync</string>
+    <string name="lite_feature_server_title">Bring Your Own Server</string>
+    <string name="lite_feature_server_desc">Connect your existing Jellyfin or Audiobookshelf directly to the app.</string>
+    <string name="lite_feature_stream_title">Stream &amp; Save Space</string>
+    <string name="lite_feature_stream_desc">Listen instantly by streaming directly from your source. No need to download files or use up local storage.</string>
+    <string name="lite_feature_sync_title">Two-Way Progress Sync</string>
+    <string name="lite_feature_sync_desc">Your listening progress stays perfectly synced with your server and across all your devices.</string>
+    <string name="lite_welcome_title">Welcome to BookPlayer Lite!</string>
+    <string name="lite_welcome_description">You can now stream from your media servers and sync progress across your devices</string>
+
     <!-- Account -->
     <string name="account_delete_title">Delete Account</string>
     <string name="account_delete_warning">Warning: this action is irreversible. If your account is deleted, all your synced library details will be deleted from our servers.</string>
@@ -105,6 +116,7 @@
     <string name="paywall_agree_prefix">By continuing, you agree to </string>
     <string name="paywall_agree_and"> and </string>
     <string name="restore_none_found">No active subscription found to restore.</string>
+    <string name="paywall_no_plans">No plans are available right now. Please try again later.</string>
 
     <!-- Settings/Themes -->
     <string name="settings_title">Settings</string>
@@ -444,6 +456,7 @@
     <string name="external_library_no_libraries">No libraries available</string>
 
     <!-- External Item Detail Screen -->
+    <string name="external_library_selection_actions">Import options</string>
     <string name="external_item_detail_back_button_description">Back</string>
     <string name="external_item_detail_duration_fallback">0m 0s</string>
     <string name="external_item_detail_stream_button">Stream</string>

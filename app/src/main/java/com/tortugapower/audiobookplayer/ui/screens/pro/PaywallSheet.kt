@@ -38,10 +38,31 @@ import com.tortugapower.audiobookplayer.logic.PurchaseFlowManager
  * subscribe, and offers Restore (via [ProRestoreButton]). A successful purchase or restore shows
  * [WelcomeToProDialog], whose OK dismisses the whole sheet.
  *
+ * Defaults sell BookPlayer Pro; pass the lite offering ids / strings (see [LitePaywallSheet]) to
+ * sell the lite tier instead.
+ *
  * @param onDismiss close the paywall
+ * @param offeringKeyword when the exact offering ids aren't found, offerings whose identifier
+ *   contains this keyword (e.g. "lite") are offered instead — keeps the sheet working if the
+ *   dashboard ids drift from the constants
+ * @param fallbackToCurrentOffering whether to fall back to the RevenueCat `current` offering as a
+ *   last resort. Must be false for non-default tiers: `current` points at the pro offering, so
+ *   falling back would sell the wrong subscription.
+ * @param onSubscribed invoked (after [onDismiss]) when the sheet closes following a successful
+ *   purchase or restore, so hosts can resume the action that was gated on the subscription
  */
 @Composable
-fun PaywallSheet(onDismiss: () -> Unit) {
+fun PaywallSheet(
+    onDismiss: () -> Unit,
+    title: String = stringResource(R.string.pro_title),
+    monthlyOfferingId: String = PurchaseFlowManager.MONTHLY_OFFERING_ID,
+    yearlyOfferingId: String = PurchaseFlowManager.YEARLY_OFFERING_ID,
+    offeringKeyword: String? = null,
+    fallbackToCurrentOffering: Boolean = true,
+    welcomeTitle: String = stringResource(R.string.pro_welcome_title),
+    welcomeDescription: String = stringResource(R.string.pro_welcome_description),
+    onSubscribed: () -> Unit = {}
+) {
     val context = LocalContext.current
     val offerings by PurchaseFlowManager.offerings.collectAsState()
     val isPurchasing by PurchaseFlowManager.isPurchasing.collectAsState()
@@ -55,10 +76,15 @@ fun PaywallSheet(onDismiss: () -> Unit) {
 
     // Celebration after a successful purchase or restore. OK closes the paywall.
     if (showWelcome) {
-        WelcomeToProDialog(onDismiss = {
-            showWelcome = false
-            onDismiss()
-        })
+        WelcomeToProDialog(
+            onDismiss = {
+                showWelcome = false
+                onDismiss()
+                onSubscribed()
+            },
+            title = welcomeTitle,
+            description = welcomeDescription
+        )
     }
 
     LaunchedEffect(Unit) {
@@ -66,15 +92,10 @@ fun PaywallSheet(onDismiss: () -> Unit) {
     }
 
     LaunchedEffect(offerings) {
-        val currentOfferings = offerings ?: return@LaunchedEffect
-        val monthly = currentOfferings.getOffering(PurchaseFlowManager.MONTHLY_OFFERING_ID)
-        val yearly = currentOfferings.getOffering(PurchaseFlowManager.YEARLY_OFFERING_ID)
-        var allPackages = (yearly?.availablePackages ?: emptyList()) + (monthly?.availablePackages ?: emptyList())
-        if (allPackages.isEmpty() && currentOfferings.current != null) {
-            allPackages = currentOfferings.current!!.availablePackages
-        }
         if (selectedPackage == null) {
-            selectedPackage = allPackages.firstOrNull()
+            selectedPackage = resolvePackages(
+                offerings, monthlyOfferingId, yearlyOfferingId, offeringKeyword, fallbackToCurrentOffering
+            ).firstOrNull()
         }
     }
 
@@ -107,7 +128,7 @@ fun PaywallSheet(onDismiss: () -> Unit) {
                 }
 
                 Text(
-                    text = stringResource(R.string.pro_title),
+                    text = title,
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface
@@ -127,12 +148,18 @@ fun PaywallSheet(onDismiss: () -> Unit) {
             Text(stringResource(R.string.paywall_choose_plan), color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(16.dp))
 
-            val currentOfferings = offerings
-            val monthly = currentOfferings?.getOffering(PurchaseFlowManager.MONTHLY_OFFERING_ID)
-            val yearly = currentOfferings?.getOffering(PurchaseFlowManager.YEARLY_OFFERING_ID)
-            var allPackages = (yearly?.availablePackages ?: emptyList()) + (monthly?.availablePackages ?: emptyList())
-            if (allPackages.isEmpty() && currentOfferings?.current != null) {
-                allPackages = currentOfferings.current!!.availablePackages
+            val allPackages = resolvePackages(
+                offerings, monthlyOfferingId, yearlyOfferingId, offeringKeyword, fallbackToCurrentOffering
+            )
+
+            if (offerings != null && allPackages.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.paywall_no_plans),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(vertical = 16.dp)
+                )
             }
 
             allPackages.forEach { pkg ->
@@ -224,5 +251,34 @@ fun PaywallSheet(onDismiss: () -> Unit) {
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
+}
+
+/**
+ * Packages to offer, in display order (yearly before monthly): the exact offering ids first,
+ * then any offering whose identifier contains [offeringKeyword], then — only when
+ * [fallbackToCurrentOffering] — RevenueCat's `current` offering.
+ */
+private fun resolvePackages(
+    offerings: com.revenuecat.purchases.Offerings?,
+    monthlyOfferingId: String,
+    yearlyOfferingId: String,
+    offeringKeyword: String?,
+    fallbackToCurrentOffering: Boolean
+): List<Package> {
+    if (offerings == null) return emptyList()
+    val monthly = offerings.getOffering(monthlyOfferingId)
+    val yearly = offerings.getOffering(yearlyOfferingId)
+    var allPackages = (yearly?.availablePackages ?: emptyList()) + (monthly?.availablePackages ?: emptyList())
+    if (allPackages.isEmpty() && offeringKeyword != null) {
+        allPackages = offerings.all
+            .filterKeys { it.contains(offeringKeyword, ignoreCase = true) }
+            .entries
+            .sortedBy { if (it.key.contains("year", ignoreCase = true)) 0 else 1 }
+            .flatMap { it.value.availablePackages }
+    }
+    if (allPackages.isEmpty() && fallbackToCurrentOffering && offerings.current != null) {
+        allPackages = offerings.current!!.availablePackages
+    }
+    return allPackages
 }
 
