@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -31,6 +32,7 @@ class SyncingLibraryRepositoryTest {
         override fun getAllContainers(): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun searchBooks(query: String): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun searchAllBooks(query: String): Flow<List<LibraryItemEntity>> = emptyFlow()
+        override suspend fun isCloudSyncActive(): Boolean = false
         override fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>> = emptyFlow()
         override fun getChaptersForBook(bookUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>> = emptyFlow()
         override suspend fun insertChapters(chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}
@@ -109,6 +111,20 @@ class SyncingLibraryRepositoryTest {
         }
         override suspend fun saveAccount(account: AccountEntity) {}
         override suspend fun deleteAccount() {}
+    }
+
+    @Test
+    fun isCloudSyncActive_trueOnlyForSubscribedTiers() = runBlocking {
+        val delegate = FakeLibraryRepository()
+        val syncTaskRepository = FakeSyncTaskRepository()
+        fun repoFor(tier: AccountTier) =
+            SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(tier))
+
+        // Subscribed tiers (cloud sync) gate the on-play offloaded-bound sub-item insert.
+        assertTrue(repoFor(AccountTier.PRO).isCloudSyncActive())
+        assertTrue(repoFor(AccountTier.LITE).isCloudSyncActive())
+        assertFalse(repoFor(AccountTier.FREE).isCloudSyncActive())
+        assertFalse(repoFor(AccountTier.PLUS).isCloudSyncActive())
     }
 
     @Test

@@ -40,6 +40,10 @@ object PlaybackManager {
     // Chosen to line up with Media3's built-in ICON_PLAYBACK_SPEED_* glyphs so the button shows the speed.
     private val SPEED_PRESETS = listOf(0.8f, 1.0f, 1.2f, 1.5f, 1.8f, 2.0f)
 
+    // Upper bound on the on-play contents fetch for an offloaded bound book, so a slow server can't
+    // hang playback (fail-soft: fall through to whatever's local).
+    private const val CONTENTS_FETCH_TIMEOUT_MS = 15_000L
+
     val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var player: Player? = null
@@ -1061,7 +1065,11 @@ object PlaybackManager {
         val repo = getRepository(context)
         val isLocal = if (isBound) {
             val subItems = repo.getItemsInPathSync(item.relativePath ?: "")
-            subItems.all { sub ->
+            // Empty sub-items on a bound book = offloaded/never-fetched contents → treat as NOT local so
+            // we fetch the sub-item list below (List.all is vacuously true on an empty list, which would
+            // otherwise skip the fetch and hand buildBound an empty timeline). iOS does the same via
+            // PlayerLoaderService awaiting syncListContents when getMaxItemsCount == 0.
+            subItems.isNotEmpty() && subItems.all { sub ->
                 val file = sub.relativePath?.let { File(processedDir, it) }
                 file != null && file.exists()
             }
@@ -1076,19 +1084,32 @@ object PlaybackManager {
             
             try {
                 if (isBound) {
-                    val response = NetworkClient.libraryApi.getContents(resolvedItem.relativePath ?: "")
-                    if (response.isSuccessful && response.body() != null) {
+                    // Bounded so a slow/unreachable server can't hang playback (OkHttp also has timeouts).
+                    val response = kotlinx.coroutines.withTimeoutOrNull(CONTENTS_FETCH_TIMEOUT_MS) {
+                        NetworkClient.libraryApi.getContents(resolvedItem.relativePath ?: "")
+                    }
+                    if (response != null && response.isSuccessful && response.body() != null) {
                         val body = response.body()!!
                         val subItems = repo.getItemsInPathSync(resolvedItem.relativePath ?: "")
                         val resolvedSubItems = repo.resolveStreamingUrls(subItems)
+                        // Offloaded bound book whose sub-items were never fetched: insert the missing ones
+                        // (subscribed accounts only) so buildBound has a timeline to build. Reuses the same
+                        // upsert as the background contents-sync task.
+                        val syncActive = repo.isCloudSyncActive()
+                        val dao = if (syncActive) AppDatabase.getDatabase(context).libraryDao() else null
+                        val generatedUuids = mutableSetOf<String>()
                         body.content.forEach { remoteSub ->
                             val localSub = resolvedSubItems.find { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }
-                            if (localSub != null && !remoteSub.remoteURL.isNullOrEmpty()) {
-                                localSub.remoteURL = remoteSub.remoteURL
-                                if (!remoteSub.artworkURL.isNullOrEmpty()) {
-                                    localSub.artworkURL = remoteSub.artworkURL
+                            if (localSub != null) {
+                                if (!remoteSub.remoteURL.isNullOrEmpty()) {
+                                    localSub.remoteURL = remoteSub.remoteURL
+                                    if (!remoteSub.artworkURL.isNullOrEmpty()) {
+                                        localSub.artworkURL = remoteSub.artworkURL
+                                    }
+                                    repo.updateItem(localSub)
                                 }
-                                repo.updateItem(localSub)
+                            } else if (dao != null) {
+                                LibraryContentsSync.upsertItem(dao, null, remoteSub, generatedUuids)
                             }
                         }
                         android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")

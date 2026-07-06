@@ -241,6 +241,42 @@ class RoomLibraryRepositoryTest {
         assertTrue(fakeDao.completions.isEmpty())
     }
 
+    // --- LibraryContentsSync.upsertItem: shared by the contents-sync task AND the offloaded-bound
+    //     guard, so both insert/update server items identically. ---
+
+    private fun syncable(uuid: String?, path: String, title: String) =
+        com.tortugapower.audiobookplayer.model.SyncableItem(
+            uuid = uuid, relativePath = path, title = title, details = "Author",
+            originalFileName = title, duration = 100.0, currentTime = 0.0, percentCompleted = 0.0,
+            isFinished = false, orderRank = 0, type = ItemType.BOOK.ordinal,
+            remoteURL = "https://s3/$path", artworkURL = null, speed = null, lastPlayDateTimestamp = null
+        )
+
+    @Test
+    fun upsertItem_insertsMissingSubItem() = runBlocking {
+        val (uuid, isNew) = com.tortugapower.audiobookplayer.logic.LibraryContentsSync.upsertItem(
+            fakeDao, null, syncable("sub-1", "Bound/1.m4b", "Chapter One"), mutableSetOf()
+        )
+        assertTrue(isNew)
+        assertEquals("sub-1", uuid)
+        assertEquals("Chapter One", fakeDao.items["sub-1"]?.title)
+        assertEquals("https://s3/Bound/1.m4b", fakeDao.items["sub-1"]?.remoteURL)
+    }
+
+    @Test
+    fun upsertItem_updatesExistingSubItem() = runBlocking {
+        fakeDao.items["sub-1"] = LibraryItemEntity(
+            uuid = "sub-1", title = "Old", author = "Author", duration = 100.0, currentTime = 0.0,
+            percentCompleted = 0.0, isFinished = false, relativePath = "Bound/1.m4b", remoteURL = null,
+            artworkURL = null, orderRank = 0, type = ItemType.BOOK, lastPlayDate = null
+        )
+        val (_, isNew) = com.tortugapower.audiobookplayer.logic.LibraryContentsSync.upsertItem(
+            fakeDao, null, syncable("sub-1", "Bound/1.m4b", "New Title"), mutableSetOf()
+        )
+        assertFalse(isNew)
+        assertEquals("New Title", fakeDao.items["sub-1"]?.title)
+    }
+
     private class FakeLibraryDao : LibraryDao {
         val items = mutableMapOf<String, LibraryItemEntity>()
         val completions = mutableListOf<BookCompletionEntity>()
@@ -282,7 +318,7 @@ class RoomLibraryRepositoryTest {
         override suspend fun getAllItemsSync(): List<LibraryItemEntity> = TODO()
         override suspend fun getMaxRootOrderRank(): Int? = TODO()
         override suspend fun getMaxPathOrderRank(path: String): Int? = TODO()
-        override suspend fun insertItem(item: LibraryItemEntity) = TODO()
+        override suspend fun insertItem(item: LibraryItemEntity) { items[item.uuid] = item }
         override suspend fun deleteItem(item: LibraryItemEntity) = TODO()
         override suspend fun deleteItems(items: List<LibraryItemEntity>) = TODO()
         override suspend fun getDescendantsOfPath(path: String): List<LibraryItemEntity> = TODO()
