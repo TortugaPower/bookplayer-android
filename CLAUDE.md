@@ -40,13 +40,15 @@ core/                      # shared Android library — NO Compose, NO Media3, N
                            #   PlayableItemBuilder/BoundTimeline, chapter extraction, settings,
                            #   SubscriptionManager, StatisticsManager, PlaybackSyncCoordinator (iface)
     core/                  # CoreContext (app-context holder, set by the host at startup)
-    datalayer/             # phone<->watch Wear Data Layer contract (WatchAuthPayload, WearDataLayer)
+    datalayer/             # phone<->watch Wear Data Layer contract (WatchAuthPayload, WearDataLayer,
+                           #   WatchAuthCodec — the pure, unit-tested reply codec shared by both sides)
   src/main/res/            # base + values-* for :core-OWNED strings only
 app/                       # phone app — depends on :core
   src/main/java/com/tortugapower/audiobookplayer/
     ui/screens|components|theme/  # Compose screens, reusable Composables, Material3 theme
     viewmodel/             # ViewModels + their Factories
     service/               # Media3 playback service (+ Android Auto); sync foreground Service (TaskConcurrencyServiceHost)
+    wear/                  # phone side of the Wear handoff (WearAuthListenerService answers auth requests)
     widget/                # home-screen widget
     logic/                 # phone-only: PlaybackManager (Media3), ThemeManager, import, app-icon,
                            #   tip/billing, support, passkey, sleep-timer, PlaybackManagerSyncCoordinator
@@ -55,6 +57,7 @@ app/                       # phone app — depends on :core
 wear/                      # Wear OS app — depends on :core; shares :app's applicationId (pairing), minSdk 30
   src/main/java/com/tortugapower/audiobookplayer/wear/
     WearApp.kt             # Application: wires :core (CoreContext/NetworkConstants/SubscriptionManager)
+    auth/                  # WearAuthClient: requests the sign-in handoff from the phone (Data Layer)
     presentation/          # Wear Compose UI (MainActivity, WatchMode gate, WearRootViewModel)
 ```
 

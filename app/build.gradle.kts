@@ -147,6 +147,8 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.billing.ktx)
     implementation(libs.purchases)
+    // Wear Data Layer — answers the watch's auth handoff request (WearAuthListenerService).
+    implementation(libs.play.services.wearable)
     implementation(libs.sentry.android)
     implementation(libs.konfetti.compose)
 

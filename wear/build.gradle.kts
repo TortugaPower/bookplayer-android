@@ -87,6 +87,8 @@ dependencies {
     implementation(libs.androidx.foundation.layout)
     // Wear-specific Compose (androidx.wear.compose.material), NOT the phone's material3.
     implementation(libs.androidx.wear.compose.material)
+    // Wear Data Layer — requests the auth handoff from the phone (WearAuthClient).
+    implementation(libs.play.services.wearable)
 
     debugImplementation(libs.androidx.ui.tooling)
 

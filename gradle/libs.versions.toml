@@ -31,9 +31,12 @@ billing = "7.1.1"
 revenuecat = "7.11.0"
 sentry = "7.18.1"
 konfetti = "2.0.5"
+playServicesWearable = "18.2.0"
 
 [libraries]
 purchases = { group = "com.revenuecat.purchases", name = "purchases", version.ref = "revenuecat" }
+# Wear OS Data Layer (MessageClient/CapabilityClient) — phone↔watch auth handoff.
+play-services-wearable = { group = "com.google.android.gms", name = "play-services-wearable", version.ref = "playServicesWearable" }
 sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "sentry" }
 konfetti-compose = { group = "nl.dionsegijn", name = "konfetti-compose", version.ref = "konfetti" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
