@@ -84,20 +84,7 @@ class PlayableItem(
      * N MediaItems for the same remote URL and replay itself). Only a BOUND book spans multiple files,
      * one group per distinct consecutive [PlayableChapter.relativePath] (null paths never merge).
      */
-    fun fileGroups(): List<List<PlayableChapter>> {
-        if (chapters.isEmpty()) return emptyList()
-        if (!isBoundBook) return listOf(chapters)
-        val groups = mutableListOf<MutableList<PlayableChapter>>()
-        for (chapter in chapters) {
-            val last = groups.lastOrNull()
-            if (last != null && chapter.relativePath != null && last.first().relativePath == chapter.relativePath) {
-                last.add(chapter)
-            } else {
-                groups.add(mutableListOf(chapter))
-            }
-        }
-        return groups
-    }
+    fun fileGroups(): List<List<PlayableChapter>> = BoundTimeline.groupIntoFiles(chapters, isBoundBook)
 
     /** Index of the chapter containing the given whole-book position (clamped; -1 if no chapters). */
     fun chapterIndexAt(wholeBookMs: Long): Int = timeline.indexAt(wholeBookMs)
