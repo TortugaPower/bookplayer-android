@@ -25,19 +25,16 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # The `dev` flavor defaults DEV_BASE_URL to the emulator loopback alias,
-      # so devDebug builds and unit tests run without any secrets.
+      # The `dev` flavor defaults DEV_BASE_URL to the emulator loopback alias, so devDebug builds and
+      # unit tests run without any secrets. These tasks run in every module that has the variant, so
+      # they cover :app AND :wear (both declare the `env` flavor).
       - name: Assemble devDebug
         run: ./gradlew assembleDevDebug --stacktrace
 
+      # :app/:wear tests via testDevDebugUnitTest; :core is a flavorless library, so its tests live
+      # under testDebugUnitTest and must be invoked explicitly.
       - name: Run unit tests
-        run: ./gradlew testDevDebugUnitTest --stacktrace
+        run: ./gradlew testDevDebugUnitTest :core:testDebugUnitTest --stacktrace
 
       - name: Lint
         run: ./gradlew lintDevDebug --stacktrace
-
-      # :wear is a standalone application module (not a dependency of :app), and it has no `env`
-      # flavor, so the devDebug tasks above never touch it. Build + lint it explicitly so the Wear
-      # scaffold stays green in CI.
-      - name: Build and lint :wear
-        run: ./gradlew :wear:assembleDebug :wear:lintDebug --stacktrace
