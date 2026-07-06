@@ -64,7 +64,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
 
         // Initialize Managers
         PlaybackManager.initialize(this, syncingLibraryRepository)
-        SubscriptionManager.initialize(this, accountRepository, syncTaskRepository)
+        SubscriptionManager.initialize(this, accountRepository, syncTaskRepository, BuildConfig.REVENUECAT_API_KEY)
 
         // Start background services
         TaskConcurrencyServiceHost.start(this)
