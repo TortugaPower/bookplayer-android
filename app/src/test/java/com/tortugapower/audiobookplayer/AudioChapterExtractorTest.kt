@@ -103,4 +103,42 @@ class AudioChapterExtractorTest {
         assertNull(AudioChapterExtractor.extractManualChapters(tempFileWith("m4b", garbage), totalDurationMs))
         assertNull(AudioChapterExtractor.extractManualChapters(tempFileWith("mp3", garbage), totalDurationMs))
     }
+
+    // --- Remote path parity: the SeekableByteSource overload (used for HTTP-Range streaming) must yield
+    //     the SAME chapters as the local file parse for every fixture. ---
+
+    /** In-memory source that serves ranged reads like HttpRangeByteSource (partial only at EOF). */
+    private class MemoryByteSource(private val data: ByteArray) :
+        com.tortugapower.audiobookplayer.logic.SeekableByteSource {
+        override fun size(): Long = data.size.toLong()
+        override fun readAt(offset: Long, length: Int): ByteArray? {
+            if (length <= 0) return ByteArray(0)
+            if (offset < 0 || offset >= data.size) return ByteArray(0)
+            val end = minOf(offset + length, data.size.toLong()).toInt()
+            return data.copyOfRange(offset.toInt(), end)
+        }
+        override fun close() {}
+    }
+
+    private fun fixtureBytes(name: String): ByteArray =
+        javaClass.getResourceAsStream("/chapterfixtures/$name")!!.use { it.readBytes() }
+
+    @Test
+    fun remoteSource_matchesFileParse_forEveryFixture() {
+        val cases = mapOf(
+            "m4b_MALFORMED.m4b" to "m4b",
+            "m4b_WELLFORMED.m4b" to "m4b",
+            "mp3_NO_toc_v23.mp3" to "mp3",
+            "mp3_NO_toc_v24.mp3" to "mp3",
+            "mp3_WITH_toc.mp3" to "mp3",
+            "mp3_NO_chapters.mp3" to "mp3",
+        )
+        for ((name, ext) in cases) {
+            val viaFile = AudioChapterExtractor.extractManualChapters(fixture(name), totalDurationMs)
+            val viaSource = AudioChapterExtractor.extractManualChapters(
+                MemoryByteSource(fixtureBytes(name)), ext, totalDurationMs
+            )
+            assertEquals("chapters differ (file vs source) for $name", viaFile, viaSource)
+        }
+    }
 }
