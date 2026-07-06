@@ -57,6 +57,7 @@ androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.re
 # documented extras keys Android Auto reads for content-style (list/grid) + per-item play progress.
 androidx-media = { group = "androidx.media", name = "media", version.ref = "media" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
