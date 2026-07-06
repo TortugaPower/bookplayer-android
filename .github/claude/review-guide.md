@@ -11,6 +11,8 @@ layout, and conventions before judging anything.
    its **callers** with `Read`/`Grep`/`Glob` before forming an opinion. Diff-only opinions are not acceptable.
 3. Cross-check changes against `CLAUDE.md` conventions and the matching area (UI/Compose, ViewModel,
    repository, Room, network, Media3 playback, billing).
+4. **Module boundaries:** the codebase is split into `:core` (shared Compose-free / Media3-free library)
+   and `:app` (phone). See "Module conventions" in `CLAUDE.md` — check the flags in the module section below.
 4. Comment **only on lines changed by this PR**, in changed files. Skip everything in "what to skip".
 
 ## What to skip
@@ -44,6 +46,10 @@ layout, and conventions before judging anything.
 - **Room schema change without a migration** (or `fallbackToDestructiveMigration`) that would drop user
   data — users' libraries and playback progress live here.
 - Nullable values from the network/DB dereferenced without handling (`!!` on API data, unguarded `null`).
+- **`:core` reaching into `:app`:** a file under `core/` referencing `PlaybackManager`, Media3, Compose,
+  `ui`/`service`/`widget`, `BookPlayerApplication`, or the app's `BuildConfig`/`R`. `:core` must stay
+  Compose-free / Media3-free and app-agnostic; what it needs from the target is injected via an interface
+  (e.g. `PlaybackSyncCoordinator`) or `CoreContext`/`configure(...)` — never a reverse dependency.
 
 ### 🟡 WARN — worth a comment, not blocking
 
@@ -59,6 +65,11 @@ layout, and conventions before judging anything.
 - New Retrofit calls without timeout/error handling, or IO not dispatched to `Dispatchers.IO`.
 - `MutableStateFlow`/`mutableStateOf` exposed publicly instead of a read-only `StateFlow`/`State`.
 - A custom implementation where a native Android/Compose/Material3 API exists.
+- **Module hygiene:** a dependency whose types appear in `:core`'s **public API** declared as
+  `implementation` instead of `api` (Room, RevenueCat); a new module without its own `.gitignore` (build
+  artifacts committed); a `:core`-owned string whose `values-*` translations were left in `:app`; config
+  read from `BuildConfig`/`R`/`BookPlayerApplication` inside `:core` instead of injected; tests not
+  co-located with the code they cover after a move.
 
 ### 🔵 INFO — mention if helpful
 

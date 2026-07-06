@@ -22,22 +22,55 @@ iOS BookPlayer app and shares the same BookPlayer backend (sync, auth, subscript
 
 ## Project layout
 
+Two Gradle modules: **`:core`** (a Compose-free, Media3-free Android library holding the sharable
+layers) and **`:app`** (the phone app, which depends on `:core`). A **`:wear`** module is planned and
+will also depend on `:core`.
+
 ```
-app/                       # main application module
+core/                      # shared Android library — NO Compose, NO Media3, NO app types
   src/main/java/com/tortugapower/audiobookplayer/
-    ui/screens/            # Compose screens (library, player, profile, synctasks, ...)
-    ui/components/         # reusable Composables
-    ui/theme/              # Material3 theme, colors, typography
-    viewmodel/             # ViewModels + their Factories
+    database/dao|entities/ # Room (AppDatabase, DAOs, entities, Converters)
+    network/               # Retrofit services / DTOs / NetworkClient / NetworkConstants
+    model/                 # shared data models (SyncModels, ...)
     repository/            # data access, single source of truth per domain
-    network/               # Retrofit services / DTOs
-    database/dao|entities/ # Room
-    logic/                 # domain logic / use cases
-    service/               # foreground / playback service
-    model/                 # shared models
+    logic/                 # shared domain/sync logic: SyncTaskFactory + sync processors + engine
+                           #   (CoreProcessors, TaskConcurrencyManager/Service), PlayableItem/
+                           #   PlayableItemBuilder/BoundTimeline, chapter extraction, settings,
+                           #   SubscriptionManager, StatisticsManager, PlaybackSyncCoordinator (iface)
+    core/                  # CoreContext (app-context holder, set by the host at startup)
+  src/main/res/            # base + values-* for :core-OWNED strings only
+app/                       # phone app — depends on :core
+  src/main/java/com/tortugapower/audiobookplayer/
+    ui/screens|components|theme/  # Compose screens, reusable Composables, Material3 theme
+    viewmodel/             # ViewModels + their Factories
+    service/               # Media3 playback service (+ Android Auto); sync foreground Service (TaskConcurrencyServiceHost)
+    widget/                # home-screen widget
+    logic/                 # phone-only: PlaybackManager (Media3), ThemeManager, import, app-icon,
+                           #   tip/billing, support, passkey, sleep-timer, PlaybackManagerSyncCoordinator
+    model/                 # Media3 glue (Extensions.kt)
   src/main/res/            # values/ + 10 localized values-* dirs (ar, de, es, fr, hi, it, ja, ko, ru, zh-rCN)
-databasemodels/            # shared DB model definitions
 ```
+
+## Module conventions (`:core` / `:app`)
+
+- **`:core` never references `:app`.** No `PlaybackManager`, Media3, Compose, `ui`/`service`/`widget`,
+  `BookPlayerApplication`, or the app's `BuildConfig`/`R`. Player orchestration (Media3) and Android
+  components (foreground `Service`, widget, notifications) stay **per-target** in `:app` (and `:wear`).
+- **Config/Context crossing the boundary is injected, not read.** Flavored `BuildConfig` values
+  (`BASE_URL`, `GOOGLE_CLIENT_ID`, `REVENUECAT_API_KEY`) are passed into `:core` at startup
+  (`NetworkConstants.configure(...)`, `SubscriptionManager.initialize(..., apiKey)`); the app Context via
+  `CoreContext.init(this)` in `Application.onCreate`. Never read `BuildConfig`/`R`/`BookPlayerApplication`
+  from inside `:core`.
+- **What `:core` needs from the target's player, it defines as an interface** and the target injects
+  (e.g. `PlaybackSyncCoordinator`, implemented by `:app`'s `PlaybackManagerSyncCoordinator`).
+- **`api` vs `implementation`:** a dependency whose types appear in `:core`'s **public API** is `api(...)`
+  (Room, RevenueCat); otherwise `implementation(...)`. A module that uses a dependency **directly**
+  declares it itself rather than relying on transitive exposure.
+- **Moves preserve Kotlin package names** (zero import churn). Note Kotlin can't smart-cast a `var`
+  property across module boundaries — capture to a local `val` first.
+- **Each module has its own `.gitignore`** (`/build`). A `:core`-owned string keeps its base **and all**
+  `values-*` translations in `:core`.
+- **Tests live in the owning module.** `:core` Room/SQL tests run under Robolectric.
 
 ## Build / flavors / secrets
 
