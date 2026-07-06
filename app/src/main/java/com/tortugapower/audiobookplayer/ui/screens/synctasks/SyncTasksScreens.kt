@@ -243,9 +243,10 @@ fun TaskDetailScreen(
                                    maxLines = 1,
                                    overflow = TextOverflow.Ellipsis
                                )
-                               if (task.errorMessage != null) {
+                               val errorMessage = task.errorMessage
+                               if (errorMessage != null) {
                                    Text(
-                                       text = task.errorMessage,
+                                       text = errorMessage,
                                        style = MaterialTheme.typography.labelSmall,
                                        color = Color.Red,
                                        maxLines = 1,

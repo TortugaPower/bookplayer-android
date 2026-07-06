@@ -469,8 +469,9 @@ class RoomLibraryRepository(
             if (extResource != null) {
                 val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
                 val serverDao = db.externalServerDao()
-                var server = if (!extResource.hostId.isNullOrEmpty()) {
-                    val hostId = extResource.hostId.toLongOrNull()
+                val hostIdStr = extResource.hostId
+                var server = if (!hostIdStr.isNullOrEmpty()) {
+                    val hostId = hostIdStr.toLongOrNull()
                     if (hostId != null) serverDao.getServerById(hostId) else null
                 } else null
                 

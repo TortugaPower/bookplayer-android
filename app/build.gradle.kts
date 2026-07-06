@@ -4,7 +4,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("com.google.devtools.ksp")
 }
 
 val localProperties = Properties().apply {
@@ -159,9 +158,6 @@ dependencies {
     // so don't rely on okhttp arriving only as a transitive dependency.
     implementation(libs.okhttp)
 
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
 
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver)

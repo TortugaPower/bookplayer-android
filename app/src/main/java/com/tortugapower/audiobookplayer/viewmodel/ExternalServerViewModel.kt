@@ -61,12 +61,13 @@ class ExternalServerViewModel(private val repository: ExternalServerRepository) 
                 repository.updateServer(server)
                 // iOS parity: ABS revokes the replaced token on re-auth (POST /logout with the
                 // OLD Bearer); Jellyfin deliberately doesn't revoke on re-auth.
+                val existingToken = existing.token
                 if (type == ExternalServiceType.AUDIOBOOKSHELF &&
-                    existing.token != null && existing.token != token
+                    existingToken != null && existingToken != token
                 ) {
                     launch {
                         ExternalServiceFactory.getService(type)
-                            .revokeToken(existing.url, existing.token, existing.customHeaders)
+                            .revokeToken(existing.url, existingToken, existing.customHeaders)
                     }
                 }
             } else {
