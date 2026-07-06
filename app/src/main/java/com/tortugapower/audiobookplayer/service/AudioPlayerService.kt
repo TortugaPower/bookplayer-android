@@ -443,53 +443,60 @@ class AudioPlayerService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
             serviceScope.launch(Dispatchers.IO) {
-                val db = AppDatabase.getDatabase(this@AudioPlayerService)
-                val dao = db.libraryDao()
-                val node = MediaBrowseTree.parse(parentId)
+                try {
+                    val db = AppDatabase.getDatabase(this@AudioPlayerService)
+                    val dao = db.libraryDao()
+                    val node = MediaBrowseTree.parse(parentId)
 
-                // Root → the fixed Recent + Library tabs (never paginated).
-                if (node is MediaBrowseTree.Node.Root) {
-                    val tabs = listOf(
-                        browsableItem(MediaBrowseTree.RECENT_ID, getString(R.string.auto_tab_recent)),
-                        browsableItem(MediaBrowseTree.LIBRARY_ID, getString(R.string.library_title_default))
-                    )
-                    future.set(LibraryResult.ofItemList(ImmutableList.copyOf(tabs), params))
-                    return@launch
-                }
-
-                val all: List<LibraryItemEntity> = when (node) {
-                    MediaBrowseTree.Node.Recent -> {
-                        val recent = dao.getRecentPlayedItemsSync(RECENT_LIMIT).toMutableList()
-                        // Show the currently-playing book at the top even before its lastPlayDate is
-                        // persisted (written on the first progress tick, up to ~10s after play starts).
-                        PlaybackManager.currentItem.value?.let { current ->
-                            if (MediaBrowseTree.isPlayable(current.type) && recent.none { it.uuid == current.uuid }) {
-                                recent.add(0, current)
-                            }
-                        }
-                        recent
+                    // Root → the fixed Recent + Library tabs (never paginated).
+                    if (node is MediaBrowseTree.Node.Root) {
+                        val tabs = listOf(
+                            browsableItem(MediaBrowseTree.RECENT_ID, getString(R.string.auto_tab_recent)),
+                            browsableItem(MediaBrowseTree.LIBRARY_ID, getString(R.string.library_title_default))
+                        )
+                        future.set(LibraryResult.ofItemList(ImmutableList.copyOf(tabs), params))
+                        return@launch
                     }
-                    MediaBrowseTree.Node.Library -> dao.getRootItemsSync()
-                    is MediaBrowseTree.Node.Folder -> dao.getItemsInPathSync(node.relativePath)
-                    else -> emptyList()
-                }
 
-                // Empty node → a single, non-actionable info row (only on the first page) instead of
-                // Auto's generic blank screen.
-                if (all.isEmpty()) {
-                    val info = if (page == 0) listOf(emptyStateItem(node)) else emptyList()
-                    future.set(LibraryResult.ofItemList(ImmutableList.copyOf(info), params))
-                    return@launch
-                }
+                    val all: List<LibraryItemEntity> = when (node) {
+                        MediaBrowseTree.Node.Recent -> {
+                            val recent = dao.getRecentPlayedItemsSync(RECENT_LIMIT).toMutableList()
+                            // Show the currently-playing book at the top even before its lastPlayDate is
+                            // persisted (written on the first progress tick, up to ~10s after play starts).
+                            PlaybackManager.currentItem.value?.let { current ->
+                                if (MediaBrowseTree.isPlayable(current.type) && recent.none { it.uuid == current.uuid }) {
+                                    recent.add(0, current)
+                                }
+                            }
+                            recent
+                        }
+                        MediaBrowseTree.Node.Library -> dao.getRootItemsSync()
+                        is MediaBrowseTree.Node.Folder -> dao.getItemsInPathSync(node.relativePath)
+                        else -> emptyList()
+                    }
 
-                // Honor Auto's page/pageSize instead of silently truncating a large library.
-                val pageEntities = paginate(all, page, pageSize)
-                // Resolves local/cached/sub-book art synchronously; remote art is prefetched below so
-                // the list isn't blocked on network.
-                val children = pageEntities.mapNotNull { toMediaItem(it, resolveBrowseArtworkUri(it)) }
-                grantArtworkRead(browser.packageName, children)
-                future.set(LibraryResult.ofItemList(ImmutableList.copyOf(children), params))
-                if (pageEntities.isNotEmpty()) prefetchRemoteArtwork(parentId, pageEntities)
+                    // Empty node → a single, non-actionable info row (only on the first page) instead of
+                    // Auto's generic blank screen.
+                    if (all.isEmpty()) {
+                        val info = if (page == 0) listOf(emptyStateItem(node)) else emptyList()
+                        future.set(LibraryResult.ofItemList(ImmutableList.copyOf(info), params))
+                        return@launch
+                    }
+
+                    // Honor Auto's page/pageSize instead of silently truncating a large library.
+                    val pageEntities = paginate(all, page, pageSize)
+                    // Resolves local/cached/sub-book art synchronously; remote art is prefetched below so
+                    // the list isn't blocked on network.
+                    val children = pageEntities.mapNotNull { toMediaItem(it, resolveBrowseArtworkUri(it)) }
+                    grantArtworkRead(browser.packageName, children)
+                    future.set(LibraryResult.ofItemList(ImmutableList.copyOf(children), params))
+                    if (pageEntities.isNotEmpty()) prefetchRemoteArtwork(parentId, pageEntities)
+                } catch (e: Exception) {
+                    // Complete the future so Auto renders an error instead of spinning forever
+                    // (serviceScope's SupervisorJob would otherwise swallow the failure).
+                    android.util.Log.e("AudioPlayerService", "onGetChildren('$parentId') failed", e)
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                }
             }
             return future
         }
@@ -501,29 +508,34 @@ class AudioPlayerService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<MediaItem>> {
             val future = SettableFuture.create<LibraryResult<MediaItem>>()
             serviceScope.launch(Dispatchers.IO) {
-                // Fixed nodes resolve to their browsable container (so onSubscribe on a tab succeeds).
-                val fixed = when (MediaBrowseTree.parse(mediaId)) {
-                    MediaBrowseTree.Node.Root -> browsableItem(MediaBrowseTree.ROOT_ID, getString(R.string.app_name))
-                    MediaBrowseTree.Node.Recent -> browsableItem(MediaBrowseTree.RECENT_ID, getString(R.string.auto_tab_recent))
-                    MediaBrowseTree.Node.Library -> browsableItem(MediaBrowseTree.LIBRARY_ID, getString(R.string.library_title_default))
-                    else -> null
+                try {
+                    // Fixed nodes resolve to their browsable container (so onSubscribe on a tab succeeds).
+                    val fixed = when (MediaBrowseTree.parse(mediaId)) {
+                        MediaBrowseTree.Node.Root -> browsableItem(MediaBrowseTree.ROOT_ID, getString(R.string.app_name))
+                        MediaBrowseTree.Node.Recent -> browsableItem(MediaBrowseTree.RECENT_ID, getString(R.string.auto_tab_recent))
+                        MediaBrowseTree.Node.Library -> browsableItem(MediaBrowseTree.LIBRARY_ID, getString(R.string.library_title_default))
+                        else -> null
+                    }
+                    if (fixed != null) {
+                        future.set(LibraryResult.ofItem(fixed, null))
+                        return@launch
+                    }
+                    val path = when (val node = MediaBrowseTree.parse(mediaId)) {
+                        is MediaBrowseTree.Node.Item -> node.relativePath
+                        is MediaBrowseTree.Node.Folder -> node.relativePath
+                        else -> null
+                    }
+                    val item = path?.let { AppDatabase.getDatabase(this@AudioPlayerService).libraryDao().getItemByPath(it) }
+                        ?.let { toMediaItem(it, resolveBrowseArtworkUri(it)) }
+                    if (item != null) grantArtworkRead(browser.packageName, listOf(item))
+                    future.set(
+                        if (item != null) LibraryResult.ofItem(item, null)
+                        else LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("AudioPlayerService", "onGetItem('$mediaId') failed", e)
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
                 }
-                if (fixed != null) {
-                    future.set(LibraryResult.ofItem(fixed, null))
-                    return@launch
-                }
-                val path = when (val node = MediaBrowseTree.parse(mediaId)) {
-                    is MediaBrowseTree.Node.Item -> node.relativePath
-                    is MediaBrowseTree.Node.Folder -> node.relativePath
-                    else -> null
-                }
-                val item = path?.let { AppDatabase.getDatabase(this@AudioPlayerService).libraryDao().getItemByPath(it) }
-                    ?.let { toMediaItem(it, resolveBrowseArtworkUri(it)) }
-                if (item != null) grantArtworkRead(browser.packageName, listOf(item))
-                future.set(
-                    if (item != null) LibraryResult.ofItem(item, null)
-                    else LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
-                )
             }
             return future
         }
@@ -548,15 +560,22 @@ class AudioPlayerService : MediaLibraryService() {
 
             val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
             serviceScope.launch(Dispatchers.Main) {
-                val resolved = PlaybackManager.resolveSessionMediaItems(this@AudioPlayerService, path)
-                if (resolved != null && resolved.items.isNotEmpty()) {
-                    future.set(
-                        MediaSession.MediaItemsWithStartPosition(resolved.items, resolved.startIndex, resolved.startPositionMs)
-                    )
-                } else {
-                    // Stale/unresolvable browse row: keep the current playlist rather than clearing it
-                    // (an empty result would crash getState if the player then prepares+plays).
-                    android.util.Log.w("AudioPlayerService", "Auto browse-play: could not resolve '$path'")
+                try {
+                    val resolved = PlaybackManager.resolveSessionMediaItems(this@AudioPlayerService, path)
+                    if (resolved != null && resolved.items.isNotEmpty()) {
+                        future.set(
+                            MediaSession.MediaItemsWithStartPosition(resolved.items, resolved.startIndex, resolved.startPositionMs)
+                        )
+                    } else {
+                        // Stale/unresolvable browse row: keep the current playlist rather than clearing it
+                        // (an empty result would crash getState if the player then prepares+plays).
+                        android.util.Log.w("AudioPlayerService", "Auto browse-play: could not resolve '$path'")
+                        future.set(currentMediaItemsWithStartPosition(mediaSession))
+                    }
+                } catch (e: Exception) {
+                    // Never leave the future pending: fall back to the current playlist (never empty),
+                    // same as the unresolvable-path branch, so play-from-browse can't hang the car.
+                    android.util.Log.e("AudioPlayerService", "Auto browse-play resolve failed for '$path'", e)
                     future.set(currentMediaItemsWithStartPosition(mediaSession))
                 }
             }
@@ -576,9 +595,14 @@ class AudioPlayerService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<Void>> {
             val future = SettableFuture.create<LibraryResult<Void>>()
             serviceScope.launch(Dispatchers.IO) {
-                val count = searchEntities(query).size
-                session.notifySearchResultChanged(browser, query, count, params)
-                future.set(LibraryResult.ofVoid(params ?: LibraryParams.Builder().build()))
+                try {
+                    val count = searchEntities(query).size
+                    session.notifySearchResultChanged(browser, query, count, params)
+                    future.set(LibraryResult.ofVoid(params ?: LibraryParams.Builder().build()))
+                } catch (e: Exception) {
+                    android.util.Log.e("AudioPlayerService", "onSearch('$query') failed", e)
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                }
             }
             return future
         }
@@ -593,12 +617,17 @@ class AudioPlayerService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
             serviceScope.launch(Dispatchers.IO) {
-                val pageEntities = paginate(searchEntities(query), page, pageSize)
-                // Local/cached/sub-book art resolves synchronously; remote-only covers are left blank
-                // here (search has no browse-node id to notifyChildrenChanged against for a backfill).
-                val children = pageEntities.mapNotNull { toMediaItem(it, resolveBrowseArtworkUri(it)) }
-                grantArtworkRead(browser.packageName, children)
-                future.set(LibraryResult.ofItemList(ImmutableList.copyOf(children), params))
+                try {
+                    val pageEntities = paginate(searchEntities(query), page, pageSize)
+                    // Local/cached/sub-book art resolves synchronously; remote-only covers are left blank
+                    // here (search has no browse-node id to notifyChildrenChanged against for a backfill).
+                    val children = pageEntities.mapNotNull { toMediaItem(it, resolveBrowseArtworkUri(it)) }
+                    grantArtworkRead(browser.packageName, children)
+                    future.set(LibraryResult.ofItemList(ImmutableList.copyOf(children), params))
+                } catch (e: Exception) {
+                    android.util.Log.e("AudioPlayerService", "onGetSearchResult('$query') failed", e)
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                }
             }
             return future
         }
