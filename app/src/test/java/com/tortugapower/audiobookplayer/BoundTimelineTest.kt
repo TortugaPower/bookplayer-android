@@ -148,6 +148,31 @@ class BoundTimelineTest {
         assertEquals(2, t.chapterLocalOf(t.totalDurationMs).chapterIndex)
     }
 
+    // groupIntoFiles is the single source of truth both PlayableItem.fileGroups (the playlist) and
+    // buildFiles (the coordinate timeline) derive from. These lock its rule + the no-drift coupling.
+    @Test
+    fun groupIntoFiles_boundMergesConsecutiveSamePath_nullStandsAlone() {
+        val chapters = listOf(
+            chapter(0, 0.0, 100.0, "a.mp3"),
+            chapter(1, 100.0, 100.0, "b.m4b"),
+            chapter(2, 200.0, 100.0, "b.m4b"), // same path as prev -> merges
+            chapter(3, 300.0, 50.0, null),     // null path -> own file
+            chapter(4, 350.0, 50.0, null)      // consecutive null -> still its own file
+        )
+        val groups = BoundTimeline.groupIntoFiles(chapters, isBoundBook = true)
+        assertEquals(4, groups.size) // [a] [b,b] [null] [null]
+        assertEquals(listOf(1, 2), groups[1].map { it.index })
+        // The coordinate timeline derives from the SAME grouping, so file count can't drift from it.
+        assertEquals(groups.size, BoundTimeline.of(chapters, isBoundBook = true).fileCount)
+    }
+
+    @Test
+    fun groupIntoFiles_nonBoundIsAlwaysOneGroup() {
+        val chapters = listOf(chapter(0, 0.0, 100.0, null), chapter(1, 100.0, 100.0, null))
+        assertEquals(1, BoundTimeline.groupIntoFiles(chapters, isBoundBook = false).size)
+        assertEquals(1, BoundTimeline.of(chapters, isBoundBook = false).fileCount)
+    }
+
     @Test
     fun chapterLayer_zeroDurationChapter_reportsZeroDuration() {
         // A degenerate 0-duration chapter: chapterDurationMs must be 0 (the input BookTimelinePlayer's

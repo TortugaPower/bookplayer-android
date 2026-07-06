@@ -116,35 +116,49 @@ class BoundTimeline private constructor(
             BoundTimeline(chapters, isBoundBook)
 
         /**
-         * Group chapters into file spans — one per MediaItem — so file indices line up 1:1 with the
-         * playlist built by `PlaybackManager.buildMediaItems`, matching [PlayableItem.fileGroups]:
-         *  - **non-BOUND**: exactly ONE span for the whole book (fileGroups short-circuits to one group),
-         *    even when `relativePath` is null (streamed). This makes `toLocal`/`toAbsoluteMs`/`fileCount`
-         *    correct for single books, which the CHAPTER-context notification window now relies on.
-         *  - **BOUND**: one span per run of consecutive chapters sharing a non-null `relativePath`.
+         * THE single source of truth for grouping a flat whole-book chapter list into files — one file
+         * == one MediaItem in the playlist. Both [PlayableItem.fileGroups] (which builds the playlist via
+         * `PlaybackManager.buildMediaItems`) and [buildFiles] (the whole-book ↔ per-file coordinate math)
+         * derive from this, so the playlist and the coordinate timeline can't drift out of index sync.
+         *  - **non-BOUND**: exactly ONE group (the whole book), even when `relativePath` is null (streamed) —
+         *    otherwise null-path chapters would each stand alone and a streamed book would emit N MediaItems
+         *    for the same URL and replay itself.
+         *  - **BOUND**: one group per run of consecutive chapters sharing a non-null `relativePath`
+         *    (a null path never merges, so each stands alone).
+         */
+        fun groupIntoFiles(chapters: List<PlayableChapter>, isBoundBook: Boolean): List<List<PlayableChapter>> {
+            if (chapters.isEmpty()) return emptyList()
+            if (!isBoundBook) return listOf(chapters)
+            val groups = mutableListOf<MutableList<PlayableChapter>>()
+            for (chapter in chapters) {
+                val last = groups.lastOrNull()
+                if (last != null && chapter.relativePath != null && last.first().relativePath == chapter.relativePath) {
+                    last.add(chapter)
+                } else {
+                    groups.add(mutableListOf(chapter))
+                }
+            }
+            return groups
+        }
+
+        /**
+         * File spans — one per MediaItem — so file indices line up 1:1 with the playlist built by
+         * `PlaybackManager.buildMediaItems`. Files come from [groupIntoFiles] (shared with
+         * [PlayableItem.fileGroups]); non-BOUND keeps an explicit whole-book span (base 0 .. last chapter
+         * end) that the CHAPTER-context notification window relies on.
          */
         private fun buildFiles(chapters: List<PlayableChapter>, isBoundBook: Boolean): List<FileSpan> {
             if (chapters.isEmpty()) return emptyList()
             if (!isBoundBook) {
-                // One backing file spanning the whole book (base 0 .. last chapter end).
                 val last = chapters.last()
                 return listOf(FileSpan(0L, ((last.start + last.duration) * 1000).toLong()))
             }
-            val spans = ArrayList<FileSpan>()
-            var i = 0
-            while (i < chapters.size) {
-                val path = chapters[i].relativePath
-                val baseMs = ((chapters[i].start - chapters[i].chapterOffset) * 1000).toLong()
-                var durationSum = 0.0
-                var j = i
-                do {
-                    durationSum += chapters[j].duration
-                    j++
-                } while (path != null && j < chapters.size && chapters[j].relativePath == path)
-                spans.add(FileSpan(baseMs, (durationSum * 1000).toLong()))
-                i = j
+            return groupIntoFiles(chapters, isBoundBook = true).map { group ->
+                val first = group.first()
+                val baseMs = ((first.start - first.chapterOffset) * 1000).toLong()
+                val durationMs = (group.sumOf { it.duration } * 1000).toLong()
+                FileSpan(baseMs, durationMs)
             }
-            return spans
         }
     }
 }
