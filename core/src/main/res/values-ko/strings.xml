@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_chapter_count">%1$d Chapters</string>
+    <string name="media_servers_error_auth_failed">인증 실패: %1$s</string>
+    <string name="media_servers_error_connection_failed">연결 오류: %1$s</string>
+    <string name="external_library_audiobook_library_caption">오디오북 라이브러리</string>
+</resources>

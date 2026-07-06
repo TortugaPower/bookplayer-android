@@ -169,7 +169,6 @@
     <string name="library_folder_empty">0 ملفات</string>
     <string name="library_unknown_author">مؤلف غير معروف</string>
     <string name="library_unknown_title">عنوان غير معروف</string>
-    <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_convert_to_volume">Convert to volume</string>
     <string name="library_open_folder">فتح المجلد</string>
@@ -319,8 +318,6 @@
     <string name="media_servers_add_server_username_placeholder">اسم المستخدم</string>
     <string name="media_servers_add_server_password_placeholder">كلمة المرور</string>
     <string name="media_servers_add_server_connect_to_server">اتصل بخادم %1$s الخاص بك</string>
-    <string name="media_servers_error_auth_failed">فشلت المصادقة: %1$s</string>
-    <string name="media_servers_error_connection_failed">خطأ في الاتصال: %1$s</string>
     <string name="media_servers_error_server_not_found">لم يتم العثور على الخادم</string>
     <string name="media_servers_error_failed_to_fetch_library">فشل جلب المكتبة</string>
     <string name="media_servers_error_session_expired">انتهت صلاحية جلستك لخادم %1$s. سجّل الدخول مرة أخرى للمتابعة.</string>
@@ -341,7 +338,6 @@
     <string name="external_library_picker_title">المكتبة</string>
     <string name="external_library_switch_library">تبديل المكتبة</string>
     <string name="external_library_no_libraries">لا توجد مكتبات متاحة</string>
-    <string name="external_library_audiobook_library_caption">مكتبة كتب صوتية</string>
 
     <!-- External Item Detail Screen -->
     <string name="external_item_detail_back_button_description">رجوع</string>

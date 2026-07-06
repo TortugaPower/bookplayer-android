@@ -169,7 +169,6 @@
     <string name="library_folder_empty">0個のファイル</string>
     <string name="library_unknown_author">不明な著者</string>
     <string name="library_unknown_title">不明なタイトル</string>
-    <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_convert_to_volume">Convert to volume</string>
     <string name="library_open_folder">フォルダを開く</string>
@@ -305,8 +304,6 @@
     <string name="media_servers_add_server_username_placeholder">ユーザー名</string>
     <string name="media_servers_add_server_password_placeholder">パスワード</string>
     <string name="media_servers_add_server_connect_to_server">あなたの%1$sサーバーに接続</string>
-    <string name="media_servers_error_auth_failed">認証に失敗しました: %1$s</string>
-    <string name="media_servers_error_connection_failed">接続エラー: %1$s</string>
     <string name="media_servers_error_server_not_found">サーバーが見つかりません</string>
     <string name="media_servers_error_failed_to_fetch_library">ライブラリを取得できませんでした</string>
     <string name="media_servers_error_session_expired">%1$s のセッションの有効期限が切れました。続行するには再度サインインしてください。</string>
@@ -327,7 +324,6 @@
     <string name="external_library_picker_title">ライブラリ</string>
     <string name="external_library_switch_library">ライブラリを切り替える</string>
     <string name="external_library_no_libraries">利用可能なライブラリがありません</string>
-    <string name="external_library_audiobook_library_caption">オーディオブックライブラリ</string>
 
     <!-- External Item Detail Screen -->
     <string name="external_item_detail_back_button_description">戻る</string>

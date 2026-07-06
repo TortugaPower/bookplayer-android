@@ -170,7 +170,6 @@
     <string name="library_folder_empty">0 archivos</string>
     <string name="library_unknown_author">Autor desconocido</string>
     <string name="library_unknown_title">Título desconocido</string>
-    <string name="library_chapter_count">%1$d capítulos</string>
     <string name="library_convert_to_folder">Convertir en carpeta</string>
     <string name="library_convert_to_volume">Convertir en volumen</string>
     <string name="library_combine_to_volume">Crear un volumen</string>
@@ -307,8 +306,6 @@
     <string name="media_servers_add_server_username_placeholder">Nombre de usuario</string>
     <string name="media_servers_add_server_password_placeholder">Contraseña</string>
     <string name="media_servers_add_server_connect_to_server">Conéctate a tu servidor %1$s</string>
-    <string name="media_servers_error_auth_failed">Error de autenticación: %1$s</string>
-    <string name="media_servers_error_connection_failed">Error de conexión: %1$s</string>
     <string name="media_servers_error_server_not_found">Servidor no encontrado</string>
     <string name="media_servers_error_failed_to_fetch_library">No se pudo obtener la biblioteca</string>
     <string name="media_servers_error_session_expired">Tu sesión para %1$s ha expirado. Inicia sesión de nuevo para continuar.</string>
@@ -329,7 +326,6 @@
     <string name="external_library_picker_title">Biblioteca</string>
     <string name="external_library_switch_library">Cambiar de biblioteca</string>
     <string name="external_library_no_libraries">No hay bibliotecas disponibles</string>
-    <string name="external_library_audiobook_library_caption">Biblioteca de audiolibros</string>
 
     <!-- External Item Detail Screen -->
     <string name="external_item_detail_back_button_description">Atrás</string>
