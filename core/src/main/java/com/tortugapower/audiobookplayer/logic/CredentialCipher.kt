@@ -19,11 +19,12 @@ import javax.crypto.spec.GCMParameterSpec
  * plaintext fallback — this feature has never shipped, so no production rows predate encryption.
  */
 object CredentialCipher {
-    // Shared AES key for ALL app-stored credentials (external-server tokens AND the account API token).
-    // The alias string is deliberately NOT renamed despite now covering more than external servers:
-    // it's a Keystore alias, and changing it would orphan the existing key, making already-encrypted
-    // shipped external-server credentials undecryptable.
-    private const val KEY_ALIAS = "external_server_credentials"
+    // Shared AES key for ALL app-stored credentials — the account API token AND external-server tokens.
+    // Renamed from "external_server_credentials" now that it covers more than external servers. Safe to
+    // rename with no migration: neither the account/sign-in feature nor the external-server integration
+    // is in the production version yet, so there are no stored credentials encrypted under the old alias
+    // (we don't add compat for unshipped features). A dev build simply re-enters its credentials.
+    private const val KEY_ALIAS = "bookplayer_credentials"
     private const val PREFIX = "bpenc1:"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val GCM_IV_LENGTH = 12
