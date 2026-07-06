@@ -1,0 +1,30 @@
+<variant
+    name="debug"
+    package="com.tortugapower.audiobookplayer.core"
+    minSdkVersion="28"
+    targetSdkVersion="28"
+    debuggable="true"
+    mergedManifest="build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml"
+    partialResultsDir="build/intermediates/android_test_lint_partial_results/debug/lintAnalyzeDebugAndroidTest/out"
+    desugaredMethodsFiles="/Users/pro.gianni.carlo/.gradle/caches/8.9/transforms/75eef0c164a6c8c1131360c836e75d68/transformed/D8BackportedDesugaredMethods.txt">
+  <buildFeatures
+      namespacing="REQUIRED"/>
+  <sourceProviders>
+  </sourceProviders>
+  <testSourceProviders>
+    <sourceProvider
+        manifests="src/androidTest/AndroidManifest.xml"
+        javaDirectories="src/androidTest/java:src/androidTestDebug/java:src/androidTest/kotlin:src/androidTestDebug/kotlin"
+        resDirectories="src/androidTest/res:src/androidTestDebug/res"
+        assetsDirectories="src/androidTest/assets:src/androidTestDebug/assets"
+        androidTest="true"/>
+  </testSourceProviders>
+  <testFixturesSourceProviders>
+  </testFixturesSourceProviders>
+  <artifact
+      type="INSTRUMENTATION_TEST"
+      applicationId="com.tortugapower.audiobookplayer.core.test"
+      generatedResourceFolders="build/generated/res/resValues/androidTest/debug"
+      desugaredMethodsFiles="/Users/pro.gianni.carlo/.gradle/caches/8.9/transforms/75eef0c164a6c8c1131360c836e75d68/transformed/D8BackportedDesugaredMethods.txt">
+  </artifact>
+</variant>
