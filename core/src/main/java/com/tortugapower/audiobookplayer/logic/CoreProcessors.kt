@@ -24,7 +24,9 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 
 class FetchContentsProcessor(
     private val context: Context,
-    private val repository: SyncTaskRepository
+    private val repository: SyncTaskRepository,
+    // Injected by the host target; null on a no-player context (skips last-played reconciliation).
+    private val playback: PlaybackSyncCoordinator? = null
 ) : TaskProcessor {
     private val gson = Gson()
 
@@ -72,21 +74,22 @@ class FetchContentsProcessor(
                 // Ensure the last played item itself is synced to DB
                 val (finalUuid, _) = syncItem(libraryDao, serverLastPlayed, allGeneratedUuids)
                 
-                if (!PlaybackManager.isPlaying.value) {
-                    val localCurrent = PlaybackManager.currentItem.value
+                val coordinator = playback
+                if (coordinator != null && !coordinator.isPlaying()) {
+                    val localCurrent = coordinator.currentItem()
                     val serverTs = serverLastPlayed.lastPlayDateTimestamp?.let { (it * 1000).toLong() } ?: 0L
                     val localTs = localCurrent?.lastPlayDate ?: 0L
-                    
+
                     val isMoreRecent = serverTs > localTs
-                    val isSameWithMoreProgress = localCurrent != null && 
-                                                finalUuid == localCurrent.uuid && 
+                    val isSameWithMoreProgress = localCurrent != null &&
+                                                finalUuid == localCurrent.uuid &&
                                                 serverLastPlayed.currentTime > localCurrent.currentTime
-                    
+
                     if (localCurrent == null || isMoreRecent || isSameWithMoreProgress) {
                         val itemToRestore = libraryDao.getItemById(finalUuid)
                         if (itemToRestore != null) {
                             Log.d("FetchContentsProcessor", "🔄 Server has a more recent state for '${itemToRestore.title}'. Syncing...")
-                            PlaybackManager.syncLastPlayed(context, itemToRestore)
+                            coordinator.syncLastPlayed(context, itemToRestore)
                         }
                     }
                 }
@@ -718,24 +721,15 @@ class ExternalUpdateProcessor(
 
     private fun getDeviceId(): String {
         return try {
-            val isAppInitialized = try {
-                com.tortugapower.audiobookplayer.BookPlayerApplication.instance
-                true
-            } catch (e: Exception) {
-                false
+            if (!com.tortugapower.audiobookplayer.core.CoreContext.isInitialized()) return "BookPlayerAndroidID"
+            val appCtx = com.tortugapower.audiobookplayer.core.CoreContext.appContext
+            val prefs = appCtx.getSharedPreferences("jellyfin_prefs", Context.MODE_PRIVATE)
+            var id = prefs.getString("device_id", null)
+            if (id == null) {
+                id = java.util.UUID.randomUUID().toString()
+                prefs.edit().putString("device_id", id).apply()
             }
-            if (isAppInitialized) {
-                val appCtx = com.tortugapower.audiobookplayer.BookPlayerApplication.instance
-                val prefs = appCtx.getSharedPreferences("jellyfin_prefs", Context.MODE_PRIVATE)
-                var id = prefs.getString("device_id", null)
-                if (id == null) {
-                    id = java.util.UUID.randomUUID().toString()
-                    prefs.edit().putString("device_id", id).apply()
-                }
-                id
-            } else {
-                "BookPlayerAndroidID"
-            }
+            id
         } catch (e: Exception) {
             "BookPlayerAndroidID"
         }
