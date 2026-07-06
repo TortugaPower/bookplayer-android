@@ -50,8 +50,12 @@ class WearAuthClient(
                 replyBytes.complete(event.data)
             }
         }
-        messageClient.addListener(listener)
         return try {
+            // Await registration before sending, so the listener is actually live in GMS when the phone's
+            // reply comes back — otherwise a fast reply can be dropped and we'd fall through to the timeout.
+            // Inside the try so a registration failure surfaces as Failed (and removeListener still runs)
+            // rather than throwing out of requestAuth() and stranding the caller.
+            messageClient.addListener(listener).await()
             messageClient.sendMessage(phoneNodeId, WearDataLayer.PATH_AUTH, ByteArray(0)).await()
             val bytes = withTimeout(REPLY_TIMEOUT_MS) { replyBytes.await() }
             when (val reply = WatchAuthCodec.decodeReply(bytes)) {
