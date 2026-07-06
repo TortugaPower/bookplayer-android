@@ -35,3 +35,9 @@ jobs:
 
       - name: Lint
         run: ./gradlew lintDevDebug --stacktrace
+
+      # :wear is a standalone application module (not a dependency of :app), and it has no `env`
+      # flavor, so the devDebug tasks above never touch it. Build + lint it explicitly so the Wear
+      # scaffold stays green in CI.
+      - name: Build and lint :wear
+        run: ./gradlew :wear:assembleDebug :wear:lintDebug --stacktrace
