@@ -44,6 +44,9 @@ object PlaybackManager {
     // hang playback (fail-soft: fall through to whatever's local).
     private const val CONTENTS_FETCH_TIMEOUT_MS = 15_000L
 
+    // Cap the per-process "already attempted remote chapter fetch" dedup set (cleared on overflow).
+    private const val REMOTE_ATTEMPT_CAP = 1000
+
     val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var player: Player? = null
@@ -465,6 +468,22 @@ object PlaybackManager {
     private val remoteChapterAttempts = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     /**
+     * Best-effort audio file extension for picking the chapter parser, from most to least reliable:
+     * the item's `relativePath`, then its `originalFileName` (set for external items whose relativePath
+     * is null, e.g. AudiobookShelf), then the remote URL's last path segment with any query/fragment
+     * stripped. A streaming URL like `Items/<id>/Download?api_key=...` yields no extension → we fall
+     * through rather than mis-detecting. Pure (no Android APIs) so it's unit-tested. Lowercased, no dot.
+     */
+    internal fun audioExtensionFor(item: LibraryItemEntity, url: String): String {
+        val fromUrl = url.substringBefore('?').substringBefore('#').substringAfterLast('/')
+        for (candidate in listOfNotNull(item.relativePath, item.originalFileName, fromUrl)) {
+            val ext = candidate.substringAfterLast('.', "")
+            if (ext.length in 1..5 && ext.all { it.isLetterOrDigit() }) return ext.lowercase()
+        }
+        return ""
+    }
+
+    /**
      * Background (non-blocking) embedded-chapter extraction for OFFLOADED/streamed files: range-fetch the
      * metadata region over HTTP and persist the chapters (iOS `loadChaptersIfNeeded` on a streamed asset).
      * A single book then refreshes its timeline live; a bound book persists only (shows next reload —
@@ -487,10 +506,12 @@ object PlaybackManager {
                     val rp = sub.relativePath
                     if (rp != null && File(processedDir, rp).exists()) continue           // downloaded → local path handles it
                     if (repo.getChaptersForBook(sub.uuid).first().isNotEmpty()) continue  // already have chapters
+                    // Bound the per-process dedup set (clear on overflow — a re-attempt is harmless).
+                    if (remoteChapterAttempts.size >= REMOTE_ATTEMPT_CAP) remoteChapterAttempts.clear()
                     if (!remoteChapterAttempts.add(sub.uuid)) continue                    // attempted this session
                     val resolved = repo.resolveStreamingUrl(sub)
                     val url = resolved.remoteURL?.takeIf { it.isNotEmpty() } ?: continue
-                    val ext = (rp ?: url).substringAfterLast('.', "").lowercase()
+                    val ext = audioExtensionFor(sub, url)
                     val headers = getHeadersForUri(android.net.Uri.parse(url))
                     val chapters = ChapterExtractionService.extractChapterEntitiesRemote(
                         url, headers, ext, sub.uuid, (sub.duration * 1000).toLong()
