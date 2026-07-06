@@ -138,8 +138,8 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
 
     implementation(libs.gson)
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.converter.gson)
+    implementation(libs.retrofit) // app still uses retrofit2.Response directly (CoreProcessors, PlaybackManager)
+    implementation(libs.retrofit.converter.gson) // CoreProcessors builds its own Retrofit for external servers
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services)

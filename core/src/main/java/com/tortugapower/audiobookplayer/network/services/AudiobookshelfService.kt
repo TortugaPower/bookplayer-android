@@ -49,14 +49,14 @@ class AudiobookshelfService : ExternalService {
             } else {
                 ConnectionResult.Failure(
                     message = "Authentication failed: ${response.message()}",
-                    messageResId = com.tortugapower.audiobookplayer.R.string.media_servers_error_auth_failed,
+                    messageResId = com.tortugapower.audiobookplayer.core.R.string.media_servers_error_auth_failed,
                     args = listOf(response.message())
                 )
             }
         } catch (e: Exception) {
             ConnectionResult.Failure(
                 message = "Connection error: ${e.message}",
-                messageResId = com.tortugapower.audiobookplayer.R.string.media_servers_error_connection_failed,
+                messageResId = com.tortugapower.audiobookplayer.core.R.string.media_servers_error_connection_failed,
                 args = listOf(e.message ?: "")
             )
         }
@@ -78,7 +78,7 @@ class AudiobookshelfService : ExternalService {
                 com.tortugapower.audiobookplayer.network.ExternalLibraryInfo(
                     id = it.id,
                     name = it.name,
-                    subtitleResId = com.tortugapower.audiobookplayer.R.string.external_library_audiobook_library_caption
+                    subtitleResId = com.tortugapower.audiobookplayer.core.R.string.external_library_audiobook_library_caption
                 )
             }
     }

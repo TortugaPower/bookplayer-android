@@ -27,5 +27,11 @@ dependencies {
     api(libs.androidx.room.runtime)
     api(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
-    implementation(libs.gson) // Converters
+    implementation(libs.gson)
+
+    // Networking (Retrofit/OkHttp) — the shared API layer. Consumers that touch retrofit2.Response
+    // (e.g. app's CoreProcessors) declare retrofit themselves, so these stay `implementation`.
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.gson)
+    implementation(libs.okhttp)
 }

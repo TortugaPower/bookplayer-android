@@ -35,24 +35,15 @@ class JellyfinService : ExternalService {
 
     private fun getDeviceId(): String {
         return try {
-            val isAppInitialized = try {
-                com.tortugapower.audiobookplayer.BookPlayerApplication.instance
-                true
-            } catch (e: Exception) {
-                false
+            if (!com.tortugapower.audiobookplayer.core.CoreContext.isInitialized()) return "BookPlayerAndroidID"
+            val context = com.tortugapower.audiobookplayer.core.CoreContext.appContext
+            val prefs = context.getSharedPreferences("jellyfin_prefs", android.content.Context.MODE_PRIVATE)
+            var id = prefs.getString("device_id", null)
+            if (id == null) {
+                id = java.util.UUID.randomUUID().toString()
+                prefs.edit().putString("device_id", id).apply()
             }
-            if (isAppInitialized) {
-                val context = com.tortugapower.audiobookplayer.BookPlayerApplication.instance
-                val prefs = context.getSharedPreferences("jellyfin_prefs", android.content.Context.MODE_PRIVATE)
-                var id = prefs.getString("device_id", null)
-                if (id == null) {
-                    id = java.util.UUID.randomUUID().toString()
-                    prefs.edit().putString("device_id", id).apply()
-                }
-                id
-            } else {
-                "BookPlayerAndroidID"
-            }
+            id
         } catch (e: Exception) {
             "BookPlayerAndroidID"
         }
@@ -95,14 +86,14 @@ class JellyfinService : ExternalService {
             } else {
                 ConnectionResult.Failure(
                     message = "Authentication failed: ${response.message()}",
-                    messageResId = com.tortugapower.audiobookplayer.R.string.media_servers_error_auth_failed,
+                    messageResId = com.tortugapower.audiobookplayer.core.R.string.media_servers_error_auth_failed,
                     args = listOf(response.message())
                 )
             }
         } catch (e: Exception) {
             ConnectionResult.Failure(
                 message = "Connection error: ${e.message}",
-                messageResId = com.tortugapower.audiobookplayer.R.string.media_servers_error_connection_failed,
+                messageResId = com.tortugapower.audiobookplayer.core.R.string.media_servers_error_connection_failed,
                 args = listOf(e.message ?: "")
             )
         }

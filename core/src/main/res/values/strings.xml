@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared strings used by :core (external-server integration messages). Referenced via the app's
+         merged R too, so :app UI keeps resolving them by name. -->
+    <string name="media_servers_error_auth_failed">Authentication failed: %1$s</string>
+    <string name="media_servers_error_connection_failed">Connection error: %1$s</string>
+    <string name="external_library_audiobook_library_caption">Audiobook library</string>
+</resources>
