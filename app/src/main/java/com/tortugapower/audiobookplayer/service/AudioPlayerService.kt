@@ -562,6 +562,52 @@ class AudioPlayerService : MediaLibraryService() {
             }
             return future
         }
+
+        // --- Android Auto in-car search (mirrors iOS searchAllBooks: title OR author, incl. bound
+        //     books, excludes folders). Auto calls onSearch first (we report the count), then pulls
+        //     pages via onGetSearchResult. Result rows use the same "item:<path>" ids as browse, so a
+        //     tap plays through the onSetMediaItems path already wired above. ---
+
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<Void>> {
+            val future = SettableFuture.create<LibraryResult<Void>>()
+            serviceScope.launch(Dispatchers.IO) {
+                val count = searchEntities(query).size
+                session.notifySearchResultChanged(browser, query, count, params)
+                future.set(LibraryResult.ofVoid(params ?: LibraryParams.Builder().build()))
+            }
+            return future
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            serviceScope.launch(Dispatchers.IO) {
+                val pageEntities = paginate(searchEntities(query), page, pageSize)
+                // Local/cached/sub-book art resolves synchronously; remote-only covers are left blank
+                // here (search has no browse-node id to notifyChildrenChanged against for a backfill).
+                val children = pageEntities.mapNotNull { toMediaItem(it, resolveBrowseArtworkUri(it)) }
+                grantArtworkRead(browser.packageName, children)
+                future.set(LibraryResult.ofItemList(ImmutableList.copyOf(children), params))
+            }
+            return future
+        }
+    }
+
+    /** Run the Android Auto search query (empty → no results), capped to SEARCH_LIMIT. Off the main thread. */
+    private suspend fun searchEntities(query: String): List<LibraryItemEntity> {
+        if (query.isBlank()) return emptyList()
+        return AppDatabase.getDatabase(this).libraryDao().searchAllBooksSync(query.trim(), SEARCH_LIMIT)
     }
 
     private fun currentMediaItemsWithStartPosition(session: MediaSession): MediaSession.MediaItemsWithStartPosition {
@@ -776,6 +822,8 @@ class AudioPlayerService : MediaLibraryService() {
         // How many recently-played books the Recent tab surfaces (the tab is inherently bounded;
         // Library/Folder nodes are unbounded and paginated instead).
         private const val RECENT_LIMIT = 50
+        // Cap total in-car search results (paginated on top of this).
+        private const val SEARCH_LIMIT = 50
         // Bound concurrent remote artwork metadata streams during a browse prefetch.
         private val remoteArtSemaphore = Semaphore(3)
     }

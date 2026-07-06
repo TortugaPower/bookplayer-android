@@ -43,7 +43,7 @@ class LibraryViewModel(
         searchJob = viewModelScope.launch {
             // Stable debounce implementation
             kotlinx.coroutines.delay(300)
-            repository.searchBooks(query).collect {
+            repository.searchAllBooks(query).collect {
                 _searchResults.value = it
             }
         }

@@ -194,4 +194,15 @@ interface LibraryDao {
     // first. Distinct from getRecentUnfinishedBooksSync (BOOK-only, used by the home-screen widget).
     @Query("SELECT * FROM library_items WHERE type IN ('BOOK', 'BOUND') AND lastPlayDate IS NOT NULL ORDER BY lastPlayDate DESC LIMIT :limit")
     suspend fun getRecentPlayedItemsSync(limit: Int): List<LibraryItemEntity>
+
+    // Global search over playable items (BOOK + BOUND, excludes folders) matching title OR author,
+    // newest-played first — mirrors iOS LibraryService.searchAllBooks. Shared by Android Auto's in-car
+    // search (suspend, capped) and the in-app library search tab (reactive Flow, with resources).
+    // Distinct from searchBooks (BOOK + title only), which StorageManagementScreen uses to list all books.
+    @Query("SELECT * FROM library_items WHERE type != 'FOLDER' AND (title LIKE '%' || :query || '%' OR author LIKE '%' || :query || '%') ORDER BY lastPlayDate DESC LIMIT :limit")
+    suspend fun searchAllBooksSync(query: String, limit: Int): List<LibraryItemEntity>
+
+    @Transaction
+    @Query("SELECT * FROM library_items WHERE type != 'FOLDER' AND (title LIKE '%' || :query || '%' OR author LIKE '%' || :query || '%') ORDER BY lastPlayDate DESC")
+    fun searchAllBooksWithResources(query: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources>>
 }
