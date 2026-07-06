@@ -8,7 +8,7 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
-import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.core.R
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import kotlinx.coroutines.Dispatchers

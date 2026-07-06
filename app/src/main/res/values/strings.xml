@@ -277,7 +277,6 @@
     <string name="library_folder_empty">0 Files</string>
     <string name="library_unknown_author">Unknown author</string>
     <string name="library_unknown_title">Unknown Title</string>
-    <string name="library_chapter_count">%1$d Chapters</string>
     <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_convert_to_volume">Convert to volume</string>
     <string name="library_combine_to_volume">Create a volume</string>

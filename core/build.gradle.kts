@@ -34,4 +34,7 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.okhttp)
+
+    // DataStore-backed settings that moved into :core (e.g. HardcoverSettingsManager).
+    implementation(libs.androidx.datastore.preferences)
 }
