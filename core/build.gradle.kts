@@ -19,6 +19,10 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -37,4 +41,7 @@ dependencies {
 
     // DataStore-backed settings that moved into :core (e.g. HardcoverSettingsManager).
     implementation(libs.androidx.datastore.preferences)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver) // HttpRangeByteSourceTest
 }
