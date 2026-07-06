@@ -47,25 +47,30 @@ class WearRootViewModel(
         _signInState.value = SignInUiState.Loading
         viewModelScope.launch {
             _signInState.value = when (val outcome = authenticator.requestAuth()) {
-                is WearAuthOutcome.Success -> {
-                    val payload = outcome.payload
-                    accountRepository.saveAccount(
-                        AccountEntity(
-                            id = payload.accountId,
-                            email = payload.email,
-                            apiToken = payload.token,
-                            tier = payload.tier,
-                            revenuecatId = payload.revenuecatId,
+                is WearAuthOutcome.Success ->
+                    // Wrapped so a persist/login failure (disk/Keystore) can't leave the state stuck on
+                    // Loading — that would hide the button and block retry (a permanent spinner).
+                    try {
+                        val payload = outcome.payload
+                        accountRepository.saveAccount(
+                            AccountEntity(
+                                id = payload.accountId,
+                                email = payload.email,
+                                apiToken = payload.token,
+                                tier = payload.tier,
+                                revenuecatId = payload.revenuecatId,
+                            )
                         )
-                    )
-                    // Authoritative tier re-check (mirrors iOS). Log in with the SAME RevenueCat user the
-                    // phone uses (`revenuecatId ?: accountId`) — otherwise RevenueCat resolves a different
-                    // user with no entitlement and downgrades the tier. No-ops on dev builds with an empty
-                    // RevenueCat key; the phone-sent tier seeds the UI until RevenueCat resolves. Once the
-                    // account is persisted, `mode` switches automatically.
-                    SubscriptionManager.login(payload.revenuecatId ?: payload.accountId)
-                    SignInUiState.Idle
-                }
+                        // Authoritative tier re-check (mirrors iOS). Log in with the SAME RevenueCat user
+                        // the phone uses (`revenuecatId ?: accountId`) — otherwise RevenueCat resolves a
+                        // different user with no entitlement and downgrades the tier. No-ops on dev builds
+                        // with an empty RevenueCat key; the phone-sent tier seeds the UI until RevenueCat
+                        // resolves. Once the account is persisted, `mode` switches automatically.
+                        SubscriptionManager.login(payload.revenuecatId ?: payload.accountId)
+                        SignInUiState.Idle
+                    } catch (e: Exception) {
+                        SignInUiState.Error(SignInError.FAILED)
+                    }
                 WearAuthOutcome.PhoneNotReachable -> SignInUiState.Error(SignInError.PHONE_NOT_REACHABLE)
                 WearAuthOutcome.NotSignedInOnPhone -> SignInUiState.Error(SignInError.PHONE_NOT_SIGNED_IN)
                 is WearAuthOutcome.Failed -> SignInUiState.Error(SignInError.FAILED)

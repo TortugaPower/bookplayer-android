@@ -31,12 +31,16 @@ class WearRootViewModelTest {
 
     private val dispatcher = StandardTestDispatcher()
 
-    private class FakeAccountRepository : AccountRepository {
+    private class FakeAccountRepository(private val failOnSave: Boolean = false) : AccountRepository {
         val flow = MutableStateFlow<AccountEntity?>(null)
         var saved: AccountEntity? = null
         override fun getAccountFlow(): Flow<AccountEntity?> = flow
         override suspend fun getAccount(): AccountEntity? = flow.value
-        override suspend fun saveAccount(account: AccountEntity) { saved = account; flow.value = account }
+        override suspend fun saveAccount(account: AccountEntity) {
+            if (failOnSave) throw RuntimeException("disk/keystore failure")
+            saved = account
+            flow.value = account
+        }
         override suspend fun deleteAccount() { saved = null; flow.value = null }
     }
 
@@ -65,6 +69,18 @@ class WearRootViewModelTest {
         assertEquals(AccountTier.PRO, saved?.tier)
         assertEquals("rc-1", saved?.revenuecatId)
         assertEquals(SignInUiState.Idle, model.signInState.value)
+    }
+
+    @Test fun signIn_success_butPersistFails_setsErrorAndIsRecoverable() = runTest(dispatcher) {
+        val repo = FakeAccountRepository(failOnSave = true)
+        val payload = WatchAuthPayload("acc-1", "e@x.com", "jwt-1", AccountTier.PRO, revenuecatId = "rc-1")
+        val model = modelFor(repo, WearAuthOutcome.Success(payload))
+
+        model.signIn()
+        advanceUntilIdle()
+
+        // Not stuck on Loading — resolves to a retryable error instead of a permanent spinner.
+        assertEquals(SignInUiState.Error(SignInError.FAILED), model.signInState.value)
     }
 
     @Test fun signIn_notSignedInOnPhone_setsErrorAndDoesNotSave() = runTest(dispatcher) {
