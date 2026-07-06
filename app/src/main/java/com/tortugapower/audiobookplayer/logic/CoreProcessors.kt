@@ -114,99 +114,13 @@ class FetchContentsProcessor(
     }
 
     private suspend fun syncItem(
-        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao, 
+        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao,
         remote: SyncableItem,
         generatedUuids: MutableSet<String>
-    ): Pair<String, Boolean> {
-        var uuid = remote.uuid
-        if (uuid.isNullOrEmpty()) {
-            // Server doesn't have a UUID yet.
-            // 1. Check if we already have this item locally by its path.
-            val localByPath = libraryDao.getItemByPath(remote.relativePath)
-            if (localByPath != null) {
-                // Keep our local UUID, we'll send it to the server in matchUuids task.
-                uuid = localByPath.uuid
-                generatedUuids.add(uuid!!) // Prevent collisions in this sync session
-            } else {
-                // Truly new item. Generate a unique local UUID.
-                do {
-                    uuid = java.util.UUID.randomUUID().toString()
-                } while (generatedUuids.contains(uuid))
-                generatedUuids.add(uuid!!)
-            }
-        } else {
-            // Server provided a UUID. Check for local mismatch by path.
-            val localById = libraryDao.getItemById(uuid!!)
-            if (localById == null) {
-                val localByPath = libraryDao.getItemByPath(remote.relativePath)
-                if (localByPath != null && localByPath.uuid != uuid) {
-                    // Conflict found: same path, different UUID. Server wins.
-                    Log.d("FetchContentsProcessor", "⚔️ Path conflict for '${remote.title}': local=${localByPath.uuid} server=$uuid. Migrating...")
-                    libraryDao.migrateItemUuid(localByPath.uuid, uuid!!)
-                    repository.migrateTaskUuid(localByPath.uuid, uuid!!)
-                }
-            }
-        }
-
-        val local = libraryDao.getItemById(uuid!!)
-        val isNew = local == null
-        
-        val type = ItemType.entries.getOrNull(remote.type) ?: ItemType.BOOK
-
-        val entity = LibraryItemEntity(
-            uuid = uuid!!,
-            title = remote.title,
-            author = remote.details,
-            duration = remote.duration,
-            currentTime = remote.currentTime,
-            percentCompleted = remote.percentCompleted,
-            relativePath = remote.relativePath,
-            remoteURL = remote.remoteURL,
-            artworkURL = remote.artworkURL,
-            originalFileName = remote.originalFileName,
-            orderRank = remote.orderRank,
-            isFinished = remote.isFinished,
-            lastPlayDate = remote.lastPlayDateTimestamp?.let { (it * 1000).toLong() } ?: local?.lastPlayDate,
-            parentFolderUuid = local?.parentFolderUuid,
-            type = type
-        )
-
-        if (isNew) {
-            libraryDao.insertItem(entity)
-        } else {
-            libraryDao.updateItem(entity)
-        }
-
-        // Sync external resources if provided
-        val remoteResources = remote.externalResources
-        if (remoteResources != null) {
-            val localResources = libraryDao.getExternalResourcesForBookSync(uuid!!)
-            val remoteProviders = remoteResources.map { it.providerName }.toSet()
-            localResources.forEach { localRes ->
-                if (localRes.providerName !in remoteProviders) {
-                    libraryDao.deleteExternalResource(uuid!!, localRes.providerName)
-                }
-            }
-            remoteResources.forEach { remoteRes ->
-                val localRes = localResources.find { it.providerName == remoteRes.providerName }
-                val resourceEntity = ExternalResourceEntity(
-                    id = localRes?.id ?: 0L,
-                    providerName = remoteRes.providerName,
-                    providerId = remoteRes.providerId,
-                    syncStatus = remoteRes.syncStatus,
-                    lastSyncedAt = remoteRes.lastSyncedAt
-                        ?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
-                        ?: localRes?.lastSyncedAt,
-                    processedFile = remoteRes.processedFile,
-                    libraryItemUuid = uuid!!,
-                    hostId = remoteRes.hostId
-                )
-                libraryDao.insertExternalResource(resourceEntity)
-            }
-        }
-        
-        return Pair(uuid!!, isNew)
-    }
+    ): Pair<String, Boolean> =
+        // Shared with the playback-path offloaded-bound guard; here we pass the task repository so a
+        // path-conflict also migrates pending sync tasks (the play path passes null).
+        LibraryContentsSync.upsertItem(libraryDao, repository, remote, generatedUuids)
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_FETCH_CONTENTS

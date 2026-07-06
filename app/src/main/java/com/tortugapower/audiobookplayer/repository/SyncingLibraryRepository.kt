@@ -19,6 +19,8 @@ class SyncingLibraryRepository(
         return account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)
     }
 
+    override suspend fun isCloudSyncActive(): Boolean = isSubscribed()
+
     private suspend fun isPro(): Boolean {
         val account = accountRepository.getAccount()
         return account != null && account.tier == AccountTier.PRO

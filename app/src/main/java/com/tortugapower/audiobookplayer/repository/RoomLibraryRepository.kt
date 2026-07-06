@@ -105,6 +105,9 @@ class RoomLibraryRepository(
             }
         }
 
+    // Base (non-syncing) repository has no account/sync; the SyncingLibraryRepository decorator overrides.
+    override suspend fun isCloudSyncActive(): Boolean = false
+
     override suspend fun saveItem(item: LibraryItemEntity) {
         libraryDao.insertItem(item)
         withContext(Dispatchers.IO) {

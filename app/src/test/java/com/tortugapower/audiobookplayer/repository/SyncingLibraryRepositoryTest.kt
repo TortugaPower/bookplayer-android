@@ -31,6 +31,7 @@ class SyncingLibraryRepositoryTest {
         override fun getAllContainers(): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun searchBooks(query: String): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun searchAllBooks(query: String): Flow<List<LibraryItemEntity>> = emptyFlow()
+        override suspend fun isCloudSyncActive(): Boolean = false
         override fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>> = emptyFlow()
         override fun getChaptersForBook(bookUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>> = emptyFlow()
         override suspend fun insertChapters(chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}

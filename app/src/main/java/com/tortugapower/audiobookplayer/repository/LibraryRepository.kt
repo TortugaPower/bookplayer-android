@@ -22,6 +22,9 @@ interface LibraryRepository {
     /** iOS-parity search (title OR author, incl. bound books, excludes folders, newest-played first). */
     fun searchAllBooks(query: String): Flow<List<LibraryItemEntity>>
 
+    /** True when cloud sync is active (a subscribed account) — gates on-demand server fetches. */
+    suspend fun isCloudSyncActive(): Boolean
+
     suspend fun saveItem(item: LibraryItemEntity)
     suspend fun updateItem(item: LibraryItemEntity)
     suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean)
