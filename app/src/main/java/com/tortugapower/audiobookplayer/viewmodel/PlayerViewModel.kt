@@ -51,6 +51,7 @@ class PlayerViewModel(
     var showAddNoteDialog by mutableStateOf(false)
     var showBookmarksList by mutableStateOf(false)
     var showChaptersList by mutableStateOf(false)
+    var showCastSheet by mutableStateOf(false)
     var currentBookmark: BookmarkEntity? by mutableStateOf(null)
     var isExistingBookmark by mutableStateOf(false)
 
@@ -230,6 +231,7 @@ class PlayerViewModel(
     fun toggleMoreOptions() { showMoreOptions = !showMoreOptions }
     fun toggleSleepTimerMenu() { showSleepTimerMenu = !showSleepTimerMenu }
     fun toggleCustomSleepTimerPicker() { showCustomSleepTimerPicker = !showCustomSleepTimerPicker }
+    fun toggleCastSheet() { showCastSheet = !showCastSheet }
 
     fun startSleepTimer(minutes: Int) {
         com.tortugapower.audiobookplayer.logic.SleepTimerManager.startTimer(minutes)

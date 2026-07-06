@@ -206,6 +206,13 @@ fun PlayerScreen(
         )
     }
 
+    if (viewModel.showCastSheet) {
+        CastOptionsSheet(
+            viewModel = viewModel,
+            onDismiss = { viewModel.toggleCastSheet() }
+        )
+    }
+
     if (viewModel.showSleepTimerMenu) {
         SleepTimerSheet(
             viewModel = viewModel,
@@ -368,7 +375,8 @@ fun PlayerScreen(
                             showCloudBadge = false,
                             hasVideo = hasVideo,
                             isFullscreen = true,
-                            onToggleFullscreen = { isFullscreen = false }
+                            onToggleFullscreen = { isFullscreen = false },
+                            onCastClick = { viewModel.toggleCastSheet() }
                         )
                     }
                 } else {
@@ -396,7 +404,8 @@ fun PlayerScreen(
                             showCloudBadge = !isLocal && !currentItem.remoteURL.isNullOrEmpty(),
                             hasVideo = hasVideo,
                             isFullscreen = false,
-                            onToggleFullscreen = { isFullscreen = true }
+                            onToggleFullscreen = { isFullscreen = true },
+                            onCastClick = { viewModel.toggleCastSheet() }
                         )
 
                     Spacer(modifier = Modifier.height(32.dp))
@@ -499,7 +508,8 @@ private fun PlayerArtwork(
     showCloudBadge: Boolean,
     hasVideo: Boolean,
     isFullscreen: Boolean = false,
-    onToggleFullscreen: () -> Unit = {}
+    onToggleFullscreen: () -> Unit = {},
+    onCastClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var showControls by remember { mutableStateOf(true) }
@@ -647,26 +657,7 @@ private fun PlayerArtwork(
                     }
                 }
                 IconButton(
-                    onClick = {
-                        val intent = Intent("com.android.settings.panel.action.MEDIA_OUTPUT").apply {
-                            putExtra("com.android.settings.panel.extra.PACKAGE_NAME", context.packageName)
-                        }
-                        try {
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                            try {
-                                val fallbackIntent = Intent("android.settings.CAST_SETTINGS")
-                                context.startActivity(fallbackIntent)
-                            } catch (ex: Exception) {
-                                try {
-                                    val btIntent = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
-                                    context.startActivity(btIntent)
-                                } catch (error: Exception) {
-                                    // Silent fail
-                                }
-                            }
-                        }
-                    },
+                    onClick = onCastClick,
                     modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
                 ) {
                     Icon(

@@ -58,6 +58,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material.icons.outlined.Cast
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.ui.graphics.vector.ImageVector
+import android.content.Intent
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -979,6 +985,139 @@ viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 32.dp)
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CastOptionsSheet(
+    viewModel: PlayerViewModel,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.player_cast),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            // Option 1: System Media Output Dialog (AirPlay & Bluetooth)
+            RoutingOptionItem(
+                title = "AirPlay & Bluetooth Devices",
+                description = "Choose wireless speakers, headphones, or other Bluetooth systems.",
+                icon = Icons.Outlined.Cast,
+                onClick = {
+                    onDismiss()
+                    val intent = Intent("com.android.settings.panel.action.MEDIA_OUTPUT").apply {
+                        putExtra("com.android.settings.panel.extra.PACKAGE_NAME", context.packageName)
+                    }
+                    try {
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        try {
+                            val fallbackIntent = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
+                            context.startActivity(fallbackIntent)
+                        } catch (ex: Exception) {
+                            // Silent fail
+                        }
+                    }
+                }
+            )
+
+            // Option 2: Screen Cast / Wireless Displays
+            RoutingOptionItem(
+                title = "Wireless Displays & Cast",
+                description = "Cast screen or audio stream to TV, Google Cast, or Smart TVs.",
+                icon = Icons.Default.Tv,
+                onClick = {
+                    onDismiss()
+                    try {
+                        val intent = Intent("android.settings.CAST_SETTINGS")
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        // Silent fail
+                    }
+                }
+            )
+
+            // Option 3: Bluetooth settings shortcut
+            RoutingOptionItem(
+                title = "Bluetooth Settings",
+                description = "Pair a new device or manage connected Bluetooth accessories.",
+                icon = Icons.Default.Bluetooth,
+                onClick = {
+                    onDismiss()
+                    try {
+                        val intent = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        // Silent fail
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun RoutingOptionItem(
+    title: String,
+    description: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), CircleShape)
+                    .padding(8.dp)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
         }
     }
 }
