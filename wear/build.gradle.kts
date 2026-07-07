@@ -80,6 +80,12 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     // ProcessLifecycleOwner: gate the sync foreground service on process-foreground state.
     implementation(libs.androidx.lifecycle.process)
+
+    // Media3 — the Wear playback service subclasses :core's MediaPlaybackService (ExoPlayer + MediaSession).
+    // Types come transitively via :core (api), but declared here per the module convention (a module that
+    // uses a dependency directly declares it). No media3-ui (that's phone-Compose only).
+    implementation(libs.androidx.media3.session)
+    implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)

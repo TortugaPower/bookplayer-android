@@ -16,19 +16,32 @@ import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import com.tortugapower.audiobookplayer.wear.R
 
 /**
- * Standalone (PRO) library navigation graph: one destination per folder level. Tapping a folder pushes a
- * deeper level (native swipe-from-left returns to the parent); tapping a book/bound book plays it (wired in
- * the playback slice). The folder path + display title ride as query args so arbitrary names/slashes survive
- * routing (Uri-encoded). Each level owns its own [StandaloneViewModel], scoped to its NavBackStackEntry.
+ * Standalone (PRO) navigation graph: a folder-navigable library plus the on-watch now-playing screens.
+ * Tapping a folder pushes a deeper level (native swipe-back); tapping a book plays it on the watch via the
+ * shared [StandalonePlayerViewModel] and opens now-playing. The player VM is created at the graph root so
+ * it's shared across the library levels and the now-playing / more / chapters destinations. The folder path
+ * + display title ride as Uri-encoded query args so arbitrary names survive routing; each library level
+ * owns its own [StandaloneViewModel] scoped to its NavBackStackEntry.
  */
 private const val LIBRARY_ROUTE = "library?path={path}&title={title}"
 private const val ARG_PATH = "path"
 private const val ARG_TITLE = "title"
 
+private object StandaloneRoute {
+    const val NOW_PLAYING = "now_playing"
+    const val MORE = "more"
+    const val CHAPTERS = "chapters"
+}
+
 @Composable
 fun StandaloneNavHost() {
     val navController = rememberSwipeDismissableNavController()
     val app = LocalContext.current.applicationContext as Application
+
+    // Shared across all destinations (scoped to the host's ViewModelStoreOwner), so now-playing reflects
+    // whatever the library tapped.
+    val playerViewModel: StandalonePlayerViewModel = viewModel()
+    val playerState by playerViewModel.state.collectAsStateWithLifecycle()
 
     SwipeDismissableNavHost(navController = navController, startDestination = LIBRARY_ROUTE) {
         composable(
@@ -39,8 +52,8 @@ fun StandaloneNavHost() {
             ),
         ) { backStackEntry ->
             val path = backStackEntry.arguments?.getString(ARG_PATH)
-            val argTitle = backStackEntry.arguments?.getString(ARG_TITLE)
-            val title = argTitle ?: stringResource(R.string.wear_standalone_title)
+            val title = backStackEntry.arguments?.getString(ARG_TITLE)
+                ?: stringResource(R.string.wear_standalone_title)
 
             val viewModel: StandaloneViewModel =
                 viewModel(factory = StandaloneViewModelFactory(app, path))
@@ -52,12 +65,48 @@ fun StandaloneNavHost() {
                 onItemClick = { row ->
                     if (row.isFolder) {
                         navController.navigate(
-                            "library?path=${Uri.encode(row.id)}&title=${Uri.encode(row.title)}"
+                            "library?path=${Uri.encode(row.id)}&title=${Uri.encode(row.title)}",
                         )
+                    } else {
+                        playerViewModel.playItem(row.id)
+                        navController.navigate(StandaloneRoute.NOW_PLAYING)
                     }
-                    // else: on-watch playback lands in the next slice.
                 },
                 onRefresh = viewModel::refresh,
+            )
+        }
+
+        composable(StandaloneRoute.NOW_PLAYING) {
+            NowPlayingScreen(
+                state = playerState,
+                onPlayPause = playerViewModel::togglePlayPause,
+                onSkipBackward = playerViewModel::skipBackward,
+                onSkipForward = playerViewModel::skipForward,
+                onMore = { navController.navigate(StandaloneRoute.MORE) },
+                onChapters = { navController.navigate(StandaloneRoute.CHAPTERS) },
+            )
+        }
+
+        composable(StandaloneRoute.MORE) {
+            PlaybackControlsScreen(
+                state = playerState,
+                onDecreaseSpeed = playerViewModel::decreaseSpeed,
+                onIncreaseSpeed = playerViewModel::increaseSpeed,
+                onCycleSpeed = playerViewModel::cycleSpeed,
+                onSleepOff = playerViewModel::sleepOff,
+                onSleepEndOfChapter = playerViewModel::sleepEndOfChapter,
+                onSleepMinutes = playerViewModel::sleepAfter,
+                onToggleBoost = playerViewModel::toggleBoost,
+            )
+        }
+
+        composable(StandaloneRoute.CHAPTERS) {
+            ChapterListScreen(
+                state = playerState,
+                onChapter = {
+                    playerViewModel.seekChapter(it)
+                    navController.popBackStack()
+                },
             )
         }
     }

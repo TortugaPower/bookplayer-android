@@ -41,11 +41,13 @@
     <string name="wear_standalone_title">Library</string>
     <string name="wear_standalone_empty">No audiobooks yet. Syncing from your account…</string>
 
-    <!-- Standalone on-watch sync foreground service (notification). -->
+    <!-- Standalone on-watch sync foreground service (minimal, IMPORTANCE_MIN notification). -->
     <string name="wear_sync_channel_name">Background sync</string>
-    <string name="wear_sync_channel_desc">Shows progress while syncing your library to the watch.</string>
-    <string name="wear_sync_notification_title">BookPlayer sync</string>
-    <string name="wear_sync_status_starting">Starting sync…</string>
-    <string name="wear_sync_status_idle">Idle</string>
-    <string name="wear_sync_status_processing">Processing: %1$s</string>
+    <string name="wear_sync_channel_desc">Keeps your library in sync while you use BookPlayer on your watch.</string>
+    <string name="wear_sync_notification_title">Syncing your library</string>
+
+    <!-- Standalone on-watch playback. -->
+    <string name="wear_unknown_author">Unknown author</string>
+    <string name="wear_media_rewind">Rewind</string>
+    <string name="wear_media_fast_forward">Fast forward</string>
 </resources>

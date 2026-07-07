@@ -1,10 +1,15 @@
 package com.tortugapower.audiobookplayer.wear
 
 import android.app.Application
+import android.content.ComponentName
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
+import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
+import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.network.NetworkConstants
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
@@ -12,8 +17,8 @@ import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.ProcessLifecycleOwner
+import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
+import com.tortugapower.audiobookplayer.wear.service.WearPlaybackService
 import com.tortugapower.audiobookplayer.wear.sync.WearSyncServiceHost
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,13 +29,15 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
- * Wear OS Application. Configures the shared `:core` layer (context, network, RevenueCat) and builds the
- * repositories the watch needs — the same manual-DI startup as the phone's `BookPlayerApplication`, minus
- * the Media3/player pieces (those land with the Wear playback service in the next slice).
+ * Wear OS Application. Configures the shared `:core` layer (context, network, RevenueCat), builds the
+ * repositories the watch needs, and wires the on-watch player — the same manual-DI startup as the phone's
+ * `BookPlayerApplication`, minus the home-screen widget.
  *
- * The account/library/sync-task repositories are exposed for the Wear UI/ViewModels. The Wear sync
- * foreground service ([WearSyncServiceHost]) runs only while the account is on the standalone (PRO) tier —
- * so a remote-controller or signed-out watch never runs a background sync service.
+ * The library repository is a [SyncingLibraryRepository] so on-watch playback progress persists AND
+ * enqueues sync tasks (uploaded by [WearSyncServiceHost]), matching the phone. `PlaybackManager` is a
+ * `MediaController` client pointed at the watch's own [WearPlaybackService]. The sync foreground service
+ * runs only while the account is PRO AND the app is in use (foreground OR actively playing) — never
+ * started from a background Data Layer wake.
  */
 class WearApp : Application() {
     lateinit var accountRepository: AccountRepository
@@ -57,8 +64,13 @@ class WearApp : Application() {
 
         val database = AppDatabase.getDatabase(this)
         accountRepository = RoomAccountRepository(database.accountDao())
-        libraryRepository = RoomLibraryRepository(this, database.libraryDao())
         syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
+        // Syncing wrapper so on-watch playback progress (and speed/boost) both persist and enqueue sync tasks.
+        libraryRepository = SyncingLibraryRepository(
+            RoomLibraryRepository(this, database.libraryDao()),
+            syncTaskRepository,
+            accountRepository,
+        )
 
         // RevenueCat resolves the tier that gates standalone vs. remote mode. An empty key (dev builds)
         // no-ops gracefully; login happens once the watch has an account (sign-in handoff).
@@ -69,24 +81,43 @@ class WearApp : Application() {
             BuildConfig.REVENUECAT_API_KEY,
         )
 
-        // Run the on-watch sync service only while the account is PRO (standalone) AND the process is
-        // foreground. The foreground gate is essential on Wear: the process is frequently woken in the
-        // background by Data Layer listener services, and starting a dataSync foreground service from the
-        // background throws ForegroundServiceStartNotAllowedException on API 31+. Starting it while
-        // foreground is safe, and a started FGS is allowed to keep running once the app backgrounds — so
-        // we only stop it when the account leaves PRO (sign-out / downgrade), not on every background.
-        // (Background-initiated sync would need an expedited WorkManager job — a later enhancement.)
+        // On-watch player: a MediaController client bound to the watch's own MediaLibraryService. No widget
+        // on the watch, so the state-changed callback is a no-op.
+        PlaybackManager.initialize(
+            this,
+            libraryRepository,
+            sessionService = ComponentName(this, WearPlaybackService::class.java),
+            unknownAuthorLabel = getString(R.string.wear_unknown_author),
+        )
+
+        // Keep NetworkClient's auth token current with the signed-in account, at the app level, so both
+        // playback (presigned-URL refresh) and sync see the token regardless of the sync service lifecycle.
+        appScope.launch {
+            accountRepository.getAccountFlow().collect { account ->
+                NetworkClient.setToken(account?.apiToken)
+            }
+        }
+
+        // Run the on-watch sync foreground service while PRO AND the app is in use. Start/stop use
+        // ASYMMETRIC conditions on purpose:
+        //  - START only while foreground — starting a dataSync FGS from the background throws on API 31+
+        //    (the sync service has no media-session background-start exemption), and a background
+        //    play→true (resume from the notification/Bluetooth) must NOT trigger a start.
+        //  - STOP when not PRO, or idle in the background — but keep a foreground-started FGS running
+        //    while playback continues in the background so progress keeps syncing.
+        // The pro && !foreground && playing case is the deliberate gap: leave the service as-is.
         appScope.launch {
             val isPro = accountRepository.getAccountFlow().map { it?.tier == AccountTier.PRO }
             val isForeground = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
                 .map { it.isAtLeast(Lifecycle.State.STARTED) }
-            combine(isPro, isForeground) { pro, foreground -> pro to foreground }
+            combine(isPro, isForeground, PlaybackManager.isPlaying) { pro, foreground, playing ->
+                Triple(pro, foreground, playing)
+            }
                 .distinctUntilChanged()
-                .collect { (pro, foreground) ->
+                .collect { (pro, foreground, playing) ->
                     when {
                         pro && foreground -> WearSyncServiceHost.start(this@WearApp)
-                        !pro -> WearSyncServiceHost.stop(this@WearApp)
-                        // pro && !foreground: leave an already-running FGS running; never start from bg.
+                        !pro || (!foreground && !playing) -> WearSyncServiceHost.stop(this@WearApp)
                     }
                 }
         }
