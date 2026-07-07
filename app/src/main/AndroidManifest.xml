@@ -225,6 +225,19 @@
             </intent-filter>
         </service>
 
+        <!-- Receives remote-controller playback commands from the watch and drives PlaybackManager. -->
+        <service
+            android:name=".wear.WearCommandListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/bookplayer/command" />
+            </intent-filter>
+        </service>
+
 
         <!-- App Widget Large Provider registration. Not exported: the system delivers
              APPWIDGET_UPDATE with system privilege, and the playback-control actions arrive via
