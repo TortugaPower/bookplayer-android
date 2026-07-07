@@ -6,6 +6,12 @@
     <!-- Data Layer / node discovery in a later slice needs networked connectivity to the phone. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Standalone (Pro) on-watch library sync runs in a foreground data-sync service. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Show the ongoing sync notification (required to post notifications on API 33+). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name=".WearApp"
         android:allowBackup="true"
@@ -31,5 +37,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- On-watch library sync engine (standalone/Pro). Not exported: started only in-process. -->
+        <service
+            android:name=".sync.WearSyncServiceHost"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>
