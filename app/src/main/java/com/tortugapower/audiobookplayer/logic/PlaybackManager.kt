@@ -1,9 +1,6 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.ComponentName
-import android.appwidget.AppWidgetManager
-import android.content.Intent
-import com.tortugapower.audiobookplayer.widget.AudioWidgetLargeProvider
 import kotlinx.coroutines.flow.combine
 import android.content.Context
 import androidx.media3.common.MediaItem
@@ -19,7 +16,6 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
-import com.tortugapower.audiobookplayer.service.AudioPlayerService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -123,6 +119,10 @@ object PlaybackManager {
     private var repository: LibraryRepository? = null
     private var appContext: Context? = null
 
+    // Per-target values injected at [initialize] so this can move to :core without referencing :app's
+    // service/widget/R. Defaults keep headless/test contexts working.
+    private var unknownAuthorLabel: String = "Unknown author"
+
     // --- Observable playback state, the app-scoped source of truth. Collect from Compose via
     // collectAsStateWithLifecycle; read `.value` from non-Compose code. Only PlaybackManager writes it. ---
 
@@ -210,11 +210,25 @@ object PlaybackManager {
     // ~10s persist cadence survives tracker restarts (the subscriptionCount observer restarts the loop).
     private var lastProgressPersistMs = 0L
 
-    fun initialize(context: Context, libraryRepository: LibraryRepository) {
+    /**
+     * @param sessionService the target's media session service (phone: `AudioPlayerService`; watch: its own)
+     *   — the [MediaController] connects to it. Injected so this file carries no `:app` service reference.
+     * @param unknownAuthorLabel localized "unknown author" fallback (phone reads it from its `R.string`).
+     * @param onPlaybackStateChanged called on each item/play-state change with whether the item changed —
+     *   the phone uses it to update its home-screen widget; no-op on targets without one.
+     */
+    fun initialize(
+        context: Context,
+        libraryRepository: LibraryRepository,
+        sessionService: ComponentName,
+        unknownAuthorLabel: String = "Unknown author",
+        onPlaybackStateChanged: (itemChanged: Boolean, isPlaying: Boolean) -> Unit = { _, _ -> },
+    ) {
         if (player != null) return
         repository = libraryRepository
         val appContext = context.applicationContext
         this.appContext = appContext
+        this.unknownAuthorLabel = unknownAuthorLabel
 
         // Seed the external-server header map eagerly (off the main thread), so the runBlocking
         // fallback inside getHeadersForUri stays a cold-restore edge case rather than the norm.
@@ -227,34 +241,17 @@ object PlaybackManager {
         }
         
         scope.launch {
-            // iOS-style split (WidgetReloadService): a book change is a rare transition that
-            // rebuilds the whole widget; a play/pause flip only patches the button in place —
-            // no DB query, artwork reloads, or full RemoteViews payload per tap.
+            // Notify the target of item/play-state changes (the phone patches its home-screen widget;
+            // watch/tests no-op). `itemChanged` distinguishes a book change (rare, full rebuild) from a
+            // play/pause flip (cheap in-place patch).
             var lastItemUuid: String? = null
             var seenFirstEmission = false
             combine(_currentItem, _isPlaying) { item, playing -> Pair(item, playing) }
                 .collect { (item, playing) ->
-                    appContext.let { ctx ->
-                        val itemChanged = !seenFirstEmission || item?.uuid != lastItemUuid
-                        seenFirstEmission = true
-                        lastItemUuid = item?.uuid
-                        if (itemChanged) {
-                            val largeIds = AppWidgetManager.getInstance(ctx).getAppWidgetIds(
-                                ComponentName(ctx, AudioWidgetLargeProvider::class.java)
-                            )
-                            // No widgets placed — skip the broadcast (this also covers the
-                            // combine's immediate emission at cold start).
-                            if (largeIds.isNotEmpty()) {
-                                val largeIntent = Intent(ctx, AudioWidgetLargeProvider::class.java).apply {
-                                    action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-                                }
-                                largeIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, largeIds)
-                                ctx.sendBroadcast(largeIntent)
-                            }
-                        } else {
-                            AudioWidgetLargeProvider.pushPlayStateUpdate(ctx, playing)
-                        }
-                    }
+                    val itemChanged = !seenFirstEmission || item?.uuid != lastItemUuid
+                    seenFirstEmission = true
+                    lastItemUuid = item?.uuid
+                    onPlaybackStateChanged(itemChanged, playing)
                 }
         }
 
@@ -271,7 +268,7 @@ object PlaybackManager {
                 }
         }
 
-        val sessionToken = SessionToken(appContext, ComponentName(appContext, AudioPlayerService::class.java))
+        val sessionToken = SessionToken(appContext, sessionService)
         controllerFuture = MediaController.Builder(appContext, sessionToken).buildAsync()
         controllerFuture?.addListener({
             try {
@@ -572,7 +569,7 @@ object PlaybackManager {
             }
             val mediaTitle = if (group.size == 1) first.title else playable.title
             val artwork = first.artworkURL ?: playable.artworkURL
-            val fallbackAuthor = appContext?.getString(com.tortugapower.audiobookplayer.R.string.library_unknown_author) ?: "Unknown author"
+            val fallbackAuthor = unknownAuthorLabel
             MediaItem.Builder()
                 .setMediaId(first.uuid.ifEmpty { first.relativePath ?: "${playable.uuid}#${first.index}" })
                 .setUri(uri)
