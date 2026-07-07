@@ -1044,7 +1044,7 @@ object PlaybackManager {
 
     /**
      * Seek the REAL ExoPlayer by [deltaMs] (negative = backward), crossing sub-book boundaries on the
-     * whole-book timeline. Used by [AudioPlayerService]'s media-button / Bluetooth handlers, which hold
+     * whole-book timeline. Used by the media session service's media-button / Bluetooth handlers, which hold
      * the real player and operate in per-file coordinates (they bypass the virtualizing session). The
      * in-app controls go through [seekForward]/[seekBackward]/[seekWholeBook] instead.
      */

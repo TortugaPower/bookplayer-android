@@ -11,8 +11,9 @@ layout, and conventions before judging anything.
    its **callers** with `Read`/`Grep`/`Glob` before forming an opinion. Diff-only opinions are not acceptable.
 3. Cross-check changes against `CLAUDE.md` conventions and the matching area (UI/Compose, ViewModel,
    repository, Room, network, Media3 playback, billing).
-4. **Module boundaries:** the codebase is split into `:core` (shared Compose-free / Media3-free library)
-   and `:app` (phone). See "Module conventions" in `CLAUDE.md` — check the flags in the module section below.
+4. **Module boundaries:** the codebase is split into `:core` (shared Compose-free, playback-capable library —
+   Media3 lives here) and `:app` (phone) + `:wear`. See "Module conventions" in `CLAUDE.md` — check the flags
+   in the module section below.
 4. Comment **only on lines changed by this PR**, in changed files. Skip everything in "what to skip".
 
 ## What to skip
@@ -46,10 +47,12 @@ layout, and conventions before judging anything.
 - **Room schema change without a migration** (or `fallbackToDestructiveMigration`) that would drop user
   data — users' libraries and playback progress live here.
 - Nullable values from the network/DB dereferenced without handling (`!!` on API data, unguarded `null`).
-- **`:core` reaching into `:app`:** a file under `core/` referencing `PlaybackManager`, Media3, Compose,
-  `ui`/`service`/`widget`, `BookPlayerApplication`, or the app's `BuildConfig`/`R`. `:core` must stay
-  Compose-free / Media3-free and app-agnostic; what it needs from the target is injected via an interface
-  (e.g. `PlaybackSyncCoordinator`) or `CoreContext`/`configure(...)` — never a reverse dependency.
+- **`:core` reaching into `:app`:** a file under `core/` referencing Compose, `ui`/`service`/`widget`,
+  `BookPlayerApplication`, or the app's `BuildConfig`/`R`. `:core` must stay Compose-free and app-agnostic;
+  what it needs from the target is injected via an interface (e.g. `PlaybackSyncCoordinator`), a
+  `ComponentName`/callback into `PlaybackManager.initialize`, or `CoreContext`/`configure(...)` — never a
+  reverse dependency. NOTE: **Media3 and `PlaybackManager` now live in `:core`** (shared player) — those are
+  NOT boundary violations anymore; only the per-target `MediaSessionService`/notification/widget stay in `:app`/`:wear`.
 
 ### 🟡 WARN — worth a comment, not blocking
 

@@ -46,6 +46,13 @@ dependencies {
     // public methods (e.g. updateAccountTier(CustomerInfo)) expose RevenueCat types to consumers.
     api(libs.purchases)
 
+    // Media3 — PlaybackManager (the shared player orchestration) lives in :core so phone AND Wear reuse one
+    // codebase (Media3/ExoPlayer/audio-focus are identical on both, unlike iOS which had to fork). `api`
+    // because PlaybackManager's public surface exposes Media3 types (Player, MediaController, MediaItem).
+    // NOTE: this deliberately makes :core playback-capable — it is no longer Media3-free (see CLAUDE.md).
+    api(libs.androidx.media3.session)
+    api(libs.androidx.media3.common)
+
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver) // HttpRangeByteSourceTest
     testImplementation(libs.robolectric)          // in-memory Room DAO tests (JVM)
