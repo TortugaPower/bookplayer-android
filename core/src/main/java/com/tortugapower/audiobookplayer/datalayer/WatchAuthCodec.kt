@@ -22,7 +22,13 @@ object WatchAuthCodec {
         val text = bytes.toString(Charsets.UTF_8)
         if (text == WearDataLayer.NOT_SIGNED_IN) return WatchAuthReply.NotSignedIn
         return try {
-            gson.fromJson(text, WatchAuthPayload::class.java)?.let { WatchAuthReply.Success(it) }
+            // Gson bypasses Kotlin null-safety, so a JSON object missing required fields yields a payload
+            // with nulls in non-null properties. Validate the identity/auth-critical fields so such a reply
+            // is Malformed (as the KDoc promises) instead of a Success that NPEs or persists nulls. (A null
+            // field makes the isNotBlank() call itself throw, which the catch below maps to Malformed too.)
+            gson.fromJson(text, WatchAuthPayload::class.java)
+                ?.takeIf { it.accountId.isNotBlank() && it.email.isNotBlank() && it.token.isNotBlank() }
+                ?.let { WatchAuthReply.Success(it) }
                 ?: WatchAuthReply.Malformed
         } catch (e: Exception) {
             WatchAuthReply.Malformed

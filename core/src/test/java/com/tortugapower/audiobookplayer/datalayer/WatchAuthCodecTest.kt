@@ -35,4 +35,16 @@ class WatchAuthCodecTest {
     @Test fun decodeEmpty_isMalformed() {
         assertTrue(WatchAuthCodec.decodeReply(ByteArray(0)) is WatchAuthReply.Malformed)
     }
+
+    @Test fun decodeWellFormedJsonMissingRequiredFields_isMalformed() {
+        // Valid JSON, but missing accountId/token — Gson would otherwise produce a payload with nulls in
+        // non-null fields and pass it off as Success.
+        val json = """{"email":"e@x.com","tier":"PRO"}"""
+        assertTrue(WatchAuthCodec.decodeReply(json.toByteArray()) is WatchAuthReply.Malformed)
+    }
+
+    @Test fun decodeBlankRequiredField_isMalformed() {
+        val json = """{"accountId":"","email":"e@x.com","token":"jwt","tier":"PRO"}"""
+        assertTrue(WatchAuthCodec.decodeReply(json.toByteArray()) is WatchAuthReply.Malformed)
+    }
 }
