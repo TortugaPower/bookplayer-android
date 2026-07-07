@@ -6,9 +6,13 @@
     <!-- Data Layer / node discovery in a later slice needs networked connectivity to the phone. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Standalone (Pro) on-watch library sync runs in a foreground data-sync service. -->
+    <!-- Standalone (Pro) on-watch library sync runs in a foreground data-sync service; on-watch playback
+         runs in a foreground media-playback service. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- ExoPlayer holds a wake (and Wi-Fi, while streaming) lock during playback. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Show the ongoing sync notification (required to post notifications on API 33+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -44,5 +48,20 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- On-watch playback (standalone/Pro): the concrete MediaLibraryService PlaybackManager binds to.
+             Exported + MediaSessionService/MEDIA_BUTTON intent-filter so the platform/media controllers can
+             resolve it (no Android Auto browse action — that's phone-only). -->
+        <service
+            android:name=".service.WearPlaybackService"
+            android:enabled="true"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
+                <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>
