@@ -792,6 +792,12 @@ object PlaybackManager {
                 }
                 player?.setPlaybackSpeed(_playbackSpeed.value)
                 applyVolume(_volumeBoost.value, _playbackVolume.value)
+            } else {
+                // Nothing playable resolved (e.g. no backing files / all URIs empty): playback will never
+                // start, so no state transition would clear the queued intent. Clear it here so the button
+                // doesn't strand on "playing".
+                playbackQueuedFlag = false
+                recomputeIsPlaying()
             }
         }
     }
@@ -987,9 +993,10 @@ object PlaybackManager {
 
     fun togglePlayPause() {
         val p = player ?: return
-        // Toggle on INTENT, not actual playback: while buffering, p.isPlaying is false but playWhenReady is
-        // true — the button shows "playing", so a tap must pause (not call play() again).
-        if (p.playWhenReady) {
+        // Toggle on the SAME intent the button displays (isPlaying = queued || playWhenReady while
+        // READY/BUFFERING), not Media3's raw isPlaying: while buffering or during the queued-load window the
+        // button shows "playing", so a tap must pause rather than call play() again.
+        if (isPlaying.value) {
             p.pause()
         } else {
             if (p.playbackState == Player.STATE_IDLE) {
