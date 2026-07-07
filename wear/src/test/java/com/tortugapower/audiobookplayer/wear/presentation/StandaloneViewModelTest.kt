@@ -14,12 +14,18 @@ class StandaloneViewModelTest {
         author: String? = "An Author",
         relativePath: String? = "folder/book.m4b",
         type: ItemType = ItemType.BOOK,
+        percentCompleted: Double = 0.0,
+        isFinished: Boolean = false,
+        duration: Double = 0.0,
     ) = LibraryItemEntity(
         uuid = uuid,
         title = title,
         author = author,
         relativePath = relativePath,
         type = type,
+        percentCompleted = percentCompleted,
+        isFinished = isFinished,
+        duration = duration,
     )
 
     @Test
@@ -56,5 +62,29 @@ class StandaloneViewModelTest {
     fun `BOOK and BOUND map to non-folder rows`() {
         assertEquals(false, StandaloneViewModel.toRow(item(type = ItemType.BOOK)).isFolder)
         assertEquals(false, StandaloneViewModel.toRow(item(type = ItemType.BOUND)).isFolder)
+    }
+
+    @Test
+    fun `progress and duration are carried through`() {
+        val row = StandaloneViewModel.toRow(item(percentCompleted = 0.45, isFinished = false, duration = 12015.0))
+        assertEquals(0.45, row.percentCompleted, 0.0001)
+        assertEquals(false, row.isFinished)
+        assertEquals(12015.0, row.durationSeconds, 0.0001)
+    }
+
+    @Test
+    fun `progressPrefix is empty when unstarted`() {
+        assertEquals("", StandaloneViewModel.progressPrefix(percentCompleted = 0.0, isFinished = false))
+    }
+
+    @Test
+    fun `progressPrefix shows whole percent when in progress`() {
+        // percentCompleted is 0..1 on Android → 0.45 renders as "45% - ".
+        assertEquals("45% - ", StandaloneViewModel.progressPrefix(percentCompleted = 0.45, isFinished = false))
+    }
+
+    @Test
+    fun `progressPrefix shows 100 percent when finished`() {
+        assertEquals("100% - ", StandaloneViewModel.progressPrefix(percentCompleted = 1.0, isFinished = true))
     }
 }
