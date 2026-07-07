@@ -29,6 +29,8 @@
     <!-- Playback controls ("more"). -->
     <string name="wear_speed">Speed</string>
     <string name="wear_speed_format">%1$.1f×</string>
+    <string name="wear_decrease_speed">Decrease speed</string>
+    <string name="wear_increase_speed">Increase speed</string>
     <string name="wear_sleep_timer">Sleep timer</string>
     <string name="wear_sleep_off">Off</string>
     <string name="wear_sleep_end_of_chapter">End of chapter</string>

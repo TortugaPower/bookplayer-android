@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.items
@@ -48,13 +50,21 @@ fun PlaybackControlsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    CompactButton(onClick = onDecreaseSpeed) { Text("−") }
+                    val decreaseLabel = stringResource(R.string.wear_decrease_speed)
+                    val increaseLabel = stringResource(R.string.wear_increase_speed)
+                    CompactButton(
+                        onClick = onDecreaseSpeed,
+                        modifier = Modifier.semantics { contentDescription = decreaseLabel },
+                    ) { Text("−") }
                     Chip(
                         onClick = onCycleSpeed,
                         label = { Text(stringResource(R.string.wear_speed_format, state.speed)) },
                         colors = ChipDefaults.secondaryChipColors(),
                     )
-                    CompactButton(onClick = onIncreaseSpeed) { Text("+") }
+                    CompactButton(
+                        onClick = onIncreaseSpeed,
+                        modifier = Modifier.semantics { contentDescription = increaseLabel },
+                    ) { Text("+") }
                 }
             }
 
