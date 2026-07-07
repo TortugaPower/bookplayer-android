@@ -60,6 +60,26 @@ class StandalonePlayerViewModelTest {
     }
 
     @Test
+    fun `speed step rounds to two decimals`() {
+        assertEquals(1.1f, StandalonePlayerViewModel.steppedSpeed(1.0f, 0.1f), 0.0001f)
+        assertEquals(0.9f, StandalonePlayerViewModel.steppedSpeed(1.0f, -0.1f), 0.0001f)
+    }
+
+    @Test
+    fun `speed step clamps to the 0_5 - 4_0 range`() {
+        assertEquals(4.0f, StandalonePlayerViewModel.steppedSpeed(4.0f, 0.1f), 0.0001f)
+        assertEquals(0.5f, StandalonePlayerViewModel.steppedSpeed(0.5f, -0.1f), 0.0001f)
+    }
+
+    @Test
+    fun `speed steps accumulate when chained off the previous result`() {
+        val once = StandalonePlayerViewModel.steppedSpeed(1.0f, 0.1f)
+        val twice = StandalonePlayerViewModel.steppedSpeed(once, 0.1f)
+        val thrice = StandalonePlayerViewModel.steppedSpeed(twice, 0.1f)
+        assertEquals(1.3f, thrice, 0.0001f)
+    }
+
+    @Test
     fun `chapters map title, whole-book start, and index in order`() {
         val chapters = listOf(
             PlayableChapter(title = "Intro", author = null, start = 0.0, duration = 30.0, index = 0, relativePath = "f"),

@@ -69,13 +69,13 @@ class StandalonePlayerViewModel : ViewModel() {
     fun seekChapter(startSeconds: Double) =
         PlaybackManager.seekWholeBook((startSeconds * 1000).toLong())
 
-    fun decreaseSpeed() = setSpeed(currentSpeed() - SPEED_STEP)
-    fun increaseSpeed() = setSpeed(currentSpeed() + SPEED_STEP)
+    fun decreaseSpeed() = applySpeed(steppedSpeed(currentSpeed(), -SPEED_STEP))
+    fun increaseSpeed() = applySpeed(steppedSpeed(currentSpeed(), SPEED_STEP))
 
     /** Cycle to the next preset; surface it optimistically so the button updates before the echo. */
     fun cycleSpeed() { optimisticSpeed.value = PlaybackManager.cyclePlaybackSpeed(context()) }
 
-    // Base each step on the optimistic value (set synchronously in setSpeed) so rapid taps accumulate
+    // Base each step on the optimistic value (set synchronously in applySpeed) so rapid taps accumulate
     // before PlaybackManager's async echo lands; falls back to the last echoed speed.
     private fun currentSpeed(): Float = optimisticSpeed.value ?: PlaybackManager.playbackSpeed.value
 
@@ -85,10 +85,10 @@ class StandalonePlayerViewModel : ViewModel() {
 
     fun toggleBoost() = PlaybackManager.toggleVolumeBoost(context())
 
-    private fun setSpeed(rate: Float) {
-        val clamped = kotlin.math.round(rate.coerceIn(SPEED_MIN, SPEED_MAX) * 100f) / 100f
-        optimisticSpeed.value = clamped
-        PlaybackManager.setPlaybackSpeed(context(), clamped)
+    /** Persist [speed] and surface it optimistically so the UI reflects the tap before the async echo. */
+    private fun applySpeed(speed: Float) {
+        optimisticSpeed.value = speed
+        PlaybackManager.setPlaybackSpeed(context(), speed)
     }
 
     // Command entry points need a Context; use the :core-held app context so the VM holds no Context field.
@@ -98,6 +98,13 @@ class StandalonePlayerViewModel : ViewModel() {
         private const val SPEED_MIN = 0.5f
         private const val SPEED_MAX = 4.0f
         private const val SPEED_STEP = 0.1f
+
+        /**
+         * Pure step arithmetic (unit-tested): apply [delta] to [base], clamp to [SPEED_MIN]..[SPEED_MAX],
+         * round to 2 decimals. Chaining off the previous result is what makes rapid +/- taps accumulate.
+         */
+        fun steppedSpeed(base: Float, delta: Float): Float =
+            kotlin.math.round((base + delta).coerceIn(SPEED_MIN, SPEED_MAX) * 100f) / 100f
 
         /** Pure entity(+chapters) → now-playing mapping (unit-tested). */
         fun toNowPlaying(item: LibraryItemEntity, playable: PlayableItem?): WatchNowPlaying = WatchNowPlaying(
