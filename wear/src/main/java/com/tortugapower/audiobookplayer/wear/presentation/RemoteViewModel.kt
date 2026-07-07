@@ -39,29 +39,33 @@ class RemoteViewModel(
     private val commandSender: RemoteCommandSender,
 ) : ViewModel() {
 
+    // Optimistic overrides so the controls flip instantly on tap instead of waiting for the phone's Data
+    // Layer echo; each is cleared when the authoritative playback state comes back. (optimisticSpeed also
+    // lets rapid step-taps accumulate 1.5→1.6→1.7.)
     private val optimisticPlaying = MutableStateFlow<Boolean?>(null)
-    // Optimistic speed so rapid step-taps accumulate (1.5→1.6→1.7) instead of all reading the last echoed
-    // value before the phone's echo arrives. Cleared when the authoritative playback state comes back.
     private val optimisticSpeed = MutableStateFlow<Float?>(null)
+    private val optimisticBoost = MutableStateFlow<Boolean?>(null)
 
     val state: StateFlow<RemoteUiState> = combine(
         repository.libraryState,
-        // The playback echo is authoritative — clear any optimistic overrides the moment a new one arrives.
+        // The playback echo is authoritative — clear the optimistic overrides the moment a new one arrives.
         // Done inside the combine (not a second collector) so playbackState has a single DataClient listener.
         repository.playbackState.onEach {
             optimisticPlaying.value = null
             optimisticSpeed.value = null
+            optimisticBoost.value = null
         },
         optimisticPlaying,
         optimisticSpeed,
-    ) { library, playback, optimistic, optSpeed ->
+        optimisticBoost,
+    ) { library, playback, optPlaying, optSpeed, optBoost ->
         RemoteUiState(
             connecting = library == null && playback == null,
             recentItems = library?.recentItems ?: emptyList(),
             nowPlaying = library?.currentItem,
-            isPlaying = optimistic ?: (playback?.isPlaying ?: false),
+            isPlaying = optPlaying ?: (playback?.isPlaying ?: false),
             speed = optSpeed ?: (playback?.speed ?: 1.0f),
-            boostVolume = playback?.boostVolume ?: false,
+            boostVolume = optBoost ?: (playback?.boostVolume ?: false),
             rewindInterval = library?.rewindInterval ?: 0,
             forwardInterval = library?.forwardInterval ?: 0,
         )
@@ -116,8 +120,11 @@ class RemoteViewModel(
     fun sleepAfter(minutes: Int) =
         dispatch(WatchCommand(WatchCommandType.SLEEP, sleepSeconds = minutes * 60L))
 
-    fun toggleBoost() =
-        dispatch(WatchCommand(WatchCommandType.BOOST_VOLUME, boostOn = !state.value.boostVolume))
+    fun toggleBoost() {
+        val next = !(optimisticBoost.value ?: state.value.boostVolume)
+        optimisticBoost.value = next
+        dispatch(WatchCommand(WatchCommandType.BOOST_VOLUME, boostOn = next))
+    }
 
     private fun dispatch(command: WatchCommand) {
         viewModelScope.launch { commandSender.send(command) }

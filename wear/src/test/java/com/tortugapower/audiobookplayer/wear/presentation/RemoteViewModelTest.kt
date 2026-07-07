@@ -196,12 +196,13 @@ class RemoteViewModelTest {
         assertEquals(listOf(-1L, -2L, 900L), sender.sent.map { it.sleepSeconds })
     }
 
-    @Test fun toggleBoost_sendsInverseOfCurrent() = runTest(dispatcher) {
+    @Test fun toggleBoost_sendsInverseOfCurrent_andFlipsOptimistically() = runTest(dispatcher) {
         val vm = model()
         repo.playback.value = WatchPlaybackState(isPlaying = false, speed = 1.0f, boostVolume = false)
         advanceUntilIdle()
         vm.toggleBoost()
         advanceUntilIdle()
         assertEquals(true, sender.sent.single().boostOn)
+        assertEquals(true, vm.state.value.boostVolume) // flips before the echo
     }
 }
