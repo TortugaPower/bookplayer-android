@@ -15,8 +15,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.ScalingLazyListState
 import androidx.wear.compose.foundation.lazy.items
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.CircularProgressIndicator
@@ -30,13 +34,23 @@ import com.tortugapower.audiobookplayer.wear.R
  */
 @Composable
 fun RemoteScreen(
+    listState: ScalingLazyListState = rememberScalingLazyListState(),
     viewModel: RemoteViewModel = viewModel(
         factory = RemoteViewModelFactory(LocalContext.current.applicationContext as Application),
     ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     when {
-        state.connecting -> CenterMessage { CircularProgressIndicator() }
+        state.connecting -> CenterMessage {
+            CircularProgressIndicator()
+            Spacer(Modifier.height(8.dp))
+            // Text so TalkBack announces the wait (bare spinner is silent; a11y is first-class for this app).
+            Text(
+                text = stringResource(R.string.wear_remote_connecting),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.caption1,
+            )
+        }
         state.recentItems.isEmpty() && state.nowPlaying == null ->
             CenterMessage {
                 Text(
@@ -48,6 +62,7 @@ fun RemoteScreen(
             }
         else -> RemoteList(
             state = state,
+            listState = listState,
             onPlayItem = viewModel::playItem,
             onTogglePlayPause = viewModel::togglePlayPause,
         )
@@ -57,10 +72,11 @@ fun RemoteScreen(
 @Composable
 private fun RemoteList(
     state: RemoteUiState,
+    listState: ScalingLazyListState,
     onPlayItem: (String) -> Unit,
     onTogglePlayPause: () -> Unit,
 ) {
-    ScalingLazyColumn(modifier = Modifier.fillMaxSize()) {
+    ScalingLazyColumn(modifier = Modifier.fillMaxSize(), state = listState) {
         state.nowPlaying?.let { nowPlaying ->
             item {
                 Text(

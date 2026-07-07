@@ -14,6 +14,7 @@
     <string name="wear_signin_error_failed">Couldn\'t sign in. Try again.</string>
 
     <!-- Remote-controller mode (signed in, non-Pro tier). -->
+    <string name="wear_remote_connecting">Connecting to phone…</string>
     <string name="wear_recent_title">Recent</string>
     <string name="wear_remote_empty">No recently played books.</string>
     <string name="wear_refresh">Refresh</string>
