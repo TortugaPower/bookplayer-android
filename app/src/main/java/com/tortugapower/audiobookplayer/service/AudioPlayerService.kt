@@ -2,19 +2,11 @@ package com.tortugapower.audiobookplayer.service
 
 import android.app.PendingIntent
 import android.content.Intent
-import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Bundle
-import android.view.KeyEvent
 import androidx.core.content.FileProvider
-import androidx.core.content.IntentCompat
-import androidx.media3.common.AudioAttributes
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
@@ -34,13 +26,8 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.ArtworkManager
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
-import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import java.io.File
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
@@ -49,157 +36,29 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
-import androidx.media3.datasource.DataSourceBitmapLoader
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.datasource.HttpDataSource
-import androidx.media3.datasource.DataSpec
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.session.CacheBitmapLoader
+/**
+ * The phone playback service. Extends the shared [MediaPlaybackService] (which owns the ExoPlayer build,
+ * auth data source, [BookTimelinePlayer] wrap, LoudnessEnhancer, and the transport-only session callback)
+ * and adds the phone-only pieces: the launch-the-player [PendingIntent], the localized Now Playing
+ * button row, add-bookmark, and the Android Auto / MediaBrowser browse tree (Recent + Library tabs, mirrors
+ * iOS CarPlay). Registered as the phone's `<service>` in the manifest.
+ */
+class AudioPlayerService : MediaPlaybackService() {
 
-class AudioPlayerService : MediaLibraryService() {
-
-    private var player: ExoPlayer? = null
-    private var mediaSession: MediaLibrarySession? = null
-    private var loudnessEnhancer: LoudnessEnhancer? = null
-    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-
-    override fun onCreate() {
-        super.onCreate()
-
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(C.USAGE_MEDIA)
-            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-            .build()
-
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(false)
-        
-        val customHttpDataSourceFactory = object : HttpDataSource.Factory {
-            override fun createDataSource(): HttpDataSource {
-                val delegate = httpDataSourceFactory.createDataSource()
-                return object : HttpDataSource by delegate {
-                    override fun open(dataSpec: DataSpec): Long {
-                        // Attach auth only when the request host belongs to a configured external
-                        // server (resolved by authority in PlaybackManager), and reset any properties
-                        // from a previous open so headers never bleed onto another host's request.
-                        delegate.clearAllRequestProperties()
-                        PlaybackManager.getHeadersForUri(dataSpec.uri)?.forEach { (k, v) ->
-                            delegate.setRequestProperty(k, v)
-                        }
-                        return delegate.open(dataSpec)
-                    }
-                }
-            }
-
-            override fun setDefaultRequestProperties(defaultRequestProperties: MutableMap<String, String>): HttpDataSource.Factory {
-                httpDataSourceFactory.setDefaultRequestProperties(defaultRequestProperties)
-                return this
-            }
+    override fun createSessionActivity(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("OPEN_PLAYER", true)
         }
+        return PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+    }
 
-        // DefaultDataSource handles file://, asset://, etc. automatically
-        val dataSourceFactory = DefaultDataSource.Factory(this, customHttpDataSourceFactory)
+    override fun createSessionCallback(): MediaLibrarySession.Callback = CustomMediaLibrarySessionCallback()
 
-        player = ExoPlayer.Builder(this)
-            // handleAudioFocus = true: ExoPlayer requests/holds audio focus while playing. Required for
-            // Android Auto — the car only routes audio to its speakers for the app that holds media
-            // focus, so without it playback advances but is silent in the car (progress moves, no sound).
-            // Also gives correct ducking/pause on calls & nav prompts, matching iOS's AVAudioSession.
-            .setAudioAttributes(audioAttributes, true)
-            .setHandleAudioBecomingNoisy(true)
-            // Safe default before the first item resolves; narrowed per-item below (a Wi-Fi lock is
-            // only needed while actually streaming). Requires only the WAKE_LOCK permission; ExoPlayer
-            // acquires/releases the wake lock (and Wi-Fi lock, in NETWORK mode) with the play state.
-            .setWakeMode(C.WAKE_MODE_NETWORK)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(dataSourceFactory))
-            .build()
-
-        player?.let { p ->
-            // Narrow the wake mode per item: hold the Wi-Fi lock only while a chapter actually streams
-            // from a remote URL; local files need just the CPU lock (saves battery for the common
-            // local-playback case). Re-evaluated on each transition, so BOUND books with mixed
-            // local/remote chapters get the right mode per chapter.
-            p.addListener(object : Player.Listener {
-                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    p.setWakeMode(wakeModeFor(mediaItem))
-                }
-
-                // Surface a 401/403 on an external-server stream as an app-level error (the stored
-                // session died mid-playback). Detected here on the REAL player — the full cause
-                // chain doesn't survive the session-controller bundling that PlaybackManager sees.
-                override fun onPlayerError(error: PlaybackException) {
-                    var cause: Throwable? = error
-                    while (cause != null) {
-                        if (cause is HttpDataSource.InvalidResponseCodeException &&
-                            (cause.responseCode == 401 || cause.responseCode == 403)
-                        ) {
-                            val uri = p.currentMediaItem?.localConfiguration?.uri
-                            if (uri != null && PlaybackManager.hasHeadersForUri(uri)) {
-                                PlaybackManager.reportExternalStreamAuthError()
-                            }
-                            return
-                        }
-                        cause = cause.cause
-                    }
-                }
-            })
-
-            val intent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra("OPEN_PLAYER", true)
-            }
-            val pendingIntent = PendingIntent.getActivity(
-                this, 0, intent,
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
-
-            // Wrap the ExoPlayer so the session (and thus the OS notification scrubber) reports a
-            // whole-book timeline for BOUND books in book context, matching the in-app player. The
-            // real ExoPlayer `p` keeps its per-file playlist (gapless auto-advance); the service still
-            // drives `p` directly for media-button seeks and the LoudnessEnhancer / wake mode.
-            val sessionPlayer = BookTimelinePlayer(
-                wrapped = p,
-                timelineFlow = PlaybackManager.currentTimeline,
-                chapterContextFlow = PlaybackManager.useChapterContext,
-                playableFlow = PlaybackManager.currentPlayable,
-                chapterIndexFlow = PlaybackManager.currentChapterIndex,
-                scope = serviceScope
-            )
-
-            mediaSession = MediaLibrarySession.Builder(this, sessionPlayer, CustomMediaLibrarySessionCallback())
-                .setSessionActivity(pendingIntent)
-                .setMediaButtonPreferences(buildMediaButtonPreferences())
-                // Load notification artwork through the same data source factory as playback, so
-                // external-server covers (auth via headers, not URL tokens) render in the media
-                // notification too.
-                .setBitmapLoader(
-                    CacheBitmapLoader(
-                        DataSourceBitmapLoader(DataSourceBitmapLoader.DEFAULT_EXECUTOR_SERVICE.get(), dataSourceFactory)
-                    )
-                )
-                .build()
-
-            // Initialize LoudnessEnhancer
-            try {
-                loudnessEnhancer = LoudnessEnhancer(p.audioSessionId)
-                loudnessEnhancer?.setTargetGain(1000) // 10dB boost (approx double loudness)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        // Observe volume boost setting
-        serviceScope.launch {
-            PlaybackSettingsManager.getVolumeBoost(this@AudioPlayerService).collectLatest { enabled ->
-                try {
-                    loudnessEnhancer?.enabled = enabled
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
-
+    override fun onSessionReady() {
         // Keep Android Auto's Recent tab fresh: Auto caches a browse node's children, so when the playing
         // book changes we must tell browsers the "recent" node changed → Auto re-queries onGetChildren.
         serviceScope.launch {
@@ -216,16 +75,6 @@ class AudioPlayerService : MediaLibraryService() {
                     session.notifyChildrenChanged(MediaBrowseTree.RECENT_ID, count.coerceAtLeast(1), null)
                 }
         }
-
-        // Keep the Now Playing speed button's glyph in sync with the live playback speed.
-        serviceScope.launch {
-            PlaybackManager.playbackSpeed.drop(1).collect { refreshMediaButtons() }
-        }
-    }
-
-    /** Rebuild + push the Now Playing custom-button row to reflect current speed / chapter / bookmark state. */
-    private fun refreshMediaButtons() {
-        mediaSession?.setMediaButtonPreferences(buildMediaButtonPreferences())
     }
 
     /**
@@ -233,7 +82,7 @@ class AudioPlayerService : MediaLibraryService() {
      * SLOT_BACK/SLOT_FORWARD (never replaced); the overflow row carries `speed · bookmark`. The speed
      * glyph reflects the live speed.
      */
-    private fun buildMediaButtonPreferences(): List<CommandButton> {
+    override fun buildMediaButtonPreferences(): List<CommandButton> {
         // Rewind / fast-forward: Media3's circular curved-arrow ICON_SKIP_BACK/FORWARD (matching iOS's
         // arrow.counterclockwise/clockwise). CUSTOM session-command buttons — not player seek commands
         // (those are withheld in onConnect) — so System UI can't swap in skip-track glyphs. Taps route
@@ -307,105 +156,23 @@ class AudioPlayerService : MediaLibraryService() {
         return if (h > 0) String.format(locale, "%d:%02d:%02d", h, m, s) else String.format(locale, "%d:%02d", m, s)
     }
 
-    /**
-     * CPU-only wake lock for local files; CPU + Wi-Fi lock only when the item streams from a remote
-     * URL (so the Wi-Fi radio isn't held awake during local playback).
-     */
-    private fun wakeModeFor(mediaItem: MediaItem?): Int {
-        val scheme = mediaItem?.localConfiguration?.uri?.scheme?.lowercase()
-        return if (scheme == "http" || scheme == "https") C.WAKE_MODE_NETWORK else C.WAKE_MODE_LOCAL
-    }
+    private inner class CustomMediaLibrarySessionCallback : BaseLibrarySessionCallback() {
 
-    /**
-     * Seek the player by the live configured interval. Delegates to PlaybackManager so a BOUND book's
-     * skip crosses sub-book (chapter) boundaries on the whole-book timeline instead of clamping inside
-     * the current file — same behavior as the in-app transport controls.
-     */
-    private fun seekRelative(forward: Boolean) {
-        val p = player ?: return
-        val seconds = if (forward) PlaybackManager.forwardInterval.value else PlaybackManager.rewindInterval.value
-        val deltaMs = seconds * 1000L
-        PlaybackManager.seekRelativeAcrossChapters(p, if (forward) deltaMs else -deltaMs)
-    }
+        // Advertise the add-bookmark custom action on top of the shared rewind / forward / speed set.
+        override fun customSessionCommands(): List<SessionCommand> =
+            listOf(SessionCommand(APP_ACTION_BOOKMARK, Bundle.EMPTY))
 
-    private inner class CustomMediaLibrarySessionCallback : MediaLibrarySession.Callback {
-        override fun onConnect(
-            session: MediaSession,
-            controller: MediaSession.ControllerInfo
-        ): MediaSession.ConnectionResult {
-            // Withhold the standard skip / relative-seek player commands so System UI can't replace
-            // our custom rewind / fast-forward icons with its own skip-track glyphs. Everything else
-            // (play/pause, scrub via seek-in-current-item, speed, volume, media-item changes) stays.
-            val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
-                .remove(Player.COMMAND_SEEK_TO_NEXT)
-                .remove(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                .remove(Player.COMMAND_SEEK_TO_PREVIOUS)
-                .remove(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                .remove(Player.COMMAND_SEEK_BACK)
-                .remove(Player.COMMAND_SEEK_FORWARD)
-                .build()
-            // Advertise our custom rewind / fast-forward actions to controllers. Start from the
-            // library-INCLUSIVE default set: for a MediaLibrarySession, DEFAULT_SESSION_COMMANDS omits the
-            // browse (library) commands, so a MediaBrowser (Android Auto) would be PERMISSION_DENIED on
-            // getLibraryRoot/getChildren and never render the browse tree.
-            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
-                .add(SessionCommand(APP_ACTION_REWIND, Bundle.EMPTY))
-                .add(SessionCommand(APP_ACTION_FORWARD, Bundle.EMPTY))
-                .add(SessionCommand(APP_ACTION_CYCLE_SPEED, Bundle.EMPTY))
-                .add(SessionCommand(APP_ACTION_BOOKMARK, Bundle.EMPTY))
-                .build()
-            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                .setAvailablePlayerCommands(playerCommands)
-                .setAvailableSessionCommands(sessionCommands)
-                .build()
-        }
-
-        override fun onCustomCommand(
+        override fun onCustomSessionCommand(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
             customCommand: SessionCommand,
             args: Bundle
-        ): ListenableFuture<SessionResult> {
-            when (customCommand.customAction) {
-                APP_ACTION_REWIND -> seekRelative(forward = false)
-                APP_ACTION_FORWARD -> seekRelative(forward = true)
-                // Speed persists → the playbackSpeed observer rebuilds the button with the new glyph.
-                APP_ACTION_CYCLE_SPEED -> PlaybackManager.cyclePlaybackSpeed(this@AudioPlayerService)
-                APP_ACTION_BOOKMARK -> handleBookmark(session, controller)
-                else -> return super.onCustomCommand(session, controller, customCommand, args)
-            }
-            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-        }
-
-        override fun onMediaButtonEvent(
-            session: MediaSession,
-            controllerInfo: MediaSession.ControllerInfo,
-            intent: Intent
-        ): Boolean {
-            val keyEvent = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
-                ?: return super.onMediaButtonEvent(session, controllerInfo, intent)
-            // Remap the Bluetooth/headset gestures to seek-by-interval (audiobook-friendly):
-            // NEXT (2 taps) / dedicated fast-forward -> forward; PREVIOUS (3 taps) / rewind -> back.
-            // We consume both the down and up events for these keys (acting once, on key-down) so the
-            // default skip handling never runs.
-            return when (keyEvent.keyCode) {
-                KeyEvent.KEYCODE_MEDIA_NEXT,
-                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
-                KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD -> {
-                    if (keyEvent.action == KeyEvent.ACTION_DOWN && keyEvent.repeatCount == 0) {
-                        seekRelative(forward = true)
-                    }
-                    true
-                }
-                KeyEvent.KEYCODE_MEDIA_PREVIOUS,
-                KeyEvent.KEYCODE_MEDIA_REWIND,
-                KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD -> {
-                    if (keyEvent.action == KeyEvent.ACTION_DOWN && keyEvent.repeatCount == 0) {
-                        seekRelative(forward = false)
-                    }
-                    true
-                }
-                else -> super.onMediaButtonEvent(session, controllerInfo, intent)
+        ): ListenableFuture<SessionResult>? {
+            return if (customCommand.customAction == APP_ACTION_BOOKMARK) {
+                handleBookmark(session, controller)
+                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            } else {
+                null
             }
         }
 
@@ -825,30 +592,9 @@ class AudioPlayerService : MediaLibraryService() {
         }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
-        return mediaSession
-    }
-
-    override fun onDestroy() {
-        // Stop the settings + BookTimelinePlayer collectors before releasing the player, so a late
-        // flow emission can't drive invalidateState()/getState() against a released ExoPlayer.
-        serviceScope.cancel()
-        mediaSession?.run {
-            player.release()
-            release()
-            mediaSession = null
-        }
-        loudnessEnhancer?.release()
-        loudnessEnhancer = null
-        player = null
-        super.onDestroy()
-    }
-
     companion object {
-        private const val APP_ACTION_REWIND = "com.tortugapower.audiobookplayer.action.REWIND"
-        private const val APP_ACTION_FORWARD = "com.tortugapower.audiobookplayer.action.FORWARD"
-        // Android Auto Now Playing custom actions (speed cycle, add bookmark).
-        private const val APP_ACTION_CYCLE_SPEED = "com.tortugapower.audiobookplayer.action.CYCLE_SPEED"
+        // Android Auto Now Playing add-bookmark custom action (phone-only; rewind / forward / speed live
+        // in the shared MediaPlaybackService).
         private const val APP_ACTION_BOOKMARK = "com.tortugapower.audiobookplayer.action.BOOKMARK"
         // How many recently-played books the Recent tab surfaces (the tab is inherently bounded;
         // Library/Folder nodes are unbounded and paginated instead).

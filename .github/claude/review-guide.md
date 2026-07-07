@@ -51,8 +51,10 @@ layout, and conventions before judging anything.
   `BookPlayerApplication`, or the app's `BuildConfig`/`R`. `:core` must stay Compose-free and app-agnostic;
   what it needs from the target is injected via an interface (e.g. `PlaybackSyncCoordinator`), a
   `ComponentName`/callback into `PlaybackManager.initialize`, or `CoreContext`/`configure(...)` — never a
-  reverse dependency. NOTE: **Media3 and `PlaybackManager` now live in `:core`** (shared player) — those are
-  NOT boundary violations anymore; only the per-target `MediaSessionService`/notification/widget stay in `:app`/`:wear`.
+  reverse dependency. NOTE: **Media3, `PlaybackManager`, and the abstract `MediaPlaybackService` base
+  (`MediaLibraryService` in `:core/service`) now live in `:core`** (shared player construction) — those are
+  NOT boundary violations anymore. Only the per-target CONCRETE, manifest-registered service (phone's
+  `AudioPlayerService` + its Auto browse tree), notification, and widget stay in `:app`/`:wear`.
 
 ### 🟡 WARN — worth a comment, not blocking
 
