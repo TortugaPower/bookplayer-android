@@ -22,18 +22,27 @@ object WatchAuthCodec {
         val text = bytes.toString(Charsets.UTF_8)
         if (text == WearDataLayer.NOT_SIGNED_IN) return WatchAuthReply.NotSignedIn
         return try {
-            // Gson bypasses Kotlin null-safety, so a JSON object missing required fields yields a payload
-            // with nulls in non-null properties. Validate the identity/auth-critical fields so such a reply
-            // is Malformed (as the KDoc promises) instead of a Success that NPEs or persists nulls. (A null
-            // field makes the isNotBlank() call itself throw, which the catch below maps to Malformed too.)
             gson.fromJson(text, WatchAuthPayload::class.java)
-                ?.takeIf { it.accountId.isNotBlank() && it.email.isNotBlank() && it.token.isNotBlank() }
+                ?.takeIf { it.isComplete() }
                 ?.let { WatchAuthReply.Success(it) }
                 ?: WatchAuthReply.Malformed
         } catch (e: Exception) {
             WatchAuthReply.Malformed
         }
     }
+
+    // Gson bypasses Kotlin null-safety, so a JSON object missing fields yields a payload with nulls in
+    // its non-null properties. Require every field the watch relies on to be present (and the strings
+    // non-blank) so an incomplete reply is Malformed — as the KDoc promises — instead of a Success that
+    // NPEs or persists nulls into AccountEntity's non-null columns. tier included: a null tier would flow
+    // into AccountEntity(tier = ...) and break watchModeFor. (SENSELESS_COMPARISON: the != null checks are
+    // "always true" to the compiler but genuinely guard Gson's runtime nulls.)
+    @Suppress("SENSELESS_COMPARISON")
+    private fun WatchAuthPayload.isComplete(): Boolean =
+        accountId != null && accountId.isNotBlank() &&
+            email != null && email.isNotBlank() &&
+            token != null && token.isNotBlank() &&
+            tier != null
 }
 
 /** Result of decoding the phone's auth reply. */

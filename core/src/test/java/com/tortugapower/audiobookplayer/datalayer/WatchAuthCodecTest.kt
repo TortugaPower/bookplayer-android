@@ -47,4 +47,10 @@ class WatchAuthCodecTest {
         val json = """{"accountId":"","email":"e@x.com","token":"jwt","tier":"PRO"}"""
         assertTrue(WatchAuthCodec.decodeReply(json.toByteArray()) is WatchAuthReply.Malformed)
     }
+
+    @Test fun decodeJsonMissingTier_isMalformed() {
+        // tier is a non-null enum, but Gson leaves it null when absent — must not slip through as Success.
+        val json = """{"accountId":"x","email":"e@x.com","token":"jwt"}"""
+        assertTrue(WatchAuthCodec.decodeReply(json.toByteArray()) is WatchAuthReply.Malformed)
+    }
 }
