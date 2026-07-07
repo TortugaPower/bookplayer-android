@@ -12,10 +12,13 @@ import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.tortugapower.audiobookplayer.wear.sync.WearSyncServiceHost
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -66,15 +69,25 @@ class WearApp : Application() {
             BuildConfig.REVENUECAT_API_KEY,
         )
 
-        // Run the on-watch sync service only while the account is PRO (standalone). Other tiers use the
-        // phone remote and need no on-watch sync; signed-out has no token to sync with.
+        // Run the on-watch sync service only while the account is PRO (standalone) AND the process is
+        // foreground. The foreground gate is essential on Wear: the process is frequently woken in the
+        // background by Data Layer listener services, and starting a dataSync foreground service from the
+        // background throws ForegroundServiceStartNotAllowedException on API 31+. Starting it while
+        // foreground is safe, and a started FGS is allowed to keep running once the app backgrounds — so
+        // we only stop it when the account leaves PRO (sign-out / downgrade), not on every background.
+        // (Background-initiated sync would need an expedited WorkManager job — a later enhancement.)
         appScope.launch {
-            accountRepository.getAccountFlow()
-                .map { it?.tier == AccountTier.PRO }
+            val isPro = accountRepository.getAccountFlow().map { it?.tier == AccountTier.PRO }
+            val isForeground = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
+                .map { it.isAtLeast(Lifecycle.State.STARTED) }
+            combine(isPro, isForeground) { pro, foreground -> pro to foreground }
                 .distinctUntilChanged()
-                .collect { standalone ->
-                    if (standalone) WearSyncServiceHost.start(this@WearApp)
-                    else WearSyncServiceHost.stop(this@WearApp)
+                .collect { (pro, foreground) ->
+                    when {
+                        pro && foreground -> WearSyncServiceHost.start(this@WearApp)
+                        !pro -> WearSyncServiceHost.stop(this@WearApp)
+                        // pro && !foreground: leave an already-running FGS running; never start from bg.
+                    }
                 }
         }
     }
