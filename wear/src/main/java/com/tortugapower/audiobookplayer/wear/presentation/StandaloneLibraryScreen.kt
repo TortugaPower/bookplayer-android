@@ -1,9 +1,13 @@
 package com.tortugapower.audiobookplayer.wear.presentation
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,6 +77,26 @@ fun StandaloneLibraryScreen(
                         if (row.author.isNotBlank()) {
                             Text(row.author, maxLines = 1, style = MaterialTheme.typography.caption2)
                         }
+                        // Books show a download-state glyph + playback progress / duration (mirrors the iOS
+                        // PRO list). Everything reads as "not downloaded" (cloud) until on-watch downloads
+                        // land in the next slice; folders show only the trailing chevron.
+                        if (!row.isFolder) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 2.dp),
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_cloud),
+                                    contentDescription = stringResource(R.string.wear_download_state_cloud),
+                                    modifier = Modifier.size(12.dp),
+                                )
+                                val detail = bookDetail(row)
+                                if (detail.isNotEmpty()) {
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(detail, maxLines = 1, style = MaterialTheme.typography.caption2)
+                                }
+                            }
+                        }
                     }
                     // Folders show a trailing chevron so they read as navigable, not playable.
                     if (row.isFolder) {
@@ -88,6 +112,22 @@ fun StandaloneLibraryScreen(
     }
 }
 
+/** A book's detail line: "{progress}{duration}" (e.g. "45% - 3h 20m 0s"), or "" when duration is unknown. */
+@Composable
+private fun bookDetail(row: LibraryRow): String {
+    if (row.durationSeconds <= 0.0) return ""
+    val secs = row.durationSeconds.toInt()
+    val h = secs / 3600
+    val m = (secs % 3600) / 60
+    val s = secs % 60
+    val duration = if (h > 0) {
+        stringResource(R.string.wear_duration_hms, h, m, s)
+    } else {
+        stringResource(R.string.wear_duration_ms, m, s)
+    }
+    return StandaloneViewModel.progressPrefix(row.percentCompleted, row.isFinished) + duration
+}
+
 @Preview(device = "id:wearos_small_round", showSystemUi = true)
 @Composable
 private fun StandaloneLibraryPreview() {
@@ -97,8 +137,14 @@ private fun StandaloneLibraryPreview() {
             state = StandaloneUiState(
                 rows = listOf(
                     LibraryRow("f1", "Fantasy", "", isFolder = true),
-                    LibraryRow("1", "The Sea of Monsters", "Rick Riordan", isFolder = false),
-                    LibraryRow("2", "The Hobbit", "J.R.R. Tolkien", isFolder = false),
+                    LibraryRow(
+                        "1", "The Sea of Monsters", "Rick Riordan", isFolder = false,
+                        percentCompleted = 0.45, isFinished = false, durationSeconds = 12015.0,
+                    ),
+                    LibraryRow(
+                        "2", "The Hobbit", "J.R.R. Tolkien", isFolder = false,
+                        percentCompleted = 1.0, isFinished = true, durationSeconds = 40200.0,
+                    ),
                 ),
             ),
             onItemClick = {},

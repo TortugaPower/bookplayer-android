@@ -15,9 +15,19 @@ import kotlinx.coroutines.launch
 
 /**
  * A single library row. [isFolder] decides the tap action: folders drill in, books/bound books play.
- * [id] is the folder's/book's `relativePath` (navigation + play key), falling back to `uuid`.
+ * [id] is the folder's/book's `relativePath` (navigation + play key), falling back to `uuid`. Books also
+ * carry playback progress ([percentCompleted] 0..1, [isFinished]) and [durationSeconds] for the detail line,
+ * mirroring the iOS PRO watch list. (Download state — the cloud/watch glyph — arrives in the next slice.)
  */
-data class LibraryRow(val id: String, val title: String, val author: String, val isFolder: Boolean)
+data class LibraryRow(
+    val id: String,
+    val title: String,
+    val author: String,
+    val isFolder: Boolean,
+    val percentCompleted: Double = 0.0,
+    val isFinished: Boolean = false,
+    val durationSeconds: Double = 0.0,
+)
 
 data class StandaloneUiState(val rows: List<LibraryRow> = emptyList())
 
@@ -64,6 +74,20 @@ class StandaloneViewModel(
             title = item.title,
             author = item.author.orEmpty(),
             isFolder = item.type == ItemType.FOLDER,
+            percentCompleted = item.percentCompleted,
+            isFinished = item.isFinished,
+            durationSeconds = item.duration,
         )
+
+        /**
+         * The playback-progress prefix for a book's detail line (pure, unit-tested), mirroring iOS
+         * `RemoteItemListCellView.percentCompleted`: "" when unstarted, "100% - " when finished, else
+         * "N% - " (percentCompleted is 0..1 on Android). The duration is appended by the screen.
+         */
+        fun progressPrefix(percentCompleted: Double, isFinished: Boolean): String = when {
+            isFinished -> "100% - "
+            percentCompleted > 0.0 -> "${(percentCompleted * 100).toInt()}% - "
+            else -> ""
+        }
     }
 }
