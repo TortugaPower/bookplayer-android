@@ -98,21 +98,27 @@ class WearApp : Application() {
             }
         }
 
-        // Run the on-watch sync foreground service only while PRO AND the app is in use (foreground, or
-        // actively playing so progress keeps syncing in the background). Never started from a background
-        // Data Layer wake — a background dataSync FGS start throws on API 31+. Started only on a
-        // foreground->true or play->true transition, both of which happen while foreground.
+        // Run the on-watch sync foreground service while PRO AND the app is in use. Start/stop use
+        // ASYMMETRIC conditions on purpose:
+        //  - START only while foreground — starting a dataSync FGS from the background throws on API 31+
+        //    (the sync service has no media-session background-start exemption), and a background
+        //    play→true (resume from the notification/Bluetooth) must NOT trigger a start.
+        //  - STOP when not PRO, or idle in the background — but keep a foreground-started FGS running
+        //    while playback continues in the background so progress keeps syncing.
+        // The pro && !foreground && playing case is the deliberate gap: leave the service as-is.
         appScope.launch {
             val isPro = accountRepository.getAccountFlow().map { it?.tier == AccountTier.PRO }
             val isForeground = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
                 .map { it.isAtLeast(Lifecycle.State.STARTED) }
             combine(isPro, isForeground, PlaybackManager.isPlaying) { pro, foreground, playing ->
-                pro && (foreground || playing)
+                Triple(pro, foreground, playing)
             }
                 .distinctUntilChanged()
-                .collect { shouldRun ->
-                    if (shouldRun) WearSyncServiceHost.start(this@WearApp)
-                    else WearSyncServiceHost.stop(this@WearApp)
+                .collect { (pro, foreground, playing) ->
+                    when {
+                        pro && foreground -> WearSyncServiceHost.start(this@WearApp)
+                        !pro || (!foreground && !playing) -> WearSyncServiceHost.stop(this@WearApp)
+                    }
                 }
         }
     }

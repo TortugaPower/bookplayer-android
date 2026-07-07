@@ -131,10 +131,17 @@ class WearSyncServiceHost : Service() {
 
         fun start(context: Context) {
             val intent = Intent(context, WearSyncServiceHost::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            // Callers only start this from the foreground, but guard defensively: a background
+            // startForegroundService for a dataSync FGS throws ForegroundServiceStartNotAllowedException
+            // on API 31+. Swallowing it just defers sync to the next foreground — never crash for it.
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.w("WearSyncServiceHost", "Sync service not started (likely a background start)", e)
             }
         }
 
