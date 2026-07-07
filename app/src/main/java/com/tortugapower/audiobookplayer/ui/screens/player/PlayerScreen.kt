@@ -374,6 +374,7 @@ fun PlayerScreen(
                             isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
                             showCloudBadge = false,
                             hasVideo = hasVideo,
+                            isSheetVisible = !isHidden,
                             isFullscreen = true,
                             onToggleFullscreen = { isFullscreen = false },
                             onCastClick = { viewModel.toggleCastSheet() }
@@ -403,6 +404,7 @@ fun PlayerScreen(
                             isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
                             showCloudBadge = !isLocal && !currentItem.remoteURL.isNullOrEmpty(),
                             hasVideo = hasVideo,
+                            isSheetVisible = !isHidden,
                             isFullscreen = false,
                             onToggleFullscreen = { isFullscreen = true },
                             onCastClick = { viewModel.toggleCastSheet() }
@@ -507,6 +509,7 @@ private fun PlayerArtwork(
     isBuffering: Boolean,
     showCloudBadge: Boolean,
     hasVideo: Boolean,
+    isSheetVisible: Boolean = true,
     isFullscreen: Boolean = false,
     onToggleFullscreen: () -> Unit = {},
     onCastClick: () -> Unit = {}
@@ -528,16 +531,38 @@ private fun PlayerArtwork(
         null
     }
 
-    LaunchedEffect(hasVideo, player, playerView) {
-        if (hasVideo && player != null && playerView != null) {
+    LaunchedEffect(hasVideo, player, playerView, isSheetVisible) {
+        if (hasVideo && player != null && playerView != null && isSheetVisible) {
             var hasReportedError = false
+            // Double-buffered capture targets: getBitmap(Bitmap) fills a caller-owned bitmap, so
+            // no allocation happens per capture. Two buffers alternate so the one Compose is
+            // currently drawing is never written to mid-frame — and the reference change is what
+            // triggers recomposition (a single reused bitmap wouldn't).
+            val captureBuffers = arrayOf(
+                Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888),
+                Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+            )
+            var captureIndex = 0
             while (true) {
+                // Only capture while the frame can actually change (or nothing is captured yet);
+                // a paused player keeps its last frame, so the existing blur stays correct.
                 if (player.isPlaying || blurredBitmap == null) {
                     val textureView = findTextureView(playerView)
-                    if (textureView != null) {
+                    if (textureView != null && textureView.isAvailable) {
                         try {
-                            val bmp = textureView.getBitmap(32, 32)
-                            if (bmp != null) blurredBitmap = bmp
+                            // getBitmap(target) is the documented TextureView readback (the
+                            // caller-owned-bitmap overload — no per-call allocation), called on the
+                            // main thread ON PURPOSE. The alternatives both trade this bounded cost
+                            // (a 32×32 readback once per 1–2s) for undocumented-API risk:
+                            //  - PixelCopy needs a second Surface over a SurfaceTexture ExoPlayer is
+                            //    already producing into — non-standard, can disturb the producer.
+                            //  - getBitmap off-main (withContext/capture thread) has no documented
+                            //    thread-safety; it reads view/layer state the UI and render threads
+                            //    mutate, racing the same "some GPUs" any stall concern is about.
+                            val target = captureBuffers[captureIndex]
+                            textureView.getBitmap(target)
+                            blurredBitmap = target
+                            captureIndex = 1 - captureIndex
                         } catch (e: Exception) {
                             if (!hasReportedError) {
                                 android.util.Log.e("PlayerArtwork", "Failed to capture texture bitmap", e)
@@ -547,11 +572,16 @@ private fun PlayerArtwork(
                         }
                     }
                 }
-                delay(250)
+                // The blur is a slow-changing letterbox backdrop, not a live preview: 1s refreshes
+                // are indistinguishable at 20dp blur, and while paused the loop just idles at a
+                // slower heartbeat waiting for playback to resume.
+                delay(if (player.isPlaying) 1_000 else 2_000)
             }
-        } else {
+        } else if (!hasVideo) {
             blurredBitmap = null
         }
+        // While the sheet is merely off-screen (dismiss animation / collapsed to the mini player)
+        // the capture pauses but the last blur is kept, so reopening doesn't flash un-blurred.
     }
 
     val artworkBackground = if (isFullscreen) {
@@ -581,7 +611,9 @@ private fun PlayerArtwork(
     val clickableModifier = if (hasVideo) {
         Modifier.clickable(
             interactionSource = remember { MutableInteractionSource() },
-            indication = null
+            indication = null,
+            // Announce the action to screen readers instead of an unlabeled clickable.
+            onClickLabel = stringResource(R.string.player_toggle_video_controls)
         ) {
             showControls = !showControls
         }

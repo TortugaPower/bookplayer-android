@@ -289,14 +289,7 @@ class PlayerViewModel(
 
     fun createHomeScreenShortcut(context: Context) {
         val item = currentItem.value ?: return
-        viewModelScope.launch {
-            com.tortugapower.audiobookplayer.logic.ShortcutHelper.createPinShortcut(
-                context = context,
-                itemUuid = item.uuid,
-                itemTitle = item.title,
-                itemArtworkUrl = item.artworkURL
-            )
-        }
+        com.tortugapower.audiobookplayer.logic.ShortcutHelper.requestPinShortcut(context, viewModelScope, item)
     }
 
     fun updateGlobalSpeed(context: Context, enabled: Boolean) {

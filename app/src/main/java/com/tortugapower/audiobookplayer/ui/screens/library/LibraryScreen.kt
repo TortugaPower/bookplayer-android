@@ -536,7 +536,7 @@ fun LibraryScreen(
                                 text = { Text(stringResource(R.string.library_add_shortcut_to_home_screen)) },
                                 onClick = {
                                     showMoreMenu = false
-                                    createHomeScreenShortcut(context, scope, selectedItems[0])
+                                    com.tortugapower.audiobookplayer.logic.ShortcutHelper.requestPinShortcut(context, scope, selectedItems[0])
                                     isSelectMode = false
                                     selectedItemUuids = emptySet()
                                 },
@@ -1223,13 +1223,3 @@ fun PieProgressIcon(
     }
 }
 
-private fun createHomeScreenShortcut(context: android.content.Context, scope: kotlinx.coroutines.CoroutineScope, item: LibraryItemEntity) {
-    scope.launch {
-        com.tortugapower.audiobookplayer.logic.ShortcutHelper.createPinShortcut(
-            context = context,
-            itemUuid = item.uuid,
-            itemTitle = item.title,
-            itemArtworkUrl = item.artworkURL
-        )
-    }
-}

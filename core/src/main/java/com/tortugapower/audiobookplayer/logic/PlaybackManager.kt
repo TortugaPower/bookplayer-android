@@ -839,7 +839,7 @@ object PlaybackManager {
     fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {
         updateProgress(context, itemToUpdate = _currentItem.value)
         scope.launch(Dispatchers.IO) {
-            val item = getRepository(context).getItemById(path) ?: getRepository(context).getItemByPath(path)
+            val item = getRepository(context).getItemByIdOrPath(path)
             if (item != null) {
                 launch(Dispatchers.Main) {
                     playItem(context, item)

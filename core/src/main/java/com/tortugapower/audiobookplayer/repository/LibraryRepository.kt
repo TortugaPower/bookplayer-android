@@ -13,6 +13,13 @@ interface LibraryRepository {
     suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity>
     suspend fun getItemById(uuid: String): LibraryItemEntity?
     suspend fun getItemByPath(path: String): LibraryItemEntity?
+
+    /**
+     * Resolves a play identifier that may be either a library uuid (deep links, wear commands)
+     * or a relativePath (Android Auto browse rows): uuid lookup first, path as fallback.
+     */
+    suspend fun getItemByIdOrPath(identifier: String): LibraryItemEntity? =
+        getItemById(identifier) ?: getItemByPath(identifier)
     
     fun getFoldersInPath(path: String?): Flow<List<LibraryItemEntity>>
     fun getAllContainers(): Flow<List<LibraryItemEntity>>

@@ -15,6 +15,7 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.tortugapower.audiobookplayer.R
+import kotlinx.coroutines.launch
 
 object ShortcutHelper {
 
@@ -36,11 +37,34 @@ object ShortcutHelper {
     }
 
     fun buildShortcutIntent(context: Context, itemUuid: String): Intent {
+        // Explicitly target MainActivity (mirrors setupDynamicShortcuts): an implicit ACTION_VIEW
+        // on the bookplayer:// scheme could be intercepted by any app registering the same
+        // scheme, leaking the item UUID or hijacking the launch.
         return Intent(Intent.ACTION_VIEW, Uri.parse(getShortcutIntentUri(itemUuid)))
+            .setClass(context, com.tortugapower.audiobookplayer.MainActivity::class.java)
     }
 
     fun getShortcutId(itemUuid: String): String {
         return "shortcut_play_$itemUuid"
+    }
+
+    /**
+     * Fire-and-forget pin request for a library item — the single entry point for UI callers
+     * (library long-press menu, player More sheet).
+     */
+    fun requestPinShortcut(
+        context: Context,
+        scope: kotlinx.coroutines.CoroutineScope,
+        item: com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+    ) {
+        scope.launch {
+            createPinShortcut(
+                context = context,
+                itemUuid = item.uuid,
+                itemTitle = item.title,
+                itemArtworkUrl = item.artworkURL
+            )
+        }
     }
 
     suspend fun createPinShortcut(
