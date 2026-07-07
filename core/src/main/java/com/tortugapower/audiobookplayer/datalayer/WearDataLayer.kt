@@ -16,4 +16,22 @@ object WearDataLayer {
 
     /** Reply sentinel the phone sends when it has no signed-in account to hand off. */
     const val NOT_SIGNED_IN = "not_signed_in"
+
+    // --- Remote-controller mode (phase 2): phone drives playback, watch is the remote. ---
+
+    /**
+     * DataClient item: the rarely-changing library snapshot (recent list + current item + skip intervals),
+     * a [WatchLibraryState] encoded by [WatchRemoteCodec]. Latest-wins; survives reconnect.
+     */
+    const val PATH_LIBRARY_STATE = "/bookplayer/library"
+
+    /**
+     * DataClient item: the volatile playback state (isPlaying/speed/boost), a [WatchPlaybackState]. Kept
+     * separate from the library item so play/pause re-pushes this tiny payload, never the recent list. Also
+     * carries the play/pause echo — the phone's true state for ANY cause (call, sleep timer, book end).
+     */
+    const val PATH_PLAYBACK_STATE = "/bookplayer/playback"
+
+    /** MessageClient path: watch → phone control command, a [WatchCommand] encoded by [WatchRemoteCodec]. */
+    const val PATH_COMMAND = "/bookplayer/command"
 }
