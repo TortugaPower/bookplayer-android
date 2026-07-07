@@ -1,10 +1,9 @@
 package com.tortugapower.audiobookplayer.logic
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 object SleepTimerManager {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -16,19 +15,17 @@ object SleepTimerManager {
     /** How often the end-of-chapter poll checks the current chapter (matches iOS's ~1 Hz). */
     private const val END_OF_CHAPTER_POLL_MS = 1000L
 
-    private val _remainingMillis = mutableLongStateOf(0L)
-    var remainingMillis: Long
-        get() = _remainingMillis.longValue
-        set(value) { _remainingMillis.longValue = value }
+    // StateFlow (not Compose mutableStateOf) so this can move into :core with PlaybackManager, which is
+    // Compose-free; UI observes via collectAsState.
+    private val _remainingMillis = MutableStateFlow(0L)
+    val remainingMillis: StateFlow<Long> = _remainingMillis.asStateFlow()
 
-    private val _isActive = mutableStateOf(false)
-    var isActive: Boolean
-        get() = _isActive.value
-        set(value) { _isActive.value = value }
+    private val _isActive = MutableStateFlow(false)
+    val isActive: StateFlow<Boolean> = _isActive.asStateFlow()
 
     /** True while the timer is armed to stop at the end of the current chapter (no numeric countdown). */
-    private val _isEndOfChapter = mutableStateOf(false)
-    val isEndOfChapter: Boolean get() = _isEndOfChapter.value
+    private val _isEndOfChapter = MutableStateFlow(false)
+    val isEndOfChapter: StateFlow<Boolean> = _isEndOfChapter.asStateFlow()
 
     fun startTimer(minutes: Int) {
         startTimerMillis(minutes * 60 * 1000L)
@@ -36,13 +33,13 @@ object SleepTimerManager {
 
     fun startTimerMillis(millis: Long) {
         stopTimer()
-        _remainingMillis.longValue = millis
+        _remainingMillis.value = millis
         _isActive.value = true
 
         timerJob = scope.launch {
-            while (_remainingMillis.longValue > 0) {
+            while (_remainingMillis.value > 0) {
                 delay(1000)
-                _remainingMillis.longValue -= 1000
+                _remainingMillis.value -= 1000
             }
             _isActive.value = false
             PlaybackManager.pause()
@@ -116,7 +113,7 @@ object SleepTimerManager {
     fun stopTimer() {
         timerJob?.cancel()
         timerJob = null
-        _remainingMillis.longValue = 0
+        _remainingMillis.value = 0
         clearEndOfChapter()
     }
 
@@ -126,12 +123,5 @@ object SleepTimerManager {
             seconds == -2 -> startTimerUntilEndOfChapter()
             seconds > 0 -> startTimerMillis(seconds * 1000L)
         }
-    }
-
-    fun formatRemainingTime(): String {
-        val totalSeconds = remainingMillis / 1000
-        val minutes = totalSeconds / 60
-        val seconds = totalSeconds % 60
-        return String.format("%d:%02d", minutes, seconds)
     }
 }

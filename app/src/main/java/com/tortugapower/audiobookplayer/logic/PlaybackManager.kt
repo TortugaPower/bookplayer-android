@@ -326,7 +326,7 @@ object PlaybackManager {
                         if (state == Player.STATE_ENDED) {
                             updateProgress(appContext, forceFinished = true)
                             StatisticsManager.setPlaybackState(appContext, _currentItem.value, false)
-                            if (SleepTimerManager.isEndOfChapter) {
+                            if (SleepTimerManager.isEndOfChapter.value) {
                                 // End-of-chapter armed on the last chapter: stop here, don't roll into
                                 // the next book (iOS's .bookEnd + autoplay=false safeguard).
                                 SleepTimerManager.onBookEnded()

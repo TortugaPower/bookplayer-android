@@ -391,11 +391,15 @@ fun PlayerScreen(
 
                 Spacer(modifier = Modifier.weight(1f))
 
+                val sleepActive by viewModel.sleepTimerActive.collectAsStateWithLifecycle()
+                val sleepEndOfChapter by viewModel.sleepTimerIsEndOfChapter.collectAsStateWithLifecycle()
+                val sleepRemaining by viewModel.sleepTimerRemaining.collectAsStateWithLifecycle()
+
                 PlayerBottomBar(
                     speedLabel = "${if (playbackSpeed % 1.0f == 0.0f) playbackSpeed.toInt() else playbackSpeed}x",
                     sleepLabel = when {
-                        viewModel.sleepTimerIsEndOfChapter -> stringResource(R.string.player_timer_active)
-                        viewModel.sleepTimerActive -> viewModel.sleepTimerRemaining
+                        sleepEndOfChapter -> stringResource(R.string.player_timer_active)
+                        sleepActive -> sleepRemaining
                         else -> null
                     },
                     onSpeed = { viewModel.toggleControlsSheet() },
