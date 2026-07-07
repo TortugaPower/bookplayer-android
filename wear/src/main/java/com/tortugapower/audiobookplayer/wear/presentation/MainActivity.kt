@@ -55,10 +55,7 @@ fun WearRoot(
         Scaffold(timeText = { TimeText() }) {
             when (mode) {
                 WatchMode.SIGN_IN -> SignInScreen(state = signInState, onSignIn = viewModel::signIn)
-                WatchMode.REMOTE_CONTROLLER -> MessageScreen(
-                    title = stringResource(R.string.wear_mode_remote_title),
-                    body = stringResource(R.string.wear_mode_remote_body),
-                )
+                WatchMode.REMOTE_CONTROLLER -> RemoteScreen()
                 WatchMode.STANDALONE -> MessageScreen(
                     title = stringResource(R.string.wear_mode_standalone_title),
                     body = stringResource(R.string.wear_mode_standalone_body),

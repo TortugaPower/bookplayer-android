@@ -34,4 +34,7 @@ object WearDataLayer {
 
     /** MessageClient path: watch → phone control command, a [WatchCommand] encoded by [WatchRemoteCodec]. */
     const val PATH_COMMAND = "/bookplayer/command"
+
+    /** DataMap key under which both remote-state DataItems store their [WatchRemoteCodec] payload bytes. */
+    const val KEY_PAYLOAD = "payload"
 }

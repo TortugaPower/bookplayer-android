@@ -1,7 +1,6 @@
 package com.tortugapower.audiobookplayer.wear.auth
 
 import android.content.Context
-import com.google.android.gms.tasks.Task
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.Wearable
@@ -9,12 +8,11 @@ import com.tortugapower.audiobookplayer.datalayer.WatchAuthCodec
 import com.tortugapower.audiobookplayer.datalayer.WatchAuthPayload
 import com.tortugapower.audiobookplayer.datalayer.WatchAuthReply
 import com.tortugapower.audiobookplayer.datalayer.WearDataLayer
+import com.tortugapower.audiobookplayer.wear.data.await
+import com.tortugapower.audiobookplayer.wear.data.findPhoneNodeId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /**
  * The one operation the ViewModel depends on, extracted so it can be injected and faked in tests
@@ -42,7 +40,7 @@ class WearAuthClient(
     )
 
     override suspend fun requestAuth(): WearAuthOutcome {
-        val phoneNodeId = findPhoneNode() ?: return WearAuthOutcome.PhoneNotReachable
+        val phoneNodeId = capabilityClient.findPhoneNodeId() ?: return WearAuthOutcome.PhoneNotReachable
 
         val replyBytes = CompletableDeferred<ByteArray>()
         val listener = MessageClient.OnMessageReceivedListener { event ->
@@ -70,20 +68,6 @@ class WearAuthClient(
         } finally {
             messageClient.removeListener(listener)
         }
-    }
-
-    /** Nearest reachable node advertising the phone capability, or null if none is connected. */
-    private suspend fun findPhoneNode(): String? {
-        val info = capabilityClient
-            .getCapability(WearDataLayer.CAPABILITY_PHONE, CapabilityClient.FILTER_REACHABLE)
-            .await()
-        val nodes = info.nodes
-        return (nodes.firstOrNull { it.isNearby } ?: nodes.firstOrNull())?.id
-    }
-
-    private suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { cont ->
-        addOnSuccessListener { cont.resume(it) }
-        addOnFailureListener { cont.resumeWithException(it) }
     }
 
     private companion object {

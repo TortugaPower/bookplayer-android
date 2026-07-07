@@ -27,7 +27,6 @@ import kotlinx.coroutines.launch
 object WearRemotePublisher {
     private const val TAG = "WearRemotePublisher"
     private const val RECENT_LIMIT = 20
-    const val KEY_PAYLOAD = "payload"
 
     private lateinit var appContext: Context
     private lateinit var libraryDao: LibraryDao
@@ -92,7 +91,7 @@ object WearRemotePublisher {
     // await is fine on this IO scope.
     private fun put(path: String, payload: ByteArray) {
         val request = PutDataMapRequest.create(path).apply {
-            dataMap.putByteArray(KEY_PAYLOAD, payload)
+            dataMap.putByteArray(WearDataLayer.KEY_PAYLOAD, payload)
         }.asPutDataRequest().setUrgent()
         try {
             Tasks.await(dataClient.putDataItem(request))

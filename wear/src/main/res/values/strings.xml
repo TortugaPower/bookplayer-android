@@ -14,8 +14,11 @@
     <string name="wear_signin_error_failed">Couldn\'t sign in. Try again.</string>
 
     <!-- Remote-controller mode (signed in, non-Pro tier). -->
-    <string name="wear_mode_remote_title">Remote control</string>
-    <string name="wear_mode_remote_body">Control playback from your watch — coming soon.</string>
+    <string name="wear_recent_title">Recent</string>
+    <string name="wear_remote_empty">No recently played books.</string>
+    <string name="wear_refresh">Refresh</string>
+    <string name="wear_play">Play</string>
+    <string name="wear_pause">Pause</string>
 
     <!-- Standalone mode (Pro tier). -->
     <string name="wear_mode_standalone_title">Standalone</string>
