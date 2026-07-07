@@ -32,17 +32,19 @@ class WearStateBuilderTest {
         assertEquals(45, state.forwardInterval)
     }
 
-    @Test fun buildLibraryState_skipsItemsWithoutRelativePath() {
+    @Test fun buildLibraryState_fallsBackToUuidWhenNoRelativePath() {
+        // Cloud items not yet downloaded have no relativePath; they still appear (id = uuid) and stay
+        // playable because the phone's PLAY handler resolves by path then uuid.
         val state = WearStateBuilder.buildLibraryState(
             recent = listOf(
-                item("u1", "Playable", "A", "a.m4b"),
-                item("u2", "No path", "A", null),
+                item("u1", "Downloaded", "A", "a.m4b"),
+                item("u2", "Cloud only", "A", null),
             ),
             current = null,
             rewindInterval = 30,
             forwardInterval = 30,
         )
-        assertEquals(listOf("a.m4b"), state.recentItems.map { it.id })
+        assertEquals(listOf("a.m4b", "u2"), state.recentItems.map { it.id })
     }
 
     @Test fun buildLibraryState_nullAuthor_becomesEmpty() {
@@ -53,6 +55,59 @@ class WearStateBuilderTest {
             forwardInterval = 30,
         )
         assertEquals("", state.recentItems[0].author)
+    }
+
+    @Test fun buildLibraryState_hoistsCurrentItemToTop() {
+        val current = PlayableItem(
+            uuid = "u2",
+            title = "Book B",
+            author = "Author B",
+            artworkURL = null,
+            relativePath = "b.m4b",
+            parentFolder = null,
+            isBoundBook = false,
+            chapters = emptyList(),
+            currentTime = 0.0,
+            duration = 100.0,
+            percentCompleted = 0.0,
+            isFinished = false,
+        )
+        val state = WearStateBuilder.buildLibraryState(
+            recent = listOf(
+                item("u1", "Book A", "A", "a.m4b"),
+                item("u2", "Book B", "B", "b.m4b"),
+                item("u3", "Book C", "C", "c.m4b"),
+            ),
+            current = current,
+            rewindInterval = 30,
+            forwardInterval = 30,
+        )
+        // Current (b.m4b) moves to row 1; the rest keep order, no duplicate.
+        assertEquals(listOf("b.m4b", "a.m4b", "c.m4b"), state.recentItems.map { it.id })
+    }
+
+    @Test fun buildLibraryState_currentNotInRecent_prependsIt() {
+        val current = PlayableItem(
+            uuid = "u9",
+            title = "Fresh",
+            author = "Auth",
+            artworkURL = null,
+            relativePath = "fresh.m4b",
+            parentFolder = null,
+            isBoundBook = false,
+            chapters = emptyList(),
+            currentTime = 0.0,
+            duration = 100.0,
+            percentCompleted = 0.0,
+            isFinished = false,
+        )
+        val state = WearStateBuilder.buildLibraryState(
+            recent = listOf(item("u1", "Book A", "A", "a.m4b")),
+            current = current,
+            rewindInterval = 30,
+            forwardInterval = 30,
+        )
+        assertEquals(listOf("fresh.m4b", "a.m4b"), state.recentItems.map { it.id })
     }
 
     @Test fun buildLibraryState_mapsCurrentItemWithChapters() {

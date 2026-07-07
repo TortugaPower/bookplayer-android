@@ -125,4 +125,72 @@ class RemoteViewModelTest {
         advanceUntilIdle()
         assertEquals(WatchCommandType.REFRESH, sender.sent.single().type)
     }
+
+    @Test fun skips_sendSkipCommands() = runTest(dispatcher) {
+        val vm = model()
+        advanceUntilIdle()
+        vm.skipForward()
+        vm.skipBackward()
+        advanceUntilIdle()
+        assertEquals(
+            listOf(WatchCommandType.SKIP_FORWARD, WatchCommandType.SKIP_BACKWARD),
+            sender.sent.map { it.type },
+        )
+    }
+
+    @Test fun seekChapter_sendsChapterStart() = runTest(dispatcher) {
+        val vm = model()
+        advanceUntilIdle()
+        vm.seekChapter(123.5)
+        advanceUntilIdle()
+        assertEquals(WatchCommand(WatchCommandType.CHAPTER, chapterStart = 123.5), sender.sent.single())
+    }
+
+    @Test fun increaseSpeed_addsStepFromCurrent() = runTest(dispatcher) {
+        val vm = model()
+        repo.playback.value = WatchPlaybackState(isPlaying = true, speed = 1.5f, boostVolume = false)
+        advanceUntilIdle()
+        vm.increaseSpeed()
+        advanceUntilIdle()
+        val cmd = sender.sent.single()
+        assertEquals(WatchCommandType.SPEED, cmd.type)
+        assertEquals(1.6f, cmd.speed!!, 0.001f)
+    }
+
+    @Test fun decreaseSpeed_clampsAtMin() = runTest(dispatcher) {
+        val vm = model()
+        repo.playback.value = WatchPlaybackState(isPlaying = true, speed = 0.5f, boostVolume = false)
+        advanceUntilIdle()
+        vm.decreaseSpeed()
+        advanceUntilIdle()
+        assertEquals(0.5f, sender.sent.single().speed!!, 0.001f)
+    }
+
+    @Test fun cycleSpeed_wrapsPastMax() = runTest(dispatcher) {
+        val vm = model()
+        repo.playback.value = WatchPlaybackState(isPlaying = true, speed = 4.0f, boostVolume = false)
+        advanceUntilIdle()
+        vm.cycleSpeed()
+        advanceUntilIdle()
+        assertEquals(0.5f, sender.sent.single().speed!!, 0.001f)
+    }
+
+    @Test fun sleep_sendsSentinelsAndCountdown() = runTest(dispatcher) {
+        val vm = model()
+        advanceUntilIdle()
+        vm.sleepOff()
+        vm.sleepEndOfChapter()
+        vm.sleepAfter(15)
+        advanceUntilIdle()
+        assertEquals(listOf(-1L, -2L, 900L), sender.sent.map { it.sleepSeconds })
+    }
+
+    @Test fun toggleBoost_sendsInverseOfCurrent() = runTest(dispatcher) {
+        val vm = model()
+        repo.playback.value = WatchPlaybackState(isPlaying = false, speed = 1.0f, boostVolume = false)
+        advanceUntilIdle()
+        vm.toggleBoost()
+        advanceUntilIdle()
+        assertEquals(true, sender.sent.single().boostOn)
+    }
 }

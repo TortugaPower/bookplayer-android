@@ -85,12 +85,14 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
-    // Compose layout primitives (Box/Column/…) used directly by the UI — declared explicitly per
-    // CLAUDE.md's module convention rather than leaned on transitively.
+    // Compose layout primitives (Box/Column/…) + foundation (basicMarquee) used directly by the UI —
+    // declared explicitly per CLAUDE.md's module convention rather than leaned on transitively.
     implementation(libs.androidx.foundation.layout)
+    implementation(libs.androidx.foundation)
     // Wear-specific Compose (androidx.wear.compose.material), NOT the phone's material3.
     implementation(libs.androidx.wear.compose.material)
     implementation(libs.androidx.wear.compose.foundation)
+    implementation(libs.androidx.wear.compose.navigation)
     // Wear Data Layer — auth handoff (WearAuthClient) + remote-control state/commands (RemoteContextRepository,
     // WearRemoteClient).
     implementation(libs.play.services.wearable)
