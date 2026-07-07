@@ -17,14 +17,6 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * Watch side of the sign-in handoff (mirrors iOS's `requestAuthFromiPhone`). Resolves the paired phone
- * node by [WearDataLayer.CAPABILITY_PHONE], sends [WearDataLayer.PATH_AUTH], and awaits the phone's reply
- * on [WearDataLayer.PATH_AUTH_RESPONSE], decoding it via the shared [WatchAuthCodec].
- *
- * The reply arrives as a separate message, so the listener is registered *before* the request is sent to
- * avoid a race, and removed once we're done. The whole exchange is bounded by [REPLY_TIMEOUT_MS].
- */
-/**
  * The one operation the ViewModel depends on, extracted so it can be injected and faked in tests
  * (the real [WearAuthClient] needs the Wearable API and a device).
  */
@@ -32,6 +24,14 @@ interface WatchAuthenticator {
     suspend fun requestAuth(): WearAuthOutcome
 }
 
+/**
+ * Watch side of the sign-in handoff (mirrors iOS's `requestAuthFromiPhone`). Resolves the paired phone
+ * node by [WearDataLayer.CAPABILITY_PHONE], sends [WearDataLayer.PATH_AUTH], and awaits the phone's reply
+ * on [WearDataLayer.PATH_AUTH_RESPONSE], decoding it via the shared [WatchAuthCodec].
+ *
+ * The reply arrives as a separate message, so the listener is registered *before* the request is sent to
+ * avoid a race, and removed once we're done. The whole exchange is bounded by [REPLY_TIMEOUT_MS].
+ */
 class WearAuthClient(
     private val messageClient: MessageClient,
     private val capabilityClient: CapabilityClient,
