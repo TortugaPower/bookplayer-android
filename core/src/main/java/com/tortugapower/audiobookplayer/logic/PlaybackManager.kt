@@ -349,6 +349,12 @@ object PlaybackManager {
 
                     override fun onPlaybackStateChanged(state: Int) {
                         _playbackState.value = state
+                        // Playback bottomed out (natural end, stop, OR a stream that errored during
+                        // buffering → IDLE). Clear the queued intent so it can't strand the button on
+                        // "playing": onIsPlayingChanged(true) never fired, so nothing else would clear it.
+                        if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
+                            playbackQueuedFlag = false
+                        }
                         recomputeIsPlaying()
                         if (state == Player.STATE_ENDED) {
                             updateProgress(appContext, forceFinished = true)
