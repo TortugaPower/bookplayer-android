@@ -166,6 +166,17 @@ class RemoteViewModelTest {
         assertEquals(0.5f, sender.sent.single().speed!!, 0.001f)
     }
 
+    @Test fun rapidIncreaseSpeed_accumulatesOptimistically() = runTest(dispatcher) {
+        val vm = model()
+        repo.playback.value = WatchPlaybackState(isPlaying = true, speed = 1.5f, boostVolume = false)
+        advanceUntilIdle()
+        vm.increaseSpeed()
+        vm.increaseSpeed() // before any echo — should build on the optimistic 1.6, not the stale 1.5
+        advanceUntilIdle()
+        assertEquals(1.6f, sender.sent[0].speed!!, 0.001f)
+        assertEquals(1.7f, sender.sent[1].speed!!, 0.001f)
+    }
+
     @Test fun cycleSpeed_wrapsPastMax() = runTest(dispatcher) {
         val vm = model()
         repo.playback.value = WatchPlaybackState(isPlaying = true, speed = 4.0f, boostVolume = false)

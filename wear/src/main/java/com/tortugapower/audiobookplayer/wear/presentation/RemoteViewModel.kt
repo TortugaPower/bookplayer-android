@@ -40,20 +40,27 @@ class RemoteViewModel(
 ) : ViewModel() {
 
     private val optimisticPlaying = MutableStateFlow<Boolean?>(null)
+    // Optimistic speed so rapid step-taps accumulate (1.5→1.6→1.7) instead of all reading the last echoed
+    // value before the phone's echo arrives. Cleared when the authoritative playback state comes back.
+    private val optimisticSpeed = MutableStateFlow<Float?>(null)
 
     val state: StateFlow<RemoteUiState> = combine(
         repository.libraryState,
-        // The playback echo is authoritative — clear any optimistic override the moment a new one arrives.
+        // The playback echo is authoritative — clear any optimistic overrides the moment a new one arrives.
         // Done inside the combine (not a second collector) so playbackState has a single DataClient listener.
-        repository.playbackState.onEach { optimisticPlaying.value = null },
+        repository.playbackState.onEach {
+            optimisticPlaying.value = null
+            optimisticSpeed.value = null
+        },
         optimisticPlaying,
-    ) { library, playback, optimistic ->
+        optimisticSpeed,
+    ) { library, playback, optimistic, optSpeed ->
         RemoteUiState(
             connecting = library == null && playback == null,
             recentItems = library?.recentItems ?: emptyList(),
             nowPlaying = library?.currentItem,
             isPlaying = optimistic ?: (playback?.isPlaying ?: false),
-            speed = playback?.speed ?: 1.0f,
+            speed = optSpeed ?: (playback?.speed ?: 1.0f),
             boostVolume = playback?.boostVolume ?: false,
             rewindInterval = library?.rewindInterval ?: 0,
             forwardInterval = library?.forwardInterval ?: 0,
@@ -83,17 +90,22 @@ class RemoteViewModel(
     fun seekChapter(startSeconds: Double) =
         dispatch(WatchCommand(WatchCommandType.CHAPTER, chapterStart = startSeconds))
 
-    fun decreaseSpeed() = setSpeed(state.value.speed - SPEED_STEP)
-    fun increaseSpeed() = setSpeed(state.value.speed + SPEED_STEP)
+    fun decreaseSpeed() = setSpeed(currentSpeed() - SPEED_STEP)
+    fun increaseSpeed() = setSpeed(currentSpeed() + SPEED_STEP)
 
     /** Cycle speed up by [SPEED_JUMP], wrapping back to [SPEED_MIN] past [SPEED_MAX] (mirrors iOS). */
     fun cycleSpeed() {
-        val next = state.value.speed + SPEED_JUMP
+        val next = currentSpeed() + SPEED_JUMP
         setSpeed(if (next > SPEED_MAX + 0.001f) SPEED_MIN else next)
     }
 
+    // Base each step on the optimistic value (set synchronously below) so rapid taps accumulate before the
+    // phone's echo lands; falls back to the last echoed speed.
+    private fun currentSpeed(): Float = optimisticSpeed.value ?: state.value.speed
+
     private fun setSpeed(rate: Float) {
         val clamped = kotlin.math.round(rate.coerceIn(SPEED_MIN, SPEED_MAX) * 100f) / 100f
+        optimisticSpeed.value = clamped
         dispatch(WatchCommand(WatchCommandType.SPEED, speed = clamped))
     }
 
