@@ -60,7 +60,10 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   src/main/java/com/tortugapower/audiobookplayer/wear/
     WearApp.kt             # Application: wires :core (CoreContext/NetworkConstants/SubscriptionManager)
     auth/                  # WearAuthClient: requests the sign-in handoff from the phone (Data Layer)
-    presentation/          # Wear Compose UI (MainActivity, WatchMode gate, WearRootViewModel)
+    data/                  # remote-control transport: RemoteContextRepository (observe phone state via
+                           #   DataClient), WearRemoteClient (send commands), shared WearableExt helpers
+    presentation/          # Wear Compose UI (MainActivity, WatchMode gate, WearRootViewModel; RemoteScreen
+                           #   + RemoteViewModel for remote-controller mode)
 ```
 
 ## Module conventions (`:core` / `:app`)

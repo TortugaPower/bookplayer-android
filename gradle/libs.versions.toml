@@ -86,8 +86,9 @@ androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-man
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
 # Wear OS Compose — the watch UI toolkit (androidx.wear.compose.material, NOT the phone's material3).
-# compose-foundation will be added here when a later slice's Wear UI uses it directly.
 androidx-wear-compose-material = { group = "androidx.wear.compose", name = "compose-material", version.ref = "wearCompose" }
+# Wear compose-foundation: ScalingLazyColumn + curved layout for the remote list.
+androidx-wear-compose-foundation = { group = "androidx.wear.compose", name = "compose-foundation", version.ref = "wearCompose" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

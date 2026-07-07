@@ -25,10 +25,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.CircularProgressIndicator
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.MaterialTheme
+import androidx.wear.compose.material.PositionIndicator
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
+import androidx.wear.compose.material.Vignette
+import androidx.wear.compose.material.VignettePosition
 import com.tortugapower.audiobookplayer.wear.R
 
 /**
@@ -51,14 +55,22 @@ fun WearRoot(
 ) {
     val mode by viewModel.mode.collectAsStateWithLifecycle()
     val signInState by viewModel.signInState.collectAsStateWithLifecycle()
+    // Hoisted so the remote list's scroll position drives the Scaffold's position indicator + edge vignette
+    // (the round-watch scrolling affordances). Only the scrolling REMOTE_CONTROLLER screen uses them.
+    val remoteListState = rememberScalingLazyListState()
     MaterialTheme {
-        Scaffold(timeText = { TimeText() }) {
+        Scaffold(
+            timeText = { TimeText() },
+            positionIndicator = {
+                if (mode == WatchMode.REMOTE_CONTROLLER) PositionIndicator(scalingLazyListState = remoteListState)
+            },
+            vignette = {
+                if (mode == WatchMode.REMOTE_CONTROLLER) Vignette(vignettePosition = VignettePosition.TopAndBottom)
+            },
+        ) {
             when (mode) {
                 WatchMode.SIGN_IN -> SignInScreen(state = signInState, onSignIn = viewModel::signIn)
-                WatchMode.REMOTE_CONTROLLER -> MessageScreen(
-                    title = stringResource(R.string.wear_mode_remote_title),
-                    body = stringResource(R.string.wear_mode_remote_body),
-                )
+                WatchMode.REMOTE_CONTROLLER -> RemoteScreen(listState = remoteListState)
                 WatchMode.STANDALONE -> MessageScreen(
                     title = stringResource(R.string.wear_mode_standalone_title),
                     body = stringResource(R.string.wear_mode_standalone_body),
