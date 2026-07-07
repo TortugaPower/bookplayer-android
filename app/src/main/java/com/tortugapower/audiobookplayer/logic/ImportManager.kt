@@ -307,33 +307,63 @@ object ImportManager : ImportService {
 
     override fun acceptImport(context: Context, targetFolderPath: String?) {
         scope.launch {
-            val processedDir = File(context.filesDir, "Processed")
-            if (!processedDir.exists()) processedDir.mkdirs()
-
-            val database = AppDatabase.getDatabase(context)
-            val libraryDao = database.libraryDao()
-            val syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
             val createdItems = mutableListOf<LibraryItemEntity>()
+            try {
+                importAcceptedFiles(context, targetFolderPath, createdItems)
 
-            withContext(Dispatchers.IO) {
-                val accountRepository = RoomAccountRepository(database.accountDao())
-                val account = accountRepository.getAccount()
-                val isSubscribed = account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)
-                val isPro = account != null && account.tier == AccountTier.PRO
+                if (createdItems.isNotEmpty()) {
+                    importCompletion = ImportCompletion(
+                        items = createdItems.toList(),
+                        suggestedName = ImportArchiveUtils.stripExtension(
+                            suggestedFolderName ?: createdItems.first().title
+                        ),
+                        basePath = targetFolderPath
+                    )
+                }
+            } finally {
+                // Always return the sheet to a clean state — a failure part-way through must not
+                // leave it stuck showing a spinner with no way to recover.
+                suggestedFolderName = null
+                processingFileName = null
+                importedFiles = emptyList()
+                skippedItemsCount = 0
+                showImportSheet = false
+            }
+        }
+    }
 
-                // Insertion base: library root, or the folder the user is currently inside.
-                val baseDir = if (targetFolderPath == null) processedDir
-                              else File(processedDir, targetFolderPath).apply { if (!exists()) mkdirs() }
+    private suspend fun importAcceptedFiles(
+        context: Context,
+        targetFolderPath: String?,
+        createdItems: MutableList<LibraryItemEntity>
+    ) {
+        val processedDir = File(context.filesDir, "Processed")
+        if (!processedDir.exists()) processedDir.mkdirs()
 
-                // iOS parity: locale-aware, numeric-friendly order ("Chapter 2" < "Chapter 10").
-                val orderedFiles = importedFiles.sortedWith(
-                    compareBy(ImportArchiveUtils.naturalOrderComparator) { it.name }
-                )
+        val database = AppDatabase.getDatabase(context)
+        val libraryDao = database.libraryDao()
+        val syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
 
-                var currentMaxRank = (if (targetFolderPath == null) libraryDao.getMaxRootOrderRank()
-                                      else libraryDao.getMaxPathOrderRank(targetFolderPath)) ?: -1
-                orderedFiles.forEach { importFile ->
-                    processingFileName = importFile.name
+        withContext(Dispatchers.IO) {
+            val accountRepository = RoomAccountRepository(database.accountDao())
+            val account = accountRepository.getAccount()
+            val isSubscribed = account != null && (account.tier == AccountTier.PRO || account.tier == AccountTier.LITE)
+            val isPro = account != null && account.tier == AccountTier.PRO
+
+            // Insertion base: library root, or the folder the user is currently inside.
+            val baseDir = if (targetFolderPath == null) processedDir
+                          else File(processedDir, targetFolderPath).apply { if (!exists()) mkdirs() }
+
+            // iOS parity: locale-aware, numeric-friendly order ("Chapter 2" < "Chapter 10").
+            val orderedFiles = importedFiles.sortedWith(
+                compareBy(ImportArchiveUtils.naturalOrderComparator) { it.name }
+            )
+
+            var currentMaxRank = (if (targetFolderPath == null) libraryDao.getMaxRootOrderRank()
+                                  else libraryDao.getMaxPathOrderRank(targetFolderPath)) ?: -1
+            orderedFiles.forEach { importFile ->
+                processingFileName = importFile.name
+                try {
                     val streamEntity = importFile.streamEntity
                     if (streamEntity != null && !importFile.providerName.isNullOrBlank()) {
                         // Virtual import: no audio download. Fetch the (small) cover so the
@@ -435,31 +465,19 @@ object ImportManager : ImportService {
                             enqueueHardcoverAutoMatch(context, syncTaskRepository, entity.uuid)
                         }
                     }
-                }
-                processingFileName = null
-
-                // Roll up duration / progress / labels onto the target folder (and ancestors).
-                if (targetFolderPath != null) {
-                    createdItems.firstOrNull()?.relativePath?.let {
-                        RoomLibraryRepository(context.applicationContext, libraryDao).refreshParentMetadata(it)
-                    }
+                } catch (e: Exception) {
+                    // One corrupt/unreadable file must not abort the rest of the batch
+                    // (matches the silent-skip behavior for failed archive extractions).
+                    android.util.Log.e("ImportManager", "Failed to import ${importFile.name}; skipping", e)
                 }
             }
 
-            if (createdItems.isNotEmpty()) {
-                importCompletion = ImportCompletion(
-                    items = createdItems.toList(),
-                    suggestedName = ImportArchiveUtils.stripExtension(
-                        suggestedFolderName ?: createdItems.first().title
-                    ),
-                    basePath = targetFolderPath
-                )
+            // Roll up duration / progress / labels onto the target folder (and ancestors).
+            if (targetFolderPath != null) {
+                createdItems.firstOrNull()?.relativePath?.let {
+                    RoomLibraryRepository(context.applicationContext, libraryDao).refreshParentMetadata(it)
+                }
             }
-            suggestedFolderName = null
-
-            importedFiles = emptyList()
-            skippedItemsCount = 0
-            showImportSheet = false
         }
     }
 
