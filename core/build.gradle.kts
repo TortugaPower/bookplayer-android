@@ -52,6 +52,17 @@ dependencies {
     // NOTE: this deliberately makes :core playback-capable — it is no longer Media3-free (see CLAUDE.md).
     api(libs.androidx.media3.session)
     api(libs.androidx.media3.common)
+    // Media3 ExoPlayer — the shared MediaPlaybackService base (the abstract MediaLibraryService that
+    // builds the ExoPlayer + auth data source + BookTimelinePlayer) lives in :core so phone AND Wear
+    // reuse one player-construction codebase; each target only subclasses it to add its own session
+    // Activity, browse tree, and notification button row. `api` because the base's protected surface
+    // exposes ExoPlayer (subclasses touch it). Pulls in media3-datasource transitively (DefaultDataSource,
+    // DefaultHttpDataSource, DataSourceBitmapLoader).
+    api(libs.androidx.media3.exoplayer)
+
+    // androidx.core — MediaPlaybackService uses IntentCompat.getParcelableExtra (the type-safe overload
+    // needs core 1.10+, newer than what Room/DataStore pull transitively). Internal use only → implementation.
+    implementation(libs.androidx.core.ktx)
 
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver) // HttpRangeByteSourceTest

@@ -41,6 +41,9 @@ core/                      # shared Android library — NO Compose, NO app types
                            #   SubscriptionManager, StatisticsManager, PlaybackSyncCoordinator (iface),
                            #   PlaybackManager + SleepTimerManager (the shared Media3 player orchestration,
                            #   a MediaController client — the target injects its session service)
+    service/               # abstract MediaPlaybackService (MediaLibraryService base: ExoPlayer build +
+                           #   auth data source + BookTimelinePlayer + transport session callback) +
+                           #   BookTimelinePlayer. Concrete registered services stay per-target.
     core/                  # CoreContext (app-context holder, set by the host at startup)
     datalayer/             # phone<->watch Wear Data Layer contract (WatchAuthPayload, WearDataLayer,
                            #   WatchAuthCodec — the pure, unit-tested reply codec shared by both sides)
@@ -49,7 +52,8 @@ app/                       # phone app — depends on :core
   src/main/java/com/tortugapower/audiobookplayer/
     ui/screens|components|theme/  # Compose screens, reusable Composables, Material3 theme
     viewmodel/             # ViewModels + their Factories
-    service/               # Media3 playback service (+ Android Auto); sync foreground Service (TaskConcurrencyServiceHost)
+    service/               # AudioPlayerService (subclasses :core MediaPlaybackService; adds Android Auto browse +
+                           #   MediaBrowseTree); sync foreground Service (TaskConcurrencyServiceHost)
     wear/                  # phone side of Wear: auth handoff (WearAuthListenerService) + remote-control
                            #   (WearRemotePublisher pushes state via DataClient; WearCommandListenerService
                            #   drives PlaybackManager from watch commands; WearStateBuilder/WearCommandMapper)
@@ -70,12 +74,15 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
 
 ## Module conventions (`:core` / `:app`)
 
-- **`:core` never references `:app`.** No Compose, `ui`/`service`/`widget`, `BookPlayerApplication`, or the
+- **`:core` never references `:app`.** No Compose, `ui`/`widget`, `BookPlayerApplication`, or the
   app's `BuildConfig`/`R`. **Media3 IS allowed in `:core`** — `PlaybackManager` (the shared player
-  orchestration, a `MediaController` client) lives here so phone + Wear reuse one codebase. The Android
-  components it drives (the `MediaSessionService`/notification, foreground `Service`, widget) stay
-  **per-target** in `:app`/`:wear`; the target injects its session-service `ComponentName` + hooks into
-  `PlaybackManager.initialize`.
+  orchestration, a `MediaController` client) lives here so phone + Wear reuse one codebase. `:core` also
+  holds an **abstract `MediaPlaybackService`** (a `MediaLibraryService` base that builds the ExoPlayer +
+  auth data source + `BookTimelinePlayer` + LoudnessEnhancer + the transport-only session callback) so
+  both targets reuse one player-construction codebase. Only the **concrete, manifest-registered** service
+  (phone: `AudioPlayerService` adds the Auto browse tree + notification `PendingIntent`; Wear: its own)
+  stays **per-target** in `:app`/`:wear`, as does the foreground sync `Service` and the widget. The target
+  injects its session-service `ComponentName` + hooks into `PlaybackManager.initialize`.
 - **Config/Context crossing the boundary is injected, not read.** Flavored `BuildConfig` values
   (`BASE_URL`, `GOOGLE_CLIENT_ID`, `REVENUECAT_API_KEY`) are passed into `:core` at startup
   (`NetworkConstants.configure(...)`, `SubscriptionManager.initialize(..., apiKey)`); the app Context via
