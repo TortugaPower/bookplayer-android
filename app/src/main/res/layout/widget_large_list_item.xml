@@ -26,17 +26,16 @@
             android:scaleType="centerCrop"
             android:visibility="gone" />
 
+        <!-- Cover fallback: the title's first letter, centered in the rounded box. -->
         <TextView
             android:id="@+id/widget_item_placeholder_text"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:gravity="center"
             android:textColor="#FFFFFFFF"
-            android:textSize="10sp"
+            android:textSize="22sp"
             android:textStyle="bold"
-            android:ellipsize="end"
-            android:padding="3dp"
-            android:maxLines="3" />
+            android:maxLines="1" />
     </FrameLayout>
 
     <LinearLayout

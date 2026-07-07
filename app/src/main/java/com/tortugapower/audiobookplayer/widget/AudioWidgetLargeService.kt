@@ -47,36 +47,24 @@ class AudioWidgetLargeFactory(private val context: Context) : RemoteViewsService
         views.setTextViewText(R.id.widget_item_title, item.title)
         views.setTextViewText(R.id.widget_item_author, item.author ?: context.getString(R.string.library_unknown_author))
 
-        val appIcons = intArrayOf(
-            R.mipmap.ic_launcher,
-            R.mipmap.ic_launcher_retro,
-            R.mipmap.ic_launcher_fruit_based,
-            R.mipmap.ic_launcher_retro_modern,
-            R.mipmap.ic_launcher_neon,
-            R.mipmap.ic_launcher_ayu_light,
-            R.mipmap.ic_launcher_songs
-        )
-        val iconIndex = Math.abs(item.uuid.hashCode()) % appIcons.size
-        val fallbackIcon = appIcons[iconIndex]
-
         val artworkPath = item.artworkURL
-        if (!artworkPath.isNullOrEmpty()) {
-            val bitmap = runBlocking {
-                loadArtworkBitmap(context, artworkPath, 150)
-            }
-            if (bitmap != null) {
-                views.setImageViewBitmap(R.id.widget_item_artwork, bitmap)
-                views.setViewVisibility(R.id.widget_item_artwork, View.VISIBLE)
-                views.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
-            } else {
-                views.setImageViewResource(R.id.widget_item_artwork, fallbackIcon)
-                views.setViewVisibility(R.id.widget_item_artwork, View.VISIBLE)
-                views.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
-            }
+        val bitmap = if (!artworkPath.isNullOrEmpty()) {
+            runBlocking { loadArtworkBitmap(context, artworkPath, 150) }
         } else {
-            views.setImageViewResource(R.id.widget_item_artwork, fallbackIcon)
+            null
+        }
+        if (bitmap != null) {
+            views.setImageViewBitmap(R.id.widget_item_artwork, bitmap)
             views.setViewVisibility(R.id.widget_item_artwork, View.VISIBLE)
             views.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
+        } else {
+            // Missing artwork: rounded placeholder box with the title's first letter centered.
+            views.setTextViewText(
+                R.id.widget_item_placeholder_text,
+                item.title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: ""
+            )
+            views.setViewVisibility(R.id.widget_item_artwork, View.GONE)
+            views.setViewVisibility(R.id.widget_item_placeholder_text, View.VISIBLE)
         }
 
         // Fill-in Intent for clicks
