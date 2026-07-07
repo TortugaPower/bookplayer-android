@@ -2,6 +2,7 @@ package com.tortugapower.audiobookplayer.wear
 
 import com.tortugapower.audiobookplayer.datalayer.WatchCommand
 import com.tortugapower.audiobookplayer.datalayer.WatchCommandType
+import com.tortugapower.audiobookplayer.datalayer.WatchSleepSentinel
 
 /**
  * The playback effects a remote command can trigger. An interface (not direct `PlaybackManager` calls) so
@@ -25,10 +26,6 @@ interface RemotePlaybackActions {
 
 /** Pure routing of a decoded [WatchCommand] to [RemotePlaybackActions]. */
 object WearCommandMapper {
-    /** Sleep sentinels shared with the watch (see [WatchCommand.sleepSeconds]). */
-    const val SLEEP_OFF = -1L
-    const val SLEEP_END_OF_CHAPTER = -2L
-
     fun dispatch(command: WatchCommand, actions: RemotePlaybackActions) {
         when (command.type) {
             WatchCommandType.PLAY -> actions.play(command.itemId)
@@ -40,8 +37,8 @@ object WearCommandMapper {
             WatchCommandType.SLEEP -> when (val seconds = command.sleepSeconds) {
                 // Local capture: `sleepSeconds` is a :core property, so it won't smart-cast to non-null here.
                 null -> Unit
-                SLEEP_OFF -> actions.sleepOff()
-                SLEEP_END_OF_CHAPTER -> actions.sleepEndOfChapter()
+                WatchSleepSentinel.OFF -> actions.sleepOff()
+                WatchSleepSentinel.END_OF_CHAPTER -> actions.sleepEndOfChapter()
                 else -> actions.sleepAfter(seconds)
             }
             WatchCommandType.BOOST_VOLUME -> command.boostOn?.let { actions.setBoost(it) }

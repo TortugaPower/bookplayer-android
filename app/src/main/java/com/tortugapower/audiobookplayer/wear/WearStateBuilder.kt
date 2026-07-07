@@ -18,26 +18,33 @@ object WearStateBuilder {
         rewindInterval: Int,
         forwardInterval: Int,
     ): WatchLibraryState = WatchLibraryState(
-        recentItems = recent.mapNotNull { it.toWatchItem() },
+        recentItems = hoistCurrentFirst(recent.map { it.toWatchItem() }, current),
         currentItem = current?.toWatchNowPlaying(),
         rewindInterval = rewindInterval,
         forwardInterval = forwardInterval,
     )
 
-    // Recent rows must be playable by path (the watch's PLAY carries this id), so items without a
-    // relativePath are skipped — they can't be remote-played anyway.
-    private fun LibraryItemEntity.toWatchItem(): WatchItem? {
-        val id = relativePath ?: return null
-        return WatchItem(id = id, title = title, author = author ?: "")
+    // Put the currently-playing item at the top even before its lastPlayDate is persisted (written ~10s
+    // after play starts, on the first progress tick) — otherwise a book played from the watch wouldn't jump
+    // to row 1 until the next item change. Mirrors Android Auto's Recent tab.
+    private fun hoistCurrentFirst(rows: List<WatchItem>, current: PlayableItem?): List<WatchItem> {
+        val currentId = current?.let { it.relativePath ?: it.uuid } ?: return rows
+        val hoisted = rows.firstOrNull { it.id == currentId }
+            ?: WatchItem(id = currentId, title = current.title, author = current.author ?: "")
+        return listOf(hoisted) + rows.filterNot { it.id == currentId }
     }
 
-    private fun PlayableItem.toWatchNowPlaying(): WatchNowPlaying? {
-        val id = relativePath ?: return null
-        return WatchNowPlaying(
-            id = id,
+    // Id is relativePath when present, else the uuid — so cloud items not yet downloaded (no relativePath,
+    // common for PRO users streaming) still appear and stay playable: the phone's PLAY handler resolves the
+    // id by path first, then by uuid.
+    private fun LibraryItemEntity.toWatchItem(): WatchItem =
+        WatchItem(id = relativePath ?: uuid, title = title, author = author ?: "")
+
+    private fun PlayableItem.toWatchNowPlaying(): WatchNowPlaying =
+        WatchNowPlaying(
+            id = relativePath ?: uuid,
             title = title,
             author = author ?: "",
             chapters = chapters.map { WatchChapter(title = it.title, start = it.start, index = it.index) },
         )
-    }
 }

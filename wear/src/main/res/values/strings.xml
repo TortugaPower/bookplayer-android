@@ -20,6 +20,22 @@
     <string name="wear_refresh">Refresh</string>
     <string name="wear_play">Play</string>
     <string name="wear_pause">Pause</string>
+    <string name="wear_nothing_playing">Nothing playing.</string>
+    <string name="wear_more_controls">More controls</string>
+    <string name="wear_chapters">Chapters</string>
+    <string name="wear_rewind_seconds">Rewind %1$d seconds</string>
+    <string name="wear_forward_seconds">Forward %1$d seconds</string>
+
+    <!-- Playback controls ("more"). -->
+    <string name="wear_speed">Speed</string>
+    <string name="wear_speed_format">%1$.1f×</string>
+    <string name="wear_decrease_speed">Decrease speed</string>
+    <string name="wear_increase_speed">Increase speed</string>
+    <string name="wear_sleep_timer">Sleep timer</string>
+    <string name="wear_sleep_off">Off</string>
+    <string name="wear_sleep_end_of_chapter">End of chapter</string>
+    <string name="wear_sleep_minutes">%1$d min</string>
+    <string name="wear_boost_volume">Boost volume</string>
 
     <!-- Standalone mode (Pro tier). -->
     <string name="wear_mode_standalone_title">Standalone</string>

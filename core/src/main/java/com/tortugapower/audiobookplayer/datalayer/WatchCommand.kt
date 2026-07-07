@@ -30,3 +30,9 @@ enum class WatchCommandType {
     BOOST_VOLUME,
     REFRESH,
 }
+
+/** Sentinel values for [WatchCommand.sleepSeconds], shared by the watch (encodes) and phone (decodes). */
+object WatchSleepSentinel {
+    const val OFF = -1L
+    const val END_OF_CHAPTER = -2L
+}

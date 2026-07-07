@@ -62,8 +62,8 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     auth/                  # WearAuthClient: requests the sign-in handoff from the phone (Data Layer)
     data/                  # remote-control transport: RemoteContextRepository (observe phone state via
                            #   DataClient), WearRemoteClient (send commands), shared WearableExt helpers
-    presentation/          # Wear Compose UI (MainActivity, WatchMode gate, WearRootViewModel; RemoteScreen
-                           #   + RemoteViewModel for remote-controller mode)
+    presentation/          # Wear Compose UI (MainActivity, WatchMode gate, WearRootViewModel; RemoteViewModel
+                           #   + RemoteNavHost: RemoteList/NowPlaying/PlaybackControls/ChapterList screens)
 ```
 
 ## Module conventions (`:core` / `:app`)
