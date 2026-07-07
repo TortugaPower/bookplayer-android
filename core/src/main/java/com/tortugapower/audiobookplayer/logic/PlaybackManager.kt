@@ -134,11 +134,29 @@ object PlaybackManager {
     private val _hasPreviousItem = MutableStateFlow(false)
     val hasPreviousItem: StateFlow<Boolean> = _hasPreviousItem.asStateFlow()
 
+    // ACTUAL playback (Media3 onIsPlayingChanged = READY + playWhenReady + not suppressed). Drives the
+    // internal side-effects (progress tracker, smart-rewind, statistics, pause time) — deliberately NOT the
+    // public button state, which must reflect intent (below), not whether audio is literally advancing.
     private val _isPlaying = MutableStateFlow(false)
-    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
     private val _playbackState = MutableStateFlow(Player.STATE_IDLE)
     val playbackState: StateFlow<Int> = _playbackState.asStateFlow()
+
+    // The user's INTENT to play (mirrors iOS PlayerManager.isPlaying), so the play/pause button shows
+    // "playing" from the moment play is tapped — through the async load/URL-fetch window (playbackQueuedFlag)
+    // and through buffering (playWhenReadyFlag while READY/BUFFERING) — and only reads "paused" when truly
+    // paused/idle/ended. Media3's raw isPlaying is false during buffering, which wrongly flipped the button
+    // back to "play" mid-stream. [isPlayingIntent] is the pure rule; [recomputeIsPlaying] re-applies it when
+    // an input changes. Plain flags + a MutableStateFlow (not combine+stateIn) so the object stays free of an
+    // eager Dispatchers.Main coroutine at init — keeping PlaybackManager usable from JVM unit tests.
+    private var playWhenReadyFlag = false
+    private var playbackQueuedFlag = false
+    private val _isPlayingIntent = MutableStateFlow(false)
+    val isPlaying: StateFlow<Boolean> = _isPlayingIntent.asStateFlow()
+
+    private fun recomputeIsPlaying() {
+        _isPlayingIntent.value = isPlayingIntent(playbackQueuedFlag, playWhenReadyFlag, _playbackState.value)
+    }
 
     private val _showPlayerScreen = MutableStateFlow(false)
     val showPlayerScreen: StateFlow<Boolean> = _showPlayerScreen.asStateFlow()
@@ -246,7 +264,7 @@ object PlaybackManager {
             // play/pause flip (cheap in-place patch).
             var lastItemUuid: String? = null
             var seenFirstEmission = false
-            combine(_currentItem, _isPlaying) { item, playing -> Pair(item, playing) }
+            combine(_currentItem, isPlaying) { item, playing -> Pair(item, playing) }
                 .collect { (item, playing) ->
                     val itemChanged = !seenFirstEmission || item?.uuid != lastItemUuid
                     seenFirstEmission = true
@@ -284,12 +302,23 @@ object PlaybackManager {
                             lastPauseTime = System.currentTimeMillis()
                             updateProgress(appContext)
                         } else {
+                            // Real playback has started — the load/buffering "queued" window is over.
+                            playbackQueuedFlag = false
+                            recomputeIsPlaying()
                             if (smartRewindEnabled) {
                                 applySmartRewind()
                             }
                             startProgressTracker(appContext)
                         }
                         StatisticsManager.setPlaybackState(appContext, _currentItem.value, playing)
+                    }
+
+                    // Track the user's play/pause INTENT (not actual playback) so the button reflects it
+                    // through buffering. An explicit pause (playWhenReady=false) also cancels a queued play.
+                    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                        playWhenReadyFlag = playWhenReady
+                        if (!playWhenReady) playbackQueuedFlag = false
+                        recomputeIsPlaying()
                     }
 
                     override fun onPositionDiscontinuity(
@@ -320,6 +349,7 @@ object PlaybackManager {
 
                     override fun onPlaybackStateChanged(state: Int) {
                         _playbackState.value = state
+                        recomputeIsPlaying()
                         if (state == Player.STATE_ENDED) {
                             updateProgress(appContext, forceFinished = true)
                             StatisticsManager.setPlaybackState(appContext, _currentItem.value, false)
@@ -701,6 +731,12 @@ object PlaybackManager {
         }
         
         _isTransitioning.value = true
+        // Queue the play INTENT up front so the button shows "playing" during the async load / URL-fetch
+        // window below (before the player is even prepared); cleared once real playback starts or is paused.
+        if (autoplay) {
+            playbackQueuedFlag = true
+            recomputeIsPlaying()
+        }
         _currentItem.value = item
         // Seed the UI's whole-book position immediately (positionMs is whole-book); the async playable
         // build below re-seeds the same value once the timeline is known.
@@ -915,6 +951,9 @@ object PlaybackManager {
         player?.stop()
         player?.clearMediaItems()
         _isPlaying.value = false
+        playWhenReadyFlag = false
+        playbackQueuedFlag = false
+        recomputeIsPlaying()
         _currentItem.value = null
         _currentPlayable.value = null
         _currentTimeline.value = null
@@ -942,7 +981,9 @@ object PlaybackManager {
 
     fun togglePlayPause() {
         val p = player ?: return
-        if (p.isPlaying) {
+        // Toggle on INTENT, not actual playback: while buffering, p.isPlaying is false but playWhenReady is
+        // true — the button shows "playing", so a tap must pause (not call play() again).
+        if (p.playWhenReady) {
             p.pause()
         } else {
             if (p.playbackState == Player.STATE_IDLE) {
@@ -1093,6 +1134,17 @@ object PlaybackManager {
     /** First speed preset strictly greater than [current], wrapping to the first. Pure (testable). */
     internal fun nextSpeedPreset(current: Float): Float =
         SPEED_PRESETS.firstOrNull { it > current + 0.001f } ?: SPEED_PRESETS.first()
+
+    /**
+     * The play/pause button's INTENT state (pure, testable) — the Android analogue of iOS
+     * `PlayerManager.isPlaying`. True when a play is [queued] (tapped play, still loading/fetching the URL
+     * before the player is prepared) OR the player wants to play ([playWhenReady]) while it is READY or
+     * BUFFERING. Buffering therefore reads as "playing" (the user tapped play); only a genuine pause
+     * (playWhenReady=false) or a non-playing state (IDLE/ENDED, e.g. after an error or book end) reads as
+     * "paused".
+     */
+    internal fun isPlayingIntent(queued: Boolean, playWhenReady: Boolean, state: Int): Boolean =
+        queued || (playWhenReady && (state == Player.STATE_READY || state == Player.STATE_BUFFERING))
 
     /** Outcome of a car-initiated bookmark, so the caller can surface feedback. */
     sealed interface BookmarkOutcome {
