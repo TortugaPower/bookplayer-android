@@ -8,9 +8,12 @@ object WearDataLayer {
     /** Capability the phone app advertises; the watch resolves the phone node by it via CapabilityClient. */
     const val CAPABILITY_PHONE = "bookplayer_phone"
 
-    /** MessageClient path: watch → phone auth request; the phone replies with the gson [WatchAuthPayload]. */
+    /** MessageClient path: watch → phone auth request (empty body). */
     const val PATH_AUTH = "/bookplayer/auth"
 
-    /** Reply sentinel the phone sends on [PATH_AUTH] when it has no signed-in account to hand off. */
+    /** MessageClient path: phone → watch reply, carrying the [WatchAuthCodec]-encoded account (or sentinel). */
+    const val PATH_AUTH_RESPONSE = "/bookplayer/auth/response"
+
+    /** Reply sentinel the phone sends when it has no signed-in account to hand off. */
     const val NOT_SIGNED_IN = "not_signed_in"
 }

@@ -15,4 +15,8 @@ data class WatchAuthPayload(
     val email: String,
     val token: String,
     val tier: AccountTier,
+    // The RevenueCat app-user id (distinct from accountId). The watch must log into RevenueCat with this
+    // — same as the phone (`revenuecatId ?: id`) — or it resolves a different RC user with no entitlement
+    // and downgrades the tier. Nullable: falls back to accountId when the account has none.
+    val revenuecatId: String? = null,
 )

@@ -13,7 +13,7 @@ class WatchAuthPayloadTest {
     private val gson = Gson()
 
     @Test fun gsonRoundTrip_preservesAllFields() {
-        val payload = WatchAuthPayload("u1", "e@x.com", "jwt-123", AccountTier.PRO)
+        val payload = WatchAuthPayload("u1", "e@x.com", "jwt-123", AccountTier.PRO, revenuecatId = "rc-uuid")
         val restored = gson.fromJson(gson.toJson(payload), WatchAuthPayload::class.java)
         assertEquals(payload, restored)
     }
@@ -22,5 +22,11 @@ class WatchAuthPayloadTest {
         val payload = WatchAuthPayload("u2", "l@x.com", "jwt-456", AccountTier.LITE)
         val restored = gson.fromJson(gson.toJson(payload), WatchAuthPayload::class.java)
         assertEquals(AccountTier.LITE, restored.tier)
+    }
+
+    @Test fun gsonRoundTrip_preservesNullRevenuecatId() {
+        val payload = WatchAuthPayload("u3", "n@x.com", "jwt-789", AccountTier.FREE, revenuecatId = null)
+        val restored = gson.fromJson(gson.toJson(payload), WatchAuthPayload::class.java)
+        assertEquals(null, restored.revenuecatId)
     }
 }
