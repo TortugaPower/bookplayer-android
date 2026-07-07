@@ -244,9 +244,16 @@ class PlayerViewModel(
         showSleepTimerMenu = false
     }
 
-    val sleepTimerActive get() = com.tortugapower.audiobookplayer.logic.SleepTimerManager.isActive
-    val sleepTimerIsEndOfChapter get() = com.tortugapower.audiobookplayer.logic.SleepTimerManager.isEndOfChapter
-    val sleepTimerRemaining get() = com.tortugapower.audiobookplayer.logic.SleepTimerManager.formatRemainingTime()
+    val sleepTimerActive: StateFlow<Boolean> = com.tortugapower.audiobookplayer.logic.SleepTimerManager.isActive
+    val sleepTimerIsEndOfChapter: StateFlow<Boolean> =
+        com.tortugapower.audiobookplayer.logic.SleepTimerManager.isEndOfChapter
+    val sleepTimerRemaining: StateFlow<String> =
+        com.tortugapower.audiobookplayer.logic.SleepTimerManager.remainingMillis
+            .map { millis ->
+                val totalSeconds = millis / 1000
+                String.format("%d:%02d", totalSeconds / 60, totalSeconds % 60)
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "0:00")
 
     fun loadSettings(context: Context) {
         viewModelScope.launch {
