@@ -12,7 +12,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -39,7 +38,9 @@ class RemoteViewModel(
 
     val state: StateFlow<RemoteUiState> = combine(
         repository.libraryState,
-        repository.playbackState,
+        // The playback echo is authoritative — clear any optimistic override the moment a new one arrives.
+        // Done inside the combine (not a second collector) so playbackState has a single DataClient listener.
+        repository.playbackState.onEach { optimisticPlaying.value = null },
         optimisticPlaying,
     ) { library, playback, optimistic ->
         RemoteUiState(
@@ -49,11 +50,6 @@ class RemoteViewModel(
             isPlaying = optimistic ?: (playback?.isPlaying ?: false),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RemoteUiState())
-
-    init {
-        // The playback echo is authoritative — once it arrives, drop any optimistic override.
-        repository.playbackState.onEach { optimisticPlaying.value = null }.launchIn(viewModelScope)
-    }
 
     /** Tap a recent row: play it on the phone. */
     fun playItem(itemId: String) {
