@@ -683,7 +683,15 @@ fun LibraryScreen(
                             text = { Text(stringResource(R.string.import_title)) },
                             onClick = {
                                 showMenu = false
-                                launcher.launch(arrayOf("audio/*"))
+                                // Audio, video (audio-in-container books like m4b are often
+                                // classified as video/mp4), and zip archives (zip import).
+                                launcher.launch(arrayOf(
+                                    "audio/*",
+                                    "video/*",
+                                    "application/zip",
+                                    "application/x-zip-compressed",
+                                    "application/lpf+zip"
+                                ))
                             },
                             leadingIcon = { Icon(Icons.Default.FileDownload, null) },
                         )

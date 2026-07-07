@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.RemoveCircle
 import androidx.compose.material3.*
@@ -29,7 +30,7 @@ import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ImportSheet(viewModel: ImportViewModel) {
+fun ImportSheet(viewModel: ImportViewModel, targetFolderPath: String? = null) {
     val context = androidx.compose.ui.platform.LocalContext.current
     ModalBottomSheet(
         onDismissRequest = { viewModel.showImportSheet = false },
@@ -63,7 +64,7 @@ fun ImportSheet(viewModel: ImportViewModel) {
                 }
 
                 IconButton(
-                    onClick = { viewModel.acceptImport(context) },
+                    onClick = { viewModel.acceptImport(context, targetFolderPath) },
                     modifier = Modifier
                         .size(48.dp)
                         .clip(CircleShape)
@@ -116,6 +117,23 @@ fun ImportSheet(viewModel: ImportViewModel) {
                 }
             }
 
+            viewModel.processingFileName?.let { fileName ->
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = stringResource(R.string.import_processing_file, fileName),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp,
+                        maxLines = 1
+                    )
+                }
+            }
+
             if (viewModel.skippedItemsCount > 0) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
@@ -152,6 +170,7 @@ fun ImportListItem(file: ImportFile, onRemove: () -> Unit) {
         Icon(
             imageVector = when {
                 file.isStream -> Icons.Filled.Podcasts
+                file.isDirectory -> Icons.Filled.Folder
                 file.isFileOnly -> Icons.Filled.Description
                 else -> Icons.Filled.AudioFile
             },

@@ -271,6 +271,37 @@ class LibraryViewModel(
         }
     }
 
+    /**
+     * Creates a folder under [basePath] (null = root) and moves [items] into it, sequentially in
+     * one coroutine so the move can't race the folder insert. Used by the post-import prompt's
+     * "New folder" option.
+     */
+    fun createFolderAndMoveItems(
+        context: android.content.Context,
+        name: String,
+        items: List<LibraryItemEntity>,
+        basePath: String?
+    ) {
+        viewModelScope.launch {
+            val relativePath = if (basePath == null) name else "$basePath/$name"
+
+            val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(appContext)
+            val libraryDao = db.libraryDao()
+            val currentMaxRank = if (basePath == null) libraryDao.getMaxRootOrderRank()
+                                 else libraryDao.getMaxPathOrderRank(basePath)
+
+            val newFolder = LibraryItemEntity(
+                uuid = java.util.UUID.randomUUID().toString(),
+                title = name,
+                relativePath = relativePath,
+                type = ItemType.FOLDER,
+                orderRank = (currentMaxRank ?: -1) + 1
+            )
+            repository.saveItem(newFolder)
+            repository.moveItems(context, items, relativePath)
+        }
+    }
+
     fun reorderItems(items: List<LibraryItemEntity>) {
         viewModelScope.launch {
             repository.reorderItems(items)

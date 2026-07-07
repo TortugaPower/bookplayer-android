@@ -13,13 +13,17 @@ class ImportViewModel(
     val isImporting get() = importService.isImporting
     val activeDownloadCount get() = importService.activeDownloadCount
     val skippedItemsCount get() = importService.skippedItemsCount
-    var showImportSheet 
+    val processingFileName get() = importService.processingFileName
+    val importCompletion get() = importService.importCompletion
+    var showImportSheet
         get() = importService.showImportSheet
         set(value) { importService.showImportSheet = value }
 
     fun removeFile(file: ImportFile) = importService.removeFile(file)
     fun clearImport() = importService.clearImport()
-    fun acceptImport(context: Context) = importService.acceptImport(context)
+    fun acceptImport(context: Context, targetFolderPath: String? = null) =
+        importService.acceptImport(context, targetFolderPath)
+    fun clearImportCompletion() = importService.clearImportCompletion()
     fun startDownload(
         context: Context,
         url: String,

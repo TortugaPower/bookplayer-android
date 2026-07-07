@@ -23,7 +23,25 @@ data class ImportFile(
     val artworkHeaders: Map<String, String>? = null
 ) {
     val isStream: Boolean get() = streamEntity != null
+
+    /** Directory extracted from an archive's top level; imported as a single folder item. */
+    val isDirectory: Boolean get() = file?.isDirectory == true
 }
+
+/**
+ * Result of an accepted import, driving the post-import placement prompt (Library / Current
+ * folder / New folder / Existing folder / Create bound book).
+ *
+ * @param items the newly created library items (stream imports and offloaded-file restores excluded)
+ * @param suggestedName pre-fill for folder/volume name prompts: the last imported archive's name,
+ *   falling back to the first imported item's title
+ * @param basePath where the items were inserted (null = library root)
+ */
+data class ImportCompletion(
+    val items: List<LibraryItemEntity>,
+    val suggestedName: String,
+    val basePath: String?
+)
 
 /**
  * Interface defining the contract for audiobook import operations.
@@ -35,6 +53,12 @@ interface ImportService {
     val activeDownloadCount: Int
     val skippedItemsCount: Int
     var showImportSheet: Boolean
+
+    /** Filename currently being processed by [acceptImport]; null when idle. */
+    val processingFileName: String?
+
+    /** Set when an accepted import finishes with new items; cleared via [clearImportCompletion]. */
+    val importCompletion: ImportCompletion?
 
     fun startImport(context: Context, uris: List<Uri>)
     fun startDownload(
@@ -54,6 +78,7 @@ interface ImportService {
     )
     fun removeFile(importFile: ImportFile)
     fun clearImport()
-    fun acceptImport(context: Context)
+    fun acceptImport(context: Context, targetFolderPath: String? = null)
+    fun clearImportCompletion()
     fun dismissSheet()
 }

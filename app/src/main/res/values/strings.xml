@@ -317,6 +317,11 @@
     <string name="import_title">Import</string>
     <string name="import_disclaimer">Transferring files may take a while, please make sure the number of files is complete before proceeding.</string>
     <string name="import_files_count">%1$d Files</string>
+    <string name="import_processing_file">Processing %1$s…</string>
+    <string name="import_complete_title">Import Complete</string>
+    <string name="import_complete_message">Where would you like to place the imported items?</string>
+    <string name="import_option_library">Library</string>
+    <string name="import_option_current_folder">Current Folder</string>
     <string name="import_skipped_items">%1$d items were skipped because they already exist in the library</string>
     <!-- Interval/Duration -->
     <string name="interval_seconds">%1$d secs</string>
