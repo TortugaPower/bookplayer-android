@@ -48,7 +48,9 @@ app/                       # phone app — depends on :core
     ui/screens|components|theme/  # Compose screens, reusable Composables, Material3 theme
     viewmodel/             # ViewModels + their Factories
     service/               # Media3 playback service (+ Android Auto); sync foreground Service (TaskConcurrencyServiceHost)
-    wear/                  # phone side of the Wear handoff (WearAuthListenerService answers auth requests)
+    wear/                  # phone side of Wear: auth handoff (WearAuthListenerService) + remote-control
+                           #   (WearRemotePublisher pushes state via DataClient; WearCommandListenerService
+                           #   drives PlaybackManager from watch commands; WearStateBuilder/WearCommandMapper)
     widget/                # home-screen widget
     logic/                 # phone-only: PlaybackManager (Media3), ThemeManager, import, app-icon,
                            #   tip/billing, support, passkey, sleep-timer, PlaybackManagerSyncCoordinator

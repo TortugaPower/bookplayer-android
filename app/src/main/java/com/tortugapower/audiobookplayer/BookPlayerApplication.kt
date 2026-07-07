@@ -69,6 +69,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         // Start background services
         TaskConcurrencyServiceHost.start(this)
 
+        // Mirror playback state to a paired Wear watch (remote-controller mode).
+        com.tortugapower.audiobookplayer.wear.WearRemotePublisher.initialize(this, database.libraryDao())
+        com.tortugapower.audiobookplayer.wear.WearRemotePublisher.start()
+
         // Crash/error reporting
         initSentry(accountRepository)
     }
