@@ -37,7 +37,15 @@
     <string name="wear_sleep_minutes">%1$d min</string>
     <string name="wear_boost_volume">Boost volume</string>
 
-    <!-- Standalone mode (Pro tier). -->
-    <string name="wear_mode_standalone_title">Standalone</string>
-    <string name="wear_mode_standalone_body">Stream and download on your watch — coming soon.</string>
+    <!-- Standalone mode (Pro tier): the watch's own synced library. -->
+    <string name="wear_standalone_title">Library</string>
+    <string name="wear_standalone_empty">No audiobooks yet. Syncing from your account…</string>
+
+    <!-- Standalone on-watch sync foreground service (notification). -->
+    <string name="wear_sync_channel_name">Background sync</string>
+    <string name="wear_sync_channel_desc">Shows progress while syncing your library to the watch.</string>
+    <string name="wear_sync_notification_title">BookPlayer sync</string>
+    <string name="wear_sync_status_starting">Starting sync…</string>
+    <string name="wear_sync_status_idle">Idle</string>
+    <string name="wear_sync_status_processing">Processing: %1$s</string>
 </resources>

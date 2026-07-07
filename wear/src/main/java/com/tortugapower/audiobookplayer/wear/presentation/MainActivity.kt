@@ -59,12 +59,8 @@ fun WearRoot(
                 SignInScreen(state = signInState, onSignIn = viewModel::signIn)
             }
             WatchMode.REMOTE_CONTROLLER -> RemoteNavHost()
-            WatchMode.STANDALONE -> Scaffold(timeText = { TimeText() }) {
-                MessageScreen(
-                    title = stringResource(R.string.wear_mode_standalone_title),
-                    body = stringResource(R.string.wear_mode_standalone_body),
-                )
-            }
+            // Standalone (PRO): the full library hierarchy (folders navigable) with its own nav graph.
+            WatchMode.STANDALONE -> StandaloneNavHost()
         }
     }
 }
@@ -118,15 +114,6 @@ private fun SignInError.messageRes(): Int = when (this) {
     SignInError.PHONE_NOT_REACHABLE -> R.string.wear_signin_error_not_reachable
     SignInError.PHONE_NOT_SIGNED_IN -> R.string.wear_signin_error_phone_not_signed_in
     SignInError.FAILED -> R.string.wear_signin_error_failed
-}
-
-@Composable
-private fun MessageScreen(title: String, body: String) {
-    ScreenColumn {
-        Text(text = title, textAlign = TextAlign.Center, style = MaterialTheme.typography.title3)
-        Spacer(Modifier.height(4.dp))
-        Text(text = body, textAlign = TextAlign.Center, style = MaterialTheme.typography.body2)
-    }
 }
 
 @Composable
