@@ -12,6 +12,7 @@ import com.tortugapower.audiobookplayer.logic.SleepTimerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -32,6 +33,12 @@ class WearCommandListenerService : WearableListenerService(), RemotePlaybackActi
         if (event.path != WearDataLayer.PATH_COMMAND) return
         val command = WatchRemoteCodec.decodeCommand(event.data) ?: return
         mainHandler.post { WearCommandMapper.dispatch(command, this) }
+    }
+
+    override fun onDestroy() {
+        // Tear down any in-flight PLAY resolution coroutine when the system destroys the service.
+        scope.cancel()
+        super.onDestroy()
     }
 
     override fun play(itemId: String?) {
