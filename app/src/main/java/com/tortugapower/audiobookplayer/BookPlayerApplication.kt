@@ -63,7 +63,18 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         )
 
         // Initialize Managers
-        PlaybackManager.initialize(this, syncingLibraryRepository)
+        PlaybackManager.initialize(
+            this,
+            syncingLibraryRepository,
+            sessionService = android.content.ComponentName(
+                this,
+                com.tortugapower.audiobookplayer.service.AudioPlayerService::class.java,
+            ),
+            unknownAuthorLabel = getString(R.string.library_unknown_author),
+            onPlaybackStateChanged = { itemChanged, isPlaying ->
+                com.tortugapower.audiobookplayer.widget.WidgetPlaybackNotifier.notify(this, itemChanged, isPlaying)
+            },
+        )
         SubscriptionManager.initialize(this, accountRepository, syncTaskRepository, BuildConfig.REVENUECAT_API_KEY)
 
         // Start background services
