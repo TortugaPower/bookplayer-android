@@ -317,6 +317,9 @@
     <string name="import_title">Import</string>
     <string name="import_disclaimer">Transferring files may take a while, please make sure the number of files is complete before proceeding.</string>
     <string name="import_files_count">%1$d Files</string>
+    <string name="library_download_from_url">Download from URL</string>
+    <string name="library_download_url_label">URL</string>
+    <string name="library_download_url_error">Enter a valid URL</string>
     <string name="import_processing_file">Processing %1$s…</string>
     <string name="import_complete_title">Import Complete</string>
     <string name="import_complete_message">Where would you like to place the imported items?</string>

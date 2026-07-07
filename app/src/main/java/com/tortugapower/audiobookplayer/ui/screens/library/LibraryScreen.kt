@@ -146,6 +146,7 @@ fun LibraryScreen(
     var showMoreMenu by remember { mutableStateOf(false) }
     var itemsToDelete by remember { mutableStateOf<List<LibraryItemEntity>>(emptyList()) }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
+    var showDownloadUrlDialog by remember { mutableStateOf(false) }
     var showChooseDestinationDialog by remember { mutableStateOf(false) }
     var showExistingFoldersSheet by remember { mutableStateOf(false) }
     var showItemDetailSheet by remember { mutableStateOf(false) }
@@ -337,6 +338,63 @@ fun LibraryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showCreateFolderDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    if (showDownloadUrlDialog) {
+        var url by remember { mutableStateOf("") }
+        val trimmedUrl = url.trim()
+        val isUrlValid = android.webkit.URLUtil.isNetworkUrl(trimmedUrl)
+
+        AlertDialog(
+            onDismissRequest = { showDownloadUrlDialog = false },
+            title = { Text(stringResource(R.string.library_download_from_url)) },
+            text = {
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text(stringResource(R.string.library_download_url_label)) },
+                    singleLine = true,
+                    isError = url.isNotEmpty() && !isUrlValid,
+                    supportingText = {
+                        if (url.isNotEmpty() && !isUrlValid) {
+                            Text(stringResource(R.string.library_download_url_error))
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        // Same staging pipeline as media-server downloads and file picks:
+                        // dedup, archive expansion, and the import confirmation sheet.
+                        val segment = android.net.Uri.parse(trimmedUrl).lastPathSegment?.trim()
+                        val fileName = when {
+                            segment.isNullOrBlank() -> "download.mp3"
+                            !segment.contains('.') -> "$segment.mp3"
+                            else -> segment
+                        }
+                        importViewModel.startDownload(context = context, url = trimmedUrl, fileName = fileName)
+                        showDownloadUrlDialog = false
+                    },
+                    enabled = isUrlValid
+                ) {
+                    Text(stringResource(R.string.common_download))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDownloadUrlDialog = false }) {
                     Text(stringResource(R.string.common_cancel))
                 }
             },
@@ -694,6 +752,14 @@ fun LibraryScreen(
                                 ))
                             },
                             leadingIcon = { Icon(Icons.Default.FileDownload, null) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_download_from_url)) },
+                            onClick = {
+                                showMenu = false
+                                showDownloadUrlDialog = true
+                            },
+                            leadingIcon = { Icon(Icons.Default.Link, null) },
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.media_servers_title)) },
