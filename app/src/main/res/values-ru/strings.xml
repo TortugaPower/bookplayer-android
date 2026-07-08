@@ -78,6 +78,8 @@
 
     <!-- Player -->
     <string name="player_cast">Трансляция</string>
+    <string name="player_cast_unavailable">Настройки аудиовыхода недоступны на этом устройстве</string>
+    <string name="player_toggle_video_controls">Показать или скрыть элементы управления плеером</string>
     <string name="player_prev">Назад</string>
     <string name="player_next">Вперед</string>
     <string name="player_chapter_label">%1$s</string>
@@ -407,4 +409,5 @@
 
     <string name="library_add_shortcut_to_home_screen">Добавить ярлык на главный экран</string>
     <string name="shortcut_play_item_desc">Воспроизвести %1$s</string>
+    <string name="shortcut_pin_failed">Не удалось добавить ярлык на главный экран</string>
 </resources>

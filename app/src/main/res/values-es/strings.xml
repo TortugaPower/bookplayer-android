@@ -78,6 +78,8 @@
 
     <!-- Player -->
     <string name="player_cast">Transmitir</string>
+    <string name="player_cast_unavailable">Los ajustes de salida de audio no están disponibles en este dispositivo</string>
+    <string name="player_toggle_video_controls">Mostrar u ocultar los controles del reproductor</string>
     <string name="player_prev">Anterior</string>
     <string name="player_next">Siguiente</string>
     <string name="player_chapter_label">%1$s</string>
@@ -401,4 +403,5 @@
 
     <string name="library_add_shortcut_to_home_screen">Añadir atajo a la pantalla de inicio</string>
     <string name="shortcut_play_item_desc">Reproducir %1$s</string>
+    <string name="shortcut_pin_failed">No se pudo añadir el atajo a la pantalla de inicio</string>
 </resources>

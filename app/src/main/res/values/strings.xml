@@ -513,4 +513,5 @@
 
     <string name="library_add_shortcut_to_home_screen">Add Shortcut to Home Screen</string>
     <string name="shortcut_play_item_desc">Play %1$s</string>
+    <string name="shortcut_pin_failed">Couldn\'t add the shortcut to the Home Screen</string>
 </resources>

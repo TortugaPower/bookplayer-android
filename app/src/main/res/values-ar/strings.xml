@@ -77,6 +77,8 @@
 
     <!-- Player -->
     <string name="player_cast">بث</string>
+    <string name="player_cast_unavailable">إعدادات إخراج الصوت غير متوفرة على هذا الجهاز</string>
+    <string name="player_toggle_video_controls">إظهار أو إخفاء عناصر التحكم في المشغل</string>
     <string name="player_prev">السابق</string>
     <string name="player_next">التالي</string>
     <string name="player_chapter_label">%1$s</string>
@@ -413,4 +415,5 @@
 
     <string name="library_add_shortcut_to_home_screen">إضافة اختصار إلى الشاشة الرئيسية</string>
     <string name="shortcut_play_item_desc">شغّل %1$s</string>
+    <string name="shortcut_pin_failed">تعذّرت إضافة الاختصار إلى الشاشة الرئيسية</string>
 </resources>

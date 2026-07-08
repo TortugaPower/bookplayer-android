@@ -78,6 +78,8 @@
 
     <!-- Player -->
     <string name="player_cast">Cast</string>
+    <string name="player_cast_unavailable">Les paramètres de sortie audio ne sont pas disponibles sur cet appareil</string>
+    <string name="player_toggle_video_controls">Afficher ou masquer les commandes du lecteur</string>
     <string name="player_prev">Précédent</string>
     <string name="player_next">Suivant</string>
     <string name="player_chapter_label">%1$s</string>
@@ -401,4 +403,5 @@
 
     <string name="library_add_shortcut_to_home_screen">Ajouter un raccourci à l\'écran d\'accueil</string>
     <string name="shortcut_play_item_desc">Lire %1$s</string>
+    <string name="shortcut_pin_failed">Impossible d\'ajouter le raccourci à l\'écran d\'accueil</string>
 </resources>

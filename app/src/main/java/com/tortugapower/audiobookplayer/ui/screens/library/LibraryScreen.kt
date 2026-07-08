@@ -61,7 +61,6 @@ import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.tortugapower.audiobookplayer.logic.ItemArtwork
-import coil.imageLoader
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
@@ -1222,4 +1221,3 @@ fun PieProgressIcon(
         }
     }
 }
-

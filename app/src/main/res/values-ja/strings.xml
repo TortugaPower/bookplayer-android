@@ -77,6 +77,8 @@
 
     <!-- Player -->
     <string name="player_cast">キャスト</string>
+    <string name="player_cast_unavailable">このデバイスではオーディオ出力設定を利用できません</string>
+    <string name="player_toggle_video_controls">プレーヤーのコントロールを表示または非表示にする</string>
     <string name="player_prev">前へ</string>
     <string name="player_next">次へ</string>
     <string name="player_chapter_label">%1$s</string>
@@ -399,4 +401,5 @@
 
     <string name="library_add_shortcut_to_home_screen">ホーム画面にショートカットを追加</string>
     <string name="shortcut_play_item_desc">%1$s を再生</string>
+    <string name="shortcut_pin_failed">ホーム画面にショートカットを追加できませんでした</string>
 </resources>

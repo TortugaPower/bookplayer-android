@@ -59,7 +59,9 @@ app/                       # phone app — depends on :core
                            #   drives PlaybackManager from watch commands; WearStateBuilder/WearCommandMapper)
     widget/                # home-screen widget
     logic/                 # phone-only: ThemeManager, import, app-icon, tip/billing, support, passkey,
-                           #   PlaybackManagerSyncCoordinator (PlaybackManager/SleepTimerManager moved to :core)
+                           #   ShortcutHelper (pinned home-screen shortcuts; dynamic launcher shortcuts
+                           #   live in MainActivity), PlaybackManagerSyncCoordinator (PlaybackManager/
+                           #   SleepTimerManager moved to :core)
     model/                 # Media3 glue (Extensions.kt)
   src/main/res/            # values/ + 10 localized values-* dirs (ar, de, es, fr, hi, it, ja, ko, ru, zh-rCN)
 wear/                      # Wear OS app — depends on :core; shares :app's applicationId (pairing), minSdk 30

@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.content.Intent
-import coil.imageLoader
 
 class PlayerViewModel(
     application: Application,
@@ -287,9 +286,9 @@ class PlayerViewModel(
         viewModelScope.launch { PlaybackSettingsManager.setAutoSleepTimer(context, enabled) }
     }
 
-    fun createHomeScreenShortcut(context: Context) {
+    fun createHomeScreenShortcut() {
         val item = currentItem.value ?: return
-        com.tortugapower.audiobookplayer.logic.ShortcutHelper.requestPinShortcut(context, viewModelScope, item)
+        com.tortugapower.audiobookplayer.logic.ShortcutHelper.requestPinShortcut(appContext, viewModelScope, item)
     }
 
     fun updateGlobalSpeed(context: Context, enabled: Boolean) {

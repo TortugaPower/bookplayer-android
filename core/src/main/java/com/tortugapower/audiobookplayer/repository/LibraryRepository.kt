@@ -15,8 +15,10 @@ interface LibraryRepository {
     suspend fun getItemByPath(path: String): LibraryItemEntity?
 
     /**
-     * Resolves a play identifier that may be either a library uuid (deep links, wear commands)
-     * or a relativePath (Android Auto browse rows): uuid lookup first, path as fallback.
+     * Resolves a play identifier that may be either a library uuid (deep links, pinned/dynamic
+     * shortcuts) or a relativePath: uuid lookup first, path as fallback. Wear commands resolve
+     * path-first at the DAO level and Android Auto browse rows are always relativePaths, so
+     * those callers intentionally don't route through this helper.
      */
     suspend fun getItemByIdOrPath(identifier: String): LibraryItemEntity? =
         getItemById(identifier) ?: getItemByPath(identifier)

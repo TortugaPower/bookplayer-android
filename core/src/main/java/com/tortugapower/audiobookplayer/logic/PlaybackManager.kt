@@ -1025,6 +1025,18 @@ object PlaybackManager {
         }
     }
 
+    /** Start playback (no-op if already playing). Used by the "play" deep link, which must never pause. */
+    fun play() {
+        val p = player ?: return
+        if (isPlaying.value) return
+        if (p.playbackState == Player.STATE_IDLE) {
+            p.prepare()
+        } else if (p.playbackState == Player.STATE_ENDED) {
+            p.seekTo(0)
+        }
+        p.play()
+    }
+
     fun togglePlayPause() {
         val p = player ?: return
         // Toggle on the SAME intent the button displays (isPlaying = queued || playWhenReady while
@@ -1033,12 +1045,7 @@ object PlaybackManager {
         if (isPlaying.value) {
             p.pause()
         } else {
-            if (p.playbackState == Player.STATE_IDLE) {
-                p.prepare()
-            } else if (p.playbackState == Player.STATE_ENDED) {
-                p.seekTo(0)
-            }
-            p.play()
+            play()
         }
     }
 

@@ -77,6 +77,8 @@
 
     <!-- Player -->
     <string name="player_cast">전송</string>
+    <string name="player_cast_unavailable">이 기기에서는 오디오 출력 설정을 사용할 수 없습니다</string>
+    <string name="player_toggle_video_controls">플레이어 컨트롤 표시 또는 숨기기</string>
     <string name="player_prev">이전</string>
     <string name="player_next">다음</string>
     <string name="player_chapter_label">%1$s</string>
@@ -399,4 +401,5 @@
 
     <string name="library_add_shortcut_to_home_screen">홈 화면에 바로가기 추가</string>
     <string name="shortcut_play_item_desc">%1$s 재생</string>
+    <string name="shortcut_pin_failed">홈 화면에 바로가기를 추가할 수 없습니다</string>
 </resources>

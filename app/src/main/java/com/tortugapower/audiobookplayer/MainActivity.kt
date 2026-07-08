@@ -95,8 +95,10 @@ class MainActivity : ComponentActivity() {
                 if (identifier != null) {
                     PlaybackManager.playItemByPath(this, identifier, autoplay, showPlayer)
                 } else {
+                    // A "play" affordance must never pause: if something is already playing,
+                    // play() is a no-op rather than a toggle.
                     if (PlaybackManager.currentItem.value != null) {
-                        if (autoplay) PlaybackManager.togglePlayPause()
+                        if (autoplay) PlaybackManager.play()
                         if (showPlayer) PlaybackManager.setShowPlayer(true)
                     } else {
                         lifecycleScope.launch {
@@ -104,7 +106,7 @@ class MainActivity : ComponentActivity() {
                             if (lastUuid != null) {
                                 PlaybackManager.playItemByPath(this@MainActivity, lastUuid, autoplay, showPlayer)
                             } else {
-                                if (autoplay) PlaybackManager.togglePlayPause()
+                                if (autoplay) PlaybackManager.play()
                                 if (showPlayer) PlaybackManager.setShowPlayer(true)
                             }
                         }

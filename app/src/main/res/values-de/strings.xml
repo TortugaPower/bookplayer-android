@@ -78,6 +78,8 @@
 
     <!-- Player -->
     <string name="player_cast">Cast</string>
+    <string name="player_cast_unavailable">Die Audioausgabe-Einstellungen sind auf diesem Gerät nicht verfügbar</string>
+    <string name="player_toggle_video_controls">Player-Steuerelemente ein- oder ausblenden</string>
     <string name="player_prev">Zurück</string>
     <string name="player_next">Weiter</string>
     <string name="player_chapter_label">%1$s</string>
@@ -401,4 +403,5 @@
 
     <string name="library_add_shortcut_to_home_screen">Verknüpfung zum Startbildschirm hinzufügen</string>
     <string name="shortcut_play_item_desc">%1$s abspielen</string>
+    <string name="shortcut_pin_failed">Verknüpfung konnte nicht zum Startbildschirm hinzugefügt werden</string>
 </resources>
