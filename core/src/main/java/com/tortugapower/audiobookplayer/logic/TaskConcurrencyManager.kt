@@ -159,6 +159,13 @@ class TaskConcurrencyManager(
                 repository.deleteTask(updatedTask)
                 SyncStatusManager.updateLastSyncTimestamp(System.currentTimeMillis())
                 true
+            } else if (SyncStatusManager.isCancelRequested(task.taskID)) {
+                // Cancelled (e.g. an in-flight download the user cancelled): terminal, not a retryable
+                // failure — delete the task so the worker doesn't re-queue and re-run it, and clear the flag.
+                Log.d(TAG, "🚫 Task cancelled: ${task.jobType}. Removing (no retry).")
+                repository.deleteTask(updatedTask)
+                SyncStatusManager.clearCancel(task.taskID)
+                false
             } else {
                 Log.w(TAG, "⚠️ Task failed (processor returned false): ${task.jobType}. Retrying...")
                 repository.updateTask(updatedTask.copy(

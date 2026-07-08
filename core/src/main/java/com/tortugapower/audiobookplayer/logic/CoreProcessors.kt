@@ -361,12 +361,15 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
             }
 
             SyncStatusManager.clearTaskProgress(taskId)
-            SyncStatusManager.clearCancel(taskId)
             if (cancelled) {
                 Log.d("DownloadFileProcessor", "🚫 Download cancelled: $relativePath")
                 if (destFile.exists()) destFile.delete()
+                // Leave the cancel flag SET on purpose: TaskConcurrencyManager reads it on this false
+                // return to make the task terminal (delete, no retry) and then clears it. Clearing here
+                // would let the failure path re-queue the task and silently re-download it to completion.
                 return false
             }
+            SyncStatusManager.clearCancel(taskId)
             Log.d("DownloadFileProcessor", "✅ Download complete: $relativePath")
             true
         } catch (e: Exception) {
