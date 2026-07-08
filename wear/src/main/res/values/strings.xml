@@ -43,8 +43,13 @@
     <!-- Book detail line: total duration (h/m/s), mirroring the phone's duration_hms/duration_ms. -->
     <string name="wear_duration_hms">%1$dh %2$dm %3$ds</string>
     <string name="wear_duration_ms">%1$dm %2$ds</string>
-    <!-- Content description for the "not downloaded / streams from cloud" row indicator. -->
+    <!-- Row download-state indicators (content descriptions) + long-press action menu. -->
     <string name="wear_download_state_cloud">Not downloaded</string>
+    <string name="wear_download_state_downloading">Downloading</string>
+    <string name="wear_download_state_downloaded">Downloaded</string>
+    <string name="wear_download">Download</string>
+    <string name="wear_cancel_download">Cancel download</string>
+    <string name="wear_remove_download">Remove download</string>
 
     <!-- Standalone on-watch sync foreground service (minimal, IMPORTANCE_MIN notification). -->
     <string name="wear_sync_channel_name">Background sync</string>

@@ -13,6 +13,15 @@ object SyncStatusManager {
     private val _taskProgress = MutableStateFlow<Map<String, Double>>(emptyMap())
     val taskProgress: StateFlow<Map<String, Double>> = _taskProgress.asStateFlow()
 
+    // Cooperative-cancellation registry for in-flight downloads (keyed by taskID = item uuid). A running
+    // DownloadFileProcessor polls [isCancelRequested] in its read loop and aborts (the OkHttp stream loop
+    // otherwise runs to completion — deleting the DB row only stops a still-queued download).
+    private val _cancelRequests = MutableStateFlow<Set<String>>(emptySet())
+
+    fun requestCancel(taskId: String) { _cancelRequests.update { it + taskId } }
+    fun isCancelRequested(taskId: String): Boolean = _cancelRequests.value.contains(taskId)
+    fun clearCancel(taskId: String) { _cancelRequests.update { it - taskId } }
+
     // Map of relativePath to last fetch timestamp
     private val _lastPathFetchTimestamps = MutableStateFlow<Map<String, Long>>(emptyMap())
     

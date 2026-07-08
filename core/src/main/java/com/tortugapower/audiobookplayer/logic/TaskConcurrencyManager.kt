@@ -133,7 +133,8 @@ class TaskConcurrencyManager(
 
     override fun isRunning(): Boolean = isProcessing
 
-    private suspend fun executeTask(task: SyncTaskEntity): Boolean {
+    // internal (not private) so the cancel-terminal branch can be unit-tested directly.
+    internal suspend fun executeTask(task: SyncTaskEntity): Boolean {
         Log.d(TAG, "🚀 Executing task: ${task.jobType} [ID: ${task.id}, Attempt: ${task.attempts + 1}]")
         
         val updatedTask = task.copy(status = SyncTaskStatus.RUNNING, attempts = task.attempts + 1)
@@ -159,6 +160,15 @@ class TaskConcurrencyManager(
                 repository.deleteTask(updatedTask)
                 SyncStatusManager.updateLastSyncTimestamp(System.currentTimeMillis())
                 true
+            } else if (task.jobType == SyncTaskFactory.JOB_DOWNLOAD_FILE && SyncStatusManager.isCancelRequested(task.taskID)) {
+                // Cancelled download (only downloads use the cancel registry): terminal, not a retryable
+                // failure — delete the task so the worker doesn't re-queue and re-run it, and clear the flag.
+                // Gated on the download job type so a leftover download-cancel flag can't make an unrelated
+                // same-uuid task (progress sync, upload, move…) that fails be dropped as "cancelled".
+                Log.d(TAG, "🚫 Task cancelled: ${task.jobType}. Removing (no retry).")
+                repository.deleteTask(updatedTask)
+                SyncStatusManager.clearCancel(task.taskID)
+                false
             } else {
                 Log.w(TAG, "⚠️ Task failed (processor returned false): ${task.jobType}. Retrying...")
                 repository.updateTask(updatedTask.copy(

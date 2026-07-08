@@ -87,4 +87,48 @@ class StandaloneViewModelTest {
     fun `progressPrefix shows 100 percent when finished`() {
         assertEquals("100% - ", StandaloneViewModel.progressPrefix(percentCompleted = 1.0, isFinished = true))
     }
+
+    private fun unit(downloaded: Boolean, taskActive: Boolean) =
+        DownloadUnitStatus(downloaded = downloaded, taskActive = taskActive)
+
+    @Test
+    fun `no units is not-downloaded`() {
+        assertEquals(DownloadUiState.NotDownloaded, StandaloneViewModel.deriveDownloadState(emptyList()))
+    }
+
+    @Test
+    fun `all files present is downloaded`() {
+        val units = listOf(unit(downloaded = true, taskActive = false), unit(downloaded = true, taskActive = false))
+        assertEquals(DownloadUiState.Downloaded, StandaloneViewModel.deriveDownloadState(units))
+    }
+
+    @Test
+    fun `any active task is downloading`() {
+        val units = listOf(unit(downloaded = true, taskActive = false), unit(downloaded = false, taskActive = true))
+        assertEquals(DownloadUiState.Downloading, StandaloneViewModel.deriveDownloadState(units))
+    }
+
+    @Test
+    fun `partial with no active task is not-downloaded so re-download completes it`() {
+        val units = listOf(unit(downloaded = true, taskActive = false), unit(downloaded = false, taskActive = false))
+        assertEquals(DownloadUiState.NotDownloaded, StandaloneViewModel.deriveDownloadState(units))
+    }
+
+    @Test
+    fun `bound download progress aggregates across files (0 to 50 to 100)`() {
+        // 2-file bound book: first file half-done → 25%; first done + second half → 75%; both done → 100%.
+        assertEquals(0.25f, StandaloneViewModel.downloadProgressFraction(downloadedUnits = 0, totalUnits = 2, inProgressSum = 0.5), 0.0001f)
+        assertEquals(0.75f, StandaloneViewModel.downloadProgressFraction(downloadedUnits = 1, totalUnits = 2, inProgressSum = 0.5), 0.0001f)
+        assertEquals(1.0f, StandaloneViewModel.downloadProgressFraction(downloadedUnits = 2, totalUnits = 2, inProgressSum = 0.0), 0.0001f)
+    }
+
+    @Test
+    fun `single-file download progress is its own fraction`() {
+        assertEquals(0.3f, StandaloneViewModel.downloadProgressFraction(downloadedUnits = 0, totalUnits = 1, inProgressSum = 0.3), 0.0001f)
+    }
+
+    @Test
+    fun `download progress is zero for zero units`() {
+        assertEquals(0f, StandaloneViewModel.downloadProgressFraction(downloadedUnits = 0, totalUnits = 0, inProgressSum = 0.0), 0.0001f)
+    }
 }

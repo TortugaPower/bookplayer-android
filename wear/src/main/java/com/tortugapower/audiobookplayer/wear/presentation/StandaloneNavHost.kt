@@ -72,6 +72,9 @@ fun StandaloneNavHost() {
                         navController.navigate(StandaloneRoute.NOW_PLAYING)
                     }
                 },
+                onDownload = viewModel::download,
+                onCancelDownload = viewModel::cancelDownload,
+                onRemoveDownload = viewModel::removeDownload,
                 onRefresh = viewModel::refresh,
             )
         }

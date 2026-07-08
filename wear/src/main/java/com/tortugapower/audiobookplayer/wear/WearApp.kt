@@ -7,6 +7,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.network.NetworkClient
@@ -103,23 +104,48 @@ class WearApp : Application() {
         //  - START only while foreground — starting a dataSync FGS from the background throws on API 31+
         //    (the sync service has no media-session background-start exemption), and a background
         //    play→true (resume from the notification/Bluetooth) must NOT trigger a start.
-        //  - STOP when not PRO, or idle in the background — but keep a foreground-started FGS running
-        //    while playback continues in the background so progress keeps syncing.
-        // The pro && !foreground && playing case is the deliberate gap: leave the service as-is.
+        //  - STOP when not PRO, or when idle in the background — i.e. NOT foreground, NOT playing, and NO
+        //    active sync work. Keeping it alive while playback continues (progress sync) OR while a task is
+        //    queued/running (e.g. a download the user kicked off then pocketed the watch) means backgrounding
+        //    won't abandon in-flight work; it stops once the queue drains. True app-CLOSED background work
+        //    (download-while-charging) is the deferred WorkManager path.
         appScope.launch {
             val isPro = accountRepository.getAccountFlow().map { it?.tier == AccountTier.PRO }
             val isForeground = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
                 .map { it.isAtLeast(Lifecycle.State.STARTED) }
-            combine(isPro, isForeground, PlaybackManager.isPlaying) { pro, foreground, playing ->
-                Triple(pro, foreground, playing)
+            // "Active work" excludes tasks that have already failed several times: sync retries are
+            // intentionally infinite (they keep retrying with backoff), but a permanently-failing task (a
+            // 404 URL, an offline device) must NOT pin the foreground service alive in the background
+            // forever (battery + a persistent notification). Such a task still retries whenever the app is
+            // foregrounded (the `foreground` signal runs the service regardless).
+            val hasActiveWork = syncTaskRepository.getAllTasks().map { tasks ->
+                tasks.any {
+                    (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING) &&
+                        it.attempts < MAX_BACKGROUND_WORK_ATTEMPTS
+                }
+            }
+            combine(isPro, isForeground, PlaybackManager.isPlaying, hasActiveWork) { pro, foreground, playing, work ->
+                GateInputs(pro, foreground, playing, work)
             }
                 .distinctUntilChanged()
-                .collect { (pro, foreground, playing) ->
+                .collect { (pro, foreground, playing, work) ->
                     when {
                         pro && foreground -> WearSyncServiceHost.start(this@WearApp)
-                        !pro || (!foreground && !playing) -> WearSyncServiceHost.stop(this@WearApp)
+                        !pro || (!foreground && !playing && !work) -> WearSyncServiceHost.stop(this@WearApp)
                     }
                 }
         }
     }
 }
+
+/** After this many failed attempts a task no longer keeps the sync FGS alive in the background (it still
+ *  retries when the app is foregrounded). Keeps a permanently-failing task from pinning the service. */
+private const val MAX_BACKGROUND_WORK_ATTEMPTS = 3
+
+/** Inputs to the sync-service run gate (a 4-field holder for combine + distinctUntilChanged). */
+private data class GateInputs(
+    val pro: Boolean,
+    val foreground: Boolean,
+    val playing: Boolean,
+    val work: Boolean,
+)
