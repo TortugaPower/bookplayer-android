@@ -113,8 +113,16 @@ class WearApp : Application() {
             val isPro = accountRepository.getAccountFlow().map { it?.tier == AccountTier.PRO }
             val isForeground = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
                 .map { it.isAtLeast(Lifecycle.State.STARTED) }
+            // "Active work" excludes tasks that have already failed several times: sync retries are
+            // intentionally infinite (they keep retrying with backoff), but a permanently-failing task (a
+            // 404 URL, an offline device) must NOT pin the foreground service alive in the background
+            // forever (battery + a persistent notification). Such a task still retries whenever the app is
+            // foregrounded (the `foreground` signal runs the service regardless).
             val hasActiveWork = syncTaskRepository.getAllTasks().map { tasks ->
-                tasks.any { it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING }
+                tasks.any {
+                    (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING) &&
+                        it.attempts < MAX_BACKGROUND_WORK_ATTEMPTS
+                }
             }
             combine(isPro, isForeground, PlaybackManager.isPlaying, hasActiveWork) { pro, foreground, playing, work ->
                 GateInputs(pro, foreground, playing, work)
@@ -129,6 +137,10 @@ class WearApp : Application() {
         }
     }
 }
+
+/** After this many failed attempts a task no longer keeps the sync FGS alive in the background (it still
+ *  retries when the app is foregrounded). Keeps a permanently-failing task from pinning the service. */
+private const val MAX_BACKGROUND_WORK_ATTEMPTS = 3
 
 /** Inputs to the sync-service run gate (a 4-field holder for combine + distinctUntilChanged). */
 private data class GateInputs(

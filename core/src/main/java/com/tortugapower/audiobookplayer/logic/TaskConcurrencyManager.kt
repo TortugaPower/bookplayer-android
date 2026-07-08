@@ -160,9 +160,11 @@ class TaskConcurrencyManager(
                 repository.deleteTask(updatedTask)
                 SyncStatusManager.updateLastSyncTimestamp(System.currentTimeMillis())
                 true
-            } else if (SyncStatusManager.isCancelRequested(task.taskID)) {
-                // Cancelled (e.g. an in-flight download the user cancelled): terminal, not a retryable
+            } else if (task.jobType == SyncTaskFactory.JOB_DOWNLOAD_FILE && SyncStatusManager.isCancelRequested(task.taskID)) {
+                // Cancelled download (only downloads use the cancel registry): terminal, not a retryable
                 // failure — delete the task so the worker doesn't re-queue and re-run it, and clear the flag.
+                // Gated on the download job type so a leftover download-cancel flag can't make an unrelated
+                // same-uuid task (progress sync, upload, move…) that fails be dropped as "cancelled".
                 Log.d(TAG, "🚫 Task cancelled: ${task.jobType}. Removing (no retry).")
                 repository.deleteTask(updatedTask)
                 SyncStatusManager.clearCancel(task.taskID)

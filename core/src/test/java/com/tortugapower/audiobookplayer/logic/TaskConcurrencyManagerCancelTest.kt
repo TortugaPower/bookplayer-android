@@ -64,6 +64,24 @@ class TaskConcurrencyManagerCancelTest {
         assertTrue("failed task is re-queued for retry", repo.reQueuedToPending)
         assertTrue("failed task is not deleted", repo.deleted.isEmpty())
     }
+
+    @Test fun `a non-download task with a leftover cancel flag is still retried, not dropped`() = runBlocking {
+        // The cancel flag is keyed by book uuid and may linger after a pending-download cancel; a same-uuid
+        // NON-download task (e.g. progress sync) that fails must retry, not be dropped as cancelled.
+        val repo = RecordingSyncTaskRepository()
+        val updateTask = task().copy(id = "row-u", jobType = SyncTaskFactory.JOB_UPDATE)
+        val mgr = TaskConcurrencyManager(
+            ApplicationProvider.getApplicationContext(), repo, FakeAccountRepository(),
+            listOf(FailingProcessor(SyncTaskFactory.JOB_UPDATE)),
+        )
+        SyncStatusManager.requestCancel(uuid) // leftover download-cancel flag for the same uuid
+
+        val result = mgr.executeTask(updateTask)
+
+        assertFalse(result)
+        assertTrue("non-download failure retries despite the leftover flag", repo.reQueuedToPending)
+        assertTrue("non-download task is not deleted", repo.deleted.isEmpty())
+    }
 }
 
 /** Records deletes and whether the task was re-set to PENDING (the retry path). */
