@@ -833,7 +833,7 @@ object PlaybackManager {
     fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {
         updateProgress(context, itemToUpdate = _currentItem.value)
         scope.launch(Dispatchers.IO) {
-            val item = getRepository(context).getItemByPath(path)
+            val item = getRepository(context).getItemByIdOrPath(path)
             if (item != null) {
                 launch(Dispatchers.Main) {
                     playItem(context, item)
@@ -1019,6 +1019,18 @@ object PlaybackManager {
         }
     }
 
+    /** Start playback (no-op if already playing). Used by the "play" deep link, which must never pause. */
+    fun play() {
+        val p = player ?: return
+        if (isPlaying.value) return
+        if (p.playbackState == Player.STATE_IDLE) {
+            p.prepare()
+        } else if (p.playbackState == Player.STATE_ENDED) {
+            p.seekTo(0)
+        }
+        p.play()
+    }
+
     fun togglePlayPause() {
         val p = player ?: return
         // Toggle on the SAME intent the button displays (isPlaying = queued || playWhenReady while
@@ -1027,12 +1039,7 @@ object PlaybackManager {
         if (isPlaying.value) {
             p.pause()
         } else {
-            if (p.playbackState == Player.STATE_IDLE) {
-                p.prepare()
-            } else if (p.playbackState == Player.STATE_ENDED) {
-                p.seekTo(0)
-            }
-            p.play()
+            play()
         }
     }
 

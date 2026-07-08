@@ -277,6 +277,34 @@ class RoomLibraryRepositoryTest {
         assertEquals("New Title", fakeDao.items["sub-1"]?.title)
     }
 
+    // getItemByIdOrPath resolves play identifiers that may be a uuid (deep links, wear) or a
+    // relativePath (Android Auto): uuid first, path as fallback.
+    @Test
+    fun testGetItemByIdOrPath_prefersUuidMatch() = runBlocking {
+        val byUuid = LibraryItemEntity(
+            uuid = "book-1", title = "By Uuid", relativePath = "one.mp3", type = ItemType.BOOK
+        )
+        // A different item whose relativePath equals the identifier must not shadow the uuid match.
+        val byPath = LibraryItemEntity(
+            uuid = "book-2", title = "By Path", relativePath = "book-1", type = ItemType.BOOK
+        )
+        fakeDao.items[byUuid.uuid] = byUuid
+        fakeDao.items[byPath.uuid] = byPath
+
+        assertEquals("book-1", repository.getItemByIdOrPath("book-1")?.uuid)
+    }
+
+    @Test
+    fun testGetItemByIdOrPath_fallsBackToRelativePath() = runBlocking {
+        val item = LibraryItemEntity(
+            uuid = "book-1", title = "Book", relativePath = "Folder/one.mp3", type = ItemType.BOOK
+        )
+        fakeDao.items[item.uuid] = item
+
+        assertEquals("book-1", repository.getItemByIdOrPath("Folder/one.mp3")?.uuid)
+        assertEquals(null, repository.getItemByIdOrPath("missing"))
+    }
+
     private class FakeLibraryDao : LibraryDao {
         val items = mutableMapOf<String, LibraryItemEntity>()
         val completions = mutableListOf<BookCompletionEntity>()
@@ -351,8 +379,10 @@ class RoomLibraryRepositoryTest {
         override fun getItemsInPathWithResources(path: String): Flow<List<LibraryItemWithExternalResources>> = TODO()
         override fun searchBooksWithResources(query: String): Flow<List<LibraryItemWithExternalResources>> = TODO()
         override fun searchAllBooksWithResources(query: String): Flow<List<LibraryItemWithExternalResources>> = TODO()
-        override suspend fun getItemByIdWithResources(uuid: String): LibraryItemWithExternalResources? = TODO()
-        override suspend fun getItemByPathWithResources(path: String): LibraryItemWithExternalResources? = TODO()
+        override suspend fun getItemByIdWithResources(uuid: String): LibraryItemWithExternalResources? =
+            items[uuid]?.let { LibraryItemWithExternalResources(it, emptyList()) }
+        override suspend fun getItemByPathWithResources(path: String): LibraryItemWithExternalResources? =
+            items.values.find { it.relativePath == path }?.let { LibraryItemWithExternalResources(it, emptyList()) }
         override suspend fun getItemsInPathSyncWithResources(path: String): List<LibraryItemWithExternalResources> = TODO()
         override suspend fun getRecentUnfinishedBooksSync(limit: Int): List<LibraryItemEntity> = TODO()
         override suspend fun getRecentPlayedItemsSync(limit: Int): List<LibraryItemEntity> = TODO()

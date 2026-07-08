@@ -78,6 +78,8 @@
 
     <!-- Player -->
     <string name="player_cast">Transmitir</string>
+    <string name="player_cast_unavailable">Los ajustes de salida de audio no están disponibles en este dispositivo</string>
+    <string name="player_toggle_video_controls">Mostrar u ocultar los controles del reproductor</string>
     <string name="player_prev">Anterior</string>
     <string name="player_next">Siguiente</string>
     <string name="player_chapter_label">%1$s</string>
@@ -379,4 +381,27 @@
     <string name="storage_cloud_deleted_delete_button">Eliminar</string>
     <string name="storage_cloud_deleted_restore_all_confirm_title">Restaurar todos los archivos</string>
     <string name="storage_cloud_deleted_restore_all_confirm_text">¿Estás seguro de que deseas restaurar todos los archivos de audio eliminados a tu biblioteca?</string>
+
+    <!-- Launcher Shortcuts -->
+    <string name="shortcut_play_last_title">Reproducir último</string>
+    <string name="shortcut_play_last_desc">Reanudar el último libro reproducido</string>
+    <string name="shortcut_rewind_title">Retroceder</string>
+    <string name="shortcut_forward_title">Adelantar</string>
+    <string name="shortcut_sleep_timer_title">Programar temporizador</string>
+
+    <!-- Fullscreen Accessibility -->
+    <string name="player_enter_fullscreen">Pantalla completa</string>
+    <string name="player_exit_fullscreen">Salir de pantalla completa</string>
+
+    <!-- Cast Options Sheet -->
+    <string name="cast_option_media_output_title">Dispositivos AirPlay y Bluetooth</string>
+    <string name="cast_option_media_output_desc">Elige altavoces inalámbricos, auriculares u otros sistemas Bluetooth.</string>
+    <string name="cast_option_wireless_display_title">Pantallas inalámbricas y transmitir</string>
+    <string name="cast_option_wireless_display_desc">Transmite la pantalla o el audio a la TV, Google Cast o Smart TV.</string>
+    <string name="cast_option_bluetooth_settings_title">Ajustes de Bluetooth</string>
+    <string name="cast_option_bluetooth_settings_desc">Empareja un nuevo dispositivo o gestiona los accesorios Bluetooth conectados.</string>
+
+    <string name="library_add_shortcut_to_home_screen">Añadir atajo a la pantalla de inicio</string>
+    <string name="shortcut_play_item_desc">Reproducir %1$s</string>
+    <string name="shortcut_pin_failed">No se pudo añadir el atajo a la pantalla de inicio</string>
 </resources>

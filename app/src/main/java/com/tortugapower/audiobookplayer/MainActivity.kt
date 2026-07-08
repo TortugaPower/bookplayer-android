@@ -16,6 +16,14 @@ import com.tortugapower.audiobookplayer.logic.ThemeManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.ui.screens.MainScreen
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerTheme
+import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
+import com.tortugapower.audiobookplayer.logic.PlayerUiSignals
+import com.tortugapower.audiobookplayer.logic.ShortcutHelper
+import com.tortugapower.audiobookplayer.logic.SleepTimerManager
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
 
@@ -31,6 +39,7 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         ThemeManager.initialize(this)
+        setupDynamicShortcuts()
 
         // Only handle the launch intent on a fresh start. On a recreate (locale/density change, or
         // process-death restore from recents) the same ACTION_VIEW/SEND intent would otherwise be
@@ -89,8 +98,22 @@ class MainActivity : ComponentActivity() {
                 if (identifier != null) {
                     PlaybackManager.playItemByPath(this, identifier, autoplay, showPlayer)
                 } else {
-                    if (autoplay) PlaybackManager.togglePlayPause()
-                    if (showPlayer) PlaybackManager.setShowPlayer(true)
+                    // A "play" affordance must never pause: if something is already playing,
+                    // play() is a no-op rather than a toggle.
+                    if (PlaybackManager.currentItem.value != null) {
+                        if (autoplay) PlaybackManager.play()
+                        if (showPlayer) PlaybackManager.setShowPlayer(true)
+                    } else {
+                        lifecycleScope.launch {
+                            val lastUuid = PlaybackSettingsManager.getLastItemUuid(this@MainActivity).first()
+                            if (lastUuid != null) {
+                                PlaybackManager.playItemByPath(this@MainActivity, lastUuid, autoplay, showPlayer)
+                            } else {
+                                if (autoplay) PlaybackManager.play()
+                                if (showPlayer) PlaybackManager.setShowPlayer(true)
+                            }
+                        }
+                    }
                 }
             }
             "download" -> {
@@ -110,8 +133,10 @@ class MainActivity : ComponentActivity() {
             "sleep" -> {
                 val seconds = uri.getQueryParameter("seconds")?.toIntOrNull()
                 if (seconds != null) {
-                    com.tortugapower.audiobookplayer.logic.SleepTimerManager.configureTimerWithSeconds(seconds)
+                    SleepTimerManager.configureTimerWithSeconds(seconds)
                 }
+                PlaybackManager.setShowPlayer(true)
+                PlayerUiSignals.requestOpenSleepTimer()
             }
         }
     }
@@ -120,5 +145,14 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         // We don't necessarily want to release the player here if it should play in background,
         // but for now let's keep it simple. Actually, the service handles the background.
+    }
+
+    private fun setupDynamicShortcuts() {
+        // ShortcutManager get/set are disk-backed binder calls (and icon/label building isn't free) —
+        // keep the publish off the UI thread during cold start. ShortcutManagerCompat handles version
+        // gating, so no Build.VERSION check here.
+        lifecycleScope.launch(Dispatchers.Default) {
+            ShortcutHelper.publishDynamicShortcuts(applicationContext)
+        }
     }
 }

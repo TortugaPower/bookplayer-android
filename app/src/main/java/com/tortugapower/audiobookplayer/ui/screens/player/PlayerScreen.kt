@@ -1,9 +1,16 @@
 package com.tortugapower.audiobookplayer.ui.screens.player
 
+import android.content.Intent
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
@@ -29,11 +36,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowLeft
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.KeyboardDoubleArrowLeft
-import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Pause
@@ -41,12 +48,26 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material3.ExperimentalMaterial3Api
-import android.content.Intent
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import android.app.Activity
+import android.content.ContextWrapper
+import android.graphics.Bitmap
+import android.view.LayoutInflater
+import android.view.TextureView
+import android.view.View
+import android.view.ViewGroup
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -55,6 +76,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +91,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
@@ -79,13 +102,23 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.common.C
+import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.PlayerUiSignals
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
 import kotlinx.coroutines.launch
@@ -125,6 +158,15 @@ fun PlayerScreen(
     val offsetY = remember { Animatable(screenHeightPx) }
     val scope = rememberCoroutineScope()
     val isHidden = offsetY.value >= screenHeightPx
+
+    // One-shot signal from a deep link / launcher "sleep" shortcut handled in MainActivity — open the
+    // sleep-timer menu once. The conflated channel latches a pre-composition emit (cold start) yet is
+    // consumed once, so a config-change recreation won't re-open the menu.
+    LaunchedEffect(Unit) {
+        PlayerUiSignals.openSleepTimer.collect {
+            viewModel.showSleepTimerMenu = true
+        }
+    }
 
     LaunchedEffect(showPlayerScreen, screenHeightPx) {
         if (showPlayerScreen) {
@@ -172,6 +214,13 @@ fun PlayerScreen(
         MoreOptionsSheet(
             viewModel = viewModel,
             onDismiss = { viewModel.toggleMoreOptions() }
+        )
+    }
+
+    if (viewModel.showCastSheet) {
+        CastOptionsSheet(
+            viewModel = viewModel,
+            onDismiss = { viewModel.toggleCastSheet() }
         )
     }
 
@@ -230,6 +279,81 @@ fun PlayerScreen(
 
     val paneTitleText = stringResource(R.string.player_pane_title)
     if (showPlayerScreen || offsetY.value < screenHeightPx) {
+        // Hoisted above the sheet container: fullscreen changes the container's own modifiers
+        // (drag-to-dismiss and system-bar padding are suspended while a video is fullscreen).
+        // rememberSaveable so a rotation mid-video doesn't kick the user out of fullscreen.
+        var isFullscreen by rememberSaveable { mutableStateOf(false) }
+        val player = viewModel.player
+        var hasVideo by remember { mutableStateOf(false) }
+        DisposableEffect(player) {
+            val listener = object : Player.Listener {
+                override fun onTracksChanged(tracks: Tracks) {
+                    hasVideo = tracks.hasPlayableVideo()
+                }
+            }
+            player?.addListener(listener)
+            hasVideo = player?.currentTracks?.hasPlayableVideo() == true
+            onDispose {
+                player?.removeListener(listener)
+            }
+        }
+        // Fullscreen only means something while a video is showing; drop it when the item
+        // changes to an audio book so the next video doesn't open straight into fullscreen.
+        LaunchedEffect(hasVideo) { if (!hasVideo) isFullscreen = false }
+        val fullscreenActive = isFullscreen && hasVideo
+
+        // While the UI is stopped (screen off, app backgrounded) or the player sheet is gone,
+        // nothing shows the frames — but the video track would stay selected and MediaCodec
+        // would keep decoding in the background, a pure battery drain on an app built around
+        // background listening. Disabling the track type stops video decode; audio continues,
+        // and re-enabling re-selects the track and repaints the surface.
+        val lifecycleOwner = LocalLifecycleOwner.current
+        DisposableEffect(player, hasVideo, lifecycleOwner) {
+            if (player == null || !hasVideo ||
+                !player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)
+            ) {
+                return@DisposableEffect onDispose { }
+            }
+            fun setVideoDecodeEnabled(enabled: Boolean) {
+                player.trackSelectionParameters = player.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !enabled)
+                    .build()
+            }
+            val observer = LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_START -> setVideoDecodeEnabled(true)
+                    Lifecycle.Event.ON_STOP -> setVideoDecodeEnabled(false)
+                    else -> Unit
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            setVideoDecodeEnabled(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+                // The sheet left composition (collapsed to the mini player or closed): keep
+                // decode off until it comes back. Recomposing with a video re-enables above.
+                setVideoDecodeEnabled(false)
+            }
+        }
+
+        // Real fullscreen: hide the system bars (a swipe reveals them transiently) while a
+        // video is fullscreen; restore them on exit or when leaving the screen entirely.
+        val rootView = LocalView.current
+        DisposableEffect(fullscreenActive) {
+            val activity = generateSequence(rootView.context) { (it as? ContextWrapper)?.baseContext }
+                .firstNotNullOfOrNull { it as? Activity }
+            val insetsController = activity?.window?.let { WindowCompat.getInsetsController(it, rootView) }
+            if (fullscreenActive && insetsController != null) {
+                insetsController.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+            }
+            onDispose {
+                insetsController?.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -249,8 +373,10 @@ fun PlayerScreen(
                     }
                 }
                 .then(
-                    if (isHidden) {
-                        Modifier // No touch interception at all when hidden
+                    if (isHidden || fullscreenActive) {
+                        // No touch interception when hidden; no drag-to-dismiss over a
+                        // fullscreen video (a scrub-like swipe must not close the player).
+                        Modifier
                     } else {
                         Modifier.draggable(
                             orientation = Orientation.Vertical,
@@ -273,161 +399,271 @@ fun PlayerScreen(
                         )
                     }
                 )
-                .statusBarsPadding()
-                .navigationBarsPadding()
-        ) {
-        if (currentItem != null) {
-            // Single source of truth for chapters: the currentPlayable snapshot. The index (via the
-            // tested BoundTimeline.indexAt / chapterIndexAt), the current chapter, and the per-file
-            // artwork all read from THIS one snapshot, so they can't disagree during a track transition.
-            val currentPlayable by viewModel.currentPlayable.collectAsStateWithLifecycle()
-            val chapters = currentPlayable?.chapterEntities ?: emptyList()
-            // derivedStateOf so readers only recompose when the computed index actually changes — not on
-            // every ~500ms position tick. Keyed on `duration` (the only non-State input);
-            // position/isDragging/dragPosition/useChapterContext/currentPlayable are State and tracked.
-            val currentChapterIndex by remember(duration) {
-                derivedStateOf {
-                    val pos = if (isDragging && !viewModel.useChapterContext) {
-                        (dragPosition * duration).toLong()
+                .then(
+                    if (fullscreenActive) {
+                        Modifier // edge-to-edge beneath the hidden system bars
                     } else {
-                        position
+                        Modifier
+                            .statusBarsPadding()
+                            .navigationBarsPadding()
                     }
-                    // Reuse the tested chapter-layer lookup instead of re-implementing the half-open
-                    // [start, end) scan + clamp here; whole-book positions work for embedded chapters too.
-                    currentPlayable?.chapterIndexAt(pos) ?: -1
-                }
-            }
-            val currentChapter = chapters.getOrNull(currentChapterIndex)
-
-            // Artwork follows the current chapter's backing file (per-file, matching iOS), falling back to
-            // the book's. Per-file artwork lives on PlayableChapter — same snapshot, same index as above.
-            val chapterArtworkURL = currentPlayable?.chapters?.getOrNull(currentChapterIndex)?.artworkURL
-
-            // isLocal is computed off the main thread in the ViewModel (no File.exists in composition).
-            val isLocal by viewModel.isCurrentItemLocal.collectAsStateWithLifecycle()
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(
-                    modifier = Modifier
-                        .padding(vertical = 12.dp)
-                        .width(40.dp)
-                        .height(4.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                 )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                PlayerArtwork(
-                    artworkURL = chapterArtworkURL ?: currentItem.artworkURL,
-                    isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
-                    showCloudBadge = !isLocal && !currentItem.remoteURL.isNullOrEmpty()
-                )
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                // The chevrons always navigate chapters: back can restart/step to a previous chapter for
-                // any loaded book (or previous item); forward is available when there's a next chapter or item.
-                val canGoBack = viewModel.hasPreviousItem || chapters.isNotEmpty()
-                val canGoForward = viewModel.hasNextItem || chapters.size > 1
-
-                PlayerTitleNavRow(
-                    title = if (viewModel.useChapterContext && currentChapter != null) currentChapter.title else currentItem.title,
-                    canGoBack = canGoBack,
-                    canGoForward = canGoForward,
-                    // Double chevron when there's no previous/next chapter (tap crosses to prev/next book).
-                    hasPreviousChapter = currentChapterIndex > 0,
-                    hasNextChapter = currentChapterIndex in 0 until (chapters.size - 1),
-                    onPrevious = { viewModel.playPrevious(context) },
-                    onNext = { viewModel.playNext(context) }
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                PlayerProgressSection(
-                    state = PlayerProgressUiState(
-                        position = position,
-                        duration = duration,
-                        isDragging = isDragging,
-                        dragPosition = dragPosition,
-                        currentChapter = currentChapter,
-                        currentChapterIndex = currentChapterIndex,
-                        chaptersCount = chapters.size,
-                        useChapterContext = viewModel.useChapterContext,
-                        useRemainingTime = viewModel.useRemainingTime,
-                    ),
-                    onValueChange = {
-                        isDragging = true
-                        dragPosition = it
-                    },
-                    onValueChangeFinished = {
-                        val newPos = if (viewModel.useChapterContext && currentChapter != null) {
-                            (currentChapter.start * 1000).toLong() + (dragPosition * currentChapter.duration * 1000).toLong()
-                        } else {
+        ) {
+            if (currentItem != null) {
+                // Single source of truth for chapters: the currentPlayable snapshot. The index (via the
+                // tested BoundTimeline.indexAt / chapterIndexAt), the current chapter, and the per-file
+                // artwork all read from THIS one snapshot, so they can't disagree during a track transition.
+                val currentPlayable by viewModel.currentPlayable.collectAsStateWithLifecycle()
+                val chapters = currentPlayable?.chapterEntities ?: emptyList()
+                // derivedStateOf so the chapter scan only re-runs (and readers only recompose) when the
+                // computed index actually changes — not on every ~500ms position tick. Keyed on `duration`
+                // since that's the only non-State input; position/isDragging/dragPosition/useChapterContext/
+                // chapters are State and tracked automatically.
+                val currentChapterIndex by remember(duration) {
+                    derivedStateOf {
+                        val pos = if (isDragging && !viewModel.useChapterContext) {
                             (dragPosition * duration).toLong()
-                        }
-                        viewModel.seekToAbsolute(newPos)
-                        position = newPos
-                        isDragging = false
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(48.dp))
-
-                PlayerTransportControls(
-                    isPlaying = isPlaying,
-                    rewindInterval = viewModel.rewindInterval,
-                    forwardInterval = viewModel.forwardInterval,
-                    playPauseFocusRequester = playPauseFocusRequester,
-                    onRewind = { viewModel.seekBackward() },
-                    onPlayPause = { viewModel.togglePlayPause() },
-                    onForward = { viewModel.seekForward() }
-                )
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                val sleepActive by viewModel.sleepTimerActive.collectAsStateWithLifecycle()
-                val sleepEndOfChapter by viewModel.sleepTimerIsEndOfChapter.collectAsStateWithLifecycle()
-                val sleepRemaining by viewModel.sleepTimerRemaining.collectAsStateWithLifecycle()
-
-                PlayerBottomBar(
-                    speedLabel = "${if (playbackSpeed % 1.0f == 0.0f) playbackSpeed.toInt() else playbackSpeed}x",
-                    sleepLabel = when {
-                        sleepEndOfChapter -> stringResource(R.string.player_timer_active)
-                        sleepActive -> sleepRemaining
-                        else -> null
-                    },
-                    onSpeed = { viewModel.toggleControlsSheet() },
-                    onSleep = { viewModel.toggleSleepTimerMenu() },
-                    onBookmark = { viewModel.addBookmark() },
-                    onList = {
-                        if (viewModel.listButtonOpens == "Chapters") {
-                            viewModel.showChaptersList = true
                         } else {
-                            viewModel.showBookmarksList = true
+                            position
                         }
+                        // Reuse the tested chapter-layer lookup instead of re-implementing the half-open
+                        // [start, end) scan + clamp here; whole-book positions work for embedded chapters too.
+                        currentPlayable?.chapterIndexAt(pos) ?: -1
+                    }
+                }
+                val currentChapter = chapters.getOrNull(currentChapterIndex)
+
+                // Artwork follows the current chapter's backing file (per-file, matching iOS), falling back to
+                // the book's. Per-file artwork lives on PlayableChapter — same snapshot, same index as above.
+                val chapterArtworkURL = currentPlayable?.chapters?.getOrNull(currentChapterIndex)?.artworkURL
+
+                // isLocal is computed off the main thread in the ViewModel (no File.exists in composition).
+                val isLocal by viewModel.isCurrentItemLocal.collectAsStateWithLifecycle()
+
+                if (fullscreenActive) {
+                    BackHandler { isFullscreen = false }
+                }
+
+                // ONE PlayerArtwork call site for both modes. Two separate call sites would give
+                // fullscreen its own remembered PlayerView, so every toggle re-inflated the view
+                // and re-attached the shared controller's video surface (black-frame flash, plus
+                // a dispose-order race that could leave the fresh surface cleared). A single slot
+                // keeps the view, its surface, and the captured blur alive across toggles.
+                Column(
+                    modifier = if (fullscreenActive) {
+                        Modifier
+                            .fillMaxSize()
+                            .background(Color.Black)
+                    } else {
+                        Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 32.dp)
                     },
-                    onMore = { viewModel.toggleMoreOptions() }
-                )
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (!fullscreenActive) {
+                        Box(
+                            modifier = Modifier
+                                .padding(vertical = 12.dp)
+                                .width(40.dp)
+                                .height(4.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                        )
+
+                        Spacer(modifier = Modifier.height(20.dp))
+                    }
+
+                    PlayerArtwork(
+                        player = player,
+                        artworkURL = chapterArtworkURL ?: currentItem.artworkURL,
+                        isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
+                        showCloudBadge = !fullscreenActive && !isLocal && !currentItem.remoteURL.isNullOrEmpty(),
+                        hasVideo = hasVideo,
+                        isSheetVisible = !isHidden,
+                        isFullscreen = fullscreenActive,
+                        onToggleFullscreen = { isFullscreen = !isFullscreen },
+                        onCastClick = { viewModel.toggleCastSheet() }
+                    )
+
+                    if (!fullscreenActive) {
+                        Spacer(modifier = Modifier.height(32.dp))
+
+                        // The chevrons always navigate chapters: back can restart/step to a previous chapter for
+                        // any loaded book (or previous item); forward is available when there's a next chapter or item.
+                        val canGoBack = viewModel.hasPreviousItem || chapters.isNotEmpty()
+                        val canGoForward = viewModel.hasNextItem || chapters.size > 1
+
+                        PlayerTitleNavRow(
+                            title = if (viewModel.useChapterContext && currentChapter != null) currentChapter.title else currentItem.title,
+                            canGoBack = canGoBack,
+                            canGoForward = canGoForward,
+                            // Double chevron when there's no previous/next chapter (tap crosses to prev/next book).
+                            hasPreviousChapter = currentChapterIndex > 0,
+                            hasNextChapter = currentChapterIndex in 0 until (chapters.size - 1),
+                            onPrevious = { viewModel.playPrevious(context) },
+                            onNext = { viewModel.playNext(context) }
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        PlayerProgressSection(
+                            state = PlayerProgressUiState(
+                                position = position,
+                                duration = duration,
+                                isDragging = isDragging,
+                                dragPosition = dragPosition,
+                                currentChapter = currentChapter,
+                                currentChapterIndex = currentChapterIndex,
+                                chaptersCount = chapters.size,
+                                useChapterContext = viewModel.useChapterContext,
+                                useRemainingTime = viewModel.useRemainingTime,
+                            ),
+                            onValueChange = {
+                                isDragging = true
+                                dragPosition = it
+                            },
+                            onValueChangeFinished = {
+                                val newPos = if (viewModel.useChapterContext && currentChapter != null) {
+                                    (currentChapter.start * 1000).toLong() + (dragPosition * currentChapter.duration * 1000).toLong()
+                                } else {
+                                    (dragPosition * duration).toLong()
+                                }
+                                viewModel.seekToAbsolute(newPos)
+                                position = newPos
+                                isDragging = false
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(48.dp))
+
+                        PlayerTransportControls(
+                            isPlaying = isPlaying,
+                            rewindInterval = viewModel.rewindInterval,
+                            forwardInterval = viewModel.forwardInterval,
+                            playPauseFocusRequester = playPauseFocusRequester,
+                            onRewind = { viewModel.seekBackward() },
+                            onPlayPause = { viewModel.togglePlayPause() },
+                            onForward = { viewModel.seekForward() }
+                        )
+
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        val sleepActive by viewModel.sleepTimerActive.collectAsStateWithLifecycle()
+                        val sleepEndOfChapter by viewModel.sleepTimerIsEndOfChapter.collectAsStateWithLifecycle()
+                        val sleepRemaining by viewModel.sleepTimerRemaining.collectAsStateWithLifecycle()
+
+                        PlayerBottomBar(
+                            speedLabel = "${if (playbackSpeed % 1.0f == 0.0f) playbackSpeed.toInt() else playbackSpeed}x",
+                            sleepLabel = when {
+                                sleepEndOfChapter -> stringResource(R.string.player_timer_active)
+                                sleepActive -> sleepRemaining
+                                else -> null
+                            },
+                            onSpeed = { viewModel.toggleControlsSheet() },
+                            onSleep = { viewModel.toggleSleepTimerMenu() },
+                            onBookmark = { viewModel.addBookmark() },
+                            onList = {
+                                if (viewModel.listButtonOpens == "Chapters") {
+                                    viewModel.showChaptersList = true
+                                } else {
+                                    viewModel.showBookmarksList = true
+                                }
+                            },
+                            onMore = { viewModel.toggleMoreOptions() }
+                        )
+                    }
+                }
             }
         }
     }
 }
-}
 
 @Composable
 private fun PlayerArtwork(
+    player: Player?,
     artworkURL: String?,
     isBuffering: Boolean,
-    showCloudBadge: Boolean
+    showCloudBadge: Boolean,
+    hasVideo: Boolean,
+    isSheetVisible: Boolean = true,
+    isFullscreen: Boolean = false,
+    onToggleFullscreen: () -> Unit = {},
+    onCastClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val artworkBackground = if (artworkURL == null) {
+    var showControls by remember { mutableStateOf(true) }
+    var blurredBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    // Inflated only once a video track is selected — audio-only books (the common case on this
+    // screen) never pay for the Media3 PlayerView. Dropping to the else branch on audio books
+    // also lets Compose forget (and free) the view when a video book is swapped for one.
+    val playerView = if (hasVideo) {
+        remember(context) {
+            val pv = LayoutInflater.from(context).inflate(R.layout.video_player_view, null) as PlayerView
+            pv.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            pv
+        }
+    } else {
+        null
+    }
+
+    LaunchedEffect(hasVideo, player, playerView, isSheetVisible) {
+        if (hasVideo && player != null && playerView != null && isSheetVisible) {
+            var hasReportedError = false
+            // Double-buffered capture targets: getBitmap(Bitmap) fills a caller-owned bitmap, so
+            // no allocation happens per capture. Two buffers alternate so the one Compose is
+            // currently drawing is never written to mid-frame — and the reference change is what
+            // triggers recomposition (a single reused bitmap wouldn't).
+            val captureBuffers = arrayOf(
+                Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888),
+                Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+            )
+            var captureIndex = 0
+            while (true) {
+                // Only capture while the frame can actually change (or nothing is captured yet);
+                // a paused player keeps its last frame, so the existing blur stays correct.
+                if (player.isPlaying || blurredBitmap == null) {
+                    val textureView = findTextureView(playerView)
+                    if (textureView != null && textureView.isAvailable) {
+                        try {
+                            // getBitmap(target) is the documented TextureView readback (the
+                            // caller-owned-bitmap overload — no per-call allocation), called on the
+                            // main thread ON PURPOSE. The alternatives both trade this bounded cost
+                            // (a 32×32 readback once per 1–2s) for undocumented-API risk:
+                            //  - PixelCopy needs a second Surface over a SurfaceTexture ExoPlayer is
+                            //    already producing into — non-standard, can disturb the producer.
+                            //  - getBitmap off-main (withContext/capture thread) has no documented
+                            //    thread-safety; it reads view/layer state the UI and render threads
+                            //    mutate, racing the same "some GPUs" any stall concern is about.
+                            val target = captureBuffers[captureIndex]
+                            textureView.getBitmap(target)
+                            blurredBitmap = target
+                            captureIndex = 1 - captureIndex
+                        } catch (e: Exception) {
+                            if (!hasReportedError) {
+                                android.util.Log.e("PlayerArtwork", "Failed to capture texture bitmap", e)
+                                io.sentry.Sentry.captureException(e)
+                                hasReportedError = true
+                            }
+                        }
+                    }
+                }
+                // The blur is a slow-changing letterbox backdrop, not a live preview: 1s refreshes
+                // are indistinguishable at 20dp blur, and while paused the loop just idles at a
+                // slower heartbeat waiting for playback to resume.
+                delay(if (player.isPlaying) 1_000 else 2_000)
+            }
+        } else if (!hasVideo) {
+            blurredBitmap = null
+        }
+        // While the sheet is merely off-screen (dismiss animation / collapsed to the mini player)
+        // the capture pauses but the last blur is kept, so reopening doesn't flash un-blurred.
+    }
+
+    val artworkBackground = if (isFullscreen) {
+        Modifier.background(Color.Black)
+    } else if (artworkURL == null && !hasVideo) {
         Modifier.background(
             Brush.verticalGradient(
                 colors = listOf(
@@ -440,15 +676,57 @@ private fun PlayerArtwork(
         Modifier.background(Color.Transparent)
     }
 
-    Box(
-        modifier = Modifier
+    val artworkModifier = if (isFullscreen) {
+        Modifier.fillMaxSize()
+    } else {
+        Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
             .clip(RoundedCornerShape(24.dp))
-            .then(artworkBackground),
+    }
+
+    val clickableModifier = if (hasVideo) {
+        Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            // Announce the action to screen readers instead of an unlabeled clickable.
+            onClickLabel = stringResource(R.string.player_toggle_video_controls)
+        ) {
+            showControls = !showControls
+        }
+    } else {
+        Modifier
+    }
+
+    Box(
+        modifier = artworkModifier
+            .then(artworkBackground)
+            .then(clickableModifier),
         contentAlignment = Alignment.Center
     ) {
-        if (artworkURL != null) {
+        if (hasVideo && player != null && playerView != null) {
+            if (blurredBitmap != null) {
+                Image(
+                    bitmap = blurredBitmap!!.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize().blur(20.dp),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))
+                )
+            }
+            AndroidView(
+                factory = { playerView },
+                modifier = Modifier.fillMaxSize(),
+                update = { view ->
+                    view.player = player
+                },
+                onRelease = { view ->
+                    view.player = null
+                }
+            )
+        } else if (artworkURL != null) {
             AsyncImage(
                 model = artworkURL,
                 contentDescription = null,
@@ -483,38 +761,73 @@ private fun PlayerArtwork(
                 )
             }
         }
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
-            IconButton(
-                onClick = {
-                    val intent = Intent("com.android.settings.panel.action.MEDIA_OUTPUT").apply {
-                        putExtra("com.android.settings.panel.extra.PACKAGE_NAME", context.packageName)
-                    }
-                    try {
-                        context.startActivity(intent)
-                    } catch (e: Exception) {
-                        try {
-                            val fallbackIntent = Intent("android.settings.CAST_SETTINGS")
-                            context.startActivity(fallbackIntent)
-                        } catch (ex: Exception) {
-                            try {
-                                val btIntent = Intent("android.settings.BLUETOOTH_SETTINGS")
-                                context.startActivity(btIntent)
-                            } catch (error: Exception) {
-                                // Silent fail
-                            }
-                        }
-                    }
-                },
-                modifier = Modifier.padding(16.dp)
+        AnimatedVisibility(
+            visible = !hasVideo || showControls,
+            enter = fadeIn(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(300)),
+            modifier = Modifier.align(Alignment.TopEnd)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Cast,
-                    contentDescription = stringResource(R.string.player_cast),
-                    tint = MaterialTheme.colorScheme.onSecondary
-                )
+                if (hasVideo) {
+                    IconButton(
+                        onClick = onToggleFullscreen,
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                            contentDescription = if (isFullscreen) stringResource(R.string.player_exit_fullscreen) else stringResource(R.string.player_enter_fullscreen),
+                            tint = Color.White
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = onCastClick,
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Cast,
+                        contentDescription = stringResource(R.string.player_cast),
+                        tint = Color.White
+                    )
+                }
             }
         }
     }
+}
+
+// Media3 exposes embedded cover art in some .mp4/.m4b audiobooks as a real (single-frame,
+// image-codec) video track. Treating those as video would swap the artwork for a PlayerView
+// and start the blur-capture loop on a plain audiobook, so only genuine motion-video codecs
+// count. Presence is checked rather than selection: the screen disables the video track type
+// while stopped/collapsed, and that must not read back as "no video".
+private val stillImageVideoMimeTypes = setOf(
+    MimeTypes.VIDEO_MJPEG,
+    "video/jpeg",
+    "video/png",
+    "video/bmp"
+)
+
+private fun Tracks.hasPlayableVideo(): Boolean = groups.any { group ->
+    group.type == C.TRACK_TYPE_VIDEO && (0 until group.length).any { i ->
+        val mime = group.getTrackFormat(i).sampleMimeType?.lowercase()
+        mime != null && MimeTypes.isVideo(mime) && mime !in stillImageVideoMimeTypes
+    }
+}
+
+private fun findTextureView(view: View): TextureView? {
+    if (view is TextureView) return view
+    if (view is ViewGroup) {
+        for (i in 0 until view.childCount) {
+            val child = view.getChildAt(i)
+            val result = findTextureView(child)
+            if (result != null) return result
+        }
+    }
+    return null
 }
 
 @Composable

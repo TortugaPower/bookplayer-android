@@ -78,6 +78,8 @@
 
     <!-- Player -->
     <string name="player_cast">Cast</string>
+    <string name="player_cast_unavailable">Le impostazioni di uscita audio non sono disponibili su questo dispositivo</string>
+    <string name="player_toggle_video_controls">Mostra o nascondi i controlli del lettore</string>
     <string name="player_prev">Precedente</string>
     <string name="player_next">Successivo</string>
     <string name="player_chapter_label">%1$s</string>
@@ -379,4 +381,27 @@
     <string name="storage_cloud_deleted_delete_button">Elimina</string>
     <string name="storage_cloud_deleted_restore_all_confirm_title">Ripristina tutti i file</string>
     <string name="storage_cloud_deleted_restore_all_confirm_text">Sei sicuro di voler ripristinare tutti i file audio rimossi nella tua libreria?</string>
+
+    <!-- Launcher Shortcuts -->
+    <string name="shortcut_play_last_title">Riproduci l\'ultimo</string>
+    <string name="shortcut_play_last_desc">Riprendi l\'ultimo libro riprodotto</string>
+    <string name="shortcut_rewind_title">Riavvolgi</string>
+    <string name="shortcut_forward_title">Avanti</string>
+    <string name="shortcut_sleep_timer_title">Imposta timer di spegnimento</string>
+
+    <!-- Fullscreen Accessibility -->
+    <string name="player_enter_fullscreen">Schermo intero</string>
+    <string name="player_exit_fullscreen">Esci da schermo intero</string>
+
+    <!-- Cast Options Sheet -->
+    <string name="cast_option_media_output_title">Dispositivi AirPlay e Bluetooth</string>
+    <string name="cast_option_media_output_desc">Scegli altoparlanti wireless, cuffie o altri sistemi Bluetooth.</string>
+    <string name="cast_option_wireless_display_title">Schermi wireless e trasmissione</string>
+    <string name="cast_option_wireless_display_desc">Trasmetti lo schermo o il flusso audio su TV, Google Cast o Smart TV.</string>
+    <string name="cast_option_bluetooth_settings_title">Impostazioni Bluetooth</string>
+    <string name="cast_option_bluetooth_settings_desc">Associa un nuovo dispositivo o gestisci gli accessori Bluetooth connessi.</string>
+
+    <string name="library_add_shortcut_to_home_screen">Aggiungi collegamento alla schermata Home</string>
+    <string name="shortcut_play_item_desc">Riproduci %1$s</string>
+    <string name="shortcut_pin_failed">Impossibile aggiungere il collegamento alla schermata Home</string>
 </resources>

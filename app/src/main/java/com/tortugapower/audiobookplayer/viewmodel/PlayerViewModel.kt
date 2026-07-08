@@ -11,12 +11,14 @@ import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
+import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.content.Intent
 
 class PlayerViewModel(
     application: Application,
@@ -49,6 +51,7 @@ class PlayerViewModel(
     var showAddNoteDialog by mutableStateOf(false)
     var showBookmarksList by mutableStateOf(false)
     var showChaptersList by mutableStateOf(false)
+    var showCastSheet by mutableStateOf(false)
     var currentBookmark: BookmarkEntity? by mutableStateOf(null)
     var isExistingBookmark by mutableStateOf(false)
 
@@ -228,6 +231,7 @@ class PlayerViewModel(
     fun toggleMoreOptions() { showMoreOptions = !showMoreOptions }
     fun toggleSleepTimerMenu() { showSleepTimerMenu = !showSleepTimerMenu }
     fun toggleCustomSleepTimerPicker() { showCustomSleepTimerPicker = !showCustomSleepTimerPicker }
+    fun toggleCastSheet() { showCastSheet = !showCastSheet }
 
     fun startSleepTimer(minutes: Int) {
         com.tortugapower.audiobookplayer.logic.SleepTimerManager.startTimer(minutes)
@@ -281,6 +285,11 @@ class PlayerViewModel(
     fun updateAutoSleep(context: Context, enabled: Boolean) {
         autoSleep = enabled
         viewModelScope.launch { PlaybackSettingsManager.setAutoSleepTimer(context, enabled) }
+    }
+
+    fun createHomeScreenShortcut() {
+        val item = currentItem.value ?: return
+        ShortcutHelper.requestPinShortcut(appContext, item)
     }
 
     fun updateGlobalSpeed(context: Context, enabled: Boolean) {

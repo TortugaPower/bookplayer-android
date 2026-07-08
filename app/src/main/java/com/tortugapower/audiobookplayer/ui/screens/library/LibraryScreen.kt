@@ -68,6 +68,7 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.ImportManager
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
@@ -529,6 +530,16 @@ fun LibraryScreen(
                                     showItemDetailSheet = true
                                 },
                                 leadingIcon = { Icon(Icons.Default.Info, null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.library_add_shortcut_to_home_screen)) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    ShortcutHelper.requestPinShortcut(context, selectedItems[0])
+                                    isSelectMode = false
+                                    selectedItemUuids = emptySet()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Home, null) }
                             )
                         }
                         DropdownMenuItem(

@@ -77,6 +77,8 @@
 
     <!-- Player -->
     <string name="player_cast">投送</string>
+    <string name="player_cast_unavailable">此设备不支持音频输出设置</string>
+    <string name="player_toggle_video_controls">显示或隐藏播放器控件</string>
     <string name="player_prev">上一个</string>
     <string name="player_next">下一个</string>
     <string name="player_chapter_label">%1$s</string>
@@ -377,4 +379,27 @@
     <string name="storage_cloud_deleted_delete_button">删除</string>
     <string name="storage_cloud_deleted_restore_all_confirm_title">恢复所有文件</string>
     <string name="storage_cloud_deleted_restore_all_confirm_text">您确定要将所有已删除的音频文件恢复到您的书架中吗？</string>
+
+    <!-- Launcher Shortcuts -->
+    <string name="shortcut_play_last_title">播放上次播放的项目</string>
+    <string name="shortcut_play_last_desc">继续播放上次播放的书籍</string>
+    <string name="shortcut_rewind_title">快退</string>
+    <string name="shortcut_forward_title">快进</string>
+    <string name="shortcut_sleep_timer_title">设置睡眠定时器</string>
+
+    <!-- Fullscreen Accessibility -->
+    <string name="player_enter_fullscreen">全屏</string>
+    <string name="player_exit_fullscreen">退出全屏</string>
+
+    <!-- Cast Options Sheet -->
+    <string name="cast_option_media_output_title">AirPlay 和 蓝牙设备</string>
+    <string name="cast_option_media_output_desc">选择无线扬声器、耳机或其他蓝牙系统。</string>
+    <string name="cast_option_wireless_display_title">无线显示与投屏</string>
+    <string name="cast_option_wireless_display_desc">将屏幕或音频流投射到电视、Google Cast 或智能电视。</string>
+    <string name="cast_option_bluetooth_settings_title">蓝牙设置</string>
+    <string name="cast_option_bluetooth_settings_desc">配对新设备或管理已连接的蓝牙配件。</string>
+
+    <string name="library_add_shortcut_to_home_screen">添加到主屏幕快捷方式</string>
+    <string name="shortcut_play_item_desc">播放 %1$s</string>
+    <string name="shortcut_pin_failed">无法添加主屏幕快捷方式</string>
 </resources>
