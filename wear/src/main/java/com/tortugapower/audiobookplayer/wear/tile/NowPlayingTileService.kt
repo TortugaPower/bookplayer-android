@@ -2,6 +2,7 @@ package com.tortugapower.audiobookplayer.wear.tile
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import androidx.wear.protolayout.ActionBuilders
 import androidx.wear.protolayout.ColorBuilders.argb
 import androidx.wear.protolayout.DeviceParametersBuilders.DeviceParameters
@@ -86,6 +87,8 @@ class NowPlayingTileService : TileService() {
             items.release()
         }
     } catch (e: Exception) {
+        // Fail soft to the empty state, but leave a breadcrumb so a DataClient/decode failure is diagnosable.
+        Log.w("NowPlayingTile", "Failed to read published library state for the tile", e)
         null
     }
 
