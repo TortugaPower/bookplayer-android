@@ -172,11 +172,21 @@ private fun tileLayout(context: Context, deviceParams: DeviceParameters, state: 
         }
         .build()
 
-    // Wrap so the whole tile is tappable (EdgeContentLayout doesn't take modifiers itself).
+    // Wrap so the whole tile is tappable (EdgeContentLayout doesn't take modifiers itself). Semantics so
+    // TalkBack announces the tap action (this is an audiobook app with many low-vision users).
     return LayoutElementBuilders.Box.Builder()
         .setWidth(expand())
         .setHeight(expand())
-        .setModifiers(ModifiersBuilders.Modifiers.Builder().setClickable(openAppClickable(context)).build())
+        .setModifiers(
+            ModifiersBuilders.Modifiers.Builder()
+                .setClickable(openAppClickable(context))
+                .setSemantics(
+                    ModifiersBuilders.Semantics.Builder()
+                        .setContentDescription(context.getString(R.string.wear_tile_open))
+                        .build(),
+                )
+                .build(),
+        )
         .addContent(content)
         .build()
 }

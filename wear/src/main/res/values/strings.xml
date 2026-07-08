@@ -47,6 +47,7 @@
     <!-- Now-playing glanceable tile. -->
     <string name="wear_tile_empty_title">BookPlayer</string>
     <string name="wear_tile_empty_subtitle">No recent book</string>
+    <string name="wear_tile_open">Open now playing</string>
 
     <!-- Standalone mode (Pro tier): the watch's own synced library. -->
     <string name="wear_standalone_title">Library</string>
