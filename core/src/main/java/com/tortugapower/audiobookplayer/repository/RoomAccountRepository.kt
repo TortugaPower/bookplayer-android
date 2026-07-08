@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.repository
 
+import android.util.Log
 import com.tortugapower.audiobookplayer.database.dao.AccountDao
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.logic.CredentialCipher
@@ -52,6 +53,8 @@ class RoomAccountRepository(
         try {
             copy(apiToken = cipher.decrypt(apiToken))
         } catch (e: Exception) {
+            // Breadcrumb only — exception type, never the token/account payload.
+            Log.w("RoomAccountRepository", "Account token decrypt failed (${e.javaClass.simpleName}); treating as signed out")
             null
         }
 }
