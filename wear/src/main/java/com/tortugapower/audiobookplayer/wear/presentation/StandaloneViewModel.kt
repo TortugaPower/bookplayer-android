@@ -45,6 +45,12 @@ data class LibraryRow(
     val isFinished: Boolean = false,
     val durationSeconds: Double = 0.0,
     val downloadState: DownloadUiState = DownloadUiState.NotDownloaded,
+    // Whole-book download progress inputs (mirrors iOS's aggregate): total book files, how many are already
+    // on disk, and the uuids of the not-yet-downloaded ones (so the bar sums their live progress). Overall
+    // fraction = (downloadedUnits + Σ live progress of downloadUuids) / totalUnits — 0→50%→100% for a
+    // 2-file bound book, not a per-file reset.
+    val totalUnits: Int = 0,
+    val downloadedUnits: Int = 0,
     val downloadUuids: List<String> = emptyList(),
 )
 
@@ -139,7 +145,11 @@ class StandaloneViewModel(
         }
         return base.copy(
             downloadState = deriveDownloadState(statuses),
-            downloadUuids = source.units.map { it.uuid },
+            totalUnits = source.units.size,
+            downloadedUnits = statuses.count { it.downloaded },
+            // Only the not-yet-downloaded files need live progress; already-downloaded ones count as whole
+            // units in the aggregate, so a completed file stays at its share instead of resetting the bar.
+            downloadUuids = source.units.filterIndexed { i, _ -> !statuses[i].downloaded }.map { it.uuid },
         )
     }
 
@@ -158,6 +168,15 @@ class StandaloneViewModel(
             units.any { it.taskActive } -> DownloadUiState.Downloading
             else -> DownloadUiState.NotDownloaded
         }
+
+        /**
+         * Whole-book download progress (pure, unit-tested), mirroring iOS `calculateDownloadProgress`:
+         * (already-downloaded files + summed live progress of the in-flight files) / total files. So a
+         * 2-file bound book goes 0→50%→100% rather than filling per file. [inProgressSum] is Σ of the
+         * live 0..1 progress of the not-yet-downloaded files.
+         */
+        fun downloadProgressFraction(downloadedUnits: Int, totalUnits: Int, inProgressSum: Double): Float =
+            if (totalUnits <= 0) 0f else ((downloadedUnits + inProgressSum) / totalUnits).toFloat().coerceIn(0f, 1f)
 
         /** Pure entity → row mapping (unit-tested). id = relativePath (nav/play key) or uuid fallback. */
         fun toRow(item: LibraryItemEntity): LibraryRow = LibraryRow(

@@ -113,4 +113,22 @@ class StandaloneViewModelTest {
         val units = listOf(unit(downloaded = true, taskActive = false), unit(downloaded = false, taskActive = false))
         assertEquals(DownloadUiState.NotDownloaded, StandaloneViewModel.deriveDownloadState(units))
     }
+
+    @Test
+    fun `bound download progress aggregates across files (0 to 50 to 100)`() {
+        // 2-file bound book: first file half-done → 25%; first done + second half → 75%; both done → 100%.
+        assertEquals(0.25f, StandaloneViewModel.downloadProgressFraction(downloadedUnits = 0, totalUnits = 2, inProgressSum = 0.5), 0.0001f)
+        assertEquals(0.75f, StandaloneViewModel.downloadProgressFraction(downloadedUnits = 1, totalUnits = 2, inProgressSum = 0.5), 0.0001f)
+        assertEquals(1.0f, StandaloneViewModel.downloadProgressFraction(downloadedUnits = 2, totalUnits = 2, inProgressSum = 0.0), 0.0001f)
+    }
+
+    @Test
+    fun `single-file download progress is its own fraction`() {
+        assertEquals(0.3f, StandaloneViewModel.downloadProgressFraction(downloadedUnits = 0, totalUnits = 1, inProgressSum = 0.3), 0.0001f)
+    }
+
+    @Test
+    fun `download progress is zero for zero units`() {
+        assertEquals(0f, StandaloneViewModel.downloadProgressFraction(downloadedUnits = 0, totalUnits = 0, inProgressSum = 0.0), 0.0001f)
+    }
 }

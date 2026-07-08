@@ -89,8 +89,12 @@ fun StandaloneLibraryScreen(
                 Text(text = title, style = MaterialTheme.typography.caption1)
             }
             items(state.rows, key = { it.id }) { row ->
-                val downloadProgress = row.downloadUuids.mapNotNull { progressMap[it] }
-                    .takeIf { it.isNotEmpty() }?.average()?.toFloat()
+                // Whole-book progress: downloaded files count as whole units, in-flight files add their
+                // live fraction (matches iOS) — so a bound book fills 0→50%→100%, not once per file.
+                val inProgressSum = row.downloadUuids.sumOf { progressMap[it] ?: 0.0 }
+                val downloadProgress = StandaloneViewModel.downloadProgressFraction(
+                    row.downloadedUnits, row.totalUnits, inProgressSum,
+                )
                 LibraryRowItem(
                     row = row,
                     downloadProgress = downloadProgress,
