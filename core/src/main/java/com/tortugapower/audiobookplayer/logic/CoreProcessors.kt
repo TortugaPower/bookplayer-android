@@ -376,7 +376,10 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
             Log.e("DownloadFileProcessor", "💥 Exception during download: ${e.message}", e)
             if (destFile.exists()) destFile.delete()
             SyncStatusManager.clearTaskProgress(taskId)
-            SyncStatusManager.clearCancel(taskId)
+            // Deliberately don't clear the cancel flag here: if a cancel raced this exception, leaving it
+            // set lets TaskConcurrencyManager treat the task as terminal (no retry) instead of re-queuing
+            // and re-downloading. With no cancel pending the flag isn't set anyway (startDownload clears
+            // any stale one before enqueuing), so nothing leaks.
             false
         }
     }
