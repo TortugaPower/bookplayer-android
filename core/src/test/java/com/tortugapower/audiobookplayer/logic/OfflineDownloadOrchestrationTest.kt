@@ -5,6 +5,7 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.network.NetworkConstants
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.Flow
@@ -34,7 +35,12 @@ class OfflineDownloadOrchestrationTest {
         uuid = uuid, title = "A Book", relativePath = relativePath, remoteURL = "https://x/f.m4b", type = ItemType.BOOK,
     )
 
-    @Before fun clear() = SyncStatusManager.clearCancel(uuid)
+    @Before fun setup() {
+        SyncStatusManager.clearCancel(uuid)
+        // Point the network layer at an unreachable URL so freshUrlFor's getRemoteFileURL fails fast and
+        // falls back to the stored item — this suite covers enqueue/cancel orchestration, not the URL fetch.
+        NetworkConstants.configure(baseUrl = "http://localhost:1/", googleClientId = "")
+    }
     @After fun cleanup() {
         SyncStatusManager.clearCancel(uuid)
         OfflineDownloadManager.processedFile(context, relativePath).delete()

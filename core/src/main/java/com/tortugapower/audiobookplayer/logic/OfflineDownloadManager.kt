@@ -1,9 +1,11 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
+import android.util.Log
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import java.io.File
@@ -60,8 +62,43 @@ object OfflineDownloadManager {
             // just-completed/failed download and left the flag set): clear it before enqueuing, so this
             // task's first read-loop iteration doesn't abort itself.
             SyncStatusManager.clearCancel(book.uuid)
-            val resolved = libraryRepository.resolveStreamingUrl(book)
-            SyncTaskFactory.createDownloadFileTask(syncTaskRepository, resolved)
+            SyncTaskFactory.createDownloadFileTask(syncTaskRepository, freshUrlFor(libraryRepository, book))
+        }
+    }
+
+    /**
+     * The book with a DOWNLOAD-ready remoteURL. External-server (Jellyfin/ABS) items keep the URL from
+     * [LibraryRepository.resolveStreamingUrl]; BookPlayer-cloud items get a FRESH presigned URL from the API,
+     * because the stored one is a signed URL that expires (S3 rejects an expired presigned URL with HTTP 400,
+     * which otherwise makes the download task fail-and-retry forever with no progress). Mirrors
+     * [PlaybackManager]'s streaming refresh. On any network failure, falls back to the resolved item.
+     */
+    private suspend fun freshUrlFor(libraryRepository: LibraryRepository, book: LibraryItemEntity): LibraryItemEntity {
+        val resolved = libraryRepository.resolveStreamingUrl(book)
+        val hasExternalResource = resolved.externalResources.any {
+            it.syncStatus == "stream" || it.syncStatus == "downloaded"
+        }
+        if (hasExternalResource) return resolved
+        return try {
+            val response = NetworkClient.libraryApi.getRemoteFileURL(
+                path = resolved.relativePath ?: "",
+                uuid = resolved.uuid,
+            )
+            val remote = if (response.isSuccessful) {
+                response.body()?.content?.firstOrNull {
+                    it.uuid == resolved.uuid || it.relativePath == resolved.relativePath
+                }
+            } else {
+                null
+            }
+            if (remote != null && !remote.remoteURL.isNullOrEmpty()) {
+                resolved.remoteURL = remote.remoteURL
+                libraryRepository.updateItem(resolved) // persist the fresh URL for consistency
+            }
+            resolved
+        } catch (e: Exception) {
+            Log.w("OfflineDownloadManager", "getRemoteFileURL failed for ${resolved.relativePath}", e)
+            resolved
         }
     }
 
