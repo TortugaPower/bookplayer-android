@@ -62,9 +62,11 @@ class WearSyncServiceHost : Service() {
         val repository = RoomSyncTaskRepository(db.syncTaskDao())
         val accountRepository = RoomAccountRepository(db.accountDao())
 
-        // Same processor set as the phone, minus the phone-only playback-sync coordinator (defaulted null).
+        // Same processor set as the phone. FetchContentsProcessor gets the watch's playback coordinator so
+        // it re-arms the on-watch player to the server's last-played item after a contents fetch (matching
+        // iOS's handleSyncedLastPlayed) instead of leaving the stale locally-restored book.
         val processors = listOf(
-            FetchContentsProcessor(this, repository),
+            FetchContentsProcessor(this, repository, WearPlaybackSyncCoordinator),
             SyncIdentifiersProcessor(this, repository),
             MetadataUploadProcessor(this, repository),
             UploadFileProcessor(this, repository),

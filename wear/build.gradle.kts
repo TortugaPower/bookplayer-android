@@ -105,6 +105,13 @@ dependencies {
     // WearRemoteClient).
     implementation(libs.play.services.wearable)
 
+    // Wear Tile (glanceable now-playing/resume): TileService + ProtoLayout (+ Material components). The
+    // coroutines-guava bridge turns onTileRequest's suspend data fetch into the ListenableFuture it returns.
+    implementation(libs.androidx.wear.tiles)
+    implementation(libs.androidx.wear.protolayout)
+    implementation(libs.androidx.wear.protolayout.material)
+    implementation(libs.kotlinx.coroutines.guava)
+
     debugImplementation(libs.androidx.ui.tooling)
 
     testImplementation(libs.junit)

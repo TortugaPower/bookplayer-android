@@ -77,13 +77,17 @@ class SyncingLibraryRepository(
             val item = delegate.getItemById(uuid)
             if (item != null) {
                 SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
-                
-                // Sync parent folders as their aggregate progress changed
+
+                // Sync parent folders as their aggregate progress changed. Roll the leaf's lastPlayDate up
+                // to each ancestor (matches iOS, which stamps the folder's lastPlayDate on play) so folders
+                // sort by recency both locally and on the server.
                 var path = item.relativePath
                 while (path != null && path.contains('/')) {
                     path = path.substringBeforeLast('/')
                     val parent = delegate.getItemByPath(path)
                     if (parent != null) {
+                        parent.lastPlayDate = item.lastPlayDate
+                        delegate.updateItem(parent)
                         SyncTaskFactory.createUpdateTask(syncTaskRepository, parent)
                     }
                 }
