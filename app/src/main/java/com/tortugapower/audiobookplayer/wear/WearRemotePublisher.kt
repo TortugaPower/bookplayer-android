@@ -64,17 +64,15 @@ object WearRemotePublisher {
                 PlaybackManager.volumeBoost,
                 PlaybackManager.currentChapterIndex,
             ) { playing, speed, boost, chapter ->
-                WatchPlaybackState(playing, speed, boost, progress = currentProgress(), currentChapter = chapterLabel(chapter))
+                WatchPlaybackState(
+                    playing, speed, boost,
+                    progress = PlaybackManager.wholeBookProgress(),
+                    currentChapter = chapterLabel(chapter),
+                )
             }
                 .distinctUntilChanged()
                 .collect { publishPlayback(it) }
         }
-    }
-
-    /** Whole-book progress (0..1) from the live position + current playable duration. */
-    private fun currentProgress(): Float {
-        val durationMs = ((PlaybackManager.currentPlayable.value?.duration ?: 0.0) * 1000).toLong()
-        return if (durationMs > 0) (PlaybackManager.positionMs.value.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     }
 
     /** 1-based current chapter for the watch (0 = unknown), from the 0-based whole-book index. */
@@ -92,7 +90,7 @@ object WearRemotePublisher {
         isPlaying = PlaybackManager.isPlaying.value,
         speed = PlaybackManager.playbackSpeed.value,
         boostVolume = PlaybackManager.volumeBoost.value,
-        progress = currentProgress(),
+        progress = PlaybackManager.wholeBookProgress(),
         currentChapter = chapterLabel(PlaybackManager.currentChapterIndex.value),
     )
 

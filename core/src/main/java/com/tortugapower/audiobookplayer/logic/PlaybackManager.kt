@@ -216,6 +216,16 @@ object PlaybackManager {
         if (_currentChapterIndex.value != next) _currentChapterIndex.value = next
     }
 
+    /**
+     * Whole-book progress (0..1) from the live position + the current playable's duration; 0 when nothing
+     * is loaded or the duration is unknown. Single source of truth for the glanceable Wear surfaces (tile /
+     * complication) and the phone's watch publisher, so the formula can't drift between the two modules.
+     */
+    fun wholeBookProgress(): Float {
+        val durationMs = ((_currentPlayable.value?.duration ?: 0.0) * 1000).toLong()
+        return if (durationMs > 0) (_positionMs.value.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    }
+
     // Mirror of the user's chapter-vs-book context preference. The session-side player virtualizes a
     // whole-book window only when book context is active (false); chapter context passes the per-file
     // playlist through (the notification then shows the current chapter, which is already correct).

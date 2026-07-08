@@ -27,16 +27,14 @@ object NowPlayingGlance {
         if (isPro) {
             val current = PlaybackManager.currentItem.value
             if (current != null) {
-                // Live values (not the load-time snapshot on the entity): whole-book position/duration for the
-                // gauge, and the current whole-book chapter index (0-based → 1-based label).
+                // Live values (not the load-time snapshot on the entity): whole-book progress for the gauge
+                // (shared formula, so it can't drift from the phone publisher) + the current whole-book chapter
+                // index (0-based → 1-based label).
                 val chapter = PlaybackManager.currentChapterIndex.value.takeIf { it >= 0 }?.plus(1)
-                val durationMs = ((PlaybackManager.currentPlayable.value?.duration ?: current.duration) * 1000).toLong()
-                val liveProgress = if (durationMs > 0) {
-                    (PlaybackManager.positionMs.value.toFloat() / durationMs).coerceIn(0f, 1f)
-                } else {
-                    0f
-                }
-                GlanceState.from(current).copy(progress = liveProgress, chapterNumber = chapter)
+                GlanceState.from(current).copy(
+                    progress = PlaybackManager.wholeBookProgress(),
+                    chapterNumber = chapter,
+                )
             } else {
                 GlanceState.from(db.libraryDao().getRecentPlayedItemsSync(1).firstOrNull())
             }
