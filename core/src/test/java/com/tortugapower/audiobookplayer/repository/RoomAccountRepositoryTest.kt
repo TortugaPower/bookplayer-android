@@ -56,4 +56,17 @@ class RoomAccountRepositoryTest {
     @Test fun getAccount_nullWhenEmpty() = runBlocking {
         assertNull(repo.getAccount())
     }
+
+    // A token that can't be decrypted (Keystore key gone after a reinstall/restore) must read as
+    // signed-out, not throw — otherwise the sync worker wedges in an infinite retry.
+    @Test fun getAccount_nullWhenDecryptFails() = runBlocking {
+        val throwingCipher = object : TokenCipher {
+            override fun encrypt(plaintext: String) = plaintext
+            override fun decrypt(stored: String): String = throw IllegalStateException("key gone")
+        }
+        val repoWithBadKey = RoomAccountRepository(dao, throwingCipher)
+        dao.stored = account("undecryptable")
+        assertNull(repoWithBadKey.getAccount())
+        assertNull(repoWithBadKey.getAccountFlow().first())
+    }
 }

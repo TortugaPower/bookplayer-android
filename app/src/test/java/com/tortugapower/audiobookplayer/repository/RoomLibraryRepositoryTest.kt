@@ -356,6 +356,7 @@ class RoomLibraryRepositoryTest {
         override suspend fun getItemsInPathSyncWithResources(path: String): List<LibraryItemWithExternalResources> = TODO()
         override suspend fun getRecentUnfinishedBooksSync(limit: Int): List<LibraryItemEntity> = TODO()
         override suspend fun getRecentPlayedItemsSync(limit: Int): List<LibraryItemEntity> = TODO()
+        override fun getRecentPlayedItems(limit: Int): Flow<List<LibraryItemEntity>> = TODO()
         override suspend fun searchAllBooksSync(query: String, limit: Int): List<LibraryItemEntity> = TODO()
     }
 

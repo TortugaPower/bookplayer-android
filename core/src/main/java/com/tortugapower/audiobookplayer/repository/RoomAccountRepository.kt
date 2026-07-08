@@ -30,11 +30,11 @@ class RoomAccountRepository(
 ) : AccountRepository {
     override fun getAccountFlow(): Flow<AccountEntity?> =
         accountDao.getAccountFlow()
-            .map { it?.withDecryptedToken() }
+            .map { it?.decryptedOrNull() }
             .flowOn(Dispatchers.Default)
 
     override suspend fun getAccount(): AccountEntity? = withContext(Dispatchers.IO) {
-        accountDao.getAccount()?.withDecryptedToken()
+        accountDao.getAccount()?.decryptedOrNull()
     }
 
     override suspend fun saveAccount(account: AccountEntity) = withContext(Dispatchers.IO) {
@@ -45,8 +45,15 @@ class RoomAccountRepository(
         accountDao.deleteAccount()
     }
 
-    private fun AccountEntity.withDecryptedToken(): AccountEntity =
-        copy(apiToken = cipher.decrypt(apiToken))
+    // Treat an undecryptable token as signed-out rather than throwing: the Keystore key can go missing
+    // (reinstall/restore, key invalidation), and an uncaught decrypt used to wedge the sync worker in an
+    // infinite retry. Returning null makes the app recover to a clean signed-out state.
+    private fun AccountEntity.decryptedOrNull(): AccountEntity? =
+        try {
+            copy(apiToken = cipher.decrypt(apiToken))
+        } catch (e: Exception) {
+            null
+        }
 }
 
 /** Encrypt/decrypt indirection for the account token — lets tests substitute a fake for the Keystore. */
