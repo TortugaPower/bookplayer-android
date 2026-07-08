@@ -23,6 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -94,6 +97,9 @@ fun StandaloneLibraryScreen(
                     downloadProgress = downloadProgress,
                     onClick = { onItemClick(row) },
                     onLongClick = { if (!row.isFolder) menuRow = row },
+                    onDownload = { onDownload(row) },
+                    onCancelDownload = { onCancelDownload(row) },
+                    onRemoveDownload = { onRemoveDownload(row) },
                 )
             }
         }
@@ -111,7 +117,12 @@ fun StandaloneLibraryScreen(
     }
 }
 
-/** A library row rendered as a chip-like, long-pressable surface (Wear `Chip` has no long-press slot). */
+/**
+ * A library row rendered as a chip-like, long-pressable surface (Wear `Chip` has no long-press slot).
+ * Accessibility: the long-press (sighted path to the download menu) is labeled, AND the state-appropriate
+ * download action is exposed as a TalkBack **custom action** on the row — so screen-reader users get
+ * Download/Cancel/Remove directly without needing the long-press gesture.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LibraryRowItem(
@@ -119,13 +130,34 @@ private fun LibraryRowItem(
     downloadProgress: Float?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onRemoveDownload: () -> Unit,
 ) {
+    val playLabel = stringResource(R.string.wear_play)
+    // The single state-appropriate download action (books only) — surfaced both as the long-press label
+    // and as a TalkBack custom action.
+    val downloadAction: Pair<String, () -> Unit>? = when {
+        row.isFolder -> null
+        row.downloadState == DownloadUiState.NotDownloaded -> stringResource(R.string.wear_download) to onDownload
+        row.downloadState == DownloadUiState.Downloading -> stringResource(R.string.wear_cancel_download) to onCancelDownload
+        else -> stringResource(R.string.wear_remove_download) to onRemoveDownload
+    }
+    val rowActions = downloadAction?.let {
+        listOf(CustomAccessibilityAction(it.first) { it.second(); true })
+    } ?: emptyList()
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
             .background(MaterialTheme.colors.surface)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(
+                onClick = onClick,
+                onClickLabel = if (row.isFolder) null else playLabel,
+                onLongClick = onLongClick,
+                onLongClickLabel = downloadAction?.first,
+            )
+            .semantics { customActions = rowActions }
             .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
