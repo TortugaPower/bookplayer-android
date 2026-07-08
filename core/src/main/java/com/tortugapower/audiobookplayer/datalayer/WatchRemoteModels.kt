@@ -41,9 +41,16 @@ data class WatchLibraryState(
     val forwardInterval: Int,
 )
 
-/** Volatile playback state pushed to the watch (`PATH_PLAYBACK_STATE`); the play/pause echo lives here. */
+/**
+ * Volatile playback state pushed to the watch (`PATH_PLAYBACK_STATE`); the play/pause echo lives here.
+ * [progress] (whole-book 0..1) and [currentChapter] (1-based; 0 = none) ride here — not on the library
+ * item — so the watch's glance surfaces (tile/complication) show the phone's live progress + chapter for
+ * free users too (iOS parity: the companion pushes the full current item), without re-sending the library.
+ */
 data class WatchPlaybackState(
     val isPlaying: Boolean,
     val speed: Float,
     val boostVolume: Boolean,
+    val progress: Float = 0f,
+    val currentChapter: Int = 0,
 )

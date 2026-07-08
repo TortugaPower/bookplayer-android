@@ -54,17 +54,29 @@ object WearRemotePublisher {
                 .debounce(300)
                 .collect { publishLibrary() }
         }
-        // Playback item — rebuild on play/pause, speed, or boost change (deduped).
+        // Playback item — rebuild on play/pause, speed, boost, or CHAPTER change (deduped). Progress is
+        // sampled at each of these events (not a continuous source, so no per-tick spam) — enough for the
+        // watch glance surfaces, which also re-request on wrist-raise.
         scope.launch {
             combine(
                 PlaybackManager.isPlaying,
                 PlaybackManager.playbackSpeed,
                 PlaybackManager.volumeBoost,
-            ) { playing, speed, boost -> WatchPlaybackState(playing, speed, boost) }
+                PlaybackManager.currentChapterIndex,
+            ) { playing, speed, boost, chapter ->
+                WatchPlaybackState(
+                    playing, speed, boost,
+                    progress = PlaybackManager.wholeBookProgress(),
+                    currentChapter = chapterLabel(chapter),
+                )
+            }
                 .distinctUntilChanged()
                 .collect { publishPlayback(it) }
         }
     }
+
+    /** 1-based current chapter for the watch (0 = unknown), from the 0-based whole-book index. */
+    private fun chapterLabel(index: Int): Int = if (index >= 0) index + 1 else 0
 
     /** Force a re-publish of both items — the watch's REFRESH command. */
     fun refresh() {
@@ -78,6 +90,8 @@ object WearRemotePublisher {
         isPlaying = PlaybackManager.isPlaying.value,
         speed = PlaybackManager.playbackSpeed.value,
         boostVolume = PlaybackManager.volumeBoost.value,
+        progress = PlaybackManager.wholeBookProgress(),
+        currentChapter = chapterLabel(PlaybackManager.currentChapterIndex.value),
     )
 
     private suspend fun publishLibrary() {

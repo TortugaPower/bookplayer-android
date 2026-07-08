@@ -112,6 +112,9 @@ dependencies {
     implementation(libs.androidx.wear.protolayout.material)
     implementation(libs.kotlinx.coroutines.guava)
 
+    // Wear watch-face complication (now-playing progress gauge / tap-to-open), sharing the glance state.
+    implementation(libs.androidx.wear.complications.data.source.ktx)
+
     debugImplementation(libs.androidx.ui.tooling)
 
     testImplementation(libs.junit)
