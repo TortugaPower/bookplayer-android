@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.wear.presentation
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -61,6 +62,8 @@ fun StandaloneLibraryScreen(
     onCancelDownload: (LibraryRow) -> Unit,
     onRemoveDownload: (LibraryRow) -> Unit,
     onRefresh: () -> Unit,
+    onSettings: (() -> Unit)? = null,
+    onNowPlaying: (() -> Unit)? = null,
 ) {
     if (state.rows.isEmpty()) {
         CenterMessage {
@@ -71,6 +74,8 @@ fun StandaloneLibraryScreen(
             )
             Spacer(Modifier.height(8.dp))
             RefreshChip(onRefresh = onRefresh)
+            // Reachable even before the library syncs, so a PRO user can always sign out / manage storage.
+            onSettings?.let { Spacer(Modifier.height(4.dp)); SettingsChip(it) }
         }
         return
     }
@@ -86,6 +91,16 @@ fun StandaloneLibraryScreen(
     val listState = rememberScalingLazyListState()
     ScrollScaffold(listState) {
         ScalingLazyColumn(modifier = Modifier.fillMaxWidth(), state = listState) {
+            // Top-anchored actions (Wear's place for screen actions — no top app bar): the settings gear
+            // and, when there's something to resume, a now-playing shortcut for the last-played book.
+            if (onSettings != null || onNowPlaying != null) {
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+                        onSettings?.let { SettingsHeaderButton(it) }
+                        onNowPlaying?.let { NowPlayingHeaderButton(it) }
+                    }
+                }
+            }
             item {
                 Text(text = title, style = MaterialTheme.typography.caption1)
             }

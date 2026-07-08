@@ -16,10 +16,12 @@ private object RemoteRoute {
     const val NOW_PLAYING = "now_playing"
     const val MORE = "more"
     const val CHAPTERS = "chapters"
+    const val SETTINGS = "settings"
 }
 
 @Composable
 fun RemoteNavHost(
+    rootViewModel: WearRootViewModel,
     viewModel: RemoteViewModel = viewModel(
         factory = RemoteViewModelFactory(LocalContext.current.applicationContext as Application),
     ),
@@ -36,6 +38,23 @@ fun RemoteNavHost(
                     navController.navigate(RemoteRoute.NOW_PLAYING)
                 },
                 onRefresh = viewModel::refresh,
+                onSettings = { navController.navigate(RemoteRoute.SETTINGS) },
+            )
+        }
+
+        composable(RemoteRoute.SETTINGS) {
+            val account by rootViewModel.account.collectAsStateWithLifecycle()
+            val signInState by rootViewModel.signInState.collectAsStateWithLifecycle()
+            val storageUsed by rootViewModel.storageUsed.collectAsStateWithLifecycle()
+            val hasDownloads by rootViewModel.hasDownloads.collectAsStateWithLifecycle()
+            SettingsScreen(
+                account = account,
+                signInState = signInState,
+                storageUsed = storageUsed,
+                canDelete = hasDownloads,
+                onSignIn = rootViewModel::signIn,
+                onDeleteDownloads = rootViewModel::deleteDownloads,
+                onSignOut = rootViewModel::signOut,
             )
         }
         composable(RemoteRoute.NOW_PLAYING) {
