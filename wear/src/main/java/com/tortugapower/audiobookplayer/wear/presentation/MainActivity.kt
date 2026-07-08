@@ -7,8 +7,10 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.wear.compose.material.Colors
 import androidx.wear.compose.material.MaterialTheme
 
 /**
@@ -30,7 +32,10 @@ fun WearRoot(
     ),
 ) {
     val mode by viewModel.mode.collectAsStateWithLifecycle()
-    MaterialTheme {
+    // Adopt the user's phone-selected theme once it syncs; default Wear palette until then.
+    val watchTheme by viewModel.theme.collectAsStateWithLifecycle()
+    val colors = remember(watchTheme) { watchTheme?.toWearColors() ?: Colors() }
+    MaterialTheme(colors = colors) {
         // Each mode owns a nav graph whose destinations bring their own Scaffold (with scroll indicators).
         when (mode) {
             WatchMode.REMOTE_CONTROLLER -> RemoteNavHost(rootViewModel = viewModel)

@@ -19,6 +19,7 @@ object WatchRemoteCodec {
     fun encodeLibraryState(state: WatchLibraryState): ByteArray = state.toBytes()
     fun encodePlaybackState(state: WatchPlaybackState): ByteArray = state.toBytes()
     fun encodeCommand(command: WatchCommand): ByteArray = command.toBytes()
+    fun encodeTheme(theme: WatchTheme): ByteArray = theme.toBytes()
 
     fun decodeLibraryState(bytes: ByteArray): WatchLibraryState? =
         parse(bytes, WatchLibraryState::class.java)?.takeIf { it.isValid() }
@@ -28,6 +29,9 @@ object WatchRemoteCodec {
 
     fun decodeCommand(bytes: ByteArray): WatchCommand? =
         parse(bytes, WatchCommand::class.java)?.takeIf { it.isValid() }
+
+    fun decodeTheme(bytes: ByteArray): WatchTheme? =
+        parse(bytes, WatchTheme::class.java)?.takeIf { it.isValid() }
 
     private fun Any.toBytes(): ByteArray = gson.toJson(this).toByteArray(Charsets.UTF_8)
 
@@ -66,3 +70,10 @@ private fun WatchPlaybackState.isValid(): Boolean = speed > 0f
 
 @Suppress("SENSELESS_COMPARISON")
 private fun WatchCommand.isValid(): Boolean = type != null
+
+// Every color field must be present and a parseable RRGGBB hex; a payload missing any is dropped rather
+// than yielding a theme that renders as transparent/black on the watch.
+@Suppress("SENSELESS_COMPARISON")
+private fun WatchTheme.isValid(): Boolean =
+    listOf(accentHex, primaryHex, secondaryHex, backgroundHex, surfaceHex, separatorHex)
+        .all { it != null && it.matches(Regex("^[0-9a-fA-F]{6}$")) }

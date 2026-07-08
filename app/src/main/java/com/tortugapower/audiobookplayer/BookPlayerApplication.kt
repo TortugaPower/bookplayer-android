@@ -84,6 +84,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         com.tortugapower.audiobookplayer.wear.WearRemotePublisher.initialize(this, database.libraryDao())
         com.tortugapower.audiobookplayer.wear.WearRemotePublisher.start()
 
+        // Mirror the selected theme to the watch (device-local choice, so the Data Layer is the only channel).
+        com.tortugapower.audiobookplayer.wear.WearThemePublisher.initialize(this)
+        com.tortugapower.audiobookplayer.wear.WearThemePublisher.start()
+
         // Crash/error reporting
         initSentry(accountRepository)
     }

@@ -95,4 +95,27 @@ class WatchRemoteCodecTest {
         val json = """{"itemId":"a.m4b"}"""
         assertNull(WatchRemoteCodec.decodeCommand(json.toByteArray()))
     }
+
+    private val theme = WatchTheme(
+        accentHex = "459EEC",
+        primaryHex = "FAFBFC",
+        secondaryHex = "8F8E94",
+        backgroundHex = "202225",
+        surfaceHex = "111113",
+        separatorHex = "434448",
+    )
+
+    @Test fun theme_roundTrips() {
+        assertEquals(theme, WatchRemoteCodec.decodeTheme(WatchRemoteCodec.encodeTheme(theme)))
+    }
+
+    @Test fun theme_missingField_isNull() {
+        val json = """{"accentHex":"459EEC","primaryHex":"FAFBFC","secondaryHex":"8F8E94"}"""
+        assertNull(WatchRemoteCodec.decodeTheme(json.toByteArray()))
+    }
+
+    @Test fun theme_malformedHex_isNull() {
+        val json = """{"accentHex":"nothex","primaryHex":"FAFBFC","secondaryHex":"8F8E94","backgroundHex":"202225","surfaceHex":"111113","separatorHex":"434448"}"""
+        assertNull(WatchRemoteCodec.decodeTheme(json.toByteArray()))
+    }
 }
