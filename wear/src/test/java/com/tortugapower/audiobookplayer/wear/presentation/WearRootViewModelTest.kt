@@ -17,7 +17,9 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -111,4 +113,11 @@ class WearRootViewModelTest {
 
         assertEquals(SignInUiState.Error(SignInError.FAILED), model.signInState.value)
     }
+
+    // Delete-downloads gating: enabled iff the Processed folder holds bytes (boundary at 0).
+    @Test fun hasDownloads_zeroBytes_isFalse() =
+        assertFalse(WearRootViewModel.hasDownloads(0L))
+
+    @Test fun hasDownloads_someBytes_isTrue() =
+        assertTrue(WearRootViewModel.hasDownloads(1L))
 }

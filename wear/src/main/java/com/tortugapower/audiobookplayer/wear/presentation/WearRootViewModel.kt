@@ -81,7 +81,7 @@ class WearRootViewModel(
 
     /** Whether there's anything to delete — the Delete-downloads button is disabled when the folder is empty. */
     val hasDownloads: StateFlow<Boolean> = processedBytes
-        .map { it > 0L }
+        .map { hasDownloads(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Triggered by the "Sign in with phone" button (manual, mirroring iOS — never auto on launch). */
@@ -152,5 +152,10 @@ class WearRootViewModel(
     private suspend fun computeProcessedBytes(): Long = withContext(Dispatchers.IO) {
         val dir = processedDir()
         if (dir.exists()) dir.walkBottomUp().filter { it.isFile }.sumOf { it.length() } else 0L
+    }
+
+    companion object {
+        /** Delete-downloads is enabled iff the Processed folder holds at least one byte (pure, unit-tested). */
+        fun hasDownloads(bytes: Long): Boolean = bytes > 0L
     }
 }
