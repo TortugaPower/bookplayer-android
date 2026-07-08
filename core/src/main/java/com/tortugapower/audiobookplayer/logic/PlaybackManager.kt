@@ -318,6 +318,13 @@ object PlaybackManager {
                             if (smartRewindEnabled) {
                                 applySmartRewind()
                             }
+                            // Persist once on the genuine play-start transition so lastPlayDate/recents
+                            // reflect the book immediately (not up to ~10s later). Done HERE, not in
+                            // startProgressTracker — that also restarts when a UI collector reappears
+                            // (subscriptionCount observer), and we must not reset the ~10s persist clock or
+                            // write to the DB on every PlayerScreen resume.
+                            lastProgressPersistMs = System.currentTimeMillis()
+                            updateProgress(appContext)
                             startProgressTracker(appContext)
                         }
                         StatisticsManager.setPlaybackState(appContext, _currentItem.value, playing)
@@ -637,12 +644,6 @@ object PlaybackManager {
     private fun startProgressTracker(context: Context) {
         progressTrackerJob?.cancel()
         progressTrackerJob = scope.launch {
-            // Persist once at play-start so lastPlayDate (and recents ordering — phone, Wear tile/recents,
-            // Android Auto) reflects the just-started book immediately, not up to ~10s later. The cadence
-            // below throttles ONGOING progress writes; the initial "started playing" marker shouldn't wait.
-            // Cheap: SyncTaskFactory merges this update with the subsequent ticks into one pending task.
-            lastProgressPersistMs = System.currentTimeMillis()
-            updateProgress(context)
             while (_isPlaying.value) {
                 // Tick fast (smooth seek bar) only while something is actually collecting positionMs.
                 // PlayerScreen's collectAsStateWithLifecycle unsubscribes when the Activity isn't
