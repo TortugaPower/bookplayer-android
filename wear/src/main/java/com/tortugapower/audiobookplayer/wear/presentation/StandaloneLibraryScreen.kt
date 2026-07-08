@@ -42,7 +42,6 @@ import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.dialog.Dialog
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.wear.R
-import kotlinx.coroutines.flow.sample
 
 /**
  * One level of the standalone (PRO) library — the folder given by [title], listing [StandaloneUiState.rows].
@@ -75,10 +74,10 @@ fun StandaloneLibraryScreen(
         return
     }
 
-    // Live download progress for the bar, sampled so a mid-download flood of updates (per 8 KB) can't
-    // thrash the whole list's recomposition.
-    val progressMap by remember { SyncStatusManager.taskProgress.sample(300) }
-        .collectAsStateWithLifecycle(initialValue = emptyMap<String, Double>())
+    // Live download progress for the bar. taskProgress is a StateFlow, so collecting it directly already
+    // conflates: a mid-download flood of updates (per 8 KB) coalesces to at most one recomposition per
+    // frame (Compose batches state writes), so no extra throttle operator is needed.
+    val progressMap by SyncStatusManager.taskProgress.collectAsStateWithLifecycle()
 
     // The row whose long-press action menu is open (null = closed).
     var menuRow by remember { mutableStateOf<LibraryRow?>(null) }
