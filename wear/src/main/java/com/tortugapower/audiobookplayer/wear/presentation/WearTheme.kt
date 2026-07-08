@@ -25,8 +25,8 @@ fun WatchTheme.toWearColors(defaults: Colors = Colors()): Colors {
     )
 }
 
-/** Parse an `RRGGBB` hex (validated by the codec) into an opaque [Color]. */
-private fun parseHexColor(hex: String): Color = Color(android.graphics.Color.parseColor("#$hex"))
+/** Parse an `RRGGBB` hex (validated by the codec) into an opaque [Color]. Pure — no Android framework. */
+private fun parseHexColor(hex: String): Color = Color(0xFF000000L or hex.toLong(16))
 
 /** White or black — whichever reads on an accent-filled control (play/pause icon, primary chip label). */
 private fun contrastOn(background: Color): Color =

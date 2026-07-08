@@ -71,9 +71,11 @@ private fun WatchPlaybackState.isValid(): Boolean = speed > 0f
 @Suppress("SENSELESS_COMPARISON")
 private fun WatchCommand.isValid(): Boolean = type != null
 
+private val HEX_COLOR = Regex("^[0-9a-fA-F]{6}$")
+
 // Every color field must be present and a parseable RRGGBB hex; a payload missing any is dropped rather
 // than yielding a theme that renders as transparent/black on the watch.
 @Suppress("SENSELESS_COMPARISON")
 private fun WatchTheme.isValid(): Boolean =
     listOf(accentHex, primaryHex, secondaryHex, backgroundHex, surfaceHex, separatorHex)
-        .all { it != null && it.matches(Regex("^[0-9a-fA-F]{6}$")) }
+        .all { it != null && HEX_COLOR.matches(it) }
