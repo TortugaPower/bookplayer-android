@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
+import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -288,7 +289,7 @@ class PlayerViewModel(
 
     fun createHomeScreenShortcut() {
         val item = currentItem.value ?: return
-        com.tortugapower.audiobookplayer.logic.ShortcutHelper.requestPinShortcut(appContext, viewModelScope, item)
+        ShortcutHelper.requestPinShortcut(appContext, item)
     }
 
     fun updateGlobalSpeed(context: Context, enabled: Boolean) {

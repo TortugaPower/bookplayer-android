@@ -231,12 +231,6 @@ object PlaybackManager {
     private val _useChapterContext = MutableStateFlow(false)
     val useChapterContext: StateFlow<Boolean> = _useChapterContext.asStateFlow()
 
-    private val _showSleepTimerTrigger = MutableStateFlow(false)
-    val showSleepTimerTrigger: StateFlow<Boolean> = _showSleepTimerTrigger.asStateFlow()
-
-    fun triggerSleepTimerMenu() { _showSleepTimerTrigger.value = true }
-    fun clearSleepTimerTrigger() { _showSleepTimerTrigger.value = false }
-
     private var lastPauseTime: Long = 0
     private var smartRewindEnabled = true
     private var smartRewindLimit = 30

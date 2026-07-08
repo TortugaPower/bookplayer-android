@@ -7,18 +7,54 @@ import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
-import android.content.pm.ShortcutInfo
-import android.content.pm.ShortcutManager
-import android.graphics.drawable.Icon
 import android.widget.Toast
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.drawable.IconCompat
 import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.tortugapower.audiobookplayer.MainActivity
 import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import io.sentry.Sentry
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
+/**
+ * Single owner of the app's launcher shortcuts — both the fixed *dynamic* set (long-press the launcher
+ * icon) and *pinned* per-book shortcuts. Uses the AndroidX [ShortcutManagerCompat] wrappers so version
+ * gating is handled for us (no `Build.VERSION` guards). All shortcut intents are built here so the
+ * anti-hijack invariant (explicit MainActivity target) lives in one place.
+ */
 object ShortcutHelper {
+
+    // Dynamic (launcher long-press) shortcut ids — the fixed set we own; also the idempotency key.
+    private const val ID_PLAY_LAST = "shortcut_play_last"
+    private const val ID_REWIND = "shortcut_rewind"
+    private const val ID_FORWARD = "shortcut_forward"
+    private const val ID_SLEEP = "shortcut_sleep_timer"
+
+    // Application-lifetime scope for fire-and-forget pin requests. Owning the scope here (instead of
+    // taking the caller's) means a config change mid artwork-fetch can't cancel the request — a UI
+    // scope such as rememberCoroutineScope() is cancelled and recreated on rotation.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    fun getShortcutId(itemUuid: String): String = "shortcut_play_$itemUuid"
+
+    fun getShortcutIntentUri(itemUuid: String): String =
+        "bookplayer://play?identifier=$itemUuid&autoplay=true"
+
+    // Explicitly target MainActivity: an implicit ACTION_VIEW on the bookplayer:// scheme could be
+    // intercepted by any app registering the same scheme, leaking the item uuid or hijacking the launch.
+    private fun intentForDeepLink(context: Context, deepLink: String): Intent =
+        Intent(Intent.ACTION_VIEW, Uri.parse(deepLink)).setClass(context, MainActivity::class.java)
+
+    /** The pinned "play this book" intent (kept as its own entry point; unit-tested for the target invariant). */
+    fun buildShortcutIntent(context: Context, itemUuid: String): Intent =
+        intentForDeepLink(context, getShortcutIntentUri(itemUuid))
 
     fun drawableToBitmap(drawable: Drawable): Bitmap {
         if (drawable is BitmapDrawable) {
@@ -33,42 +69,16 @@ object ShortcutHelper {
         return bmp
     }
 
-    fun getShortcutIntentUri(itemUuid: String): String {
-        return "bookplayer://play?identifier=$itemUuid&autoplay=true"
-    }
-
-    fun buildShortcutIntent(context: Context, itemUuid: String): Intent {
-        // Explicitly target MainActivity (mirrors setupDynamicShortcuts): an implicit ACTION_VIEW
-        // on the bookplayer:// scheme could be intercepted by any app registering the same
-        // scheme, leaking the item UUID or hijacking the launch.
-        return Intent(Intent.ACTION_VIEW, Uri.parse(getShortcutIntentUri(itemUuid)))
-            .setClass(context, com.tortugapower.audiobookplayer.MainActivity::class.java)
-    }
-
-    fun getShortcutId(itemUuid: String): String {
-        return "shortcut_play_$itemUuid"
-    }
-
     /**
-     * Fire-and-forget pin request for a library item — the single entry point for UI callers
-     * (library long-press menu, player More sheet).
+     * Fire-and-forget pin request for a library item — the single entry point for UI callers (library
+     * long-press menu, player More sheet). Runs on [scope] so it survives the caller's config changes.
      */
-    fun requestPinShortcut(
-        context: Context,
-        scope: kotlinx.coroutines.CoroutineScope,
-        item: com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
-    ) {
-        // The scope can outlive the caller (viewModelScope survives config changes) and the
-        // artwork fetch can take seconds, so only the application context may cross into the
-        // coroutine — an Activity context here would leak the destroyed Activity on rotation.
+    fun requestPinShortcut(context: Context, item: LibraryItemEntity) {
+        // Only the application context may cross into the coroutine — an Activity context would leak the
+        // destroyed Activity across the (seconds-long) artwork fetch on a rotation.
         val appContext = context.applicationContext
         scope.launch {
-            createPinShortcut(
-                context = appContext,
-                itemUuid = item.uuid,
-                itemTitle = item.title,
-                itemArtworkUrl = item.artworkURL
-            )
+            createPinShortcut(appContext, item.uuid, item.title, item.artworkURL)
         }
     }
 
@@ -78,8 +88,7 @@ object ShortcutHelper {
         itemTitle: String,
         itemArtworkUrl: String?
     ) {
-        val shortcutManager = context.getSystemService(ShortcutManager::class.java) ?: return
-        if (!shortcutManager.isRequestPinShortcutSupported) {
+        if (!ShortcutManagerCompat.isRequestPinShortcutSupported(context)) {
             // Some launchers don't support pinning; without feedback the menu item reads as broken.
             Toast.makeText(context, R.string.shortcut_pin_failed, Toast.LENGTH_SHORT).show()
             return
@@ -91,28 +100,64 @@ object ShortcutHelper {
                 .size(150)
                 .allowHardware(false)
                 .build()
-            val result = loader.execute(request)
-            val drawable = (result as? SuccessResult)?.drawable
-            val bitmap = drawable?.let { drawableToBitmap(it) }
-            val icon = if (bitmap != null) {
-                Icon.createWithBitmap(bitmap)
-            } else {
-                Icon.createWithResource(context, R.mipmap.ic_launcher)
-            }
+            val drawable = (loader.execute(request) as? SuccessResult)?.drawable
+            val icon = drawable?.let { IconCompat.createWithAdaptiveBitmap(drawableToBitmap(it)) }
+                ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher)
 
-            val pinShortcutInfo = ShortcutInfo.Builder(context, getShortcutId(itemUuid))
+            val pinShortcutInfo = ShortcutInfoCompat.Builder(context, getShortcutId(itemUuid))
                 .setShortLabel(itemTitle)
                 .setLongLabel(context.getString(R.string.shortcut_play_item_desc, itemTitle))
                 .setIcon(icon)
                 .setIntent(buildShortcutIntent(context, itemUuid))
                 .build()
-            shortcutManager.requestPinShortcut(pinShortcutInfo, null)
+            ShortcutManagerCompat.requestPinShortcut(context, pinShortcutInfo, null)
         } catch (e: Exception) {
-            // requestPinShortcut throws on locked profiles and on some OEMs once the app is no
-            // longer foreground — a window the async artwork fetch above makes likely. This runs
-            // in a fire-and-forget coroutine, so an uncaught throw would crash the process.
+            // requestPinShortcut throws on locked profiles and on some OEMs once the app is no longer
+            // foreground — a window the async artwork fetch above makes likely. This is fire-and-forget,
+            // so an uncaught throw would crash the process.
             Sentry.captureException(e)
             Toast.makeText(context, R.string.shortcut_pin_failed, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * Publish the fixed set of dynamic (launcher long-press) shortcuts. Idempotent: skips the disk write
+     * when the expected shortcuts already exist with the current-locale "play last" label — so ordinary
+     * recreations (rotation/dark-mode) are a no-op, while a locale change still refreshes translated
+     * labels. Safe to call off the main thread (the callers dispatch it during cold start).
+     */
+    fun publishDynamicShortcuts(context: Context) {
+        val playLastLabel = context.getString(R.string.shortcut_play_last_title)
+        val existing = ShortcutManagerCompat.getDynamicShortcuts(context)
+        val expectedIds = setOf(ID_PLAY_LAST, ID_REWIND, ID_FORWARD, ID_SLEEP)
+        val upToDate = existing.map { it.id }.toSet() == expectedIds &&
+            existing.any { it.id == ID_PLAY_LAST && it.shortLabel == playLastLabel }
+        if (upToDate) return
+
+        fun launcherIcon() = IconCompat.createWithResource(context, R.mipmap.ic_launcher)
+        val shortcuts = listOf(
+            ShortcutInfoCompat.Builder(context, ID_PLAY_LAST)
+                .setShortLabel(playLastLabel)
+                .setLongLabel(context.getString(R.string.shortcut_play_last_desc))
+                .setIcon(launcherIcon())
+                .setIntent(intentForDeepLink(context, "bookplayer://play?autoplay=true"))
+                .build(),
+            ShortcutInfoCompat.Builder(context, ID_REWIND)
+                .setShortLabel(context.getString(R.string.shortcut_rewind_title))
+                .setIcon(launcherIcon())
+                .setIntent(intentForDeepLink(context, "bookplayer://skipRewind"))
+                .build(),
+            ShortcutInfoCompat.Builder(context, ID_FORWARD)
+                .setShortLabel(context.getString(R.string.shortcut_forward_title))
+                .setIcon(launcherIcon())
+                .setIntent(intentForDeepLink(context, "bookplayer://skipForward"))
+                .build(),
+            ShortcutInfoCompat.Builder(context, ID_SLEEP)
+                .setShortLabel(context.getString(R.string.shortcut_sleep_timer_title))
+                .setIcon(launcherIcon())
+                .setIntent(intentForDeepLink(context, "bookplayer://sleep"))
+                .build(),
+        )
+        ShortcutManagerCompat.setDynamicShortcuts(context, shortcuts)
     }
 }

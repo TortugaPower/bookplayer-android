@@ -16,9 +16,12 @@ import com.tortugapower.audiobookplayer.logic.ThemeManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.ui.screens.MainScreen
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerTheme
-import android.os.Build
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
+import com.tortugapower.audiobookplayer.logic.PlayerUiSignals
+import com.tortugapower.audiobookplayer.logic.ShortcutHelper
+import com.tortugapower.audiobookplayer.logic.SleepTimerManager
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 
@@ -130,10 +133,10 @@ class MainActivity : ComponentActivity() {
             "sleep" -> {
                 val seconds = uri.getQueryParameter("seconds")?.toIntOrNull()
                 if (seconds != null) {
-                    com.tortugapower.audiobookplayer.logic.SleepTimerManager.configureTimerWithSeconds(seconds)
+                    SleepTimerManager.configureTimerWithSeconds(seconds)
                 }
                 PlaybackManager.setShowPlayer(true)
-                PlaybackManager.triggerSleepTimerMenu()
+                PlayerUiSignals.requestOpenSleepTimer()
             }
         }
     }
@@ -145,56 +148,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun setupDynamicShortcuts() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
-            // ShortcutManager get/set are disk-backed binder calls — keep them (and the
-            // ShortcutInfo/icon building) off the UI thread during cold start.
-            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-                publishDynamicShortcuts()
-            }
+        // ShortcutManager get/set are disk-backed binder calls (and icon/label building isn't free) —
+        // keep the publish off the UI thread during cold start. ShortcutManagerCompat handles version
+        // gating, so no Build.VERSION check here.
+        lifecycleScope.launch(Dispatchers.Default) {
+            ShortcutHelper.publishDynamicShortcuts(applicationContext)
         }
-    }
-
-    @androidx.annotation.RequiresApi(Build.VERSION_CODES.N_MR1)
-    private fun publishDynamicShortcuts() {
-        val shortcutManager = getSystemService(android.content.pm.ShortcutManager::class.java) ?: return
-
-        // onCreate also runs on config-change recreations (rotation, dark mode, locale);
-        // skip the redundant re-publish when the shortcuts already exist. The label check
-        // keeps one recreation useful: a locale change re-publishes translated labels.
-        val playLastLabel = getString(R.string.shortcut_play_last_title)
-        val existing = shortcutManager.dynamicShortcuts
-        if (existing.size == 4 &&
-            existing.any { it.id == "shortcut_play_last" && it.shortLabel?.toString() == playLastLabel }
-        ) {
-            return
-        }
-
-        // Explicitly target this activity: an implicit ACTION_VIEW on the bookplayer://
-        // scheme could be intercepted by any app registering the same scheme.
-        fun shortcutIntent(deepLink: String) =
-            Intent(Intent.ACTION_VIEW, Uri.parse(deepLink)).setClass(this, MainActivity::class.java)
-
-        val playLastShortcut = android.content.pm.ShortcutInfo.Builder(this, "shortcut_play_last")
-            .setShortLabel(getString(R.string.shortcut_play_last_title))
-            .setLongLabel(getString(R.string.shortcut_play_last_desc))
-            .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
-            .setIntent(shortcutIntent("bookplayer://play?autoplay=true"))
-            .build()
-        val rewindShortcut = android.content.pm.ShortcutInfo.Builder(this, "shortcut_rewind")
-            .setShortLabel(getString(R.string.shortcut_rewind_title))
-            .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
-            .setIntent(shortcutIntent("bookplayer://skipRewind"))
-            .build()
-        val forwardShortcut = android.content.pm.ShortcutInfo.Builder(this, "shortcut_forward")
-            .setShortLabel(getString(R.string.shortcut_forward_title))
-            .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
-            .setIntent(shortcutIntent("bookplayer://skipForward"))
-            .build()
-        val sleepShortcut = android.content.pm.ShortcutInfo.Builder(this, "shortcut_sleep_timer")
-            .setShortLabel(getString(R.string.shortcut_sleep_timer_title))
-            .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
-            .setIntent(shortcutIntent("bookplayer://sleep"))
-            .build()
-        shortcutManager.dynamicShortcuts = listOf(playLastShortcut, rewindShortcut, forwardShortcut, sleepShortcut)
     }
 }

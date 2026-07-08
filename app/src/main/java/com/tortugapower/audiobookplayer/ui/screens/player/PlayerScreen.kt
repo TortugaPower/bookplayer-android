@@ -118,6 +118,7 @@ import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.PlayerUiSignals
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
 import kotlinx.coroutines.launch
@@ -158,11 +159,12 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val isHidden = offsetY.value >= screenHeightPx
 
-    val showSleepTimerTrigger by PlaybackManager.showSleepTimerTrigger.collectAsStateWithLifecycle()
-    LaunchedEffect(showSleepTimerTrigger) {
-        if (showSleepTimerTrigger) {
+    // One-shot signal from a deep link / launcher "sleep" shortcut handled in MainActivity — open the
+    // sleep-timer menu once. The conflated channel latches a pre-composition emit (cold start) yet is
+    // consumed once, so a config-change recreation won't re-open the menu.
+    LaunchedEffect(Unit) {
+        PlayerUiSignals.openSleepTimer.collect {
             viewModel.showSleepTimerMenu = true
-            PlaybackManager.clearSleepTimerTrigger()
         }
     }
 

@@ -68,6 +68,7 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.ImportManager
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
@@ -121,7 +122,6 @@ fun LibraryScreen(
     // Fetch data for the actual current path (used by dialogs and actions)
     val items by libraryViewModel.getItemsForPath(currentPath).collectAsState()
     val availableFolders by libraryViewModel.getFoldersForPath(currentPath).collectAsState()
-    val scope = rememberCoroutineScope()
 
     var selectedItemUuids by remember { mutableStateOf(setOf<String>()) }
     var isSelectMode by remember { mutableStateOf(false) }
@@ -535,7 +535,7 @@ fun LibraryScreen(
                                 text = { Text(stringResource(R.string.library_add_shortcut_to_home_screen)) },
                                 onClick = {
                                     showMoreMenu = false
-                                    com.tortugapower.audiobookplayer.logic.ShortcutHelper.requestPinShortcut(context, scope, selectedItems[0])
+                                    ShortcutHelper.requestPinShortcut(context, selectedItems[0])
                                     isSelectMode = false
                                     selectedItemUuids = emptySet()
                                 },
