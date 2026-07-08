@@ -51,6 +51,10 @@ object OfflineDownloadManager {
     ) {
         downloadUnits(libraryRepository, item).forEach { book ->
             if (isFileDownloaded(context, book.relativePath)) return@forEach
+            // A fresh download must never inherit a stale cancel flag (e.g. a prior cancel that raced a
+            // just-completed/failed download and left the flag set): clear it before enqueuing, so this
+            // task's first read-loop iteration doesn't abort itself.
+            SyncStatusManager.clearCancel(book.uuid)
             val resolved = libraryRepository.resolveStreamingUrl(book)
             SyncTaskFactory.createDownloadFileTask(syncTaskRepository, resolved)
         }
