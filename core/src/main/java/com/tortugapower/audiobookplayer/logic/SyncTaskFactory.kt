@@ -59,6 +59,9 @@ object SyncTaskFactory {
             "percentCompleted" to item.percentCompleted,
             "isFinished" to item.isFinished,
             "orderRank" to item.orderRank,
+            // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
+            // last_play_date never advances from Android, breaking cross-device "recently played".
+            "lastPlayDateTimestamp" to item.lastPlayDate?.let { it / 1000 },
             "type" to item.type.ordinal
         )
         enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_METADATA, item.uuid, payload)
@@ -82,6 +85,9 @@ object SyncTaskFactory {
             "percentCompleted" to item.percentCompleted,
             "isFinished" to item.isFinished,
             "orderRank" to item.orderRank,
+            // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
+            // last_play_date never advances from Android, breaking cross-device "recently played".
+            "lastPlayDateTimestamp" to item.lastPlayDate?.let { it / 1000 },
             "type" to item.type.ordinal
         )
 

@@ -637,6 +637,12 @@ object PlaybackManager {
     private fun startProgressTracker(context: Context) {
         progressTrackerJob?.cancel()
         progressTrackerJob = scope.launch {
+            // Persist once at play-start so lastPlayDate (and recents ordering — phone, Wear tile/recents,
+            // Android Auto) reflects the just-started book immediately, not up to ~10s later. The cadence
+            // below throttles ONGOING progress writes; the initial "started playing" marker shouldn't wait.
+            // Cheap: SyncTaskFactory merges this update with the subsequent ticks into one pending task.
+            lastProgressPersistMs = System.currentTimeMillis()
+            updateProgress(context)
             while (_isPlaying.value) {
                 // Tick fast (smooth seek bar) only while something is actually collecting positionMs.
                 // PlayerScreen's collectAsStateWithLifecycle unsubscribes when the Activity isn't
@@ -709,20 +715,22 @@ object PlaybackManager {
     }
 
     fun syncLastPlayed(context: Context, item: LibraryItemEntity) {
-        if (_isPlaying.value || player == null) return
+        // On Main, and AWAIT the controller (+ the local restore) rather than bailing on player == null: the
+        // fetch-triggered re-arm frequently lands before the MediaController has connected (cold sign-in),
+        // and returning early there silently dropped the re-arm, leaving the stale locally-restored book.
+        scope.launch {
+            awaitPlayer() ?: return@launch
+            if (_isPlaying.value) return@launch // never override active playback
 
-        // If it's the same item and very close position, skip to avoid unnecessary reloads
-        val current = _currentItem.value
-        if (current?.uuid == item.uuid && Math.abs(current.currentTime - item.currentTime) < 2.0) {
-            return
+            // Same item and near-identical position — skip to avoid an unnecessary reload.
+            val current = _currentItem.value
+            if (current?.uuid == item.uuid && Math.abs(current.currentTime - item.currentTime) < 2.0) {
+                return@launch
+            }
+
+            android.util.Log.d("PlaybackManager", "🔄 Syncing last played item from remote: ${item.title} at ${item.currentTime}s")
+            playItem(context, item, autoplay = false)
         }
-
-        android.util.Log.d("PlaybackManager", "🔄 Syncing last played item from remote: ${item.title} at ${item.currentTime}s")
-        
-        // We can reuse playItem but with autoplay = false
-        // Actually, let's make playItem support an optional autoplay flag if it doesn't already
-        // Wait, playItem always calls play(). I'll update playItem to accept an autoplay param.
-        playItem(context, item, autoplay = false)
     }
 
     fun playItem(context: Context, item: LibraryItemEntity, autoplay: Boolean = true, headers: Map<String, String>? = null) {

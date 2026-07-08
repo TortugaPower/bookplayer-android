@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ComponentName
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.wear.tiles.TileService
 import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
@@ -12,6 +13,8 @@ import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.network.NetworkConstants
+import com.tortugapower.audiobookplayer.wear.data.DataLayerRemoteContextRepository
+import com.tortugapower.audiobookplayer.wear.tile.NowPlayingTileService
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
@@ -133,6 +136,29 @@ class WearApp : Application() {
                         pro && foreground -> WearSyncServiceHost.start(this@WearApp)
                         !pro || (!foreground && !playing && !work) -> WearSyncServiceHost.stop(this@WearApp)
                     }
+                }
+        }
+
+        // Refresh the now-playing tile when the STANDALONE current item changes (a new book plays locally,
+        // or sign-out clears it) — TileService only re-renders on its own cadence otherwise.
+        appScope.launch {
+            PlaybackManager.currentItem
+                .map { it?.uuid }
+                .distinctUntilChanged()
+                .collect {
+                    TileService.getUpdater(this@WearApp).requestUpdate(NowPlayingTileService::class.java)
+                }
+        }
+
+        // Refresh the tile in REMOTE mode too: playback is on the phone, so the watch's own currentItem
+        // never changes — the tile's data comes from the phone's published now-playing, so re-request when
+        // that changes.
+        appScope.launch {
+            DataLayerRemoteContextRepository(this@WearApp).libraryState
+                .map { it?.currentItem?.id ?: it?.recentItems?.firstOrNull()?.id }
+                .distinctUntilChanged()
+                .collect {
+                    TileService.getUpdater(this@WearApp).requestUpdate(NowPlayingTileService::class.java)
                 }
         }
     }
