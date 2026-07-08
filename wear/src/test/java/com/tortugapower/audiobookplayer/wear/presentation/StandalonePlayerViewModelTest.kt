@@ -94,4 +94,17 @@ class StandalonePlayerViewModelTest {
         assertEquals(30.0, np.chapters[1].start, 0.0)
         assertEquals(1, np.chapters[1].index)
     }
+
+    @Test
+    fun `progress fraction is position over duration, clamped`() {
+        assertEquals(0f, StandalonePlayerViewModel.progressFraction(0L, 100_000L), 0.0001f)
+        assertEquals(0.5f, StandalonePlayerViewModel.progressFraction(50_000L, 100_000L), 0.0001f)
+        assertEquals(1f, StandalonePlayerViewModel.progressFraction(100_000L, 100_000L), 0.0001f)
+        assertEquals(1f, StandalonePlayerViewModel.progressFraction(150_000L, 100_000L), 0.0001f)
+    }
+
+    @Test
+    fun `progress fraction is zero when duration unknown`() {
+        assertEquals(0f, StandalonePlayerViewModel.progressFraction(5_000L, 0L), 0.0001f)
+    }
 }

@@ -65,6 +65,8 @@ fun RemoteNavHost(
                 onSkipForward = viewModel::skipForward,
                 onMore = { navController.navigate(RemoteRoute.MORE) },
                 onChapters = { navController.navigate(RemoteRoute.CHAPTERS) },
+                // Crown → the phone's volume (remote playback lives on the phone).
+                onCrownVolume = viewModel::adjustVolume,
             )
         }
         composable(RemoteRoute.MORE) {

@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.wear
 
+import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import com.google.android.gms.wearable.MessageEvent
@@ -69,6 +70,18 @@ class WearCommandListenerService : WearableListenerService(), RemotePlaybackActi
 
     override fun setBoost(on: Boolean) {
         if (on != PlaybackManager.volumeBoost.value) PlaybackManager.toggleVolumeBoost(applicationContext)
+    }
+
+    // Remote crown → the phone's own media-stream volume (playback is on the phone). The system volume HUD
+    // shows on the phone (FLAG_SHOW_UI), where the audio is. Standalone/watch playback adjusts the watch's
+    // volume locally instead (PlaybackManager.increase/decreaseDeviceVolume), never this path.
+    override fun adjustVolume(up: Boolean) {
+        val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        audioManager.adjustStreamVolume(
+            AudioManager.STREAM_MUSIC,
+            if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
+            AudioManager.FLAG_SHOW_UI,
+        )
     }
 
     override fun refresh() = WearRemotePublisher.refresh()

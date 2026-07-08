@@ -105,6 +105,8 @@ fun StandaloneNavHost(rootViewModel: WearRootViewModel) {
         }
 
         composable(StandaloneRoute.NOW_PLAYING) {
+            val deviceVolume by playerViewModel.deviceVolume.collectAsStateWithLifecycle()
+            val progress by playerViewModel.progress.collectAsStateWithLifecycle()
             NowPlayingScreen(
                 state = playerState,
                 onPlayPause = playerViewModel::togglePlayPause,
@@ -112,6 +114,10 @@ fun StandaloneNavHost(rootViewModel: WearRootViewModel) {
                 onSkipForward = playerViewModel::skipForward,
                 onMore = { navController.navigate(StandaloneRoute.MORE) },
                 onChapters = { navController.navigate(StandaloneRoute.CHAPTERS) },
+                // Crown → the watch's own volume (standalone playback is local), with a peripheral indicator.
+                onCrownVolume = { up -> if (up) playerViewModel.volumeUp() else playerViewModel.volumeDown() },
+                volume = deviceVolume,
+                progress = progress,
             )
         }
 
