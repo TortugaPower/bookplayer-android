@@ -14,6 +14,7 @@ import com.tortugapower.audiobookplayer.wear.sync.WearSyncServiceHost
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -110,7 +111,7 @@ class StandaloneViewModel(
 
     fun removeDownload(row: LibraryRow) = withItem(row) { item ->
         OfflineDownloadManager.removeDownload(appContext, libraryRepository, item)
-        removeTrigger.value++
+        removeTrigger.update { it + 1 } // atomic: guarantee one rebuild per removal even under concurrency
     }
 
     private fun withItem(row: LibraryRow, block: suspend (LibraryItemEntity) -> Unit) {
