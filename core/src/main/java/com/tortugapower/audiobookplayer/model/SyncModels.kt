@@ -22,7 +22,10 @@ data class SyncableItem(
     @SerializedName("url") val remoteURL: String?,
     @SerializedName("thumbnail") val artworkURL: String?,
     val speed: Double?,
-    @SerializedName("lastPlayDate") val lastPlayDateTimestamp: Double?,
+    // The API (and iOS) send this as "lastPlayDateTimestamp" — NOT "lastPlayDate" (that's the DB/upload
+    // key). Reading the wrong key left every synced item's lastPlayDate null, so server-synced plays never
+    // surfaced in the Wear recents / Android Auto Recent tab until played locally.
+    @SerializedName("lastPlayDateTimestamp") val lastPlayDateTimestamp: Double?,
     val externalResources: List<SyncableExternalResource>? = null
 )
 

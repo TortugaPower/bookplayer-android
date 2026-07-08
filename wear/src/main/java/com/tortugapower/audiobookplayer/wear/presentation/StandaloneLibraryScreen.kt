@@ -66,6 +66,8 @@ fun StandaloneLibraryScreen(
     onNowPlaying: (() -> Unit)? = null,
 ) {
     if (state.rows.isEmpty()) {
+        // Label + actions, matching the remote empty state. Reachable even before the library syncs, so a
+        // PRO user can always retry the sync or reach Settings (sign out / manage storage).
         CenterMessage {
             Text(
                 text = stringResource(R.string.wear_standalone_empty),
@@ -74,7 +76,6 @@ fun StandaloneLibraryScreen(
             )
             Spacer(Modifier.height(8.dp))
             RefreshChip(onRefresh = onRefresh)
-            // Reachable even before the library syncs, so a PRO user can always sign out / manage storage.
             onSettings?.let { Spacer(Modifier.height(4.dp)); SettingsChip(it) }
         }
         return

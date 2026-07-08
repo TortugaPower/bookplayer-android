@@ -195,6 +195,11 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items WHERE type IN ('BOOK', 'BOUND') AND lastPlayDate IS NOT NULL ORDER BY lastPlayDate DESC LIMIT :limit")
     suspend fun getRecentPlayedItemsSync(limit: Int): List<LibraryItemEntity>
 
+    // Reactive variant: re-emits when the recent set changes (e.g. a contents sync writes lastPlayDate), so
+    // the phone can re-publish the watch's recent list live instead of only on a playback change.
+    @Query("SELECT * FROM library_items WHERE type IN ('BOOK', 'BOUND') AND lastPlayDate IS NOT NULL ORDER BY lastPlayDate DESC LIMIT :limit")
+    fun getRecentPlayedItems(limit: Int): Flow<List<LibraryItemEntity>>
+
     // Global search over playable items (BOOK + BOUND, excludes folders) matching title OR author,
     // newest-played first — mirrors iOS LibraryService.searchAllBooks. Shared by Android Auto's in-car
     // search (suspend, capped) and the in-app library search tab (reactive Flow, with resources).

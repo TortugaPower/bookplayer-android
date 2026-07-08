@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
@@ -39,13 +40,19 @@ object WearRemotePublisher {
     }
 
     fun start() {
-        // Library item — rebuild on item change (currentPlayable) or a skip-interval change.
+        // Library item — rebuild when the recent set changes (a contents sync writing lastPlayDate, so
+        // server-synced plays appear on the watch without waiting for local playback/refresh), on the
+        // current item changing, or a skip-interval change. Debounced so a sync burst coalesces into one
+        // publish (DataClient also dedupes byte-identical items).
         scope.launch {
             combine(
+                libraryDao.getRecentPlayedItems(RECENT_LIMIT),
                 PlaybackManager.currentPlayable,
                 PlaybackManager.rewindInterval,
                 PlaybackManager.forwardInterval,
-            ) { _, _, _ -> Unit }.collect { publishLibrary() }
+            ) { _, _, _, _ -> Unit }
+                .debounce(300)
+                .collect { publishLibrary() }
         }
         // Playback item — rebuild on play/pause, speed, or boost change (deduped).
         scope.launch {
