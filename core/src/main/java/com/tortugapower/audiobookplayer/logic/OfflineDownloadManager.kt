@@ -51,6 +51,11 @@ object OfflineDownloadManager {
     ) {
         downloadUnits(libraryRepository, item).forEach { book ->
             if (isFileDownloaded(context, book.relativePath)) return@forEach
+            // Dedup: don't double-enqueue a file that's already queued (e.g. a rapid double-tap of Download
+            // before the row flips to the Downloading state), matching the other create* factory methods.
+            if (syncTaskRepository.getPendingTaskByTypeAndTaskId(SyncTaskFactory.JOB_DOWNLOAD_FILE, book.uuid) != null) {
+                return@forEach
+            }
             // A fresh download must never inherit a stale cancel flag (e.g. a prior cancel that raced a
             // just-completed/failed download and left the flag set): clear it before enqueuing, so this
             // task's first read-loop iteration doesn't abort itself.
