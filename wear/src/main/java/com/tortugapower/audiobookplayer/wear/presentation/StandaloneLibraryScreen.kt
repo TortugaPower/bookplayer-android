@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.progressSemantics
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -222,6 +223,9 @@ private fun MiniProgressBar(progress: Float?, modifier: Modifier = Modifier) {
     val fill = LocalContentColor.current
     Box(
         modifier = modifier
+            // TalkBack announces the download percentage (low-vision audience) — the glyph carries only the
+            // discrete "downloading" state.
+            .progressSemantics(progress?.coerceIn(0f, 1f) ?: 0f)
             .height(6.dp)
             .clip(MaterialTheme.shapes.small)
             .background(track),
