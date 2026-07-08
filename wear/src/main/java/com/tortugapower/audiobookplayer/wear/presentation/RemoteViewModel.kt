@@ -126,6 +126,9 @@ class RemoteViewModel(
         dispatch(WatchCommand(WatchCommandType.BOOST_VOLUME, boostOn = next))
     }
 
+    /** Rotary crown → the phone's media-stream volume (playback is on the phone), one step per call. */
+    fun adjustVolume(up: Boolean) = dispatch(WatchCommand(WatchCommandType.VOLUME, volumeUp = up))
+
     private fun dispatch(command: WatchCommand) {
         viewModelScope.launch { commandSender.send(command) }
     }

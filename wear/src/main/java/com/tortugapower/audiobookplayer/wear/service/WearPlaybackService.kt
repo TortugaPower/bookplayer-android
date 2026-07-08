@@ -27,6 +27,10 @@ import com.tortugapower.audiobookplayer.wear.presentation.MainActivity
 @OptIn(UnstableApi::class)
 class WearPlaybackService : MediaPlaybackService() {
 
+    // Let ExoPlayer own the watch's media-stream volume so the rotary crown can drive it during standalone
+    // playback (the crown calls PlaybackManager.increase/decreaseDeviceVolume). Off on the phone.
+    override val deviceVolumeControlEnabled: Boolean = true
+
     override fun createSessionActivity(): PendingIntent {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP

@@ -65,6 +65,25 @@ class StandalonePlayerViewModel : ViewModel() {
     fun skipForward() = PlaybackManager.seekForward()
     fun skipBackward() = PlaybackManager.seekBackward()
 
+    /** Rotary crown → the watch's own media-stream volume (playback is local). */
+    fun volumeUp() = PlaybackManager.increaseDeviceVolume()
+    fun volumeDown() = PlaybackManager.decreaseDeviceVolume()
+
+    /** The watch's current device-volume fraction (0..1), for the now-playing crown volume indicator. */
+    val deviceVolume: StateFlow<Float> = PlaybackManager.deviceVolume
+
+    /**
+     * Whole-book playback progress (0..1) for the now-playing play-button ring. Collecting positionMs here
+     * (only while subscribed → the now-playing screen is visible) is what drives the fast position tick, per
+     * the battery policy; it idles when the screen is gone.
+     */
+    val progress: StateFlow<Float> = combine(
+        PlaybackManager.positionMs,
+        PlaybackManager.currentPlayable,
+    ) { positionMs, playable ->
+        progressFraction(positionMs, ((playable?.duration ?: 0.0) * 1000).toLong())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
+
     /** Jump to a chapter by its whole-book start (seconds). */
     fun seekChapter(startSeconds: Double) =
         PlaybackManager.seekWholeBook((startSeconds * 1000).toLong())
@@ -113,5 +132,12 @@ class StandalonePlayerViewModel : ViewModel() {
             author = item.author.orEmpty(),
             chapters = playable?.chapters.orEmpty().map { WatchChapter(it.title, it.start, it.index) },
         )
+
+        /**
+         * Pure whole-book progress (0..1) for the now-playing ring: [positionMs] over [durationMs], clamped;
+         * 0 when the duration is unknown (nothing loaded yet). Unit-tested.
+         */
+        fun progressFraction(positionMs: Long, durationMs: Long): Float =
+            if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     }
 }

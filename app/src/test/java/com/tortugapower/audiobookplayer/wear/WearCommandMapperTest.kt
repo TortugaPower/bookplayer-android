@@ -23,6 +23,7 @@ class WearCommandMapperTest {
         override fun sleepEndOfChapter() { calls += "sleepEndOfChapter" }
         override fun sleepAfter(seconds: Long) { calls += "sleepAfter:$seconds" }
         override fun setBoost(on: Boolean) { calls += "boost:$on" }
+        override fun adjustVolume(up: Boolean) { calls += "volume:$up" }
         override fun refresh() { calls += "refresh" }
     }
 
@@ -74,6 +75,14 @@ class WearCommandMapperTest {
 
     @Test fun boost_missingState_ignored() =
         assertEquals(emptyList<String>(), dispatch(WatchCommand(WatchCommandType.BOOST_VOLUME)))
+
+    @Test fun volume_forwardsDirection() {
+        assertEquals(listOf("volume:true"), dispatch(WatchCommand(WatchCommandType.VOLUME, volumeUp = true)))
+        assertEquals(listOf("volume:false"), dispatch(WatchCommand(WatchCommandType.VOLUME, volumeUp = false)))
+    }
+
+    @Test fun volume_missingDirection_ignored() =
+        assertEquals(emptyList<String>(), dispatch(WatchCommand(WatchCommandType.VOLUME)))
 
     @Test fun refresh_maps() =
         assertEquals(listOf("refresh"), dispatch(WatchCommand(WatchCommandType.REFRESH)))

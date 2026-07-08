@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.combine
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -173,6 +174,10 @@ object PlaybackManager {
     val volumeBoost: StateFlow<Boolean> = _volumeBoost.asStateFlow()
     private val _playbackVolume = MutableStateFlow(1.0f)
     val playbackVolume: StateFlow<Float> = _playbackVolume.asStateFlow()
+    // System media-stream (device) volume as a 0..1 fraction, for the watch's crown volume indicator. Only
+    // meaningful when device-volume control is enabled (the watch); stays 0 on the phone.
+    private val _deviceVolume = MutableStateFlow(0f)
+    val deviceVolume: StateFlow<Float> = _deviceVolume.asStateFlow()
 
     /**
      * Current playback position in WHOLE-BOOK ms — already inverted from the (possibly virtualized)
@@ -292,9 +297,15 @@ object PlaybackManager {
             try {
                 val mediaController = controllerFuture?.get() ?: return@addListener
                 player = mediaController
-                
+                // Seed the device-volume fraction (0 unless device-volume control is enabled, i.e. the watch).
+                _deviceVolume.value = deviceVolumeFraction(mediaController)
+
                 // Add listener once
                 mediaController.addListener(object : Player.Listener {
+                    override fun onDeviceVolumeChanged(volume: Int, muted: Boolean) {
+                        _deviceVolume.value = deviceVolumeFraction(mediaController)
+                    }
+
                     override fun onIsPlayingChanged(playing: Boolean) {
                         if (_isPlaying.value == playing) return
                         _isPlaying.value = playing
@@ -1212,6 +1223,34 @@ object PlaybackManager {
         scope.launch {
             PlaybackSettingsManager.setVolume(context, volume)
         }
+    }
+
+    /**
+     * Crown volume (watch standalone): nudge the system media-stream (device) volume one step through the
+     * session player. No-op when device-volume control isn't enabled (the phone, see
+     * [com.tortugapower.audiobookplayer.service.MediaPlaybackService.deviceVolumeControlEnabled]) or before
+     * the controller connects, so the call is safe from any target. Main-thread only, like the other
+     * transport calls.
+     */
+    fun increaseDeviceVolume() = adjustDeviceVolume(up = true)
+    fun decreaseDeviceVolume() = adjustDeviceVolume(up = false)
+
+    private fun adjustDeviceVolume(up: Boolean) {
+        val p = player ?: return
+        if (!p.isCommandAvailable(Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)) return
+        // No FLAG_SHOW_UI: on Wear that pops a full-screen system slider that grabs the crown. We adjust
+        // silently and render our own peripheral volume indicator ([deviceVolume]) on the now-playing screen.
+        if (up) p.increaseDeviceVolume(0) else p.decreaseDeviceVolume(0)
+    }
+
+    /** Current device (media-stream) volume as a 0..1 fraction, or 0 when the range is unknown/unsupported. */
+    private fun deviceVolumeFraction(p: Player): Float =
+        deviceVolumeFraction(p.deviceVolume, p.deviceInfo.minVolume, p.deviceInfo.maxVolume)
+
+    /** Pure 0..1 mapping of [volume] within [[minVolume], [maxVolume]] (0 when the range is empty). Unit-tested. */
+    fun deviceVolumeFraction(volume: Int, minVolume: Int, maxVolume: Int): Float {
+        val range = maxVolume - minVolume
+        return if (range > 0) ((volume - minVolume).toFloat() / range).coerceIn(0f, 1f) else 0f
     }
 
     fun toggleVolumeBoost(context: Context) {

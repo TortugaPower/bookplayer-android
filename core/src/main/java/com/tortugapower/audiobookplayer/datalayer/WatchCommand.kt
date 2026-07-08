@@ -17,6 +17,8 @@ data class WatchCommand(
     val sleepSeconds: Long? = null,
     /** BOOST_VOLUME: desired on/off. */
     val boostOn: Boolean? = null,
+    /** VOLUME: crown nudge — true = one step up, false = one step down (the phone's media-stream volume). */
+    val volumeUp: Boolean? = null,
 )
 
 enum class WatchCommandType {
@@ -28,6 +30,7 @@ enum class WatchCommandType {
     SPEED,
     SLEEP,
     BOOST_VOLUME,
+    VOLUME,
     REFRESH,
 }
 

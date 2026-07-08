@@ -21,6 +21,8 @@ interface RemotePlaybackActions {
     fun sleepEndOfChapter()
     fun sleepAfter(seconds: Long)
     fun setBoost(on: Boolean)
+    /** Crown nudge from the watch: raise ([up] = true) or lower the phone's media-stream volume one step. */
+    fun adjustVolume(up: Boolean)
     fun refresh()
 }
 
@@ -42,6 +44,7 @@ object WearCommandMapper {
                 else -> actions.sleepAfter(seconds)
             }
             WatchCommandType.BOOST_VOLUME -> command.boostOn?.let { actions.setBoost(it) }
+            WatchCommandType.VOLUME -> command.volumeUp?.let { actions.adjustVolume(it) }
             WatchCommandType.REFRESH -> actions.refresh()
         }
     }
