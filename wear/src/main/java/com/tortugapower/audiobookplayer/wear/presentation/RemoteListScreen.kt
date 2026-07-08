@@ -27,6 +27,7 @@ fun RemoteListScreen(
     state: RemoteUiState,
     onPlayItem: (String) -> Unit,
     onRefresh: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     when {
         state.connecting -> CenterMessage {
@@ -37,6 +38,9 @@ fun RemoteListScreen(
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.caption1,
             )
+            // Reachable even before the phone connects, so a signed-out watch isn't stranded here.
+            Spacer(Modifier.height(8.dp))
+            SettingsChip(onSettings)
         }
         state.recentItems.isEmpty() -> CenterMessage {
             Text(
@@ -45,11 +49,14 @@ fun RemoteListScreen(
                 style = MaterialTheme.typography.body2,
             )
             RefreshChip(onRefresh = onRefresh)
+            Spacer(Modifier.height(4.dp))
+            SettingsChip(onSettings)
         }
         else -> {
             val listState = rememberScalingLazyListState()
             ScrollScaffold(listState) {
                 ScalingLazyColumn(modifier = Modifier.fillMaxWidth(), state = listState) {
+                    item { SettingsHeaderButton(onSettings) }
                     item {
                         Text(
                             text = stringResource(R.string.wear_recent_title),

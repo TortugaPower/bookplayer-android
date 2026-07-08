@@ -38,7 +38,7 @@ private val PREVIEW_STATE = RemoteUiState(
 @Preview(device = "id:wearos_small_round", showSystemUi = true)
 @Composable
 private fun RemoteListScreenPreview() =
-    MaterialTheme { RemoteListScreen(state = PREVIEW_STATE, onPlayItem = {}, onRefresh = {}) }
+    MaterialTheme { RemoteListScreen(state = PREVIEW_STATE, onPlayItem = {}, onRefresh = {}, onSettings = {}) }
 
 @Preview(device = "id:wearos_small_round", showSystemUi = true)
 @Composable

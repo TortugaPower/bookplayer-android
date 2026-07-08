@@ -31,10 +31,11 @@ private object StandaloneRoute {
     const val NOW_PLAYING = "now_playing"
     const val MORE = "more"
     const val CHAPTERS = "chapters"
+    const val SETTINGS = "settings"
 }
 
 @Composable
-fun StandaloneNavHost() {
+fun StandaloneNavHost(rootViewModel: WearRootViewModel) {
     val navController = rememberSwipeDismissableNavController()
     val app = LocalContext.current.applicationContext as Application
 
@@ -76,6 +77,30 @@ fun StandaloneNavHost() {
                 onCancelDownload = viewModel::cancelDownload,
                 onRemoveDownload = viewModel::removeDownload,
                 onRefresh = viewModel::refresh,
+                // Settings (email / storage / sign-out) only at the library root, not inside every folder.
+                onSettings = if (path == null) ({ navController.navigate(StandaloneRoute.SETTINGS) }) else null,
+                // Now-playing shortcut, root-only, and only when there's a last-played book to resume.
+                onNowPlaying = if (path == null && playerState.nowPlaying != null) {
+                    ({ navController.navigate(StandaloneRoute.NOW_PLAYING) })
+                } else {
+                    null
+                },
+            )
+        }
+
+        composable(StandaloneRoute.SETTINGS) {
+            val account by rootViewModel.account.collectAsStateWithLifecycle()
+            val signInState by rootViewModel.signInState.collectAsStateWithLifecycle()
+            val storageUsed by rootViewModel.storageUsed.collectAsStateWithLifecycle()
+            val hasDownloads by rootViewModel.hasDownloads.collectAsStateWithLifecycle()
+            SettingsScreen(
+                account = account,
+                signInState = signInState,
+                storageUsed = storageUsed,
+                canDelete = hasDownloads,
+                onSignIn = rootViewModel::signIn,
+                onDeleteDownloads = rootViewModel::deleteDownloads,
+                onSignOut = rootViewModel::signOut,
             )
         }
 
