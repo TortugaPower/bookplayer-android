@@ -66,9 +66,19 @@ object OfflineDownloadManager {
         item: LibraryItemEntity,
     ) {
         downloadUnits(libraryRepository, item).forEach { book ->
-            SyncStatusManager.requestCancel(book.uuid)
-            syncTaskRepository.getPendingTaskByTypeAndTaskId(SyncTaskFactory.JOB_DOWNLOAD_FILE, book.uuid)
-                ?.let { syncTaskRepository.deleteTask(it) }
+            val pending = syncTaskRepository
+                .getPendingTaskByTypeAndTaskId(SyncTaskFactory.JOB_DOWNLOAD_FILE, book.uuid)
+            if (pending != null) {
+                // Still queued (PENDING): delete the row so it never runs, and DON'T leave a cancel flag —
+                // no processor will run to clear it, and a stale flag would abort the next re-download of
+                // this file on its first read-loop iteration.
+                syncTaskRepository.deleteTask(pending)
+                SyncStatusManager.clearCancel(book.uuid)
+            } else {
+                // Running (getPendingTaskByTypeAndTaskId is PENDING-only): request cooperative cancellation;
+                // the processor's read loop aborts and clears the flag itself.
+                SyncStatusManager.requestCancel(book.uuid)
+            }
         }
     }
 

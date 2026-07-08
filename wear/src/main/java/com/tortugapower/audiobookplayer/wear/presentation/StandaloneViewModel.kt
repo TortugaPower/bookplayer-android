@@ -114,7 +114,8 @@ class StandaloneViewModel(
     }
 
     private fun withItem(row: LibraryRow, block: suspend (LibraryItemEntity) -> Unit) {
-        viewModelScope.launch {
+        // Off-main: the download/remove blocks do small disk IO (file exists/delete, URL resolution).
+        viewModelScope.launch(Dispatchers.IO) {
             libraryRepository.getItemByPath(row.id)?.let { block(it) }
         }
     }
