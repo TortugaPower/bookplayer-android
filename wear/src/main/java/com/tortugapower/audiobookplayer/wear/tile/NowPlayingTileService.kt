@@ -2,7 +2,6 @@ package com.tortugapower.audiobookplayer.wear.tile
 
 import android.content.Context
 import android.os.Build
-import android.util.Log
 import androidx.wear.protolayout.ActionBuilders
 import androidx.wear.protolayout.ColorBuilders.argb
 import androidx.wear.protolayout.DeviceParametersBuilders.DeviceParameters
@@ -21,28 +20,21 @@ import androidx.wear.protolayout.material.layouts.EdgeContentLayout
 import androidx.wear.tiles.RequestBuilders
 import androidx.wear.tiles.TileBuilders
 import androidx.wear.tiles.TileService
-import com.google.android.gms.wearable.DataMapItem
-import com.google.android.gms.wearable.Wearable
 import com.google.common.util.concurrent.ListenableFuture
-import com.tortugapower.audiobookplayer.database.AppDatabase
-import com.tortugapower.audiobookplayer.database.entities.AccountTier
-import com.tortugapower.audiobookplayer.datalayer.WatchRemoteCodec
-import com.tortugapower.audiobookplayer.logic.PlaybackManager
-import com.tortugapower.audiobookplayer.datalayer.WearDataLayer
 import com.tortugapower.audiobookplayer.wear.R
-import com.tortugapower.audiobookplayer.wear.data.await
+import com.tortugapower.audiobookplayer.wear.glance.GlanceState
+import com.tortugapower.audiobookplayer.wear.glance.NowPlayingGlance
 import com.tortugapower.audiobookplayer.wear.presentation.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.guava.future
-import kotlinx.coroutines.withContext
 
 /**
- * A glanceable "now playing" [TileService]: shows the last-played book (title + author) with a whole-book
- * progress arc; tapping the tile opens the app (now-playing). Reads the last-played row from the shared DB,
- * so it works without the player being connected. The layout is a pure function of [TileGlanceState].
+ * A glanceable "now playing" [TileService]: shows the current/last-played book (title + author) with a
+ * whole-book progress arc; tapping the tile opens the app (now-playing). Data comes from the shared
+ * [NowPlayingGlance]; the layout is a pure function of [GlanceState].
  */
 class NowPlayingTileService : TileService() {
 
@@ -51,45 +43,11 @@ class NowPlayingTileService : TileService() {
     override fun onTileRequest(
         requestParams: RequestBuilders.TileRequest,
     ): ListenableFuture<TileBuilders.Tile> = scope.future {
-        val layout = tileLayout(applicationContext, requestParams.deviceConfiguration, glanceState())
+        val layout = tileLayout(applicationContext, requestParams.deviceConfiguration, NowPlayingGlance.resolve(applicationContext))
         TileBuilders.Tile.Builder()
             .setResourcesVersion(RESOURCES_VERSION)
             .setTileTimeline(TimelineBuilders.Timeline.fromLayoutElement(layout))
             .build()
-    }
-
-    /**
-     * Branch on the actual mode: STANDALONE (PRO) plays locally, so the live loaded item wins (falling back
-     * to the last-played DB row). REMOTE (free) plays on the phone — the watch's local player is stale
-     * (a singleton that lingers from a prior PRO session), so it MUST be ignored in favor of the phone's
-     * published now-playing.
-     */
-    private suspend fun glanceState(): TileGlanceState = withContext(Dispatchers.IO) {
-        val db = AppDatabase.getDatabase(applicationContext)
-        val isPro = db.accountDao().getAccount()?.tier == AccountTier.PRO
-        if (isPro) {
-            val current = PlaybackManager.currentItem.value
-            if (current != null) TileGlanceState.from(current)
-            else TileGlanceState.from(db.libraryDao().getRecentPlayedItemsSync(1).firstOrNull())
-        } else {
-            TileGlanceState.fromRemote(publishedLibraryState())
-        }
-    }
-
-    /** One-shot read of the phone's latest published library DataItem (null if none / unreadable). */
-    private suspend fun publishedLibraryState() = try {
-        val items = Wearable.getDataClient(applicationContext).getDataItems().await()
-        try {
-            items.firstOrNull { it.uri.path == WearDataLayer.PATH_LIBRARY_STATE }
-                ?.let { DataMapItem.fromDataItem(it).dataMap.getByteArray(WearDataLayer.KEY_PAYLOAD) }
-                ?.let { WatchRemoteCodec.decodeLibraryState(it) }
-        } finally {
-            items.release()
-        }
-    } catch (e: Exception) {
-        // Fail soft to the empty state, but leave a breadcrumb so a DataClient/decode failure is diagnosable.
-        Log.w("NowPlayingTile", "Failed to read published library state for the tile", e)
-        null
     }
 
     // No image resources — the tile is text + a progress arc — so resources is just the version stamp.
@@ -140,7 +98,7 @@ private fun tileColors(context: Context): Colors =
     }
 
 /** Pure-ish ProtoLayout for the glance state: progress arc on the edge, title + author in the middle. */
-private fun tileLayout(context: Context, deviceParams: DeviceParameters, state: TileGlanceState): LayoutElement {
+private fun tileLayout(context: Context, deviceParams: DeviceParameters, state: GlanceState): LayoutElement {
     val title = if (state.hasItem) state.title else context.getString(R.string.wear_tile_empty_title)
     val subtitle = if (state.hasItem) state.subtitle else context.getString(R.string.wear_tile_empty_subtitle)
     val colors = tileColors(context)

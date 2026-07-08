@@ -5,6 +5,7 @@ import android.content.ComponentName
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.wear.tiles.TileService
+import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
 import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
@@ -13,6 +14,7 @@ import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.network.NetworkConstants
+import com.tortugapower.audiobookplayer.wear.complication.NowPlayingComplicationService
 import com.tortugapower.audiobookplayer.wear.data.DataLayerRemoteContextRepository
 import com.tortugapower.audiobookplayer.wear.tile.NowPlayingTileService
 import com.tortugapower.audiobookplayer.repository.AccountRepository
@@ -139,28 +141,35 @@ class WearApp : Application() {
                 }
         }
 
-        // Refresh the now-playing tile when the STANDALONE current item changes (a new book plays locally,
-        // or sign-out clears it) — TileService only re-renders on its own cadence otherwise.
+        // Refresh the glance surfaces (tile + complication) when the STANDALONE book changes (new book, or
+        // sign-out clears it) OR the current chapter changes (chapter jump / boundary) — they only re-render
+        // on their own cadence otherwise, so the progress gauge + "CHAP N" would stay stale. (Progress also
+        // refreshes naturally whenever the watch face re-requests, e.g. on wrist-raise, via the live resolve.)
         appScope.launch {
-            PlaybackManager.currentItem
-                .map { it?.uuid }
+            combine(
+                PlaybackManager.currentItem.map { it?.uuid },
+                PlaybackManager.currentChapterIndex,
+            ) { uuid, chapter -> uuid to chapter }
                 .distinctUntilChanged()
-                .collect {
-                    TileService.getUpdater(this@WearApp).requestUpdate(NowPlayingTileService::class.java)
-                }
+                .collect { refreshGlanceSurfaces() }
         }
 
-        // Refresh the tile in REMOTE mode too: playback is on the phone, so the watch's own currentItem
-        // never changes — the tile's data comes from the phone's published now-playing, so re-request when
-        // that changes.
+        // Refresh them in REMOTE mode too: playback is on the phone, so the watch's own currentItem never
+        // changes — the glance data comes from the phone's published now-playing, so re-request on its change.
         appScope.launch {
             DataLayerRemoteContextRepository(this@WearApp).libraryState
                 .map { it?.currentItem?.id ?: it?.recentItems?.firstOrNull()?.id }
                 .distinctUntilChanged()
-                .collect {
-                    TileService.getUpdater(this@WearApp).requestUpdate(NowPlayingTileService::class.java)
-                }
+                .collect { refreshGlanceSurfaces() }
         }
+    }
+
+    /** Re-request the now-playing tile + complication (they share [NowPlayingGlance]). */
+    private fun refreshGlanceSurfaces() {
+        TileService.getUpdater(this).requestUpdate(NowPlayingTileService::class.java)
+        ComplicationDataSourceUpdateRequester
+            .create(this, ComponentName(this, NowPlayingComplicationService::class.java))
+            .requestUpdateAll()
     }
 }
 

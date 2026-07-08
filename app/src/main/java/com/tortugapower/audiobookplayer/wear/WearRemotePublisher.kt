@@ -54,17 +54,31 @@ object WearRemotePublisher {
                 .debounce(300)
                 .collect { publishLibrary() }
         }
-        // Playback item — rebuild on play/pause, speed, or boost change (deduped).
+        // Playback item — rebuild on play/pause, speed, boost, or CHAPTER change (deduped). Progress is
+        // sampled at each of these events (not a continuous source, so no per-tick spam) — enough for the
+        // watch glance surfaces, which also re-request on wrist-raise.
         scope.launch {
             combine(
                 PlaybackManager.isPlaying,
                 PlaybackManager.playbackSpeed,
                 PlaybackManager.volumeBoost,
-            ) { playing, speed, boost -> WatchPlaybackState(playing, speed, boost) }
+                PlaybackManager.currentChapterIndex,
+            ) { playing, speed, boost, chapter ->
+                WatchPlaybackState(playing, speed, boost, progress = currentProgress(), currentChapter = chapterLabel(chapter))
+            }
                 .distinctUntilChanged()
                 .collect { publishPlayback(it) }
         }
     }
+
+    /** Whole-book progress (0..1) from the live position + current playable duration. */
+    private fun currentProgress(): Float {
+        val durationMs = ((PlaybackManager.currentPlayable.value?.duration ?: 0.0) * 1000).toLong()
+        return if (durationMs > 0) (PlaybackManager.positionMs.value.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    }
+
+    /** 1-based current chapter for the watch (0 = unknown), from the 0-based whole-book index. */
+    private fun chapterLabel(index: Int): Int = if (index >= 0) index + 1 else 0
 
     /** Force a re-publish of both items — the watch's REFRESH command. */
     fun refresh() {
@@ -78,6 +92,8 @@ object WearRemotePublisher {
         isPlaying = PlaybackManager.isPlaying.value,
         speed = PlaybackManager.playbackSpeed.value,
         boostVolume = PlaybackManager.volumeBoost.value,
+        progress = currentProgress(),
+        currentChapter = chapterLabel(PlaybackManager.currentChapterIndex.value),
     )
 
     private suspend fun publishLibrary() {
