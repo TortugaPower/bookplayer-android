@@ -5,10 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
+import com.tortugapower.audiobookplayer.datalayer.WatchTheme
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.wear.auth.WatchAuthenticator
 import com.tortugapower.audiobookplayer.wear.auth.WearAuthOutcome
+import com.tortugapower.audiobookplayer.wear.data.WearThemeRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -37,7 +39,12 @@ sealed interface SignInUiState {
 class WearRootViewModel(
     private val accountRepository: AccountRepository,
     private val authenticator: WatchAuthenticator,
+    themeRepository: WearThemeRepository,
 ) : ViewModel() {
+
+    /** The user's phone-selected theme colors (null until the phone syncs one → default palette applies). */
+    val theme: StateFlow<WatchTheme?> = themeRepository.theme
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val accountFlow: StateFlow<AccountEntity?> = accountRepository.getAccountFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)

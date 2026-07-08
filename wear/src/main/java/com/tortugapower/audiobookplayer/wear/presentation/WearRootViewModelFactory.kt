@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.tortugapower.audiobookplayer.wear.WearApp
 import com.tortugapower.audiobookplayer.wear.auth.WearAuthClient
+import com.tortugapower.audiobookplayer.wear.data.DataLayerWearThemeRepository
 
 /**
  * Wires [WearRootViewModel]'s dependencies from the [WearApp] Application — the shared account repository
@@ -16,7 +17,11 @@ class WearRootViewModelFactory(private val application: Application) : ViewModel
         if (modelClass.isAssignableFrom(WearRootViewModel::class.java)) {
             val app = application as WearApp
             @Suppress("UNCHECKED_CAST")
-            return WearRootViewModel(app.accountRepository, WearAuthClient(application)) as T
+            return WearRootViewModel(
+                app.accountRepository,
+                WearAuthClient(application),
+                DataLayerWearThemeRepository(application),
+            ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

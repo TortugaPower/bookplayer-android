@@ -6,10 +6,12 @@ import com.tortugapower.audiobookplayer.datalayer.WatchAuthPayload
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.wear.auth.WatchAuthenticator
 import com.tortugapower.audiobookplayer.wear.auth.WearAuthOutcome
+import com.tortugapower.audiobookplayer.wear.data.WearThemeRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -50,11 +52,15 @@ class WearRootViewModelTest {
         override suspend fun requestAuth(): WearAuthOutcome = outcome
     }
 
+    private class FakeThemeRepository : WearThemeRepository {
+        override val theme: Flow<com.tortugapower.audiobookplayer.datalayer.WatchTheme?> = flowOf(null)
+    }
+
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
 
     private fun modelFor(repo: AccountRepository, outcome: WearAuthOutcome) =
-        WearRootViewModel(repo, FakeAuthenticator(outcome))
+        WearRootViewModel(repo, FakeAuthenticator(outcome), FakeThemeRepository())
 
     @Test fun signIn_success_persistsTransferredAccountIncludingRevenuecatId() = runTest(dispatcher) {
         val repo = FakeAccountRepository()

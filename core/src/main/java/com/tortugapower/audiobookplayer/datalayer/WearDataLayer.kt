@@ -35,6 +35,13 @@ object WearDataLayer {
     /** MessageClient path: watch → phone control command, a [WatchCommand] encoded by [WatchRemoteCodec]. */
     const val PATH_COMMAND = "/bookplayer/command"
 
+    /**
+     * DataClient item: the user's selected app theme colors, a [WatchTheme] encoded by [WatchRemoteCodec].
+     * Theme choice is device-local on the phone (never backend-synced), so this is the only channel that
+     * brings it to the watch. Latest-wins; survives reconnect, so the watch keeps the last theme offline.
+     */
+    const val PATH_THEME = "/bookplayer/theme"
+
     /** DataMap key under which both remote-state DataItems store their [WatchRemoteCodec] payload bytes. */
     const val KEY_PAYLOAD = "payload"
 }
