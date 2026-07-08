@@ -220,11 +220,10 @@ object PlaybackManager {
      * Whole-book progress (0..1) from the live position + the current playable's duration; 0 when nothing
      * is loaded or the duration is unknown. Single source of truth for the glanceable Wear surfaces (tile /
      * complication) and the phone's watch publisher, so the formula can't drift between the two modules.
+     * The arithmetic lives in the pure [wholeBookProgressFor] (unit-tested; the object needs Android).
      */
-    fun wholeBookProgress(): Float {
-        val durationMs = ((_currentPlayable.value?.duration ?: 0.0) * 1000).toLong()
-        return if (durationMs > 0) (_positionMs.value.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-    }
+    fun wholeBookProgress(): Float =
+        wholeBookProgressFor(_positionMs.value, _currentPlayable.value?.duration)
 
     // Mirror of the user's chapter-vs-book context preference. The session-side player virtualizes a
     // whole-book window only when book context is active (false); chapter context passes the per-file
@@ -1375,4 +1374,14 @@ object PlaybackManager {
         player = null
         controllerFuture = null
     }
+}
+
+/**
+ * Pure whole-book progress arithmetic (0..1): [positionMs] over the book's total duration, clamped, and
+ * 0 when the duration is unknown or non-positive. Extracted from [PlaybackManager.wholeBookProgress] so it
+ * can be unit-tested without the Android-bound singleton (same rationale as `PlaybackTickPolicy`).
+ */
+internal fun wholeBookProgressFor(positionMs: Long, durationSeconds: Double?): Float {
+    val durationMs = ((durationSeconds ?: 0.0) * 1000).toLong()
+    return if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 }
