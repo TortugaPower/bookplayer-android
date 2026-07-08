@@ -133,7 +133,8 @@ class TaskConcurrencyManager(
 
     override fun isRunning(): Boolean = isProcessing
 
-    private suspend fun executeTask(task: SyncTaskEntity): Boolean {
+    // internal (not private) so the cancel-terminal branch can be unit-tested directly.
+    internal suspend fun executeTask(task: SyncTaskEntity): Boolean {
         Log.d(TAG, "🚀 Executing task: ${task.jobType} [ID: ${task.id}, Attempt: ${task.attempts + 1}]")
         
         val updatedTask = task.copy(status = SyncTaskStatus.RUNNING, attempts = task.attempts + 1)

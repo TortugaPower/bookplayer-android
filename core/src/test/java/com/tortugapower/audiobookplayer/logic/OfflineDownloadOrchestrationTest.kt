@@ -63,13 +63,15 @@ class OfflineDownloadOrchestrationTest {
         assertTrue("a queued file must not be enqueued twice", syncRepo.saved.isEmpty())
     }
 
-    @Test fun `cancelDownload deletes a PENDING task and does not leave a cancel flag`() = runBlocking {
+    @Test fun `cancelDownload deletes a PENDING task and requests cancel (covers the pending-to-running race)`() = runBlocking {
         val pending = downloadTask(SyncTaskStatus.PENDING)
         val syncRepo = FakeSyncTaskRepository(pending = pending)
         OfflineDownloadManager.cancelDownload(FakeLibraryRepository(), syncRepo, book())
 
         assertEquals(listOf(pending), syncRepo.deleted)
-        assertFalse("no stale cancel flag for a queued download", SyncStatusManager.isCancelRequested(uuid))
+        // requestCancel is always set — if the task just flipped to RUNNING, its read loop still aborts.
+        // A harmless leftover flag on a truly-pending file is cleared by the next startDownload.
+        assertTrue(SyncStatusManager.isCancelRequested(uuid))
     }
 
     @Test fun `cancelDownload requests cooperative cancel for a running download`() = runBlocking {
