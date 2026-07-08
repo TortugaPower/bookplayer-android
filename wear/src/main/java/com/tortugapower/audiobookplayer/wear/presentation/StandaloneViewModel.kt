@@ -2,22 +2,38 @@ package com.tortugapower.audiobookplayer.wear.presentation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
+import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import com.tortugapower.audiobookplayer.wear.sync.WearSyncServiceHost
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/** Discrete download state for a row glyph (the live progress value is read separately from taskProgress). */
+enum class DownloadUiState { NotDownloaded, Downloading, Downloaded }
+
+/** One book file's download status (pure inputs to [StandaloneViewModel.deriveDownloadState]). */
+data class DownloadUnitStatus(val downloaded: Boolean, val taskActive: Boolean)
+
 /**
  * A single library row. [isFolder] decides the tap action: folders drill in, books/bound books play.
- * [id] is the folder's/book's `relativePath` (navigation + play key), falling back to `uuid`. Books also
- * carry playback progress ([percentCompleted] 0..1, [isFinished]) and [durationSeconds] for the detail line,
- * mirroring the iOS PRO watch list. (Download state — the cloud/watch glyph — arrives in the next slice.)
+ * [id] is the folder's/book's `relativePath` (navigation + play/download key), falling back to `uuid`. Books
+ * also carry playback progress ([percentCompleted] 0..1, [isFinished]) + [durationSeconds] for the detail
+ * line, [downloadState] for the cloud/downloading/watch glyph, and [downloadUuids] (the book files' uuids)
+ * so the row can look up live download progress for its bar. Mirrors the iOS PRO watch list.
  */
 data class LibraryRow(
     val id: String,
@@ -27,17 +43,19 @@ data class LibraryRow(
     val percentCompleted: Double = 0.0,
     val isFinished: Boolean = false,
     val durationSeconds: Double = 0.0,
+    val downloadState: DownloadUiState = DownloadUiState.NotDownloaded,
+    val downloadUuids: List<String> = emptyList(),
 )
 
 data class StandaloneUiState(val rows: List<LibraryRow> = emptyList())
 
 /**
- * Backs one level of the standalone (PRO) library — the folder at [path] (null = root). Unlike the
- * free/remote tier (a flat recents list where every tap plays), PRO users get the full library hierarchy:
- * folders are navigable, books/bound books play. Observes the shared `:core` library repository so the
- * list reflects whatever the watch's own sync ([com.tortugapower.audiobookplayer.wear.sync.WearSyncServiceHost])
- * has pulled into Room, and enqueues a contents-fetch for [path] on open + manual refresh (the fetch runs in
- * the sync foreground service; this only enqueues the task — `SyncStatusManager` throttles it).
+ * Backs one level of the standalone (PRO) library — the folder at [path] (null = root). PRO users get the
+ * full hierarchy (folders navigable, books/bound books play + download for offline). Observes the shared
+ * `:core` library repository, and derives each row's download state from disk (file exists = downloaded) +
+ * the sync task queue (queued/running = downloading), reacting to task-status changes rather than the
+ * per-chunk progress map (that drives only the bar, read in the UI). Enqueues a contents-fetch on open +
+ * refresh, and download/cancel/remove actions via [OfflineDownloadManager].
  */
 class StandaloneViewModel(
     private val libraryRepository: LibraryRepository,
@@ -45,21 +63,61 @@ class StandaloneViewModel(
     private val path: String? = null,
 ) : ViewModel() {
 
+    private val appContext get() = CoreContext.appContext
+    // Bumped after a "remove download" so the (non-reactive) file-existence check re-runs and the glyph flips.
+    private val removeTrigger = MutableStateFlow(0)
+
     private val itemsFlow =
         if (path == null) libraryRepository.getRootItems() else libraryRepository.getItemsInPath(path)
 
-    val state: StateFlow<StandaloneUiState> = itemsFlow
-        .map { items -> StandaloneUiState(items.map(::toRow)) }
+    // Per-item download "units" (the book files), resolved off-main when the library changes and cached, so
+    // a BOUND book's sub-book query doesn't re-run on every task/queue emission.
+    private val rowSources: Flow<List<RowSource>> = itemsFlow.map { items ->
+        items.map { item ->
+            val units = if (item.type == ItemType.FOLDER) {
+                emptyList()
+            } else {
+                OfflineDownloadManager.downloadUnits(libraryRepository, item)
+            }
+            RowSource(item, units.map { UnitRef(it.uuid, it.relativePath) })
+        }
+    }.flowOn(Dispatchers.IO)
+
+    val state: StateFlow<StandaloneUiState> = combine(
+        rowSources,
+        syncTaskRepository.getAllTasks(),
+        removeTrigger,
+    ) { sources, tasks, _ ->
+        StandaloneUiState(sources.map { buildRow(it, tasks) })
+    }.flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StandaloneUiState())
 
     init {
-        // Enqueue a fetch for this folder so a freshly-signed-in watch (or a not-yet-synced folder) fills
-        // in. Throttled inside SyncTaskFactory/SyncStatusManager, so it is safe on every VM creation.
         enqueueFetch(force = false)
     }
 
     /** Manual refresh: force a re-fetch of this folder, bypassing the on-open throttle. */
     fun refresh() = enqueueFetch(force = true)
+
+    fun download(row: LibraryRow) = withItem(row) { item ->
+        OfflineDownloadManager.startDownload(appContext, libraryRepository, syncTaskRepository, item)
+        WearSyncServiceHost.start(appContext) // ensure the sync engine is running to execute the task
+    }
+
+    fun cancelDownload(row: LibraryRow) = withItem(row) { item ->
+        OfflineDownloadManager.cancelDownload(libraryRepository, syncTaskRepository, item)
+    }
+
+    fun removeDownload(row: LibraryRow) = withItem(row) { item ->
+        OfflineDownloadManager.removeDownload(appContext, libraryRepository, item)
+        removeTrigger.value++
+    }
+
+    private fun withItem(row: LibraryRow, block: suspend (LibraryItemEntity) -> Unit) {
+        viewModelScope.launch {
+            libraryRepository.getItemByPath(row.id)?.let { block(it) }
+        }
+    }
 
     private fun enqueueFetch(force: Boolean) {
         viewModelScope.launch {
@@ -67,7 +125,38 @@ class StandaloneViewModel(
         }
     }
 
+    /** Build the row with its discrete download state (disk + task queue); folders carry no download state. */
+    private fun buildRow(source: RowSource, tasks: List<SyncTaskEntity>): LibraryRow {
+        val base = toRow(source.item)
+        if (source.item.type == ItemType.FOLDER) return base
+        val statuses = source.units.map { unit ->
+            DownloadUnitStatus(
+                downloaded = OfflineDownloadManager.isFileDownloaded(appContext, unit.relativePath),
+                taskActive = OfflineDownloadManager.isTaskActive(tasks, unit.uuid),
+            )
+        }
+        return base.copy(
+            downloadState = deriveDownloadState(statuses),
+            downloadUuids = source.units.map { it.uuid },
+        )
+    }
+
+    private data class RowSource(val item: LibraryItemEntity, val units: List<UnitRef>)
+    private data class UnitRef(val uuid: String, val relativePath: String?)
+
     companion object {
+        /**
+         * Discrete download state for a row from its book files (pure, unit-tested): all files present ⇒
+         * Downloaded; else any file queued/running ⇒ Downloading; else NotDownloaded (incl. a partial set,
+         * so re-tapping Download fetches the rest — `startDownload` skips already-local files).
+         */
+        fun deriveDownloadState(units: List<DownloadUnitStatus>): DownloadUiState = when {
+            units.isEmpty() -> DownloadUiState.NotDownloaded
+            units.all { it.downloaded } -> DownloadUiState.Downloaded
+            units.any { it.taskActive } -> DownloadUiState.Downloading
+            else -> DownloadUiState.NotDownloaded
+        }
+
         /** Pure entity → row mapping (unit-tested). id = relativePath (nav/play key) or uuid fallback. */
         fun toRow(item: LibraryItemEntity): LibraryRow = LibraryRow(
             id = item.relativePath ?: item.uuid,

@@ -87,4 +87,30 @@ class StandaloneViewModelTest {
     fun `progressPrefix shows 100 percent when finished`() {
         assertEquals("100% - ", StandaloneViewModel.progressPrefix(percentCompleted = 1.0, isFinished = true))
     }
+
+    private fun unit(downloaded: Boolean, taskActive: Boolean) =
+        DownloadUnitStatus(downloaded = downloaded, taskActive = taskActive)
+
+    @Test
+    fun `no units is not-downloaded`() {
+        assertEquals(DownloadUiState.NotDownloaded, StandaloneViewModel.deriveDownloadState(emptyList()))
+    }
+
+    @Test
+    fun `all files present is downloaded`() {
+        val units = listOf(unit(downloaded = true, taskActive = false), unit(downloaded = true, taskActive = false))
+        assertEquals(DownloadUiState.Downloaded, StandaloneViewModel.deriveDownloadState(units))
+    }
+
+    @Test
+    fun `any active task is downloading`() {
+        val units = listOf(unit(downloaded = true, taskActive = false), unit(downloaded = false, taskActive = true))
+        assertEquals(DownloadUiState.Downloading, StandaloneViewModel.deriveDownloadState(units))
+    }
+
+    @Test
+    fun `partial with no active task is not-downloaded so re-download completes it`() {
+        val units = listOf(unit(downloaded = true, taskActive = false), unit(downloaded = false, taskActive = false))
+        assertEquals(DownloadUiState.NotDownloaded, StandaloneViewModel.deriveDownloadState(units))
+    }
 }

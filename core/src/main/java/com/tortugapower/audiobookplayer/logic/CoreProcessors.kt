@@ -337,12 +337,18 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
             val body = response.body ?: return false
             val contentLength = body.contentLength()
             var bytesRead = 0L
+            var cancelled = false
 
             body.byteStream().use { input: java.io.InputStream ->
                 FileOutputStream(destFile).use { output: FileOutputStream ->
                     val buffer = ByteArray(8 * 1024)
                     var read: Int
                     while (input.read(buffer).also { read = it } != -1) {
+                        // Cooperative cancellation: abort mid-stream if the user cancelled this download.
+                        if (SyncStatusManager.isCancelRequested(taskId)) {
+                            cancelled = true
+                            break
+                        }
                         output.write(buffer, 0, read)
                         bytesRead += read
                         if (contentLength > 0) {
@@ -354,13 +360,20 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
                 }
             }
 
-            Log.d("DownloadFileProcessor", "✅ Download complete: $relativePath")
             SyncStatusManager.clearTaskProgress(taskId)
+            SyncStatusManager.clearCancel(taskId)
+            if (cancelled) {
+                Log.d("DownloadFileProcessor", "🚫 Download cancelled: $relativePath")
+                if (destFile.exists()) destFile.delete()
+                return false
+            }
+            Log.d("DownloadFileProcessor", "✅ Download complete: $relativePath")
             true
         } catch (e: Exception) {
             Log.e("DownloadFileProcessor", "💥 Exception during download: ${e.message}", e)
             if (destFile.exists()) destFile.delete()
             SyncStatusManager.clearTaskProgress(taskId)
+            SyncStatusManager.clearCancel(taskId)
             false
         }
     }
