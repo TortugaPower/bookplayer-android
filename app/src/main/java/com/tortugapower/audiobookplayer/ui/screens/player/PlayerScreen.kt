@@ -121,6 +121,7 @@ import com.tortugapower.audiobookplayer.logic.ItemArtwork
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.logic.PlayerUiSignals
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
@@ -579,12 +580,12 @@ fun PlayerScreen(
                                 sleepActive -> sleepRemaining
                                 else -> null
                             },
-                            listOpensBookmarks = viewModel.listButtonOpens == "Bookmarks",
+                            listOpensBookmarks = viewModel.listButtonOpens == PlaybackSettingsManager.LIST_OPENS_BOOKMARKS,
                             onSpeed = { viewModel.toggleControlsSheet() },
                             onSleep = { viewModel.toggleSleepTimerMenu() },
                             onBookmark = { viewModel.addBookmark() },
                             onList = {
-                                if (viewModel.listButtonOpens == "Chapters") {
+                                if (viewModel.listButtonOpens == PlaybackSettingsManager.LIST_OPENS_CHAPTERS) {
                                     viewModel.showChaptersList = true
                                 } else {
                                     viewModel.showBookmarksList = true

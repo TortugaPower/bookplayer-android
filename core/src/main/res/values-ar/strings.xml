@@ -4,4 +4,8 @@
     <string name="media_servers_error_auth_failed">فشلت المصادقة: %1$s</string>
     <string name="media_servers_error_connection_failed">خطأ في الاتصال: %1$s</string>
     <string name="external_library_audiobook_library_caption">مكتبة كتب صوتية</string>
+    <string name="playback_error_cannot_play">تعذَّر تشغيل العنصر من %1</string>
+    <string name="playback_source_file_system">نظام الملفات</string>
+    <string name="playback_source_external_resource">مصدر خارجي</string>
+    <string name="playback_source_server_url">رابط الخادم</string>
 </resources>

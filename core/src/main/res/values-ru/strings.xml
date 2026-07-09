@@ -4,4 +4,8 @@
     <string name="media_servers_error_auth_failed">Ошибка аутентификации: %1$s</string>
     <string name="media_servers_error_connection_failed">Ошибка подключения: %1$s</string>
     <string name="external_library_audiobook_library_caption">Библиотека аудиокниг</string>
+    <string name="playback_error_cannot_play">Не удалось воспроизвести элемент из %1</string>
+    <string name="playback_source_file_system">файловой системы</string>
+    <string name="playback_source_external_resource">внешнего ресурса</string>
+    <string name="playback_source_server_url">URL сервера</string>
 </resources>

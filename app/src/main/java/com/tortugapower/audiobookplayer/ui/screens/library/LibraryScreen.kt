@@ -553,11 +553,11 @@ fun LibraryScreen(
                                 onClick = {
                                     showMoreMenu = false
                                     val item = selectedItems[0]
-                                    item.currentTime = 0.0
-                                    item.isFinished = false
-                                    item.percentCompleted = 0.0
+                                    // The restart itself is handled inside playItem (fromBeginning), so the
+                                    // seek can't race the async DB reset; resetItemProgress goes through the
+                                    // syncing repository so the rewound position is also pushed to the server.
                                     libraryViewModel.resetItemProgress(item.uuid)
-                                    PlaybackManager.playItem(context, item)
+                                    PlaybackManager.playItem(context, item, fromBeginning = true)
                                     isSelectMode = false
                                     selectedItemUuids = emptySet()
                                 },

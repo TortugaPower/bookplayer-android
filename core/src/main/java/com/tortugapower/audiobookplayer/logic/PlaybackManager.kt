@@ -418,6 +418,10 @@ object PlaybackManager {
                     override fun onPlayerError(error: PlaybackException) {
                         playbackQueuedFlag = false
                         recomputeIsPlaying()
+                        // A 401 on an external stream is already surfaced by its own re-auth alert
+                        // (externalStreamAuthError, set by the auth data source before the player
+                        // errors out) — don't stack the generic dialog on top of it.
+                        if (_externalStreamAuthError.value) return
                         scope.launch {
                             val currentItem = _currentItem.value
                             if (currentItem != null) {
@@ -766,7 +770,15 @@ object PlaybackManager {
         }
     }
 
-    fun playItem(context: Context, item: LibraryItemEntity, autoplay: Boolean = true, headers: Map<String, String>? = null) {
+    fun playItem(
+        context: Context,
+        item: LibraryItemEntity,
+        autoplay: Boolean = true,
+        headers: Map<String, String>? = null,
+        // Restart from 0:00 even if the book isn't finished (library "Play from beginning"). Handled in
+        // here — not by the caller mutating the entity — so the seek below can't race the async DB reset.
+        fromBeginning: Boolean = false,
+    ) {
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
             _showPlayerScreen.value = true
@@ -778,7 +790,8 @@ object PlaybackManager {
             updateProgress(context, itemToUpdate = _currentItem.value)
         }
         
-        if (item.isFinished) {
+        val restartFromZero = item.isFinished || fromBeginning
+        if (restartFromZero) {
             item.currentTime = 0.0
             item.isFinished = false
             item.percentCompleted = 0.0
@@ -819,6 +832,13 @@ object PlaybackManager {
             val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
             // Gather the backing items, back-fill any missing artwork, then build the playback model.
             val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir)
+            if (restartFromZero) {
+                // The refreshed row is a fresh DB read that can race the async reset write above —
+                // re-apply the restart so the seek below can't land on the stale saved position.
+                refreshedItem.currentTime = 0.0
+                refreshedItem.isFinished = false
+                refreshedItem.percentCompleted = 0.0
+            }
             _currentItem.value = refreshedItem
             _currentPlayable.value = playable
             // BOUND books expose a whole-book timeline to the session; single books pass through.
@@ -857,7 +877,13 @@ object PlaybackManager {
         }
     }
 
-    private suspend fun determineLastTriedSource(context: Context, item: LibraryItemEntity, processedDir: File): String {
+    // On IO: both call sites launch on the Main-dispatcher [scope], and the File.exists checks below
+    // (one per sub-item for a BOUND book) are blocking disk reads that don't belong on the main thread.
+    private suspend fun determineLastTriedSource(
+        context: Context,
+        item: LibraryItemEntity,
+        processedDir: File,
+    ): String = withContext(Dispatchers.IO) {
         val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
         val hasLocalFile = if (isBound) {
             val subItems = getRepository(context).getItemsInPathSync(item.relativePath ?: "")
@@ -879,7 +905,7 @@ object PlaybackManager {
             item.relativePath != null -> R.string.playback_source_file_system
             else -> R.string.playback_source_server_url
         }
-        return context.getString(sourceResId)
+        context.getString(sourceResId)
     }
 
     fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {

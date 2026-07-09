@@ -304,11 +304,13 @@ class LibraryViewModel(
             items.forEach { item ->
                 val books = repository.getDescendantBooks(item)
                 books.forEach { book ->
-                    repository.updateItemProgress(
-                        book.uuid,
-                        if (isFinished) book.duration else 0.0,
-                        isFinished
-                    )
+                    // iOS parity (LibraryService.markAsFinished): finishing keeps the listening position
+                    // (isFinished alone forces the 100% display); un-finishing rewinds to 0 ONLY when the
+                    // book actually sits at the end, otherwise the position survives the round-trip —
+                    // overwriting it here would also sync the destroyed position to the server.
+                    val atEnd = kotlin.math.ceil(book.currentTime) >= kotlin.math.ceil(book.duration)
+                    val newTime = if (!isFinished && atEnd) 0.0 else book.currentTime
+                    repository.updateItemProgress(book.uuid, newTime, isFinished)
                 }
             }
         }

@@ -4,4 +4,8 @@
     <string name="media_servers_error_auth_failed">Authentifizierung fehlgeschlagen: %1$s</string>
     <string name="media_servers_error_connection_failed">Verbindungsfehler: %1$s</string>
     <string name="external_library_audiobook_library_caption">Hörbuch-Bibliothek</string>
+    <string name="playback_error_cannot_play">Das Element konnte nicht von %1 wiedergegeben werden</string>
+    <string name="playback_source_file_system">Dateisystem</string>
+    <string name="playback_source_external_resource">externer Quelle</string>
+    <string name="playback_source_server_url">Server-URL</string>
 </resources>

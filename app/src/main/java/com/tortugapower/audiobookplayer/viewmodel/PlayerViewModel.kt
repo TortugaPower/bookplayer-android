@@ -84,7 +84,7 @@ class PlayerViewModel(
     var rewindInterval by mutableStateOf(30)
     var forwardInterval by mutableStateOf(30)
     var progressBarSeeking by mutableStateOf(true)
-    var listButtonOpens by mutableStateOf("Chapters")
+    var listButtonOpens by mutableStateOf(PlaybackSettingsManager.LIST_OPENS_CHAPTERS)
     var useRemainingTime by mutableStateOf(true)
     var useChapterContext by mutableStateOf(false)
 
@@ -274,7 +274,7 @@ class PlayerViewModel(
             var quickAction3Val = 3.0f
             var globalSpeedVal = false
             var progressBarSeekingVal = true
-            var listButtonOpensVal = "Chapters"
+            var listButtonOpensVal = PlaybackSettingsManager.LIST_OPENS_CHAPTERS
             var useRemainingTimeVal = true
             var useChapterContextVal = false
 

@@ -4,4 +4,8 @@
     <string name="media_servers_error_auth_failed">認証に失敗しました: %1$s</string>
     <string name="media_servers_error_connection_failed">接続エラー: %1$s</string>
     <string name="external_library_audiobook_library_caption">オーディオブックライブラリ</string>
+    <string name="playback_error_cannot_play">%1から項目を再生できませんでした</string>
+    <string name="playback_source_file_system">ファイルシステム</string>
+    <string name="playback_source_external_resource">外部リソース</string>
+    <string name="playback_source_server_url">サーバーURL</string>
 </resources>
