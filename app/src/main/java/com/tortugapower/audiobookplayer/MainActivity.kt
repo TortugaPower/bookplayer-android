@@ -8,12 +8,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.ThemeManager
-import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
+import androidx.lifecycle.ViewModelProvider
+import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
+import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModelFactory
 import com.tortugapower.audiobookplayer.ui.screens.MainScreen
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerTheme
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
@@ -30,11 +31,24 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
-        
+
         volumeControlStream = android.media.AudioManager.STREAM_MUSIC
 
+        // Create the (activity-scoped) LibraryViewModel up front — MainScreen's viewModel() call returns
+        // this same instance — so the OS splash can be held until the FIRST local library load is in hand.
+        // Holding the real splash (instead of swapping to an in-app replica) keeps the hand-off pixel-perfect:
+        // the system renders the splash icon at its own size, which a Compose copy can't reliably match.
+        // Wiring comes from the one shared constructor (LibraryViewModelFactory.default) so this block and
+        // MainScreen can't drift.
+        val libraryViewModel = ViewModelProvider(
+            this,
+            LibraryViewModelFactory.default(application),
+        )[LibraryViewModel::class.java]
+
         splashScreen.setKeepOnScreenCondition {
-            !ThemeManager.isReady
+            // Theme AND first local library load: the library screen renders real rows the frame the
+            // splash lifts — no empty-state flash, no loading-screen replica in between.
+            !ThemeManager.isReady || !libraryViewModel.isReady.value
         }
 
         enableEdgeToEdge()
