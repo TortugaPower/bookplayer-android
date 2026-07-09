@@ -107,8 +107,6 @@ fun ProfileScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                // Reserve space for the floating mini player so the bottom content isn't covered.
-                .padding(bottom = LocalMiniPlayerInset.current)
                 .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -257,6 +255,9 @@ fun ProfileScreen(
             }
         }
 
+        // Reserve space for the floating mini player as trailing scroll content (not an outer inset), so
+        // the content still scrolls BEHIND the pill instead of stopping above it in a solid band.
+        Spacer(modifier = Modifier.height(LocalMiniPlayerInset.current))
             }
         }
     }

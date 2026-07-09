@@ -58,7 +58,6 @@ fun ListeningHistoryScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
-                .padding(bottom = LocalMiniPlayerInset.current)
         ) {
             if (history.isEmpty()) {
                 Box(
@@ -74,7 +73,11 @@ fun ListeningHistoryScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    // Bottom inset as contentPadding (not an outer inset) so rows scroll behind the pill.
+                    contentPadding = PaddingValues(
+                        start = 16.dp, end = 16.dp, top = 8.dp,
+                        bottom = 8.dp + LocalMiniPlayerInset.current,
+                    ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(history, key = { it.id }) { session ->
