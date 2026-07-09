@@ -8,16 +8,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.ThemeManager
 import androidx.lifecycle.ViewModelProvider
-import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
-import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
-import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
-import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModelFactory
 import com.tortugapower.audiobookplayer.ui.screens.MainScreen
@@ -43,20 +38,11 @@ class MainActivity : ComponentActivity() {
         // this same instance — so the OS splash can be held until the FIRST local library load is in hand.
         // Holding the real splash (instead of swapping to an in-app replica) keeps the hand-off pixel-perfect:
         // the system renders the splash icon at its own size, which a Compose copy can't reliably match.
-        // The wiring mirrors MainScreen's exactly (Syncing wrapper over the Room repository).
-        val database = AppDatabase.getDatabase(applicationContext)
-        val syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
+        // Wiring comes from the one shared constructor (LibraryViewModelFactory.default) so this block and
+        // MainScreen can't drift.
         val libraryViewModel = ViewModelProvider(
             this,
-            LibraryViewModelFactory(
-                application,
-                SyncingLibraryRepository(
-                    RoomLibraryRepository(applicationContext, database.libraryDao()),
-                    syncTaskRepository,
-                    RoomAccountRepository(database.accountDao()),
-                ),
-                syncTaskRepository,
-            ),
+            LibraryViewModelFactory.default(application),
         )[LibraryViewModel::class.java]
 
         splashScreen.setKeepOnScreenCondition {

@@ -142,8 +142,11 @@ fun MainScreen() {
         )
     )
 
+    // Same shared wiring as MainActivity's up-front creation (which holds the OS splash) — normally the
+    // instance already exists in the activity's ViewModelStore and this factory never runs; the shared
+    // `default` constructor guarantees identical wiring if it ever does.
     val libraryViewModel: LibraryViewModel = viewModel(
-        factory = LibraryViewModelFactory(context.applicationContext as Application, libraryRepository, syncTaskRepository)
+        factory = LibraryViewModelFactory.default(context.applicationContext as Application)
     )
 
 
