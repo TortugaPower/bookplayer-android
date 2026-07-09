@@ -115,6 +115,8 @@ import androidx.media3.common.C
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.tortugapower.audiobookplayer.logic.ItemArtwork
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
@@ -477,6 +479,8 @@ fun PlayerScreen(
                     PlayerArtwork(
                         player = player,
                         artworkURL = chapterArtworkURL ?: currentItem.artworkURL,
+                        // Embedded-art fallback from the book's own file when nothing is stored (most items).
+                        embeddedArtwork = ItemArtwork(currentItem.uuid, currentItem.relativePath, currentItem.remoteURL),
                         isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
                         showCloudBadge = !fullscreenActive && !isLocal && !currentItem.remoteURL.isNullOrEmpty(),
                         hasVideo = hasVideo,
@@ -583,6 +587,7 @@ fun PlayerScreen(
 private fun PlayerArtwork(
     player: Player?,
     artworkURL: String?,
+    embeddedArtwork: ItemArtwork? = null,
     isBuffering: Boolean,
     showCloudBadge: Boolean,
     hasVideo: Boolean,
@@ -729,6 +734,18 @@ private fun PlayerArtwork(
         } else if (artworkURL != null) {
             AsyncImage(
                 model = artworkURL,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else if (embeddedArtwork != null) {
+            // No stored artworkURL: extract the embedded cover (local file, else remote stream) — the same
+            // path the library list uses, so the player matches it instead of showing the empty gradient.
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(embeddedArtwork)
+                    .crossfade(true)
+                    .build(),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop

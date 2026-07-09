@@ -24,7 +24,7 @@ import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
-import com.tortugapower.audiobookplayer.logic.ArtworkManager
+import com.tortugapower.audiobookplayer.logic.CoverArtResolver
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -32,8 +32,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 /**
@@ -503,10 +501,11 @@ class AudioPlayerService : MediaPlaybackService() {
 
     /**
      * Resolve a browse item's cover as a content:// URI Auto can read. The DB `artworkURL` is often null
-     * (BOUND parents never get one; the in-app list falls back to on-demand embedded extraction via a Coil
-     * fetcher that Auto's process can't use). Order: explicit stored art → previously-extracted cache →
-     * BOUND: the first sub-book's art → extract embedded art from the downloaded file (cached under
-     * Artworks/<uuid>.jpg). Returns null (no cover) for folders and not-downloaded/art-less items. Off main.
+     * (BOUND parents never get one), so we fall back to the SHARED embedded-cover store via
+     * [CoverArtResolver] — the same `Artworks/<uuid>.jpg` files the phone UI and notification use, so a
+     * cover extracted on one surface shows on all of them. Local-only here (`includeRemote = false`): the
+     * synchronous browse response must not block on the network; not-downloaded covers come via
+     * [prefetchRemoteArtwork]. Returns null (no cover) for folders and not-downloaded/art-less items.
      */
     private suspend fun resolveBrowseArtworkUri(entity: LibraryItemEntity): Uri? = withContext(Dispatchers.IO) {
         entity.artworkURL?.let { url ->
@@ -514,68 +513,29 @@ class AudioPlayerService : MediaPlaybackService() {
             localArtworkContentUri(url)?.let { return@withContext it }
         }
         if (entity.type == ItemType.FOLDER) return@withContext null
-        val artworksDir = File(filesDir, "Artworks")
-        File(artworksDir, "${entity.uuid}.jpg").takeIf { it.isFile }
-            ?.let { return@withContext localArtworkContentUri(it.absolutePath) }
-
-        if (entity.type == ItemType.BOUND) {
-            val firstSub = entity.relativePath?.let {
-                AppDatabase.getDatabase(this@AudioPlayerService).libraryDao()
-                    .getItemsInPathSync(it).firstOrNull { sub -> sub.type == ItemType.BOOK }
-            } ?: return@withContext null
-            firstSub.artworkURL?.takeIf { !it.startsWith("http") }
-                ?.let { localArtworkContentUri(it)?.let { u -> return@withContext u } }
-            File(artworksDir, "${firstSub.uuid}.jpg").takeIf { it.isFile }
-                ?.let { return@withContext localArtworkContentUri(it.absolutePath) }
-            return@withContext extractArtworkToCache(firstSub)
-        }
-        extractArtworkToCache(entity) // BOOK
+        val dao = AppDatabase.getDatabase(this@AudioPlayerService).libraryDao()
+        val file = CoverArtResolver.resolveCoverFile(this@AudioPlayerService, dao, entity, includeRemote = false)
+            ?: return@withContext null
+        localArtworkContentUri(file.absolutePath)
     }
 
     /**
-     * Stream embedded art from the REMOTE file for browse items that had none locally, cache it under
-     * Artworks/<uuid>.jpg, then tell Auto the node changed so it re-queries (and the now-cached art
-     * resolves). Runs in the background so the browse list isn't blocked on network. Bounded concurrency.
+     * Stream embedded art from the REMOTE file for browse items that had none locally (via the shared
+     * [CoverArtResolver], which caches under Artworks/<uuid>.jpg and loops a BOUND item's sub-books), then
+     * tell Auto the node changed so it re-queries and the now-cached art resolves. Background so the browse
+     * list isn't blocked on network; the resolver bounds concurrency internally.
      */
     private suspend fun prefetchRemoteArtwork(parentId: String, entities: List<LibraryItemEntity>) {
-        val artworksDir = File(filesDir, "Artworks")
-        val processedDir = File(filesDir, "Processed")
         val dao = AppDatabase.getDatabase(this).libraryDao()
         var anyFetched = false
         for (entity in entities) {
             if (entity.type == ItemType.FOLDER) continue
-            if (File(artworksDir, "${entity.uuid}.jpg").isFile) continue          // already cached
-            val rp = entity.relativePath
-            if (rp != null && File(processedDir, rp).isFile) continue             // local: handled synchronously
-            val art = entity.artworkURL
-            if (art != null && !art.startsWith("http")) continue                 // has a local artwork already
-            // Remote file to read metadata from (BOUND: its first sub-book).
-            val remoteUrl = when (entity.type) {
-                ItemType.BOUND -> entity.relativePath?.let { path ->
-                    dao.getItemsInPathSync(path).firstOrNull { it.type == ItemType.BOOK && !it.remoteURL.isNullOrEmpty() }?.remoteURL
-                }
-                else -> entity.remoteURL
-            }
-            if (remoteUrl.isNullOrEmpty()) continue
-            artworksDir.mkdirs()
-            val dest = File(artworksDir, "${entity.uuid}.jpg")
-            val headers = PlaybackManager.getHeadersForUri(Uri.parse(remoteUrl))
-            remoteArtSemaphore.withPermit {
-                if (ArtworkManager.extractAndSaveArtworkFromUri(remoteUrl, headers, dest)) anyFetched = true
-            }
+            if (CoverArtResolver.cacheFile(this, entity.uuid).isFile) continue // already cached (any surface)
+            if (CoverArtResolver.resolveCoverFile(this, dao, entity, includeRemote = true) != null) anyFetched = true
         }
         if (anyFetched) withContext(Dispatchers.Main) {
             mediaSession?.notifyChildrenChanged(parentId, entities.size.coerceAtLeast(1), null)
         }
-    }
-
-    /** Extract embedded art from [entity]'s downloaded file into Artworks/<uuid>.jpg → content:// (or null). */
-    private fun extractArtworkToCache(entity: LibraryItemEntity): Uri? {
-        val relativePath = entity.relativePath ?: return null
-        val audio = File(File(filesDir, "Processed"), relativePath)
-        if (!audio.isFile) return null // not downloaded — remote streaming extraction is a later phase
-        val dest = File(File(filesDir, "Artworks").apply { mkdirs() }, "${entity.uuid}.jpg")
-        return if (ArtworkManager.extractAndSaveArtwork(audio, dest)) localArtworkContentUri(dest.absolutePath) else null
     }
 
     /** Grant the requesting browser (e.g. Android Auto) temporary read access to each item's content:// art. */
@@ -601,7 +561,5 @@ class AudioPlayerService : MediaPlaybackService() {
         private const val RECENT_LIMIT = 50
         // Cap total in-car search results (paginated on top of this).
         private const val SEARCH_LIMIT = 50
-        // Bound concurrent remote artwork metadata streams during a browse prefetch.
-        private val remoteArtSemaphore = Semaphore(3)
     }
 }

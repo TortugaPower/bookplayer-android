@@ -40,7 +40,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.logic.ItemArtwork
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.ui.theme.LocalBookPlayerColors
 
@@ -142,6 +144,17 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
                 if (currentItem.artworkURL != null) {
                     AsyncImage(
                         model = currentItem.artworkURL,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    // Embedded-art fallback (same path as the library list), so the mini player matches it.
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(ItemArtwork(currentItem.uuid, currentItem.relativePath, currentItem.remoteURL))
+                            .crossfade(true)
+                            .build(),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop

@@ -1,9 +1,6 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
-import android.media.MediaMetadataRetriever
-import android.net.Uri
-import android.util.LruCache
 import coil.ImageLoader
 import coil.decode.DataSource
 import coil.decode.ImageSource
@@ -11,20 +8,17 @@ import coil.fetch.FetchResult
 import coil.fetch.Fetcher
 import coil.fetch.SourceResult
 import coil.request.Options
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runInterruptible
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withTimeoutOrNull
-import okio.Buffer
+import com.tortugapower.audiobookplayer.database.AppDatabase
+import okio.FileSystem
+import okio.Path.Companion.toOkioPath
 import java.io.File
 
 /**
  * Coil model for resolving a library item's EMBEDDED cover art when it has no explicit `artworkURL`
- * (e.g. a PRO cloud item that hasn't been downloaded). [relativePath] locates the local processed file;
- * [remoteURL] is the streaming fallback.
+ * (e.g. a PRO cloud item that hasn't been downloaded). [uuid] keys the shared `Artworks/<uuid>.jpg` store;
+ * [relativePath] / [remoteURL] are carried so the Factory can skip items with nothing to resolve.
  */
-data class ItemArtwork(val relativePath: String?, val remoteURL: String?)
+data class ItemArtwork(val uuid: String?, val relativePath: String?, val remoteURL: String?)
 
 /** Where an [ItemArtwork]'s cover should be read from. Pure result of [resolveArtworkSource]. */
 sealed interface ArtworkSource {
@@ -54,101 +48,44 @@ fun resolveArtworkSource(
 }
 
 /**
- * Coil [Fetcher] that extracts EMBEDDED artwork for single-file library items lacking a stored
- * `artworkURL` — from the local processed file when present, else by streaming just the metadata from
- * the remote URL (`MediaMetadataRetriever` does range reads, not a full download). The Android analog of
- * iOS's `AVAudioAssetImageDataProvider`.
- *
- * Caching: the list sets `relativePath` as the memory-cache key so the decoded cover is reused once per
- * item. Coil does NOT disk-persist a custom fetcher's result, so after a memory eviction / cold start the
- * extraction reruns — cheap for local files, a re-stream for remote. A process-scoped negative cache
- * ([noArtKeys]) records items that DEFINITIVELY have no embedded art (metadata read fine, no picture) so
- * they aren't re-extracted on every scroll; transient failures/timeouts are NOT negatively cached.
- *
- * BOUND books / folders are intentionally not handled here (their path is a directory); the call site
- * only feeds single BOOK items. Folder-artwork recursion (iOS `handleDirectory`) is a later phase.
+ * Coil [Fetcher] for single-file / bound library items lacking a stored `artworkURL`. A thin wrapper over
+ * [CoverArtResolver]: serve the shared `Artworks/<uuid>.jpg` cover if present, else have the resolver
+ * extract it once (local file, else remote stream; looping sub-books for BOUND) into that same store —
+ * the exact files Android Auto and the notification also use, so a cover is extracted once and shared.
  */
 class EmbeddedArtworkFetcher(
     private val appContext: Context,
     private val data: ItemArtwork,
 ) : Fetcher {
 
-    private sealed interface ExtractResult {
-        class Found(val bytes: ByteArray) : ExtractResult
-        data object Empty : ExtractResult   // metadata read OK, but no embedded picture (definitive)
-        data object Failed : ExtractResult  // exception / timeout (transient — do not negative-cache)
-    }
-
     override suspend fun fetch(): FetchResult? {
-        val key = data.relativePath?.takeIf { it.isNotEmpty() } ?: data.remoteURL
-        if (key != null && noArtKeys.get(key) != null) return null // known to have no embedded art
+        val uuid = data.uuid?.takeIf { it.isNotEmpty() } ?: return null
 
-        val processedDir = File(appContext.filesDir, "Processed").absolutePath
-        // DataSource comes straight from the resolved source — no second disk stat.
-        val (result, dataSource) = when (
-            val source = resolveArtworkSource(processedDir, data.relativePath, data.remoteURL) { File(it).isFile }
-        ) {
-            is ArtworkSource.Local -> extractPicture(source.path, headers = null) to DataSource.DISK
-            is ArtworkSource.Remote -> {
-                // Stream the remote file's metadata, capped (Semaphore) and interruptible+timed so a
-                // stalled server can't permanently consume a permit and kill remote artwork app-wide.
-                // (setDataSource is a blocking JNI call; runInterruptible lets the timeout/cancellation
-                // interrupt the worker thread — best-effort, as MediaMetadataRetriever may ignore it.)
-                val headers = PlaybackManager.getHeadersForUri(Uri.parse(source.url))
-                val extracted = remoteSemaphore.withPermit {
-                    withTimeoutOrNull(REMOTE_TIMEOUT_MS) {
-                        runInterruptible(Dispatchers.IO) { extractPicture(source.url, headers) }
-                    }
-                } ?: ExtractResult.Failed
-                extracted to DataSource.NETWORK
-            }
-            ArtworkSource.None -> return null
-        }
+        // Fast path: already extracted by any surface — no DB, no extraction.
+        val cached = CoverArtResolver.cacheFile(appContext, uuid)
+        if (cached.isFile) return fileSource(cached)
 
-        return when (result) {
-            is ExtractResult.Found -> sourceResult(result.bytes, dataSource)
-            ExtractResult.Empty -> {
-                if (key != null) noArtKeys.put(key, true)
-                null // -> Coil falls back to the caller's placeholder
-            }
-            ExtractResult.Failed -> null
-        }
+        // Miss: the resolver needs the item (type + sub-books for BOUND); the DB read only happens here,
+        // once per item per session (the cache hit above short-circuits every subsequent load).
+        val dao = AppDatabase.getDatabase(appContext).libraryDao()
+        val item = dao.getItemById(uuid) ?: return null
+        val file = CoverArtResolver.resolveCoverFile(appContext, dao, item, includeRemote = true) ?: return null
+        return fileSource(file)
     }
 
-    private fun extractPicture(uri: String, headers: Map<String, String>?): ExtractResult {
-        val retriever = MediaMetadataRetriever()
-        return try {
-            if (headers != null) retriever.setDataSource(uri, headers) else retriever.setDataSource(uri)
-            val picture = retriever.embeddedPicture
-            if (picture != null) ExtractResult.Found(picture) else ExtractResult.Empty
-        } catch (e: Exception) {
-            ExtractResult.Failed
-        } finally {
-            try { retriever.release() } catch (_: Exception) {}
-        }
-    }
-
-    private fun sourceResult(bytes: ByteArray, source: DataSource) = SourceResult(
-        source = ImageSource(Buffer().apply { write(bytes) }, appContext),
+    private fun fileSource(file: File) = SourceResult(
+        source = ImageSource(file.toOkioPath(), FileSystem.SYSTEM),
         mimeType = null,
-        dataSource = source
+        dataSource = DataSource.DISK,
     )
 
     class Factory(private val appContext: Context) : Fetcher.Factory<ItemArtwork> {
         override fun create(data: ItemArtwork, options: Options, imageLoader: ImageLoader): Fetcher? {
-            if (data.relativePath.isNullOrEmpty() && data.remoteURL.isNullOrEmpty()) return null
+            // Nothing to serve or extract from → let Coil fall through to the placeholder.
+            if (data.uuid.isNullOrEmpty() && data.relativePath.isNullOrEmpty() && data.remoteURL.isNullOrEmpty()) {
+                return null
+            }
             return EmbeddedArtworkFetcher(appContext, data)
         }
-    }
-
-    companion object {
-        private const val REMOTE_TIMEOUT_MS = 15_000L
-        private const val NO_ART_CACHE_SIZE = 512
-        // Cap concurrent remote extractions so scrolling a large cloud library can't spawn many retrievers.
-        private val remoteSemaphore = Semaphore(3)
-        // Bounded (LRU) process-scoped set of keys confirmed to have NO embedded art, so we don't
-        // re-extract on every scroll — capped so it can't grow unbounded; evicted keys just re-extract
-        // once. LruCache is internally synchronized. (Value is a dummy; only key presence matters.)
-        private val noArtKeys = LruCache<String, Boolean>(NO_ART_CACHE_SIZE)
     }
 }
