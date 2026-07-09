@@ -147,8 +147,11 @@ class SyncingLibraryRepository(
             items.forEach { item ->
                 SyncTaskFactory.createMoveTask(syncTaskRepository, item, item.uuid, destinationUuid)
             }
-            // Both sides change counts: the destination grew, the source parents shrank.
-            pushParentFolderMetadata(sourceParents + setOfNotNull(targetFolderPath))
+            // Both sides change counts: the destination grew, the source parents shrank. The destination
+            // row was fetched above AFTER the delegate's recompute, so reuse it instead of a second lookup;
+            // it's subtracted from the source set so a move within the same parent pushes only once.
+            destinationFolder?.let { SyncTaskFactory.createUpdateTask(syncTaskRepository, it) }
+            pushParentFolderMetadata(sourceParents - setOfNotNull(targetFolderPath))
         }
     }
 
