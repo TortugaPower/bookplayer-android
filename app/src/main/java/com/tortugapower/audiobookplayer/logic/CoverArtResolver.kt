@@ -51,6 +51,12 @@ object CoverArtResolver {
         File(File(context.filesDir, "Artworks"), "$uuid.jpg")
 
     /**
+     * Whether [uuid] was already confirmed (this process) to have no embedded art anywhere — lets callers
+     * skip a repeat resolve/DB lookup for art-less items. Process-scoped + LRU, so it self-clears.
+     */
+    fun isKnownArtless(uuid: String): Boolean = uuid.isNotEmpty() && noArtKeys.get(uuid) != null
+
+    /**
      * Return the cached cover file for [item], extracting it once (into the shared store) if needed.
      * BOUND loops its sub-books until one has art. [includeRemote] permits streaming embedded art from a
      * not-downloaded item's remote URL — pass `false` where blocking on the network is unacceptable (Auto's

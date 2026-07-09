@@ -61,12 +61,14 @@ class EmbeddedArtworkFetcher(
     override suspend fun fetch(): FetchResult? {
         val uuid = data.uuid?.takeIf { it.isNotEmpty() } ?: return null
 
-        // Fast path: already extracted by any surface — no DB, no extraction.
+        // Fast paths — no DB, no extraction: a cover already extracted by any surface, or an item we've
+        // already confirmed has no embedded art anywhere this session.
         val cached = CoverArtResolver.cacheFile(appContext, uuid)
         if (cached.isFile) return fileSource(cached)
+        if (CoverArtResolver.isKnownArtless(uuid)) return null
 
-        // Miss: the resolver needs the item (type + sub-books for BOUND); the DB read only happens here,
-        // once per item per session (the cache hit above short-circuits every subsequent load).
+        // Miss: the resolver needs the item (type + sub-books for BOUND). The DB read only happens on this
+        // first miss — a later load short-circuits above once a cover is cached OR the item is art-less.
         val dao = AppDatabase.getDatabase(appContext).libraryDao()
         val item = dao.getItemById(uuid) ?: return null
         val file = CoverArtResolver.resolveCoverFile(appContext, dao, item, includeRemote = true) ?: return null
