@@ -95,23 +95,51 @@ class SyncingLibraryRepository(
         }
     }
 
-    override suspend fun deleteItemWithFile(context: Context, item: LibraryItemEntity) {
-        if (isSubscribed()) {
-            SyncTaskFactory.createDeleteTask(syncTaskRepository, item)
+    /** The immediate parent-folder paths of [items] (empty-string root is excluded). */
+    private fun parentPathsOf(items: List<LibraryItemEntity>): Set<String> =
+        items.mapNotNull { item ->
+            item.relativePath?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() }
+        }.toSet()
+
+    /**
+     * Push each surviving parent folder's recomputed metadata (details "N Files"/duration/progress) to the
+     * server — iOS parity (rebuildFolderDetails → metadata publisher → scheduleMetadataUpdate). The server
+     * stores a folder's `details` as a client-written string and does NOT recompute it when its children
+     * change (move/delete), so without this push the next fetch_contents overwrites the local count with
+     * the stale server one ("1 File" → "0 Files"). Call AFTER the delegate operation so the folder rows
+     * carry the recomputed values; QUEUE_SYNC is serial, so the operation's own tasks (enqueued first)
+     * land on the server before these updates. A parent deleted in the same batch resolves to null → skipped.
+     */
+    private suspend fun pushParentFolderMetadata(parentPaths: Set<String>) {
+        parentPaths.forEach { parentPath ->
+            delegate.getItemByPath(parentPath)?.let { folder ->
+                SyncTaskFactory.createUpdateTask(syncTaskRepository, folder)
+            }
         }
-        delegate.deleteItemWithFile(context, item)
+    }
+
+    override suspend fun deleteItemWithFile(context: Context, item: LibraryItemEntity) {
+        deleteItemsWithFiles(context, listOf(item))
     }
 
     override suspend fun deleteItemsWithFiles(context: Context, items: List<LibraryItemEntity>) {
-        if (isSubscribed()) {
+        val subscribed = isSubscribed()
+        if (subscribed) {
             items.forEach { item ->
                 SyncTaskFactory.createDeleteTask(syncTaskRepository, item)
             }
         }
+        val parents = parentPathsOf(items)
         delegate.deleteItemsWithFiles(context, items)
+        if (subscribed) {
+            // Deleting from a folder drops its count — same staleness as a move (see the helper's doc).
+            pushParentFolderMetadata(parents)
+        }
     }
 
     override suspend fun moveItems(context: Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {
+        // Capture the source parents BEFORE the delegate mutates each item's relativePath in place.
+        val sourceParents = parentPathsOf(items)
         delegate.moveItems(context, items, targetFolderPath)
         if (isSubscribed()) {
             val destinationFolder = targetFolderPath?.let { delegate.getItemByPath(it) }
@@ -119,6 +147,11 @@ class SyncingLibraryRepository(
             items.forEach { item ->
                 SyncTaskFactory.createMoveTask(syncTaskRepository, item, item.uuid, destinationUuid)
             }
+            // Both sides change counts: the destination grew, the source parents shrank. The destination
+            // row was fetched above AFTER the delegate's recompute, so reuse it instead of a second lookup;
+            // it's subtracted from the source set so a move within the same parent pushes only once.
+            destinationFolder?.let { SyncTaskFactory.createUpdateTask(syncTaskRepository, it) }
+            pushParentFolderMetadata(sourceParents - setOfNotNull(targetFolderPath))
         }
     }
 

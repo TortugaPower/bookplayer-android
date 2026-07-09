@@ -4,6 +4,7 @@ import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
+import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
@@ -25,6 +26,8 @@ class SyncingLibraryRepositoryTest {
         var deletedUuid: String? = null
         var deletedProvider: String? = null
         var existingResource: ExternalResourceEntity? = null
+        // Folder rows the move test looks up by path (the recomputed parents).
+        val itemsByPath = mutableMapOf<String, LibraryItemEntity>()
 
         override fun getRootItems(): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = emptyFlow()
@@ -41,13 +44,20 @@ class SyncingLibraryRepositoryTest {
 
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = emptyList()
         override suspend fun getItemById(uuid: String): LibraryItemEntity? = null
-        override suspend fun getItemByPath(path: String): LibraryItemEntity? = null
+        override suspend fun getItemByPath(path: String): LibraryItemEntity? = itemsByPath[path]
         override suspend fun saveItem(item: LibraryItemEntity) {}
         override suspend fun updateItem(item: LibraryItemEntity) {}
         override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {}
         override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) {}
         override suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>) {}
-        override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {}
+        // Mirrors RoomLibraryRepository: mutates each item's relativePath IN PLACE — the move test pins
+        // that SyncingLibraryRepository captures the source parents BEFORE this mutation loses them.
+        override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {
+            items.forEach { item ->
+                val fileName = item.relativePath?.substringAfterLast('/') ?: return@forEach
+                item.relativePath = if (targetFolderPath == null) fileName else "$targetFolderPath/$fileName"
+            }
+        }
         override suspend fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String) {}
         override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {}
         override suspend fun convertFoldersToVolumes(context: android.content.Context, items: List<LibraryItemEntity>) {}
@@ -228,4 +238,86 @@ class SyncingLibraryRepositoryTest {
         assertTrue(deleteTasks[0].payload.contains("999"))
         assertTrue(uploadTasks[0].payload.contains("888"))
     }
+
+    // Moving must also push the recomputed parent-folder metadata (details = "N Files", duration) to the
+    // server — iOS parity (rebuildFolderDetails → metadata publisher). The server never recomputes a
+    // folder's stored details on a move, so without this push the next fetch_contents overwrites the local
+    // count with the stale server one ("1 File" → "0 Files").
+    @Test
+    fun testMoveItems_pushesRecomputedParentFolderMetadataAfterMove() = runBlocking {
+        val delegate = FakeLibraryRepository()
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        // Parent folders as the delegate would hold them AFTER its local recompute (updateParentFolders).
+        delegate.itemsByPath["old"] = folder(uuid = "folder-old", path = "old", author = "0 Files")
+        delegate.itemsByPath["dest"] = folder(uuid = "folder-dest", path = "dest", author = "1 File")
+        val book = LibraryItemEntity(
+            uuid = "book-1", title = "book", relativePath = "old/book.mp3",
+            type = ItemType.BOOK, orderRank = 0,
+        )
+
+        repository.moveItems(android.content.ContextWrapper(null), listOf(book), "dest")
+
+        val moves = syncTaskRepository.tasks.filter { it.jobType == SyncTaskFactory.JOB_MOVE }
+        val updates = syncTaskRepository.tasks.filter { it.jobType == SyncTaskFactory.JOB_UPDATE }
+        assertEquals(1, moves.size)
+        // The MOVE lands first (QUEUE_SYNC is serial FIFO), so the server reparents before the updates.
+        assertTrue(syncTaskRepository.tasks.indexOf(moves[0]) < updates.minOf { syncTaskRepository.tasks.indexOf(it) })
+        // Both affected parents are pushed: the source folder (count dropped — captured BEFORE the
+        // delegate mutates the item's relativePath in place) and the destination (count grew).
+        assertEquals(setOf("folder-old", "folder-dest"), updates.map { it.taskID }.toSet())
+        // The payload carries the recomputed count and duration, correcting the server's stored string.
+        val destUpdate = updates.first { it.taskID == "folder-dest" }
+        assertTrue(destUpdate.payload.contains("\"details\":\"1 File\""))
+        assertTrue(destUpdate.payload.contains("\"duration\""))
+    }
+
+    // Deleting from a folder drops its count — the same server-side staleness as a move, so the delete
+    // path must also push the recomputed parent metadata (after the DELETE task, serial queue).
+    @Test
+    fun testDeleteItems_pushesRecomputedParentFolderMetadata() = runBlocking {
+        val delegate = FakeLibraryRepository()
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        delegate.itemsByPath["old"] = folder(uuid = "folder-old", path = "old", author = "0 Files")
+        val book = LibraryItemEntity(
+            uuid = "book-1", title = "book", relativePath = "old/book.mp3",
+            type = ItemType.BOOK, orderRank = 0,
+        )
+
+        repository.deleteItemWithFile(android.content.ContextWrapper(null), book)
+
+        val deletes = syncTaskRepository.tasks.filter { it.jobType == SyncTaskFactory.JOB_DELETE }
+        val updates = syncTaskRepository.tasks.filter { it.jobType == SyncTaskFactory.JOB_UPDATE }
+        assertEquals(1, deletes.size)
+        assertEquals(listOf("folder-old"), updates.map { it.taskID })
+        // DELETE lands on the server first (QUEUE_SYNC is serial FIFO), then the folder update.
+        assertTrue(syncTaskRepository.tasks.indexOf(deletes[0]) < syncTaskRepository.tasks.indexOf(updates[0]))
+    }
+
+    // Moving to the library root has no destination folder — only the source parent gets the push.
+    @Test
+    fun testMoveItems_toRoot_pushesOnlySourceParent() = runBlocking {
+        val delegate = FakeLibraryRepository()
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        delegate.itemsByPath["old"] = folder(uuid = "folder-old", path = "old", author = "0 Files")
+        val book = LibraryItemEntity(
+            uuid = "book-1", title = "book", relativePath = "old/book.mp3",
+            type = ItemType.BOOK, orderRank = 0,
+        )
+
+        repository.moveItems(android.content.ContextWrapper(null), listOf(book), null)
+
+        val updates = syncTaskRepository.tasks.filter { it.jobType == SyncTaskFactory.JOB_UPDATE }
+        assertEquals(listOf("folder-old"), updates.map { it.taskID })
+    }
+
+    private fun folder(uuid: String, path: String, author: String) = LibraryItemEntity(
+        uuid = uuid, title = path, author = author, relativePath = path,
+        type = ItemType.FOLDER, orderRank = 0,
+    )
 }

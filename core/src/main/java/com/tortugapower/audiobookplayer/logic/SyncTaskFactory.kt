@@ -81,6 +81,9 @@ object SyncTaskFactory {
             "uuid" to item.uuid,
             "title" to item.title,
             "details" to (item.author ?: ""),
+            // Folder duration is recomputed together with its file count on moves — push both, like iOS's
+            // rebuildFolderDetails metadata update, so a later fetch doesn't restore stale server values.
+            "duration" to item.duration,
             "currentTime" to item.currentTime,
             "percentCompleted" to item.percentCompleted,
             "isFinished" to item.isFinished,
