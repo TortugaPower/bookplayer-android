@@ -527,6 +527,7 @@ fun PlayerScreen(
                                 chaptersCount = chapters.size,
                                 useChapterContext = viewModel.useChapterContext,
                                 useRemainingTime = viewModel.useRemainingTime,
+                                playbackSpeed = playbackSpeed,
                             ),
                             onValueChange = {
                                 isDragging = true
@@ -938,6 +939,9 @@ private data class PlayerProgressUiState(
     val chaptersCount: Int,
     val useChapterContext: Boolean,
     val useRemainingTime: Boolean,
+    // Remaining time is wall-clock (scaled by speed), matching iOS PlayableItem.maxTimeInContext;
+    // the total-duration mode stays unscaled, also matching iOS.
+    val playbackSpeed: Float = 1f,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1019,17 +1023,23 @@ private fun PlayerProgressSection(
             formatTime(displayPosition, hourFormat)
         }
 
+        // Remaining time is what's left in WALL-CLOCK terms: divide by the playback speed (a 60min
+        // remainder at 2× shows -30:00), mirroring iOS PlayableItem.maxTimeInContext. The total-duration
+        // mode is deliberately NOT scaled — also matching iOS.
+        val speed = if (state.playbackSpeed > 0f) state.playbackSpeed else 1f
         val rightLabel = if (useChapterContext && currentChapter != null) {
             val chapterDuration = (currentChapter.duration * 1000).toLong()
             val chapterPos = displayPosition - (currentChapter.start * 1000).toLong()
             if (useRemainingTime) {
-                "-${formatTime((chapterDuration - chapterPos).coerceAtLeast(0), hourFormat)}"
+                val remaining = ((chapterDuration - chapterPos).coerceAtLeast(0) / speed).toLong()
+                "-${formatTime(remaining, hourFormat)}"
             } else {
                 formatTime(chapterDuration, hourFormat)
             }
         } else {
             if (useRemainingTime) {
-                "-${formatTime((duration - displayPosition).coerceAtLeast(0), hourFormat)}"
+                val remaining = ((duration - displayPosition).coerceAtLeast(0) / speed).toLong()
+                "-${formatTime(remaining, hourFormat)}"
             } else {
                 formatTime(duration, hourFormat)
             }
