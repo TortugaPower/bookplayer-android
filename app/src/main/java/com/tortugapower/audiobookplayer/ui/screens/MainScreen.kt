@@ -150,14 +150,9 @@ fun MainScreen() {
 
     var showMediaServersFlow by remember { mutableStateOf(false) }
 
-    // Hold a launch-style loading screen until the first local library load completes, so the library tab
-    // never flashes its empty state on a cold start (parity with iOS's LoadingViewController). Local only —
-    // does not wait on network sync.
-    val appReady by libraryViewModel.isReady.collectAsStateWithLifecycle()
-    if (!appReady) {
-        LoadingScreen()
-        return
-    }
+    // Cold-start readiness (first local library load) is handled by MainActivity holding the OS splash
+    // (setKeepOnScreenCondition on libraryViewModel.isReady): the real splash stays up until the library
+    // has data, so no in-app loading replica — and no icon-size jump at the hand-off — is needed here.
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(

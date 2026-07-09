@@ -55,7 +55,12 @@ data class LibraryRow(
     val downloadUuids: List<String> = emptyList(),
 )
 
-data class StandaloneUiState(val rows: List<LibraryRow> = emptyList())
+/**
+ * [loaded] distinguishes "first load still in flight" (the stateIn seed) from "loaded and actually empty",
+ * so the screen never flashes the empty message before the pipeline's first real emission — the root-level
+ * cold-start gate watches a different (raw repository) flow and can lift before THIS one has data.
+ */
+data class StandaloneUiState(val rows: List<LibraryRow> = emptyList(), val loaded: Boolean = false)
 
 /**
  * Backs one level of the standalone (PRO) library — the folder at [path] (null = root). PRO users get the
@@ -96,7 +101,7 @@ class StandaloneViewModel(
         syncTaskRepository.getAllTasks(),
         removeTrigger,
     ) { sources, tasks, _ ->
-        StandaloneUiState(sources.map { buildRow(it, tasks) })
+        StandaloneUiState(sources.map { buildRow(it, tasks) }, loaded = true)
     }.flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StandaloneUiState())
 

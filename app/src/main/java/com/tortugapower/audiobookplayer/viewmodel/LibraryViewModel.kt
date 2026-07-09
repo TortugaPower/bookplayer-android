@@ -55,17 +55,6 @@ class LibraryViewModel(
         }
     }
 
-    /**
-     * True once the first root-library query has emitted — i.e. Room is open (any migration done) and the
-     * initial local data is in hand. Started Eagerly so the load begins as soon as the app is created; the
-     * UI gates a launch-style [com.tortugapower.audiobookplayer.ui.screens.LoadingScreen] on this so the
-     * library never renders its empty state before the real data arrives (cold-start flash). Local only —
-     * it does NOT wait on network sync.
-     */
-    val isReady: StateFlow<Boolean> = repository.getRootItems()
-        .map { true }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
     private val _isRefreshing = MutableStateFlow(false)
     /** True while a pull-to-refresh fetch is in flight — drives the list's refresh indicator. */
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
@@ -174,14 +163,40 @@ class LibraryViewModel(
      */
     fun getItemsForPath(path: String?): StateFlow<List<LibraryItemEntity>> {
         return itemsCache.getOrPut(path) {
-            val itemsFlow = if (path == null) repository.getRootItems() 
-                           else repository.getItemsInPath(path)
+            val itemsFlow = if (path == null) {
+                // The gate flips UPSTREAM of the stateIn: Room's first real answer — even an EMPTY
+                // library — must open it, and downstream the StateFlow would conflate an empty first
+                // load against the emptyList seed (equal values don't re-emit), swallowing it.
+                repository.getRootItems().onEach { _isReady.value = true }
+            } else {
+                repository.getItemsInPath(path)
+            }
             itemsFlow.stateIn(
                 scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5000),
+                // Root stays hot for the app's lifetime: it feeds the splash-hold gate below and the main
+                // tab; per-folder flows keep the subscriber-driven lifecycle.
+                started = if (path == null) SharingStarted.Eagerly else SharingStarted.WhileSubscribed(5000),
                 initialValue = emptyList()
             )
         }
+    }
+
+    private val _isReady = MutableStateFlow(false)
+
+    /**
+     * True once the first local root-library load is in hand — gates the OS splash
+     * (MainActivity's setKeepOnScreenCondition) so the library never flashes its empty state on a cold
+     * start. Deliberately fed by the SAME cached StateFlow the library screen collects (see
+     * [getItemsForPath]): when the splash lifts, that flow's `.value` already holds the real list, so the
+     * first composed frame shows data — a separate repository flow could open the gate before the UI's
+     * own flow has populated. Local only — it does NOT wait on network sync.
+     */
+    val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
+
+    init {
+        // Materialize the root cache entry at construction (it's Eagerly shared) so the load starts —
+        // and the gate can open — while the splash is still up, independent of composition timing.
+        getItemsForPath(null)
     }
 
     /**
