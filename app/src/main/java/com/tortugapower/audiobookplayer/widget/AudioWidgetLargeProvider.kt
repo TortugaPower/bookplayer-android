@@ -320,7 +320,7 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
                         itemViews.setViewVisibility(R.id.widget_item_artwork, View.VISIBLE)
                         itemViews.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
                     } else {
-                        itemViews.setTextViewText(R.id.widget_item_placeholder_text, placeholderInitial(book.title))
+                        itemViews.setTextViewText(R.id.widget_item_placeholder_text, widgetPlaceholderInitial(book.title))
                         itemViews.setViewVisibility(R.id.widget_item_artwork, View.GONE)
                         itemViews.setViewVisibility(R.id.widget_item_placeholder_text, View.VISIBLE)
                     }
@@ -475,9 +475,6 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
     private fun placeholderTitle(title: String, maxLetters: Int = 15): String =
         if (title.length > maxLetters) title.substring(0, maxLetters - 3) + "..." else title
 
-    /** The title's first letter, for the vertical list's cover placeholder. */
-    private fun placeholderInitial(title: String): String =
-        title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: ""
 
     private suspend fun loadArtworkBitmap(context: Context, data: Any, targetSize: Int): Bitmap? {
         return try {
@@ -622,3 +619,10 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
         val placeholderBgColor: Int
     )
 }
+
+/**
+ * The title's first letter, for the vertical list's cover placeholder — shared by the API 31+
+ * provider path and the legacy RemoteViewsService path so the two can't drift.
+ */
+internal fun widgetPlaceholderInitial(title: String): String =
+    title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: ""

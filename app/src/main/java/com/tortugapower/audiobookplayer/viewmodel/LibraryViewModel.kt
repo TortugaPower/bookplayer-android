@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
@@ -379,7 +380,7 @@ class LibraryViewModel(
             val entity = com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity(
                 providerName = "hardcover",
                 providerId = bookId,
-                syncStatus = "synced",
+                syncStatus = ExternalResourceEntity.STATUS_SYNCED,
                 libraryItemUuid = itemUuid
             )
             repository.saveExternalResource(entity)

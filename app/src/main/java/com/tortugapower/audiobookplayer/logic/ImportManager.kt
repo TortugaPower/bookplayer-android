@@ -118,6 +118,19 @@ object ImportManager : ImportService {
         }
     }
 
+    /**
+     * Best-effort file name for a plain URL download (last path segment; ".mp3" default when the URL
+     * carries none) — the ONE derivation shared by the deep-link and library-menu entry points.
+     */
+    fun fileNameFromUrl(url: String): String {
+        val segment = android.net.Uri.parse(url).lastPathSegment?.trim()
+        return when {
+            segment.isNullOrBlank() -> "download.mp3"
+            !segment.contains('.') -> "$segment.mp3"
+            else -> segment
+        }
+    }
+
     override fun startDownload(
         context: Context,
         url: String,
@@ -443,7 +456,7 @@ object ImportManager : ImportService {
                                 externalResource = ExternalResourceEntity(
                                     providerName = importFile.providerName,
                                     providerId = importFile.providerId,
-                                    syncStatus = "synced",
+                                    syncStatus = ExternalResourceEntity.STATUS_SYNCED,
                                     libraryItemUuid = entity.uuid,
                                     hostId = importFile.hostId
                                 )
@@ -522,7 +535,7 @@ object ImportManager : ImportService {
             val externalResource = ExternalResourceEntity(
                 providerName = importFile.providerName,
                 providerId = importFile.providerId,
-                syncStatus = "synced",
+                syncStatus = ExternalResourceEntity.STATUS_SYNCED,
                 libraryItemUuid = folderItem.uuid,
                 hostId = importFile.hostId
             )

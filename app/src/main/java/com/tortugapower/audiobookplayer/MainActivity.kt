@@ -137,12 +137,7 @@ class MainActivity : ComponentActivity() {
                     val cleanUrl = downloadUrl.replace("\"", "")
                     // startImport can't open http(s) URIs — route through the download pipeline
                     // (same staging, dedup, archive expansion, and import sheet as other sources).
-                    val segment = android.net.Uri.parse(cleanUrl).lastPathSegment?.trim()
-                    val fileName = when {
-                        segment.isNullOrBlank() -> "download.mp3"
-                        !segment.contains('.') -> "$segment.mp3"
-                        else -> segment
-                    }
+                    val fileName = com.tortugapower.audiobookplayer.logic.ImportManager.fileNameFromUrl(cleanUrl)
                     com.tortugapower.audiobookplayer.logic.ImportManager.startDownload(this, cleanUrl, fileName)
                 }
             }

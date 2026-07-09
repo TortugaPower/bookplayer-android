@@ -64,6 +64,7 @@ import com.tortugapower.audiobookplayer.viewmodel.ExternalLibraryViewModel
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
+import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
 import com.tortugapower.audiobookplayer.R
 
 enum class LibraryTab { BOOKS, AUTHORS }
@@ -286,7 +287,7 @@ fun ExternalLibraryScreen(
                                         selectedItems.clear()
                                         scope.launch {
                                             val tier = accountRepository.getAccount()?.tier
-                                            if (tier == AccountTier.PRO || tier == AccountTier.LITE) {
+                                            if (TaskAccessPolicy.canStreamExternalLibraries(tier)) {
                                                 streamSelection(itemsToStream)
                                             } else {
                                                 pendingStreamItems = itemsToStream

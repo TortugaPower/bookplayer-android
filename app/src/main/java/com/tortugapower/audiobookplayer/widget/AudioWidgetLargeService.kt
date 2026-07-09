@@ -59,10 +59,7 @@ class AudioWidgetLargeFactory(private val context: Context) : RemoteViewsService
             views.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
         } else {
             // Missing artwork: rounded placeholder box with the title's first letter centered.
-            views.setTextViewText(
-                R.id.widget_item_placeholder_text,
-                item.title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: ""
-            )
+            views.setTextViewText(R.id.widget_item_placeholder_text, widgetPlaceholderInitial(item.title))
             views.setViewVisibility(R.id.widget_item_artwork, View.GONE)
             views.setViewVisibility(R.id.widget_item_placeholder_text, View.VISIBLE)
         }

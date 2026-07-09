@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
 import com.tortugapower.audiobookplayer.R
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -303,7 +304,7 @@ fun MediaServersFlow(
                             onStreamClick = {
                                 scope.launch {
                                     val tier = accountRepository.getAccount()?.tier
-                                    if (tier == AccountTier.PRO || tier == AccountTier.LITE) {
+                                    if (TaskAccessPolicy.canStreamExternalLibraries(tier)) {
                                         stageStreamImport()
                                     } else {
                                         showLiteSheet = true

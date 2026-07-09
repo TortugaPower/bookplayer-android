@@ -1,5 +1,7 @@
 package com.tortugapower.audiobookplayer.repository
 
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
+
 import android.content.Context
 import com.tortugapower.audiobookplayer.database.dao.LibraryDao
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
@@ -476,7 +478,7 @@ class RoomLibraryRepository(
         }
         
         try {
-            val extResource = item.externalResources.find { it.syncStatus == "stream" || it.syncStatus == "downloaded" }
+            val extResource = item.externalResources.find { it.syncStatus == ExternalResourceEntity.STATUS_STREAM || it.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED }
             if (extResource != null) {
                 val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
                 val serverDao = db.externalServerDao()

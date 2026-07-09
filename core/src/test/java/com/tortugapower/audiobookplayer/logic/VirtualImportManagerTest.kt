@@ -65,7 +65,7 @@ class VirtualImportManagerTest {
         val resource = fakeDao.externalResources.single()
         assertEquals("jellyfin", resource.providerName)
         assertEquals("jellyfin-item-1", resource.providerId)
-        assertEquals(VirtualImportManager.SYNC_STATUS_STREAM, resource.syncStatus)
+        assertEquals(ExternalResourceEntity.STATUS_STREAM, resource.syncStatus)
         assertEquals(saved.uuid, resource.libraryItemUuid)
         assertEquals("3", resource.hostId)
 
@@ -196,6 +196,7 @@ class VirtualImportManagerTest {
         override suspend fun getItemsInPathSyncWithResources(path: String): List<LibraryItemWithExternalResources> = TODO()
         override suspend fun getRecentUnfinishedBooksSync(limit: Int): List<LibraryItemEntity> = TODO()
         override suspend fun getRecentPlayedItemsSync(limit: Int): List<LibraryItemEntity> = TODO()
+        override fun getRecentPlayedItems(limit: Int): kotlinx.coroutines.flow.Flow<List<LibraryItemEntity>> = TODO()
         override suspend fun searchAllBooksSync(query: String, limit: Int): List<LibraryItemEntity> = TODO()
     }
 

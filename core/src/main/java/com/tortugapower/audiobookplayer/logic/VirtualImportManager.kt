@@ -14,7 +14,6 @@ import java.util.UUID
  * URL from the saved server (`hostId`) and the item's id on that server (`providerId`).
  */
 object VirtualImportManager {
-    const val SYNC_STATUS_STREAM = "stream"
 
     data class Result(val item: LibraryItemEntity, val alreadyImported: Boolean)
 
@@ -65,16 +64,16 @@ object VirtualImportManager {
             orderRank = (libraryDao.getMaxRootOrderRank() ?: -1) + 1,
             type = ItemType.BOOK
         )
-        libraryDao.insertItem(entity)
-
         val resource = ExternalResourceEntity(
             providerName = providerName,
             providerId = externalItem.uuid,
-            syncStatus = SYNC_STATUS_STREAM,
+            syncStatus = ExternalResourceEntity.STATUS_STREAM,
             libraryItemUuid = entity.uuid,
             hostId = hostId
         )
-        libraryDao.insertExternalResource(resource)
+        // Atomic: a failure between the two inserts must never leave an orphaned stream item without its
+        // "stream" resource (it would be unplayable — resolveStreamingUrl has nothing to rebuild from).
+        libraryDao.insertItemWithExternalResource(entity, resource)
 
         if (enqueueSyncTasks) {
             SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, entity)

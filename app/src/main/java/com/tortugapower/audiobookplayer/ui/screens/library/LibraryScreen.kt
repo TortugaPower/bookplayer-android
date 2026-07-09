@@ -379,12 +379,7 @@ fun LibraryScreen(
                     onClick = {
                         // Same staging pipeline as media-server downloads and file picks:
                         // dedup, archive expansion, and the import confirmation sheet.
-                        val segment = android.net.Uri.parse(trimmedUrl).lastPathSegment?.trim()
-                        val fileName = when {
-                            segment.isNullOrBlank() -> "download.mp3"
-                            !segment.contains('.') -> "$segment.mp3"
-                            else -> segment
-                        }
+                        val fileName = ImportManager.fileNameFromUrl(trimmedUrl)
                         importViewModel.startDownload(context = context, url = trimmedUrl, fileName = fileName)
                         showDownloadUrlDialog = false
                     },

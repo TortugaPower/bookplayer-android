@@ -1,5 +1,7 @@
 package com.tortugapower.audiobookplayer.logic
 
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
+
 import android.content.ComponentName
 import kotlinx.coroutines.flow.combine
 import android.content.Context
@@ -1420,7 +1422,7 @@ object PlaybackManager {
                         resolvedSubItems.forEach { repo.updateItem(it) }
                     }
                 } else if (!resolvedItem.remoteURL.isNullOrEmpty()) {
-                    val hasExternalResource = resolvedItem.externalResources.any { it.syncStatus == "stream" || it.syncStatus == "downloaded" }
+                    val hasExternalResource = resolvedItem.externalResources.any { it.syncStatus == ExternalResourceEntity.STATUS_STREAM || it.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED }
                     if (!hasExternalResource) {
                         // Only query Bookplayer API signed URLs if it's not a Jellyfin/Audiobookshelf item
                         val response = NetworkClient.libraryApi.getRemoteFileURL(
