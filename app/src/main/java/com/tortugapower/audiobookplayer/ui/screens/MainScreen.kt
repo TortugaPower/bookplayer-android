@@ -132,6 +132,15 @@ fun MainScreen() {
 
     var showMediaServersFlow by remember { mutableStateOf(false) }
 
+    // Hold a launch-style loading screen until the first local library load completes, so the library tab
+    // never flashes its empty state on a cold start (parity with iOS's LoadingViewController). Local only —
+    // does not wait on network sync.
+    val appReady by libraryViewModel.isReady.collectAsStateWithLifecycle()
+    if (!appReady) {
+        LoadingScreen()
+        return
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             // While the full player is shown over everything, strip the tab UI (incl. the floating

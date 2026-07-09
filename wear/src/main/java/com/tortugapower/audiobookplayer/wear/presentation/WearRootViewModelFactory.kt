@@ -21,6 +21,7 @@ class WearRootViewModelFactory(private val application: Application) : ViewModel
                 app.accountRepository,
                 WearAuthClient(application),
                 DataLayerWearThemeRepository(application),
+                app.libraryRepository,
             ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
