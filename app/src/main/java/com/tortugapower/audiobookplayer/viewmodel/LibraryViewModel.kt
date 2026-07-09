@@ -9,9 +9,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class LibraryViewModel(
     application: Application,
@@ -59,6 +61,57 @@ class LibraryViewModel(
     val isReady: StateFlow<Boolean> = repository.getRootItems()
         .map { true }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    private val _isRefreshing = MutableStateFlow(false)
+    /** True while a pull-to-refresh fetch is in flight — drives the list's refresh indicator. */
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    private val _syncTasksBusy = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    /** Emits when a refresh is declined because sync jobs are already scheduled (UI shows a transient note). */
+    val syncTasksBusy: SharedFlow<Unit> = _syncTasksBusy.asSharedFlow()
+
+    /**
+     * Manual library refresh (pull-to-refresh), mirroring iOS `ItemListViewModel.refreshListState`:
+     * re-fetch the current folder's contents from the server and reconcile into the local DB. The list is
+     * a reactive Room flow, so rows repaint on their own once the fetch lands.
+     *
+     * - [syncEnabled] is the caller's tier gate (PRO/LITE). When false we no-op silently, like iOS's
+     *   `guard syncService.isActive`.
+     * - If the sync queue already has scheduled jobs we decline and signal [syncTasksBusy] instead of
+     *   fetching, matching iOS's "sync tasks in progress" guard. File transfers (a separate queue) do NOT
+     *   block a refresh — Android keeps them off the sync queue on purpose.
+     * - Otherwise we force past the 30s per-path throttle (a manual pull should always try) and wait for the
+     *   fetch task to drain, bounded by [REFRESH_TIMEOUT_MS] so a wedged task can't hang the indicator.
+     */
+    fun refresh(syncEnabled: Boolean) {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                if (!syncEnabled) return@launch
+
+                if (syncTaskRepository.countActiveTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0) {
+                    _syncTasksBusy.tryEmit(Unit)
+                    return@launch
+                }
+
+                val path = _currentPath.value
+                val enqueued = SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path, force = true)
+                if (enqueued) {
+                    withTimeoutOrNull(REFRESH_TIMEOUT_MS) { awaitFetchContentsDone(path ?: "root") }
+                }
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    /** Suspends until no `fetch_contents` task for [taskKey] remains in the queue (deleted on completion). */
+    private suspend fun awaitFetchContentsDone(taskKey: String) {
+        syncTaskRepository.getAllTasks()
+            .first { tasks ->
+                tasks.none { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS && it.taskID == taskKey }
+            }
+    }
 
     private val itemsCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()
     private val foldersCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()
@@ -289,5 +342,10 @@ class LibraryViewModel(
 
     suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity {
         return repository.resolveStreamingUrl(item)
+    }
+
+    companion object {
+        /** Upper bound on how long the pull-to-refresh indicator waits for the fetch task to drain. */
+        private const val REFRESH_TIMEOUT_MS = 30_000L
     }
 }

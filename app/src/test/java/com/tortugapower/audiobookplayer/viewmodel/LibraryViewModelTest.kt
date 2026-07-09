@@ -7,21 +7,28 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -87,30 +94,40 @@ class LibraryViewModelTest {
         override suspend fun deleteExternalResource(itemUuid: String, provider: String) {}
     }
 
+    // Stateful enough to exercise refresh(): saveTask/deleteTask mutate a reactive list, and the queue/
+    // pending queries read from it (SyncTaskFactory.enqueue → saveTask; refresh awaits getAllTasks()).
     private class FakeSyncTaskRepository : SyncTaskRepository {
-        override fun getAllTasks(): Flow<List<SyncTaskEntity>> = emptyFlow()
-        override suspend fun getPendingTasks(): List<SyncTaskEntity> = emptyList()
-        override suspend fun getTasksByStatus(status: SyncTaskStatus): List<SyncTaskEntity> = emptyList()
-        override suspend fun getTasksInQueueByStatus(queueKey: String, status: SyncTaskStatus): List<SyncTaskEntity> = emptyList()
-        override suspend fun getActiveQueueKeys(): List<String> = emptyList()
-        override suspend fun saveTask(task: SyncTaskEntity) {}
-        override suspend fun updateTask(task: SyncTaskEntity) {}
-        override suspend fun deleteTask(task: SyncTaskEntity) {}
+        val tasks = MutableStateFlow<List<SyncTaskEntity>>(emptyList())
+        override fun getAllTasks(): Flow<List<SyncTaskEntity>> = tasks
+        override suspend fun getPendingTasks(): List<SyncTaskEntity> = tasks.value
+        override suspend fun getTasksByStatus(status: SyncTaskStatus): List<SyncTaskEntity> = tasks.value.filter { it.status == status }
+        override suspend fun getTasksInQueueByStatus(queueKey: String, status: SyncTaskStatus): List<SyncTaskEntity> =
+            tasks.value.filter { it.queueKey == queueKey && it.status == status }
+        override suspend fun getActiveQueueKeys(): List<String> = tasks.value.map { it.queueKey }.distinct()
+        override suspend fun saveTask(task: SyncTaskEntity) { tasks.update { it + task } }
+        override suspend fun updateTask(task: SyncTaskEntity) { tasks.update { list -> list.map { if (it.id == task.id) task else it } } }
+        override suspend fun deleteTask(task: SyncTaskEntity) { tasks.update { list -> list.filterNot { it.id == task.id } } }
         override suspend fun clearCompletedTasks() {}
         override suspend fun resetRunningTasks() {}
-        override suspend fun deleteAllTasks() {}
-        override suspend fun getTaskById(id: String): SyncTaskEntity? = null
-        override suspend fun countActiveTasks(): Int = 0
-        override suspend fun countActiveTasksInQueue(queueKey: String): Int = 0
-        override suspend fun countActiveTasksByType(jobType: String): Int = 0
-        override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = null
+        override suspend fun deleteAllTasks() { tasks.value = emptyList() }
+        override suspend fun getTaskById(id: String): SyncTaskEntity? = tasks.value.find { it.id == id }
+        override suspend fun countActiveTasks(): Int = tasks.value.count { it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING }
+        override suspend fun countActiveTasksInQueue(queueKey: String): Int =
+            tasks.value.count { it.queueKey == queueKey && (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING) }
+        override suspend fun countActiveTasksByType(jobType: String): Int =
+            tasks.value.count { it.jobType == jobType && (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING) }
+        override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? =
+            tasks.value.find { it.jobType == jobType && it.taskID == taskId }
         override suspend fun migrateTaskUuid(oldUuid: String, newUuid: String) {}
     }
 
-    private fun modelWith(rootItems: Flow<List<LibraryItemEntity>>) = LibraryViewModel(
+    private fun modelWith(
+        rootItems: Flow<List<LibraryItemEntity>> = emptyFlow(),
+        syncRepo: SyncTaskRepository = FakeSyncTaskRepository(),
+    ) = LibraryViewModel(
         ApplicationProvider.getApplicationContext(),
         FakeLibraryRepository(rootItems),
-        FakeSyncTaskRepository(),
+        syncRepo,
     )
 
     @Test fun isReady_falseUntilRootLibraryEmits_thenTrue() = runTest(dispatcher) {
@@ -127,5 +144,62 @@ class LibraryViewModelTest {
         advanceUntilIdle()
         // First (even empty) emission means the local data is in hand → gate opens.
         assertTrue(model.isReady.value)
+    }
+
+    // Pull-to-refresh when sync is unavailable (FREE/PLUS) is a silent no-op, mirroring iOS's
+    // `guard syncService.isActive`: no fetch enqueued, indicator clears.
+    @Test fun refresh_syncDisabled_isNoOp() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        val model = modelWith(syncRepo = syncRepo)
+
+        model.refresh(syncEnabled = false)
+        advanceUntilIdle()
+
+        assertTrue(syncRepo.tasks.value.isEmpty())
+        assertFalse(model.isRefreshing.value)
+    }
+
+    // Happy path: a manual refresh force-enqueues a fetch-contents task and keeps the indicator up until
+    // that task drains from the queue (tasks are deleted on completion).
+    // runCurrent (not advanceUntilIdle) so the refresh()'s withTimeoutOrNull safety timeout isn't fast-forwarded.
+    @Test fun refresh_enqueuesFetchThenClearsWhenTaskCompletes() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        val model = modelWith(syncRepo = syncRepo)
+
+        model.refresh(syncEnabled = true)
+        runCurrent()
+
+        val fetch = syncRepo.tasks.value.singleOrNull { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS }
+        assertNotNull(fetch)
+        assertTrue(model.isRefreshing.value)
+
+        syncRepo.deleteTask(fetch!!)
+        runCurrent()
+        assertFalse(model.isRefreshing.value)
+    }
+
+    // iOS parity: don't refresh while sync-queue jobs are scheduled — signal busy and skip the fetch.
+    @Test fun refresh_syncQueueBusy_signalsBusyAndSkipsFetch() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        syncRepo.saveTask(
+            SyncTaskEntity(
+                id = "t1", taskID = "root", queueKey = SyncTaskFactory.QUEUE_SYNC,
+                jobType = "update", position = 0, payload = "{}",
+            ),
+        )
+        val model = modelWith(syncRepo = syncRepo)
+
+        val busy = mutableListOf<Unit>()
+        // UNDISPATCHED so the collector subscribes synchronously before refresh emits (SharedFlow, no replay).
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            model.syncTasksBusy.collect { busy += Unit }
+        }
+
+        model.refresh(syncEnabled = true)
+        runCurrent()
+
+        assertEquals(1, busy.size)
+        assertTrue(syncRepo.tasks.value.none { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS })
+        assertFalse(model.isRefreshing.value)
     }
 }
