@@ -12,7 +12,9 @@ import com.tortugapower.audiobookplayer.wear.auth.WearAuthOutcome
 import com.tortugapower.audiobookplayer.wear.data.WearThemeRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -59,9 +61,12 @@ class WearRootViewModelTest {
         override val theme: Flow<com.tortugapower.audiobookplayer.datalayer.WatchTheme?> = flowOf(null)
     }
 
-    // Only getRootItems() is exercised (the VM's library-ready gate); the rest are unused stubs.
-    private class FakeLibraryRepository : LibraryRepository {
-        override fun getRootItems(): Flow<List<LibraryItemEntity>> = flowOf(emptyList())
+    // Only getRootItems() is exercised (the VM's library-ready gate); the rest are unused stubs. The root
+    // flow is injectable so a test can withhold its first emission (gate stays not-ready) then release it.
+    private class FakeLibraryRepository(
+        private val rootItems: Flow<List<LibraryItemEntity>> = flowOf(emptyList()),
+    ) : LibraryRepository {
+        override fun getRootItems(): Flow<List<LibraryItemEntity>> = rootItems
         override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = flowOf(emptyList())
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = emptyList()
         override suspend fun getItemById(uuid: String): LibraryItemEntity? = null
@@ -161,6 +166,51 @@ class WearRootViewModelTest {
         advanceUntilIdle()
 
         assertEquals(SignInUiState.Error(SignInError.FAILED), model.signInState.value)
+    }
+
+    // Cold-start gate: `mode` starts null (unresolved) and `isReady` starts false, so the root holds the
+    // loading screen instead of flashing the wrong mode before the first local DB read.
+    @Test fun gate_initialState_modeNullAndNotReady() = runTest(dispatcher) {
+        val model = modelFor(FakeAccountRepository(), WearAuthOutcome.Failed("unused"))
+
+        assertNull(model.mode.value)
+        assertFalse(model.isReady.value)
+    }
+
+    // Signed-out (remote) watch: once the account resolves, mode settles to REMOTE_CONTROLLER and the gate
+    // opens immediately — remote mode never waits on the standalone library.
+    @Test fun gate_signedOut_readyOnceAccountResolves() = runTest(dispatcher) {
+        val model = modelFor(FakeAccountRepository(), WearAuthOutcome.Failed("unused"))
+
+        backgroundScope.launch { model.isReady.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(WatchMode.REMOTE_CONTROLLER, model.mode.value)
+        assertTrue(model.isReady.value)
+    }
+
+    // PRO (standalone) watch: the gate stays closed until the library's first load emits, even after the
+    // account has resolved to STANDALONE — guards the standalone empty-state flash.
+    @Test fun gate_standalone_waitsForLibraryFirstLoad() = runTest(dispatcher) {
+        val rootItems = MutableSharedFlow<List<LibraryItemEntity>>(replay = 1)
+        val repo = FakeAccountRepository()
+        repo.flow.value = AccountEntity(
+            id = "acc-1", email = "e@x.com", apiToken = "jwt-1", tier = AccountTier.PRO, revenuecatId = null,
+        )
+        val model = WearRootViewModel(
+            repo, FakeAuthenticator(WearAuthOutcome.Failed("unused")), FakeThemeRepository(),
+            FakeLibraryRepository(rootItems),
+        )
+
+        backgroundScope.launch { model.isReady.collect {} }
+        advanceUntilIdle()
+        // Account resolved to standalone, but the library hasn't emitted → still gated.
+        assertEquals(WatchMode.STANDALONE, model.mode.value)
+        assertFalse(model.isReady.value)
+
+        rootItems.emit(emptyList())
+        advanceUntilIdle()
+        assertTrue(model.isReady.value)
     }
 
     // Delete-downloads gating: enabled iff the Processed folder holds bytes (boundary at 0).
