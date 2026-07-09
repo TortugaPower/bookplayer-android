@@ -317,6 +317,16 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
             return false
         }
 
+        // Container tasks are unrunnable by definition (a BOUND/FOLDER has no backing file — its stored
+        // remoteURL 404s), so drop them as done instead of blocking the serial file queue with infinite
+        // retries. Legacy taps used to enqueue the container itself; downloads go through
+        // [OfflineDownloadManager], which fans a container out into its BOOK files.
+        val itemType = AppDatabase.getDatabase(context).libraryDao().getItemById(taskId)?.type
+        if (itemType != null && itemType != ItemType.BOOK) {
+            Log.w("DownloadFileProcessor", "🧹 Dropping container download task ($itemType): $relativePath")
+            return true
+        }
+
         val processedDir = File(context.filesDir, "Processed")
         if (!processedDir.exists()) processedDir.mkdirs()
         val destFile = File(processedDir, relativePath)

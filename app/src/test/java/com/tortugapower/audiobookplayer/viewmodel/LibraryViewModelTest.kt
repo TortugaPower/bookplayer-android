@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
+import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
@@ -56,8 +57,10 @@ class LibraryViewModelTest {
     private class FakeLibraryRepository(
         private val rootItems: Flow<List<LibraryItemEntity>> = emptyFlow(),
     ) : LibraryRepository {
+        // Reactive per-path children (drives downloadUnitsFlow for BOUND rows in tests).
+        val itemsInPath = MutableStateFlow<List<LibraryItemEntity>>(emptyList())
         override fun getRootItems(): Flow<List<LibraryItemEntity>> = rootItems
-        override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = emptyFlow()
+        override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = itemsInPath
         override fun getFoldersInPath(path: String?): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun getAllContainers(): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun searchBooks(query: String): Flow<List<LibraryItemEntity>> = emptyFlow()
@@ -124,10 +127,13 @@ class LibraryViewModelTest {
     private fun modelWith(
         rootItems: Flow<List<LibraryItemEntity>> = emptyFlow(),
         syncRepo: SyncTaskRepository = FakeSyncTaskRepository(),
+        libraryRepo: FakeLibraryRepository = FakeLibraryRepository(rootItems),
     ) = LibraryViewModel(
         ApplicationProvider.getApplicationContext(),
-        FakeLibraryRepository(rootItems),
+        libraryRepo,
         syncRepo,
+        // Row-state derivation on the test dispatcher so runTest controls it.
+        ioDispatcher = dispatcher,
     )
 
     @Test fun isReady_falseUntilRootLibraryEmits_thenTrue() = runTest(dispatcher) {
@@ -201,5 +207,84 @@ class LibraryViewModelTest {
         assertEquals(1, busy.size)
         assertTrue(syncRepo.tasks.value.none { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS })
         assertFalse(model.isRefreshing.value)
+    }
+
+    // Row download state end to end: only queued/running download tasks flip isDownloading — other job
+    // types are ignored — and the state flips back the moment the task is deleted (completion/cancel),
+    // at which point disk truth decides isLocal (partial-file rule: a file that exists while its task is
+    // active is in-flight, not local).
+    @Test fun itemDownloadStateFlow_tracksTaskQueueAndDiskTruth() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        val model = modelWith(syncRepo = syncRepo)
+        val book = LibraryItemEntity(
+            uuid = "book-1", title = "b", relativePath = "b.mp3", type = ItemType.BOOK, orderRank = 0,
+        )
+        // The file is on disk from the start: while its task is active it must NOT count as local.
+        val processed = java.io.File(
+            java.io.File(ApplicationProvider.getApplicationContext<Application>().filesDir, "Processed"),
+            "b.mp3",
+        ).apply { parentFile!!.mkdirs(); writeText("audio") }
+
+        val states = mutableListOf<com.tortugapower.audiobookplayer.logic.ItemDownloadState>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            model.itemDownloadStateFlow(book).collect { states += it }
+        }
+        runCurrent()
+
+        val download = SyncTaskEntity(
+            id = "t1", taskID = "book-1", queueKey = SyncTaskFactory.QUEUE_FILE,
+            jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0, payload = "{}",
+        )
+        syncRepo.saveTask(download)
+        // An unrelated job type on the same uuid must not read as downloading.
+        syncRepo.saveTask(
+            SyncTaskEntity(
+                id = "t2", taskID = "book-1", queueKey = SyncTaskFactory.QUEUE_SYNC,
+                jobType = "update", position = 0, payload = "{}",
+            ),
+        )
+        runCurrent()
+        with(states.last()) {
+            assertTrue(isDownloading)
+            assertFalse(isLocal) // file exists but its task is active → in-flight, not local
+            assertEquals(0, downloadedUnits)
+            assertEquals(listOf("book-1"), inFlightUuids)
+        }
+
+        syncRepo.deleteTask(download)
+        runCurrent()
+        with(states.last()) {
+            assertFalse(isDownloading) // the leftover "update" task is not a download task
+            assertTrue(isLocal) // task gone + file on disk → downloaded
+            assertEquals(1, downloadedUnits)
+            assertTrue(inFlightUuids.isEmpty())
+        }
+
+        processed.delete()
+    }
+
+    // A BOUND row can compose before fetch_contents inserts its sub-books (fresh sign-in). The units flow
+    // must re-emit when they land — a one-shot query would leave the row permanently blind to its download.
+    @Test fun downloadUnitsFlow_boundReactsWhenChildrenArrive() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository()
+        val model = modelWith(libraryRepo = libraryRepo)
+        val bound = LibraryItemEntity(
+            uuid = "bound-1", title = "002", relativePath = "002", type = ItemType.BOUND, orderRank = 0,
+        )
+
+        val emissions = mutableListOf<List<LibraryItemEntity>>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            model.downloadUnitsFlow(bound).collect { emissions += it }
+        }
+        runCurrent()
+        assertTrue(emissions.last().isEmpty()) // composed before the children were fetched
+
+        libraryRepo.itemsInPath.value = listOf(
+            LibraryItemEntity(uuid = "b1", title = "002", relativePath = "002/002.mp3", type = ItemType.BOOK, orderRank = 0),
+            LibraryItemEntity(uuid = "f1", title = "sub", relativePath = "002/sub", type = ItemType.FOLDER, orderRank = 1),
+        )
+        runCurrent()
+        // Re-emits once the rows land; only the BOOK files count as download units.
+        assertEquals(listOf("b1"), emissions.last().map { it.uuid })
     }
 }

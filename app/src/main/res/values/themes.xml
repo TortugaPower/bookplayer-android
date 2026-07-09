@@ -3,10 +3,11 @@
 
     <style name="Theme.BookPlayer" parent="android:Theme.Material.Light.NoActionBar" />
 
+    <!-- No windowSplashScreenIconBackgroundColor: the logo sits directly on the dark background, matching
+         the in-app LoadingScreen so the splash → loading hand-off is seamless. -->
     <style name="Theme.App.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/splash_background</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
-        <item name="windowSplashScreenIconBackgroundColor">@color/ic_launcher_background</item>
         <item name="postSplashScreenTheme">@style/Theme.BookPlayer</item>
     </style>
 </resources>

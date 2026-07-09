@@ -11,6 +11,27 @@ import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.first
 import java.io.File
 
+/** One book file's download status — pure inputs to the per-row aggregation, shared by phone and Wear. */
+data class DownloadUnitStatus(val downloaded: Boolean, val taskActive: Boolean)
+
+/**
+ * Aggregate download state of one library item over its book files, derived off the main thread and
+ * consumed as plain state by the row UI (phone rows collect it from LibraryViewModel; Wear derives its
+ * DownloadUiState from the same unit statuses). The live per-chunk ring/bar fraction is deliberately NOT
+ * in here: it changes per progress tick, so the UI combines [inFlightUuids] with SyncStatusManager's
+ * taskProgress via [OfflineDownloadManager.downloadProgressFraction] — pure math, no disk.
+ */
+data class ItemDownloadState(
+    val totalUnits: Int,
+    val downloadedUnits: Int,
+    /** Any unit's download task queued/running — true from the tap until the tasks drain. */
+    val isDownloading: Boolean,
+    /** Every unit fully on disk (per the partial-file rule) — drives the cloud badge / local state. */
+    val isLocal: Boolean,
+    /** Units not yet fully downloaded, whose live progress the UI sums for the aggregate fraction. */
+    val inFlightUuids: List<String>,
+)
+
 /**
  * Orchestrates offline downloads for a library item, on top of the single-file [DownloadFileProcessor].
  * A BOOK is one file; a BOUND book (or folder) fans out into its BOOK children — mirroring the STRUCTURE of
@@ -142,4 +163,77 @@ object OfflineDownloadManager {
                 it.taskID == uuid &&
                 (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING)
         }
+
+    /**
+     * Whole-item download progress (pure, unit-tested), mirroring iOS `calculateDownloadProgress`:
+     * (already-downloaded files + summed live progress of the in-flight files) / total files. So a
+     * 2-file bound book goes 0→50%→100% rather than filling per file. [inProgressSum] is Σ of the
+     * live 0..1 progress of the not-yet-downloaded files. Shared by the phone library rows and the
+     * Wear standalone library.
+     */
+    fun downloadProgressFraction(downloadedUnits: Int, totalUnits: Int, inProgressSum: Double): Float =
+        if (totalUnits <= 0) 0f else ((downloadedUnits + inProgressSum) / totalUnits).toFloat().coerceIn(0f, 1f)
+
+    /**
+     * Whether a unit counts as a whole downloaded file in the aggregate (pure, unit-tested). File
+     * existence alone is NOT enough: [DownloadFileProcessor] streams straight into the final Processed
+     * path, so a partially-written file already "exists" while its task runs — counting it would add a
+     * whole unit AND its live fraction to [downloadProgressFraction], making a 2-file bound book's ring
+     * jump to 50% and fill once per file. A unit is downloaded only once its file exists and its task is
+     * gone. Shared by the phone library rows and the Wear standalone library.
+     */
+    fun unitDownloaded(fileExists: Boolean, taskActive: Boolean): Boolean = fileExists && !taskActive
+
+    /**
+     * One unit's [DownloadUnitStatus] from disk truth + the task queue, applying the partial-file rule
+     * ([unitDownloaded]). The single shared derivation for phone and Wear rows.
+     */
+    fun unitStatus(
+        context: Context,
+        uuid: String,
+        relativePath: String?,
+        tasks: List<com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity>,
+    ): DownloadUnitStatus {
+        val taskActive = isTaskActive(tasks, uuid)
+        return DownloadUnitStatus(
+            downloaded = unitDownloaded(fileExists = isFileDownloaded(context, relativePath), taskActive = taskActive),
+            taskActive = taskActive,
+        )
+    }
+
+    /**
+     * The whole-row [ItemDownloadState] for [item] over its resolved [units]. Does disk stats — call it
+     * off the main thread (the ViewModels dispatch it on IO). FOLDERs are always "local" (they carry no
+     * download state of their own); an empty [units] list is the transient just-signed-in BOUND whose
+     * children haven't been fetched yet, so fall back to the item's own file check (a plain BOOK always
+     * carries itself as a unit and never lands here).
+     */
+    fun itemDownloadState(
+        context: Context,
+        item: LibraryItemEntity,
+        units: List<LibraryItemEntity>,
+        tasks: List<com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity>,
+    ): ItemDownloadState {
+        if (item.type == ItemType.FOLDER) {
+            return ItemDownloadState(totalUnits = 0, downloadedUnits = 0, isDownloading = false, isLocal = true, inFlightUuids = emptyList())
+        }
+        if (units.isEmpty()) {
+            return ItemDownloadState(
+                totalUnits = 0,
+                downloadedUnits = 0,
+                isDownloading = false,
+                isLocal = isFileDownloaded(context, item.relativePath),
+                inFlightUuids = emptyList(),
+            )
+        }
+        val statuses = units.map { unitStatus(context, it.uuid, it.relativePath, tasks) }
+        return ItemDownloadState(
+            totalUnits = units.size,
+            downloadedUnits = statuses.count { it.downloaded },
+            isDownloading = statuses.any { it.taskActive },
+            isLocal = statuses.all { it.downloaded },
+            // Only the not-yet-downloaded files need live progress; completed ones count as whole units.
+            inFlightUuids = units.filterIndexed { i, _ -> !statuses[i].downloaded }.map { it.uuid },
+        )
+    }
 }
