@@ -67,9 +67,10 @@ fun StandaloneLibraryScreen(
     onNowPlaying: (() -> Unit)? = null,
 ) {
     if (!state.loaded) {
-        // First load still in flight (the stateIn seed): render just the themed background for the frame
-        // or two until the pipeline's first real emission — never the empty message (it would flash on
-        // every cold start, since the root gate watches a different flow than this screen's state).
+        // First load still in flight (the stateIn seed): emit nothing — the host's themed root Box shows
+        // through for the frame or two until the pipeline's first real emission. Never the empty message:
+        // it would flash on every cold start, since the root gate watches a different flow than this
+        // screen's state.
         return
     }
 
