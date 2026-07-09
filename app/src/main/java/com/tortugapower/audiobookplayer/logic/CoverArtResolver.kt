@@ -72,16 +72,20 @@ object CoverArtResolver {
 
         val processedDir = File(context.filesDir, "Processed").absolutePath
         // BOOK → itself; BOUND → its sub-books; FOLDER → its contents, recursively (iOS handleDirectory).
-        val candidates = when (item.type) {
-            ItemType.BOUND -> boundSubBooks(dao, item)
-            ItemType.FOLDER -> folderCandidates(dao, item)
-            else -> listOf(item)
+        val candidates = gatherCoverCandidates(item, MAX_FOLDER_CANDIDATES, MAX_FOLDER_NODES) {
+            dao.getItemsInPathSync(it)
+        }
+        if (item.type == ItemType.FOLDER && candidates.size >= MAX_FOLDER_CANDIDATES) {
+            android.util.Log.i("CoverArtResolver", "Folder ${item.uuid} cover search hit candidate cap (${candidates.size})")
         }
 
         var allDefinitivelyEmpty = candidates.isNotEmpty()
         for (candidate in candidates) {
             when (val result = extractFor(processedDir, candidate, includeRemote)) {
                 is ExtractResult.Found -> {
+                    // Ensure Artworks/ exists — ArtworkManager opens a FileOutputStream on dest and would
+                    // otherwise silently fail (→ cover never persists, remote re-streamed) on a fresh install.
+                    dest.parentFile?.mkdirs()
                     ArtworkManager.saveEmbeddedArtwork(result.bytes, dest)
                     return@withContext dest.takeIf { it.isFile }
                 }
@@ -94,41 +98,6 @@ object CoverArtResolver {
         // and the walk may have been capped, so a stale "empty" would wrongly stick).
         if (includeRemote && allDefinitivelyEmpty && item.type != ItemType.FOLDER) noArtKeys.put(uuid, true)
         null
-    }
-
-    private suspend fun boundSubBooks(dao: LibraryDao, bound: LibraryItemEntity): List<LibraryItemEntity> =
-        bound.relativePath?.let { dao.getItemsInPathSync(it) }?.filter { it.type == ItemType.BOOK } ?: emptyList()
-
-    /**
-     * Breadth-first walk of a folder's contents, gathering BOOK candidates (recursing nested folders and
-     * expanding bound items into their sub-books) — iOS `handleDirectory` parity. Bounded by
-     * [MAX_FOLDER_CANDIDATES] / [MAX_FOLDER_NODES] so a huge tree can't stall a scroll / browse response;
-     * logs when the walk is capped rather than silently truncating.
-     */
-    private suspend fun folderCandidates(dao: LibraryDao, folder: LibraryItemEntity): List<LibraryItemEntity> {
-        val out = mutableListOf<LibraryItemEntity>()
-        val queue = ArrayDeque<String>()
-        folder.relativePath?.takeIf { it.isNotEmpty() }?.let { queue.add(it) }
-        var nodes = 0
-        while (queue.isNotEmpty() && out.size < MAX_FOLDER_CANDIDATES && nodes < MAX_FOLDER_NODES) {
-            val path = queue.removeFirst()
-            nodes++
-            for (child in dao.getItemsInPathSync(path)) {
-                when (child.type) {
-                    ItemType.BOOK -> out.add(child)
-                    ItemType.BOUND -> out.addAll(boundSubBooks(dao, child))
-                    ItemType.FOLDER -> child.relativePath?.takeIf { it.isNotEmpty() }?.let { queue.add(it) }
-                }
-                if (out.size >= MAX_FOLDER_CANDIDATES) break
-            }
-        }
-        if (out.size >= MAX_FOLDER_CANDIDATES || nodes >= MAX_FOLDER_NODES) {
-            android.util.Log.i(
-                "CoverArtResolver",
-                "Folder ${folder.uuid} cover search capped (nodes=$nodes, candidates=${out.size})",
-            )
-        }
-        return out
     }
 
     private suspend fun extractFor(
@@ -169,4 +138,45 @@ object CoverArtResolver {
             try { retriever.release() } catch (_: Exception) {}
         }
     }
+}
+
+/**
+ * Gather the BOOK candidates whose embedded art can represent [item]'s cover: the book itself, a BOUND
+ * item's sub-books, or (for a FOLDER) a bounded breadth-first walk of its contents — recursing nested
+ * folders and expanding bound items into their sub-books (iOS `handleDirectory` parity). [childrenOf]
+ * returns a container path's direct children — injected so this is pure and unit-testable without a DAO.
+ * Capped by [maxCandidates] / [maxNodes] so a huge tree can't stall the caller (first cover found wins,
+ * so the caps only bite on art-sparse giant folders).
+ */
+internal suspend fun gatherCoverCandidates(
+    item: LibraryItemEntity,
+    maxCandidates: Int,
+    maxNodes: Int,
+    childrenOf: suspend (String) -> List<LibraryItemEntity>,
+): List<LibraryItemEntity> = when (item.type) {
+    ItemType.BOOK -> listOf(item)
+    ItemType.BOUND ->
+        item.relativePath?.let { childrenOf(it) }?.filter { it.type == ItemType.BOOK } ?: emptyList()
+    ItemType.FOLDER -> {
+        val out = mutableListOf<LibraryItemEntity>()
+        val queue = ArrayDeque<String>()
+        item.relativePath?.takeIf { it.isNotEmpty() }?.let { queue.add(it) }
+        var nodes = 0
+        while (queue.isNotEmpty() && out.size < maxCandidates && nodes < maxNodes) {
+            val path = queue.removeFirst()
+            nodes++
+            for (child in childrenOf(path)) {
+                when (child.type) {
+                    ItemType.BOOK -> out.add(child)
+                    ItemType.BOUND -> child.relativePath?.let { childrenOf(it) }
+                        ?.filterTo(out) { it.type == ItemType.BOOK }
+                    ItemType.FOLDER -> child.relativePath?.takeIf { it.isNotEmpty() }?.let { queue.add(it) }
+                    else -> Unit
+                }
+                if (out.size >= maxCandidates) break
+            }
+        }
+        out
+    }
+    else -> emptyList()
 }
