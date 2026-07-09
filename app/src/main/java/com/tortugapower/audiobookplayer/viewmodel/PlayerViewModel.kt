@@ -84,7 +84,7 @@ class PlayerViewModel(
     var rewindInterval by mutableStateOf(30)
     var forwardInterval by mutableStateOf(30)
     var progressBarSeeking by mutableStateOf(true)
-    var listButtonOpens by mutableStateOf("Chapters")
+    var listButtonOpens by mutableStateOf(PlaybackSettingsManager.LIST_OPENS_CHAPTERS)
     var useRemainingTime by mutableStateOf(true)
     var useChapterContext by mutableStateOf(false)
 
@@ -105,6 +105,9 @@ class PlayerViewModel(
             }
             launch {
                 PlaybackSettingsManager.getSmartRewindLimit(context).collect { smartRewindLimit = it }
+            }
+            launch {
+                PlaybackSettingsManager.getListButtonOpens(context).collect { listButtonOpens = it }
             }
         }
 
@@ -261,19 +264,49 @@ class PlayerViewModel(
 
     fun loadSettings(context: Context) {
         viewModelScope.launch {
-            smartRewind = PlaybackSettingsManager.getSmartRewind(context).first()
-            smartRewindLimit = PlaybackSettingsManager.getSmartRewindLimit(context).first()
-            rewindInterval = PlaybackSettingsManager.getRewindInterval(context).first()
-            forwardInterval = PlaybackSettingsManager.getForwardInterval(context).first()
-            autoSleep = PlaybackSettingsManager.getAutoSleepTimer(context).first()
-            quickAction1 = PlaybackSettingsManager.getQuickAction1(context).first()
-            quickAction2 = PlaybackSettingsManager.getQuickAction2(context).first()
-            quickAction3 = PlaybackSettingsManager.getQuickAction3(context).first()
-            globalSpeed = PlaybackSettingsManager.getGlobalSpeedControl(context).first()
-            progressBarSeeking = PlaybackSettingsManager.getProgressBarSeeking(context).first()
-            listButtonOpens = PlaybackSettingsManager.getListButtonOpens(context).first()
-            useRemainingTime = PlaybackSettingsManager.getUseRemainingTime(context).first()
-            useChapterContext = PlaybackSettingsManager.getUseChapterContext(context).first()
+            var smartRewindVal = false
+            var smartRewindLimitVal = 30
+            var rewindIntervalVal = 30
+            var forwardIntervalVal = 30
+            var autoSleepVal = false
+            var quickAction1Val = 1.3f
+            var quickAction2Val = 2.0f
+            var quickAction3Val = 3.0f
+            var globalSpeedVal = false
+            var progressBarSeekingVal = true
+            var listButtonOpensVal = PlaybackSettingsManager.LIST_OPENS_CHAPTERS
+            var useRemainingTimeVal = true
+            var useChapterContextVal = false
+
+            withContext(Dispatchers.IO) {
+                smartRewindVal = PlaybackSettingsManager.getSmartRewind(context).first()
+                smartRewindLimitVal = PlaybackSettingsManager.getSmartRewindLimit(context).first()
+                rewindIntervalVal = PlaybackSettingsManager.getRewindInterval(context).first()
+                forwardIntervalVal = PlaybackSettingsManager.getForwardInterval(context).first()
+                autoSleepVal = PlaybackSettingsManager.getAutoSleepTimer(context).first()
+                quickAction1Val = PlaybackSettingsManager.getQuickAction1(context).first()
+                quickAction2Val = PlaybackSettingsManager.getQuickAction2(context).first()
+                quickAction3Val = PlaybackSettingsManager.getQuickAction3(context).first()
+                globalSpeedVal = PlaybackSettingsManager.getGlobalSpeedControl(context).first()
+                progressBarSeekingVal = PlaybackSettingsManager.getProgressBarSeeking(context).first()
+                listButtonOpensVal = PlaybackSettingsManager.getListButtonOpens(context).first()
+                useRemainingTimeVal = PlaybackSettingsManager.getUseRemainingTime(context).first()
+                useChapterContextVal = PlaybackSettingsManager.getUseChapterContext(context).first()
+            }
+
+            smartRewind = smartRewindVal
+            smartRewindLimit = smartRewindLimitVal
+            rewindInterval = rewindIntervalVal
+            forwardInterval = forwardIntervalVal
+            autoSleep = autoSleepVal
+            quickAction1 = quickAction1Val
+            quickAction2 = quickAction2Val
+            quickAction3 = quickAction3Val
+            globalSpeed = globalSpeedVal
+            progressBarSeeking = progressBarSeekingVal
+            listButtonOpens = listButtonOpensVal
+            useRemainingTime = useRemainingTimeVal
+            useChapterContext = useChapterContextVal
         }
     }
 

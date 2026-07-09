@@ -305,6 +305,41 @@ class RoomLibraryRepositoryTest {
         assertEquals(null, repository.getItemByIdOrPath("missing"))
     }
 
+    // getDescendantBooks drives the bulk mark-as-finished action: a BOOK short-circuits to itself,
+    // a container expands to its BOOK descendants at ANY depth (recursive), never folders/bounds.
+    @Test
+    fun testGetDescendantBooks_bookReturnsItself() = runBlocking {
+        val book = LibraryItemEntity(
+            uuid = "book-1", title = "Book", relativePath = "one.mp3", type = ItemType.BOOK
+        )
+        // Deliberately NOT in the dao — the BOOK short-circuit must not query.
+        assertEquals(listOf("book-1"), repository.getDescendantBooks(book).map { it.uuid })
+    }
+
+    @Test
+    fun testGetDescendantBooks_folderReturnsNestedBooksOnly() = runBlocking {
+        val folder = LibraryItemEntity(
+            uuid = "folder-1", title = "F", relativePath = "F", type = ItemType.FOLDER
+        )
+        val direct = LibraryItemEntity(
+            uuid = "book-1", title = "b1", relativePath = "F/one.mp3", type = ItemType.BOOK
+        )
+        val subFolder = LibraryItemEntity(
+            uuid = "folder-2", title = "Sub", relativePath = "F/Sub", type = ItemType.FOLDER
+        )
+        val nested = LibraryItemEntity(
+            uuid = "book-2", title = "b2", relativePath = "F/Sub/two.mp3", type = ItemType.BOOK
+        )
+        val outside = LibraryItemEntity(
+            uuid = "book-3", title = "b3", relativePath = "Other/three.mp3", type = ItemType.BOOK
+        )
+        listOf(folder, direct, subFolder, nested, outside).forEach { fakeDao.items[it.uuid] = it }
+
+        val books = repository.getDescendantBooks(folder).map { it.uuid }.sorted()
+        // Recursive (any depth), BOOKs only, nothing from sibling paths.
+        assertEquals(listOf("book-1", "book-2"), books)
+    }
+
     private class FakeLibraryDao : LibraryDao {
         val items = mutableMapOf<String, LibraryItemEntity>()
         val completions = mutableListOf<BookCompletionEntity>()
@@ -349,7 +384,8 @@ class RoomLibraryRepositoryTest {
         override suspend fun insertItem(item: LibraryItemEntity) { items[item.uuid] = item }
         override suspend fun deleteItem(item: LibraryItemEntity) = TODO()
         override suspend fun deleteItems(items: List<LibraryItemEntity>) = TODO()
-        override suspend fun getDescendantsOfPath(path: String): List<LibraryItemEntity> = TODO()
+        override suspend fun getDescendantsOfPath(path: String): List<LibraryItemEntity> =
+            items.values.filter { it.relativePath?.startsWith("$path/") == true } // mirrors the LIKE :path || '/%' query
         override fun getChaptersForBook(bookUuid: String): Flow<List<ChapterEntity>> = TODO()
         override suspend fun insertChapters(chapters: List<ChapterEntity>) = TODO()
         override suspend fun deleteChaptersForBook(bookUuid: String) = TODO()

@@ -210,6 +210,17 @@ class RoomLibraryRepository(
         }
     }
 
+    override suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity> {
+        return withContext(Dispatchers.IO) {
+            if (item.type == ItemType.BOOK) {
+                listOf(item)
+            } else {
+                val path = item.relativePath ?: return@withContext emptyList()
+                libraryDao.getDescendantsOfPath(path).filter { it.type == ItemType.BOOK }
+            }
+        }
+    }
+
     override suspend fun deleteItemWithFile(context: Context, item: LibraryItemEntity) {
         deleteItemsWithFiles(context, listOf(item))
     }

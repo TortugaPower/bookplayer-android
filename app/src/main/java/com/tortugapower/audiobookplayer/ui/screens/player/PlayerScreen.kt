@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -120,6 +121,7 @@ import com.tortugapower.audiobookplayer.logic.ItemArtwork
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.logic.PlayerUiSignals
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
@@ -525,6 +527,7 @@ fun PlayerScreen(
                                 chaptersCount = chapters.size,
                                 useChapterContext = viewModel.useChapterContext,
                                 useRemainingTime = viewModel.useRemainingTime,
+                                playbackSpeed = playbackSpeed,
                             ),
                             onValueChange = {
                                 isDragging = true
@@ -539,6 +542,12 @@ fun PlayerScreen(
                                 viewModel.seekToAbsolute(newPos)
                                 position = newPos
                                 isDragging = false
+                            },
+                            onToggleContext = {
+                                viewModel.updateUseChapterContext(context, !viewModel.useChapterContext)
+                            },
+                            onToggleRemainingTime = {
+                                viewModel.updateUseRemainingTime(context, !viewModel.useRemainingTime)
                             }
                         )
 
@@ -572,11 +581,12 @@ fun PlayerScreen(
                                 sleepActive -> sleepRemaining
                                 else -> null
                             },
+                            listOpensBookmarks = viewModel.listButtonOpens == PlaybackSettingsManager.LIST_OPENS_BOOKMARKS,
                             onSpeed = { viewModel.toggleControlsSheet() },
                             onSleep = { viewModel.toggleSleepTimerMenu() },
                             onBookmark = { viewModel.addBookmark() },
                             onList = {
-                                if (viewModel.listButtonOpens == "Chapters") {
+                                if (viewModel.listButtonOpens == PlaybackSettingsManager.LIST_OPENS_CHAPTERS) {
                                     viewModel.showChaptersList = true
                                 } else {
                                     viewModel.showBookmarksList = true
@@ -929,6 +939,9 @@ private data class PlayerProgressUiState(
     val chaptersCount: Int,
     val useChapterContext: Boolean,
     val useRemainingTime: Boolean,
+    // Remaining time is wall-clock (scaled by speed), matching iOS PlayableItem.maxTimeInContext;
+    // the total-duration mode stays unscaled, also matching iOS.
+    val playbackSpeed: Float = 1f,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -936,7 +949,9 @@ private data class PlayerProgressUiState(
 private fun PlayerProgressSection(
     state: PlayerProgressUiState,
     onValueChange: (Float) -> Unit,
-    onValueChangeFinished: () -> Unit
+    onValueChangeFinished: () -> Unit,
+    onToggleContext: () -> Unit = {},
+    onToggleRemainingTime: () -> Unit = {}
 ) {
     val position = state.position
     val duration = state.duration
@@ -950,15 +965,22 @@ private fun PlayerProgressSection(
     // Announce "elapsed of total" to TalkBack when the seek bar is focused/scrubbed —
     // otherwise the slider only reports a bare percentage with no time context. Match the
     // visible labels: chapter-relative when chapter context is on, else the whole book.
+    // Position labels adopt hh:mm:ss as soon as the displayed total (chapter or whole book)
+    // crosses an hour, so both sides of the bar always share one format.
+    val hourFormat = if (useChapterContext && currentChapter != null) {
+        (currentChapter.duration * 1000).toLong() >= HOUR_IN_MS
+    } else {
+        duration >= HOUR_IN_MS
+    }
     val seekStateDescription = if (useChapterContext && currentChapter != null) {
         val chapterPos = (position - (currentChapter.start * 1000).toLong()).coerceAtLeast(0)
         stringResource(
             R.string.player_seek_position,
-            formatTime(chapterPos),
-            formatTime((currentChapter.duration * 1000).toLong())
+            formatTime(chapterPos, hourFormat),
+            formatTime((currentChapter.duration * 1000).toLong(), hourFormat)
         )
     } else {
-        stringResource(R.string.player_seek_position, formatTime(position), formatTime(duration))
+        stringResource(R.string.player_seek_position, formatTime(position, hourFormat), formatTime(duration, hourFormat))
     }
     BookPlayerSlider(
         // Constrain the seek bar's height so the thin track sits close to the title above and the time
@@ -996,24 +1018,30 @@ private fun PlayerProgressSection(
 
         val leftLabel = if (useChapterContext && currentChapter != null) {
             val chapterPos = displayPosition - (currentChapter.start * 1000).toLong()
-            formatTime(chapterPos.coerceAtLeast(0))
+            formatTime(chapterPos.coerceAtLeast(0), hourFormat)
         } else {
-            formatTime(displayPosition)
+            formatTime(displayPosition, hourFormat)
         }
 
+        // Remaining time is what's left in WALL-CLOCK terms: divide by the playback speed (a 60min
+        // remainder at 2× shows -30:00), mirroring iOS PlayableItem.maxTimeInContext. The total-duration
+        // mode is deliberately NOT scaled — also matching iOS.
+        val speed = if (state.playbackSpeed > 0f) state.playbackSpeed else 1f
         val rightLabel = if (useChapterContext && currentChapter != null) {
             val chapterDuration = (currentChapter.duration * 1000).toLong()
             val chapterPos = displayPosition - (currentChapter.start * 1000).toLong()
             if (useRemainingTime) {
-                "-${formatTime((chapterDuration - chapterPos).coerceAtLeast(0))}"
+                val remaining = ((chapterDuration - chapterPos).coerceAtLeast(0) / speed).toLong()
+                "-${formatTime(remaining, hourFormat)}"
             } else {
-                formatTime(chapterDuration)
+                formatTime(chapterDuration, hourFormat)
             }
         } else {
             if (useRemainingTime) {
-                "-${formatTime((duration - displayPosition).coerceAtLeast(0))}"
+                val remaining = ((duration - displayPosition).coerceAtLeast(0) / speed).toLong()
+                "-${formatTime(remaining, hourFormat)}"
             } else {
-                formatTime(duration)
+                formatTime(duration, hourFormat)
             }
         }
 
@@ -1021,7 +1049,8 @@ private fun PlayerProgressSection(
             text = leftLabel,
             style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(72.dp)
+            // Wide enough for the hh:mm:ss format (incl. the remaining-time minus sign).
+            modifier = Modifier.width(84.dp)
         )
 
         val centerLabel = if (useChapterContext && chaptersCount > 0) {
@@ -1040,7 +1069,15 @@ private fun PlayerProgressSection(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                // Tapping the center label swaps the whole bar between chapter and book context
+                // (same setting as the player-settings toggle).
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClickLabel = stringResource(R.string.player_toggle_progress_context)
+                ) { onToggleContext() },
             maxLines = 1
         )
         Text(
@@ -1048,7 +1085,16 @@ private fun PlayerProgressSection(
             style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.End,
-            modifier = Modifier.width(72.dp)
+            modifier = Modifier
+                // Wide enough for the hh:mm:ss format (incl. the remaining-time minus sign).
+                .width(84.dp)
+                // Tapping swaps remaining time <-> total length (same setting as the
+                // player-settings toggle).
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClickLabel = stringResource(R.string.player_toggle_remaining_time)
+                ) { onToggleRemainingTime() }
         )
     }
 }
@@ -1099,6 +1145,7 @@ private fun PlayerTransportControls(
 private fun PlayerBottomBar(
     speedLabel: String,
     sleepLabel: String?,
+    listOpensBookmarks: Boolean,
     onSpeed: () -> Unit,
     onSleep: () -> Unit,
     onBookmark: () -> Unit,
@@ -1126,9 +1173,12 @@ private fun PlayerBottomBar(
             contentDescription = stringResource(R.string.player_add_bookmark),
             onClick = onBookmark
         )
+        // Reflects the "list button opens" setting live: icon + label switch with the choice, so
+        // changing it in the player settings sheet is visible immediately.
         PlayerBottomButton(
-            icon = Icons.AutoMirrored.Filled.List,
-            contentDescription = stringResource(R.string.player_chapters_title),
+            icon = if (listOpensBookmarks) Icons.Default.Bookmarks else Icons.AutoMirrored.Filled.List,
+            contentDescription = if (listOpensBookmarks) stringResource(R.string.player_bookmarks_title)
+                                 else stringResource(R.string.player_chapters_title),
             onClick = onList
         )
         PlayerBottomButton(

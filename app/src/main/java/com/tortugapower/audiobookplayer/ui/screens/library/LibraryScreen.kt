@@ -49,6 +49,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -548,6 +549,21 @@ fun LibraryScreen(
                                 leadingIcon = { Icon(Icons.Default.Info, null) }
                             )
                             DropdownMenuItem(
+                                text = { Text(stringResource(R.string.library_play_from_beginning)) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    val item = selectedItems[0]
+                                    // The restart itself is handled inside playItem (fromBeginning), so the
+                                    // seek can't race the async DB reset; resetItemProgress goes through the
+                                    // syncing repository so the rewound position is also pushed to the server.
+                                    libraryViewModel.resetItemProgress(item.uuid)
+                                    PlaybackManager.playItem(context, item, fromBeginning = true)
+                                    isSelectMode = false
+                                    selectedItemUuids = emptySet()
+                                },
+                                leadingIcon = { Icon(Icons.Default.PlayArrow, null) }
+                            )
+                            DropdownMenuItem(
                                 text = { Text(stringResource(R.string.library_add_shortcut_to_home_screen)) },
                                 onClick = {
                                     showMoreMenu = false
@@ -558,6 +574,25 @@ fun LibraryScreen(
                                 leadingIcon = { Icon(Icons.Default.Home, null) }
                             )
                         }
+
+                        val allFinished = selectedItems.isNotEmpty() && selectedItems.all { it.isFinished }
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (allFinished) stringResource(R.string.player_mark_as_unfinished)
+                                    else stringResource(R.string.player_mark_as_finished)
+                                )
+                            },
+                            enabled = selectedItems.isNotEmpty(),
+                            onClick = {
+                                showMoreMenu = false
+                                libraryViewModel.setFinishedStatus(selectedItems, !allFinished)
+                                isSelectMode = false
+                                selectedItemUuids = emptySet()
+                            },
+                            leadingIcon = { Icon(Icons.Default.CheckCircle, null) }
+                        )
+
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.common_select_all)) },
                             onClick = {
@@ -894,6 +929,11 @@ fun LibraryListItem(
         )
     }
 
+    // Highlight the row of the book currently loaded in the player (library and search share
+    // this row composable).
+    val currentPlayingItem by PlaybackManager.currentItem.collectAsState()
+    val isCurrentlyPlaying = currentPlayingItem?.uuid == item.uuid
+
     val durationText = if (item.duration > 0) {
         val h = (item.duration / 3600).toInt()
         val m = ((item.duration % 3600) / 60).toInt()
@@ -1064,10 +1104,13 @@ fun LibraryListItem(
         ) {
             Text(
                 text = item.title.ifBlank { stringResource(R.string.library_unknown_title) },
-                color = MaterialTheme.colorScheme.onSurface,
+                color = if (isCurrentlyPlaying) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1
+                // Long titles wrap onto a second line before ellipsizing.
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
 
             Row(
@@ -1203,13 +1246,6 @@ fun LibraryListItem(
                         imageVector = Icons.Default.ChevronRight,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
-                } else if (item.type == ItemType.BOUND) {
-                    Icon(
-                        imageVector = Icons.Default.Layers,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier.size(24.dp)
                     )
                 } else {

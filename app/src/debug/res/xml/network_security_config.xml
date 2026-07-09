@@ -12,7 +12,7 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">10.0.2.2</domain> <!-- Android Emulator loopback -->
         <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">192.168.100.165</domain> <!-- LAN dev host -->
+        <domain includeSubdomains="true">192.168.100.169</domain> <!-- LAN dev host -->
         <domain includeSubdomains="true">giannis-macbook-pro.whale-escalator.ts.net</domain> <!-- Tailscale dev host -->
         <domain includeSubdomains="true">ds224plus.whale-escalator.ts.net</domain> <!-- Tailscale NAS (Jellyfin/ABS) -->
     </domain-config>

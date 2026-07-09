@@ -76,7 +76,14 @@ class LibraryViewModelTest {
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = null
         override suspend fun saveItem(item: LibraryItemEntity) {}
         override suspend fun updateItem(item: LibraryItemEntity) {}
-        override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {}
+        // Recorded so setFinishedStatus tests can assert the exact (uuid, time, finished) writes.
+        val progressUpdates = mutableListOf<Triple<String, Double, Boolean>>()
+        var descendantBooks: List<LibraryItemEntity> = emptyList()
+        override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {
+            progressUpdates += Triple(uuid, currentTime, isFinished)
+        }
+        override suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity> =
+            if (item.type == ItemType.BOOK) listOf(item) else descendantBooks
         override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) {}
         override suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>) {}
         override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {}
@@ -286,5 +293,47 @@ class LibraryViewModelTest {
         runCurrent()
         // Re-emits once the rows land; only the BOOK files count as download units.
         assertEquals(listOf("b1"), emissions.last().map { it.uuid })
+    }
+
+    // Mark-as-finished (iOS parity, LibraryService.markAsFinished): finishing keeps each book's
+    // listening position — isFinished alone drives the 100% display — and fans out over every
+    // descendant book of a container.
+    @Test
+    fun setFinishedStatus_finish_keepsPositionForEveryDescendant() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository()
+        val model = modelWith(libraryRepo = libraryRepo)
+        val folder = LibraryItemEntity(uuid = "f1", title = "F", relativePath = "F", type = ItemType.FOLDER, orderRank = 0)
+        libraryRepo.descendantBooks = listOf(
+            LibraryItemEntity(uuid = "b1", title = "b1", relativePath = "F/1.mp3", type = ItemType.BOOK, orderRank = 0, duration = 3600.0, currentTime = 1800.0),
+            LibraryItemEntity(uuid = "b2", title = "b2", relativePath = "F/2.mp3", type = ItemType.BOOK, orderRank = 1, duration = 3600.0, currentTime = 0.0),
+        )
+
+        model.setFinishedStatus(listOf(folder), isFinished = true)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(Triple("b1", 1800.0, true), Triple("b2", 0.0, true)),
+            libraryRepo.progressUpdates,
+        )
+    }
+
+    // Un-finishing rewinds to 0 ONLY when the book actually sits at the end; a mid-book position survives.
+    @Test
+    fun setFinishedStatus_unfinish_rewindsOnlyBooksAtTheEnd() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository()
+        val model = modelWith(libraryRepo = libraryRepo)
+        val folder = LibraryItemEntity(uuid = "f1", title = "F", relativePath = "F", type = ItemType.FOLDER, orderRank = 0)
+        libraryRepo.descendantBooks = listOf(
+            LibraryItemEntity(uuid = "b1", title = "b1", relativePath = "F/1.mp3", type = ItemType.BOOK, orderRank = 0, duration = 3600.0, currentTime = 3599.4), // at the end (ceil match)
+            LibraryItemEntity(uuid = "b2", title = "b2", relativePath = "F/2.mp3", type = ItemType.BOOK, orderRank = 1, duration = 3600.0, currentTime = 1800.0),
+        )
+
+        model.setFinishedStatus(listOf(folder), isFinished = false)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(Triple("b1", 0.0, false), Triple("b2", 1800.0, false)),
+            libraryRepo.progressUpdates,
+        )
     }
 }

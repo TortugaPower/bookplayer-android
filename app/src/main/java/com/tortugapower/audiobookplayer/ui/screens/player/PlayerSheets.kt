@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -180,9 +181,17 @@ fun MoreOptionsSheet(
                 .padding(bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            BookmarkDialogButton(text = stringResource(R.string.player_chapters_title)) {
-                viewModel.showMoreOptions = false
-                viewModel.showChaptersList = true
+            val listOpensBookmarks = viewModel.listButtonOpens == PlaybackSettingsManager.LIST_OPENS_BOOKMARKS
+            if (listOpensBookmarks) {
+                BookmarkDialogButton(text = stringResource(R.string.player_chapters_title)) {
+                    viewModel.showMoreOptions = false
+                    viewModel.showChaptersList = true
+                }
+            } else {
+                BookmarkDialogButton(text = stringResource(R.string.player_bookmarks_title)) {
+                    viewModel.showMoreOptions = false
+                    viewModel.showBookmarksList = true
+                }
             }
             BookmarkDialogButton(text = stringResource(R.string.player_jump_to_start)) {
                 viewModel.jumpToStart()
@@ -754,9 +763,9 @@ fun ExtendedControlsSheet(
         OptionsPickerDialog(
             title = stringResource(R.string.player_list_button_action_title),
             options = listOf(chaptersLabel, bookmarksLabel),
-            currentValue = if (viewModel.listButtonOpens == "Bookmarks") bookmarksLabel else chaptersLabel,
+            currentValue = if (viewModel.listButtonOpens == PlaybackSettingsManager.LIST_OPENS_BOOKMARKS) bookmarksLabel else chaptersLabel,
             onValueSelected = { selected ->
-                viewModel.updateListButtonOpens(context, if (selected == bookmarksLabel) "Bookmarks" else "Chapters")
+                viewModel.updateListButtonOpens(context, if (selected == bookmarksLabel) PlaybackSettingsManager.LIST_OPENS_BOOKMARKS else PlaybackSettingsManager.LIST_OPENS_CHAPTERS)
                 showListActionPicker = false
             },
             onDismiss = { showListActionPicker = false }
@@ -952,7 +961,7 @@ viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
             ) {
                 SettingsRowPicker(
                     stringResource(R.string.player_settings_list_opens),
-                    if (viewModel.listButtonOpens == "Bookmarks") stringResource(R.string.player_bookmarks_title)
+                    if (viewModel.listButtonOpens == PlaybackSettingsManager.LIST_OPENS_BOOKMARKS) stringResource(R.string.player_bookmarks_title)
                     else stringResource(R.string.player_chapters_title)
                 ) { showListActionPicker = true }
             }

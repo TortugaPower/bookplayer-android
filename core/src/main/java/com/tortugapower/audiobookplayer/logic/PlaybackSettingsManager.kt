@@ -91,7 +91,13 @@ object PlaybackSettingsManager {
         context.dataStore.edit { it[PROGRESS_BAR_SEEKING] = enabled }
     }
 
-    fun getListButtonOpens(context: Context): Flow<String> = context.dataStore.data.map { it[LIST_BUTTON_OPENS] ?: "Chapters" }
+    // Stable stored values for the player's list-button target (NOT user-facing — the UI localizes its
+    // own labels). Named constants so the comparisons scattered across the player screens can't typo
+    // their way into the silent else-branch.
+    const val LIST_OPENS_CHAPTERS = "Chapters"
+    const val LIST_OPENS_BOOKMARKS = "Bookmarks"
+
+    fun getListButtonOpens(context: Context): Flow<String> = context.dataStore.data.map { it[LIST_BUTTON_OPENS] ?: LIST_OPENS_CHAPTERS }
     suspend fun setListButtonOpens(context: Context, value: String) {
         context.dataStore.edit { it[LIST_BUTTON_OPENS] = value }
     }

@@ -126,7 +126,8 @@ object SyncTaskFactory {
 
     suspend fun createSetBookmarkTask(repository: SyncTaskRepository, bookmark: BookmarkEntity, title: String, path: String) {
         val payload = mapOf(
-            "uuid" to bookmark.id.toString(),
+            "uuid" to bookmark.bookUuid,
+            "bookmarkId" to bookmark.id.toString(),
             "title" to title,
             "relativePath" to path,
             "time" to bookmark.time,
@@ -138,7 +139,7 @@ object SyncTaskFactory {
             // Check if it's the same bookmark ID by looking at the existing payload
             val existingPayloadType = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
             val existingPayload: Map<String, Any?> = gson.fromJson(existingTask.payload, existingPayloadType)
-            if (existingPayload["uuid"] == bookmark.id.toString()) {
+            if (existingPayload["bookmarkId"] == bookmark.id.toString()) {
                 val updatedTask = existingTask.copy(payload = gson.toJson(payload))
                 android.util.Log.d("SyncTaskFactory", "🔄 Merging set_bookmark task for bookmark: ${bookmark.id}")
                 repository.updateTask(updatedTask)
@@ -151,7 +152,8 @@ object SyncTaskFactory {
 
     suspend fun createDeleteBookmarkTask(repository: SyncTaskRepository, bookmark: BookmarkEntity, title: String, path: String) {
         val payload = mapOf(
-            "uuid" to bookmark.id.toString(),
+            "uuid" to bookmark.bookUuid,
+            "bookmarkId" to bookmark.id.toString(),
             "title" to title,
             "relativePath" to path,
             "time" to bookmark.time

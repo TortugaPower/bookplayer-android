@@ -6,6 +6,8 @@ import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
+import com.tortugapower.audiobookplayer.core.R
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
@@ -94,6 +96,13 @@ object PlaybackManager {
     // mid-playback. The UI surfaces it as a plain error alert (no re-auth routing by design).
     private val _externalStreamAuthError = MutableStateFlow(false)
     val externalStreamAuthError: StateFlow<Boolean> = _externalStreamAuthError.asStateFlow()
+
+    private val _playbackError = MutableStateFlow<String?>(null)
+    val playbackError: StateFlow<String?> = _playbackError.asStateFlow()
+
+    fun clearPlaybackError() {
+        _playbackError.value = null
+    }
 
     fun reportExternalStreamAuthError() {
         _externalStreamAuthError.value = true
@@ -403,6 +412,24 @@ object PlaybackManager {
                             }
                         } else if (state == Player.STATE_READY && _isTransitioning.value) {
                             _isTransitioning.value = false
+                        }
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        playbackQueuedFlag = false
+                        recomputeIsPlaying()
+                        // A 401 on an external stream is already surfaced by its own re-auth alert
+                        // (externalStreamAuthError, set by the auth data source before the player
+                        // errors out) — don't stack the generic dialog on top of it.
+                        if (_externalStreamAuthError.value) return
+                        scope.launch {
+                            val currentItem = _currentItem.value
+                            if (currentItem != null) {
+                                val processedDir = File(appContext.filesDir, "Processed")
+                                val lastSource = determineLastTriedSource(appContext, currentItem, processedDir)
+                                val message = appContext.getString(R.string.playback_error_cannot_play, lastSource)
+                                _playbackError.value = message
+                            }
                         }
                     }
                 })
@@ -743,7 +770,15 @@ object PlaybackManager {
         }
     }
 
-    fun playItem(context: Context, item: LibraryItemEntity, autoplay: Boolean = true, headers: Map<String, String>? = null) {
+    fun playItem(
+        context: Context,
+        item: LibraryItemEntity,
+        autoplay: Boolean = true,
+        headers: Map<String, String>? = null,
+        // Restart from 0:00 even if the book isn't finished (library "Play from beginning"). Handled in
+        // here — not by the caller mutating the entity — so the seek below can't race the async DB reset.
+        fromBeginning: Boolean = false,
+    ) {
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
             _showPlayerScreen.value = true
@@ -755,7 +790,8 @@ object PlaybackManager {
             updateProgress(context, itemToUpdate = _currentItem.value)
         }
         
-        if (item.isFinished) {
+        val restartFromZero = item.isFinished || fromBeginning
+        if (restartFromZero) {
             item.currentTime = 0.0
             item.isFinished = false
             item.percentCompleted = 0.0
@@ -796,6 +832,13 @@ object PlaybackManager {
             val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
             // Gather the backing items, back-fill any missing artwork, then build the playback model.
             val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir)
+            if (restartFromZero) {
+                // The refreshed row is a fresh DB read that can race the async reset write above —
+                // re-apply the restart so the seek below can't land on the stale saved position.
+                refreshedItem.currentTime = 0.0
+                refreshedItem.isFinished = false
+                refreshedItem.percentCompleted = 0.0
+            }
             _currentItem.value = refreshedItem
             _currentPlayable.value = playable
             // BOUND books expose a whole-book timeline to the session; single books pass through.
@@ -826,8 +869,43 @@ object PlaybackManager {
                 // doesn't strand on "playing".
                 playbackQueuedFlag = false
                 recomputeIsPlaying()
+
+                val lastSource = determineLastTriedSource(context, refreshedItem, processedDir)
+                val message = context.getString(R.string.playback_error_cannot_play, lastSource)
+                _playbackError.value = message
             }
         }
+    }
+
+    // On IO: both call sites launch on the Main-dispatcher [scope], and the File.exists checks below
+    // (one per sub-item for a BOUND book) are blocking disk reads that don't belong on the main thread.
+    private suspend fun determineLastTriedSource(
+        context: Context,
+        item: LibraryItemEntity,
+        processedDir: File,
+    ): String = withContext(Dispatchers.IO) {
+        val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
+        val hasLocalFile = if (isBound) {
+            val subItems = getRepository(context).getItemsInPathSync(item.relativePath ?: "")
+            subItems.isNotEmpty() && subItems.all { sub ->
+                val file = sub.relativePath?.let { File(processedDir, it) }
+                file != null && file.exists()
+            }
+        } else {
+            val file = item.relativePath?.let { File(processedDir, it) }
+            file != null && file.exists()
+        }
+
+        val hasExternalResource = item.externalResources.any { it.providerName != "hardcover" }
+
+        val sourceResId = when {
+            hasLocalFile -> R.string.playback_source_file_system
+            hasExternalResource -> R.string.playback_source_external_resource
+            !item.remoteURL.isNullOrEmpty() -> R.string.playback_source_server_url
+            item.relativePath != null -> R.string.playback_source_file_system
+            else -> R.string.playback_source_server_url
+        }
+        context.getString(sourceResId)
     }
 
     fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {

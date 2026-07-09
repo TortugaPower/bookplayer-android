@@ -4,4 +4,8 @@
     <string name="media_servers_error_auth_failed">प्रमाणीकरण विफल: %1$s</string>
     <string name="media_servers_error_connection_failed">कनेक्शन त्रुटि: %1$s</string>
     <string name="external_library_audiobook_library_caption">ऑडियोबुक लाइब्रेरी</string>
+    <string name="playback_error_cannot_play">%1$s से आइटम चलाना संभव नहीं था</string>
+    <string name="playback_source_file_system">फ़ाइल सिस्टम</string>
+    <string name="playback_source_external_resource">बाहरी स्रोत</string>
+    <string name="playback_source_server_url">सर्वर URL</string>
 </resources>

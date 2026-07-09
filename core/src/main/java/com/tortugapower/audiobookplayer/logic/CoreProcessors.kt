@@ -563,9 +563,12 @@ class DeleteBookmarkProcessor : TaskProcessor {
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
         
+        val timeDouble = (payload["time"] as? Number)?.toDouble() ?: 0.0
+        val timeInt = Math.round(timeDouble).toInt()
+        
         val mappedPayload = mapOf(
             "key" to payload["relativePath"],
-            "time" to payload["time"],
+            "time" to timeInt,
             "active" to false,
             "uuid" to payload["uuid"]
         )
@@ -629,9 +632,12 @@ class SetBookmarkProcessor : TaskProcessor {
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
         
+        val timeDouble = (payload["time"] as? Number)?.toDouble() ?: 0.0
+        val timeInt = Math.round(timeDouble).toInt()
+        
         val mappedPayload = mapOf(
             "key" to payload["relativePath"],
-            "time" to payload["time"],
+            "time" to timeInt,
             "active" to true,
             "uuid" to payload["uuid"],
             "note" to payload["note"]

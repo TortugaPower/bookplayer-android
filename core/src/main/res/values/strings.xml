@@ -6,4 +6,8 @@
     <string name="media_servers_error_connection_failed">Connection error: %1$s</string>
     <string name="external_library_audiobook_library_caption">Audiobook library</string>
     <string name="library_chapter_count">%1$d Chapters</string>
+    <string name="playback_error_cannot_play">It was not possible to play the item from %1$s</string>
+    <string name="playback_source_file_system">file system</string>
+    <string name="playback_source_external_resource">external resource</string>
+    <string name="playback_source_server_url">server url</string>
 </resources>
