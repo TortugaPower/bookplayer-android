@@ -28,10 +28,16 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.RotateLeft
-import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.Dp
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -236,24 +242,78 @@ fun SeekButton(isForward: Boolean, seconds: Int, onClick: () -> Unit) {
             .semantics(mergeDescendants = true) { contentDescription = label }
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = if (isForward) Icons.AutoMirrored.Filled.RotateRight else Icons.AutoMirrored.Filled.RotateLeft,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(72.dp) // Increased from 60dp
+            // Circular seek arrow drawn with a real stroke so we control its (thin) weight — Material's
+            // Replay glyph is a fixed ~2dp-weight filled path that reads too thick at this size. Rewind is
+            // counter-clockwise; forward is the same drawing mirrored horizontally (like iOS goforward).
+            CircularSeekArrow(
+                color = MaterialTheme.colorScheme.primary,
+                strokeWidth = 5.dp,
+                modifier = Modifier
+                    .size(72.dp)
+                    .then(if (isForward) Modifier.scale(scaleX = -1f, scaleY = 1f) else Modifier)
             )
             Text(
-                text = "$seconds",
+                // Prefix the direction sign like iOS ("-15" / "+30").
+                text = if (isForward) "+$seconds" else "-$seconds",
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp // Slightly increased from 12sp
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp
                 ),
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .padding(top = 4.dp) // Optical alignment
-                    .clearAndSetSemantics {} // announced via the parent's contentDescription
+                // Centered on the circle (= the tail's 9/3-o'clock height), matching iOS, instead of the
+                // previous 4dp downward "optical" nudge that made it sit low.
+                modifier = Modifier.clearAndSetSemantics {} // announced via the parent's contentDescription
             )
         }
+    }
+}
+
+/**
+ * A thin circular "seek" arrow (rewind direction: counter-clockwise, open at the top with an arrowhead).
+ * Drawn with a real [Stroke] so the weight is tunable via [strokeWidth] — unlike the fixed-weight Material
+ * Replay glyph. Mirror it horizontally at the call site for the forward variant.
+ */
+@Composable
+private fun CircularSeekArrow(
+    color: Color,
+    modifier: Modifier = Modifier,
+    strokeWidth: Dp = 2.dp,
+) {
+    Canvas(modifier = modifier) {
+        val sw = strokeWidth.toPx()
+        // Leave a margin for the arrowhead, which extends past the circle at the top.
+        val diameter = size.minDimension - sw * 3f
+        val r = diameter / 2f
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+
+        // Three-quarter circle: from 12 o'clock clockwise to 9 o'clock, leaving the upper-left quadrant
+        // (9→12) open — the iOS gobackward shape. The tail ends at 9 o'clock; the arrowhead sits at 12.
+        drawArc(
+            color = color,
+            startAngle = -90f, // 12 o'clock
+            sweepAngle = 270f, // clockwise → 3, 6, ends at 9 o'clock
+            useCenter = false,
+            topLeft = Offset(cx - r, cy - r),
+            size = Size(diameter, diameter),
+            style = Stroke(width = sw, cap = StrokeCap.Round),
+        )
+
+        // Arrowhead at 12 o'clock (the arc's start), a compact triangle pointing HORIZONTALLY left into the
+        // open quadrant; its base sits at 12 where the line heads off clockwise.
+        val topX = cx
+        val topY = cy - r
+        val headLen = sw * 3.4f
+        val halfH = sw * 2.2f
+        drawPath(
+            Path().apply {
+                moveTo(topX - headLen, topY) // tip, left of 12 o'clock
+                lineTo(topX, topY - halfH)   // base upper (at 12)
+                lineTo(topX, topY + halfH)   // base lower
+                close()
+            },
+            color = color,
+        )
     }
 }
 

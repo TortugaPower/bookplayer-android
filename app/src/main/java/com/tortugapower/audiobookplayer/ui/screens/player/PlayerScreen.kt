@@ -38,7 +38,7 @@ import androidx.compose.material.icons.filled.KeyboardDoubleArrowLeft
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
-import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -491,7 +491,7 @@ fun PlayerScreen(
                     )
 
                     if (!fullscreenActive) {
-                        Spacer(modifier = Modifier.height(32.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         // The chevrons always navigate chapters: back can restart/step to a previous chapter for
                         // any loaded book (or previous item); forward is available when there's a next chapter or item.
@@ -509,7 +509,10 @@ fun PlayerScreen(
                             onNext = { viewModel.playNext(context) }
                         )
 
-                        Spacer(modifier = Modifier.height(24.dp))
+                        // Keep the title row, seek bar, and time labels as one tight cluster (iOS groups
+                        // them in a VStack spacing 4) — the flexible space belongs BELOW this unit (above
+                        // the centered transport controls), not between the title and the slider.
+                        Spacer(modifier = Modifier.height(4.dp))
 
                         PlayerProgressSection(
                             state = PlayerProgressUiState(
@@ -539,7 +542,12 @@ fun PlayerScreen(
                             }
                         )
 
-                        Spacer(modifier = Modifier.height(48.dp))
+                        // Center the transport controls in the space between the seek bar and the bottom
+                        // bar — this weight plus the one below split the slack equally, so the controls stay
+                        // centered on any screen instead of the old fixed 48dp pooling all slack below them
+                        // (which made them float low on tall devices). Mirrors iOS PlayerView, which puts a
+                        // Spacer() both above and below PlayControlsRowView.
+                        Spacer(modifier = Modifier.weight(1f))
 
                         PlayerTransportControls(
                             isPlaying = isPlaying,
@@ -687,7 +695,7 @@ private fun PlayerArtwork(
         Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(12.dp)) // matches iOS ArtworkView .cornerRadius(12)
     }
 
     val clickableModifier = if (hasVideo) {
@@ -953,7 +961,12 @@ private fun PlayerProgressSection(
         stringResource(R.string.player_seek_position, formatTime(position), formatTime(duration))
     }
     BookPlayerSlider(
-        modifier = Modifier.semantics { stateDescription = seekStateDescription },
+        // Constrain the seek bar's height so the thin track sits close to the title above and the time
+        // labels below (the default Material slider reserves ~48dp of touch padding around the track, which
+        // opened up the gaps). Scoped to the player; horizontal scrubbing spans the full width, unaffected.
+        modifier = Modifier
+            .height(28.dp)
+            .semantics { stateDescription = seekStateDescription },
         value = if (isDragging) {
             dragPosition
         } else {
@@ -1109,7 +1122,7 @@ private fun PlayerBottomBar(
             onClick = onSleep
         )
         PlayerBottomButton(
-            icon = Icons.Default.BookmarkBorder,
+            icon = Icons.Default.BookmarkAdd,
             contentDescription = stringResource(R.string.player_add_bookmark),
             onClick = onBookmark
         )
