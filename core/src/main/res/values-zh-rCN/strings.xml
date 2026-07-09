@@ -4,7 +4,7 @@
     <string name="media_servers_error_auth_failed">身份验证失败：%1$s</string>
     <string name="media_servers_error_connection_failed">连接错误：%1$s</string>
     <string name="external_library_audiobook_library_caption">有声书媒体库</string>
-    <string name="playback_error_cannot_play">无法从%1播放该项目</string>
+    <string name="playback_error_cannot_play">无法从%1$s播放该项目</string>
     <string name="playback_source_file_system">文件系统</string>
     <string name="playback_source_external_resource">外部资源</string>
     <string name="playback_source_server_url">服务器网址</string>

@@ -4,7 +4,7 @@
     <string name="media_servers_error_auth_failed">인증 실패: %1$s</string>
     <string name="media_servers_error_connection_failed">연결 오류: %1$s</string>
     <string name="external_library_audiobook_library_caption">오디오북 라이브러리</string>
-    <string name="playback_error_cannot_play">%1에서 항목을 재생할 수 없었습니다</string>
+    <string name="playback_error_cannot_play">%1$s에서 항목을 재생할 수 없었습니다</string>
     <string name="playback_source_file_system">파일 시스템</string>
     <string name="playback_source_external_resource">외부 리소스</string>
     <string name="playback_source_server_url">서버 URL</string>

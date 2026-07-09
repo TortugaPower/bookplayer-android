@@ -4,7 +4,7 @@
     <string name="media_servers_error_auth_failed">Autenticazione non riuscita: %1$s</string>
     <string name="media_servers_error_connection_failed">Errore di connessione: %1$s</string>
     <string name="external_library_audiobook_library_caption">Libreria di audiolibri</string>
-    <string name="playback_error_cannot_play">Non è stato possibile riprodurre l’elemento da %1</string>
+    <string name="playback_error_cannot_play">Non è stato possibile riprodurre l’elemento da %1$s</string>
     <string name="playback_source_file_system">il file system</string>
     <string name="playback_source_external_resource">la risorsa esterna</string>
     <string name="playback_source_server_url">l’URL del server</string>
