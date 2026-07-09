@@ -274,6 +274,7 @@
     <string name="library_delete_items_message">Are you sure you want to delete these %1$d items? This will also remove the physical files.</string>
     <string name="library_delete_folder_warning">\n\nNote: Deleting a folder will also delete all of its contents.</string>
     <string name="library_empty_message">Your library is empty</string>
+    <string name="library_sync_tasks_busy">Waiting for sync tasks to finish</string>
     <string name="library_see_details">See details</string>
     <string name="library_view_style">View Style</string>
     <string name="library_folder_empty">0 Files</string>

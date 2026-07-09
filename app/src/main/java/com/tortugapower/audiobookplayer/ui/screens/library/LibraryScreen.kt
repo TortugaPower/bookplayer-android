@@ -17,13 +17,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,13 +107,25 @@ fun LibraryScreen(
 
     val currentPath by libraryViewModel.currentPath.collectAsState()
     val account by accountRepository.getAccountFlow().collectAsState(initial = null)
-    
+    // Cloud sync is available on PRO/LITE — gates both the auto-fetch on navigation and pull-to-refresh.
+    val canSyncLibrary = account?.tier == AccountTier.PRO || account?.tier == AccountTier.LITE
+
+    val isRefreshing by libraryViewModel.isRefreshing.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val syncTasksBusyMessage = stringResource(R.string.library_sync_tasks_busy)
+    // A pull-to-refresh that lands while sync jobs are queued is declined (see LibraryViewModel.refresh);
+    // surface that as a transient note rather than silently doing nothing.
+    LaunchedEffect(Unit) {
+        libraryViewModel.syncTasksBusy.collect {
+            snackbarHostState.showSnackbar(syncTasksBusyMessage)
+        }
+    }
+
     // Fetch contents with throttle when path or account changes (e.g. login)
     LaunchedEffect(currentPath, account) {
         val pathKey = currentPath ?: "root"
-        val currentAccount = account
-        
-        if (currentAccount != null && (currentAccount.tier == AccountTier.PRO || currentAccount.tier == AccountTier.LITE)) {
+
+        if (canSyncLibrary) {
             if (SyncStatusManager.canFetchContents(pathKey)) {
                 if (SyncTaskFactory.createFetchContentsTask(syncTaskRepository, currentPath)) {
                     SyncStatusManager.markPathAsFetched(pathKey)
@@ -656,160 +671,173 @@ fun LibraryScreen(
                 }
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
-        AnimatedContent(
-            targetState = currentPath,
-            transitionSpec = {
-                if (targetState != null && (initialState == null || targetState!!.length > (initialState?.length ?: 0))) {
-                    slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(FolderNavDurationMillis)) togetherWith
-                    slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(FolderNavDurationMillis))
-                } else {
-                    slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(FolderNavDurationMillis)) togetherWith
-                    slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(FolderNavDurationMillis))
-                }
-            },
-            label = "FolderNavigation",
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { libraryViewModel.refresh(syncEnabled = canSyncLibrary) },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-        ) { path ->
-            val pathItems by remember(path) { libraryViewModel.getItemsForPath(path) }.collectAsState()
+        ) {
+            AnimatedContent(
+                targetState = currentPath,
+                transitionSpec = {
+                    if (targetState != null && (initialState == null || targetState!!.length > (initialState?.length ?: 0))) {
+                        slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(FolderNavDurationMillis)) togetherWith
+                        slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(FolderNavDurationMillis))
+                    } else {
+                        slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(FolderNavDurationMillis)) togetherWith
+                        slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(FolderNavDurationMillis))
+                    }
+                },
+                label = "FolderNavigation",
+                modifier = Modifier.fillMaxSize(),
+            ) { path ->
+                val pathItems by remember(path) { libraryViewModel.getItemsForPath(path) }.collectAsState()
             
-            // Local state to handle reordering during selection mode
-            val reorderableItems = remember(pathItems, isSelectMode) { 
-                pathItems.toMutableStateList() 
-            }
-
-            if (pathItems.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(stringResource(R.string.library_empty_message), color = Color.Gray)
+                // Local state to handle reordering during selection mode
+                val reorderableItems = remember(pathItems, isSelectMode) { 
+                    pathItems.toMutableStateList() 
                 }
-            } else {
-                val lazyListState = rememberLazyListState()
-                val density = LocalDensity.current
+
+                if (pathItems.isEmpty()) {
+                    // Scrollable so pull-to-refresh works on an empty folder (the main reason to refresh).
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(stringResource(R.string.library_empty_message), color = Color.Gray)
+                    }
+                } else {
+                    val lazyListState = rememberLazyListState()
+                    val density = LocalDensity.current
                 
-                LazyColumn(
-                    state = lazyListState,
-                    modifier = Modifier.fillMaxSize(),
-                    // Reserve space for the floating mini player so the last item clears it
-                    // while the list still scrolls behind the pill.
-                    contentPadding = PaddingValues(bottom = LocalMiniPlayerInset.current)
-                ) {
-                    itemsIndexed(reorderableItems, key = { _, it -> it.uuid }) { index, item ->
-                        val isSelected = selectedItemUuids.contains(item.uuid)
-                        val dismissState = rememberSwipeToDismissBoxState()
+                    LazyColumn(
+                        state = lazyListState,
+                        modifier = Modifier.fillMaxSize(),
+                        // Reserve space for the floating mini player so the last item clears it
+                        // while the list still scrolls behind the pill.
+                        contentPadding = PaddingValues(bottom = LocalMiniPlayerInset.current)
+                    ) {
+                        itemsIndexed(reorderableItems, key = { _, it -> it.uuid }) { index, item ->
+                            val isSelected = selectedItemUuids.contains(item.uuid)
+                            val dismissState = rememberSwipeToDismissBoxState()
 
-                        LaunchedEffect(dismissState.currentValue) {
-                            if (!isSelectMode && dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
-                                itemsToDelete = listOf(item)
-                                dismissState.reset()
-                            }
-                        }
-
-                        SwipeToDismissBox(
-                            state = dismissState,
-                            backgroundContent = {
-                                val isSwiping = !isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
-                                val color = if (isSwiping) Color(0xFFE57373) else Color.Transparent
-                                
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(color)
-                                        .clickable { 
-                                            if (isSwiping) itemsToDelete = listOf(item)
-                                        }
-                                        .padding(horizontal = 24.dp),
-                                    contentAlignment = Alignment.CenterEnd
-                                ) {
-                                    if (isSwiping) {
-                                        Icon(
-                                            Icons.Default.Delete,
-                                            contentDescription = "Delete",
-                                            tint = Color.White
-                                        )
-                                    }
+                            LaunchedEffect(dismissState.currentValue) {
+                                if (!isSelectMode && dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
+                                    itemsToDelete = listOf(item)
+                                    dismissState.reset()
                                 }
-                            },
-                            enableDismissFromStartToEnd = false
-                        ) {
-                            Surface(
-                                color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.background,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                LibraryListItem(
-                                    item = item,
-                                    isSelected = isSelected,
-                                    isSelectMode = isSelectMode,
-                                    syncTaskRepository = syncTaskRepository,
-                                    libraryViewModel = libraryViewModel,
-                                    modifier = if (isSelectMode) {
-                                        Modifier.pointerInput(item.uuid, reorderableItems) {
-                                            var dragAccumulator = 0f
-                                            detectDragGesturesAfterLongPress(
-                                                onDragStart = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) },
-                                                onDragEnd = { libraryViewModel.reorderItems(reorderableItems.toList()) },
-                                                onDrag = { change, dragAmount ->
-                                                    change.consume()
-                                                    dragAccumulator += dragAmount.y
-                                                    
-                                                    val currentIndex = reorderableItems.indexOfFirst { it.uuid == item.uuid }
-                                                    if (currentIndex == -1) return@detectDragGesturesAfterLongPress
-                                                    
-                                                    val threshold = with(density) { 64.dp.toPx() }
-                                                    
-                                                    if (dragAccumulator > threshold && currentIndex < reorderableItems.size - 1) {
-                                                        reorderableItems[currentIndex] = reorderableItems[currentIndex + 1]
-                                                        reorderableItems[currentIndex + 1] = item
-                                                        dragAccumulator = 0f
-                                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                                    } else if (dragAccumulator < -threshold && currentIndex > 0) {
-                                                        reorderableItems[currentIndex] = reorderableItems[currentIndex - 1]
-                                                        reorderableItems[currentIndex - 1] = item
-                                                        dragAccumulator = 0f
-                                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                                    }
-                                                }
+                            }
+
+                            SwipeToDismissBox(
+                                state = dismissState,
+                                backgroundContent = {
+                                    val isSwiping = !isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
+                                    val color = if (isSwiping) Color(0xFFE57373) else Color.Transparent
+                                
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(color)
+                                            .clickable { 
+                                                if (isSwiping) itemsToDelete = listOf(item)
+                                            }
+                                            .padding(horizontal = 24.dp),
+                                        contentAlignment = Alignment.CenterEnd
+                                    ) {
+                                        if (isSwiping) {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = "Delete",
+                                                tint = Color.White
                                             )
                                         }
-                                    } else Modifier,
-                                    onClick = {
-                                        if (isSelectMode) {
-                                            selectedItemUuids = if (isSelected) {
-                                                selectedItemUuids - item.uuid
-                                            } else {
-                                                selectedItemUuids + item.uuid
-                                            }
-                                        } else {
-                                            if (item.type == ItemType.FOLDER) {
-                                                libraryViewModel.navigateTo(item.relativePath ?: "")
-                                            } else {
-                                                val isCurrentlyPlaying = PlaybackManager.currentItem.value?.uuid == item.uuid
-                                                if (isCurrentlyPlaying) {
-                                                    PlaybackManager.setShowPlayer(true)
-                                                    if (PlaybackManager.player?.isPlaying == false) {
-                                                        PlaybackManager.player?.play()
+                                    }
+                                },
+                                enableDismissFromStartToEnd = false
+                            ) {
+                                Surface(
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.background,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    LibraryListItem(
+                                        item = item,
+                                        isSelected = isSelected,
+                                        isSelectMode = isSelectMode,
+                                        syncTaskRepository = syncTaskRepository,
+                                        libraryViewModel = libraryViewModel,
+                                        modifier = if (isSelectMode) {
+                                            Modifier.pointerInput(item.uuid, reorderableItems) {
+                                                var dragAccumulator = 0f
+                                                detectDragGesturesAfterLongPress(
+                                                    onDragStart = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) },
+                                                    onDragEnd = { libraryViewModel.reorderItems(reorderableItems.toList()) },
+                                                    onDrag = { change, dragAmount ->
+                                                        change.consume()
+                                                        dragAccumulator += dragAmount.y
+                                                    
+                                                        val currentIndex = reorderableItems.indexOfFirst { it.uuid == item.uuid }
+                                                        if (currentIndex == -1) return@detectDragGesturesAfterLongPress
+                                                    
+                                                        val threshold = with(density) { 64.dp.toPx() }
+                                                    
+                                                        if (dragAccumulator > threshold && currentIndex < reorderableItems.size - 1) {
+                                                            reorderableItems[currentIndex] = reorderableItems[currentIndex + 1]
+                                                            reorderableItems[currentIndex + 1] = item
+                                                            dragAccumulator = 0f
+                                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                                        } else if (dragAccumulator < -threshold && currentIndex > 0) {
+                                                            reorderableItems[currentIndex] = reorderableItems[currentIndex - 1]
+                                                            reorderableItems[currentIndex - 1] = item
+                                                            dragAccumulator = 0f
+                                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                                        }
                                                     }
+                                                )
+                                            }
+                                        } else Modifier,
+                                        onClick = {
+                                            if (isSelectMode) {
+                                                selectedItemUuids = if (isSelected) {
+                                                    selectedItemUuids - item.uuid
                                                 } else {
-                                                    PlaybackManager.playItem(context, item)
+                                                    selectedItemUuids + item.uuid
+                                                }
+                                            } else {
+                                                if (item.type == ItemType.FOLDER) {
+                                                    libraryViewModel.navigateTo(item.relativePath ?: "")
+                                                } else {
+                                                    val isCurrentlyPlaying = PlaybackManager.currentItem.value?.uuid == item.uuid
+                                                    if (isCurrentlyPlaying) {
+                                                        PlaybackManager.setShowPlayer(true)
+                                                        if (PlaybackManager.player?.isPlaying == false) {
+                                                            PlaybackManager.player?.play()
+                                                        }
+                                                    } else {
+                                                        PlaybackManager.playItem(context, item)
+                                                    }
                                                 }
                                             }
+                                        },
+                                        onLongClick = {
+                                            if (!isSelectMode) {
+                                                isSelectMode = true
+                                                selectedItemUuids = setOf(item.uuid)
+                                            }
                                         }
-                                    },
-                                    onLongClick = {
-                                        if (!isSelectMode) {
-                                            isSelectMode = true
-                                            selectedItemUuids = setOf(item.uuid)
-                                        }
-                                    }
-                                )
+                                    )
+                                }
                             }
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = if (isSelectMode) 120.dp else 80.dp),
+                                thickness = 0.5.dp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                            )
                         }
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = if (isSelectMode) 120.dp else 80.dp),
-                            thickness = 0.5.dp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                        )
                     }
                 }
             }
