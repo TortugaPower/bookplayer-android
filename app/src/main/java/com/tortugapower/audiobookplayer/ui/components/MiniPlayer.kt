@@ -150,11 +150,16 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
                     )
                 } else {
                     // Embedded-art fallback (same path as the library list), so the mini player matches it.
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
+                    // remember-ed so it isn't rebuilt on every recompose (the mini player recomposes on each
+                    // isPlaying / interval change).
+                    val artworkRequest = remember(currentItem.uuid, currentItem.relativePath, currentItem.remoteURL) {
+                        ImageRequest.Builder(context)
                             .data(ItemArtwork(currentItem.uuid, currentItem.relativePath, currentItem.remoteURL))
                             .crossfade(true)
-                            .build(),
+                            .build()
+                    }
+                    AsyncImage(
+                        model = artworkRequest,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop

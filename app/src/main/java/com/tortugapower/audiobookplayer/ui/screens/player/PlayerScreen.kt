@@ -741,11 +741,15 @@ private fun PlayerArtwork(
         } else if (embeddedArtwork != null) {
             // No stored artworkURL: extract the embedded cover (local file, else remote stream) — the same
             // path the library list uses, so the player matches it instead of showing the empty gradient.
-            AsyncImage(
-                model = ImageRequest.Builder(context)
+            // remember-ed (keyed by the model) so it isn't rebuilt on every recompose.
+            val artworkRequest = remember(embeddedArtwork) {
+                ImageRequest.Builder(context)
                     .data(embeddedArtwork)
                     .crossfade(true)
-                    .build(),
+                    .build()
+            }
+            AsyncImage(
+                model = artworkRequest,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
