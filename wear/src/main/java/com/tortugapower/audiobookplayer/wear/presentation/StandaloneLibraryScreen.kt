@@ -42,6 +42,7 @@ import androidx.wear.compose.material.LocalContentColor
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.dialog.Dialog
+import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.wear.R
 
@@ -109,7 +110,7 @@ fun StandaloneLibraryScreen(
                 // Whole-book progress: downloaded files count as whole units, in-flight files add their
                 // live fraction (matches iOS) — so a bound book fills 0→50%→100%, not once per file.
                 val inProgressSum = row.downloadUuids.sumOf { progressMap[it] ?: 0.0 }
-                val downloadProgress = StandaloneViewModel.downloadProgressFraction(
+                val downloadProgress = OfflineDownloadManager.downloadProgressFraction(
                     row.downloadedUnits, row.totalUnits, inProgressSum,
                 )
                 LibraryRowItem(

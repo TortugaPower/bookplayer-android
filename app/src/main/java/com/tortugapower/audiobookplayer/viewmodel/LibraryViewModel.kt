@@ -9,8 +9,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -111,6 +114,48 @@ class LibraryViewModel(
             .first { tasks ->
                 tasks.none { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS && it.taskID == taskKey }
             }
+    }
+
+    /**
+     * uuids with a download task queued or running — one shared queue observation for every library row.
+     * Task-based (not byte-progress-based) so a row reads "downloading" from the moment of the tap, and
+     * flips back the moment the task is deleted (completion, cancel, or terminal failure).
+     */
+    val activeDownloadUuids: StateFlow<Set<String>> = syncTaskRepository.getAllTasks()
+        .map { tasks ->
+            tasks.filter {
+                it.jobType == SyncTaskFactory.JOB_DOWNLOAD_FILE &&
+                    (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING)
+            }.map { it.taskID }.toSet()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    /**
+     * The BOOK files behind [item] (itself for a BOOK; its children for a BOUND), as a reactive Room flow.
+     * Reactive on purpose: right after sign-in a BOUND row can compose before `fetch_contents` has inserted
+     * its sub-books — a one-shot query would come back empty and leave the row blind to its own download
+     * (no ring, stale cloud icon) forever. A flow re-emits when the rows land.
+     */
+    fun downloadUnitsFlow(item: LibraryItemEntity): Flow<List<LibraryItemEntity>> = when (item.type) {
+        ItemType.BOOK -> flowOf(listOf(item))
+        ItemType.BOUND -> item.relativePath?.let { path ->
+            repository.getItemsInPath(path).map { children -> children.filter { it.type == ItemType.BOOK } }
+        } ?: flowOf(emptyList())
+        else -> flowOf(emptyList())
+    }
+
+    /**
+     * Download [item] for offline via the shared `:core` orchestration (same path as Wear): fans a BOUND
+     * book out into its BOOK files, skips already-local/queued files, refreshes expiring presigned URLs,
+     * then starts the sync engine to run the tasks.
+     */
+    fun startDownload(item: LibraryItemEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            OfflineDownloadManager.startDownload(appContext, repository, syncTaskRepository, item)
+            appContext.startService(
+                android.content.Intent(appContext, com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost::class.java)
+            )
+        }
     }
 
     private val itemsCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()

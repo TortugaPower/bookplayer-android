@@ -88,6 +88,32 @@ class OfflineDownloadOrchestrationTest {
         assertTrue("running download must be cooperatively cancelled", SyncStatusManager.isCancelRequested(uuid))
     }
 
+    // Whole-item progress aggregation (moved here from the Wear tests when the helper was hoisted to :core).
+
+    @Test fun `bound download progress aggregates across files (0 to 50 to 100)`() {
+        // 2-file bound book: first file half-done → 25%; first done + second half → 75%; both done → 100%.
+        assertEquals(0.25f, OfflineDownloadManager.downloadProgressFraction(downloadedUnits = 0, totalUnits = 2, inProgressSum = 0.5), 0.0001f)
+        assertEquals(0.75f, OfflineDownloadManager.downloadProgressFraction(downloadedUnits = 1, totalUnits = 2, inProgressSum = 0.5), 0.0001f)
+        assertEquals(1.0f, OfflineDownloadManager.downloadProgressFraction(downloadedUnits = 2, totalUnits = 2, inProgressSum = 0.0), 0.0001f)
+    }
+
+    @Test fun `single-file download progress is its own fraction`() {
+        assertEquals(0.3f, OfflineDownloadManager.downloadProgressFraction(downloadedUnits = 0, totalUnits = 1, inProgressSum = 0.3), 0.0001f)
+    }
+
+    @Test fun `download progress is zero for zero units`() {
+        assertEquals(0f, OfflineDownloadManager.downloadProgressFraction(downloadedUnits = 0, totalUnits = 0, inProgressSum = 0.0), 0.0001f)
+    }
+
+    @Test fun `a partially-written file with an active task does not count as downloaded`() {
+        // The processor streams into the final path, so the file "exists" from the first byte — counting it
+        // would add a whole unit AND its live fraction (a 2-file bound's ring would fill once per file).
+        assertFalse(OfflineDownloadManager.unitDownloaded(fileExists = true, taskActive = true))
+        assertTrue(OfflineDownloadManager.unitDownloaded(fileExists = true, taskActive = false))
+        assertFalse(OfflineDownloadManager.unitDownloaded(fileExists = false, taskActive = false))
+        assertFalse(OfflineDownloadManager.unitDownloaded(fileExists = false, taskActive = true))
+    }
+
     private fun downloadTask(status: SyncTaskStatus) = SyncTaskEntity(
         id = "row-$uuid", taskID = uuid, queueKey = SyncTaskFactory.QUEUE_FILE,
         jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0, payload = "{}", status = status,

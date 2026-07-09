@@ -60,6 +60,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -768,7 +769,6 @@ fun LibraryScreen(
                                         item = item,
                                         isSelected = isSelected,
                                         isSelectMode = isSelectMode,
-                                        syncTaskRepository = syncTaskRepository,
                                         libraryViewModel = libraryViewModel,
                                         modifier = if (isSelectMode) {
                                             Modifier.pointerInput(item.uuid, reorderableItems) {
@@ -863,26 +863,69 @@ fun LibraryListItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
-    syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository? = null,
     libraryViewModel: com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel? = null
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     val externalResources = item.externalResources
 
-    val isLocal = remember(item.relativePath, item.type) {
-        if (item.type == ItemType.FOLDER) true
-        else if (item.relativePath == null) false
-        else {
-            val processedDir = java.io.File(context.filesDir, "Processed")
-            java.io.File(processedDir, item.relativePath!!).exists()
+    // The BOOK files behind this row: a BOOK is itself (no DB hit); a BOUND observes its children as a
+    // reactive Room flow — NOT a one-shot query, which right after sign-in could run before fetch_contents
+    // inserted the sub-books and leave the row permanently blind to its own download (no ring, stale cloud).
+    // Downloads, progress, and the local/cloud state all aggregate over these units — the same `:core`
+    // model the Wear standalone library uses.
+    val downloadUnits by remember(item.uuid, item.relativePath, item.type) {
+        libraryViewModel?.downloadUnitsFlow(item) ?: kotlinx.coroutines.flow.flowOf(emptyList())
+    }.collectAsState(initial = if (item.type == ItemType.BOOK) listOf(item) else emptyList())
+
+    // Task-queue-driven "downloading" state (shared one-per-screen observation): true from the tap until
+    // every unit's task is gone (completion, cancel, or terminal failure) — not just while bytes flow.
+    val activeDownloadUuids by (libraryViewModel?.activeDownloadUuids
+        ?: remember { MutableStateFlow(emptySet()) }).collectAsState()
+    val isDownloading = downloadUnits.any { it.uuid in activeDownloadUuids }
+
+    // Whole-item progress over the units (a 2-file bound book fills 0→50%→100%), mirroring Wear/iOS.
+    val taskProgress by SyncStatusManager.taskProgress.collectAsState()
+    val downloadProgress: Float? = if (!isDownloading) null else {
+        // Snapshot the whole-unit count on task transitions (not per byte-tick): the processor streams
+        // straight into the final path, so a unit only counts as downloaded once its task is gone — see
+        // OfflineDownloadManager.unitDownloaded. Keyed on the active-task set so a completed file re-counts
+        // exactly when its task is deleted, without re-stat-ing the disk on every progress emission.
+        val downloadedCount = remember(downloadUnits, activeDownloadUuids) {
+            downloadUnits.count {
+                com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.unitDownloaded(
+                    fileExists = com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.isFileDownloaded(context, it.relativePath),
+                    taskActive = it.uuid in activeDownloadUuids,
+                )
+            }
         }
+        com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.downloadProgressFraction(
+            downloadedUnits = downloadedCount,
+            totalUnits = downloadUnits.size,
+            // Live fractions only for the in-flight files; completed ones are whole units above.
+            inProgressSum = downloadUnits.filter { it.uuid in activeDownloadUuids }.sumOf { taskProgress[it.uuid] ?: 0.0 },
+        )
     }
 
-    val taskProgress by SyncStatusManager.taskProgress.collectAsState()
-    val downloadProgress = taskProgress[item.uuid]
+    // Disk truth per unit, re-checked when a download for this row starts/finishes (`isDownloading` flips
+    // when the tasks drain — after the processor wrote the file, or deleted it on cancel/failure). Without
+    // that key the result is cached and the row keeps its cloud icon after a download completes, until the
+    // row is recomposed from scratch (scroll away/back or re-enter the folder). While a BOUND's units are
+    // still resolving, fall back to the item's own path check.
+    val isLocal = remember(item.relativePath, item.type, downloadUnits, isDownloading) {
+        when {
+            item.type == ItemType.FOLDER -> true
+            downloadUnits.isNotEmpty() -> downloadUnits.all {
+                com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.isFileDownloaded(context, it.relativePath)
+            }
+            item.relativePath == null -> false
+            else -> {
+                val processedDir = java.io.File(context.filesDir, "Processed")
+                java.io.File(processedDir, item.relativePath!!).exists()
+            }
+        }
+    }
 
     val durationText = if (item.duration > 0) {
         val h = (item.duration / 3600).toInt()
@@ -957,19 +1000,13 @@ fun LibraryListItem(
             .then(artworkBackground)
 
         Box(
-            modifier = if (showCloud && downloadProgress == null) {
+            modifier = if (showCloud && !isDownloading) {
                 artworkModifier
                     .clickable(
                         onClickLabel = stringResource(R.string.common_download),
-                        onClick = {
-                            syncTaskRepository?.let { repo ->
-                                scope.launch {
-                                    val resolvedItem = libraryViewModel?.resolveStreamingUrl(item) ?: item
-                                    SyncTaskFactory.createDownloadFileTask(repo, resolvedItem)
-                                    context.startService(android.content.Intent(context, com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost::class.java))
-                                }
-                            }
-                        }
+                        // Shared :core orchestration (same as Wear): fans a BOUND book out into its BOOK
+                        // files, skips local/queued files, refreshes presigned URLs, starts the sync host.
+                        onClick = { libraryViewModel?.startDownload(item) }
                     )
             } else {
                 artworkModifier.clearAndSetSemantics { }
@@ -1015,7 +1052,7 @@ fun LibraryListItem(
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator(
-                        progress = { downloadProgress.toFloat() },
+                        progress = { downloadProgress },
                         modifier = Modifier.size(32.dp),
                         color = Color.White,
                         strokeWidth = 3.dp,

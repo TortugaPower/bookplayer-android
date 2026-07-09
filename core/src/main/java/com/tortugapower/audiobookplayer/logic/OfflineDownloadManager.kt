@@ -142,4 +142,24 @@ object OfflineDownloadManager {
                 it.taskID == uuid &&
                 (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING)
         }
+
+    /**
+     * Whole-item download progress (pure, unit-tested), mirroring iOS `calculateDownloadProgress`:
+     * (already-downloaded files + summed live progress of the in-flight files) / total files. So a
+     * 2-file bound book goes 0→50%→100% rather than filling per file. [inProgressSum] is Σ of the
+     * live 0..1 progress of the not-yet-downloaded files. Shared by the phone library rows and the
+     * Wear standalone library.
+     */
+    fun downloadProgressFraction(downloadedUnits: Int, totalUnits: Int, inProgressSum: Double): Float =
+        if (totalUnits <= 0) 0f else ((downloadedUnits + inProgressSum) / totalUnits).toFloat().coerceIn(0f, 1f)
+
+    /**
+     * Whether a unit counts as a whole downloaded file in the aggregate (pure, unit-tested). File
+     * existence alone is NOT enough: [DownloadFileProcessor] streams straight into the final Processed
+     * path, so a partially-written file already "exists" while its task runs — counting it would add a
+     * whole unit AND its live fraction to [downloadProgressFraction], making a 2-file bound book's ring
+     * jump to 50% and fill once per file. A unit is downloaded only once its file exists and its task is
+     * gone. Shared by the phone library rows and the Wear standalone library.
+     */
+    fun unitDownloaded(fileExists: Boolean, taskActive: Boolean): Boolean = fileExists && !taskActive
 }

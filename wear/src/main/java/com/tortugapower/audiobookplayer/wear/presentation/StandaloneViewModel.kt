@@ -138,9 +138,17 @@ class StandaloneViewModel(
         val base = toRow(source.item)
         if (source.item.type == ItemType.FOLDER) return base
         val statuses = source.units.map { unit ->
+            val taskActive = OfflineDownloadManager.isTaskActive(tasks, unit.uuid)
             DownloadUnitStatus(
-                downloaded = OfflineDownloadManager.isFileDownloaded(appContext, unit.relativePath),
-                taskActive = OfflineDownloadManager.isTaskActive(tasks, unit.uuid),
+                // Shared partial-file rule: the processor streams straight into the final path, so a file
+                // that "exists" while its task is still active is in-flight, not downloaded — otherwise an
+                // emission landing mid-stream double-counts it in the progress bar (whole unit + live
+                // fraction) and can flash the row Downloaded early.
+                downloaded = OfflineDownloadManager.unitDownloaded(
+                    fileExists = OfflineDownloadManager.isFileDownloaded(appContext, unit.relativePath),
+                    taskActive = taskActive,
+                ),
+                taskActive = taskActive,
             )
         }
         return base.copy(
@@ -169,14 +177,8 @@ class StandaloneViewModel(
             else -> DownloadUiState.NotDownloaded
         }
 
-        /**
-         * Whole-book download progress (pure, unit-tested), mirroring iOS `calculateDownloadProgress`:
-         * (already-downloaded files + summed live progress of the in-flight files) / total files. So a
-         * 2-file bound book goes 0→50%→100% rather than filling per file. [inProgressSum] is Σ of the
-         * live 0..1 progress of the not-yet-downloaded files.
-         */
-        fun downloadProgressFraction(downloadedUnits: Int, totalUnits: Int, inProgressSum: Double): Float =
-            if (totalUnits <= 0) 0f else ((downloadedUnits + inProgressSum) / totalUnits).toFloat().coerceIn(0f, 1f)
+        // Whole-book download progress moved to :core — OfflineDownloadManager.downloadProgressFraction —
+        // so the phone library rows share the exact same aggregation.
 
         /** Pure entity → row mapping (unit-tested). id = relativePath (nav/play key) or uuid fallback. */
         fun toRow(item: LibraryItemEntity): LibraryRow = LibraryRow(

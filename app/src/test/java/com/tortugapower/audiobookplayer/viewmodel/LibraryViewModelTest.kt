@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
+import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
@@ -56,8 +57,10 @@ class LibraryViewModelTest {
     private class FakeLibraryRepository(
         private val rootItems: Flow<List<LibraryItemEntity>> = emptyFlow(),
     ) : LibraryRepository {
+        // Reactive per-path children (drives downloadUnitsFlow for BOUND rows in tests).
+        val itemsInPath = MutableStateFlow<List<LibraryItemEntity>>(emptyList())
         override fun getRootItems(): Flow<List<LibraryItemEntity>> = rootItems
-        override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = emptyFlow()
+        override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = itemsInPath
         override fun getFoldersInPath(path: String?): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun getAllContainers(): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun searchBooks(query: String): Flow<List<LibraryItemEntity>> = emptyFlow()
@@ -124,9 +127,10 @@ class LibraryViewModelTest {
     private fun modelWith(
         rootItems: Flow<List<LibraryItemEntity>> = emptyFlow(),
         syncRepo: SyncTaskRepository = FakeSyncTaskRepository(),
+        libraryRepo: FakeLibraryRepository = FakeLibraryRepository(rootItems),
     ) = LibraryViewModel(
         ApplicationProvider.getApplicationContext(),
-        FakeLibraryRepository(rootItems),
+        libraryRepo,
         syncRepo,
     )
 
@@ -201,5 +205,59 @@ class LibraryViewModelTest {
         assertEquals(1, busy.size)
         assertTrue(syncRepo.tasks.value.none { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS })
         assertFalse(model.isRefreshing.value)
+    }
+
+    // Row "downloading" signal: only queued/running download tasks count — other job types are ignored,
+    // and the uuid drops out the moment its task is deleted (completion/cancel), flipping the row back.
+    @Test fun activeDownloadUuids_tracksQueuedDownloadTasksOnly() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        val model = modelWith(syncRepo = syncRepo)
+
+        backgroundScope.launch { model.activeDownloadUuids.collect {} }
+        runCurrent()
+        assertTrue(model.activeDownloadUuids.value.isEmpty())
+
+        val download = SyncTaskEntity(
+            id = "t1", taskID = "book-1", queueKey = SyncTaskFactory.QUEUE_FILE,
+            jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0, payload = "{}",
+        )
+        syncRepo.saveTask(download)
+        syncRepo.saveTask(
+            SyncTaskEntity(
+                id = "t2", taskID = "book-2", queueKey = SyncTaskFactory.QUEUE_SYNC,
+                jobType = "update", position = 0, payload = "{}",
+            ),
+        )
+        runCurrent()
+        assertEquals(setOf("book-1"), model.activeDownloadUuids.value)
+
+        syncRepo.deleteTask(download)
+        runCurrent()
+        assertTrue(model.activeDownloadUuids.value.isEmpty())
+    }
+
+    // A BOUND row can compose before fetch_contents inserts its sub-books (fresh sign-in). The units flow
+    // must re-emit when they land — a one-shot query would leave the row permanently blind to its download.
+    @Test fun downloadUnitsFlow_boundReactsWhenChildrenArrive() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository()
+        val model = modelWith(libraryRepo = libraryRepo)
+        val bound = LibraryItemEntity(
+            uuid = "bound-1", title = "002", relativePath = "002", type = ItemType.BOUND, orderRank = 0,
+        )
+
+        val emissions = mutableListOf<List<LibraryItemEntity>>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            model.downloadUnitsFlow(bound).collect { emissions += it }
+        }
+        runCurrent()
+        assertTrue(emissions.last().isEmpty()) // composed before the children were fetched
+
+        libraryRepo.itemsInPath.value = listOf(
+            LibraryItemEntity(uuid = "b1", title = "002", relativePath = "002/002.mp3", type = ItemType.BOOK, orderRank = 0),
+            LibraryItemEntity(uuid = "f1", title = "sub", relativePath = "002/sub", type = ItemType.FOLDER, orderRank = 1),
+        )
+        runCurrent()
+        // Re-emits once the rows land; only the BOOK files count as download units.
+        assertEquals(listOf("b1"), emissions.last().map { it.uuid })
     }
 }
