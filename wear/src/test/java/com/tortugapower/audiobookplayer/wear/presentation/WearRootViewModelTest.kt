@@ -2,8 +2,11 @@ package com.tortugapower.audiobookplayer.wear.presentation
 
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
+import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
+import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.datalayer.WatchAuthPayload
 import com.tortugapower.audiobookplayer.repository.AccountRepository
+import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.wear.auth.WatchAuthenticator
 import com.tortugapower.audiobookplayer.wear.auth.WearAuthOutcome
 import com.tortugapower.audiobookplayer.wear.data.WearThemeRepository
@@ -56,11 +59,51 @@ class WearRootViewModelTest {
         override val theme: Flow<com.tortugapower.audiobookplayer.datalayer.WatchTheme?> = flowOf(null)
     }
 
+    // Only getRootItems() is exercised (the VM's library-ready gate); the rest are unused stubs.
+    private class FakeLibraryRepository : LibraryRepository {
+        override fun getRootItems(): Flow<List<LibraryItemEntity>> = flowOf(emptyList())
+        override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = flowOf(emptyList())
+        override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = emptyList()
+        override suspend fun getItemById(uuid: String): LibraryItemEntity? = null
+        override suspend fun getItemByPath(path: String): LibraryItemEntity? = null
+        override fun getFoldersInPath(path: String?): Flow<List<LibraryItemEntity>> = flowOf(emptyList())
+        override fun getAllContainers(): Flow<List<LibraryItemEntity>> = flowOf(emptyList())
+        override fun searchBooks(query: String): Flow<List<LibraryItemEntity>> = flowOf(emptyList())
+        override fun searchAllBooks(query: String): Flow<List<LibraryItemEntity>> = flowOf(emptyList())
+        override suspend fun isCloudSyncActive(): Boolean = false
+        override suspend fun saveItem(item: LibraryItemEntity) {}
+        override suspend fun updateItem(item: LibraryItemEntity) {}
+        override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {}
+        override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) {}
+        override suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>) {}
+        override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {}
+        override suspend fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String) {}
+        override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {}
+        override suspend fun convertFoldersToVolumes(context: android.content.Context, items: List<LibraryItemEntity>) {}
+        override suspend fun reorderItems(items: List<LibraryItemEntity>) {}
+        override suspend fun updateArtworkSync(item: LibraryItemEntity) {}
+        override fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>> = flowOf(emptyList())
+        override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? = null
+        override suspend fun addBookmark(bookmark: BookmarkEntity): Long = 0L
+        override suspend fun updateBookmark(bookmark: BookmarkEntity) {}
+        override suspend fun deleteBookmark(bookmark: BookmarkEntity) {}
+        override fun getChaptersForBook(bookUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>> = flowOf(emptyList())
+        override suspend fun insertChapters(chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}
+        override suspend fun replaceChaptersForBook(bookUuid: String, chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}
+        override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? = null
+        override suspend fun getExternalResource(itemUuid: String, provider: String): com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity? = null
+        override fun getExternalResourcesForBook(itemUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>> = flowOf(emptyList())
+        override suspend fun saveExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity) {}
+        override suspend fun deleteExternalResource(itemUuid: String, provider: String) {}
+        override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
+        override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
+    }
+
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
 
     private fun modelFor(repo: AccountRepository, outcome: WearAuthOutcome) =
-        WearRootViewModel(repo, FakeAuthenticator(outcome), FakeThemeRepository())
+        WearRootViewModel(repo, FakeAuthenticator(outcome), FakeThemeRepository(), FakeLibraryRepository())
 
     @Test fun signIn_success_persistsTransferredAccountIncludingRevenuecatId() = runTest(dispatcher) {
         val repo = FakeAccountRepository()

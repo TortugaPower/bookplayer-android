@@ -79,4 +79,5 @@
     <string name="wear_unknown_author">Unknown author</string>
     <string name="wear_media_rewind">Rewind</string>
     <string name="wear_media_fast_forward">Fast forward</string>
+    <string name="wear_loading">Loading</string>
 </resources>

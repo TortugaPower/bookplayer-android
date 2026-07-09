@@ -8,6 +8,7 @@ import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.datalayer.WatchTheme
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.repository.AccountRepository
+import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.wear.auth.WatchAuthenticator
 import com.tortugapower.audiobookplayer.wear.auth.WearAuthOutcome
 import com.tortugapower.audiobookplayer.wear.data.WearThemeRepository
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -32,6 +34,15 @@ sealed interface SignInUiState {
 }
 
 /**
+ * The account read from the local DB. [Loading] is the pre-read state (distinct from a resolved `null` =
+ * signed out) so the root can hold a loading screen instead of flashing the wrong mode on a cold start.
+ */
+private sealed interface AccountLoad {
+    data object Loading : AccountLoad
+    data class Loaded(val account: AccountEntity?) : AccountLoad
+}
+
+/**
  * Derives the current [WatchMode] from the account in the shared `:core` repository, and drives the
  * phone→watch sign-in handoff. On success it persists the transferred account (token Keystore-encrypted
  * by the repository) and re-checks the tier via RevenueCat — after which [mode] switches on its own.
@@ -40,21 +51,49 @@ class WearRootViewModel(
     private val accountRepository: AccountRepository,
     private val authenticator: WatchAuthenticator,
     themeRepository: WearThemeRepository,
+    libraryRepository: LibraryRepository,
 ) : ViewModel() {
 
     /** The user's phone-selected theme colors (null until the phone syncs one → default palette applies). */
     val theme: StateFlow<WatchTheme?> = themeRepository.theme
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    private val accountFlow: StateFlow<AccountEntity?> = accountRepository.getAccountFlow()
+    // Single eager read of the account — the one source of truth for tier/mode. Eager (not WhileSubscribed)
+    // so [mode] can't flash a default before the DB resolves, and so the sign-in observer's `accountLoad`
+    // value is always current regardless of what's collecting. Seeded [Loading] to distinguish "not read
+    // yet" (show the loading screen) from "signed out" (a resolved null → remote).
+    private val accountLoad: StateFlow<AccountLoad> = accountRepository.getAccountFlow()
+        .map<AccountEntity?, AccountLoad> { AccountLoad.Loaded(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AccountLoad.Loading)
+
+    // null until the account is read from the DB (fast, local) — the root shows a loading screen while
+    // unresolved, so a PRO watch doesn't flash the remote-controller UI before switching to standalone on
+    // a cold start. Derived from [accountLoad] (the single source) so it can only resolve AFTER the account
+    // does — the sign-in observer relies on that ordering.
+    val mode: StateFlow<WatchMode?> = accountLoad
+        .map { if (it is AccountLoad.Loaded) watchModeFor(it.account) else null }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val mode: StateFlow<WatchMode> = accountFlow
-        .map { watchModeFor(it) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WatchMode.REMOTE_CONTROLLER)
+    // Standalone library first-load signal (parity with the phone) — true once the local root query emits.
+    // Eager so it loads while the loading screen is up; local Room read, never waits on network sync.
+    private val standaloneLibraryReady: StateFlow<Boolean> = libraryRepository.getRootItems()
+        .map { true }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /**
+     * Reveal the UI once the mode is resolved AND — for standalone — the library's first load is in, so the
+     * standalone library never flashes its empty state on a cold start. Remote mode is gated only on the
+     * mode resolving (its list comes from the phone over the Data Layer, which can be slow — we don't hold
+     * the loading screen on it).
+     */
+    val isReady: StateFlow<Boolean> = combine(mode, standaloneLibraryReady) { m, libReady ->
+        m != null && (m != WatchMode.STANDALONE || libReady)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** The signed-in account (null = signed out) — the Settings screen shows its email when present. */
-    val account: StateFlow<AccountEntity?> = accountFlow
+    val account: StateFlow<AccountEntity?> = accountLoad
+        .map { (it as? AccountLoad.Loaded)?.account }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _signInState = MutableStateFlow<SignInUiState>(SignInUiState.Idle)
     val signInState: StateFlow<SignInUiState> = _signInState.asStateFlow()
@@ -67,7 +106,9 @@ class WearRootViewModel(
         // present account so it never fires during the in-flight request (the account is still null then).
         viewModelScope.launch {
             mode.collect {
-                if (_signInState.value == SignInUiState.Loading && accountFlow.value != null) {
+                if (_signInState.value == SignInUiState.Loading &&
+                    (accountLoad.value as? AccountLoad.Loaded)?.account != null
+                ) {
                     _signInState.value = SignInUiState.Idle
                 }
             }

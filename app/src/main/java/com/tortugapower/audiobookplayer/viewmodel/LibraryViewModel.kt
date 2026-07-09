@@ -49,6 +49,17 @@ class LibraryViewModel(
         }
     }
 
+    /**
+     * True once the first root-library query has emitted — i.e. Room is open (any migration done) and the
+     * initial local data is in hand. Started Eagerly so the load begins as soon as the app is created; the
+     * UI gates a launch-style [com.tortugapower.audiobookplayer.ui.screens.LoadingScreen] on this so the
+     * library never renders its empty state before the real data arrives (cold-start flash). Local only —
+     * it does NOT wait on network sync.
+     */
+    val isReady: StateFlow<Boolean> = repository.getRootItems()
+        .map { true }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     private val itemsCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()
     private val foldersCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()
 
