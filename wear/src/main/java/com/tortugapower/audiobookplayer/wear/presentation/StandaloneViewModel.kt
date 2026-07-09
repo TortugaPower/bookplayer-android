@@ -6,6 +6,7 @@ import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
+import com.tortugapower.audiobookplayer.logic.DownloadUnitStatus
 import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
@@ -26,8 +27,8 @@ import kotlinx.coroutines.launch
 /** Discrete download state for a row glyph (the live progress value is read separately from taskProgress). */
 enum class DownloadUiState { NotDownloaded, Downloading, Downloaded }
 
-/** One book file's download status (pure inputs to [StandaloneViewModel.deriveDownloadState]). */
-data class DownloadUnitStatus(val downloaded: Boolean, val taskActive: Boolean)
+// One book file's DownloadUnitStatus lives in `:core` (com.tortugapower.audiobookplayer.logic) — the
+// shared per-unit derivation for phone and Wear.
 
 /**
  * A single library row. [isFolder] decides the tap action: folders drill in, books/bound books play.
@@ -137,19 +138,10 @@ class StandaloneViewModel(
     private fun buildRow(source: RowSource, tasks: List<SyncTaskEntity>): LibraryRow {
         val base = toRow(source.item)
         if (source.item.type == ItemType.FOLDER) return base
+        // Shared `:core` per-unit derivation (disk truth + task queue, partial-file rule included) —
+        // the exact same statuses the phone library rows aggregate over.
         val statuses = source.units.map { unit ->
-            val taskActive = OfflineDownloadManager.isTaskActive(tasks, unit.uuid)
-            DownloadUnitStatus(
-                // Shared partial-file rule: the processor streams straight into the final path, so a file
-                // that "exists" while its task is still active is in-flight, not downloaded — otherwise an
-                // emission landing mid-stream double-counts it in the progress bar (whole unit + live
-                // fraction) and can flash the row Downloaded early.
-                downloaded = OfflineDownloadManager.unitDownloaded(
-                    fileExists = OfflineDownloadManager.isFileDownloaded(appContext, unit.relativePath),
-                    taskActive = taskActive,
-                ),
-                taskActive = taskActive,
-            )
+            OfflineDownloadManager.unitStatus(appContext, unit.uuid, unit.relativePath, tasks)
         }
         return base.copy(
             downloadState = deriveDownloadState(statuses),

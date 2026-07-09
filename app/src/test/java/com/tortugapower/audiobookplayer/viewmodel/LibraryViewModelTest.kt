@@ -132,6 +132,8 @@ class LibraryViewModelTest {
         ApplicationProvider.getApplicationContext(),
         libraryRepo,
         syncRepo,
+        // Row-state derivation on the test dispatcher so runTest controls it.
+        ioDispatcher = dispatcher,
     )
 
     @Test fun isReady_falseUntilRootLibraryEmits_thenTrue() = runTest(dispatcher) {
@@ -207,33 +209,58 @@ class LibraryViewModelTest {
         assertFalse(model.isRefreshing.value)
     }
 
-    // Row "downloading" signal: only queued/running download tasks count — other job types are ignored,
-    // and the uuid drops out the moment its task is deleted (completion/cancel), flipping the row back.
-    @Test fun activeDownloadUuids_tracksQueuedDownloadTasksOnly() = runTest(dispatcher) {
+    // Row download state end to end: only queued/running download tasks flip isDownloading — other job
+    // types are ignored — and the state flips back the moment the task is deleted (completion/cancel),
+    // at which point disk truth decides isLocal (partial-file rule: a file that exists while its task is
+    // active is in-flight, not local).
+    @Test fun itemDownloadStateFlow_tracksTaskQueueAndDiskTruth() = runTest(dispatcher) {
         val syncRepo = FakeSyncTaskRepository()
         val model = modelWith(syncRepo = syncRepo)
+        val book = LibraryItemEntity(
+            uuid = "book-1", title = "b", relativePath = "b.mp3", type = ItemType.BOOK, orderRank = 0,
+        )
+        // The file is on disk from the start: while its task is active it must NOT count as local.
+        val processed = java.io.File(
+            java.io.File(ApplicationProvider.getApplicationContext<Application>().filesDir, "Processed"),
+            "b.mp3",
+        ).apply { parentFile!!.mkdirs(); writeText("audio") }
 
-        backgroundScope.launch { model.activeDownloadUuids.collect {} }
+        val states = mutableListOf<com.tortugapower.audiobookplayer.logic.ItemDownloadState>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            model.itemDownloadStateFlow(book).collect { states += it }
+        }
         runCurrent()
-        assertTrue(model.activeDownloadUuids.value.isEmpty())
 
         val download = SyncTaskEntity(
             id = "t1", taskID = "book-1", queueKey = SyncTaskFactory.QUEUE_FILE,
             jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0, payload = "{}",
         )
         syncRepo.saveTask(download)
+        // An unrelated job type on the same uuid must not read as downloading.
         syncRepo.saveTask(
             SyncTaskEntity(
-                id = "t2", taskID = "book-2", queueKey = SyncTaskFactory.QUEUE_SYNC,
+                id = "t2", taskID = "book-1", queueKey = SyncTaskFactory.QUEUE_SYNC,
                 jobType = "update", position = 0, payload = "{}",
             ),
         )
         runCurrent()
-        assertEquals(setOf("book-1"), model.activeDownloadUuids.value)
+        with(states.last()) {
+            assertTrue(isDownloading)
+            assertFalse(isLocal) // file exists but its task is active → in-flight, not local
+            assertEquals(0, downloadedUnits)
+            assertEquals(listOf("book-1"), inFlightUuids)
+        }
 
         syncRepo.deleteTask(download)
         runCurrent()
-        assertTrue(model.activeDownloadUuids.value.isEmpty())
+        with(states.last()) {
+            assertFalse(isDownloading) // the leftover "update" task is not a download task
+            assertTrue(isLocal) // task gone + file on disk → downloaded
+            assertEquals(1, downloadedUnits)
+            assertTrue(inFlightUuids.isEmpty())
+        }
+
+        processed.delete()
     }
 
     // A BOUND row can compose before fetch_contents inserts its sub-books (fresh sign-in). The units flow

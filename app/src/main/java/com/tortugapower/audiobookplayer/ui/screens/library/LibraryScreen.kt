@@ -870,61 +870,28 @@ fun LibraryListItem(
 
     val externalResources = item.externalResources
 
-    // The BOOK files behind this row: a BOOK is itself (no DB hit); a BOUND observes its children as a
-    // reactive Room flow — NOT a one-shot query, which right after sign-in could run before fetch_contents
-    // inserted the sub-books and leave the row permanently blind to its own download (no ring, stale cloud).
-    // Downloads, progress, and the local/cloud state all aggregate over these units — the same `:core`
-    // model the Wear standalone library uses.
-    val downloadUnits by remember(item.uuid, item.relativePath, item.type) {
-        libraryViewModel?.downloadUnitsFlow(item) ?: kotlinx.coroutines.flow.flowOf(emptyList())
-    }.collectAsState(initial = if (item.type == ItemType.BOOK) listOf(item) else emptyList())
+    // Aggregate download state (units, task queue, disk truth), derived in the ViewModel OFF the main
+    // thread — the same `:core` derivation Wear uses; this composable only collects state and never
+    // stats the disk. Reactive end to end: the units flow re-emits when a just-signed-in BOUND's
+    // sub-books land, and the task flow re-emits on queue changes (tap → downloading; tasks drained →
+    // disk truth re-checked). Null until the first computation lands: render neither the cloud badge
+    // nor the ring rather than guessing (prevents a wrong-icon flash while rows scroll in).
+    val downloadState by remember(item.uuid, item.relativePath, item.type) {
+        libraryViewModel?.itemDownloadStateFlow(item)
+            ?: kotlinx.coroutines.flow.flowOf(null)
+    }.collectAsState(initial = null)
+    val isDownloading = downloadState?.isDownloading == true
 
-    // Task-queue-driven "downloading" state (shared one-per-screen observation): true from the tap until
-    // every unit's task is gone (completion, cancel, or terminal failure) — not just while bytes flow.
-    val activeDownloadUuids by (libraryViewModel?.activeDownloadUuids
-        ?: remember { MutableStateFlow(emptySet()) }).collectAsState()
-    val isDownloading = downloadUnits.any { it.uuid in activeDownloadUuids }
-
-    // Whole-item progress over the units (a 2-file bound book fills 0→50%→100%), mirroring Wear/iOS.
+    // Whole-item ring fraction (a 2-file bound book fills 0→50%→100%, mirroring Wear/iOS): pure math
+    // over the aggregate + the live per-chunk progress of the in-flight files. No disk IO here — the
+    // downloaded-unit count came from the ViewModel; completed files count as whole units.
     val taskProgress by SyncStatusManager.taskProgress.collectAsState()
-    val downloadProgress: Float? = if (!isDownloading) null else {
-        // Snapshot the whole-unit count on task transitions (not per byte-tick): the processor streams
-        // straight into the final path, so a unit only counts as downloaded once its task is gone — see
-        // OfflineDownloadManager.unitDownloaded. Keyed on the active-task set so a completed file re-counts
-        // exactly when its task is deleted, without re-stat-ing the disk on every progress emission.
-        val downloadedCount = remember(downloadUnits, activeDownloadUuids) {
-            downloadUnits.count {
-                com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.unitDownloaded(
-                    fileExists = com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.isFileDownloaded(context, it.relativePath),
-                    taskActive = it.uuid in activeDownloadUuids,
-                )
-            }
-        }
+    val downloadProgress: Float? = downloadState?.takeIf { it.isDownloading }?.let { state ->
         com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.downloadProgressFraction(
-            downloadedUnits = downloadedCount,
-            totalUnits = downloadUnits.size,
-            // Live fractions only for the in-flight files; completed ones are whole units above.
-            inProgressSum = downloadUnits.filter { it.uuid in activeDownloadUuids }.sumOf { taskProgress[it.uuid] ?: 0.0 },
+            downloadedUnits = state.downloadedUnits,
+            totalUnits = state.totalUnits,
+            inProgressSum = state.inFlightUuids.sumOf { taskProgress[it] ?: 0.0 },
         )
-    }
-
-    // Disk truth per unit, re-checked when a download for this row starts/finishes (`isDownloading` flips
-    // when the tasks drain — after the processor wrote the file, or deleted it on cancel/failure). Without
-    // that key the result is cached and the row keeps its cloud icon after a download completes, until the
-    // row is recomposed from scratch (scroll away/back or re-enter the folder). While a BOUND's units are
-    // still resolving, fall back to the item's own path check.
-    val isLocal = remember(item.relativePath, item.type, downloadUnits, isDownloading) {
-        when {
-            item.type == ItemType.FOLDER -> true
-            downloadUnits.isNotEmpty() -> downloadUnits.all {
-                com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.isFileDownloaded(context, it.relativePath)
-            }
-            item.relativePath == null -> false
-            else -> {
-                val processedDir = java.io.File(context.filesDir, "Processed")
-                java.io.File(processedDir, item.relativePath!!).exists()
-            }
-        }
     }
 
     val durationText = if (item.duration > 0) {
@@ -993,7 +960,8 @@ fun LibraryListItem(
             Modifier.background(Color.Transparent)
         }
 
-        val showCloud = !isLocal
+        // Explicitly "known not local": while the state is still resolving (null) show nothing.
+        val showCloud = downloadState?.isLocal == false
         val artworkModifier = Modifier
             .size(56.dp)
             .clip(RoundedCornerShape(8.dp))

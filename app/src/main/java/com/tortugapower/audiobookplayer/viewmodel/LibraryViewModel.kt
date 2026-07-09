@@ -9,7 +9,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
-import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
@@ -21,7 +20,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 class LibraryViewModel(
     application: Application,
     private val repository: com.tortugapower.audiobookplayer.repository.LibraryRepository,
-    private val syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+    private val syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository,
+    // Injectable so unit tests can run the row-state derivation on the test dispatcher.
+    private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO
 ) : AndroidViewModel(application) {
     private val appContext: Context get() = getApplication<Application>()
 
@@ -116,19 +117,25 @@ class LibraryViewModel(
             }
     }
 
+    // One shared task-queue observation for every library row: each row's state flow combines against
+    // this StateFlow instead of opening its own DB observer.
+    private val downloadTasks: StateFlow<List<com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity>> =
+        syncTaskRepository.getAllTasks()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     /**
-     * uuids with a download task queued or running — one shared queue observation for every library row.
-     * Task-based (not byte-progress-based) so a row reads "downloading" from the moment of the tap, and
-     * flips back the moment the task is deleted (completion, cancel, or terminal failure).
+     * Aggregate download state for one library row — the same `:core` derivation Wear uses
+     * ([OfflineDownloadManager.itemDownloadState]), computed off the main thread so the row composable
+     * only collects state and never touches the disk. Task-based (not byte-progress-based): a row reads
+     * "downloading" from the moment of the tap and flips back the moment its tasks are deleted
+     * (completion, cancel, or terminal failure). The live ring fraction is derived in the UI from
+     * [com.tortugapower.audiobookplayer.logic.ItemDownloadState.inFlightUuids] +
+     * SyncStatusManager.taskProgress — pure math, no disk.
      */
-    val activeDownloadUuids: StateFlow<Set<String>> = syncTaskRepository.getAllTasks()
-        .map { tasks ->
-            tasks.filter {
-                it.jobType == SyncTaskFactory.JOB_DOWNLOAD_FILE &&
-                    (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING)
-            }.map { it.taskID }.toSet()
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+    fun itemDownloadStateFlow(item: LibraryItemEntity): Flow<com.tortugapower.audiobookplayer.logic.ItemDownloadState> =
+        combine(downloadUnitsFlow(item), downloadTasks) { units, tasks ->
+            OfflineDownloadManager.itemDownloadState(appContext, item, units, tasks)
+        }.flowOn(ioDispatcher)
 
     /**
      * The BOOK files behind [item] (itself for a BOOK; its children for a BOUND), as a reactive Room flow.

@@ -2,6 +2,7 @@ package com.tortugapower.audiobookplayer.wear.presentation
 
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.logic.DownloadUnitStatus
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
