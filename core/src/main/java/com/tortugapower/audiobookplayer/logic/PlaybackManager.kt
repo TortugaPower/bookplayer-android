@@ -6,6 +6,8 @@ import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
+import com.tortugapower.audiobookplayer.core.R
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
@@ -94,6 +96,13 @@ object PlaybackManager {
     // mid-playback. The UI surfaces it as a plain error alert (no re-auth routing by design).
     private val _externalStreamAuthError = MutableStateFlow(false)
     val externalStreamAuthError: StateFlow<Boolean> = _externalStreamAuthError.asStateFlow()
+
+    private val _playbackError = MutableStateFlow<String?>(null)
+    val playbackError: StateFlow<String?> = _playbackError.asStateFlow()
+
+    fun clearPlaybackError() {
+        _playbackError.value = null
+    }
 
     fun reportExternalStreamAuthError() {
         _externalStreamAuthError.value = true
@@ -403,6 +412,20 @@ object PlaybackManager {
                             }
                         } else if (state == Player.STATE_READY && _isTransitioning.value) {
                             _isTransitioning.value = false
+                        }
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        playbackQueuedFlag = false
+                        recomputeIsPlaying()
+                        scope.launch {
+                            val currentItem = _currentItem.value
+                            if (currentItem != null) {
+                                val processedDir = File(appContext.filesDir, "Processed")
+                                val lastSource = determineLastTriedSource(appContext, currentItem, processedDir)
+                                val message = appContext.getString(R.string.playback_error_cannot_play, lastSource)
+                                _playbackError.value = message
+                            }
                         }
                     }
                 })
@@ -826,8 +849,37 @@ object PlaybackManager {
                 // doesn't strand on "playing".
                 playbackQueuedFlag = false
                 recomputeIsPlaying()
+
+                val lastSource = determineLastTriedSource(context, refreshedItem, processedDir)
+                val message = context.getString(R.string.playback_error_cannot_play, lastSource)
+                _playbackError.value = message
             }
         }
+    }
+
+    private suspend fun determineLastTriedSource(context: Context, item: LibraryItemEntity, processedDir: File): String {
+        val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
+        val hasLocalFile = if (isBound) {
+            val subItems = getRepository(context).getItemsInPathSync(item.relativePath ?: "")
+            subItems.isNotEmpty() && subItems.all { sub ->
+                val file = sub.relativePath?.let { File(processedDir, it) }
+                file != null && file.exists()
+            }
+        } else {
+            val file = item.relativePath?.let { File(processedDir, it) }
+            file != null && file.exists()
+        }
+
+        val hasExternalResource = item.externalResources.any { it.providerName != "hardcover" }
+
+        val sourceResId = when {
+            hasLocalFile -> R.string.playback_source_file_system
+            hasExternalResource -> R.string.playback_source_external_resource
+            !item.remoteURL.isNullOrEmpty() -> R.string.playback_source_server_url
+            item.relativePath != null -> R.string.playback_source_file_system
+            else -> R.string.playback_source_server_url
+        }
+        return context.getString(sourceResId)
     }
 
     fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {

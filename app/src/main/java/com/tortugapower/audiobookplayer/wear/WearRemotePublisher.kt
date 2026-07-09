@@ -39,6 +39,7 @@ object WearRemotePublisher {
         this.libraryDao = libraryDao
     }
 
+    @kotlin.OptIn(kotlinx.coroutines.FlowPreview::class)
     fun start() {
         // Library item — rebuild when the recent set changes (a contents sync writing lastPlayDate, so
         // server-synced plays appear on the watch without waiting for local playback/refresh), on the

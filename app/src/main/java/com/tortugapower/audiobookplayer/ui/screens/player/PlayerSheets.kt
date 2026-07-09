@@ -180,9 +180,17 @@ fun MoreOptionsSheet(
                 .padding(bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            BookmarkDialogButton(text = stringResource(R.string.player_chapters_title)) {
-                viewModel.showMoreOptions = false
-                viewModel.showChaptersList = true
+            val listOpensBookmarks = viewModel.listButtonOpens == "Bookmarks"
+            if (listOpensBookmarks) {
+                BookmarkDialogButton(text = stringResource(R.string.player_chapters_title)) {
+                    viewModel.showMoreOptions = false
+                    viewModel.showChaptersList = true
+                }
+            } else {
+                BookmarkDialogButton(text = stringResource(R.string.player_bookmarks_title)) {
+                    viewModel.showMoreOptions = false
+                    viewModel.showBookmarksList = true
+                }
             }
             BookmarkDialogButton(text = stringResource(R.string.player_jump_to_start)) {
                 viewModel.jumpToStart()

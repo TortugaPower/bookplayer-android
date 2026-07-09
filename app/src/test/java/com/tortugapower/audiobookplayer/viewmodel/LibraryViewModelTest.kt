@@ -77,6 +77,7 @@ class LibraryViewModelTest {
         override suspend fun saveItem(item: LibraryItemEntity) {}
         override suspend fun updateItem(item: LibraryItemEntity) {}
         override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {}
+        override suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity> = emptyList()
         override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) {}
         override suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>) {}
         override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {}

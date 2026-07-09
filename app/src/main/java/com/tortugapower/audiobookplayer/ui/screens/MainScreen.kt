@@ -108,6 +108,20 @@ fun MainScreen() {
         )
     }
 
+    val playbackError by PlaybackManager.playbackError.collectAsStateWithLifecycle()
+    playbackError?.let { errorMessage ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { PlaybackManager.clearPlaybackError() },
+            title = { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(id = R.string.common_error)) },
+            text = { androidx.compose.material3.Text(errorMessage) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { PlaybackManager.clearPlaybackError() }) {
+                    androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(id = R.string.common_ok))
+                }
+            }
+        )
+    }
+
     val profileViewModel: ProfileViewModel = viewModel(
         factory = ProfileViewModelFactory(
             accountRepository,

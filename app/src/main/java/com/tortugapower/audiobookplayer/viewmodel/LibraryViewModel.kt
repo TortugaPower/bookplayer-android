@@ -293,6 +293,27 @@ class LibraryViewModel(
         }
     }
 
+    fun resetItemProgress(uuid: String) {
+        viewModelScope.launch {
+            repository.updateItemProgress(uuid, 0.0, false)
+        }
+    }
+
+    fun setFinishedStatus(items: List<LibraryItemEntity>, isFinished: Boolean) {
+        viewModelScope.launch {
+            items.forEach { item ->
+                val books = repository.getDescendantBooks(item)
+                books.forEach { book ->
+                    repository.updateItemProgress(
+                        book.uuid,
+                        if (isFinished) book.duration else 0.0,
+                        isFinished
+                    )
+                }
+            }
+        }
+    }
+
     suspend fun getExternalResource(itemUuid: String, provider: String): com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity? {
         return repository.getExternalResource(itemUuid, provider)
     }

@@ -166,6 +166,8 @@
     <string name="player_chapter_label">%1$s</string>
     <string name="player_chapter_default">Chapter 1 of 1</string>
     <string name="player_seek_position">%1$s of %2$s</string>
+    <string name="player_toggle_progress_context">Switch between chapter and book progress</string>
+    <string name="player_toggle_remaining_time">Switch between remaining time and total length</string>
     <string name="player_play">Play</string>
     <string name="player_pause">Pause</string>
     <!-- In-app transport button labels (mirrors iOS "Rewind %@" / "Fast Forward %@"); shared with the mini player -->
@@ -276,6 +278,7 @@
     <string name="library_empty_message">Your library is empty</string>
     <string name="library_sync_tasks_busy">Waiting for sync tasks to finish</string>
     <string name="library_see_details">See details</string>
+    <string name="library_play_from_beginning">Play from the beginning</string>
     <string name="library_view_style">View Style</string>
     <string name="library_folder_empty">0 Files</string>
     <string name="library_unknown_author">Unknown author</string>

@@ -410,13 +410,26 @@ fun SoundwaveLoadingOverlay() {
     }
 }
 
-internal fun formatTime(ms: Long): String {
+internal const val HOUR_IN_MS = 3_600_000L
+
+/**
+ * mm:ss, or hh:mm:ss when [withHours] (defaults to true for values of an hour or more). Paired
+ * position/duration labels should pass the same length-based flag so both sides keep one format
+ * throughout a long book (00:12:34 next to 10:00:00, never 12:34).
+ */
+internal fun formatTime(ms: Long, withHours: Boolean = ms >= HOUR_IN_MS): String {
     val totalSeconds = ms / 1000
-    val minutes = totalSeconds / 60
+    val hours = totalSeconds / 3600
+    val minutes = if (withHours) (totalSeconds % 3600) / 60 else totalSeconds / 60
     val seconds = totalSeconds % 60
 
     val mStr = if (minutes < 10) "0$minutes" else minutes.toString()
     val sStr = if (seconds < 10) "0$seconds" else seconds.toString()
 
-    return "$mStr:$sStr"
+    return if (withHours) {
+        val hStr = if (hours < 10) "0$hours" else hours.toString()
+        "$hStr:$mStr:$sStr"
+    } else {
+        "$mStr:$sStr"
+    }
 }

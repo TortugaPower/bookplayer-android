@@ -181,4 +181,5 @@ private class FakeLibraryRepository : LibraryRepository {
     override suspend fun saveExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity) = error("unused")
     override suspend fun deleteExternalResource(itemUuid: String, provider: String) = error("unused")
     override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = error("unused")
+    override suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity> = error("unused")
 }

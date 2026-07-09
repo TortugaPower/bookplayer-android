@@ -37,6 +37,7 @@ interface LibraryRepository {
     suspend fun saveItem(item: LibraryItemEntity)
     suspend fun updateItem(item: LibraryItemEntity)
     suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean)
+    suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity>
     suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity)
     suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>)
     suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?)
