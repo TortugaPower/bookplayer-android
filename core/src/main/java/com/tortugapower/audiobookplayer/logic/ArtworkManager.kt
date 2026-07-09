@@ -55,6 +55,13 @@ object ArtworkManager {
         }
     }
 
+    /**
+     * Downsample + JPEG-compress already-extracted embedded-artwork [bytes] into [destFile] (the shared
+     * `Artworks/<uuid>.jpg` store). Public so callers that do their own extraction (e.g. CoverArtResolver,
+     * which needs to distinguish "no art" from a transient failure) still produce store-consistent files.
+     */
+    fun saveEmbeddedArtwork(bytes: ByteArray, destFile: File): Boolean = saveProcessedBitmap(bytes, destFile)
+
     private fun saveProcessedBitmap(bytes: ByteArray, destFile: File): Boolean {
         return try {
             val options = BitmapFactory.Options().apply {

@@ -77,8 +77,13 @@ object ShortcutHelper {
         // Only the application context may cross into the coroutine — an Activity context would leak the
         // destroyed Activity across the (seconds-long) artwork fetch on a rotation.
         val appContext = context.applicationContext
+        // Resolve the cover the same way the library list does (LibraryScreen): the stored artworkURL
+        // when present, else the embedded-art model (EmbeddedArtworkFetcher extracts it from the local
+        // processed file, else streams it from the remote URL). artworkURL is null for most items, so
+        // without this the icon would always fall back to the launcher icon.
+        val artworkModel: Any = item.artworkURL ?: ItemArtwork(item.uuid, item.relativePath, item.remoteURL)
         scope.launch {
-            createPinShortcut(appContext, item.uuid, item.title, item.artworkURL)
+            createPinShortcut(appContext, item.uuid, item.title, artworkModel)
         }
     }
 
@@ -86,7 +91,7 @@ object ShortcutHelper {
         context: Context,
         itemUuid: String,
         itemTitle: String,
-        itemArtworkUrl: String?
+        artworkModel: Any?
     ) {
         if (!ShortcutManagerCompat.isRequestPinShortcutSupported(context)) {
             // Some launchers don't support pinning; without feedback the menu item reads as broken.
@@ -96,12 +101,16 @@ object ShortcutHelper {
         try {
             val loader = context.imageLoader
             val request = ImageRequest.Builder(context)
-                .data(itemArtworkUrl ?: R.mipmap.ic_launcher)
+                .data(artworkModel ?: R.mipmap.ic_launcher)
                 .size(150)
                 .allowHardware(false)
                 .build()
+            // A null result (no stored art, no embedded art, unreachable remote) falls back to the icon.
             val drawable = (loader.execute(request) as? SuccessResult)?.drawable
-            val icon = drawable?.let { IconCompat.createWithAdaptiveBitmap(drawableToBitmap(it)) }
+            // Non-adaptive bitmap: book covers are full images, not icon layers. An adaptive bitmap would
+            // be scaled to the 108dp bleed and masked to the ~72dp safe zone, cropping a portrait cover's
+            // top and bottom to a center band.
+            val icon = drawable?.let { IconCompat.createWithBitmap(drawableToBitmap(it)) }
                 ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher)
 
             val pinShortcutInfo = ShortcutInfoCompat.Builder(context, getShortcutId(itemUuid))

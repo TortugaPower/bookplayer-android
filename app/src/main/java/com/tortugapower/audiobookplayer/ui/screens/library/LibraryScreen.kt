@@ -954,17 +954,18 @@ fun LibraryListItem(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
-            } else if (item.type == ItemType.BOOK &&
+            } else if (
+                (item.type == ItemType.BOOK || item.type == ItemType.BOUND || item.type == ItemType.FOLDER) &&
                 (!item.relativePath.isNullOrEmpty() || !item.remoteURL.isNullOrEmpty())
             ) {
-                // No stored artworkURL: extract the embedded cover from the local processed file, else
-                // stream the remote file's metadata (iOS parity — covers PRO cloud items not yet
-                // downloaded). BOOK only: BOUND/folder paths are directories, not audio files. Keyed by
-                // relativePath so the decoded cover is reused from the memory cache.
+                // No stored artworkURL: resolve the embedded cover via CoverArtResolver (iOS parity —
+                // covers PRO cloud items not yet downloaded). BOOK reads its own file; BOUND loops its
+                // sub-books; FOLDER recurses its contents (handleDirectory). Keyed by relativePath so the
+                // decoded cover is reused from the memory cache.
                 val artworkCacheKey = item.relativePath?.takeIf { it.isNotEmpty() } ?: item.remoteURL
                 val artworkRequest = remember(item.relativePath, item.remoteURL) {
                     ImageRequest.Builder(context)
-                        .data(ItemArtwork(item.relativePath, item.remoteURL))
+                        .data(ItemArtwork(item.uuid, item.relativePath, item.remoteURL))
                         .memoryCacheKey(artworkCacheKey)
                         .crossfade(true)
                         .build()
