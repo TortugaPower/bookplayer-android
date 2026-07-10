@@ -12,7 +12,6 @@ import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.core.R
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
-import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -476,45 +475,26 @@ class RoomLibraryRepository(
         if (file?.exists() == true && file.isFile) {
             return item
         }
-        
+
+        externalStreamUrlFor(item)?.let { item.remoteURL = it }
+        return item
+    }
+
+    override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? {
         try {
             val extResource = item.externalResources.find { it.syncStatus == ExternalResourceEntity.STATUS_STREAM || it.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED }
-            if (extResource != null) {
-                val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
-                val serverDao = db.externalServerDao()
-                val hostIdStr = extResource.hostId
-                var server = if (!hostIdStr.isNullOrEmpty()) {
-                    val hostId = hostIdStr.toLongOrNull()
-                    if (hostId != null) serverDao.getServerById(hostId) else null
-                } else null
-                
-                if (server == null) {
-                    val serverType = when (extResource.providerName.lowercase()) {
-                        "jellyfin" -> ExternalServiceType.JELLYFIN
-                        "audiobookshelf" -> ExternalServiceType.AUDIOBOOKSHELF
-                        else -> null
-                    }
-                    if (serverType != null) {
-                        server = serverDao.getAllServers().first().find { it.type == serverType }
-                    }
-                }
-                
-                if (server != null) {
-                    val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(server.url)
-                    val streamPath = when (extResource.providerName.lowercase()) {
-                        "jellyfin" -> "Items/${extResource.providerId}/Download?api_key=${server.token ?: ""}"
-                        "audiobookshelf" -> "api/items/${extResource.providerId}/download?token=${server.token ?: ""}"
-                        else -> ""
-                    }
-                    if (streamPath.isNotEmpty()) {
-                        item.remoteURL = "$sanitizedUrl$streamPath"
-                    }
-                }
-            }
+                ?: return null
+            // Through the repository, not the DAO: stored credentials are encrypted at rest, and this
+            // token travels in the download URL/auth.
+            val servers = ExternalServerRepository(
+                com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context).externalServerDao()
+            )
+            val server = ExternalServiceUtils.serverForResource(servers, extResource) ?: return null
+            return ExternalServiceUtils.downloadUrlFor(server, extResource)
         } catch (e: Exception) {
             android.util.Log.e("RoomLibraryRepository", "Error resolving remote URL in runtime", e)
+            return null
         }
-        return item
     }
 
     override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> {

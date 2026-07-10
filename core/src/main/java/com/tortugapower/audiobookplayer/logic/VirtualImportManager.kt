@@ -24,6 +24,9 @@ object VirtualImportManager {
      *
      * @param artworkPath value for the new item's `artworkURL` (local file or remote URL)
      * @param enqueueSyncTasks pass the caller's subscription check; tasks require an active tier
+     * @param isPro PRO additionally gets the cloud copy: the source file is piped from the media
+     *   server into BookPlayer cloud ([StreamFileUploadProcessor]) and the artwork uploaded, so the
+     *   item is playable on devices that can't reach the Jellyfin/ABS server
      */
     suspend fun importStreamItem(
         libraryDao: LibraryDao,
@@ -32,7 +35,8 @@ object VirtualImportManager {
         providerName: String,
         hostId: String?,
         artworkPath: String? = null,
-        enqueueSyncTasks: Boolean = true
+        enqueueSyncTasks: Boolean = true,
+        isPro: Boolean = false
     ): Result {
         libraryDao.getExternalResourceByProvider(providerName, externalItem.uuid)?.let { resource ->
             libraryDao.getItemById(resource.libraryItemUuid)?.let { return Result(it, true) }
@@ -78,6 +82,17 @@ object VirtualImportManager {
         if (enqueueSyncTasks) {
             SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, entity)
             SyncTaskFactory.createUploadExternalResourceTask(syncTaskRepository, resource)
+            if (isPro) {
+                // PRO cloud copy: pipe the source file from the media server into BookPlayer cloud.
+                SyncTaskFactory.createUploadStreamFileTask(syncTaskRepository, entity)
+                // Also push the (locally downloaded) cover so other devices get artwork from our
+                // servers instead of relying on the media-server backfill — but only when it's a real
+                // local file: artworkPath can fall back to the provider's URL, and ArtworkUploadProcessor
+                // retries a missing local file forever on the serial file queue.
+                if (artworkPath != null && java.io.File(artworkPath).isFile) {
+                    SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, entity)
+                }
+            }
         }
 
         return Result(entity, false)

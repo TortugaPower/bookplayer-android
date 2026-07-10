@@ -389,7 +389,8 @@ object ImportManager : ImportService {
                             providerName = importFile.providerName,
                             hostId = importFile.hostId,
                             artworkPath = artworkPath ?: streamEntity.artworkURL,
-                            enqueueSyncTasks = isSubscribed
+                            enqueueSyncTasks = isSubscribed,
+                            isPro = isPro
                         )
                         if (!result.alreadyImported) {
                             currentMaxRank = maxOf(currentMaxRank, result.item.orderRank)

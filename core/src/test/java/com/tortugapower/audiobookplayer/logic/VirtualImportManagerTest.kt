@@ -72,6 +72,45 @@ class VirtualImportManagerTest {
         val jobTypes = fakeSyncTasks.tasks.map { it.jobType }
         assertTrue(SyncTaskFactory.JOB_UPLOAD_METADATA in jobTypes)
         assertTrue(SyncTaskFactory.JOB_UPLOAD_EXTERNAL_RESOURCE in jobTypes)
+        // Not PRO (default): no cloud-copy pipe, no artwork upload.
+        assertFalse(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE in jobTypes)
+        assertFalse(SyncTaskFactory.JOB_UPLOAD_ARTWORK in jobTypes)
+    }
+
+    @Test
+    fun importStreamItem_proEnqueuesPipeAndLocalArtworkUpload() = runBlocking {
+        // A real local cover file (the import downloads it before this call).
+        val cover = java.io.File.createTempFile("cover", ".jpg").apply { writeText("jpg") }
+
+        val result = VirtualImportManager.importStreamItem(
+            fakeDao, fakeSyncTasks, serverItem(),
+            providerName = "jellyfin", hostId = "3",
+            artworkPath = cover.absolutePath, isPro = true
+        )
+
+        val jobTypes = fakeSyncTasks.tasks.map { it.jobType }
+        assertTrue(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE in jobTypes)
+        assertTrue(SyncTaskFactory.JOB_UPLOAD_ARTWORK in jobTypes)
+        val pipe = fakeSyncTasks.tasks.single { it.jobType == SyncTaskFactory.JOB_UPLOAD_STREAM_FILE }
+        assertEquals(result.item.uuid, pipe.taskID)
+        assertEquals(SyncTaskFactory.QUEUE_PIPE, pipe.queueKey)
+        cover.delete()
+        Unit
+    }
+
+    @Test
+    fun importStreamItem_proSkipsArtworkUploadWhenCoverIsNotALocalFile() = runBlocking {
+        // Cover download failed → artworkPath fell back to the provider URL. Enqueuing an artwork
+        // upload for it would retry a missing local file forever on the serial file queue.
+        VirtualImportManager.importStreamItem(
+            fakeDao, fakeSyncTasks, serverItem(),
+            providerName = "jellyfin", hostId = "3",
+            artworkPath = "https://server/Items/x/Images/Primary", isPro = true
+        )
+
+        val jobTypes = fakeSyncTasks.tasks.map { it.jobType }
+        assertTrue(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE in jobTypes)
+        assertFalse(SyncTaskFactory.JOB_UPLOAD_ARTWORK in jobTypes)
     }
 
     @Test

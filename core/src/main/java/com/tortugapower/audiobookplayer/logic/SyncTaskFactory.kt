@@ -14,6 +14,9 @@ object SyncTaskFactory {
     const val QUEUE_SYNC = "sync"
     const val QUEUE_FILE = "file"
     const val QUEUE_HARDCOVER = "hardcover"
+    // Stream-to-cloud pipes get their own queue: the transfer depends on a third-party media server
+    // being reachable, so it must never wedge the serial "file" queue that downloads/uploads share.
+    const val QUEUE_PIPE = "pipe"
 
     // Job Types (matching Swift models where applicable)
     const val JOB_UPLOAD_METADATA = "upload_metadata"
@@ -31,6 +34,7 @@ object SyncTaskFactory {
     const val JOB_MATCH_UUIDS = "match_uuids"
     const val JOB_HARDCOVER_AUTO_MATCH = "hardcover_auto_match"
     const val JOB_HARDCOVER_UPDATE_STATUS = "hardcover_update_status"
+    const val JOB_UPLOAD_STREAM_FILE = "upload_stream_file"
     const val JOB_UPLOAD_EXTERNAL_RESOURCE = "upload_external_resource"
     const val JOB_DELETE_EXTERNAL_RESOURCE = "delete_external_resource"
     const val JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD = "set_external_resource_to_download"
@@ -213,6 +217,23 @@ object SyncTaskFactory {
             "remotePath" to remotePath
         )
         enqueue(repository, QUEUE_FILE, JOB_UPLOAD_FILE, item.uuid, payload)
+    }
+
+    /**
+     * PRO follow-up to a stream import: pipe the item's source file from its media server into
+     * BookPlayer cloud ([StreamFileUploadProcessor]). No presigned URL in the payload on purpose —
+     * the processor fetches a fresh one per attempt (`external_set`), because a frozen URL expires
+     * and would make every retry fail.
+     */
+    suspend fun createUploadStreamFileTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
+        if (repository.getPendingTaskByTypeAndTaskId(JOB_UPLOAD_STREAM_FILE, item.uuid) != null) return
+
+        val payload = mapOf(
+            "uuid" to item.uuid,
+            "title" to item.title,
+            "relativePath" to item.relativePath
+        )
+        enqueue(repository, QUEUE_PIPE, JOB_UPLOAD_STREAM_FILE, item.uuid, payload)
     }
 
     suspend fun createDownloadFileTask(repository: SyncTaskRepository, item: LibraryItemEntity) {

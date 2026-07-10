@@ -350,6 +350,7 @@
     <string name="sync_task_upload_artwork">Upload Artwork</string>
     <string name="sync_task_fetch_library">Fetch Library</string>
     <string name="sync_task_upload_audio">Upload Audio</string>
+    <string name="sync_task_upload_stream_file">Upload Stream to Cloud</string>
     <string name="sync_task_download_audio">Download Audio</string>
     <string name="sync_task_sync_identifiers">Sync Identifiers</string>
     <string name="sync_task_match_library_ids">Match Library IDs</string>
@@ -490,6 +491,7 @@
     <string name="widget_no_books_in_progress">No books in progress</string>
     <string name="sync_queue_sync">Sync Tasks</string>
     <string name="sync_queue_file">File Tasks</string>
+    <string name="sync_queue_pipe">Cloud Upload Tasks</string>
     <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
     <string name="hardcover_popular_on">Popular on Hardcover</string>
     <string name="hardcover_search_placeholder">Search books…</string>

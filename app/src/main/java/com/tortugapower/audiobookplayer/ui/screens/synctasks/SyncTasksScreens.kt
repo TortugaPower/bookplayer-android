@@ -35,6 +35,7 @@ private fun getQueueTitle(queueKey: String, count: Int): String {
     val name = when (queueKey.lowercase()) {
         "sync" -> stringResource(R.string.sync_queue_sync)
         "file" -> stringResource(R.string.sync_queue_file)
+        "pipe" -> stringResource(R.string.sync_queue_pipe)
         "audiobookshelf" -> stringResource(R.string.sync_queue_audiobookshelf)
         else -> queueKey.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
     }
@@ -199,6 +200,7 @@ fun TaskDetailScreen(
                        SyncTaskFactory.JOB_UPLOAD_ARTWORK -> Icons.Default.Image to stringResource(R.string.sync_task_upload_artwork)
                        SyncTaskFactory.JOB_FETCH_CONTENTS -> Icons.Default.Refresh to stringResource(R.string.sync_task_fetch_library)
                        SyncTaskFactory.JOB_UPLOAD_FILE -> Icons.Default.Upload to stringResource(R.string.sync_task_upload_audio)
+                       SyncTaskFactory.JOB_UPLOAD_STREAM_FILE -> Icons.Default.CloudUpload to stringResource(R.string.sync_task_upload_stream_file)
                        SyncTaskFactory.JOB_DOWNLOAD_FILE -> Icons.Default.Download to stringResource(R.string.sync_task_download_audio)
                        SyncTaskFactory.JOB_SYNC_IDENTIFIERS -> Icons.Default.Person to stringResource(R.string.sync_task_sync_identifiers)
                        SyncTaskFactory.JOB_MATCH_UUIDS -> Icons.Default.SyncAlt to stringResource(R.string.sync_task_match_library_ids)

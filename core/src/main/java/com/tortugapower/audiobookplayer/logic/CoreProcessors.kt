@@ -12,6 +12,7 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.model.*
 import com.tortugapower.audiobookplayer.model.ArtworkResponse
 import com.tortugapower.audiobookplayer.network.NetworkClient
+import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -325,6 +326,218 @@ class UploadFileProcessor(
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_UPLOAD_FILE
+    }
+}
+
+/**
+ * PRO stream-to-cloud pipe: uploads a stream-only import's source file from the user's media server
+ * (Jellyfin/ABS) into BookPlayer cloud, streaming GET→PUT so nothing lands in local storage. Follows
+ * the API's `external_set` contract end to end: request a fresh presigned PUT URL per attempt (never
+ * stored — presigned URLs expire, and a frozen one would make every retry fail), transfer, then
+ * confirm with `{uploaded: true}` — which server-side flips the resource to "downloaded" and the item
+ * to synced=true atomically, so other devices fetch a remoteURL and can play/download the cloud copy
+ * when the media server isn't configured there (media-server-first stays: URL resolution prefers the
+ * provider whenever a saved server matches).
+ *
+ * Runs on its own [SyncTaskFactory.QUEUE_PIPE] queue — an unreachable home server retrying forever
+ * must not block the serial file queue's downloads/uploads.
+ */
+class StreamFileUploadProcessor(
+    private val context: Context,
+    private val repository: SyncTaskRepository,
+    // Test seam (NetworkClient's Retrofit is a lazily-built global that can't point at a MockWebServer
+    // once initialized): returns the presigned PUT URL, or null when the request failed (→ retry —
+    // this also covers the window before the import's metadata task has landed the item server-side).
+    private val fetchPutUrl: suspend (uuid: String) -> String? = { uuid ->
+        val response = NetworkClient.libraryApi.setExternalResourceToDownload(mapOf("uuid" to uuid))
+        if (response.isSuccessful) {
+            response.body()?.url?.takeIf { it.isNotBlank() }
+        } else {
+            Log.e("StreamFileUploadProcessor", "❌ external_set URL request failed: ${response.code()} ${response.errorBody()?.string()}")
+            null
+        }
+    },
+    // Through the repository, not the DAO: stored credentials are encrypted at rest, and the source
+    // GET authenticates with this token. Overridable so tests can swap the Keystore cipher.
+    private val serverRepository: ExternalServerRepository =
+        ExternalServerRepository(AppDatabase.getDatabase(context).externalServerDao()),
+) : TaskProcessor {
+    private val gson = Gson()
+
+    // Shared: pipes run serially within their queue, and each OkHttpClient owns its own connection
+    // pool + dispatcher threads. Generous read/write timeouts — a single stalled read on a slow home
+    // server doesn't mean the multi-GB transfer is dead.
+    private val client by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(java.time.Duration.ofSeconds(30))
+            .readTimeout(java.time.Duration.ofMinutes(2))
+            .writeTimeout(java.time.Duration.ofMinutes(2))
+            .build()
+    }
+
+    override suspend fun process(task: SyncTaskEntity): Boolean {
+        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
+        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
+        val uuid = payload["uuid"] as? String
+        if (uuid == null) {
+            // Malformed payloads only come from factory bugs; retrying can never heal one.
+            Log.e("StreamFileUploadProcessor", "❌ Missing uuid in payload — dropping task")
+            return true
+        }
+
+        val libraryDao = AppDatabase.getDatabase(context).libraryDao()
+        val item = libraryDao.getItemById(uuid)
+        if (item == null) {
+            Log.w("StreamFileUploadProcessor", "🧹 Item $uuid no longer exists — dropping pipe task")
+            return true
+        }
+        val resource = libraryDao.getExternalResourcesForBookSync(uuid)
+            .find { it.syncStatus == ExternalResourceEntity.STATUS_STREAM }
+        if (resource == null) {
+            // Already piped (status flipped to "downloaded") or no longer stream-linked: nothing to do.
+            Log.d("StreamFileUploadProcessor", "🧹 No stream resource for ${item.title} — dropping pipe task")
+            return true
+        }
+
+        val putUrl = fetchPutUrl(uuid) ?: return false
+
+        val relativePath = item.relativePath
+        val localFile = relativePath?.let { OfflineDownloadManager.processedFile(context, it) }
+        val transferred = withContext(Dispatchers.IO) {
+            if (localFile?.isFile == true) {
+                // The user downloaded the file in the meantime — upload the local copy instead of
+                // re-streaming it through the media server.
+                putFile(localFile, mediaTypeFor(relativePath), putUrl)
+            } else {
+                pipeFromServer(item, resource, putUrl, task.id)
+            }
+        }
+        if (!transferred) return false
+
+        // Durable confirm (its own task, so it survives process death after the transfer): the server
+        // flips the resource to "downloaded" + the item to synced=true atomically. Mirror the flip
+        // locally so this device is consistent before its next fetch echoes it back.
+        SyncTaskFactory.createSetExternalResourceToDownloadTask(repository, uuid, uploaded = true)
+        libraryDao.insertExternalResource(resource.copy(syncStatus = ExternalResourceEntity.STATUS_DOWNLOADED))
+        Log.d("StreamFileUploadProcessor", "✅ Piped stream item to cloud: ${item.title}")
+        return true
+    }
+
+    private suspend fun pipeFromServer(
+        item: LibraryItemEntity,
+        resource: ExternalResourceEntity,
+        putUrl: String,
+        progressKey: String
+    ): Boolean {
+        val server = ExternalServiceUtils.serverForResource(serverRepository, resource)
+        val sourceUrl = server?.let { ExternalServiceUtils.downloadUrlFor(it, resource) }
+        if (server == null || sourceUrl == null) {
+            // Retry (not terminal): the server may be re-added, and TaskAccessPolicy already discards
+            // the task on downgrade — this must not delete a pipe that's just temporarily unservable.
+            Log.w("StreamFileUploadProcessor", "⚠️ No saved server can serve ${item.title} — will retry")
+            return false
+        }
+        // Header auth on top of the query token, like playback and the artwork backfill: newer ABS
+        // versions reject query-string tokens (401) and only accept the Authorization header.
+        val headers = ExternalServiceUtils.serviceTypeFor(resource.providerName)
+            ?.let { ExternalServiceUtils.playbackHeaders(it, server.token, server.customHeaders) }
+
+        return try {
+            val getRequest = okhttp3.Request.Builder().url(sourceUrl)
+            headers?.forEach { (k, v) -> getRequest.addHeader(k, v) }
+            client.newCall(getRequest.build()).execute().use { response ->
+                val body = response.body
+                if (!response.isSuccessful || body == null) {
+                    Log.e("StreamFileUploadProcessor", "❌ Source GET failed (${response.code}) for ${item.title}")
+                    return false
+                }
+                val mediaType = mediaTypeFor(item.relativePath)
+                val length = body.contentLength()
+                if (length >= 0) {
+                    putStream(body, length, mediaType, putUrl, progressKey)
+                } else {
+                    // S3 rejects chunked PUTs (Content-Length is required on presigned uploads), so an
+                    // unknown-length body — rare, both providers serve static files — stages through
+                    // the cache dir instead of piping directly.
+                    stageAndPut(body, mediaType, putUrl)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("StreamFileUploadProcessor", "💥 Exception piping ${item.title}: ${e.message}", e)
+            false
+        }
+    }
+
+    /** Streams the GET body into the PUT as it downloads, publishing progress per 8 KB chunk. */
+    private fun putStream(
+        source: okhttp3.ResponseBody,
+        length: Long,
+        mediaType: okhttp3.MediaType?,
+        putUrl: String,
+        progressKey: String
+    ): Boolean {
+        val requestBody = object : okhttp3.RequestBody() {
+            override fun contentType() = mediaType
+            override fun contentLength() = length
+            // The body wraps a live network stream that can't be replayed — this stops OkHttp from
+            // silently retrying the PUT with an already-consumed source.
+            override fun isOneShot() = true
+            override fun writeTo(sink: okio.BufferedSink) {
+                var bytesRead = 0L
+                val buffer = ByteArray(8 * 1024)
+                source.byteStream().use { input ->
+                    var read: Int
+                    while (input.read(buffer).also { read = it } != -1) {
+                        sink.write(buffer, 0, read)
+                        bytesRead += read
+                        if (length > 0) {
+                            SyncStatusManager.updateTaskProgress(progressKey, bytesRead.toDouble() / length)
+                        }
+                    }
+                }
+            }
+        }
+        return executePut(putUrl, requestBody)
+    }
+
+    /** Unknown-length fallback: stage the body to cache, then PUT the file with a real length. */
+    private fun stageAndPut(source: okhttp3.ResponseBody, mediaType: okhttp3.MediaType?, putUrl: String): Boolean {
+        val tempFile = File(context.cacheDir, "pipe-${java.util.UUID.randomUUID()}")
+        return try {
+            source.byteStream().use { input ->
+                FileOutputStream(tempFile).use { output -> input.copyTo(output) }
+            }
+            executePut(putUrl, tempFile.asRequestBody(mediaType))
+        } finally {
+            tempFile.delete()
+        }
+    }
+
+    private fun putFile(file: File, mediaType: okhttp3.MediaType?, putUrl: String): Boolean {
+        Log.d("StreamFileUploadProcessor", "📦 Local file exists — uploading it instead of piping")
+        return executePut(putUrl, file.asRequestBody(mediaType))
+    }
+
+    private fun executePut(putUrl: String, requestBody: okhttp3.RequestBody): Boolean {
+        val response = client.newCall(
+            okhttp3.Request.Builder().url(putUrl).put(requestBody).build()
+        ).execute()
+        response.use {
+            if (!it.isSuccessful) {
+                Log.e("StreamFileUploadProcessor", "❌ Cloud PUT failed with code: ${it.code}")
+            }
+            return it.isSuccessful
+        }
+    }
+
+    private fun mediaTypeFor(relativePath: String?) = when (relativePath?.substringAfterLast('.')?.lowercase()) {
+        "mp3" -> "audio/mpeg"
+        "m4a", "m4b" -> "audio/mp4"
+        else -> "application/octet-stream"
+    }.toMediaTypeOrNull()
+
+    override fun canHandle(jobType: String): Boolean {
+        return jobType == SyncTaskFactory.JOB_UPLOAD_STREAM_FILE
     }
 }
 

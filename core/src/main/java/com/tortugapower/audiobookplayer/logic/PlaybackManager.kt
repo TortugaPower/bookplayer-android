@@ -1,6 +1,5 @@
 package com.tortugapower.audiobookplayer.logic
 
-import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 
 import android.content.ComponentName
 import kotlinx.coroutines.flow.combine
@@ -1422,8 +1421,12 @@ object PlaybackManager {
                         resolvedSubItems.forEach { repo.updateItem(it) }
                     }
                 } else if (!resolvedItem.remoteURL.isNullOrEmpty()) {
-                    val hasExternalResource = resolvedItem.externalResources.any { it.syncStatus == ExternalResourceEntity.STATUS_STREAM || it.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED }
-                    if (!hasExternalResource) {
+                    // Media-server-first: refresh the BookPlayer presigned URL only when no saved
+                    // Jellyfin/ABS server can serve the item — that's how a piped stream item plays from
+                    // its cloud copy on a device without the server configured, while devices WITH the
+                    // server keep streaming from it (LAN speed, zero S3 egress).
+                    val externallyResolved = repo.externalStreamUrlFor(resolvedItem) != null
+                    if (!externallyResolved) {
                         // Only query Bookplayer API signed URLs if it's not a Jellyfin/Audiobookshelf item
                         val response = NetworkClient.libraryApi.getRemoteFileURL(
                             path = resolvedItem.relativePath ?: "",

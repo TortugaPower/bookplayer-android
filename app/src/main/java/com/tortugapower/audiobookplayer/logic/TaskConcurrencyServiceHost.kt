@@ -55,6 +55,7 @@ class TaskConcurrencyServiceHost : Service() {
             SyncIdentifiersProcessor(this, repository),
             MetadataUploadProcessor(this, repository),
             UploadFileProcessor(this, repository),
+            StreamFileUploadProcessor(this, repository),
             UpdateProcessor(),
             MoveProcessor(),
             DeleteProcessor(),

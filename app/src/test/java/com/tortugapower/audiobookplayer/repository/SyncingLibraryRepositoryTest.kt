@@ -69,6 +69,7 @@ class SyncingLibraryRepositoryTest {
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) {}
         override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? = null
         override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
+        override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
         override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
         override suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity> = emptyList()
 

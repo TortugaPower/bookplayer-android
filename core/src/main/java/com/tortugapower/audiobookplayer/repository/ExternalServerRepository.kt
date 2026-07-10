@@ -2,7 +2,6 @@ package com.tortugapower.audiobookplayer.repository
 
 import com.tortugapower.audiobookplayer.database.dao.ExternalServerDao
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
-import com.tortugapower.audiobookplayer.logic.CredentialCipher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
@@ -14,7 +13,11 @@ import kotlinx.coroutines.flow.map
  * above this layer always carry plaintext. Always go through this repository — reading the DAO
  * directly returns ciphertext.
  */
-class ExternalServerRepository(private val externalServerDao: ExternalServerDao) {
+class ExternalServerRepository(
+    private val externalServerDao: ExternalServerDao,
+    // Same seam as RoomAccountRepository: the real cipher needs a device Keystore, so tests swap it.
+    private val cipher: TokenCipher = KeystoreTokenCipher,
+) {
     val allServers: Flow<List<ExternalServerEntity>> =
         externalServerDao.getAllServers()
             .map { servers -> servers.map { it.decrypted() } }
@@ -39,12 +42,12 @@ class ExternalServerRepository(private val externalServerDao: ExternalServerDao)
     }
 
     private fun ExternalServerEntity.encrypted() = copy(
-        token = token?.let(CredentialCipher::encrypt),
-        customHeaders = customHeaders?.mapValues { CredentialCipher.encrypt(it.value) }
+        token = token?.let(cipher::encrypt),
+        customHeaders = customHeaders?.mapValues { cipher.encrypt(it.value) }
     )
 
     private fun ExternalServerEntity.decrypted() = copy(
-        token = token?.let(CredentialCipher::decrypt),
-        customHeaders = customHeaders?.mapValues { CredentialCipher.decrypt(it.value) }
+        token = token?.let(cipher::decrypt),
+        customHeaders = customHeaders?.mapValues { cipher.decrypt(it.value) }
     )
 }

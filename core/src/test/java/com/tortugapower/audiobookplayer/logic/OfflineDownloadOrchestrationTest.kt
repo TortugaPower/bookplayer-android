@@ -146,6 +146,7 @@ private class FakeSyncTaskRepository(private val pending: SyncTaskEntity? = null
 /** Identity resolveStreamingUrl (BOOK downloadUnits never touches the other methods). */
 private class FakeLibraryRepository : LibraryRepository {
     override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
+    override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
     override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = emptyList()
     override fun getRootItems() = error("unused")
     override fun getItemsInPath(path: String) = error("unused")

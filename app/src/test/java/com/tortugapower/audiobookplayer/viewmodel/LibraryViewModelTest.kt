@@ -98,6 +98,7 @@ class LibraryViewModelTest {
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) {}
         override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? = null
         override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
+        override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
         override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
         override suspend fun getExternalResource(itemUuid: String, provider: String): ExternalResourceEntity? = null
         override suspend fun saveExternalResource(externalResource: ExternalResourceEntity) {}

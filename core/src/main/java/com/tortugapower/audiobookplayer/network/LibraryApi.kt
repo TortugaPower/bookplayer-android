@@ -65,6 +65,9 @@ interface LibraryApi {
     @HTTP(method = "DELETE", path = "/v1/library/external", hasBody = true)
     suspend fun deleteExternalResource(@Body params: Map<String, Any?>): Response<Unit>
 
+    // Dual-purpose (see ExternalSetResponse): `{uuid}` requests a presigned PUT URL for the item's
+    // source file; `{uuid, uploaded: true}` confirms the upload (server flips the external resource
+    // to "downloaded" and the item to synced=true atomically).
     @POST("/v1/library/external_set")
-    suspend fun setExternalResourceToDownload(@Body params: Map<String, Any?>): Response<Unit>
+    suspend fun setExternalResourceToDownload(@Body params: Map<String, Any?>): Response<ExternalSetResponse>
 }
