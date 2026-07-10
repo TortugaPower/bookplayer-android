@@ -68,7 +68,12 @@ object LibraryContentsSync {
             percentCompleted = remote.percentCompleted,
             relativePath = remote.relativePath,
             remoteURL = remote.remoteURL,
-            artworkURL = remote.artworkURL,
+            // Server artwork wins when it exists (the PRO thumbnail flow rewrites it server-side), but a
+            // null from the server must NOT wipe LOCAL artwork the server never knew about — e.g. a
+            // stream import's cover downloaded from the media server into Artworks/, or embedded art
+            // (metadata uploads deliberately don't send the device-local path). Same principle as the
+            // folder-details push: a fetch reflects server knowledge, it doesn't own device-local state.
+            artworkURL = remote.artworkURL?.takeIf { it.isNotBlank() } ?: local?.artworkURL,
             originalFileName = remote.originalFileName,
             orderRank = remote.orderRank,
             isFinished = remote.isFinished,
