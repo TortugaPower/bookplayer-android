@@ -1380,9 +1380,12 @@ object PlaybackManager {
         }
 
         if (!isLocal) {
-            // First resolve external server stream URLs (Jellyfin/Audiobookshelf)
-            val resolvedItem = repo.resolveStreamingUrl(item)
-            
+            // First resolve external server stream URLs (Jellyfin/Audiobookshelf). One lookup serves
+            // both purposes: a non-null URL IS the "a saved server can serve this" signal the
+            // media-server-first branch below keys on (no second server read + token decrypt).
+            val externalUrl = repo.externalStreamUrlFor(item)
+            val resolvedItem = item.also { if (externalUrl != null) it.remoteURL = externalUrl }
+
             try {
                 if (isBound) {
                     // Bounded so a slow/unreachable server can't hang playback (OkHttp also has timeouts).
@@ -1425,8 +1428,7 @@ object PlaybackManager {
                     // Jellyfin/ABS server can serve the item — that's how a piped stream item plays from
                     // its cloud copy on a device without the server configured, while devices WITH the
                     // server keep streaming from it (LAN speed, zero S3 egress).
-                    val externallyResolved = repo.externalStreamUrlFor(resolvedItem) != null
-                    if (!externallyResolved) {
+                    if (externalUrl == null) {
                         // Only query Bookplayer API signed URLs if it's not a Jellyfin/Audiobookshelf item
                         val response = NetworkClient.libraryApi.getRemoteFileURL(
                             path = resolvedItem.relativePath ?: "",
