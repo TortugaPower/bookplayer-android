@@ -191,7 +191,7 @@ fun ProfileScreen(
                 Text(
                     text = "Queued sync tasks ($pendingTasksCount)",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = Color(0xFF3482F6),
+                    color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
                 )
                 if (lastSyncTimestamp != null) {

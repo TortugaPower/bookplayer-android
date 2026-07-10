@@ -7,7 +7,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -47,7 +46,6 @@ import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Cast
-import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -85,7 +83,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -484,7 +481,6 @@ fun PlayerScreen(
                         // Embedded-art fallback from the book's own file when nothing is stored (most items).
                         embeddedArtwork = ItemArtwork(currentItem.uuid, currentItem.relativePath, currentItem.remoteURL),
                         isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
-                        showCloudBadge = !fullscreenActive && !isLocal && !currentItem.remoteURL.isNullOrEmpty(),
                         hasVideo = hasVideo,
                         isSheetVisible = !isHidden,
                         isFullscreen = fullscreenActive,
@@ -607,7 +603,6 @@ private fun PlayerArtwork(
     artworkURL: String?,
     embeddedArtwork: ItemArtwork? = null,
     isBuffering: Boolean,
-    showCloudBadge: Boolean,
     hasVideo: Boolean,
     isSheetVisible: Boolean = true,
     isFullscreen: Boolean = false,
@@ -778,28 +773,6 @@ private fun PlayerArtwork(
             SoundwaveLoadingOverlay()
         }
 
-        if (showCloudBadge) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val path = Path().apply {
-                        moveTo(size.width, size.height * 0.8f)
-                        lineTo(size.width, size.height)
-                        lineTo(size.width * 0.8f, size.height)
-                        close()
-                    }
-                    drawPath(path, Color.Black.copy(alpha = 0.65f))
-                }
-                Icon(
-                    imageVector = Icons.Outlined.Cloud,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .size(24.dp),
-                    tint = Color(0xFF4285F4)
-                )
-            }
-        }
         AnimatedVisibility(
             visible = !hasVideo || showControls,
             enter = fadeIn(animationSpec = tween(300)),
@@ -881,7 +854,6 @@ private fun PlayerTitleNavRow(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(
@@ -905,9 +877,11 @@ private fun PlayerTitleNavRow(
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             ),
+            // Minimal own padding: the chevrons are shifted 12dp outward, so the visual gap between
+            // the scrolling title and each chevron is padding + 12dp — the label keeps the width.
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 8.dp)
+                .padding(horizontal = 2.dp)
         )
         IconButton(
             onClick = onNext,

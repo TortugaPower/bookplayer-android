@@ -1,8 +1,8 @@
 package com.tortugapower.audiobookplayer.ui.components
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -11,7 +11,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,7 +24,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -46,7 +44,7 @@ import com.tortugapower.audiobookplayer.logic.ItemArtwork
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.ui.theme.LocalBookPlayerColors
 
-private val MiniPlayerPillHeight: Dp = 64.dp
+private val MiniPlayerPillHeight: Dp = 56.dp
 private val MiniPlayerVerticalMargin: Dp = 8.dp
 
 /** Total vertical space the floating mini player occupies (pill + top/bottom margins). */
@@ -104,7 +102,9 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
                 contentDescription = nowPlayingLabel
                 heading()
             }
-            .padding(horizontal = 24.dp),
+            // Asymmetric: the controls sit closer to the pill's right edge than the artwork does to
+            // the left, so the play button doesn't feel sunken into the pill.
+            .padding(start = 24.dp, end = 18.dp),
         contentAlignment = Alignment.CenterStart
     ) {
         Row(
@@ -112,15 +112,6 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxWidth()
         ) {
             val context = LocalContext.current
-            val isLocal = remember(currentItem.relativePath, currentItem.type) {
-                if (currentItem.type == com.tortugapower.audiobookplayer.database.entities.ItemType.FOLDER) true
-                else if (currentItem.relativePath == null) false
-                else {
-                    val processedDir = java.io.File(context.filesDir, "Processed")
-                    java.io.File(processedDir, currentItem.relativePath!!).exists()
-                }
-            }
-
             // Thumbnail (decorative — excluded from accessibility).
             val artworkBackground = if (currentItem.artworkURL == null) {
                 Modifier.background(
@@ -165,26 +156,8 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
                         contentScale = ContentScale.Crop
                     )
                 }
-                if (!isLocal && !currentItem.remoteURL.isNullOrEmpty()) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val path = Path().apply {
-                            moveTo(size.width, size.height * 0.3f)
-                            lineTo(size.width, size.height)
-                            lineTo(size.width * 0.3f, size.height)
-                            close()
-                        }
-                        drawPath(path, Color.Black.copy(alpha = 0.65f))
-                    }
-                    Icon(
-                        imageVector = Icons.Outlined.Cloud,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(2.dp)
-                            .size(12.dp),
-                        tint = Color(0xFF4285F4)
-                    )
-                }
+                // No cloud badge on the mini player (removed): once a book is loaded and playing,
+                // its remote-vs-local state is noise — the library row is where that state matters.
             }
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -201,7 +174,10 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
                     color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1
+                    maxLines = 1,
+                    // Long titles scroll (marquee) instead of truncating — the pill is the only
+                    // place the title is visible while browsing other tabs.
+                    modifier = Modifier.basicMarquee()
                 )
                 Text(
                     text = author,
@@ -210,6 +186,9 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
                     maxLines = 1
                 )
             }
+
+            // Breathing room so the (marquee) title doesn't run into the rewind button.
+            Spacer(modifier = Modifier.width(6.dp))
 
             IconButton(onClick = { PlaybackManager.seekBackward() }) {
                 Icon(

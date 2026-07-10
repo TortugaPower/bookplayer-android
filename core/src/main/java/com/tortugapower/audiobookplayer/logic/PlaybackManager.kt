@@ -502,6 +502,27 @@ object PlaybackManager {
         return repository ?: RoomLibraryRepository(context, AppDatabase.getDatabase(context).libraryDao())
     }
 
+    /**
+     * Remote-streaming gate (iOS parity: `PlayerLoaderService.loadPlayer` throws `fileMissing`): a
+     * not-downloaded item — BookPlayer cloud OR a Jellyfin/ABS stream item — needs an active
+     * LITE/PRO session to play. Gated on the ACCOUNT, not the stored URL: presigned URLs stay
+     * valid for days after sign-out and must not keep playing. Applied by [playItem] (with the
+     * file-missing error) AND by [restoreLastPlayedItem] (silently — a cold start just restores
+     * nothing), so the restore path can't resurrect a book the gate would block.
+     */
+    private suspend fun remoteStreamingBlocked(
+        context: Context,
+        item: LibraryItemEntity,
+        processedDir: File,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val fileExists = item.relativePath?.let { File(processedDir, it).exists() } ?: false
+        if (fileExists) return@withContext false
+        val account = com.tortugapower.audiobookplayer.repository.RoomAccountRepository(
+            AppDatabase.getDatabase(context).accountDao()
+        ).getAccount()
+        !TaskAccessPolicy.canStreamRemoteItems(account?.tier)
+    }
+
     /** Back-fill embedded artwork for any item missing it (extract -> save -> persist). Runs on IO. */
     private suspend fun extractMissingArtwork(items: List<LibraryItemEntity>, context: Context) {
         val processedDir = File(context.filesDir, "Processed")
@@ -835,6 +856,17 @@ object PlaybackManager {
         val processedDir = File(context.filesDir, "Processed")
         
         scope.launch(Dispatchers.Main) {
+            if (remoteStreamingBlocked(context, item, processedDir)) {
+                playbackQueuedFlag = false
+                recomputeIsPlaying()
+                _isTransitioning.value = false
+                // Same wording as iOS's BPPlayerError.fileMissing — deliberately does NOT suggest
+                // signing in (we don't know whether this user even has a subscription to restore).
+                _playbackError.value =
+                    context.getString(R.string.playback_error_file_missing) + "\n" + (item.relativePath ?: "")
+                return@launch
+            }
+
             val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
             // Gather the backing items, back-fill any missing artwork, then build the playback model.
             val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir)
@@ -1010,6 +1042,10 @@ object PlaybackManager {
         val item = getRepository(appContext).getItemById(lastUuid) ?: return
         val processedDir = File(appContext.filesDir, "Processed")
 
+        // Same account gate as playItem, silent flavor: without it, a signed-out user's last book
+        // restores on launch and its stale presigned URL resumes just fine for days.
+        if (remoteStreamingBlocked(appContext, item, processedDir)) return
+
         // Update navigation states
         val next = getRepository(appContext).getAdjacentItem(item.uuid, next = true) != null
         val prev = getRepository(appContext).getAdjacentItem(item.uuid, next = false) != null
@@ -1086,6 +1122,20 @@ object PlaybackManager {
         scope.launch {
             PlaybackSettingsManager.setLastItemUuid(context, null)
         }
+    }
+
+    /**
+     * Applies the remote-streaming gate to the CURRENTLY loaded item — called on sign-out/account
+     * deletion. Without it a signed-out session keeps playing its loaded remote book (the presigned
+     * URL stays valid for days), and because the media service outlives an app swipe, the same
+     * loaded playlist would resume on the next launch without re-entering any gated load path.
+     * Local books are left playing untouched.
+     */
+    suspend fun enforceRemoteStreamingGate(context: Context) {
+        val item = _currentItem.value ?: return
+        val processedDir = File(context.filesDir, "Processed")
+        if (!remoteStreamingBlocked(context, item, processedDir)) return
+        withContext(Dispatchers.Main) { stopAndUnloadCurrentItem(context) }
     }
 
     /**

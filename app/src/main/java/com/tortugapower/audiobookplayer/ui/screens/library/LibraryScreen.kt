@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -874,6 +875,7 @@ fun LibraryScreen(
                                         isSelected = isSelected,
                                         isSelectMode = isSelectMode,
                                         libraryViewModel = libraryViewModel,
+                                        canDownload = canSyncLibrary,
                                         modifier = if (isSelectMode) {
                                             Modifier.pointerInput(item.uuid, reorderableItems) {
                                                 var dragAccumulator = 0f
@@ -967,7 +969,11 @@ fun LibraryListItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
-    libraryViewModel: com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel? = null
+    libraryViewModel: com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel? = null,
+    // Tier gate for the artwork's cloud-download affordance. For FREE/signed-out users a missing
+    // file can't be re-fetched (TaskAccessPolicy discards their download tasks), so the overlay
+    // becomes an error badge instead of a download button that silently does nothing.
+    canDownload: Boolean = true
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val context = LocalContext.current
@@ -1021,7 +1027,13 @@ fun LibraryListItem(
         "${(item.percentCompleted * 100).toInt()}% ${stringResource(R.string.common_completed).lowercase()}"
     }
 
-    val combinedDescription = "${item.title}. $authorText. $durationText. $progressText"
+    val showCloud = downloadState?.isLocal == false
+
+    val combinedDescription = if (showCloud && !canDownload) {
+        "${item.title}. $authorText. $durationText. $progressText. ${stringResource(R.string.library_audio_unavailable)}"
+    } else {
+        "${item.title}. $authorText. $durationText. $progressText"
+    }
 
     Row(
         modifier = modifier
@@ -1069,15 +1081,15 @@ fun LibraryListItem(
             Modifier.background(Color.Transparent)
         }
 
-        // Explicitly "known not local": while the state is still resolving (null) show nothing.
-        val showCloud = downloadState?.isLocal == false
+        // Explicitly "known not local" (showCloud, computed above): while the state is still
+        // resolving (null) show nothing.
         val artworkModifier = Modifier
             .size(56.dp)
             .clip(RoundedCornerShape(8.dp))
             .then(artworkBackground)
 
         Box(
-            modifier = if (showCloud && !isDownloading) {
+            modifier = if (showCloud && !isDownloading && canDownload) {
                 artworkModifier
                     .clickable(
                         onClickLabel = stringResource(R.string.common_download),
@@ -1147,35 +1159,58 @@ fun LibraryListItem(
                     drawPath(path, Color.Black.copy(alpha = 0.65f))
                 }
                 Icon(
-                    imageVector = Icons.Outlined.Cloud,
+                    // LITE/PRO: tappable cloud (downloadable). FREE/signed-out: the file is missing
+                    // and can't be re-fetched — an error badge, not a dead download button.
+                    imageVector = if (canDownload) Icons.Outlined.Cloud else Icons.Outlined.ErrorOutline,
                     contentDescription = null,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(4.dp)
                         .size(16.dp),
-                    tint = Color(0xFF4285F4) // Cloud Blue
+                    tint = if (canDownload) Color(0xFF4285F4) else MaterialTheme.colorScheme.error
                 )
             }
             if (item.type == ItemType.FOLDER) {
-                Icon(
-                    imageVector = Icons.Default.Folder,
-                    contentDescription = null,
-                    modifier = Modifier.align(Alignment.Center).size(24.dp),
-                    tint = Color.White.copy(alpha = 0.8f)
-                )
+                // Small circular corner badge, mirroring iOS's integrations-list folder badge
+                // (top-left here; iOS uses top-right) — instead of a big glyph over the artwork.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(4.dp)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Folder,
+                        contentDescription = null,
+                        modifier = Modifier.size(11.dp),
+                        tint = Color.White
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.width(16.dp))
 
+        // Uniform gap between the three labels (iOS parity: BookView's VStack spaces title/author/
+        // duration evenly). A plain Column left the gaps to each font's line-height padding, so the
+        // bodyLarge title sat farther from the author line than the author sat from the duration —
+        // trimming the outer line-height padding makes spacedBy the ONLY source of spacing.
+        val trimmedLineHeight = androidx.compose.ui.text.style.LineHeightStyle(
+            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both
+        )
         Column(
-            modifier = Modifier.weight(1f).clearAndSetSemantics { }
+            modifier = Modifier.weight(1f).clearAndSetSemantics { },
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
                 text = item.title.ifBlank { stringResource(R.string.library_unknown_title) },
                 color = if (isCurrentlyPlaying) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyLarge.copy(lineHeightStyle = trimmedLineHeight),
                 fontWeight = FontWeight.Bold,
                 // Long titles wrap onto a second line before ellipsizing.
                 maxLines = 2,
@@ -1267,7 +1302,7 @@ fun LibraryListItem(
                 Text(
                     text = authorText,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeightStyle = trimmedLineHeight),
                     maxLines = 1
                 )
             }
@@ -1276,7 +1311,7 @@ fun LibraryListItem(
                 Text(
                     text = durationText,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeightStyle = trimmedLineHeight),
                     maxLines = 1
                 )
             }
@@ -1310,6 +1345,8 @@ fun LibraryListItem(
                     )
                 }
                 
+                // Only folders trail a disclosure chevron; for books the progress wheel/checkmark
+                // floats to the right edge (no phantom 24dp placeholder holding its spot).
                 if (item.type == ItemType.FOLDER) {
                     Icon(
                         imageVector = Icons.Default.ChevronRight,
@@ -1317,9 +1354,6 @@ fun LibraryListItem(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(24.dp)
                     )
-                } else {
-                    // Spacer to align with folder's chevron
-                    Spacer(modifier = Modifier.size(24.dp))
                 }
             }
         }
