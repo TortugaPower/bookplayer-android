@@ -10,7 +10,6 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import java.io.File
 import java.io.FileOutputStream
-import kotlinx.coroutines.flow.first
 
 /**
  * Backfills the cover of a stream-only media-server item on a device that didn't do the original
@@ -56,16 +55,12 @@ object StreamArtworkBackfill {
             .find { it.syncStatus == ExternalResourceEntity.STATUS_STREAM } ?: return false
 
         // Same server resolution as playback (resolveStreamingUrl): hostId first, provider-type fallback.
-        val serverDao = AppDatabase.getDatabase(context).externalServerDao()
-        val server = resource.hostId?.toLongOrNull()?.let { serverDao.getServerById(it) }
-            ?: run {
-                val type = when (resource.providerName.lowercase()) {
-                    "jellyfin" -> ExternalServiceType.JELLYFIN
-                    "audiobookshelf" -> ExternalServiceType.AUDIOBOOKSHELF
-                    else -> null
-                }
-                type?.let { t -> serverDao.getAllServers().first().find { it.type == t } }
-            } ?: return false
+        // Through the repository, not the DAO: stored credentials are encrypted at rest — a DAO-read
+        // token is ciphertext, and the provider 401s the cover request.
+        val servers = com.tortugapower.audiobookplayer.repository.ExternalServerRepository(
+            AppDatabase.getDatabase(context).externalServerDao()
+        )
+        val server = ExternalServiceUtils.serverForResource(servers, resource) ?: return false
 
         val (url, headers) = artworkRequestFor(server, resource) ?: return false
 

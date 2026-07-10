@@ -73,4 +73,24 @@ class SyncTaskFactoryTest {
         // Present but null — the server treats absent/null as "leave unchanged".
         assertEquals(null, payloadOf(repo.saved!!)["lastPlayDateTimestamp"])
     }
+
+    @Test fun uploadStreamFileTask_ownQueue_noFrozenUrl_dedupedByUuid() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createUploadStreamFileTask(repo, item(lastPlayDateMs = null))
+
+        val task = repo.saved!!
+        // Own queue (an unreachable media server must not wedge the serial file queue), and NO
+        // presigned URL in the payload — the processor fetches a fresh one per attempt.
+        assertEquals(SyncTaskFactory.QUEUE_PIPE, task.queueKey)
+        assertEquals(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE, task.jobType)
+        assertEquals("u1", task.taskID)
+        assertTrue(!payloadOf(task).containsKey("remotePath"))
+
+        // A pending pipe for the same item is not duplicated.
+        val dedupRepo = object : SyncTaskRepository by repo {
+            override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = task
+            override suspend fun saveTask(saved: SyncTaskEntity) = error("must not enqueue a duplicate pipe")
+        }
+        SyncTaskFactory.createUploadStreamFileTask(dedupRepo, item(lastPlayDateMs = null))
+    }
 }

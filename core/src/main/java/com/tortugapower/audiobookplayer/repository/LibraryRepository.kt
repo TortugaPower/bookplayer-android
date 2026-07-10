@@ -64,4 +64,11 @@ interface LibraryRepository {
     suspend fun deleteExternalResource(itemUuid: String, provider: String)
     suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity
     suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity>
+
+    /**
+     * The media-server download URL for [item]'s stream/downloaded external resource, or null when no
+     * saved server can serve it (no resource, server removed, or a device that never configured one).
+     * Null is the signal to fall back to the BookPlayer cloud copy — media-server-first, cloud second.
+     */
+    suspend fun externalStreamUrlFor(item: LibraryItemEntity): String?
 }

@@ -39,8 +39,11 @@ object TaskAccessPolicy {
 
         if (!canAccessSyncService(tier)) return false
 
-        // specific restriction: only PRO can upload files or artwork
-        if (jobType == SyncTaskFactory.JOB_UPLOAD_FILE || jobType == SyncTaskFactory.JOB_UPLOAD_ARTWORK) {
+        // specific restriction: only PRO can upload files or artwork (the stream-to-cloud pipe is a
+        // file upload — LITE keeps DB-only sync, no S3)
+        if (jobType == SyncTaskFactory.JOB_UPLOAD_FILE ||
+            jobType == SyncTaskFactory.JOB_UPLOAD_ARTWORK ||
+            jobType == SyncTaskFactory.JOB_UPLOAD_STREAM_FILE) {
             return tier == AccountTier.PRO
         }
 

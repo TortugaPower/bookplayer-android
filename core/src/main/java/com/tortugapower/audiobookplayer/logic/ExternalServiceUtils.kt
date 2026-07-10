@@ -1,6 +1,10 @@
 package com.tortugapower.audiobookplayer.logic
 
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
+import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
+import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
+import kotlinx.coroutines.flow.first
 
 object ExternalServiceUtils {
     fun sanitizeUrl(url: String): String {
@@ -59,5 +63,39 @@ object ExternalServiceUtils {
             ExternalServiceType.AUDIOBOOKSHELF -> "Bearer $token"
         }
         return mergeHeaders(headers, "Authorization", auth)
+    }
+
+    /** The service type behind a resource's `providerName`, or null for other providers (hardcover). */
+    fun serviceTypeFor(providerName: String): ExternalServiceType? = when (providerName.lowercase()) {
+        "jellyfin" -> ExternalServiceType.JELLYFIN
+        "audiobookshelf" -> ExternalServiceType.AUDIOBOOKSHELF
+        else -> null
+    }
+
+    /**
+     * The saved server that can serve [resource]: hostId first, falling back to the first server of the
+     * provider's type. The single resolution used by streaming-URL rebuild, artwork backfill, and the
+     * stream-to-cloud pipe, so "which server owns this item" can't drift between them. Takes the
+     * [ExternalServerRepository] — never the DAO — because stored credentials are encrypted at rest:
+     * a DAO-read server carries a ciphertext token, which media servers reject with 401.
+     */
+    suspend fun serverForResource(servers: ExternalServerRepository, resource: ExternalResourceEntity): ExternalServerEntity? {
+        resource.hostId?.toLongOrNull()?.let { servers.getServerById(it) }?.let { return it }
+        val type = serviceTypeFor(resource.providerName) ?: return null
+        return servers.allServers.first().find { it.type == type }
+    }
+
+    /**
+     * The provider's direct-download URL for [resource] on [server] (query-token auth, so it needs no
+     * extra headers), or null for an unknown provider. Pure counterpart of the URL rebuild in
+     * `resolveStreamingUrl`, also used to GET the source file for the stream-to-cloud pipe.
+     */
+    fun downloadUrlFor(server: ExternalServerEntity, resource: ExternalResourceEntity): String? {
+        val path = when (serviceTypeFor(resource.providerName)) {
+            ExternalServiceType.JELLYFIN -> "Items/${resource.providerId}/Download?api_key=${server.token ?: ""}"
+            ExternalServiceType.AUDIOBOOKSHELF -> "api/items/${resource.providerId}/download?token=${server.token ?: ""}"
+            null -> return null
+        }
+        return "${sanitizeUrl(server.url)}$path"
     }
 }

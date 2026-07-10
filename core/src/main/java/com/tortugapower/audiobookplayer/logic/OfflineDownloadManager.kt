@@ -1,6 +1,5 @@
 package com.tortugapower.audiobookplayer.logic
 
-import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 
 import android.content.Context
 import android.util.Log
@@ -98,11 +97,17 @@ object OfflineDownloadManager {
      * [PlaybackManager]'s streaming refresh. On any network failure, falls back to the resolved item.
      */
     private suspend fun freshUrlFor(libraryRepository: LibraryRepository, book: LibraryItemEntity): LibraryItemEntity {
-        val resolved = libraryRepository.resolveStreamingUrl(book)
-        val hasExternalResource = resolved.externalResources.any {
-            it.syncStatus == ExternalResourceEntity.STATUS_STREAM || it.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED
+        // Media-server-first: a resolvable Jellyfin/ABS server keeps its own URL (LAN speed, zero S3
+        // egress). Only when NO saved server can serve the item (e.g. a second device that never
+        // configured one) fall through to the presigned refresh — that's how a piped stream item
+        // downloads from its BookPlayer cloud copy. One lookup both resolves the URL and acts as the
+        // guard (callers already skip books whose file is local, so no local-file short-circuit needed).
+        val externalUrl = libraryRepository.externalStreamUrlFor(book)
+        if (externalUrl != null) {
+            book.remoteURL = externalUrl
+            return book
         }
-        if (hasExternalResource) return resolved
+        val resolved = book
         return try {
             val response = NetworkClient.libraryApi.getRemoteFileURL(
                 path = resolved.relativePath ?: "",

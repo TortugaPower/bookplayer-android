@@ -102,6 +102,7 @@ class WearRootViewModelTest {
         override suspend fun saveExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity) {}
         override suspend fun deleteExternalResource(itemUuid: String, provider: String) {}
         override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
+        override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
         override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
     }
 

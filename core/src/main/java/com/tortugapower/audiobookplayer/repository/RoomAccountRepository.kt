@@ -59,13 +59,14 @@ class RoomAccountRepository(
         }
 }
 
-/** Encrypt/decrypt indirection for the account token — lets tests substitute a fake for the Keystore. */
+/** Encrypt/decrypt indirection for stored credentials — lets tests substitute a fake for the Keystore. */
 interface TokenCipher {
     fun encrypt(plaintext: String): String
     fun decrypt(stored: String): String
 }
 
-private object KeystoreTokenCipher : TokenCipher {
+/** Shared by [RoomAccountRepository] and [ExternalServerRepository] (one key covers all credentials). */
+internal object KeystoreTokenCipher : TokenCipher {
     override fun encrypt(plaintext: String): String = CredentialCipher.encrypt(plaintext)
     override fun decrypt(stored: String): String = CredentialCipher.decrypt(stored)
 }
