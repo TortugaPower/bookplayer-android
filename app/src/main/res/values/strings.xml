@@ -113,8 +113,8 @@
     <string name="paywall_choose_plan">Choose your plan</string>
     <string name="paywall_price_per_period">%1$s per %2$s</string>
     <string name="paywall_subscribe">Subscribe now</string>
-    <string name="paywall_agree_prefix">By continuing, you agree to </string>
-    <string name="paywall_agree_and"> and </string>
+    <string name="paywall_agree_prefix">"By continuing, you agree to "</string>
+    <string name="paywall_agree_and">" and "</string>
     <string name="restore_none_found">No active subscription found to restore.</string>
     <string name="paywall_no_plans">No plans are available right now. Please try again later.</string>
 
