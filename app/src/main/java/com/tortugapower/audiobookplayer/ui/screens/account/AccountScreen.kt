@@ -184,6 +184,7 @@ fun AccountDetailsScreen(viewModel: ProfileViewModel, onBack: () -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             AccountFeatureRow(Icons.Default.CloudQueue, stringResource(R.string.pro_feature_cloud_sync_title))
+                            AccountFeatureRow(Icons.Default.Watch, stringResource(R.string.pro_feature_watch_title))
                             AccountFeatureRow(Icons.Default.Palette, stringResource(R.string.pro_feature_themes_title))
                         }
 

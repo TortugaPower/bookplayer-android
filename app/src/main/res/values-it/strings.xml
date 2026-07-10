@@ -48,9 +48,7 @@
 
     <!-- Profile -->
     <string name="profile_title">Profilo</string>
-    <string name="profile_setup_account">Configura account</string>
     <string name="profile_tier_label">Livello: %1$s</string>
-    <string name="profile_not_signed_in">Non connesso</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>

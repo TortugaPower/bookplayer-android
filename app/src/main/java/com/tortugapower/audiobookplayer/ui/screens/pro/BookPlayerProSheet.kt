@@ -58,11 +58,19 @@ fun BookPlayerProSheet(
     ) {
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Features
+        // Features (mirrors iOS LoginView's benefit list: cloud sync, watch app, themes)
         ProFeatureRow(
             icon = Icons.Default.CloudUpload,
             title = stringResource(R.string.pro_feature_cloud_sync_title),
             description = stringResource(R.string.pro_feature_cloud_sync_desc)
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        ProFeatureRow(
+            icon = Icons.Default.Watch,
+            title = stringResource(R.string.pro_feature_watch_title),
+            description = stringResource(R.string.pro_feature_watch_desc)
         )
 
         Spacer(modifier = Modifier.height(32.dp))

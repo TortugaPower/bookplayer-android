@@ -48,9 +48,7 @@
 
     <!-- Profile -->
     <string name="profile_title">Perfil</string>
-    <string name="profile_setup_account">Configurar cuenta</string>
     <string name="profile_tier_label">Nivel: %1$s</string>
-    <string name="profile_not_signed_in">Sesión no iniciada</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>

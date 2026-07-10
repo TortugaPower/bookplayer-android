@@ -38,7 +38,12 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
+import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.repeatOnLifecycle
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
+import com.tortugapower.audiobookplayer.logic.ReviewPromptManager
+import com.tortugapower.audiobookplayer.ui.components.findActivity
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
@@ -96,6 +101,24 @@ fun MainScreen() {
 
     val showPlayerScreen by PlaybackManager.showPlayerScreen.collectAsStateWithLifecycle()
     val currentPlaybackItem by PlaybackManager.currentItem.collectAsStateWithLifecycle()
+
+    // Post-book-finish review prompt (iOS parity: PlayerViewModel.requestReview fires on .bookEnd
+    // and on app-active-with-player-shown). Consume the armed flag only while the player is visible
+    // and the app resumed — covers both "book ended while watching" and "ended in the background,
+    // ask on the next player visit". The short delay mirrors iOS's 1s debounce so the prompt doesn't
+    // land in the middle of the end-of-book transition.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    LaunchedEffect(showPlayerScreen) {
+        if (!showPlayerScreen) return@LaunchedEffect
+        lifecycleOwner.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            PlaybackSettingsManager.getAskReview(context).collect { armed ->
+                if (armed) {
+                    kotlinx.coroutines.delay(1_000)
+                    context.findActivity()?.let { ReviewPromptManager.maybeAsk(it) }
+                }
+            }
+        }
+    }
 
     // A mid-playback 401/403 from an external server: plain error alert, no re-auth routing
     // (the user re-authenticates from Media Servers).

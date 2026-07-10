@@ -47,9 +47,7 @@
 
     <!-- Profile -->
     <string name="profile_title">프로필</string>
-    <string name="profile_setup_account">계정 설정</string>
     <string name="profile_tier_label">등급: %1$s</string>
-    <string name="profile_not_signed_in">로그인하지 않음</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>

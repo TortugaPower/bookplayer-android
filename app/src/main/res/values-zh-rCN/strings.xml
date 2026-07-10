@@ -47,9 +47,7 @@
 
     <!-- Profile -->
     <string name="profile_title">个人资料</string>
-    <string name="profile_setup_account">设置账户</string>
     <string name="profile_tier_label">等级: %1$s</string>
-    <string name="profile_not_signed_in">未登录</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
