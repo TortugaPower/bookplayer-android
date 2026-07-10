@@ -65,21 +65,8 @@ fun StreamAndSyncSheet(
             description = stringResource(R.string.lite_feature_sync_desc)
         )
 
-        Spacer(modifier = Modifier.height(48.dp))
-
-        // Disclaimer Section
-        Text(
-            text = stringResource(R.string.pro_disclaimer_header),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        DisclaimerItem(text = stringResource(R.string.pro_disclaimer_account))
-        DisclaimerItem(text = stringResource(R.string.pro_disclaimer_subscription))
-
+        // No disclaimer section here (unlike the Pro sheet): the account note doesn't apply — lite
+        // IS the multi-device product — and pricing context lives on the paywall step.
         Spacer(modifier = Modifier.height(24.dp))
     }
 }

@@ -178,11 +178,19 @@ fun PaywallSheet(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Proper period nouns ("per year"), not RevenueCat's raw enum names ("per annual"),
+                        // and localizable instead of English-only identifiers.
+                        val periodLabel = when (pkg.packageType) {
+                            com.revenuecat.purchases.PackageType.ANNUAL -> stringResource(R.string.paywall_period_year)
+                            com.revenuecat.purchases.PackageType.MONTHLY -> stringResource(R.string.paywall_period_month)
+                            com.revenuecat.purchases.PackageType.WEEKLY -> stringResource(R.string.paywall_period_week)
+                            else -> pkg.packageType.name.lowercase()
+                        }
                         Text(
                             text = stringResource(
                                 R.string.paywall_price_per_period,
                                 pkg.product.price.formatted,
-                                pkg.packageType.name.lowercase()
+                                periodLabel
                             ),
                             modifier = Modifier.weight(1f),
                             color = MaterialTheme.colorScheme.onSurface
