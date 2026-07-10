@@ -499,7 +499,8 @@ object ImportManager : ImportService {
      * contents move with it: audio files inside become BOOK children, nested directories become
      * nested FOLDERs. Returns the created folder item.
      */
-    private suspend fun importDirectory(
+    @androidx.annotation.VisibleForTesting
+    internal suspend fun importDirectory(
         context: Context,
         libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao,
         syncTaskRepository: RoomSyncTaskRepository,
@@ -651,7 +652,8 @@ object ImportManager : ImportService {
      * level is extracted the same way, and only audio files, directories, and archives are
      * staged. Directories stage as single entries and later import as one folder item.
      */
-    private suspend fun expandArchives(
+    @androidx.annotation.VisibleForTesting
+    internal suspend fun expandArchives(
         context: Context,
         files: List<ImportFile>,
         libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
