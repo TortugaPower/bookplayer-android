@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.revenuecat.purchases.Package
 import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.ui.components.findActivity
 import com.tortugapower.audiobookplayer.logic.PurchaseFlowManager
 
 /**
@@ -295,13 +296,3 @@ private fun resolvePackages(
     return allPackages
 }
 
-
-/**
- * The host [Activity] behind a (possibly wrapped) Compose [android.content.Context] — LocalContext
- * inside dialogs/sheets is typically a ContextWrapper, so a direct cast fails.
- */
-private tailrec fun android.content.Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is android.content.ContextWrapper -> baseContext.findActivity()
-    else -> null
-}

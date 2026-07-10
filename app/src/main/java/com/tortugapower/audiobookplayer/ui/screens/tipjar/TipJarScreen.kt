@@ -54,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.tortugapower.audiobookplayer.ui.components.findActivity
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.RestoreResult
 import com.tortugapower.audiobookplayer.logic.TipJarManager
@@ -81,7 +82,7 @@ private data class GridContributor(val login: String, val avatarUrl: String, val
 @Composable
 fun TipJarScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val activity = context as? Activity
+    val activity = context.findActivity()
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
 
