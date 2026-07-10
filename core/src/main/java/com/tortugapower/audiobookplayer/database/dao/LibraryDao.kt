@@ -150,6 +150,9 @@ interface LibraryDao {
     @Query("SELECT * FROM external_resources WHERE libraryItemUuid = :itemUuid AND providerName = :provider LIMIT 1")
     suspend fun getExternalResource(itemUuid: String, provider: String): com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity?
 
+    @Query("SELECT * FROM external_resources WHERE providerName = :providerName AND providerId = :providerId LIMIT 1")
+    suspend fun getExternalResourceByProvider(providerName: String, providerId: String): com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity?
+
     @Query("SELECT * FROM external_resources WHERE libraryItemUuid = :itemUuid")
     fun getExternalResourcesForBookFlow(itemUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>>
 
@@ -158,6 +161,20 @@ interface LibraryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity)
+
+    /**
+     * Insert a library item together with its external resource atomically — a failure in the second
+     * insert must not leave an orphaned item without its backing resource (a stream item without its
+     * "stream" resource is unplayable: resolveStreamingUrl has nothing to rebuild the URL from).
+     */
+    @Transaction
+    suspend fun insertItemWithExternalResource(
+        item: LibraryItemEntity,
+        externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity,
+    ) {
+        insertItem(item)
+        insertExternalResource(externalResource)
+    }
 
     @Query("DELETE FROM external_resources WHERE libraryItemUuid = :itemUuid AND providerName = :provider")
     suspend fun deleteExternalResource(itemUuid: String, provider: String)

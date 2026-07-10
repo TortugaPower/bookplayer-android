@@ -107,7 +107,12 @@ data class BookCompletionEntity(
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("libraryItemUuid")]
+    indices = [
+        Index("libraryItemUuid"),
+        // (providerName, providerId) is the natural lookup key for the import dedup query
+        // (getExternalResourceByProvider) — without it every media-server import full-scans the table.
+        Index("providerName", "providerId"),
+    ]
 )
 data class ExternalResourceEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -118,4 +123,15 @@ data class ExternalResourceEntity(
     val processedFile: Boolean = false,
     val libraryItemUuid: String,
     val hostId: String? = null
-)
+) {
+    companion object {
+        // Canonical syncStatus values — the single home for these strings (they also travel to the
+        // server), so playback/import/download call sites can't drift on a typo.
+        /** Stream-only media-server item: no local file; the URL is rebuilt from hostId+providerId at load. */
+        const val STATUS_STREAM = "stream"
+        /** Metadata linked/synced with the provider (e.g. a downloaded media-server import). */
+        const val STATUS_SYNCED = "synced"
+        /** The provider file has been downloaded into local storage. */
+        const val STATUS_DOWNLOADED = "downloaded"
+    }
+}

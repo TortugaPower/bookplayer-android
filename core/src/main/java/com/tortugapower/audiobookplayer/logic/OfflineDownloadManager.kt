@@ -1,5 +1,7 @@
 package com.tortugapower.audiobookplayer.logic
 
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
+
 import android.content.Context
 import android.util.Log
 import com.tortugapower.audiobookplayer.database.entities.ItemType
@@ -98,7 +100,7 @@ object OfflineDownloadManager {
     private suspend fun freshUrlFor(libraryRepository: LibraryRepository, book: LibraryItemEntity): LibraryItemEntity {
         val resolved = libraryRepository.resolveStreamingUrl(book)
         val hasExternalResource = resolved.externalResources.any {
-            it.syncStatus == "stream" || it.syncStatus == "downloaded"
+            it.syncStatus == ExternalResourceEntity.STATUS_STREAM || it.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED
         }
         if (hasExternalResource) return resolved
         return try {

@@ -52,6 +52,7 @@ import com.tortugapower.audiobookplayer.ui.components.MiniPlayerBarHeight
 import com.tortugapower.audiobookplayer.ui.components.Screen
 import com.tortugapower.audiobookplayer.ui.screens.account.AccountDetailsScreen
 import com.tortugapower.audiobookplayer.ui.screens.appicons.AppIconsScreen
+import com.tortugapower.audiobookplayer.ui.screens.library.ImportCompletionDialog
 import com.tortugapower.audiobookplayer.ui.screens.library.ImportSheet
 import com.tortugapower.audiobookplayer.ui.screens.library.LibraryScreen
 import com.tortugapower.audiobookplayer.ui.screens.player.PlayerScreen
@@ -463,8 +464,21 @@ fun MainScreen() {
                     }
                 }
 
+                val currentLibraryPath by libraryViewModel.currentPath.collectAsStateWithLifecycle()
+
                 if (importViewModel.showImportSheet) {
-                    ImportSheet(importViewModel)
+                    // Imports land in the folder the user is currently browsing (or the root).
+                    ImportSheet(importViewModel, targetFolderPath = currentLibraryPath)
+                }
+
+                // Post-import placement prompt (Library / folders / bound book).
+                importViewModel.importCompletion?.let { completion ->
+                    ImportCompletionDialog(
+                        completion = completion,
+                        currentFolderPath = currentLibraryPath,
+                        libraryViewModel = libraryViewModel,
+                        onDismiss = { importViewModel.clearImportCompletion() }
+                    )
                 }
 
                 if (showMediaServersFlow) {

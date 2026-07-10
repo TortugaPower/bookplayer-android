@@ -68,7 +68,7 @@ fun StorageCloudDeletedScreen(
     var snapshot by remember { mutableStateOf(BackupSnapshot()) }
     LaunchedEffect(reloadTrigger, activeImportFiles) {
         snapshot = withContext(Dispatchers.IO) {
-            val activePaths = activeImportFiles.map { it.file.absolutePath }.toSet()
+            val activePaths = activeImportFiles.mapNotNull { it.file?.absolutePath }.toSet()
             val files = if (backupDir.exists()) {
                 backupDir.listFiles()?.filter { it.isFile && !activePaths.contains(it.absolutePath) } ?: emptyList()
             } else emptyList()

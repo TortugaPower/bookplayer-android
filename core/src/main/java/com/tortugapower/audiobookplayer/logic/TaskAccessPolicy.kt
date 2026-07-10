@@ -19,6 +19,15 @@ object TaskAccessPolicy {
     }
 
     /**
+     * Whether the tier can STREAM items from an external media server (Jellyfin/AudiobookShelf) —
+     * the single source of truth for the integration streaming gate. Streaming is the paid feature
+     * (LITE/PRO): no local file on device, and progress syncs through our DB so playback continues on
+     * any device with access to the same server. DOWNLOADING a file from the user's own server is
+     * deliberately FREE (a one-off; the file lands on-device) — do not gate downloads.
+     */
+    fun canStreamExternalLibraries(tier: AccountTier?): Boolean = canAccessSyncService(tier)
+
+    /**
      * Checks if the given account tier can execute a specific task type.
      */
     fun canExecuteTask(tier: AccountTier?, jobType: String): Boolean {

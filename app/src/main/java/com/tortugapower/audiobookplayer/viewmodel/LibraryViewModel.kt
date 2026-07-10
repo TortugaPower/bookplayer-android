@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
@@ -271,6 +272,37 @@ class LibraryViewModel(
         }
     }
 
+    /**
+     * Creates a folder under [basePath] (null = root) and moves [items] into it, sequentially in
+     * one coroutine so the move can't race the folder insert. Used by the post-import prompt's
+     * "New folder" option.
+     */
+    fun createFolderAndMoveItems(
+        context: android.content.Context,
+        name: String,
+        items: List<LibraryItemEntity>,
+        basePath: String?
+    ) {
+        viewModelScope.launch {
+            val relativePath = if (basePath == null) name else "$basePath/$name"
+
+            val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(appContext)
+            val libraryDao = db.libraryDao()
+            val currentMaxRank = if (basePath == null) libraryDao.getMaxRootOrderRank()
+                                 else libraryDao.getMaxPathOrderRank(basePath)
+
+            val newFolder = LibraryItemEntity(
+                uuid = java.util.UUID.randomUUID().toString(),
+                title = name,
+                relativePath = relativePath,
+                type = ItemType.FOLDER,
+                orderRank = (currentMaxRank ?: -1) + 1
+            )
+            repository.saveItem(newFolder)
+            repository.moveItems(context, items, relativePath)
+        }
+    }
+
     fun reorderItems(items: List<LibraryItemEntity>) {
         viewModelScope.launch {
             repository.reorderItems(items)
@@ -348,7 +380,7 @@ class LibraryViewModel(
             val entity = com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity(
                 providerName = "hardcover",
                 providerId = bookId,
-                syncStatus = "synced",
+                syncStatus = ExternalResourceEntity.STATUS_SYNCED,
                 libraryItemUuid = itemUuid
             )
             repository.saveExternalResource(entity)

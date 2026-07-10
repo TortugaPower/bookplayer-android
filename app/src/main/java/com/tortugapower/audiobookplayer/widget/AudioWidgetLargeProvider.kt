@@ -301,15 +301,6 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
                 // Modern API 31+ using RemoteCollectionItems
                 val covers = decodeCovers(context, recentBooks, 96)
                 val itemsBuilder = RemoteViews.RemoteCollectionItems.Builder()
-                val appIcons = intArrayOf(
-                    R.mipmap.ic_launcher,
-                    R.mipmap.ic_launcher_retro,
-                    R.mipmap.ic_launcher_fruit_based,
-                    R.mipmap.ic_launcher_retro_modern,
-                    R.mipmap.ic_launcher_neon,
-                    R.mipmap.ic_launcher_ayu_light,
-                    R.mipmap.ic_launcher_songs
-                )
 
                 for (i in 0 until recentBooks.size) {
                     val book = recentBooks[i]
@@ -321,10 +312,18 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
                     itemViews.setTextColor(R.id.widget_item_placeholder_text, colors.textColorPrimary)
                     itemViews.setBackgroundTintCompat(R.id.widget_item_artwork_container, colors.placeholderBgColor)
 
-                    val fallbackIcon = appIcons[Math.abs(book.uuid.hashCode()) % appIcons.size]
-                    applyArtwork(context, itemViews, R.id.widget_item_artwork, covers[i], fallbackIcon, 96)
-                    itemViews.setViewVisibility(R.id.widget_item_artwork, View.VISIBLE)
-                    itemViews.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
+                    // Missing artwork: same rounded tinted box as the 4x2 recents, but with the
+                    // title's first letter centered instead of the truncated title.
+                    val cover = covers[i]
+                    if (cover != null) {
+                        itemViews.setImageViewBitmap(R.id.widget_item_artwork, cover)
+                        itemViews.setViewVisibility(R.id.widget_item_artwork, View.VISIBLE)
+                        itemViews.setViewVisibility(R.id.widget_item_placeholder_text, View.GONE)
+                    } else {
+                        itemViews.setTextViewText(R.id.widget_item_placeholder_text, widgetPlaceholderInitial(book.title))
+                        itemViews.setViewVisibility(R.id.widget_item_artwork, View.GONE)
+                        itemViews.setViewVisibility(R.id.widget_item_placeholder_text, View.VISIBLE)
+                    }
 
                     val fillInIntent = Intent().apply {
                         putExtra(EXTRA_BOOK_UUID, book.uuid)
@@ -476,6 +475,7 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
     private fun placeholderTitle(title: String, maxLetters: Int = 15): String =
         if (title.length > maxLetters) title.substring(0, maxLetters - 3) + "..." else title
 
+
     private suspend fun loadArtworkBitmap(context: Context, data: Any, targetSize: Int): Bitmap? {
         return try {
             val loader = context.imageLoader
@@ -619,3 +619,10 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
         val placeholderBgColor: Int
     )
 }
+
+/**
+ * The title's first letter, for the vertical list's cover placeholder — shared by the API 31+
+ * provider path and the legacy RemoteViewsService path so the two can't drift.
+ */
+internal fun widgetPlaceholderInitial(title: String): String =
+    title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: ""

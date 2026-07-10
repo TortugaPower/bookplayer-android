@@ -62,6 +62,22 @@ class FetchContentsProcessor(
                 if (isNew && remoteItem.type == ItemType.BOUND.ordinal) {
                     SyncTaskFactory.createFetchContentsTask(repository, remoteItem.relativePath, force = true)
                 }
+
+                // A stream-only item synced from ANOTHER device arrives without artwork (the importing
+                // device holds the cover as a local file; it never reaches our servers) — best-effort
+                // re-download it from the media server this device can also reach. Short-circuit on the
+                // resources the fetch payload ALREADY carries, so ordinary artwork-less books cost no
+                // extra DB read here; the (serialized) network trip only happens for genuine stream items
+                // still missing a cover, which is self-terminating once the cover lands.
+                val hasStreamResource = remoteItem.externalResources
+                    ?.any { it.syncStatus == ExternalResourceEntity.STATUS_STREAM } == true
+                if (hasStreamResource) {
+                    libraryDao.getItemById(finalUuid)?.let { synced ->
+                        if (synced.artworkURL.isNullOrBlank()) {
+                            StreamArtworkBackfill.backfill(context, libraryDao, synced)
+                        }
+                    }
+                }
             }
 
             // If we generated any UUIDs, trigger the matching task
@@ -208,9 +224,16 @@ class MetadataUploadProcessor(
                 val item = if (itemUuid != null) libraryDao.getItemById(itemUuid) else null
                 
                 if (item != null) {
-                    if (item.type == ItemType.BOOK) {
+                    // Only books WITH a local file get the follow-up upload: a stream-only import has no
+                    // file on this device (the audio lives on the user's Jellyfin/ABS server), and an
+                    // upload task for a missing file can never succeed — it would poison the serial file
+                    // queue with endless retries.
+                    val hasLocalFile = OfflineDownloadManager.isFileDownloaded(context, item.relativePath)
+                    if (item.type == ItemType.BOOK && hasLocalFile) {
                         Log.d("MetadataUploadProcessor", "📦 Creating follow-up file upload task for item: ${item.title}")
                         SyncTaskFactory.createUploadFileTask(repository, item, uploadUrl)
+                    } else if (item.type == ItemType.BOOK) {
+                        Log.d("MetadataUploadProcessor", "⏭️ Skipping file upload for stream-only/offloaded item (no local file): ${item.title}")
                     } else {
                         Log.d("MetadataUploadProcessor", "⏭️ Skipping file upload task for non-BOOK item (${item.type}): ${item.title}")
                     }
@@ -257,8 +280,11 @@ class UploadFileProcessor(
         val file = File(processedDir, relativePath)
 
         if (!file.exists()) {
-            Log.e("UploadFileProcessor", "❌ File not found at ${file.absolutePath}")
-            return false
+            // Nothing to upload — the item is stream-only or its file was offloaded. Terminal (true →
+            // task deleted): retrying can never succeed and would block the serial file queue forever
+            // (same self-healing shape as the container-download guard).
+            Log.w("UploadFileProcessor", "🧹 No local file for $relativePath — dropping upload task (stream-only/offloaded)")
+            return true
         }
 
         val mediaType = when (file.extension.lowercase()) {

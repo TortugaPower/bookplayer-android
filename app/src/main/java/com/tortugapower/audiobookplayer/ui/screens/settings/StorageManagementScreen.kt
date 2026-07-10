@@ -1,5 +1,7 @@
 package com.tortugapower.audiobookplayer.ui.screens.settings
 
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
+
 import android.content.Context
 import android.text.format.Formatter
 import androidx.compose.foundation.background
@@ -379,8 +381,8 @@ suspend fun removeLocalFile(context: Context, repository: LibraryRepository, ite
             item.relativePath = null
             repository.updateItem(item)
             extResources.forEach { resource ->
-                if (resource.syncStatus == "downloaded") {
-                    val updatedResource = resource.copy(syncStatus = "stream")
+                if (resource.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED) {
+                    val updatedResource = resource.copy(syncStatus = ExternalResourceEntity.STATUS_STREAM)
                     repository.saveExternalResource(updatedResource)
                 }
             }

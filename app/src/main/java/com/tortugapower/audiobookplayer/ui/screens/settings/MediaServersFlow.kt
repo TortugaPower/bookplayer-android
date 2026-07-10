@@ -30,16 +30,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
 import com.tortugapower.audiobookplayer.R
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navigation
+import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 import com.tortugapower.audiobookplayer.repository.ExternalLibraryRepository
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
+import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
+import com.tortugapower.audiobookplayer.ui.screens.auth.AuthSheet
+import com.tortugapower.audiobookplayer.ui.screens.pro.LitePaywallSheet
+import com.tortugapower.audiobookplayer.ui.screens.pro.StreamAndSyncSheet
 import com.tortugapower.audiobookplayer.viewmodel.ExternalLibraryViewModel
 import com.tortugapower.audiobookplayer.viewmodel.ExternalLibraryViewModelFactory
 import com.tortugapower.audiobookplayer.viewmodel.ExternalServerViewModel
@@ -230,12 +237,79 @@ fun MediaServersFlow(
                     val item = serverItems.find { it.entity.uuid == itemUuid }
 
                     if (item != null) {
+                        val accountRepository = remember {
+                            RoomAccountRepository(AppDatabase.getDatabase(context).accountDao())
+                        }
+                        var showLiteSheet by remember { mutableStateOf(false) }
+                        var showLiteAuthSheet by remember { mutableStateOf(false) }
+                        var showLitePaywall by remember { mutableStateOf(false) }
+
+                        // Stage the item as a "virtual" import: it lands in the shared import
+                        // sheet for confirmation, and only on accept is it created in the library
+                        // (streamed via an external resource — no audio download).
+                        fun stageStreamImport() {
+                            val server = extLibViewModel.server
+                            if (server == null) {
+                                // The saved server row hasn't resolved (shouldn't happen once the
+                                // library is loaded) — stream directly without importing.
+                                PlaybackManager.playItem(context, item.entity, headers = item.customHeaders)
+                            } else {
+                                importViewModel.startStreamImport(
+                                    context = context,
+                                    items = listOf(item),
+                                    providerName = server.type.name.lowercase(),
+                                    hostId = server.id.toString()
+                                )
+                            }
+                            onDismiss()
+                        }
+
+                        // Shared by the intro sheet's Google button and the stacked passkey sheet
+                        // (mirrors the BookPlayerProSheet host pattern).
+                        fun onLiteAuthenticated(hasSubscription: Boolean) {
+                            showLiteAuthSheet = false
+                            showLiteSheet = false
+                            if (hasSubscription) stageStreamImport() else showLitePaywall = true
+                        }
+
+                        if (showLiteSheet) {
+                            StreamAndSyncSheet(
+                                onDismiss = { showLiteSheet = false },
+                                onPasskeyClick = { showLiteAuthSheet = true },
+                                onAuthenticated = ::onLiteAuthenticated,
+                                onSubscribed = {
+                                    showLiteSheet = false
+                                    stageStreamImport()
+                                }
+                            )
+                        }
+
+                        if (showLiteAuthSheet) {
+                            AuthSheet(
+                                onDismiss = { showLiteAuthSheet = false },
+                                onAuthenticated = ::onLiteAuthenticated
+                            )
+                        }
+
+                        if (showLitePaywall) {
+                            LitePaywallSheet(
+                                onDismiss = { showLitePaywall = false },
+                                onSubscribed = { stageStreamImport() }
+                            )
+                        }
+
                         ExternalItemDetailScreen(
                             item = item,
                             onBack = { navController.popBackStack() },
                             onStreamClick = {
-                                PlaybackManager.playItem(context, item.entity, headers = item.customHeaders)
-                                onDismiss()
+                                scope.launch {
+                                    val tier = accountRepository.getAccount()?.tier
+                                    if (TaskAccessPolicy.canStreamExternalLibraries(tier)) {
+                                        stageStreamImport()
+                                    } else {
+                                        showLiteSheet = true
+                                    }
+                                }
                             },
                             onDownloadClick = {
                                 scope.launch {

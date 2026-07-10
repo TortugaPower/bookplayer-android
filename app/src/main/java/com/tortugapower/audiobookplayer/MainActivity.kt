@@ -135,7 +135,10 @@ class MainActivity : ComponentActivity() {
                 if (downloadUrl != null) {
                     // Remove quotes if present
                     val cleanUrl = downloadUrl.replace("\"", "")
-                    com.tortugapower.audiobookplayer.logic.ImportManager.startImport(this, listOf(android.net.Uri.parse(cleanUrl)))
+                    // startImport can't open http(s) URIs — route through the download pipeline
+                    // (same staging, dedup, archive expansion, and import sheet as other sources).
+                    val fileName = com.tortugapower.audiobookplayer.logic.ImportManager.fileNameFromUrl(cleanUrl)
+                    com.tortugapower.audiobookplayer.logic.ImportManager.startDownload(this, cleanUrl, fileName)
                 }
             }
             "skipRewind" -> {

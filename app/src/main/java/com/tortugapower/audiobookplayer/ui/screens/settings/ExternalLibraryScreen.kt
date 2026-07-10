@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -51,12 +52,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 import com.tortugapower.audiobookplayer.network.ExternalLibraryInfo
+import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
+import com.tortugapower.audiobookplayer.ui.screens.auth.AuthSheet
+import com.tortugapower.audiobookplayer.ui.screens.pro.LitePaywallSheet
+import com.tortugapower.audiobookplayer.ui.screens.pro.StreamAndSyncSheet
 import com.tortugapower.audiobookplayer.viewmodel.ExternalLibraryViewModel
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
+import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
 import com.tortugapower.audiobookplayer.R
 
 enum class LibraryTab { BOOKS, AUTHORS }
@@ -122,6 +130,70 @@ fun ExternalLibraryScreen(
     val selectedItems = remember { mutableStateListOf<ExternalLibraryItem>() }
     val isMultiSelectMode by remember { derivedStateOf { selectedItems.isNotEmpty() } }
 
+    val downloadFailedMessage = stringResource(id = R.string.external_library_download_failed)
+    val accountRepository = remember {
+        RoomAccountRepository(AppDatabase.getDatabase(context).accountDao())
+    }
+    // Selection captured when Stream is tapped without a subscription, so the import can proceed
+    // once the lite flow ends in a subscription.
+    var pendingStreamItems by remember { mutableStateOf<List<ExternalLibraryItem>>(emptyList()) }
+    var showLiteSheet by remember { mutableStateOf(false) }
+    var showLiteAuthSheet by remember { mutableStateOf(false) }
+    var showLitePaywall by remember { mutableStateOf(false) }
+
+    // Stage the items as "virtual" imports: they land in the shared import sheet for
+    // confirmation, and only on accept are they created in the library (streamed via an
+    // external resource — no audio download).
+    fun streamSelection(itemsToStream: List<ExternalLibraryItem>) {
+        if (itemsToStream.isEmpty()) return
+        val server = viewModel.server
+        if (server == null) {
+            android.widget.Toast.makeText(context, downloadFailedMessage, android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            importViewModel.startStreamImport(
+                context = context,
+                items = itemsToStream,
+                providerName = server.type.name.lowercase(),
+                hostId = server.id.toString()
+            )
+            onActionStarted()
+        }
+    }
+
+    // Shared by the intro sheet's Google button and the stacked passkey sheet
+    // (mirrors the BookPlayerProSheet host pattern).
+    fun onLiteAuthenticated(hasSubscription: Boolean) {
+        showLiteAuthSheet = false
+        showLiteSheet = false
+        if (hasSubscription) streamSelection(pendingStreamItems) else showLitePaywall = true
+    }
+
+    if (showLiteSheet) {
+        StreamAndSyncSheet(
+            onDismiss = { showLiteSheet = false },
+            onPasskeyClick = { showLiteAuthSheet = true },
+            onAuthenticated = ::onLiteAuthenticated,
+            onSubscribed = {
+                showLiteSheet = false
+                streamSelection(pendingStreamItems)
+            }
+        )
+    }
+
+    if (showLiteAuthSheet) {
+        AuthSheet(
+            onDismiss = { showLiteAuthSheet = false },
+            onAuthenticated = ::onLiteAuthenticated
+        )
+    }
+
+    if (showLitePaywall) {
+        LitePaywallSheet(
+            onDismiss = { showLitePaywall = false },
+            onSubscribed = { streamSelection(pendingStreamItems) }
+        )
+    }
+
     val filteredItems = remember(items, searchQuery, activeAuthorFilter) {
         items.filter { item ->
             val matchesSearch = if (searchQuery.isEmpty()) true 
@@ -161,39 +233,70 @@ fun ExternalLibraryScreen(
                         }
                     },
                     actions = {
-                        val downloadFailedMessage = stringResource(id = R.string.external_library_download_failed)
-                        IconButton(onClick = {
-                            val itemsToDownload = selectedItems.toList()
-                            selectedItems.clear()
-                            scope.launch {
-                                // Same guard as the single-item path: getStreamUrl returns "" when
-                                // the server can't be resolved. Only dismiss the flow if something
-                                // actually started; otherwise tell the user instead of failing silently.
-                                var startedAny = false
-                                itemsToDownload.forEach { item ->
-                                    val url = viewModel.getStreamUrl(item.entity)
-                                    if (url.isNotBlank()) {
-                                        val fileName = item.entity.originalFileName ?: "${item.entity.title}.mp3"
-                                        importViewModel.startDownload(
-                                            context = context,
-                                            url = url,
-                                            fileName = fileName,
-                                            headers = item.customHeaders,
-                                            providerName = viewModel.server?.type?.name?.lowercase(),
-                                            providerId = item.entity.uuid,
-                                            hostId = viewModel.server?.id?.toString()
-                                        )
-                                        startedAny = true
-                                    }
-                                }
-                                if (startedAny) {
-                                    onActionStarted()
-                                } else {
-                                    android.widget.Toast.makeText(context, downloadFailedMessage, android.widget.Toast.LENGTH_SHORT).show()
-                                }
+                        var showActionsMenu by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { showActionsMenu = true }) {
+                                Icon(Icons.Default.FileDownload, contentDescription = stringResource(id = R.string.external_library_selection_actions))
                             }
-                        }) {
-                            Icon(Icons.Default.FileDownload, contentDescription = stringResource(id = R.string.common_download))
+                            DropdownMenu(
+                                expanded = showActionsMenu,
+                                onDismissRequest = { showActionsMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(id = R.string.common_download)) },
+                                    leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
+                                    onClick = {
+                                        showActionsMenu = false
+                                        val itemsToDownload = selectedItems.toList()
+                                        selectedItems.clear()
+                                        scope.launch {
+                                            // Same guard as the single-item path: getStreamUrl returns "" when
+                                            // the server can't be resolved. Only dismiss the flow if something
+                                            // actually started; otherwise tell the user instead of failing silently.
+                                            var startedAny = false
+                                            itemsToDownload.forEach { item ->
+                                                val url = viewModel.getStreamUrl(item.entity)
+                                                if (url.isNotBlank()) {
+                                                    val fileName = item.entity.originalFileName ?: "${item.entity.title}.mp3"
+                                                    importViewModel.startDownload(
+                                                        context = context,
+                                                        url = url,
+                                                        fileName = fileName,
+                                                        headers = item.customHeaders,
+                                                        providerName = viewModel.server?.type?.name?.lowercase(),
+                                                        providerId = item.entity.uuid,
+                                                        hostId = viewModel.server?.id?.toString()
+                                                    )
+                                                    startedAny = true
+                                                }
+                                            }
+                                            if (startedAny) {
+                                                onActionStarted()
+                                            } else {
+                                                android.widget.Toast.makeText(context, downloadFailedMessage, android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(id = R.string.external_item_detail_stream_button)) },
+                                    leadingIcon = { Icon(Icons.Default.Podcasts, contentDescription = null) },
+                                    onClick = {
+                                        showActionsMenu = false
+                                        val itemsToStream = selectedItems.toList()
+                                        selectedItems.clear()
+                                        scope.launch {
+                                            val tier = accountRepository.getAccount()?.tier
+                                            if (TaskAccessPolicy.canStreamExternalLibraries(tier)) {
+                                                streamSelection(itemsToStream)
+                                            } else {
+                                                pendingStreamItems = itemsToStream
+                                                showLiteSheet = true
+                                            }
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 )

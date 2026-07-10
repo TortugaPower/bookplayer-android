@@ -17,6 +17,8 @@ object PurchaseFlowManager {
     private const val ENTITLEMENT_ID = "pro"
     const val MONTHLY_OFFERING_ID = "bookplayer.pro.monthly:pro-monthly"
     const val YEARLY_OFFERING_ID = "bookplayer.pro.year:pro-yearly"
+    const val LITE_MONTHLY_OFFERING_ID = "bookplayer.lite.monthly:lite-monthly"
+    const val LITE_YEARLY_OFFERING_ID = "bookplayer.lite.year:lite-yearly"
 
     private val _isPurchasing = MutableStateFlow(false)
     val isPurchasing: StateFlow<Boolean> = _isPurchasing
