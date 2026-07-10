@@ -153,14 +153,14 @@ fun AppIconsScreen(onBack: () -> Unit) {
                             Spacer(Modifier.height(8.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    Icons.Default.CloudUpload,
+                                    Icons.Default.Watch,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
                                     modifier = Modifier.size(40.dp),
                                 )
                                 Spacer(Modifier.width(16.dp))
                                 Text(
-                                    text = stringResource(R.string.pro_feature_cloud_sync_desc),
+                                    text = stringResource(R.string.pro_banner_support_desc),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.weight(1f),

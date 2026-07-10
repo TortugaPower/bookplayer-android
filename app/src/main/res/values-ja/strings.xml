@@ -47,9 +47,7 @@
 
     <!-- Profile -->
     <string name="profile_title">プロフィール</string>
-    <string name="profile_setup_account">アカウント設定</string>
     <string name="profile_tier_label">ティア: %1$s</string>
-    <string name="profile_not_signed_in">サインインしていません</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>

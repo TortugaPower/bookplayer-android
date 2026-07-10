@@ -30,6 +30,9 @@ object PlaybackSettingsManager {
     private val THEME_USE_SYSTEM_MODE = booleanPreferencesKey("theme_use_system_mode")
     private val THEME_USE_DARK_VARIANT = booleanPreferencesKey("theme_use_dark_variant")
     private val LAST_ITEM_UUID = stringPreferencesKey("last_item_uuid")
+    // Armed when playback naturally reaches the end of a book; consumed by the phone app's
+    // ReviewPromptManager to request an in-app review (mirrors iOS's "ask_review" UserDefaults flag).
+    private val ASK_REVIEW = booleanPreferencesKey("ask_review")
 
     fun getSpeed(context: Context): Flow<Float> = context.dataStore.data.map { it[SPEED] ?: 1.0f }
     suspend fun setSpeed(context: Context, speed: Float) {
@@ -134,8 +137,13 @@ object PlaybackSettingsManager {
 
     fun getLastItemUuid(context: Context): Flow<String?> = context.dataStore.data.map { it[LAST_ITEM_UUID] }
     suspend fun setLastItemUuid(context: Context, uuid: String?) {
-        context.dataStore.edit { 
-            if (uuid == null) it.remove(LAST_ITEM_UUID) else it[LAST_ITEM_UUID] = uuid 
+        context.dataStore.edit {
+            if (uuid == null) it.remove(LAST_ITEM_UUID) else it[LAST_ITEM_UUID] = uuid
         }
+    }
+
+    fun getAskReview(context: Context): Flow<Boolean> = context.dataStore.data.map { it[ASK_REVIEW] ?: false }
+    suspend fun setAskReview(context: Context, ask: Boolean) {
+        context.dataStore.edit { it[ASK_REVIEW] = ask }
     }
 }

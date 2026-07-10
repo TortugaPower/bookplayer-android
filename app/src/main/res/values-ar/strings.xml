@@ -47,9 +47,7 @@
 
     <!-- Profile -->
     <string name="profile_title">الملف الشخصي</string>
-    <string name="profile_setup_account">إعداد الحساب</string>
     <string name="profile_tier_label">المستوى: %1$s</string>
-    <string name="profile_not_signed_in">لم يتم تسجيل الدخول</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>

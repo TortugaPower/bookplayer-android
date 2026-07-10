@@ -58,13 +58,14 @@
 
     <!-- Profile -->
     <string name="profile_title">Profile</string>
-    <string name="profile_setup_account">Set Up Account</string>
+    <string name="profile_account">Account</string>
+    <string name="profile_sign_in">Sign In</string>
     <string name="profile_tier_label">Tier: %1$s</string>
-    <string name="profile_not_signed_in">Not signed in</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer Pro</string>
     <string name="pro_learn_more">LEARN MORE</string>
+    <string name="pro_banner_support_desc">Support future development and get extra themes, app icons, cloud sync and stand-alone playback on your watch</string>
     <string name="pro_feature_cloud_sync_title">Cloud sync (Beta)</string>
     <string name="pro_feature_cloud_sync_desc">Download and sync your library and book progress to all your supported devices.</string>
     <string name="pro_feature_watch_title">Android Watch (Beta)</string>

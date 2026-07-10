@@ -47,9 +47,7 @@
 
     <!-- Profile -->
     <string name="profile_title">प्रोफ़ाइल</string>
-    <string name="profile_setup_account">खाता सेट करें</string>
     <string name="profile_tier_label">टियर: %1$s</string>
-    <string name="profile_not_signed_in">साइन इन नहीं किया</string>
 
     <!-- Pro -->
     <string name="pro_title">BookPlayer प्रो</string>

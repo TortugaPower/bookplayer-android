@@ -395,6 +395,11 @@ object PlaybackManager {
                         if (state == Player.STATE_ENDED) {
                             updateProgress(appContext, forceFinished = true)
                             StatisticsManager.setPlaybackState(appContext, _currentItem.value, false)
+                            // A book listened to the end is the review-worthy moment (iOS parity:
+                            // PlayerManager arms "ask_review" when the playhead reaches the duration).
+                            // Manual "mark as finished" deliberately does NOT arm this. Consumed by the
+                            // phone app's ReviewPromptManager; Play decides if/when the dialog shows.
+                            scope.launch { PlaybackSettingsManager.setAskReview(appContext, true) }
                             if (SleepTimerManager.isEndOfChapter.value) {
                                 // End-of-chapter armed on the last chapter: stop here, don't roll into
                                 // the next book (iOS's .bookEnd + autoplay=false safeguard).

@@ -7,7 +7,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -42,10 +41,10 @@ import com.tortugapower.audiobookplayer.ui.screens.pro.PaywallSheet
 import com.tortugapower.audiobookplayer.ui.screens.auth.AuthSheet
 
 /**
- * The Profile tab. Shows the account summary (or a "set up account" prompt when signed out),
- * the listening overview card, and links to the Stats and Listening History screens. Tapping
- * the account card while signed out opens the Pro/auth sheets; after sign-in, presents the
- * "Complete Your Account" paywall to non-subscribers (mirrors iOS `handleSignInResult`).
+ * The Profile tab. The listening overview leads the page; account entry lives in the top bar:
+ * signed in → an accent-tinted avatar opening account details; signed out → a "Sign In" text
+ * action opening the Pro/auth sheets. After sign-in, presents the "Complete Your Account"
+ * paywall to non-subscribers (mirrors iOS `handleSignInResult`).
  *
  * @param onNavigateToAccountDetails navigate to the account-details screen (signed-in users)
  * @param onNavigateToQueuedTasks navigate to the sync queue (Pro/Lite users)
@@ -102,7 +101,31 @@ fun ProfileScreen(
         PaywallSheet(onDismiss = { showPaywall = false })
     }
 
-    BookPlayerTabScaffold(title = stringResource(R.string.profile_title)) { innerPadding ->
+    BookPlayerTabScaffold(
+        title = stringResource(R.string.profile_title),
+        actions = {
+            // Account entry moved out of the content (the old card clashed with the overview):
+            // signed in → accent-tinted avatar opening account details; signed out → a plain
+            // "Sign In" text action opening the Pro/auth sheet flow.
+            if (account != null) {
+                IconButton(onClick = onNavigateToAccountDetails) {
+                    Icon(
+                        imageVector = Icons.Default.AccountCircle,
+                        contentDescription = stringResource(R.string.profile_account),
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            } else {
+                TextButton(onClick = { showProSheet = true }) {
+                    Text(
+                        text = stringResource(R.string.profile_sign_in),
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -118,80 +141,6 @@ fun ProfileScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(modifier = Modifier.height(8.dp))
-
-        // Account Section
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(32.dp))
-                .clickable {
-                    if (account == null) showProSheet = true
-                    else onNavigateToAccountDetails()
-                },
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        ) {
-            Row(
-                modifier = Modifier.padding(24.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (account != null) Icons.Default.Person else Icons.Default.PersonOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (account != null) account!!.email else stringResource(R.string.profile_setup_account),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    if (account != null) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Surface(
-                            color = if (account?.tier == AccountTier.PRO) Color.DarkGray.copy(alpha = 0.8f)
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text(
-                                text = account!!.tier.name.lowercase(),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (account?.tier == AccountTier.PRO) Color.White
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else {
-                        Text(
-                            text = stringResource(R.string.profile_not_signed_in),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(48.dp))
 
         // Statistics Section
         Text(
@@ -259,6 +208,49 @@ fun ProfileScreen(
         // the content still scrolls BEHIND the pill instead of stopping above it in a solid band.
         Spacer(modifier = Modifier.height(LocalMiniPlayerInset.current))
             }
+
+            // Non-subscribers get the BookPlayer Pro callout pinned at the bottom — the same slot
+            // iOS uses (ProfileProCalloutSectionView, shown whenever !hasSubscription; subscribers
+            // see the sync-tasks section instead). Signed out → Pro/auth sheets; signed in without
+            // a subscription → account details (mirrors iOS showLoginOrAccount).
+            val isSubscribed = account?.tier == AccountTier.PRO || account?.tier == AccountTier.LITE
+            if (!isSubscribed) {
+                ProCallout(
+                    onLearnMore = {
+                        if (account == null) showProSheet = true
+                        else onNavigateToAccountDetails()
+                    },
+                    modifier = Modifier.padding(bottom = LocalMiniPlayerInset.current)
+                )
+            }
+        }
+    }
+}
+
+/** Bottom-pinned "BookPlayer Pro" pitch for non-subscribers, mirroring iOS `ProfileProCalloutSectionView`. */
+@Composable
+private fun ProCallout(
+    onLearnMore: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.pro_title),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Button(onClick = onLearnMore) {
+            Text(
+                text = stringResource(R.string.pro_learn_more),
+                style = MaterialTheme.typography.labelLarge
+            )
         }
     }
 }

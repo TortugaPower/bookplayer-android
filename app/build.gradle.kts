@@ -146,6 +146,8 @@ dependencies {
     implementation(libs.googleid)
     implementation(libs.coil.compose)
     implementation(libs.billing.ktx)
+    // Play In-App Review — the post-book-finish rating prompt (ReviewPromptManager).
+    implementation(libs.play.review)
     implementation(libs.purchases)
     // Wear Data Layer — answers the watch's auth handoff request (WearAuthListenerService).
     implementation(libs.play.services.wearable)
