@@ -65,10 +65,17 @@ class FetchContentsProcessor(
 
                 // A stream-only item synced from ANOTHER device arrives without artwork (the importing
                 // device holds the cover as a local file; it never reaches our servers) — best-effort
-                // re-download it from the media server this device can also reach.
-                libraryDao.getItemById(finalUuid)?.let { synced ->
-                    if (synced.artworkURL.isNullOrBlank()) {
-                        StreamArtworkBackfill.backfill(context, libraryDao, synced)
+                // re-download it from the media server this device can also reach. Short-circuit on the
+                // resources the fetch payload ALREADY carries, so ordinary artwork-less books cost no
+                // extra DB read here; the (serialized) network trip only happens for genuine stream items
+                // still missing a cover, which is self-terminating once the cover lands.
+                val hasStreamResource = remoteItem.externalResources
+                    ?.any { it.syncStatus == ExternalResourceEntity.STATUS_STREAM } == true
+                if (hasStreamResource) {
+                    libraryDao.getItemById(finalUuid)?.let { synced ->
+                        if (synced.artworkURL.isNullOrBlank()) {
+                            StreamArtworkBackfill.backfill(context, libraryDao, synced)
+                        }
                     }
                 }
             }
