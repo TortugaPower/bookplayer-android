@@ -22,7 +22,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,6 +39,12 @@ fun SearchScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val focusRequester = remember { FocusRequester() }
+
+    // Same tier gate as LibraryScreen: rows show the download cloud for LITE/PRO, the
+    // audio-unavailable badge otherwise (search shares LibraryListItem).
+    val accountRepository = remember { RoomAccountRepository(AppDatabase.getDatabase(context).accountDao()) }
+    val account by accountRepository.getAccountFlow().collectAsState(initial = null)
+    val canSyncLibrary = account?.tier == AccountTier.PRO || account?.tier == AccountTier.LITE
 
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(100)
@@ -116,7 +125,8 @@ fun SearchScreen(
                         onClick = {
                             PlaybackManager.playItem(context, item)
                         },
-                        libraryViewModel = viewModel
+                        libraryViewModel = viewModel,
+                        canDownload = canSyncLibrary
                     )
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),

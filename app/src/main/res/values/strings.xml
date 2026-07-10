@@ -299,6 +299,7 @@
     <string name="library_view_style">View Style</string>
     <string name="library_folder_empty">0 Files</string>
     <string name="library_unknown_author">Unknown author</string>
+    <string name="library_audio_unavailable">Audio not on this device</string>
     <string name="library_unknown_title">Unknown Title</string>
     <string name="library_convert_to_folder">Convert to folder</string>
     <string name="library_convert_to_volume">Convert to volume</string>

@@ -28,6 +28,16 @@ object TaskAccessPolicy {
     fun canStreamExternalLibraries(tier: AccountTier?): Boolean = canAccessSyncService(tier)
 
     /**
+     * Whether the tier can STREAM a not-downloaded item at playback time — BookPlayer cloud AND
+     * Jellyfin/ABS stream items alike (iOS parity: `PlayerLoaderService.loadPlayer` throws
+     * `fileMissing` when sync is inactive and the file isn't local). Gated on ACCOUNT state, not
+     * URL validity — a signed-out/FREE user still holds presigned URLs that stay live for days
+     * after sign-out, and leftover media-server stream items, and neither must keep playing.
+     * (Downloading a file remains its own affordance; this only gates streaming playback.)
+     */
+    fun canStreamRemoteItems(tier: AccountTier?): Boolean = canAccessSyncService(tier)
+
+    /**
      * Checks if the given account tier can execute a specific task type.
      */
     fun canExecuteTask(tier: AccountTier?, jobType: String): Boolean {

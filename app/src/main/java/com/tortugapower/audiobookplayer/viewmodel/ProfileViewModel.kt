@@ -6,6 +6,7 @@ import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.ListeningStatsCalculator
+import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.network.NetworkClient
@@ -107,6 +108,11 @@ class ProfileViewModel(
         syncTaskRepository.deleteAllTasks()
         SubscriptionManager.logout()
         SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
+        // AFTER the account row is gone: stop + unload the loaded book if it's now gate-blocked
+        // (remote item, no local file). Without this the live session keeps streaming off its
+        // still-valid presigned URL — and, because the media service outlives an app swipe, would
+        // even resume on the next launch without re-entering any gated load path.
+        PlaybackManager.enforceRemoteStreamingGate(com.tortugapower.audiobookplayer.core.CoreContext.appContext)
     }
 
     fun deleteAllTasks() {
