@@ -70,6 +70,22 @@ class AuthViewModel(
     var passkeySignInRequested by mutableStateOf(false)
     var passkeyRegistrationRequested by mutableStateOf(false)
 
+    /**
+     * The API's error envelope ({ message, error }) for a non-2xx response. Retrofit's `body()` is
+     * ALWAYS null on errors — the payload lives in `errorBody()` — so reading `body()?.message`
+     * silently dropped the server's guidance (e.g. "an account with this email already exists")
+     * and surfaced a bare status code instead.
+     */
+    private fun <T> parseServerError(response: retrofit2.Response<T>): Pair<String?, String?> {
+        val raw = runCatching { response.errorBody()?.string() }.getOrNull() ?: return null to null
+        return runCatching {
+            val obj = gson.fromJson(raw, com.google.gson.JsonObject::class.java)
+            val message = obj.get("message")?.takeIf { it.isJsonPrimitive }?.asString
+            val code = obj.get("error")?.takeIf { it.isJsonPrimitive }?.asString
+            message to code
+        }.getOrDefault(null to null)
+    }
+
     fun onEmailContinue(context: Context) {
         validationError = null
         if (!isValidEmail(email)) {
@@ -85,10 +101,18 @@ class AuthViewModel(
                 val response = NetworkClient.authApi.sendVerificationCode(EmailVerificationSendRequest(email))
                 if (response.isSuccessful && response.body()?.success == true) {
                     errorMessage = null // Clear error on success
+                    // A fresh code is on its way — never present the previous attempt's digits.
+                    verificationCode = ""
                     currentStep = AuthStep.CODE_VERIFICATION
                 } else {
-                    errorMessage = response.body()?.message
-                        ?: context.getString(R.string.auth_error_send_code_failed, response.code())
+                    val (serverMessage, errorCode) = parseServerError(response)
+                    errorMessage = when (errorCode) {
+                        // Localized for the one case users routinely hit (409).
+                        "EMAIL_ALREADY_REGISTERED" -> context.getString(R.string.auth_error_email_already_registered)
+                        else -> serverMessage
+                            ?: response.body()?.message
+                            ?: context.getString(R.string.auth_error_send_code_failed, response.code())
+                    }
                     currentStep = AuthStep.EMAIL_INPUT
                 }
             } catch (e: CancellationException) {
@@ -123,7 +147,10 @@ class AuthViewModel(
                     // and calls registerPasskey(context); we stay LOADING until it resolves.
                     passkeyRegistrationRequested = true
                 } else {
-                    errorMessage = body?.message ?: context.getString(R.string.auth_error_invalid_code)
+                    // body() is null on non-2xx — the server's reason lives in errorBody().
+                    errorMessage = body?.message
+                        ?: parseServerError(response).first
+                        ?: context.getString(R.string.auth_error_invalid_code)
                     currentStep = AuthStep.CODE_VERIFICATION
                 }
             } catch (e: CancellationException) {
@@ -204,7 +231,14 @@ class AuthViewModel(
             if (verify.isSuccessful && verify.body() != null) {
                 persistLoginAndFinish(verify.body()!!)
             } else {
-                android.util.Log.e("AuthViewModel", "Registration verify failed: HTTP ${verify.code()}")
+                // Log the server's reason (e.g. the WebAuthn origin/apk-key-hash mismatch a
+                // debug-signed build hits against prod) — the UI message stays generic, but this
+                // makes the failure diagnosable from logcat instead of a bare status code.
+                val (serverMessage, _) = parseServerError(verify)
+                android.util.Log.e(
+                    "AuthViewModel",
+                    "Registration verify failed: HTTP ${verify.code()}${serverMessage?.let { " — $it" } ?: ""}"
+                )
                 errorMessage = context.getString(R.string.auth_error_verification_failed)
                 currentStep = AuthStep.CODE_VERIFICATION
             }

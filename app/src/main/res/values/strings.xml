@@ -41,6 +41,7 @@
     <string name="auth_error_verification_expired">Verification expired. Please try again.</string>
     <string name="auth_error_generic">An error occurred</string>
     <string name="auth_error_send_code_failed">Couldn\'t send the code (%1$d). Please try again.</string>
+    <string name="auth_error_email_already_registered">An account with this email already exists. Sign in instead.</string>
     <string name="auth_error_server_login_failed">Server login failed (%1$d)</string>
     <string name="auth_setting_up_secure_access">Setting up secure access...</string>
     <string name="auth_create_account">Create Account</string>
