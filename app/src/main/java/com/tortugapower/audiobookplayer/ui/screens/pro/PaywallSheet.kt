@@ -208,11 +208,16 @@ fun PaywallSheet(
 
             Button(
                 onClick = {
-                    val activity = context as? Activity
+                    // LocalContext inside a sheet is a ContextWrapper (theme wrapper), NOT the Activity —
+                    // a plain `as? Activity` cast returns null and the tap silently does nothing. Walk
+                    // the wrapper chain instead (same pattern as AuthViewModel.activityFrom).
+                    val activity = context.findActivity()
                     if (activity != null && selectedPackage != null) {
                         PurchaseFlowManager.purchasePackage(activity, selectedPackage!!) { success, _ ->
                             if (success) showWelcome = true
                         }
+                    } else {
+                        android.util.Log.e("PaywallSheet", "Purchase not started: activity=${activity != null} package=${selectedPackage != null}")
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -290,3 +295,13 @@ private fun resolvePackages(
     return allPackages
 }
 
+
+/**
+ * The host [Activity] behind a (possibly wrapped) Compose [android.content.Context] — LocalContext
+ * inside dialogs/sheets is typically a ContextWrapper, so a direct cast fails.
+ */
+private tailrec fun android.content.Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
