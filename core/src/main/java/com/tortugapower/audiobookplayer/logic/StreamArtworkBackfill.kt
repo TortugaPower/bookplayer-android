@@ -23,6 +23,11 @@ import kotlinx.coroutines.flow.first
  */
 object StreamArtworkBackfill {
 
+    // Shared: backfill runs once per artwork-less stream item within a single fetch, and each
+    // OkHttpClient owns its own connection pool + dispatcher threads (same reasoning as
+    // ImportManager.downloadClient).
+    private val client by lazy { okhttp3.OkHttpClient() }
+
     /**
      * Provider cover request for [resource] against [server] (pure): URL + auth headers, or null for an
      * unknown provider. Uses the same endpoints as the browse listing (Jellyfin `Items/{id}/Images/Primary`,
@@ -70,7 +75,7 @@ object StreamArtworkBackfill {
             val artworkFile = File(artworkDir, "${java.util.UUID.randomUUID()}.jpg")
             val requestBuilder = okhttp3.Request.Builder().url(url)
             headers?.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
-            okhttp3.OkHttpClient().newCall(requestBuilder.build()).execute().use { response ->
+            client.newCall(requestBuilder.build()).execute().use { response ->
                 val body = response.body
                 if (!response.isSuccessful || body == null) return false
                 body.byteStream().use { input ->
