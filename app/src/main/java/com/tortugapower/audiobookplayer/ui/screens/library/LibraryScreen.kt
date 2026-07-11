@@ -518,6 +518,12 @@ fun LibraryScreen(
             focusRequester.requestFocus()
         }
 
+        // A real URL check, not just non-blank: Uri.parse never throws, so garbage would otherwise
+        // sail into ImportManager.startDownload and fail opaquely later.
+        val isValidUrl = remember(url) {
+            val uri = runCatching { android.net.Uri.parse(url.trim()) }.getOrNull()
+            (uri?.scheme == "http" || uri?.scheme == "https") && !uri.host.isNullOrBlank()
+        }
         AlertDialog(
             onDismissRequest = { showDownloadFromUrlDialog = false },
             title = { Text(stringResource(R.string.library_download_from_url_title)) },
@@ -532,7 +538,11 @@ fun LibraryScreen(
                             .fillMaxWidth()
                             .focusRequester(focusRequester),
                         placeholder = { Text(stringResource(R.string.library_download_from_url_placeholder)) },
-                        singleLine = true
+                        singleLine = true,
+                        isError = url.isNotBlank() && !isValidUrl,
+                        supportingText = if (url.isNotBlank() && !isValidUrl) {
+                            { Text(stringResource(R.string.library_download_url_error)) }
+                        } else null
                     )
                 }
             },
@@ -540,12 +550,13 @@ fun LibraryScreen(
                 Button(
                     onClick = {
                         showDownloadFromUrlDialog = false
-                        if (url.isNotBlank()) {
-                            val uri = android.net.Uri.parse(url)
+                        if (isValidUrl) {
+                            val trimmed = url.trim()
+                            val uri = android.net.Uri.parse(trimmed)
                             val fileName = uri.lastPathSegment ?: "downloaded_file.mp3"
                             ImportManager.startDownload(
                                 context = context,
-                                url = url,
+                                url = trimmed,
                                 fileName = fileName,
                                 headers = null,
                                 providerName = null,
@@ -554,7 +565,7 @@ fun LibraryScreen(
                             )
                         }
                     },
-                    enabled = url.isNotBlank()
+                    enabled = isValidUrl
                 ) {
                     Text(stringResource(R.string.common_download))
                 }
@@ -1124,15 +1135,17 @@ fun LibraryScreen(
                                 backgroundContent = {
                                     val isSwiping = !isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
                                     if (isSwiping) {
-                                        val offset = runCatching { dismissState.requireOffset() }.getOrDefault(0f)
                                         val buttonsWidthPx = with(density) { 160.dp.toPx() }
-                                        val translationX = (offset + buttonsWidthPx).coerceAtLeast(0f)
 
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxSize()
                                                 .graphicsLayer {
-                                                    this.translationX = translationX
+                                                    // Offset read INSIDE the draw-phase lambda: reading the
+                                                    // animating value during composition would recompose the
+                                                    // row on every drag frame.
+                                                    val offset = runCatching { dismissState.requireOffset() }.getOrDefault(0f)
+                                                    this.translationX = (offset + buttonsWidthPx).coerceAtLeast(0f)
                                                 },
                                             horizontalArrangement = Arrangement.End,
                                             verticalAlignment = Alignment.CenterVertically
@@ -1175,7 +1188,9 @@ fun LibraryScreen(
                                         }
                                     }
                                 },
-                                enableDismissFromStartToEnd = false
+                                enableDismissFromStartToEnd = false,
+                                // Swiping must not fight the select-mode drag-reorder gesture.
+                                enableDismissFromEndToStart = !isSelectMode
                             ) {
                                 Surface(
                                     color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.background,

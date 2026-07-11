@@ -152,12 +152,12 @@ object PlaybackSettingsManager {
     private val PREVENT_AUTOLOCK = booleanPreferencesKey("prevent_autolock")
     private val PREVENT_AUTOLOCK_ONLY_ON_POWER = booleanPreferencesKey("prevent_autolock_only_on_power")
 
-    fun getAutoplayLibrary(context: Context): Flow<Boolean> = context.dataStore.data.map { it[AUTOPLAY_LIBRARY] ?: false }
+    fun getAutoplayLibrary(context: Context): Flow<Boolean> = context.dataStore.data.map { it[AUTOPLAY_LIBRARY] ?: true }
     suspend fun setAutoplayLibrary(context: Context, enabled: Boolean) {
         context.dataStore.edit { it[AUTOPLAY_LIBRARY] = enabled }
     }
 
-    fun getAutoplayRestartFinished(context: Context): Flow<Boolean> = context.dataStore.data.map { it[AUTOPLAY_RESTART_FINISHED] ?: false }
+    fun getAutoplayRestartFinished(context: Context): Flow<Boolean> = context.dataStore.data.map { it[AUTOPLAY_RESTART_FINISHED] ?: true }
     suspend fun setAutoplayRestartFinished(context: Context, enabled: Boolean) {
         context.dataStore.edit { it[AUTOPLAY_RESTART_FINISHED] = enabled }
     }

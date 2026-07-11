@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -28,20 +29,20 @@ fun PlayerControlsSettingsScreen(
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
 
-    val rewindInterval by remember { PlaybackSettingsManager.getRewindInterval(context) }.collectAsState(initial = 30)
-    val forwardInterval by remember { PlaybackSettingsManager.getForwardInterval(context) }.collectAsState(initial = 30)
-    val smartRewind by remember { PlaybackSettingsManager.getSmartRewind(context) }.collectAsState(initial = true)
-    val smartRewindLimit by remember { PlaybackSettingsManager.getSmartRewindLimit(context) }.collectAsState(initial = 30)
-    val autoSleep by remember { PlaybackSettingsManager.getAutoSleepTimer(context) }.collectAsState(initial = false)
-    val volumeBoost by remember { PlaybackSettingsManager.getVolumeBoost(context) }.collectAsState(initial = false)
-    val quickAction1 by remember { PlaybackSettingsManager.getQuickAction1(context) }.collectAsState(initial = 1.0f)
-    val quickAction2 by remember { PlaybackSettingsManager.getQuickAction2(context) }.collectAsState(initial = 2.0f)
-    val quickAction3 by remember { PlaybackSettingsManager.getQuickAction3(context) }.collectAsState(initial = 3.0f)
-    val globalSpeed by remember { PlaybackSettingsManager.getGlobalSpeedControl(context) }.collectAsState(initial = false)
-    val progressBarSeeking by remember { PlaybackSettingsManager.getProgressBarSeeking(context) }.collectAsState(initial = true)
-    val listButtonOpens by remember { PlaybackSettingsManager.getListButtonOpens(context) }.collectAsState(initial = PlaybackSettingsManager.LIST_OPENS_CHAPTERS)
-    val useRemainingTime by remember { PlaybackSettingsManager.getUseRemainingTime(context) }.collectAsState(initial = true)
-    val useChapterContext by remember { PlaybackSettingsManager.getUseChapterContext(context) }.collectAsState(initial = false)
+    val rewindInterval by remember { PlaybackSettingsManager.getRewindInterval(context) }.collectAsStateWithLifecycle(initialValue = 30)
+    val forwardInterval by remember { PlaybackSettingsManager.getForwardInterval(context) }.collectAsStateWithLifecycle(initialValue = 30)
+    val smartRewind by remember { PlaybackSettingsManager.getSmartRewind(context) }.collectAsStateWithLifecycle(initialValue = true)
+    val smartRewindLimit by remember { PlaybackSettingsManager.getSmartRewindLimit(context) }.collectAsStateWithLifecycle(initialValue = 30)
+    val autoSleep by remember { PlaybackSettingsManager.getAutoSleepTimer(context) }.collectAsStateWithLifecycle(initialValue = false)
+    val volumeBoost by remember { PlaybackSettingsManager.getVolumeBoost(context) }.collectAsStateWithLifecycle(initialValue = false)
+    val quickAction1 by remember { PlaybackSettingsManager.getQuickAction1(context) }.collectAsStateWithLifecycle(initialValue = 1.0f)
+    val quickAction2 by remember { PlaybackSettingsManager.getQuickAction2(context) }.collectAsStateWithLifecycle(initialValue = 2.0f)
+    val quickAction3 by remember { PlaybackSettingsManager.getQuickAction3(context) }.collectAsStateWithLifecycle(initialValue = 3.0f)
+    val globalSpeed by remember { PlaybackSettingsManager.getGlobalSpeedControl(context) }.collectAsStateWithLifecycle(initialValue = false)
+    val progressBarSeeking by remember { PlaybackSettingsManager.getProgressBarSeeking(context) }.collectAsStateWithLifecycle(initialValue = true)
+    val listButtonOpens by remember { PlaybackSettingsManager.getListButtonOpens(context) }.collectAsStateWithLifecycle(initialValue = PlaybackSettingsManager.LIST_OPENS_CHAPTERS)
+    val useRemainingTime by remember { PlaybackSettingsManager.getUseRemainingTime(context) }.collectAsStateWithLifecycle(initialValue = true)
+    val useChapterContext by remember { PlaybackSettingsManager.getUseChapterContext(context) }.collectAsStateWithLifecycle(initialValue = false)
 
     BookPlayerTabScaffold(
         title = stringResource(R.string.player_controls_title),
@@ -108,8 +109,8 @@ fun AutoplaySettingsScreen(
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
 
-    val autoplayLibrary by remember { PlaybackSettingsManager.getAutoplayLibrary(context) }.collectAsState(initial = false)
-    val autoplayRestartFinished by remember { PlaybackSettingsManager.getAutoplayRestartFinished(context) }.collectAsState(initial = false)
+    val autoplayLibrary by remember { PlaybackSettingsManager.getAutoplayLibrary(context) }.collectAsStateWithLifecycle(initialValue = false)
+    val autoplayRestartFinished by remember { PlaybackSettingsManager.getAutoplayRestartFinished(context) }.collectAsStateWithLifecycle(initialValue = false)
 
     BookPlayerTabScaffold(
         title = stringResource(R.string.settings_autoplay_label),
@@ -169,8 +170,8 @@ fun AutolockSettingsScreen(
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
 
-    val preventAutolock by remember { PlaybackSettingsManager.getPreventAutolock(context) }.collectAsState(initial = false)
-    val preventAutolockOnlyOnPower by remember { PlaybackSettingsManager.getPreventAutolockOnlyOnPower(context) }.collectAsState(initial = false)
+    val preventAutolock by remember { PlaybackSettingsManager.getPreventAutolock(context) }.collectAsStateWithLifecycle(initialValue = false)
+    val preventAutolockOnlyOnPower by remember { PlaybackSettingsManager.getPreventAutolockOnlyOnPower(context) }.collectAsStateWithLifecycle(initialValue = false)
 
     BookPlayerTabScaffold(
         title = stringResource(R.string.settings_autolock_label),

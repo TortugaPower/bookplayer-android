@@ -121,6 +121,7 @@ import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.logic.PlayerUiSignals
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
+import com.tortugapower.audiobookplayer.ui.components.findActivity
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -196,23 +197,29 @@ fun PlayerScreen(
     val preventAutolock by remember(context) { PlaybackSettingsManager.getPreventAutolock(context) }.collectAsStateWithLifecycle(initialValue = false)
     val autolockOnlyOnPower by remember(context) { PlaybackSettingsManager.getPreventAutolockOnlyOnPower(context) }.collectAsStateWithLifecycle(initialValue = false)
 
+    // Only listen for battery state while the value is actually consumed (both toggles on):
+    // ACTION_BATTERY_CHANGED is a high-frequency sticky broadcast, and an always-on receiver would
+    // wake on every level tick for nothing.
+    val needsBatteryState = preventAutolock && autolockOnlyOnPower
     var isPlugged by remember { mutableStateOf(false) }
-    DisposableEffect(context) {
+    DisposableEffect(needsBatteryState) {
+        if (!needsBatteryState) {
+            isPlugged = false
+            return@DisposableEffect onDispose { }
+        }
+        fun pluggedFrom(intent: android.content.Intent?): Boolean {
+            val chargePlug = intent?.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, -1) ?: -1
+            return chargePlug == android.os.BatteryManager.BATTERY_PLUGGED_AC ||
+                chargePlug == android.os.BatteryManager.BATTERY_PLUGGED_USB ||
+                chargePlug == android.os.BatteryManager.BATTERY_PLUGGED_WIRELESS
+        }
         val receiver = object : android.content.BroadcastReceiver() {
             override fun onReceive(ctx: android.content.Context?, intent: android.content.Intent?) {
-                val chargePlug = intent?.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, -1) ?: -1
-                isPlugged = chargePlug == android.os.BatteryManager.BATTERY_PLUGGED_AC || 
-                            chargePlug == android.os.BatteryManager.BATTERY_PLUGGED_USB || 
-                            chargePlug == android.os.BatteryManager.BATTERY_PLUGGED_WIRELESS
+                isPlugged = pluggedFrom(intent)
             }
         }
         val filter = android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
-        val initialIntent = context.registerReceiver(receiver, filter)
-        val initialCharge = initialIntent?.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, -1) ?: -1
-        isPlugged = initialCharge == android.os.BatteryManager.BATTERY_PLUGGED_AC || 
-                    initialCharge == android.os.BatteryManager.BATTERY_PLUGGED_USB || 
-                    initialCharge == android.os.BatteryManager.BATTERY_PLUGGED_WIRELESS
-        
+        isPlugged = pluggedFrom(context.registerReceiver(receiver, filter))
         onDispose {
             context.unregisterReceiver(receiver)
         }
@@ -220,7 +227,9 @@ fun PlayerScreen(
 
     val keepScreenOn = preventAutolock && isPlaying && (!autolockOnlyOnPower || isPlugged)
     DisposableEffect(keepScreenOn) {
-        val window = (context as? android.app.Activity)?.window
+        // findActivity, not a direct cast: LocalContext can be a ContextWrapper (theme/config
+        // wrappers), and a silent null here would quietly disable the whole feature.
+        val window = context.findActivity()?.window
         if (keepScreenOn) {
             window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }

@@ -5,10 +5,12 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import android.content.Context
 import android.text.format.Formatter
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -262,31 +264,37 @@ fun StorageManagementScreen(
             }
 
             if (sortedBooks.isNotEmpty()) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-                        shape = RoundedCornerShape(12.dp)
+                // One lazy slot per row (keyed) so large libraries stay virtualized — a single
+                // item{} wrapping every row composes them all eagerly. The continuous-card look is
+                // kept by rounding only the first/last rows and drawing dividers between.
+                itemsIndexed(sortedBooks, key = { _, (book, _) -> book.uuid }) { index, (book, file) ->
+                    val shape = when {
+                        sortedBooks.size == 1 -> RoundedCornerShape(12.dp)
+                        index == 0 -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+                        index == sortedBooks.size - 1 -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+                        else -> RoundedCornerShape(0.dp)
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(shape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                     ) {
-                        Column {
-                            sortedBooks.forEachIndexed { index, (book, file) ->
-                                val sizeStr = remember(stats, book.uuid) {
-                                    Formatter.formatShortFileSize(context, stats.sizesByUuid[book.uuid] ?: 0L)
-                                }
-                                StorageFileListItem(
-                                    title = book.title,
-                                    fileName = book.originalFileName ?: file.name,
-                                    sizeStr = sizeStr,
-                                    onRemoveClick = { itemToDelete = book }
-                                )
-                                if (index < sortedBooks.size - 1) {
-                                    HorizontalDivider(
-                                        color = MaterialTheme.outlineVariantColor(),
-                                        thickness = 0.5.dp,
-                                        modifier = Modifier.padding(horizontal = 16.dp)
-                                    )
-                                }
-                            }
+                        val sizeStr = remember(stats, book.uuid) {
+                            Formatter.formatShortFileSize(context, stats.sizesByUuid[book.uuid] ?: 0L)
+                        }
+                        StorageFileListItem(
+                            title = book.title,
+                            fileName = book.originalFileName ?: file.name,
+                            sizeStr = sizeStr,
+                            onRemoveClick = { itemToDelete = book }
+                        )
+                        if (index < sortedBooks.size - 1) {
+                            HorizontalDivider(
+                                color = MaterialTheme.outlineVariantColor(),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
                         }
                     }
                 }

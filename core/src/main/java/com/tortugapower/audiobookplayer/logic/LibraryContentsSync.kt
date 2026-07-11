@@ -125,20 +125,48 @@ object LibraryContentsSync {
         return Pair(uuid!!, isNew)
     }
 
+    /**
+     * Recompute a FOLDER/BOUND row's aggregates from its direct children — the ONE implementation
+     * shared by the walk-up ([updateParentFolders]), the batch ([updateParentFoldersBatch]), and the
+     * move/delete/convert paths in RoomLibraryRepository, so the formats can't drift.
+     *
+     * Canonical LOCAL format for a container's `author` is the BARE child count ("3"): render
+     * surfaces localize it (LibraryScreen / MiniPlayer / widget map numeric authors through plural
+     * resources), and the server push formats a display string at the boundary
+     * ([serverFolderDetails]) — the server stores client-written display text (iOS writes its
+     * locale's "N files" there), never the bare count.
+     */
+    fun recomputeFolder(folder: LibraryItemEntity, children: List<LibraryItemEntity>) {
+        folder.duration = children.sumOf { it.duration }
+        folder.currentTime = children.sumOf { it.currentTime }
+        folder.author = children.size.toString()
+        folder.percentCompleted =
+            if (folder.duration > 0) (folder.currentTime / folder.duration).coerceIn(0.0, 1.0) else 0.0
+        folder.isFinished = children.all { it.isFinished } && children.isNotEmpty()
+    }
+
+    /**
+     * Server-facing `details` for an item at push time: containers translate their bare-count
+     * `author` into the display string the server/iOS expect ("N Files" / "N Chapters" — the format
+     * Android always pushed); everything else (books, non-numeric legacy values) passes through.
+     */
+    fun serverFolderDetails(item: LibraryItemEntity): String {
+        if (item.type != ItemType.FOLDER && item.type != ItemType.BOUND) return item.author ?: ""
+        val count = item.author?.toIntOrNull() ?: return item.author ?: ""
+        return if (item.type == ItemType.BOUND) {
+            if (count == 1) "1 Chapter" else "$count Chapters"
+        } else {
+            if (count == 1) "1 File" else "$count Files"
+        }
+    }
+
     suspend fun updateParentFolders(libraryDao: LibraryDao, childPath: String?) {
         var path = childPath ?: return
         while (path.contains('/')) {
             path = path.substringBeforeLast('/')
             val folder = libraryDao.getItemByPath(path) ?: continue
             if (folder.type == ItemType.FOLDER || folder.type == ItemType.BOUND) {
-                val children = libraryDao.getItemsInPathSync(path)
-                folder.duration = children.sumOf { it.duration }
-                folder.currentTime = children.sumOf { it.currentTime }
-                val count = children.size
-                folder.author = count.toString()
-
-                folder.percentCompleted = if (folder.duration > 0) (folder.currentTime / folder.duration).coerceIn(0.0, 1.0) else 0.0
-                folder.isFinished = children.all { it.isFinished } && children.isNotEmpty()
+                recomputeFolder(folder, libraryDao.getItemsInPathSync(path))
                 libraryDao.updateItem(folder)
             }
         }
@@ -153,21 +181,14 @@ object LibraryContentsSync {
                 foldersToUpdate.add(path)
             }
         }
-        
+
         // Sort folders by depth descending so that we update children folders before their parents!
         val sortedFolders = foldersToUpdate.sortedByDescending { it.count { char -> char == '/' } }
-        
+
         for (path in sortedFolders) {
             val folder = libraryDao.getItemByPath(path) ?: continue
             if (folder.type == ItemType.FOLDER || folder.type == ItemType.BOUND) {
-                val children = libraryDao.getItemsInPathSync(path)
-                folder.duration = children.sumOf { it.duration }
-                folder.currentTime = children.sumOf { it.currentTime }
-                val count = children.size
-                folder.author = count.toString()
-
-                folder.percentCompleted = if (folder.duration > 0) (folder.currentTime / folder.duration).coerceIn(0.0, 1.0) else 0.0
-                folder.isFinished = children.all { it.isFinished } && children.isNotEmpty()
+                recomputeFolder(folder, libraryDao.getItemsInPathSync(path))
                 libraryDao.updateItem(folder)
             }
         }

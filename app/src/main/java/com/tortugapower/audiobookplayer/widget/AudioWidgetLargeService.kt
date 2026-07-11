@@ -45,7 +45,15 @@ class AudioWidgetLargeFactory(private val context: Context) : RemoteViewsService
 
         val views = RemoteViews(context.packageName, R.layout.widget_large_list_item)
         views.setTextViewText(R.id.widget_item_title, item.title)
-        views.setTextViewText(R.id.widget_item_author, item.author ?: context.getString(R.string.library_unknown_author))
+        // A BOUND book's `author` is the bare chapter count — localize it (same rule as the library row).
+        val boundCount = item.author?.toIntOrNull()
+            ?.takeIf { item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND }
+        val authorText = when {
+            boundCount != null -> context.resources.getQuantityString(R.plurals.library_bound_chapter_count, boundCount, boundCount)
+            item.author.isNullOrBlank() -> context.getString(R.string.library_unknown_author)
+            else -> item.author
+        }
+        views.setTextViewText(R.id.widget_item_author, authorText)
 
         val artworkPath = item.artworkURL
         val bitmap = if (!artworkPath.isNullOrEmpty()) {

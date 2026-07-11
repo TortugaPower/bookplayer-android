@@ -78,6 +78,51 @@ class LibraryContentsSyncTest {
         assertEquals(null, db.libraryDao().getItemById("b2")?.artworkURL)
     }
 
+    @Test fun updateParentFoldersBatch_recomputesSubFoldersBeforeSharedGrandparent() = runBlocking {
+        // Library/A/bookA + Library/B/bookB: the batch must recompute A and B (depth-first) BEFORE
+        // Library, so the grandparent aggregates the FRESH sub-folder totals — the depth-descending
+        // sort is load-bearing because getItemsInPathSync returns direct children only.
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "g", title = "Library", relativePath = "Library", type = ItemType.FOLDER, orderRank = 0))
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "fa", title = "A", relativePath = "Library/A", type = ItemType.FOLDER, orderRank = 0, parentFolderUuid = "g"))
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "fb", title = "B", relativePath = "Library/B", type = ItemType.FOLDER, orderRank = 0, parentFolderUuid = "g"))
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "ba", title = "BookA", relativePath = "Library/A/BookA.mp3", type = ItemType.BOOK, orderRank = 0, duration = 100.0, currentTime = 50.0, parentFolderUuid = "fa"))
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "bb", title = "BookB", relativePath = "Library/B/BookB.mp3", type = ItemType.BOOK, orderRank = 0, duration = 300.0, currentTime = 300.0, isFinished = true, parentFolderUuid = "fb"))
+
+        LibraryContentsSync.updateParentFoldersBatch(
+            db.libraryDao(),
+            listOf("Library/A/BookA.mp3", "Library/B/BookB.mp3"),
+        )
+
+        val a = db.libraryDao().getItemById("fa")!!
+        assertEquals(100.0, a.duration, 0.0)
+        assertEquals("1", a.author)
+        val b = db.libraryDao().getItemById("fb")!!
+        assertEquals(300.0, b.duration, 0.0)
+        assertEquals(true, b.isFinished)
+
+        // Grandparent sums the recomputed sub-folders: 400 total, 350 listened, not finished (A isn't).
+        val g = db.libraryDao().getItemById("g")!!
+        assertEquals(400.0, g.duration, 0.0)
+        assertEquals(350.0, g.currentTime, 0.0)
+        assertEquals(0.875, g.percentCompleted, 0.0001)
+        assertEquals(false, g.isFinished)
+        assertEquals("2", g.author)
+    }
+
+    @Test fun serverFolderDetails_formatsBareCountsForThePushBoundary() {
+        fun item(type: ItemType, author: String?) = LibraryItemEntity(
+            uuid = "x", title = "X", relativePath = "X", type = type, orderRank = 0, author = author,
+        )
+        // Containers: bare local count → the display format the server/iOS store ("N Files"/"N Chapters").
+        assertEquals("1 File", LibraryContentsSync.serverFolderDetails(item(ItemType.FOLDER, "1")))
+        assertEquals("3 Files", LibraryContentsSync.serverFolderDetails(item(ItemType.FOLDER, "3")))
+        assertEquals("1 Chapter", LibraryContentsSync.serverFolderDetails(item(ItemType.BOUND, "1")))
+        assertEquals("12 Chapters", LibraryContentsSync.serverFolderDetails(item(ItemType.BOUND, "12")))
+        // Books and non-numeric legacy values pass through untouched.
+        assertEquals("Jane Author", LibraryContentsSync.serverFolderDetails(item(ItemType.BOOK, "Jane Author")))
+        assertEquals("2 Files", LibraryContentsSync.serverFolderDetails(item(ItemType.FOLDER, "2 Files")))
+    }
+
     @Test fun updateParentFolders_multiLevelNesting_aggregatesUpHierarchy() = runBlocking {
         // Seed f1 (Books)
         db.libraryDao().insertItem(
