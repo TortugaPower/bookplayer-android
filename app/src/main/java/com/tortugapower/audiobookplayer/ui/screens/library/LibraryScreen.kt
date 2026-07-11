@@ -632,7 +632,7 @@ fun LibraryScreen(
                     Button(
                         onClick = {
                             showSwipeOptionsDialog = false
-                            shareItems(context, listOf(item))
+                            scope.launch { shareItems(context, listOf(item)) }
                         },
                         enabled = shareable,
                         modifier = Modifier.fillMaxWidth()
@@ -1034,7 +1034,7 @@ fun LibraryScreen(
                             enabled = canShareSelection,
                             onClick = {
                                 showMoreMenu = false
-                                shareItems(context, selectedItems)
+                                scope.launch { shareItems(context, selectedItems) }
                             },
                             leadingIcon = { Icon(Icons.Default.Share, null) }
                         )
@@ -1994,17 +1994,21 @@ fun FolderEmptyState(
  * single-item export constraint, so a multi-selection shares in one chooser, and containers
  * (folders/volumes) export every audio file currently on device under their directory.
  */
-private fun shareItems(context: android.content.Context, items: List<LibraryItemEntity>) {
-    val processedDir = java.io.File(context.filesDir, "Processed")
-    val uris = items.flatMap { item ->
-        val relativePath = item.relativePath ?: return@flatMap emptyList()
-        val target = java.io.File(processedDir, relativePath)
-        val files = when {
-            target.isDirectory -> target.walkTopDown().filter { it.isFile }.sortedBy { it.path }.toList()
-            target.isFile -> listOf(target)
-            else -> emptyList()
+private suspend fun shareItems(context: android.content.Context, items: List<LibraryItemEntity>) {
+    // The directory walk + per-file FileProvider lookups are disk IO — resolve off the main
+    // thread; only the chooser launch returns to the caller's (main) context.
+    val uris = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val processedDir = java.io.File(context.filesDir, "Processed")
+        items.flatMap { item ->
+            val relativePath = item.relativePath ?: return@flatMap emptyList()
+            val target = java.io.File(processedDir, relativePath)
+            val files = when {
+                target.isDirectory -> target.walkTopDown().filter { it.isFile }.sortedBy { it.path }.toList()
+                target.isFile -> listOf(target)
+                else -> emptyList()
+            }
+            files.map { androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".fileprovider", it) }
         }
-        files.map { androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".fileprovider", it) }
     }
     if (uris.isEmpty()) return
     val intent = if (uris.size == 1) {
