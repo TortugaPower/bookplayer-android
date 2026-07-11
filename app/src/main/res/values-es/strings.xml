@@ -191,6 +191,7 @@
     <string name="library_download_from_url">Descargar desde URL</string>
     <string name="library_download_from_url_title">Descargar desde URL</string>
     <string name="library_download_from_url_message">Introduce la URL del archivo de audio a descargar:</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
 
     <!-- Import -->
     <string name="import_title">Importar</string>
@@ -238,6 +239,14 @@
     <plurals name="profile_unit_days">
         <item quantity="one">%1$d día</item>
         <item quantity="other">%1$d días</item>
+    </plurals>
+    <plurals name="library_folder_item_count">
+        <item quantity="one">1 archivo</item>
+        <item quantity="other">%1$d archivos</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="one">1 capítulo</item>
+        <item quantity="other">%1$d capítulos</item>
     </plurals>
     <plurals name="profile_unit_months">
         <item quantity="one">%1$d mes</item>

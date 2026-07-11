@@ -232,6 +232,12 @@
     <plurals name="profile_unit_days">
         <item quantity="other">%1$d일</item>
     </plurals>
+    <plurals name="library_folder_item_count">
+        <item quantity="other">%1$d개 파일</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="other">%1$d개 장</item>
+    </plurals>
     <plurals name="profile_unit_months">
         <item quantity="other">%1$d개월</item>
     </plurals>
@@ -409,6 +415,7 @@
     <string name="library_download_from_url">URL에서 다운로드</string>
     <string name="library_download_from_url_title">URL에서 다운로드</string>
     <string name="library_download_from_url_message">다운로드할 오디오 파일의 URL을 입력하세요:</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">재생 설정</string>
     <string name="settings_autoplay_label">자동 재생</string>
     <string name="settings_autoplay_library">라이브러리 자동 재생</string>

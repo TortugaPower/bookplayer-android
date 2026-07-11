@@ -234,6 +234,18 @@
         <item quantity="few">%1$d дня</item>
         <item quantity="many">%1$d дней</item>
     </plurals>
+    <plurals name="library_folder_item_count">
+        <item quantity="one">%1$d файл</item>
+        <item quantity="few">%1$d файла</item>
+        <item quantity="many">%1$d файлов</item>
+        <item quantity="other">%1$d файла</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="one">%1$d глава</item>
+        <item quantity="few">%1$d главы</item>
+        <item quantity="many">%1$d глав</item>
+        <item quantity="other">%1$d главы</item>
+    </plurals>
     <plurals name="profile_unit_months">
         <item quantity="one">%1$d месяц</item>
         <item quantity="other">%1$d месяца</item>
@@ -417,6 +429,7 @@
     <string name="library_download_from_url">Скачать по URL</string>
     <string name="library_download_from_url_title">Скачать по URL</string>
     <string name="library_download_from_url_message">Введите URL-адрес аудиофайла для скачивания:</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">Настройки воспроизведения</string>
     <string name="settings_autoplay_label">Автовоспроизведение</string>
     <string name="settings_autoplay_library">Автовоспроизведение библиотеки</string>

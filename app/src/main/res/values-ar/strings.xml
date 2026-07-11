@@ -237,6 +237,22 @@
         <item quantity="few">%1$d أيام</item>
         <item quantity="many">%1$d يومًا</item>
     </plurals>
+    <plurals name="library_folder_item_count">
+        <item quantity="zero">لا ملفات</item>
+        <item quantity="one">ملف واحد</item>
+        <item quantity="two">ملفان</item>
+        <item quantity="few">%1$d ملفات</item>
+        <item quantity="many">%1$d ملفًا</item>
+        <item quantity="other">%1$d ملف</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="zero">لا فصول</item>
+        <item quantity="one">فصل واحد</item>
+        <item quantity="two">فصلان</item>
+        <item quantity="few">%1$d فصول</item>
+        <item quantity="many">%1$d فصلًا</item>
+        <item quantity="other">%1$d فصل</item>
+    </plurals>
     <plurals name="profile_unit_months">
         <item quantity="one">%1$d شهر</item>
         <item quantity="other">%1$d شهر</item>
@@ -423,6 +439,7 @@
     <string name="library_download_from_url">تنزيل من رابط URL</string>
     <string name="library_download_from_url_title">تنزيل من رابط URL</string>
     <string name="library_download_from_url_message">أدخل رابط URL الخاص بملف الصوت لتنزيله:</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">إعدادات التشغيل</string>
     <string name="settings_autoplay_label">التشغيل التلقائي</string>
     <string name="settings_autoplay_library">تشغيل المكتبة تلقائيًا</string>

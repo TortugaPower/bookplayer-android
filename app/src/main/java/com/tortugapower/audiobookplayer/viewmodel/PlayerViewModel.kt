@@ -98,16 +98,43 @@ class PlayerViewModel(
         viewModelScope.launch {
             val context = appContext
             launch {
+                PlaybackSettingsManager.getSmartRewind(context).collect { smartRewind = it }
+            }
+            launch {
+                PlaybackSettingsManager.getSmartRewindLimit(context).collect { smartRewindLimit = it }
+            }
+            launch {
                 PlaybackSettingsManager.getRewindInterval(context).collect { rewindInterval = it }
             }
             launch {
                 PlaybackSettingsManager.getForwardInterval(context).collect { forwardInterval = it }
             }
             launch {
-                PlaybackSettingsManager.getSmartRewindLimit(context).collect { smartRewindLimit = it }
+                PlaybackSettingsManager.getAutoSleepTimer(context).collect { autoSleep = it }
+            }
+            launch {
+                PlaybackSettingsManager.getQuickAction1(context).collect { quickAction1 = it }
+            }
+            launch {
+                PlaybackSettingsManager.getQuickAction2(context).collect { quickAction2 = it }
+            }
+            launch {
+                PlaybackSettingsManager.getQuickAction3(context).collect { quickAction3 = it }
+            }
+            launch {
+                PlaybackSettingsManager.getGlobalSpeedControl(context).collect { globalSpeed = it }
+            }
+            launch {
+                PlaybackSettingsManager.getProgressBarSeeking(context).collect { progressBarSeeking = it }
             }
             launch {
                 PlaybackSettingsManager.getListButtonOpens(context).collect { listButtonOpens = it }
+            }
+            launch {
+                PlaybackSettingsManager.getUseRemainingTime(context).collect { useRemainingTime = it }
+            }
+            launch {
+                PlaybackSettingsManager.getUseChapterContext(context).collect { useChapterContext = it }
             }
         }
 

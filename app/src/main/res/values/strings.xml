@@ -324,12 +324,12 @@
     <string name="library_download_from_url">Download from URL</string>
     <string name="library_download_from_url_title">Download from URL</string>
     <string name="library_download_from_url_message">Enter the URL of the audio file to download:</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
 
     <!-- Import -->
     <string name="import_title">Import</string>
     <string name="import_disclaimer">Transferring files may take a while, please make sure the number of files is complete before proceeding.</string>
     <string name="import_files_count">%1$d Files</string>
-    <string name="library_download_from_url">Download from URL</string>
     <string name="library_download_url_label">URL</string>
     <string name="library_download_url_error">Enter a valid URL</string>
     <string name="import_processing_file">Processing %1$s…</string>
@@ -374,6 +374,14 @@
     <plurals name="profile_unit_days">
         <item quantity="one">%1$d day</item>
         <item quantity="other">%1$d days</item>
+    </plurals>
+    <plurals name="library_folder_item_count">
+        <item quantity="one">1 File</item>
+        <item quantity="other">%1$d Files</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="one">1 Chapter</item>
+        <item quantity="other">%1$d Chapters</item>
     </plurals>
     <plurals name="profile_unit_months">
         <item quantity="one">%1$d month</item>

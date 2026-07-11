@@ -48,10 +48,12 @@ class FetchContentsProcessor(
             val remoteUuids = mutableSetOf<String>()
             val matchUuidMap = mutableMapOf<String, String>() // relativePath -> generatedUuid
             val allGeneratedUuids = mutableSetOf<String>()
+            val affectedPaths = mutableSetOf<String>()
 
             // Update existing and add missing from server
             contents.content.forEach { remoteItem ->
-                val (finalUuid, isNew) = syncItem(libraryDao, remoteItem, allGeneratedUuids)
+                val (finalUuid, isNew) = syncItem(libraryDao, remoteItem, allGeneratedUuids, skipParentUpdate = true)
+                remoteItem.relativePath?.let { affectedPaths.add(it) }
                 remoteUuids.add(finalUuid)
                 
                 // If the server didn't provide a UUID, mark it for matching
@@ -89,7 +91,8 @@ class FetchContentsProcessor(
             // Handle cross-device Last Played synchronization
             contents.lastItemPlayed?.let { serverLastPlayed ->
                 // Ensure the last played item itself is synced to DB
-                val (finalUuid, _) = syncItem(libraryDao, serverLastPlayed, allGeneratedUuids)
+                val (finalUuid, _) = syncItem(libraryDao, serverLastPlayed, allGeneratedUuids, skipParentUpdate = true)
+                serverLastPlayed.relativePath?.let { affectedPaths.add(it) }
                 
                 val coordinator = playback
                 if (coordinator != null && !coordinator.isPlaying()) {
@@ -124,10 +127,13 @@ class FetchContentsProcessor(
                     if (localItem.uuid !in remoteUuids) {
                         Log.d("FetchContentsProcessor", "🗑️ Local item missing on server, deleting: ${localItem.title}")
                         libraryDao.deleteItem(localItem)
-                        LibraryContentsSync.updateParentFolders(libraryDao, localItem.relativePath)
+                        localItem.relativePath?.let { affectedPaths.add(it) }
                     }
                 }
             }
+
+            // Run parent folder updates once in batch
+            LibraryContentsSync.updateParentFoldersBatch(libraryDao, affectedPaths)
 
             return true
         }
@@ -137,11 +143,12 @@ class FetchContentsProcessor(
     private suspend fun syncItem(
         libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao,
         remote: SyncableItem,
-        generatedUuids: MutableSet<String>
+        generatedUuids: MutableSet<String>,
+        skipParentUpdate: Boolean = false
     ): Pair<String, Boolean> =
         // Shared with the playback-path offloaded-bound guard; here we pass the task repository so a
         // path-conflict also migrates pending sync tasks (the play path passes null).
-        LibraryContentsSync.upsertItem(libraryDao, repository, remote, generatedUuids)
+        LibraryContentsSync.upsertItem(libraryDao, repository, remote, generatedUuids, skipParentUpdate)
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_FETCH_CONTENTS

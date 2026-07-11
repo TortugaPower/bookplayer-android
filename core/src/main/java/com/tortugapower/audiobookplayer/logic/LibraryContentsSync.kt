@@ -22,7 +22,8 @@ object LibraryContentsSync {
         libraryDao: LibraryDao,
         syncTaskRepository: SyncTaskRepository?,
         remote: SyncableItem,
-        generatedUuids: MutableSet<String>
+        generatedUuids: MutableSet<String>,
+        skipParentUpdate: Boolean = false
     ): Pair<String, Boolean> {
         var uuid = remote.uuid
         if (uuid.isNullOrEmpty()) {
@@ -88,8 +89,10 @@ object LibraryContentsSync {
             libraryDao.updateItem(entity)
         }
 
-        // Recursively update parents to sync their aggregate progress and metadata
-        updateParentFolders(libraryDao, entity.relativePath)
+        if (!skipParentUpdate) {
+            // Recursively update parents to sync their aggregate progress and metadata
+            updateParentFolders(libraryDao, entity.relativePath)
+        }
 
         // Sync external resources if provided
         val remoteResources = remote.externalResources
@@ -132,12 +135,36 @@ object LibraryContentsSync {
                 folder.duration = children.sumOf { it.duration }
                 folder.currentTime = children.sumOf { it.currentTime }
                 val count = children.size
-                
-                if (folder.type == ItemType.FOLDER) {
-                    folder.author = if (count == 1) "1 File" else "$count Files"
-                } else {
-                    folder.author = if (count == 1) "1 Chapter" else "$count Chapters"
-                }
+                folder.author = count.toString()
+
+                folder.percentCompleted = if (folder.duration > 0) (folder.currentTime / folder.duration).coerceIn(0.0, 1.0) else 0.0
+                folder.isFinished = children.all { it.isFinished } && children.isNotEmpty()
+                libraryDao.updateItem(folder)
+            }
+        }
+    }
+
+    suspend fun updateParentFoldersBatch(libraryDao: LibraryDao, affectedPaths: Collection<String>) {
+        val foldersToUpdate = mutableSetOf<String>()
+        for (childPath in affectedPaths) {
+            var path = childPath
+            while (path.contains('/')) {
+                path = path.substringBeforeLast('/')
+                foldersToUpdate.add(path)
+            }
+        }
+        
+        // Sort folders by depth descending so that we update children folders before their parents!
+        val sortedFolders = foldersToUpdate.sortedByDescending { it.count { char -> char == '/' } }
+        
+        for (path in sortedFolders) {
+            val folder = libraryDao.getItemByPath(path) ?: continue
+            if (folder.type == ItemType.FOLDER || folder.type == ItemType.BOUND) {
+                val children = libraryDao.getItemsInPathSync(path)
+                folder.duration = children.sumOf { it.duration }
+                folder.currentTime = children.sumOf { it.currentTime }
+                val count = children.size
+                folder.author = count.toString()
 
                 folder.percentCompleted = if (folder.duration > 0) (folder.currentTime / folder.duration).coerceIn(0.0, 1.0) else 0.0
                 folder.isFinished = children.all { it.isFinished } && children.isNotEmpty()

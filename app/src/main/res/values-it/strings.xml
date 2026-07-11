@@ -232,6 +232,14 @@
         <item quantity="one">%1$d giorno</item>
         <item quantity="other">%1$d giorni</item>
     </plurals>
+    <plurals name="library_folder_item_count">
+        <item quantity="one">1 file</item>
+        <item quantity="other">%1$d file</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="one">1 capitolo</item>
+        <item quantity="other">%1$d capitoli</item>
+    </plurals>
     <plurals name="profile_unit_months">
         <item quantity="one">%1$d mese</item>
         <item quantity="other">%1$d mesi</item>
@@ -411,6 +419,7 @@
     <string name="library_download_from_url">Scarica da URL</string>
     <string name="library_download_from_url_title">Scarica da URL</string>
     <string name="library_download_from_url_message">Inserisci l\'URL del file audio da scaricare:</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">Impostazioni di riproduzione</string>
     <string name="settings_autoplay_label">Riproduzione automatica</string>
     <string name="settings_autoplay_library">Riproduzione automatica libreria</string>

@@ -50,6 +50,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -530,7 +531,7 @@ fun LibraryScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester),
-                        placeholder = { Text("https://example.com/audiobook.mp3") },
+                        placeholder = { Text(stringResource(R.string.library_download_from_url_placeholder)) },
                         singleLine = true
                     )
                 }
@@ -1329,7 +1330,19 @@ fun LibraryListItem(
     val authorText = if (item.author.isNullOrBlank()) {
         if (item.type == ItemType.FOLDER) stringResource(R.string.library_folder_empty) 
         else stringResource(R.string.library_unknown_author)
-    } else item.author!!
+    } else {
+        val count = item.author!!.toIntOrNull()
+        if (count != null && (item.type == ItemType.FOLDER || item.type == ItemType.BOUND)) {
+            if (item.type == ItemType.FOLDER) {
+                if (count == 0) stringResource(R.string.library_folder_empty)
+                else pluralStringResource(R.plurals.library_folder_item_count, count, count)
+            } else {
+                pluralStringResource(R.plurals.library_bound_chapter_count, count, count)
+            }
+        } else {
+            item.author!!
+        }
+    }
 
     val progressText = if (item.isFinished) {
         stringResource(R.string.common_completed)
@@ -1735,12 +1748,13 @@ fun LibraryEmptyState(
                 drawBookShape(width, height, 0f, 1.0f, 1.0f, bookColor)
             }
             Icon(
-                imageVector = Icons.Default.VolumeUp,
+                imageVector = Icons.AutoMirrored.Filled.VolumeUp,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
                 modifier = Modifier.size(72.dp)
             )
         }
+
         
         Spacer(modifier = Modifier.height(32.dp))
         

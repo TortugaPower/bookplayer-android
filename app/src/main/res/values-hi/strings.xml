@@ -233,6 +233,14 @@
         <item quantity="one">%1$d दिन</item>
         <item quantity="other">%1$d दिन</item>
     </plurals>
+    <plurals name="library_folder_item_count">
+        <item quantity="one">1 फ़ाइल</item>
+        <item quantity="other">%1$d फ़ाइलें</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="one">1 अध्याय</item>
+        <item quantity="other">%1$d अध्याय</item>
+    </plurals>
     <plurals name="profile_unit_months">
         <item quantity="one">%1$d महीना</item>
         <item quantity="other">%1$d महीने</item>
@@ -411,6 +419,7 @@
     <string name="library_download_from_url">URL से डाउनलोड करें</string>
     <string name="library_download_from_url_title">URL से डाउनलोड करें</string>
     <string name="library_download_from_url_message">डाउनलोड करने के लिए ऑडियो फ़ाइल का URL दर्ज करें:</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">प्लेबैक सेटिंग्स</string>
     <string name="settings_autoplay_label">ऑटोप्ले</string>
     <string name="settings_autoplay_library">लाइब्रेरी ऑटोप्ले</string>

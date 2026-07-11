@@ -77,4 +77,126 @@ class LibraryContentsSyncTest {
 
         assertEquals(null, db.libraryDao().getItemById("b2")?.artworkURL)
     }
+
+    @Test fun updateParentFolders_multiLevelNesting_aggregatesUpHierarchy() = runBlocking {
+        // Seed f1 (Books)
+        db.libraryDao().insertItem(
+            LibraryItemEntity(
+                uuid = "f1", title = "Books", relativePath = "Books",
+                type = ItemType.FOLDER, orderRank = 0, author = null
+            )
+        )
+        // Seed f2 (Books/SciFi)
+        db.libraryDao().insertItem(
+            LibraryItemEntity(
+                uuid = "f2", title = "SciFi", relativePath = "Books/SciFi",
+                type = ItemType.FOLDER, orderRank = 0, author = null, parentFolderUuid = "f1"
+            )
+        )
+        // Seed b1 (Books/SciFi/Book1)
+        db.libraryDao().insertItem(
+            LibraryItemEntity(
+                uuid = "b1", title = "Book1", relativePath = "Books/SciFi/Book1",
+                type = ItemType.BOOK, orderRank = 0, duration = 100.0, currentTime = 40.0,
+                parentFolderUuid = "f2"
+            )
+        )
+
+        LibraryContentsSync.updateParentFolders(db.libraryDao(), "Books/SciFi/Book1")
+
+        val updatedF2 = db.libraryDao().getItemById("f2")
+        assertEquals(100.0, updatedF2?.duration ?: 0.0, 0.0)
+        assertEquals(40.0, updatedF2?.currentTime ?: 0.0, 0.0)
+        assertEquals(0.4, updatedF2?.percentCompleted ?: 0.0, 0.0)
+        assertEquals("1", updatedF2?.author)
+
+        val updatedF1 = db.libraryDao().getItemById("f1")
+        assertEquals(100.0, updatedF1?.duration ?: 0.0, 0.0)
+        assertEquals(40.0, updatedF1?.currentTime ?: 0.0, 0.0)
+        assertEquals(0.4, updatedF1?.percentCompleted ?: 0.0, 0.0)
+        assertEquals("1", updatedF1?.author)
+    }
+
+    @Test fun updateParentFolders_deletionTriggeredRecompute_updatesCorrectly() = runBlocking {
+        // Seed f1 (Books)
+        db.libraryDao().insertItem(
+            LibraryItemEntity(
+                uuid = "f1", title = "Books", relativePath = "Books",
+                type = ItemType.FOLDER, orderRank = 0
+            )
+        )
+        // Seed b1
+        db.libraryDao().insertItem(
+            LibraryItemEntity(
+                uuid = "b1", title = "Book1", relativePath = "Books/Book1",
+                type = ItemType.BOOK, orderRank = 0, duration = 100.0, currentTime = 50.0,
+                parentFolderUuid = "f1"
+            )
+        )
+        // Seed b2
+        db.libraryDao().insertItem(
+            LibraryItemEntity(
+                uuid = "b2", title = "Book2", relativePath = "Books/Book2",
+                type = ItemType.BOOK, orderRank = 0, duration = 150.0, currentTime = 150.0,
+                isFinished = true, parentFolderUuid = "f1"
+            )
+        )
+
+        // Initial recompute
+        LibraryContentsSync.updateParentFolders(db.libraryDao(), "Books/Book1")
+        val f1Initial = db.libraryDao().getItemById("f1")
+        assertEquals(250.0, f1Initial?.duration ?: 0.0, 0.0)
+        assertEquals(200.0, f1Initial?.currentTime ?: 0.0, 0.0)
+        assertEquals("2", f1Initial?.author)
+        assertEquals(false, f1Initial?.isFinished)
+
+        // Delete b1 from DB
+        val b1Entity = db.libraryDao().getItemById("b1")!!
+        db.libraryDao().deleteItem(b1Entity)
+
+        // Trigger recompute (representing the deletion call site)
+        LibraryContentsSync.updateParentFolders(db.libraryDao(), "Books/Book1")
+        val f1AfterDelete = db.libraryDao().getItemById("f1")
+        assertEquals(150.0, f1AfterDelete?.duration ?: 0.0, 0.0)
+        assertEquals(150.0, f1AfterDelete?.currentTime ?: 0.0, 0.0)
+        assertEquals("1", f1AfterDelete?.author)
+        assertEquals(true, f1AfterDelete?.isFinished)
+    }
+
+    @Test fun updateParentFolders_emptyAndAllFinishedTransitions_worksCorrectly() = runBlocking {
+        // Seed f1 (Books)
+        db.libraryDao().insertItem(
+            LibraryItemEntity(
+                uuid = "f1", title = "Books", relativePath = "Books",
+                type = ItemType.FOLDER, orderRank = 0
+            )
+        )
+
+        // Empty transition
+        LibraryContentsSync.updateParentFolders(db.libraryDao(), "Books/dummy")
+        val f1Empty = db.libraryDao().getItemById("f1")
+        assertEquals(0.0, f1Empty?.duration ?: 0.0, 0.0)
+        assertEquals(0.0, f1Empty?.currentTime ?: 0.0, 0.0)
+        assertEquals(0.0, f1Empty?.percentCompleted ?: 0.0, 0.0)
+        assertEquals(false, f1Empty?.isFinished ?: true)
+        assertEquals("0", f1Empty?.author)
+
+        // Seed finished book
+        db.libraryDao().insertItem(
+            LibraryItemEntity(
+                uuid = "b1", title = "Book1", relativePath = "Books/Book1",
+                type = ItemType.BOOK, orderRank = 0, duration = 100.0, currentTime = 100.0,
+                isFinished = true, parentFolderUuid = "f1"
+            )
+        )
+
+        // All-finished transition
+        LibraryContentsSync.updateParentFolders(db.libraryDao(), "Books/Book1")
+        val f1Finished = db.libraryDao().getItemById("f1")
+        assertEquals(100.0, f1Finished?.duration ?: 0.0, 0.0)
+        assertEquals(100.0, f1Finished?.currentTime ?: 0.0, 0.0)
+        assertEquals(1.0, f1Finished?.percentCompleted ?: 0.0, 0.0)
+        assertEquals(true, f1Finished?.isFinished)
+        assertEquals("1", f1Finished?.author)
+    }
 }

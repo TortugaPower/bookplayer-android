@@ -232,6 +232,12 @@
     <plurals name="profile_unit_days">
         <item quantity="other">%1$d日</item>
     </plurals>
+    <plurals name="library_folder_item_count">
+        <item quantity="other">%1$d 個のファイル</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="other">%1$d 章</item>
+    </plurals>
     <plurals name="profile_unit_months">
         <item quantity="other">%1$dか月</item>
     </plurals>
@@ -409,6 +415,7 @@
     <string name="library_download_from_url">URLからダウンロード</string>
     <string name="library_download_from_url_title">URLからダウンロード</string>
     <string name="library_download_from_url_message">ダウンロードするオーディオファイルのURLを入力してください：</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">再生設定</string>
     <string name="settings_autoplay_label">自動再生</string>
     <string name="settings_autoplay_library">ライブラリの自動再生</string>

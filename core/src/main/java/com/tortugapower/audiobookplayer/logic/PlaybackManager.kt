@@ -414,7 +414,7 @@ object PlaybackManager {
                                     val repository = RoomLibraryRepository(appContext, db.libraryDao())
                                     val nextItem = repository.getAdjacentItem(current.uuid, next = true)
                                     if (nextItem != null) {
-                                        playItem(appContext, nextItem)
+                                        playItem(appContext, nextItem, isAutoplayTransition = true)
                                     }
                                 }
                             }
@@ -813,6 +813,7 @@ object PlaybackManager {
         // Restart from 0:00 even if the book isn't finished (library "Play from beginning"). Handled in
         // here — not by the caller mutating the entity — so the seek below can't race the async DB reset.
         fromBeginning: Boolean = false,
+        isAutoplayTransition: Boolean = false,
     ) {
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
@@ -825,7 +826,7 @@ object PlaybackManager {
             updateProgress(context, itemToUpdate = _currentItem.value)
         }
         
-        val restartFromZero = (item.isFinished && autoplayRestartFinished) || fromBeginning
+        val restartFromZero = (item.isFinished && (!isAutoplayTransition || autoplayRestartFinished)) || fromBeginning
         if (restartFromZero) {
             item.currentTime = 0.0
             item.isFinished = false

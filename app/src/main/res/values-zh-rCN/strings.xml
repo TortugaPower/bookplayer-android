@@ -232,6 +232,12 @@
     <plurals name="profile_unit_days">
         <item quantity="other">%1$d天</item>
     </plurals>
+    <plurals name="library_folder_item_count">
+        <item quantity="other">%1$d 个文件</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="other">%1$d 章节</item>
+    </plurals>
     <plurals name="profile_unit_months">
         <item quantity="other">%1$d个月</item>
     </plurals>
@@ -409,6 +415,7 @@
     <string name="library_download_from_url">从 URL 下载</string>
     <string name="library_download_from_url_title">从 URL 下载</string>
     <string name="library_download_from_url_message">输入要下载的音频文件 URL：</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">播放设置</string>
     <string name="settings_autoplay_label">自动播放</string>
     <string name="settings_autoplay_library">自动播放书库</string>
