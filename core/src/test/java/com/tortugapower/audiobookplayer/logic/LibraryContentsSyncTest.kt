@@ -109,6 +109,23 @@ class LibraryContentsSyncTest {
         assertEquals("2", g.author)
     }
 
+    @Test fun displayDetails_localizesContainerCountsAndPassesEverythingElseThrough() {
+        fun item(type: ItemType, author: String?) = LibraryItemEntity(
+            uuid = "x", title = "X", relativePath = "X", type = type, orderRank = 0, author = author,
+        )
+        // Containers: bare local count → localized plural (the mapping every render surface uses).
+        assertEquals("1 File", LibraryContentsSync.displayDetails(context, ItemType.FOLDER, "1"))
+        assertEquals("3 Files", LibraryContentsSync.displayDetails(context, ItemType.FOLDER, "3"))
+        assertEquals("1 Chapter", LibraryContentsSync.displayDetails(context, ItemType.BOUND, "1"))
+        assertEquals("7 Chapters", LibraryContentsSync.displayDetails(context, ItemType.BOUND, "7"))
+        // Books, non-numeric legacy values, and nulls pass through untouched.
+        assertEquals("Jane Author", LibraryContentsSync.displayDetails(context, ItemType.BOOK, "Jane Author"))
+        assertEquals("2 Files", LibraryContentsSync.displayDetails(context, ItemType.FOLDER, "2 Files"))
+        assertEquals(null, LibraryContentsSync.displayDetails(context, ItemType.FOLDER, null))
+        // A numeric BOOK author (e.g. an artist named "1984") must NOT be turned into a count.
+        assertEquals("1984", LibraryContentsSync.displayDetails(context, ItemType.BOOK, "1984"))
+    }
+
     @Test fun serverFolderDetails_formatsBareCountsForThePushBoundary() {
         fun item(type: ItemType, author: String?) = LibraryItemEntity(
             uuid = "x", title = "X", relativePath = "X", type = type, orderRank = 0, author = author,
