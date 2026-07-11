@@ -402,4 +402,22 @@
     <string name="library_add_shortcut_to_home_screen">Ajouter un raccourci à l\'écran d\'accueil</string>
     <string name="shortcut_play_item_desc">Lire %1$s</string>
     <string name="shortcut_pin_failed">Impossible d\'ajouter le raccourci à l\'écran d\'accueil</string>
+
+    <string name="library_play_from_beginning">Lire depuis le début</string>
+    <string name="library_add_shortcut">Ajouter un raccourci</string>
+    <string name="library_add_files">Ajouter des fichiers</string>
+    <string name="library_add_files_dialog_title">Ajouter des fichiers</string>
+    <string name="library_add_files_option_import">Importer des fichiers</string>
+    <string name="library_download_from_url">Télécharger depuis une URL</string>
+    <string name="library_download_from_url_title">Télécharger depuis une URL</string>
+    <string name="library_download_from_url_message">Saisissez l\'URL du fichier audio à télécharger :</string>
+    <string name="settings_playback_section">Paramètres de lecture</string>
+    <string name="settings_autoplay_label">Lecture automatique</string>
+    <string name="settings_autoplay_library">Lecture automatique de la bibliothèque</string>
+    <string name="settings_autoplay_restart_finished">Recommencer les livres terminés</string>
+    <string name="settings_autoplay_desc">Après avoir terminé un livre audio, la lecture reprendra avec tous les éléments de la bibliothèque, y compris les éléments des dossiers.</string>
+    <string name="settings_autolock_label">Verrouillage automatique</string>
+    <string name="settings_disable_autolock">Désactiver le verrouillage automatique</string>
+    <string name="settings_autolock_only_on_power">Uniquement lorsque connecté à l\'alimentation</string>
+    <string name="settings_autolock_desc">Empêcher l\'appareil de se verrouiller sur l\'écran du lecteur.</string>
 </resources>

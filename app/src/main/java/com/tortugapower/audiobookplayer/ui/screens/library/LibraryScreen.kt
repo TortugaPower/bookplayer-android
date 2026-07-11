@@ -42,6 +42,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -115,6 +117,7 @@ fun LibraryScreen(
 
     val isRefreshing by libraryViewModel.isRefreshing.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
     val syncTasksBusyMessage = stringResource(R.string.library_sync_tasks_busy)
     // A pull-to-refresh that lands while sync jobs are queued is declined (see LibraryViewModel.refresh);
     // surface that as a transient note rather than silently doing nothing.
@@ -154,6 +157,10 @@ fun LibraryScreen(
     var itemToDetail by remember { mutableStateOf<LibraryItemEntity?>(null) }
     var showSearchScreen by remember { mutableStateOf(false) }
     var showCombineToVolumeDialog by remember { mutableStateOf(false) }
+    var showAddFilesDialog by remember { mutableStateOf(false) }
+    var showDownloadFromUrlDialog by remember { mutableStateOf(false) }
+    var showSwipeOptionsDialog by remember { mutableStateOf(false) }
+    var itemForSwipeOptions by remember { mutableStateOf<LibraryItemEntity?>(null) }
 
     if (showCombineToVolumeDialog) {
         val selectedItems = remember(selectedItemUuids) { items.filter { it.uuid in selectedItemUuids } }
@@ -444,6 +451,262 @@ fun LibraryScreen(
         )
     }
 
+    if (showAddFilesDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddFilesDialog = false },
+            title = { Text(stringResource(R.string.library_add_files_dialog_title)) },
+            confirmButton = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            showAddFilesDialog = false
+                            launcher.launch(arrayOf("audio/*"))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.library_add_files_option_import))
+                    }
+                    Button(
+                        onClick = {
+                            showAddFilesDialog = false
+                            showDownloadFromUrlDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.library_download_from_url))
+                    }
+                    Button(
+                        onClick = {
+                            showAddFilesDialog = false
+                            onNavigateToMediaServers()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.media_servers_title))
+                    }
+                    Button(
+                        onClick = {
+                            showAddFilesDialog = false
+                            showCreateFolderDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.library_create_folder_title))
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddFilesDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    if (showDownloadFromUrlDialog) {
+        var url by remember { mutableStateOf("") }
+        val focusRequester = remember { FocusRequester() }
+
+        LaunchedEffect(Unit) {
+            focusRequester.requestFocus()
+        }
+
+        AlertDialog(
+            onDismissRequest = { showDownloadFromUrlDialog = false },
+            title = { Text(stringResource(R.string.library_download_from_url_title)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.library_download_from_url_message))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = url,
+                        onValueChange = { url = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                        placeholder = { Text("https://example.com/audiobook.mp3") },
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDownloadFromUrlDialog = false
+                        if (url.isNotBlank()) {
+                            val uri = android.net.Uri.parse(url)
+                            val fileName = uri.lastPathSegment ?: "downloaded_file.mp3"
+                            ImportManager.startDownload(
+                                context = context,
+                                url = url,
+                                fileName = fileName,
+                                headers = null,
+                                providerName = null,
+                                providerId = null,
+                                hostId = null
+                            )
+                        }
+                    },
+                    enabled = url.isNotBlank()
+                ) {
+                    Text(stringResource(R.string.common_download))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDownloadFromUrlDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    if (showSwipeOptionsDialog && itemForSwipeOptions != null) {
+        val item = itemForSwipeOptions!!
+        AlertDialog(
+            onDismissRequest = {
+                showSwipeOptionsDialog = false
+            },
+            title = { Text(item.title) },
+            confirmButton = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            showSwipeOptionsDialog = false
+                            selectedItemUuids = setOf(item.uuid)
+                            showChooseDestinationDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = stringResource(R.string.common_move),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            showSwipeOptionsDialog = false
+                            itemsToDelete = listOf(item)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    ) {
+                        Text(
+                            text = stringResource(R.string.common_delete),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    if (item.type == ItemType.BOOK || item.type == ItemType.BOUND) {
+                        Button(
+                            onClick = {
+                                showSwipeOptionsDialog = false
+                                itemToDetail = item
+                                showItemDetailSheet = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = stringResource(R.string.library_see_details),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                showSwipeOptionsDialog = false
+                                libraryViewModel.resetItemProgress(item.uuid)
+                                PlaybackManager.playItem(context, item, fromBeginning = true)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = stringResource(R.string.library_play_from_beginning),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                showSwipeOptionsDialog = false
+                                ShortcutHelper.requestPinShortcut(context, item)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = stringResource(R.string.library_add_shortcut),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            showSwipeOptionsDialog = false
+                            libraryViewModel.setFinishedStatus(listOf(item), !item.isFinished)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (item.isFinished) stringResource(R.string.player_mark_as_unfinished)
+                                   else stringResource(R.string.player_mark_as_finished),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    if (item.type == ItemType.BOUND) {
+                        Button(
+                            onClick = {
+                                showSwipeOptionsDialog = false
+                                libraryViewModel.convertVolumesToFolders(listOf(item))
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = stringResource(R.string.library_convert_to_folder),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    } else if (item.type == ItemType.FOLDER) {
+                        Button(
+                            onClick = {
+                                showSwipeOptionsDialog = false
+                                libraryViewModel.convertFoldersToVolumes(context, listOf(item))
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = stringResource(R.string.library_convert_to_volume),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showSwipeOptionsDialog = false
+                    }
+                ) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
     if (showChooseDestinationDialog) {
         AlertDialog(
             onDismissRequest = { showChooseDestinationDialog = false },
@@ -591,43 +854,44 @@ fun LibraryScreen(
                         onDismissRequest = { showMoreMenu = false },
                     ) {
                         val selectedItems = items.filter { it.uuid in selectedItemUuids }
+                        val isSingleItemSelect = selectedItems.size == 1
+                        val isSingleBookOrBound = isSingleItemSelect && 
+                                (selectedItems[0].type == ItemType.BOOK || selectedItems[0].type == ItemType.BOUND)
                         
-                        if (selectedItems.size == 1 && (selectedItems[0].type == ItemType.BOOK || selectedItems[0].type == ItemType.BOUND)) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.library_see_details)) },
-                                onClick = {
-                                    showMoreMenu = false
-                                    itemToDetail = selectedItems[0]
-                                    showItemDetailSheet = true
-                                },
-                                leadingIcon = { Icon(Icons.Default.Info, null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.library_play_from_beginning)) },
-                                onClick = {
-                                    showMoreMenu = false
-                                    val item = selectedItems[0]
-                                    // The restart itself is handled inside playItem (fromBeginning), so the
-                                    // seek can't race the async DB reset; resetItemProgress goes through the
-                                    // syncing repository so the rewound position is also pushed to the server.
-                                    libraryViewModel.resetItemProgress(item.uuid)
-                                    PlaybackManager.playItem(context, item, fromBeginning = true)
-                                    isSelectMode = false
-                                    selectedItemUuids = emptySet()
-                                },
-                                leadingIcon = { Icon(Icons.Default.PlayArrow, null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.library_add_shortcut_to_home_screen)) },
-                                onClick = {
-                                    showMoreMenu = false
-                                    ShortcutHelper.requestPinShortcut(context, selectedItems[0])
-                                    isSelectMode = false
-                                    selectedItemUuids = emptySet()
-                                },
-                                leadingIcon = { Icon(Icons.Default.Home, null) }
-                            )
-                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_see_details)) },
+                            enabled = isSingleBookOrBound,
+                            onClick = {
+                                showMoreMenu = false
+                                itemToDetail = selectedItems.firstOrNull()
+                                showItemDetailSheet = true
+                            },
+                            leadingIcon = { Icon(Icons.Default.Info, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_play_from_beginning)) },
+                            enabled = isSingleBookOrBound,
+                            onClick = {
+                                showMoreMenu = false
+                                val item = selectedItems[0]
+                                libraryViewModel.resetItemProgress(item.uuid)
+                                PlaybackManager.playItem(context, item, fromBeginning = true)
+                                isSelectMode = false
+                                selectedItemUuids = emptySet()
+                            },
+                            leadingIcon = { Icon(Icons.Default.PlayArrow, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_add_shortcut_to_home_screen)) },
+                            enabled = isSingleBookOrBound,
+                            onClick = {
+                                showMoreMenu = false
+                                ShortcutHelper.requestPinShortcut(context, selectedItems[0])
+                                isSelectMode = false
+                                selectedItemUuids = emptySet()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Home, null) }
+                        )
 
                         val allFinished = selectedItems.isNotEmpty() && selectedItems.all { it.isFinished }
                         DropdownMenuItem(
@@ -815,7 +1079,15 @@ fun LibraryScreen(
                             .verticalScroll(rememberScrollState()),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(stringResource(R.string.library_empty_message), color = Color.Gray)
+                        if (path.isNullOrEmpty()) {
+                            LibraryEmptyState(
+                                onAddFiles = { showAddFilesDialog = true }
+                            )
+                        } else {
+                            FolderEmptyState(
+                                onAddFiles = { showAddFilesDialog = true }
+                            )
+                        }
                     }
                 } else {
                     val lazyListState = rememberLazyListState()
@@ -832,10 +1104,17 @@ fun LibraryScreen(
                             val isSelected = selectedItemUuids.contains(item.uuid)
                             val dismissState = rememberSwipeToDismissBoxState()
 
+                            val isThisItemForSwipe = itemForSwipeOptions?.uuid == item.uuid
                             LaunchedEffect(dismissState.currentValue) {
                                 if (!isSelectMode && dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
-                                    itemsToDelete = listOf(item)
+                                    itemForSwipeOptions = item
+                                    showSwipeOptionsDialog = true
+                                }
+                            }
+                            LaunchedEffect(isThisItemForSwipe, showSwipeOptionsDialog) {
+                                if (isThisItemForSwipe && !showSwipeOptionsDialog) {
                                     dismissState.reset()
+                                    itemForSwipeOptions = null
                                 }
                             }
 
@@ -843,24 +1122,55 @@ fun LibraryScreen(
                                 state = dismissState,
                                 backgroundContent = {
                                     val isSwiping = !isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
-                                    val color = if (isSwiping) Color(0xFFE57373) else Color.Transparent
-                                
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(color)
-                                            .clickable { 
-                                                if (isSwiping) itemsToDelete = listOf(item)
+                                    if (isSwiping) {
+                                        val offset = runCatching { dismissState.requireOffset() }.getOrDefault(0f)
+                                        val buttonsWidthPx = with(density) { 160.dp.toPx() }
+                                        val translationX = (offset + buttonsWidthPx).coerceAtLeast(0f)
+
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .graphicsLayer {
+                                                    this.translationX = translationX
+                                                },
+                                            horizontalArrangement = Arrangement.End,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .width(80.dp)
+                                                    .background(Color(0xFFE57373))
+                                                    .clickable {
+                                                        itemsToDelete = listOf(item)
+                                                        coroutineScope.launch { dismissState.reset() }
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = stringResource(R.string.common_delete),
+                                                    tint = Color.White
+                                                )
                                             }
-                                            .padding(horizontal = 24.dp),
-                                        contentAlignment = Alignment.CenterEnd
-                                    ) {
-                                        if (isSwiping) {
-                                            Icon(
-                                                Icons.Default.Delete,
-                                                contentDescription = "Delete",
-                                                tint = Color.White
-                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .width(80.dp)
+                                                    .background(MaterialTheme.colorScheme.primary)
+                                                    .clickable {
+                                                        itemForSwipeOptions = item
+                                                        showSwipeOptionsDialog = true
+                                                        coroutineScope.launch { dismissState.reset() }
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Info,
+                                                    contentDescription = stringResource(R.string.library_see_details),
+                                                    tint = Color.White
+                                                )
+                                            }
                                         }
                                     }
                                 },
@@ -1390,6 +1700,199 @@ fun PieProgressIcon(
                 useCenter = true,
                 topLeft = Offset(center.x - arcRadius, center.y - arcRadius),
                 size = Size(arcRadius * 2, arcRadius * 2)
+            )
+        }
+    }
+}
+
+@Composable
+fun LibraryEmptyState(
+    onAddFiles: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier.size(width = 280.dp, height = 210.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            val bookColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f)
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val width = size.width
+                val height = size.height
+                
+                // Draw 3 layered books:
+                // 1. Back book: rotated left, scaled down
+                drawBookShape(width, height, -12f, 0.85f, 0.4f, bookColor)
+                // 2. Middle book: rotated right, scaled down
+                drawBookShape(width, height, 8f, 0.92f, 0.6f, bookColor)
+                // 3. Front book: straight, full scale
+                drawBookShape(width, height, 0f, 1.0f, 1.0f, bookColor)
+            }
+            Icon(
+                imageVector = Icons.Default.VolumeUp,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
+                modifier = Modifier.size(72.dp)
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        TextButton(
+            onClick = onAddFiles,
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.library_add_files),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+private fun DrawScope.drawBookShape(
+    width: Float,
+    height: Float,
+    rotationDegrees: Float,
+    scale: Float,
+    alpha: Float,
+    color: Color
+) {
+    val bookWidth = width * scale
+    val bookHeight = height * scale
+    val left = (width - bookWidth) / 2
+    val top = (height - bookHeight) / 2
+    
+    val spineX = left + bookWidth / 2
+    val pageW = bookWidth / 2
+    val topCurveOffset = bookHeight * 0.12f
+    
+    val path = Path().apply {
+        moveTo(spineX, top + topCurveOffset)
+        
+        cubicTo(
+            spineX - pageW * 0.4f, top,
+            spineX - pageW * 0.7f, top,
+            left, top + topCurveOffset
+        )
+        
+        lineTo(left, top + bookHeight - topCurveOffset)
+        
+        cubicTo(
+            spineX - pageW * 0.7f, top + bookHeight - topCurveOffset * 2,
+            spineX - pageW * 0.4f, top + bookHeight - topCurveOffset,
+            spineX, top + bookHeight
+        )
+        
+        cubicTo(
+            spineX + pageW * 0.4f, top + bookHeight - topCurveOffset,
+            spineX + pageW * 0.7f, top + bookHeight - topCurveOffset * 2,
+            left + bookWidth, top + bookHeight - topCurveOffset
+        )
+        
+        lineTo(left + bookWidth, top + topCurveOffset)
+        
+        cubicTo(
+            spineX + pageW * 0.7f, top,
+            spineX + pageW * 0.4f, top,
+            spineX, top + topCurveOffset
+        )
+        
+        close()
+    }
+    
+    withTransform({
+        rotate(rotationDegrees, pivot = Offset(width / 2, height / 2))
+    }) {
+        drawPath(
+            path = path,
+            color = color.copy(alpha = color.alpha * alpha)
+        )
+    }
+}
+
+@Composable
+fun FolderEmptyState(
+    onAddFiles: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        val color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+        Column(
+            modifier = Modifier.width(180.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = color,
+                    modifier = Modifier.size(36.dp)
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Box(
+                    modifier = Modifier
+                        .width(100.dp)
+                        .height(16.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(color)
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(16.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(color)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(16.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(color)
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(48.dp))
+        
+        TextButton(
+            onClick = onAddFiles,
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.library_add_files),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
             )
         }
     }

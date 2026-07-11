@@ -193,6 +193,42 @@ fun PlayerScreen(
         position = livePositionMs
     }
 
+    val preventAutolock by remember(context) { PlaybackSettingsManager.getPreventAutolock(context) }.collectAsStateWithLifecycle(initialValue = false)
+    val autolockOnlyOnPower by remember(context) { PlaybackSettingsManager.getPreventAutolockOnlyOnPower(context) }.collectAsStateWithLifecycle(initialValue = false)
+
+    var isPlugged by remember { mutableStateOf(false) }
+    DisposableEffect(context) {
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(ctx: android.content.Context?, intent: android.content.Intent?) {
+                val chargePlug = intent?.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, -1) ?: -1
+                isPlugged = chargePlug == android.os.BatteryManager.BATTERY_PLUGGED_AC || 
+                            chargePlug == android.os.BatteryManager.BATTERY_PLUGGED_USB || 
+                            chargePlug == android.os.BatteryManager.BATTERY_PLUGGED_WIRELESS
+            }
+        }
+        val filter = android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
+        val initialIntent = context.registerReceiver(receiver, filter)
+        val initialCharge = initialIntent?.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, -1) ?: -1
+        isPlugged = initialCharge == android.os.BatteryManager.BATTERY_PLUGGED_AC || 
+                    initialCharge == android.os.BatteryManager.BATTERY_PLUGGED_USB || 
+                    initialCharge == android.os.BatteryManager.BATTERY_PLUGGED_WIRELESS
+        
+        onDispose {
+            context.unregisterReceiver(receiver)
+        }
+    }
+
+    val keepScreenOn = preventAutolock && isPlaying && (!autolockOnlyOnPower || isPlugged)
+    DisposableEffect(keepScreenOn) {
+        val window = (context as? android.app.Activity)?.window
+        if (keepScreenOn) {
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     if (viewModel.showControlsSheet) {
         PlayerControlsSheet(
             viewModel = viewModel,

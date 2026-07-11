@@ -408,4 +408,22 @@
     <string name="library_add_shortcut_to_home_screen">Добавить ярлык на главный экран</string>
     <string name="shortcut_play_item_desc">Воспроизвести %1$s</string>
     <string name="shortcut_pin_failed">Не удалось добавить ярлык на главный экран</string>
+
+    <string name="library_play_from_beginning">Воспроизвести с начала</string>
+    <string name="library_add_shortcut">Добавить ярлык</string>
+    <string name="library_add_files">Добавить файлы</string>
+    <string name="library_add_files_dialog_title">Добавить файлы</string>
+    <string name="library_add_files_option_import">Импортировать файлы</string>
+    <string name="library_download_from_url">Скачать по URL</string>
+    <string name="library_download_from_url_title">Скачать по URL</string>
+    <string name="library_download_from_url_message">Введите URL-адрес аудиофайла для скачивания:</string>
+    <string name="settings_playback_section">Настройки воспроизведения</string>
+    <string name="settings_autoplay_label">Автовоспроизведение</string>
+    <string name="settings_autoplay_library">Автовоспроизведение библиотеки</string>
+    <string name="settings_autoplay_restart_finished">Перезапускать законченные книги</string>
+    <string name="settings_autoplay_desc">После окончания аудиокниги воспроизведение продолжится со всеми элементами библиотеки, включая элементы в папках.</string>
+    <string name="settings_autolock_label">Автоблокировка</string>
+    <string name="settings_disable_autolock">Отключить автоблокировку</string>
+    <string name="settings_autolock_only_on_power">Только при подключении к сети</string>
+    <string name="settings_autolock_desc">Предотвращать блокировку устройства на экране плеера.</string>
 </resources>

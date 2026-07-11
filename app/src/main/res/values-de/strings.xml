@@ -402,4 +402,22 @@
     <string name="library_add_shortcut_to_home_screen">Verknüpfung zum Startbildschirm hinzufügen</string>
     <string name="shortcut_play_item_desc">%1$s abspielen</string>
     <string name="shortcut_pin_failed">Verknüpfung konnte nicht zum Startbildschirm hinzugefügt werden</string>
+
+    <string name="library_play_from_beginning">Von Anfang an abspielen</string>
+    <string name="library_add_shortcut">Verknüpfung hinzufügen</string>
+    <string name="library_add_files">Dateien hinzufügen</string>
+    <string name="library_add_files_dialog_title">Dateien hinzufügen</string>
+    <string name="library_add_files_option_import">Dateien importieren</string>
+    <string name="library_download_from_url">Von URL herunterladen</string>
+    <string name="library_download_from_url_title">Von URL herunterladen</string>
+    <string name="library_download_from_url_message">Geben Sie die URL der Audiodatei ein, die heruntergeladen werden soll:</string>
+    <string name="settings_playback_section">Wiedergabe-Einstellungen</string>
+    <string name="settings_autoplay_label">Automatische Wiedergabe</string>
+    <string name="settings_autoplay_library">Bibliothek automatisch abspielen</string>
+    <string name="settings_autoplay_restart_finished">Beendete Bücher neu starten</string>
+    <string name="settings_autoplay_desc">Nach dem Beenden eines Hörbuchs wird die Wiedergabe mit allen Elementen in der Bibliothek fortgesetzt, einschließlich der Elemente in Ordnern.</string>
+    <string name="settings_autolock_label">Automatische Sperre</string>
+    <string name="settings_disable_autolock">Automatische Sperre deaktivieren</string>
+    <string name="settings_autolock_only_on_power">Nur bei Stromverbindung</string>
+    <string name="settings_autolock_desc">Verhindert, dass das Gerät auf dem Player-Bildschirm gesperrt wird.</string>
 </resources>

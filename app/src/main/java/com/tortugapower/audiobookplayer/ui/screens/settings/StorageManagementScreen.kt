@@ -261,16 +261,35 @@ fun StorageManagementScreen(
                 )
             }
 
-            items(sortedBooks, key = { it.first.uuid }) { (book, file) ->
-                val sizeStr = remember(stats, book.uuid) {
-                    Formatter.formatShortFileSize(context, stats.sizesByUuid[book.uuid] ?: 0L)
+            if (sortedBooks.isNotEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column {
+                            sortedBooks.forEachIndexed { index, (book, file) ->
+                                val sizeStr = remember(stats, book.uuid) {
+                                    Formatter.formatShortFileSize(context, stats.sizesByUuid[book.uuid] ?: 0L)
+                                }
+                                StorageFileListItem(
+                                    title = book.title,
+                                    fileName = book.originalFileName ?: file.name,
+                                    sizeStr = sizeStr,
+                                    onRemoveClick = { itemToDelete = book }
+                                )
+                                if (index < sortedBooks.size - 1) {
+                                    HorizontalDivider(
+                                        color = MaterialTheme.outlineVariantColor(),
+                                        thickness = 0.5.dp,
+                                        modifier = Modifier.padding(horizontal = 16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
-                StorageFileListItem(
-                    title = book.title,
-                    fileName = book.originalFileName ?: file.name,
-                    sizeStr = sizeStr,
-                    onRemoveClick = { itemToDelete = book }
-                )
             }
         }
     }
@@ -283,53 +302,47 @@ fun StorageFileListItem(
     sizeStr: String,
     onRemoveClick: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-        shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onRemoveClick) {
-                Icon(
-                    imageVector = Icons.Default.RemoveCircle,
-                    contentDescription = stringResource(R.string.storage_management_remove_button),
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
+        IconButton(onClick = onRemoveClick) {
+            Icon(
+                imageVector = Icons.Default.RemoveCircle,
+                contentDescription = stringResource(R.string.storage_management_remove_button),
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(28.dp)
+            )
+        }
 
-            Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(16.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = fileName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = sizeStr,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
-                )
-            }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = fileName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = sizeStr,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
         }
     }
 }

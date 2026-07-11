@@ -244,6 +244,8 @@ object PlaybackManager {
     private var lastPauseTime: Long = 0
     private var smartRewindEnabled = true
     private var smartRewindLimit = 30
+    private var autoplayLibrary = false
+    private var autoplayRestartFinished = false
     private val _isTransitioning = MutableStateFlow(false)
     val isTransitioning: StateFlow<Boolean> = _isTransitioning.asStateFlow()
     private var progressTrackerJob: kotlinx.coroutines.Job? = null
@@ -404,7 +406,7 @@ object PlaybackManager {
                                 // End-of-chapter armed on the last chapter: stop here, don't roll into
                                 // the next book (iOS's .bookEnd + autoplay=false safeguard).
                                 SleepTimerManager.onBookEnded()
-                            } else {
+                            } else if (autoplayLibrary) {
                                 // Auto-play next item
                                 scope.launch {
                                     val current = _currentItem.value ?: return@launch
@@ -494,6 +496,12 @@ object PlaybackManager {
                     _playbackVolume.value = volume
                     launch(Dispatchers.Main) { applyVolume(_volumeBoost.value, volume) }
                 }
+            }
+            launch {
+                PlaybackSettingsManager.getAutoplayLibrary(appContext).collectLatest { autoplayLibrary = it }
+            }
+            launch {
+                PlaybackSettingsManager.getAutoplayRestartFinished(appContext).collectLatest { autoplayRestartFinished = it }
             }
         }
     }
@@ -817,7 +825,7 @@ object PlaybackManager {
             updateProgress(context, itemToUpdate = _currentItem.value)
         }
         
-        val restartFromZero = item.isFinished || fromBeginning
+        val restartFromZero = (item.isFinished && autoplayRestartFinished) || fromBeginning
         if (restartFromZero) {
             item.currentTime = 0.0
             item.isFinished = false

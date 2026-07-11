@@ -69,6 +69,9 @@ import com.tortugapower.audiobookplayer.ui.screens.settings.MediaServersFlow
 import com.tortugapower.audiobookplayer.ui.screens.settings.HardcoverSettingsScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.StorageManagementScreen
 import com.tortugapower.audiobookplayer.ui.screens.settings.StorageCloudDeletedScreen
+import com.tortugapower.audiobookplayer.ui.screens.settings.PlayerControlsSettingsScreen
+import com.tortugapower.audiobookplayer.ui.screens.settings.AutoplaySettingsScreen
+import com.tortugapower.audiobookplayer.ui.screens.settings.AutolockSettingsScreen
 import com.tortugapower.audiobookplayer.repository.ExternalLibraryRepository
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.QueuedTasksScreen
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.TaskDetailScreen
@@ -291,7 +294,7 @@ fun MainScreen() {
                     composable(
                         route = Screen.Settings.route,
                         exitTransition = {
-                            if (targetState.destination.route in setOf("themes", "tipjar", "appicons", "hardcoverSettings", "storageManagement", "storageCloudDeleted")) {
+                            if (targetState.destination.route in setOf("themes", "tipjar", "appicons", "hardcoverSettings", "storageManagement", "storageCloudDeleted", "playerControls", "autoplay", "autolock")) {
                                 slideOutOfContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Left,
                                     animationSpec = tween(400)
@@ -299,7 +302,7 @@ fun MainScreen() {
                             } else null
                         },
                         popEnterTransition = {
-                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons", "hardcoverSettings", "storageManagement", "storageCloudDeleted")) {
+                            if (initialState.destination.route in setOf("themes", "tipjar", "appicons", "hardcoverSettings", "storageManagement", "storageCloudDeleted", "playerControls", "autoplay", "autolock")) {
                                 slideIntoContainer(
                                     AnimatedContentTransitionScope.SlideDirection.Right,
                                     animationSpec = tween(400)
@@ -314,7 +317,10 @@ fun MainScreen() {
                             onNavigateToMediaServers = { showMediaServersFlow = true },
                             onNavigateToHardcover = { navController.navigate("hardcoverSettings") },
                             onNavigateToStorageManagement = { navController.navigate("storageManagement") },
-                            onNavigateToStorageCloudDeleted = { navController.navigate("storageCloudDeleted") }
+                            onNavigateToStorageCloudDeleted = { navController.navigate("storageCloudDeleted") },
+                            onNavigateToPlayerControls = { navController.navigate("playerControls") },
+                            onNavigateToAutoplay = { navController.navigate("autoplay") },
+                            onNavigateToAutolock = { navController.navigate("autolock") }
                         ) 
                     }
                     
@@ -424,6 +430,78 @@ fun MainScreen() {
                         }
                     ) {
                         HardcoverSettingsScreen(onBack = { navController.popBackStack() })
+                    }
+
+                    composable(
+                        route = "playerControls",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            fadeOut(animationSpec = tween(400))
+                        },
+                        popEnterTransition = {
+                            fadeIn(animationSpec = tween(400))
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) {
+                        PlayerControlsSettingsScreen(onBack = { navController.popBackStack() })
+                    }
+
+                    composable(
+                        route = "autoplay",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            fadeOut(animationSpec = tween(400))
+                        },
+                        popEnterTransition = {
+                            fadeIn(animationSpec = tween(400))
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) {
+                        AutoplaySettingsScreen(onBack = { navController.popBackStack() })
+                    }
+
+                    composable(
+                        route = "autolock",
+                        enterTransition = {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Left,
+                                animationSpec = tween(400)
+                            )
+                        },
+                        exitTransition = {
+                            fadeOut(animationSpec = tween(400))
+                        },
+                        popEnterTransition = {
+                            fadeIn(animationSpec = tween(400))
+                        },
+                        popExitTransition = {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Right,
+                                animationSpec = tween(400)
+                            )
+                        }
+                    ) {
+                        AutolockSettingsScreen(onBack = { navController.popBackStack() })
                     }
 
                     composable(

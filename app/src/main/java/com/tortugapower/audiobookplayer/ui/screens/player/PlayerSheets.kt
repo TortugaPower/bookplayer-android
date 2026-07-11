@@ -707,105 +707,8 @@ fun ExtendedControlsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val volumeBoost by viewModel.volumeBoost.collectAsStateWithLifecycle()
 
-    var showRewindPicker by remember { mutableStateOf(false) }
-    var showForwardPicker by remember { mutableStateOf(false) }
-    var showSmartRewindPicker by remember { mutableStateOf(false) }
-    var showListActionPicker by remember { mutableStateOf(false) }
-    var showSpeedPicker1 by remember { mutableStateOf(false) }
-    var showSpeedPicker2 by remember { mutableStateOf(false) }
-    var showSpeedPicker3 by remember { mutableStateOf(false) }
-
     LaunchedEffect(viewModel) {
         viewModel.loadSettings(context)
-    }
-
-    if (showRewindPicker) {
-        IntervalPickerDialog(
-            title = stringResource(R.string.player_rewind_interval_title),
-            currentValue = viewModel.rewindInterval,
-            onValueSelected = {
-                viewModel.updateRewindInterval(context, it)
-                showRewindPicker = false
-            },
-            onDismiss = { showRewindPicker = false }
-        )
-    }
-
-    if (showForwardPicker) {
-        IntervalPickerDialog(
-            title = stringResource(R.string.player_forward_interval_title),
-            currentValue = viewModel.forwardInterval,
-            onValueSelected = {
-                viewModel.updateForwardInterval(context, it)
-                showForwardPicker = false
-            },
-            onDismiss = { showForwardPicker = false }
-        )
-    }
-
-    if (showSmartRewindPicker) {
-        IntervalPickerDialog(
-            title = stringResource(R.string.player_smart_rewind_limit_title),
-            currentValue = viewModel.smartRewindLimit,
-            onValueSelected = {
-                viewModel.updateSmartRewindLimit(context, it)
-                showSmartRewindPicker = false
-            },
-            onDismiss = { showSmartRewindPicker = false }
-        )
-    }
-
-    if (showListActionPicker) {
-        // Display localized labels but keep the stable English key ("Chapters"/"Bookmarks") that is
-        // persisted via DataStore and compared against in PlayerScreen.
-        val chaptersLabel = stringResource(R.string.player_chapters_title)
-        val bookmarksLabel = stringResource(R.string.player_bookmarks_title)
-        OptionsPickerDialog(
-            title = stringResource(R.string.player_list_button_action_title),
-            options = listOf(chaptersLabel, bookmarksLabel),
-            currentValue = if (viewModel.listButtonOpens == PlaybackSettingsManager.LIST_OPENS_BOOKMARKS) bookmarksLabel else chaptersLabel,
-            onValueSelected = { selected ->
-                viewModel.updateListButtonOpens(context, if (selected == bookmarksLabel) PlaybackSettingsManager.LIST_OPENS_BOOKMARKS else PlaybackSettingsManager.LIST_OPENS_CHAPTERS)
-                showListActionPicker = false
-            },
-            onDismiss = { showListActionPicker = false }
-        )
-    }
-
-    if (showSpeedPicker1) {
-        SpeedPickerDialog(
-            title = stringResource(R.string.player_quick_action_1),
-            currentValue = viewModel.quickAction1,
-            onValueSelected = {
-                viewModel.updateQuickAction1(context, it)
-                showSpeedPicker1 = false
-            },
-            onDismiss = { showSpeedPicker1 = false }
-        )
-    }
-
-    if (showSpeedPicker2) {
-        SpeedPickerDialog(
-            title = stringResource(R.string.player_quick_action_2),
-            currentValue = viewModel.quickAction2,
-            onValueSelected = {
-                viewModel.updateQuickAction2(context, it)
-                showSpeedPicker2 = false
-            },
-            onDismiss = { showSpeedPicker2 = false }
-        )
-    }
-
-    if (showSpeedPicker3) {
-        SpeedPickerDialog(
-            title = stringResource(R.string.player_quick_action_3),
-            currentValue = viewModel.quickAction3,
-            onValueSelected = {
-                viewModel.updateQuickAction3(context, it)
-                showSpeedPicker3 = false
-            },
-            onDismiss = { showSpeedPicker3 = false }
-        )
     }
 
     ModalBottomSheet(
@@ -846,152 +749,35 @@ fun ExtendedControlsSheet(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            SettingsSectionLabel(stringResource(R.string.player_settings_skip_intervals))
-            Surface(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column {
-                    SettingsRowPicker(stringResource(R.string.player_settings_rewind), formatInterval(context,
-viewModel.rewindInterval)) { showRewindPicker = true }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker(stringResource(R.string.player_settings_forward), formatInterval(context,
-viewModel.forwardInterval)) { showForwardPicker = true }
-                }
-            }
-            Text(
-                stringResource(R.string.player_settings_skip_intervals_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
-            )
-
-            Surface(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column {
-                    SettingsRowToggle(stringResource(R.string.player_settings_smart_rewind), viewModel.smartRewind) {
-                        viewModel.updateSmartRewind(context, it)
-                    }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker(stringResource(R.string.player_settings_smart_rewind_limit), formatInterval(context,
-viewModel.smartRewindLimit)) { showSmartRewindPicker = true }
-                }
-            }
-            Text(
-                stringResource(R.string.player_settings_smart_rewind_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
-            )
-
-            Surface(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                SettingsRowToggle(stringResource(R.string.player_settings_auto_sleep_timer), viewModel.autoSleep) {
-                    viewModel.updateAutoSleep(context, it)
-                }
-            }
-            Text(
-                stringResource(R.string.player_settings_auto_sleep_timer_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
-            )
-
-            Surface(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                SettingsRowToggle(stringResource(R.string.player_boost_volume), volumeBoost) {
-                    viewModel.toggleVolumeBoost(context)
-                }
-            }
-            Text(
-                stringResource(R.string.player_boost_volume_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
-            )
-
-            SettingsSectionLabel(stringResource(R.string.player_settings_speed))
-            Surface(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column {
-                    SettingsRowPicker(stringResource(R.string.player_quick_action_1), formatSpeed(viewModel.quickAction1)) { showSpeedPicker1 = true }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker(stringResource(R.string.player_quick_action_2), formatSpeed(viewModel.quickAction2)) { showSpeedPicker2 = true }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowPicker(stringResource(R.string.player_quick_action_3), formatSpeed(viewModel.quickAction3)) { showSpeedPicker3 = true }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowToggle(stringResource(R.string.player_settings_global_speed), viewModel.globalSpeed) {
-                        viewModel.updateGlobalSpeed(context, it)
-                    }
-                }
-            }
-            Text(
-                stringResource(R.string.player_settings_global_speed_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
-            )
-
-            Surface(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                SettingsRowToggle(stringResource(R.string.player_settings_progress_bar_seeking), viewModel.progressBarSeeking) {
-                    viewModel.updateProgressBarSeeking(context, it)
-                }
-            }
-            Text(
-                stringResource(R.string.player_settings_progress_bar_seeking_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
-            )
-
-            Surface(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                SettingsRowPicker(
-                    stringResource(R.string.player_settings_list_opens),
-                    if (viewModel.listButtonOpens == PlaybackSettingsManager.LIST_OPENS_BOOKMARKS) stringResource(R.string.player_bookmarks_title)
-                    else stringResource(R.string.player_chapters_title)
-                ) { showListActionPicker = true }
-            }
-            Text(
-                stringResource(R.string.player_settings_list_opens_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
-            )
-
-            SettingsSectionLabel(stringResource(R.string.player_settings_progress_labels))
-            Surface(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column {
-                    SettingsRowToggle(stringResource(R.string.player_settings_use_remaining_time), viewModel.useRemainingTime) {
-                        viewModel.updateUseRemainingTime(context, it)
-                    }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    SettingsRowToggle(stringResource(R.string.player_settings_use_chapter_context), viewModel.useChapterContext) {
-                        viewModel.updateUseChapterContext(context, it)
-                    }
-                }
-            }
-            Text(
-                stringResource(R.string.player_settings_progress_labels_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 32.dp)
+            PlayerControlsSettingsContent(
+                rewindInterval = viewModel.rewindInterval,
+                forwardInterval = viewModel.forwardInterval,
+                smartRewind = viewModel.smartRewind,
+                smartRewindLimit = viewModel.smartRewindLimit,
+                autoSleep = viewModel.autoSleep,
+                volumeBoost = volumeBoost,
+                quickAction1 = viewModel.quickAction1,
+                quickAction2 = viewModel.quickAction2,
+                quickAction3 = viewModel.quickAction3,
+                globalSpeed = viewModel.globalSpeed,
+                progressBarSeeking = viewModel.progressBarSeeking,
+                listButtonOpens = viewModel.listButtonOpens,
+                useRemainingTime = viewModel.useRemainingTime,
+                useChapterContext = viewModel.useChapterContext,
+                onUpdateRewindInterval = { viewModel.updateRewindInterval(context, it) },
+                onUpdateForwardInterval = { viewModel.updateForwardInterval(context, it) },
+                onUpdateSmartRewind = { viewModel.updateSmartRewind(context, it) },
+                onUpdateSmartRewindLimit = { viewModel.updateSmartRewindLimit(context, it) },
+                onUpdateAutoSleep = { viewModel.updateAutoSleep(context, it) },
+                onToggleVolumeBoost = { viewModel.toggleVolumeBoost(context) },
+                onUpdateQuickAction1 = { viewModel.updateQuickAction1(context, it) },
+                onUpdateQuickAction2 = { viewModel.updateQuickAction2(context, it) },
+                onUpdateQuickAction3 = { viewModel.updateQuickAction3(context, it) },
+                onUpdateGlobalSpeed = { viewModel.updateGlobalSpeed(context, it) },
+                onUpdateProgressBarSeeking = { viewModel.updateProgressBarSeeking(context, it) },
+                onUpdateListButtonOpens = { viewModel.updateListButtonOpens(context, it) },
+                onUpdateUseRemainingTime = { viewModel.updateUseRemainingTime(context, it) },
+                onUpdateUseChapterContext = { viewModel.updateUseChapterContext(context, it) }
             )
         }
     }

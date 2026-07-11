@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -54,6 +55,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -67,6 +69,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 
 @Composable
@@ -141,6 +147,282 @@ internal fun formatSpeed(speed: Float): String {
     return "${s}x"
 }
 
+@Composable
+fun PlayerControlsSettingsContent(
+    rewindInterval: Int,
+    forwardInterval: Int,
+    smartRewind: Boolean,
+    smartRewindLimit: Int,
+    autoSleep: Boolean,
+    volumeBoost: Boolean,
+    quickAction1: Float,
+    quickAction2: Float,
+    quickAction3: Float,
+    globalSpeed: Boolean,
+    progressBarSeeking: Boolean,
+    listButtonOpens: String,
+    useRemainingTime: Boolean,
+    useChapterContext: Boolean,
+    onUpdateRewindInterval: (Int) -> Unit,
+    onUpdateForwardInterval: (Int) -> Unit,
+    onUpdateSmartRewind: (Boolean) -> Unit,
+    onUpdateSmartRewindLimit: (Int) -> Unit,
+    onUpdateAutoSleep: (Boolean) -> Unit,
+    onToggleVolumeBoost: () -> Unit,
+    onUpdateQuickAction1: (Float) -> Unit,
+    onUpdateQuickAction2: (Float) -> Unit,
+    onUpdateQuickAction3: (Float) -> Unit,
+    onUpdateGlobalSpeed: (Boolean) -> Unit,
+    onUpdateProgressBarSeeking: (Boolean) -> Unit,
+    onUpdateListButtonOpens: (String) -> Unit,
+    onUpdateUseRemainingTime: (Boolean) -> Unit,
+    onUpdateUseChapterContext: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var showRewindPicker by remember { mutableStateOf(false) }
+    var showForwardPicker by remember { mutableStateOf(false) }
+    var showSmartRewindPicker by remember { mutableStateOf(false) }
+    var showListActionPicker by remember { mutableStateOf(false) }
+    var showSpeedPicker1 by remember { mutableStateOf(false) }
+    var showSpeedPicker2 by remember { mutableStateOf(false) }
+    var showSpeedPicker3 by remember { mutableStateOf(false) }
+
+    if (showRewindPicker) {
+        IntervalPickerDialog(
+            title = stringResource(R.string.player_rewind_interval_title),
+            currentValue = rewindInterval,
+            onValueSelected = {
+                onUpdateRewindInterval(it)
+                showRewindPicker = false
+            },
+            onDismiss = { showRewindPicker = false }
+        )
+    }
+
+    if (showForwardPicker) {
+        IntervalPickerDialog(
+            title = stringResource(R.string.player_forward_interval_title),
+            currentValue = forwardInterval,
+            onValueSelected = {
+                onUpdateForwardInterval(it)
+                showForwardPicker = false
+            },
+            onDismiss = { showForwardPicker = false }
+        )
+    }
+
+    if (showSmartRewindPicker) {
+        IntervalPickerDialog(
+            title = stringResource(R.string.player_smart_rewind_limit_title),
+            currentValue = smartRewindLimit,
+            onValueSelected = {
+                onUpdateSmartRewindLimit(it)
+                showSmartRewindPicker = false
+            },
+            onDismiss = { showSmartRewindPicker = false }
+        )
+    }
+
+    if (showListActionPicker) {
+        val chaptersLabel = stringResource(R.string.player_chapters_title)
+        val bookmarksLabel = stringResource(R.string.player_bookmarks_title)
+        OptionsPickerDialog(
+            title = stringResource(R.string.player_list_button_action_title),
+            options = listOf(chaptersLabel, bookmarksLabel),
+            currentValue = if (listButtonOpens == PlaybackSettingsManager.LIST_OPENS_BOOKMARKS) bookmarksLabel else chaptersLabel,
+            onValueSelected = { selected ->
+                onUpdateListButtonOpens(if (selected == bookmarksLabel) PlaybackSettingsManager.LIST_OPENS_BOOKMARKS else PlaybackSettingsManager.LIST_OPENS_CHAPTERS)
+                showListActionPicker = false
+            },
+            onDismiss = { showListActionPicker = false }
+        )
+    }
+
+    if (showSpeedPicker1) {
+        SpeedPickerDialog(
+            title = stringResource(R.string.player_quick_action_1),
+            currentValue = quickAction1,
+            onValueSelected = {
+                onUpdateQuickAction1(it)
+                showSpeedPicker1 = false
+            },
+            onDismiss = { showSpeedPicker1 = false }
+        )
+    }
+
+    if (showSpeedPicker2) {
+        SpeedPickerDialog(
+            title = stringResource(R.string.player_quick_action_2),
+            currentValue = quickAction2,
+            onValueSelected = {
+                onUpdateQuickAction2(it)
+                showSpeedPicker2 = false
+            },
+            onDismiss = { showSpeedPicker2 = false }
+        )
+    }
+
+    if (showSpeedPicker3) {
+        SpeedPickerDialog(
+            title = stringResource(R.string.player_quick_action_3),
+            currentValue = quickAction3,
+            onValueSelected = {
+                onUpdateQuickAction3(it)
+                showSpeedPicker3 = false
+            },
+            onDismiss = { showSpeedPicker3 = false }
+        )
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        SettingsSectionLabel(stringResource(R.string.player_settings_skip_intervals))
+        Surface(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column {
+                SettingsRowPicker(stringResource(R.string.player_settings_rewind), formatInterval(context, rewindInterval)) { showRewindPicker = true }
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                SettingsRowPicker(stringResource(R.string.player_settings_forward), formatInterval(context, forwardInterval)) { showForwardPicker = true }
+            }
+        }
+        Text(
+            stringResource(R.string.player_settings_skip_intervals_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
+        )
+
+        Surface(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column {
+                SettingsRowToggle(stringResource(R.string.player_settings_smart_rewind), smartRewind) {
+                    onUpdateSmartRewind(it)
+                }
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                SettingsRowPicker(stringResource(R.string.player_settings_smart_rewind_limit), formatInterval(context, smartRewindLimit)) { showSmartRewindPicker = true }
+            }
+        }
+        Text(
+            stringResource(R.string.player_settings_smart_rewind_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
+        )
+
+        Surface(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            SettingsRowToggle(stringResource(R.string.player_settings_auto_sleep_timer), autoSleep) {
+                onUpdateAutoSleep(it)
+            }
+        }
+        Text(
+            stringResource(R.string.player_settings_auto_sleep_timer_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
+        )
+
+        Surface(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            SettingsRowToggle(stringResource(R.string.player_boost_volume), volumeBoost) {
+                onToggleVolumeBoost()
+            }
+        }
+        Text(
+            stringResource(R.string.player_boost_volume_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
+        )
+
+        SettingsSectionLabel(stringResource(R.string.player_settings_speed))
+        Surface(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column {
+                SettingsRowPicker(stringResource(R.string.player_quick_action_1), formatSpeed(quickAction1)) { showSpeedPicker1 = true }
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                SettingsRowPicker(stringResource(R.string.player_quick_action_2), formatSpeed(quickAction2)) { showSpeedPicker2 = true }
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                SettingsRowPicker(stringResource(R.string.player_quick_action_3), formatSpeed(quickAction3)) { showSpeedPicker3 = true }
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                SettingsRowToggle(stringResource(R.string.player_settings_global_speed), globalSpeed) {
+                    onUpdateGlobalSpeed(it)
+                }
+            }
+        }
+        Text(
+            stringResource(R.string.player_settings_global_speed_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
+        )
+
+        Surface(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            SettingsRowToggle(stringResource(R.string.player_settings_progress_bar_seeking), progressBarSeeking) {
+                onUpdateProgressBarSeeking(it)
+            }
+        }
+        Text(
+            stringResource(R.string.player_settings_progress_bar_seeking_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
+        )
+
+        Surface(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            SettingsRowPicker(
+                stringResource(R.string.player_settings_list_opens),
+                if (listButtonOpens == PlaybackSettingsManager.LIST_OPENS_BOOKMARKS) stringResource(R.string.player_bookmarks_title)
+                else stringResource(R.string.player_chapters_title)
+            ) { showListActionPicker = true }
+        }
+        Text(
+            stringResource(R.string.player_settings_list_opens_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
+        )
+
+        SettingsSectionLabel(stringResource(R.string.player_settings_progress_labels))
+        Surface(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column {
+                SettingsRowToggle(stringResource(R.string.player_settings_use_remaining_time), useRemainingTime) {
+                    onUpdateUseRemainingTime(it)
+                }
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                SettingsRowToggle(stringResource(R.string.player_settings_use_chapter_context), useChapterContext) {
+                    onUpdateUseChapterContext(it)
+                }
+            }
+        }
+        Text(
+            stringResource(R.string.player_settings_progress_labels_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 32.dp)
+        )
+    }
+}
+
 internal fun formatInterval(context: android.content.Context, seconds: Int): String {
     return when {
         seconds < 60 -> context.getString(R.string.interval_seconds, seconds)
@@ -161,10 +443,17 @@ fun SettingsSectionLabel(text: String) {
 }
 
 @Composable
-fun SettingsRowToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+fun SettingsRowToggle(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val rowAlpha = if (enabled) 1.0f else 0.38f
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .alpha(rowAlpha)
             .padding(16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -172,6 +461,7 @@ fun SettingsRowToggle(label: String, checked: Boolean, onCheckedChange: (Boolean
         Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
         Switch(
             checked = checked,
+            enabled = enabled,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,

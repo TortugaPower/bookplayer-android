@@ -124,6 +124,7 @@ class FetchContentsProcessor(
                     if (localItem.uuid !in remoteUuids) {
                         Log.d("FetchContentsProcessor", "🗑️ Local item missing on server, deleting: ${localItem.title}")
                         libraryDao.deleteItem(localItem)
+                        LibraryContentsSync.updateParentFolders(libraryDao, localItem.relativePath)
                     }
                 }
             }
