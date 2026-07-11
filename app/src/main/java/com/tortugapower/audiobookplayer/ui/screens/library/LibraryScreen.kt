@@ -338,8 +338,12 @@ fun LibraryScreen(
         val isNameDuplicate = items.any { it.relativePath?.equals(expectedRelativePath, ignoreCase = true) == true }
         val isNameValid = folderName.isNotEmpty() && folderName.all { it.isLetterOrDigit() || it == '_' || it == '-' } && !isNameDuplicate
 
+        val abandonCreateFolder = {
+            showCreateFolderDialog = false
+            if (!isSelectMode) selectedItemUuids = emptySet()
+        }
         AlertDialog(
-            onDismissRequest = { showCreateFolderDialog = false },
+            onDismissRequest = abandonCreateFolder,
             title = { Text(stringResource(R.string.library_create_folder_title)) },
             text = {
                 OutlinedTextField(
@@ -389,7 +393,7 @@ fun LibraryScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateFolderDialog = false }) {
+                TextButton(onClick = abandonCreateFolder) {
                     Text(stringResource(R.string.common_cancel))
                 }
             },
@@ -827,8 +831,14 @@ fun LibraryScreen(
         // minus the items being moved; "Existing Folder" is disabled when there are none.
         val foldersAtLevel by libraryViewModel.getFoldersForPath(currentPath).collectAsState()
         val availableFolders = foldersAtLevel.filter { it.uuid !in selectedItemUuids }
+        // Abandoning the flow outside select mode must drop the swipe-Move flow's transient
+        // single-item selection, or it silently pre-selects that item in a later select session.
+        val abandonMoveFlow = {
+            showChooseDestinationDialog = false
+            if (!isSelectMode) selectedItemUuids = emptySet()
+        }
         AlertDialog(
-            onDismissRequest = { showChooseDestinationDialog = false },
+            onDismissRequest = abandonMoveFlow,
             title = { Text(stringResource(R.string.library_choose_destination_title)) },
             text = { Text(stringResource(R.string.library_choose_destination_message)) },
             confirmButton = {
@@ -882,7 +892,7 @@ fun LibraryScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showChooseDestinationDialog = false }) {
+                TextButton(onClick = abandonMoveFlow) {
                     Text(stringResource(R.string.common_cancel))
                 }
             },
@@ -903,7 +913,10 @@ fun LibraryScreen(
         val destinationFolders = foldersAtLevel.filter { folder -> selectedItems.none { it.uuid == folder.uuid } }
 
         ModalBottomSheet(
-            onDismissRequest = { showExistingFoldersSheet = false },
+            onDismissRequest = {
+                showExistingFoldersSheet = false
+                if (!isSelectMode) selectedItemUuids = emptySet()
+            },
             containerColor = MaterialTheme.colorScheme.surface,
             dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
@@ -1203,6 +1216,7 @@ fun LibraryScreen(
                             text = { Text(stringResource(R.string.common_select)) },
                             onClick = {
                                 showMenu = false
+                                selectedItemUuids = emptySet()
                                 isSelectMode = true
                             },
                             leadingIcon = { Icon(Icons.Default.Checklist, null) },
