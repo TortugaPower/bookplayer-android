@@ -119,7 +119,6 @@ fun LibraryScreen(
 
     val isRefreshing by libraryViewModel.isRefreshing.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    val coroutineScope = rememberCoroutineScope()
     val syncTasksBusyMessage = stringResource(R.string.library_sync_tasks_busy)
     // A pull-to-refresh that lands while sync jobs are queued is declined (see LibraryViewModel.refresh);
     // surface that as a transient note rather than silently doing nothing.
