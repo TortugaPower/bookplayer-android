@@ -59,6 +59,7 @@ class TaskConcurrencyServiceHost : Service() {
             UpdateProcessor(),
             MoveProcessor(),
             DeleteProcessor(),
+            ShallowDeleteProcessor(),
             RenameFolderProcessor(),
             ArtworkUploadProcessor(this),
             DeleteBookmarkProcessor(),

@@ -170,8 +170,6 @@
     <string name="library_unknown_author">未知作者</string>
     <string name="library_unknown_title">未知标题</string>
     <string name="library_convert_to_folder">Convert to folder</string>
-    <string name="library_convert_to_volume">Convert to volume</string>
-    <string name="library_open_folder">打开文件夹</string>
     <string name="library_edit_book_title">编辑书籍</string>
     <string name="library_title_placeholder">标题</string>
     <string name="library_author_placeholder">作者</string>
@@ -401,15 +399,11 @@
     <string name="shortcut_play_item_desc">播放 %1$s</string>
     <string name="shortcut_pin_failed">无法添加主屏幕快捷方式</string>
 
-    <string name="library_play_from_beginning">从头播放</string>
     <string name="library_add_shortcut">添加快捷方式</string>
     <string name="library_add_files">添加文件</string>
     <string name="library_add_files_dialog_title">添加文件</string>
     <string name="library_add_files_option_import">导入文件</string>
     <string name="library_download_from_url">从 URL 下载</string>
-    <string name="library_download_from_url_title">从 URL 下载</string>
-    <string name="library_download_from_url_message">输入要下载的音频文件 URL：</string>
-    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">播放设置</string>
     <string name="settings_autoplay_label">自动播放</string>
     <string name="settings_autoplay_library">自动播放书库</string>

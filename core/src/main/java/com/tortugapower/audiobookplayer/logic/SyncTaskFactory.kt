@@ -23,6 +23,7 @@ object SyncTaskFactory {
     const val JOB_UPDATE = "update"
     const val JOB_MOVE = "move"
     const val JOB_DELETE = "delete"
+    const val JOB_DELETE_SHALLOW = "delete_shallow"
     const val JOB_SET_BOOKMARK = "set_bookmark"
     const val JOB_DELETE_BOOKMARK = "delete_bookmark"
     const val JOB_RENAME_FOLDER = "rename_folder"
@@ -82,7 +83,15 @@ object SyncTaskFactory {
         enqueue(repository, QUEUE_SYNC, JOB_UPDATE, uuid, payload)
     }
 
-    suspend fun createUpdateTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
+    suspend fun createUpdateTask(
+        repository: SyncTaskRepository,
+        item: LibraryItemEntity,
+        // Bound-volume conversions deliberately CLEAR lastPlayDate; send an explicit 0 (iOS parity —
+        // updateFolder pushes lastPlayDate: 0) so the server drops the stale value. Everywhere else a
+        // null lastPlayDate stays omitted from the payload (Gson drops nulls): update tasks push a
+        // full snapshot, and a never-played-here item must not wipe a date set by another device.
+        clearedLastPlayDate: Boolean = false
+    ) {
         val payload = mapOf(
             "uuid" to item.uuid,
             "title" to item.title,
@@ -98,7 +107,7 @@ object SyncTaskFactory {
             "orderRank" to item.orderRank,
             // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
             // last_play_date never advances from Android, breaking cross-device "recently played".
-            "lastPlayDateTimestamp" to item.lastPlayDate?.let { it / 1000 },
+            "lastPlayDateTimestamp" to (item.lastPlayDate?.let { it / 1000 } ?: if (clearedLastPlayDate) 0L else null),
             "type" to item.type.ordinal
         )
 
@@ -121,6 +130,20 @@ object SyncTaskFactory {
             "relativePath" to item.relativePath
         )
         enqueue(repository, QUEUE_SYNC, JOB_MOVE, item.uuid, payload)
+    }
+
+    /**
+     * iOS-parity shallow folder delete ("Delete folder only"): tells the server to move the
+     * folder's contents back to the library root and drop the folder row
+     * (DELETE /v1/library/folder_in_out — the same endpoint iOS's shallowDelete job hits).
+     */
+    suspend fun createShallowDeleteTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
+        val payload = mapOf(
+            "uuid" to item.uuid,
+            "title" to item.title,
+            "relativePath" to item.relativePath
+        )
+        enqueue(repository, QUEUE_SYNC, JOB_DELETE_SHALLOW, item.uuid, payload)
     }
 
     suspend fun createDeleteTask(repository: SyncTaskRepository, item: LibraryItemEntity) {

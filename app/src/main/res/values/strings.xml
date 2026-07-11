@@ -14,6 +14,7 @@
     <string name="common_ok">OK</string>
     <string name="common_error">Error</string>
     <string name="common_cancel">Cancel</string>
+    <string name="common_share">Share</string>
     <string name="common_save">Save</string>
     <string name="common_delete">Delete</string>
     <string name="common_accept">Accept</string>
@@ -294,22 +295,29 @@
     <string name="library_delete_folder_warning">\n\nNote: Deleting a folder will also delete all of its contents.</string>
     <string name="library_empty_message">Your library is empty</string>
     <string name="library_sync_tasks_busy">Waiting for sync tasks to finish</string>
+    <string name="library_jump_to_start">Jump to start</string>
+    <string name="library_cancel_download">Cancel download</string>
+    <string name="library_remove_from_device">Remove from device</string>
+    <string name="library_move_to_library">Library</string>
+    <string name="library_delete_deep">Delete folder and files</string>
+    <string name="library_delete_shallow">Delete folder only</string>
+    <string name="library_delete_folder_shallow_desc">Deleting only the folder will move all its files back to the Library.</string>
     <string name="library_see_details">See details</string>
-    <string name="library_play_from_beginning">Play from the beginning</string>
     <string name="library_view_style">View Style</string>
     <string name="library_folder_empty">0 Files</string>
     <string name="library_unknown_author">Unknown author</string>
     <string name="library_audio_unavailable">Audio not on this device</string>
     <string name="library_unknown_title">Unknown Title</string>
-    <string name="library_convert_to_folder">Convert to folder</string>
-    <string name="library_convert_to_volume">Convert to volume</string>
+    <string name="library_convert_to_folder">Convert to Folder</string>
+    <string name="library_combine_into_volume">Combine into Volume</string>
+    <string name="library_bound_conversion_only_books">The folder needs to only contain book items</string>
+    <string name="library_bound_conversion_empty">The folder can\'t be empty</string>
     <string name="library_combine_to_volume">Create a volume</string>
     <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
-    <string name="library_combine_to_volume_title">Volume Name</string>
+    <string name="library_combine_to_volume_title">New Book Volume</string>
     <string name="library_combine_to_volume_error">Volume with this name already exists</string>
     <string name="common_create">Create</string>
-    <string name="library_open_folder">Open Folder</string>
-    <string name="library_edit_book_title">Edit Book</string>
+    <string name="library_edit_book_title">Edit</string>
     <string name="library_title_placeholder">Title</string>
     <string name="library_author_placeholder">Author</string>
     <string name="library_artwork_title">Artwork</string>
@@ -322,9 +330,6 @@
     <string name="library_add_files_dialog_title">Add files</string>
     <string name="library_add_files_option_import">Import files</string>
     <string name="library_download_from_url">Download from URL</string>
-    <string name="library_download_from_url_title">Download from URL</string>
-    <string name="library_download_from_url_message">Enter the URL of the audio file to download:</string>
-    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
 
     <!-- Import -->
     <string name="import_title">Import</string>

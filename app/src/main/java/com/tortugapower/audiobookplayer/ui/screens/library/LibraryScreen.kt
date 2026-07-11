@@ -71,6 +71,8 @@ import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.tortugapower.audiobookplayer.logic.ItemArtwork
+import com.tortugapower.audiobookplayer.logic.hasQueuedUploadTask
+import com.tortugapower.audiobookplayer.logic.removeLocalFile
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
@@ -78,6 +80,7 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.ImportManager
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.repository.BoundConversionException
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
@@ -107,6 +110,10 @@ fun LibraryScreen(
     val database = remember { AppDatabase.getDatabase(context) }
     val syncTaskRepository = remember { RoomSyncTaskRepository(database.syncTaskDao()) }
     val accountRepository = remember { RoomAccountRepository(database.accountDao()) }
+    // PLAIN repository for offload ("Remove from device"): must NOT be the syncing wrapper — an
+    // offload never enqueues server tasks (the cloud copy survives by design).
+    val plainRepository = remember { RoomLibraryRepository(context.applicationContext, database.libraryDao()) }
+    val scope = rememberCoroutineScope()
 
     val libraryViewModel: LibraryViewModel = viewModel ?: viewModel(
         factory = LibraryViewModelFactory(context.applicationContext as Application, RoomLibraryRepository(context.applicationContext, database.libraryDao()), syncTaskRepository)
@@ -161,6 +168,9 @@ fun LibraryScreen(
     var showAddFilesDialog by remember { mutableStateOf(false) }
     var showSwipeOptionsDialog by remember { mutableStateOf(false) }
     var itemForSwipeOptions by remember { mutableStateOf<LibraryItemEntity?>(null) }
+    var itemToCancelDownload by remember { mutableStateOf<LibraryItemEntity?>(null) }
+    // iOS parity: offloading a file with a queued upload gets an extra Warning (shared with Storage Management).
+    var offloadWarningItem by remember { mutableStateOf<LibraryItemEntity?>(null) }
 
     if (showCombineToVolumeDialog) {
         val selectedItems = remember(selectedItemUuids) { items.filter { it.uuid in selectedItemUuids } }
@@ -294,14 +304,46 @@ fun LibraryScreen(
         )
     }
 
+    // iOS parity (loadingState.error alert): a rejected folder→volume conversion — the option is
+    // enabled like iOS's and the rule ("only books, never empty") is enforced at execute time.
+    val boundConversionError by libraryViewModel.boundConversionError.collectAsState()
+    boundConversionError?.let { reason ->
+        AlertDialog(
+            onDismissRequest = { libraryViewModel.clearBoundConversionError() },
+            title = { Text(stringResource(R.string.common_error)) },
+            text = {
+                Text(
+                    stringResource(
+                        when (reason) {
+                            BoundConversionException.Reason.NOT_ONLY_BOOKS -> R.string.library_bound_conversion_only_books
+                            BoundConversionException.Reason.EMPTY_FOLDER -> R.string.library_bound_conversion_empty
+                        }
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { libraryViewModel.clearBoundConversionError() }) {
+                    Text(stringResource(R.string.common_ok))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
     if (showCreateFolderDialog) {
         var folderName by remember { mutableStateOf("") }
         val expectedRelativePath = if (currentPath == null) folderName else "$currentPath/$folderName"
         val isNameDuplicate = items.any { it.relativePath?.equals(expectedRelativePath, ignoreCase = true) == true }
         val isNameValid = folderName.isNotEmpty() && folderName.all { it.isLetterOrDigit() || it == '_' || it == '-' } && !isNameDuplicate
 
+        val abandonCreateFolder = {
+            showCreateFolderDialog = false
+            if (!isSelectMode) selectedItemUuids = emptySet()
+        }
         AlertDialog(
-            onDismissRequest = { showCreateFolderDialog = false },
+            onDismissRequest = abandonCreateFolder,
             title = { Text(stringResource(R.string.library_create_folder_title)) },
             text = {
                 OutlinedTextField(
@@ -329,13 +371,19 @@ fun LibraryScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        libraryViewModel.createFolder(folderName)
-                        if (isSelectMode && selectedItemUuids.isNotEmpty()) {
-                            val selectedItems = items.filter { it.uuid in selectedItemUuids }
-                            val newPath = if (currentPath == null) folderName else "$currentPath/$folderName"
-                            libraryViewModel.moveSelectedItems(context, selectedItems, newPath)
+                        // Move whatever is selected — the swipe-options Move flow selects a single
+                        // item WITHOUT entering select mode. Create + move must run in ONE
+                        // coroutine (iOS parity: ItemListViewModel.createFolder(with:items:)):
+                        // two separate launches race, and the syncing move resolves the destination
+                        // folder by path — losing the race yields a "" destination uuid, i.e. a
+                        // server-side move to the library root.
+                        val selectedItems = items.filter { it.uuid in selectedItemUuids }
+                        if (selectedItems.isNotEmpty()) {
+                            libraryViewModel.createFolderAndMoveItems(context, folderName, selectedItems, currentPath)
                             isSelectMode = false
                             selectedItemUuids = emptySet()
+                        } else {
+                            libraryViewModel.createFolder(folderName)
                         }
                         showCreateFolderDialog = false
                     },
@@ -345,7 +393,7 @@ fun LibraryScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateFolderDialog = false }) {
+                TextButton(onClick = abandonCreateFolder) {
                     Text(stringResource(R.string.common_cancel))
                 }
             },
@@ -417,27 +465,53 @@ fun LibraryScreen(
                 )
             },
             text = {
+                val singleFolder = itemsToDelete.singleOrNull()?.takeIf { it.type == ItemType.FOLDER }
                 val message = if (itemsToDelete.size == 1) {
                     stringResource(R.string.library_delete_item_message, itemsToDelete[0].title)
                 } else {
                     stringResource(R.string.library_delete_items_message, itemsToDelete.size)
                 }
-                
+
                 val hasFolder = itemsToDelete.any { it.type == ItemType.FOLDER }
-                val warning = if (hasFolder) stringResource(R.string.library_delete_folder_warning) else ""
-                
+                // Single folder: iOS's shallow-delete explainer replaces the generic warning.
+                val warning = when {
+                    singleFolder != null -> "\n\n" + stringResource(R.string.library_delete_folder_shallow_desc)
+                    hasFolder -> stringResource(R.string.library_delete_folder_warning)
+                    else -> ""
+                }
+
                 Text(message + warning)
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        libraryViewModel.deleteSelectedItems(context, itemsToDelete)
-                        itemsToDelete = emptyList()
-                        isSelectMode = false
-                        selectedItemUuids = emptySet()
+                val singleFolder = itemsToDelete.singleOrNull()?.takeIf { it.type == ItemType.FOLDER }
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = {
+                            libraryViewModel.deleteSelectedItems(context, itemsToDelete)
+                            itemsToDelete = emptyList()
+                            isSelectMode = false
+                            selectedItemUuids = emptySet()
+                        }
+                    ) {
+                        Text(
+                            // iOS: a single folder distinguishes deep vs shallow delete.
+                            text = if (singleFolder != null) stringResource(R.string.library_delete_deep)
+                                   else stringResource(R.string.common_delete),
+                            color = MaterialTheme.colorScheme.error
+                        )
                     }
-                ) {
-                    Text(stringResource(R.string.common_delete))
+                    if (singleFolder != null) {
+                        TextButton(
+                            onClick = {
+                                libraryViewModel.shallowDeleteFolder(context, singleFolder)
+                                itemsToDelete = emptyList()
+                                isSelectMode = false
+                                selectedItemUuids = emptySet()
+                            }
+                        ) {
+                            Text(stringResource(R.string.library_delete_shallow))
+                        }
+                    }
                 }
             },
             dismissButton = {
@@ -514,6 +588,10 @@ fun LibraryScreen(
 
     if (showSwipeOptionsDialog && itemForSwipeOptions != null) {
         val item = itemForSwipeOptions!!
+        // Download tri-state for the iOS-parity Download/Cancel/Remove option below.
+        val swipeDownloadState by remember(item.uuid, item.relativePath, item.type) {
+            libraryViewModel.itemDownloadStateFlow(item)
+        }.collectAsState(initial = null)
         AlertDialog(
             onDismissRequest = {
                 showSwipeOptionsDialog = false
@@ -524,6 +602,19 @@ fun LibraryScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // iOS parity — same order as ItemListView.itemOptionsDialog: Details, Move,
+                    // Share, Jump to start, (Android extra: Add Shortcut), Mark finished, Volume
+                    // toggle, Download block (subscribed), Delete last.
+                    Button(
+                        onClick = {
+                            showSwipeOptionsDialog = false
+                            itemToDetail = item
+                            showItemDetailSheet = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.library_see_details), textAlign = TextAlign.Center)
+                    }
                     Button(
                         onClick = {
                             showSwipeOptionsDialog = false
@@ -532,54 +623,36 @@ fun LibraryScreen(
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = stringResource(R.string.common_move),
-                            textAlign = TextAlign.Center
-                        )
+                        Text(stringResource(R.string.common_move), textAlign = TextAlign.Center)
+                    }
+                    // Beyond iOS on purpose: containers are shareable too — they export the audio
+                    // files currently on device under their directory (disk truth, not the
+                    // download-state flow, which reports FOLDERs as always-local).
+                    val shareable by produceState(false, item.uuid, item.relativePath) {
+                        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            hasShareableContent(context, item)
+                        }
                     }
                     Button(
                         onClick = {
                             showSwipeOptionsDialog = false
-                            itemsToDelete = listOf(item)
+                            scope.launch { shareItems(context, listOf(item)) }
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError
-                        )
+                        enabled = shareable,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = stringResource(R.string.common_delete),
-                            textAlign = TextAlign.Center
-                        )
+                        Text(stringResource(R.string.common_share), textAlign = TextAlign.Center)
+                    }
+                    Button(
+                        onClick = {
+                            showSwipeOptionsDialog = false
+                            libraryViewModel.jumpToStart(listOf(item))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.library_jump_to_start), textAlign = TextAlign.Center)
                     }
                     if (item.type == ItemType.BOOK || item.type == ItemType.BOUND) {
-                        Button(
-                            onClick = {
-                                showSwipeOptionsDialog = false
-                                itemToDetail = item
-                                showItemDetailSheet = true
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = stringResource(R.string.library_see_details),
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                        Button(
-                            onClick = {
-                                showSwipeOptionsDialog = false
-                                libraryViewModel.resetItemProgress(item.uuid)
-                                PlaybackManager.playItem(context, item, fromBeginning = true)
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = stringResource(R.string.library_play_from_beginning),
-                                textAlign = TextAlign.Center
-                            )
-                        }
                         Button(
                             onClick = {
                                 showSwipeOptionsDialog = false
@@ -587,10 +660,7 @@ fun LibraryScreen(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = stringResource(R.string.library_add_shortcut),
-                                textAlign = TextAlign.Center
-                            )
+                            Text(stringResource(R.string.library_add_shortcut), textAlign = TextAlign.Center)
                         }
                     }
                     Button(
@@ -606,6 +676,9 @@ fun LibraryScreen(
                             textAlign = TextAlign.Center
                         )
                     }
+                    // Volume toggle, iOS logic: BOUND → Convert to Folder; otherwise Combine into
+                    // Volume, enabled for a single FOLDER (direct convert) and disabled for a
+                    // single BOOK (needs 2+, which means multi-select).
                     if (item.type == ItemType.BOUND) {
                         Button(
                             onClick = {
@@ -614,24 +687,70 @@ fun LibraryScreen(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = stringResource(R.string.library_convert_to_folder),
-                                textAlign = TextAlign.Center
-                            )
+                            Text(stringResource(R.string.library_convert_to_folder), textAlign = TextAlign.Center)
                         }
-                    } else if (item.type == ItemType.FOLDER) {
+                    } else {
                         Button(
                             onClick = {
                                 showSwipeOptionsDialog = false
                                 libraryViewModel.convertFoldersToVolumes(context, listOf(item))
                             },
+                            enabled = item.type == ItemType.FOLDER,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = stringResource(R.string.library_convert_to_volume),
-                                textAlign = TextAlign.Center
-                            )
+                            Text(stringResource(R.string.library_combine_into_volume), textAlign = TextAlign.Center)
                         }
+                    }
+                    // Download block (iOS: rendered only for subscribers, syncService.isActive).
+                    if (canSyncLibrary) {
+                        when {
+                            swipeDownloadState?.isDownloading == true -> Button(
+                                onClick = {
+                                    showSwipeOptionsDialog = false
+                                    itemToCancelDownload = item
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(stringResource(R.string.library_cancel_download), textAlign = TextAlign.Center)
+                            }
+                            swipeDownloadState?.isLocal == false -> Button(
+                                onClick = {
+                                    showSwipeOptionsDialog = false
+                                    libraryViewModel.startDownload(item)
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(stringResource(R.string.common_download), textAlign = TextAlign.Center)
+                            }
+                            swipeDownloadState?.isLocal == true -> Button(
+                                onClick = {
+                                    showSwipeOptionsDialog = false
+                                    scope.launch {
+                                        if (hasQueuedUploadTask(syncTaskRepository, plainRepository, item)) {
+                                            offloadWarningItem = item
+                                        } else {
+                                            removeLocalFile(context, plainRepository, item)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(stringResource(R.string.library_remove_from_device), textAlign = TextAlign.Center)
+                            }
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            showSwipeOptionsDialog = false
+                            itemsToDelete = listOf(item)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    ) {
+                        Text(stringResource(R.string.common_delete), textAlign = TextAlign.Center)
                     }
                 }
             },
@@ -650,21 +769,95 @@ fun LibraryScreen(
         )
     }
 
-    if (showChooseDestinationDialog) {
+    // iOS parity: cancelling a download gets a confirmation (ItemListView .cancelDownload alert).
+    itemToCancelDownload?.let { item ->
         AlertDialog(
-            onDismissRequest = { showChooseDestinationDialog = false },
+            onDismissRequest = { itemToCancelDownload = null },
+            title = { Text(stringResource(R.string.library_cancel_download)) },
+            text = { Text(item.title) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        libraryViewModel.cancelDownload(item)
+                        itemToCancelDownload = null
+                    }
+                ) {
+                    Text(
+                        text = stringResource(R.string.library_cancel_download),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { itemToCancelDownload = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
+    }
+
+    // iOS's uploadTaskAlert (shared wording with Storage Management): the file hasn't reached the
+    // cloud yet — removing it destroys the only copy.
+    offloadWarningItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { offloadWarningItem = null },
+            title = { Text(stringResource(R.string.storage_management_warning_title)) },
+            text = { Text(stringResource(R.string.storage_management_upload_queued_warning, item.title)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            removeLocalFile(context, plainRepository, item)
+                            offloadWarningItem = null
+                        }
+                    }
+                ) {
+                    Text(
+                        text = stringResource(R.string.storage_management_remove_button),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { offloadWarningItem = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
+    }
+
+    if (showChooseDestinationDialog) {
+        // iOS parity (getAvailableFolders): destinations are the FOLDERs at the CURRENT level,
+        // minus the items being moved; "Existing Folder" is disabled when there are none.
+        val foldersAtLevel by libraryViewModel.getFoldersForPath(currentPath).collectAsState()
+        val availableFolders = foldersAtLevel.filter { it.uuid !in selectedItemUuids }
+        // Abandoning the flow outside select mode must drop the swipe-Move flow's transient
+        // single-item selection, or it silently pre-selects that item in a later select session.
+        val abandonMoveFlow = {
+            showChooseDestinationDialog = false
+            if (!isSelectMode) selectedItemUuids = emptySet()
+        }
+        AlertDialog(
+            onDismissRequest = abandonMoveFlow,
             title = { Text(stringResource(R.string.library_choose_destination_title)) },
             text = { Text(stringResource(R.string.library_choose_destination_message)) },
             confirmButton = {
                 Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = {
-                            showChooseDestinationDialog = false
-                            showExistingFoldersSheet = true
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(stringResource(R.string.library_existing_folder))
+                    // iOS parity (moveOptionsAlert): Library (root, only when inside a folder),
+                    // New Folder, Existing Folder, Combine into Volume (all-books only).
+                    if (currentPath != null) {
+                        Button(
+                            onClick = {
+                                showChooseDestinationDialog = false
+                                val moving = items.filter { it.uuid in selectedItemUuids }
+                                libraryViewModel.moveSelectedItems(context, moving, targetPath = null)
+                                isSelectMode = false
+                                selectedItemUuids = emptySet()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(stringResource(R.string.library_move_to_library))
+                        }
                     }
                     Button(
                         onClick = {
@@ -675,10 +868,31 @@ fun LibraryScreen(
                     ) {
                         Text(stringResource(R.string.library_new_folder))
                     }
+                    Button(
+                        onClick = {
+                            showChooseDestinationDialog = false
+                            showExistingFoldersSheet = true
+                        },
+                        enabled = availableFolders.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.library_existing_folder))
+                    }
+                    val movingItems = items.filter { it.uuid in selectedItemUuids }
+                    Button(
+                        onClick = {
+                            showChooseDestinationDialog = false
+                            showCombineToVolumeDialog = true
+                        },
+                        enabled = movingItems.size > 1 && movingItems.all { it.type == ItemType.BOOK },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.library_combine_into_volume))
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showChooseDestinationDialog = false }) {
+                TextButton(onClick = abandonMoveFlow) {
                     Text(stringResource(R.string.common_cancel))
                 }
             },
@@ -689,11 +903,20 @@ fun LibraryScreen(
     }
 
     if (showExistingFoldersSheet) {
-        val containers by libraryViewModel.getAllContainers().collectAsState()
+        // iOS parity (getAvailableFolders + foldersSelection sheet): only the FOLDERs at the
+        // CURRENT level, excluding the items being moved. The previous app-wide container list
+        // offered a moved folder's own descendants (path corruption) and bound volumes (items
+        // only enter a volume via Combine into Volume) as destinations; moving to the root is
+        // the move dialog's "Library" button, not a row here.
+        val foldersAtLevel by libraryViewModel.getFoldersForPath(currentPath).collectAsState()
         val selectedItems = remember(selectedItemUuids) { items.filter { it.uuid in selectedItemUuids } }
+        val destinationFolders = foldersAtLevel.filter { folder -> selectedItems.none { it.uuid == folder.uuid } }
 
         ModalBottomSheet(
-            onDismissRequest = { showExistingFoldersSheet = false },
+            onDismissRequest = {
+                showExistingFoldersSheet = false
+                if (!isSelectMode) selectedItemUuids = emptySet()
+            },
             containerColor = MaterialTheme.colorScheme.surface,
             dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
@@ -708,47 +931,19 @@ fun LibraryScreen(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(16.dp)
                 )
-                
-                LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    item {
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.library_title_default)) },
-                            leadingContent = { Icon(Icons.Default.AutoStories, null) },
-                            modifier = Modifier.clickable {
-                                libraryViewModel.moveSelectedItems(context, selectedItems, null)
-                                showExistingFoldersSheet = false
-                                isSelectMode = false
-                                selectedItemUuids = emptySet()
-                            }
-                        )
-                    }
 
-                    items(containers.filter { container -> selectedItems.none { it.uuid == container.uuid } }) { container ->
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    items(destinationFolders) { folder ->
                         ListItem(
-                            headlineContent = { Text(container.title) },
-                            leadingContent = { 
-                                Icon(
-                                    imageVector = if (container.type == ItemType.FOLDER) Icons.Default.Folder else Icons.Default.AutoStories,
-                                    contentDescription = null
-                                )
-                            },
+                            headlineContent = { Text(folder.title) },
+                            leadingContent = { Icon(Icons.Default.Folder, contentDescription = null) },
                             modifier = Modifier.clickable {
-                                libraryViewModel.moveSelectedItems(context, selectedItems, container.relativePath)
+                                libraryViewModel.moveSelectedItems(context, selectedItems, folder.relativePath)
                                 showExistingFoldersSheet = false
                                 isSelectMode = false
                                 selectedItemUuids = emptySet()
                             }
                         )
-                    }
-                    
-                    if (containers.isEmpty()) {
-                        item {
-                            Text(
-                                text = "No folders found",
-                                modifier = Modifier.padding(16.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                     }
                 }
             }
@@ -798,12 +993,31 @@ fun LibraryScreen(
                     ) {
                         val selectedItems = items.filter { it.uuid in selectedItemUuids }
                         val isSingleItemSelect = selectedItems.size == 1
-                        val isSingleBookOrBound = isSingleItemSelect && 
+                        val isSingleBookOrBound = isSingleItemSelect &&
                                 (selectedItems[0].type == ItemType.BOOK || selectedItems[0].type == ItemType.BOUND)
-                        
+                        val singleItem = selectedItems.singleOrNull()
+                        val singleDownloadState by remember(singleItem?.uuid, singleItem?.relativePath) {
+                            singleItem?.let { libraryViewModel.itemDownloadStateFlow(it) }
+                                ?: kotlinx.coroutines.flow.flowOf(null)
+                        }.collectAsState(initial = null)
+
+                        // Order per design: Select All in its own leading section (divider-separated,
+                        // the Material way to group menu items), then Details, Move, Jump to start,
+                        // Mark finished, Volume toggle, Download block (subscription-gated, like
+                        // iOS's syncService.isActive), Delete — and the home-screen shortcut in its
+                        // own trailing section. Entries stay visible-but-disabled, never hidden.
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.common_select_all)) },
+                            onClick = {
+                                showMoreMenu = false
+                                selectedItemUuids = items.map { it.uuid }.toSet()
+                            },
+                            leadingIcon = { Icon(Icons.Default.SelectAll, null) }
+                        )
+                        HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.library_see_details)) },
-                            enabled = isSingleBookOrBound,
+                            enabled = isSingleItemSelect,
                             onClick = {
                                 showMoreMenu = false
                                 itemToDetail = selectedItems.firstOrNull()
@@ -812,28 +1026,41 @@ fun LibraryScreen(
                             leadingIcon = { Icon(Icons.Default.Info, null) }
                         )
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.library_play_from_beginning)) },
-                            enabled = isSingleBookOrBound,
+                            text = { Text(stringResource(R.string.common_move)) },
+                            enabled = selectedItems.isNotEmpty(),
                             onClick = {
                                 showMoreMenu = false
-                                val item = selectedItems[0]
-                                libraryViewModel.resetItemProgress(item.uuid)
-                                PlaybackManager.playItem(context, item, fromBeginning = true)
-                                isSelectMode = false
-                                selectedItemUuids = emptySet()
+                                showChooseDestinationDialog = true
                             },
-                            leadingIcon = { Icon(Icons.Default.PlayArrow, null) }
+                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, null) }
+                        )
+                        // Beyond iOS on purpose: no single-item export constraint (ACTION_SEND_MULTIPLE)
+                        // and no book-only gate — containers export their on-device audio files.
+                        // Enabled when every selected item has something local to export.
+                        val canShareSelection by produceState(false, selectedItemUuids) {
+                            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                selectedItems.isNotEmpty() && selectedItems.all { hasShareableContent(context, it) }
+                            }
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.common_share)) },
+                            enabled = canShareSelection,
+                            onClick = {
+                                showMoreMenu = false
+                                scope.launch { shareItems(context, selectedItems) }
+                            },
+                            leadingIcon = { Icon(Icons.Default.Share, null) }
                         )
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.library_add_shortcut_to_home_screen)) },
-                            enabled = isSingleBookOrBound,
+                            text = { Text(stringResource(R.string.library_jump_to_start)) },
+                            enabled = selectedItems.isNotEmpty(),
                             onClick = {
                                 showMoreMenu = false
-                                ShortcutHelper.requestPinShortcut(context, selectedItems[0])
+                                libraryViewModel.jumpToStart(selectedItems)
                                 isSelectMode = false
                                 selectedItemUuids = emptySet()
                             },
-                            leadingIcon = { Icon(Icons.Default.Home, null) }
+                            leadingIcon = { Icon(Icons.Default.RestartAlt, null) }
                         )
 
                         val allFinished = selectedItems.isNotEmpty() && selectedItems.all { it.isFinished }
@@ -854,26 +1081,8 @@ fun LibraryScreen(
                             leadingIcon = { Icon(Icons.Default.CheckCircle, null) }
                         )
 
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.common_select_all)) },
-                            onClick = {
-                                showMoreMenu = false
-                                selectedItemUuids = items.map { it.uuid }.toSet()
-                            },
-                            leadingIcon = { Icon(Icons.Default.SelectAll, null) }
-                        )
-
-                        if (selectedItems.size >= 2 && selectedItems.all { it.type == ItemType.BOOK }) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.library_combine_to_volume)) },
-                                onClick = {
-                                    showMoreMenu = false
-                                    showCombineToVolumeDialog = true
-                                },
-                                leadingIcon = { Icon(Icons.Default.AutoStories, null) }
-                            )
-                        }
-
+                        // Volume toggle, iOS logic: all-BOUND → Convert to Folder; otherwise
+                        // Combine into Volume, enabled for 2+ books or a single folder.
                         if (selectedItems.isNotEmpty() && selectedItems.all { it.type == ItemType.BOUND }) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.library_convert_to_folder)) },
@@ -885,20 +1094,92 @@ fun LibraryScreen(
                                 },
                                 leadingIcon = { Icon(Icons.Default.FolderOpen, null) }
                             )
-                        }
-
-                        if (selectedItems.isNotEmpty() && selectedItems.all { it.type == ItemType.FOLDER }) {
+                        } else {
+                            val multipleBooks = selectedItems.size > 1 && selectedItems.all { it.type == ItemType.BOOK }
+                            val singleFolder = singleItem?.type == ItemType.FOLDER
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.library_convert_to_volume)) },
+                                text = { Text(stringResource(R.string.library_combine_into_volume)) },
+                                enabled = multipleBooks || singleFolder,
                                 onClick = {
                                     showMoreMenu = false
-                                    libraryViewModel.convertFoldersToVolumes(context, selectedItems)
-                                    isSelectMode = false
-                                    selectedItemUuids = emptySet()
+                                    if (singleFolder) {
+                                        libraryViewModel.convertFoldersToVolumes(context, selectedItems)
+                                        isSelectMode = false
+                                        selectedItemUuids = emptySet()
+                                    } else {
+                                        showCombineToVolumeDialog = true
+                                    }
                                 },
                                 leadingIcon = { Icon(Icons.Default.AutoStories, null) }
                             )
                         }
+
+                        // Download block (iOS: subscribed + single selection only).
+                        if (canSyncLibrary) {
+                            when {
+                                singleDownloadState?.isDownloading == true -> DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.library_cancel_download)) },
+                                    enabled = isSingleItemSelect,
+                                    onClick = {
+                                        showMoreMenu = false
+                                        itemToCancelDownload = singleItem
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Close, null) }
+                                )
+                                singleDownloadState?.isLocal == true -> DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.library_remove_from_device)) },
+                                    enabled = isSingleItemSelect,
+                                    onClick = {
+                                        showMoreMenu = false
+                                        singleItem?.let { item ->
+                                            scope.launch {
+                                                if (hasQueuedUploadTask(syncTaskRepository, plainRepository, item)) {
+                                                    offloadWarningItem = item
+                                                } else {
+                                                    removeLocalFile(context, plainRepository, item)
+                                                }
+                                            }
+                                        }
+                                        isSelectMode = false
+                                        selectedItemUuids = emptySet()
+                                    },
+                                    leadingIcon = { Icon(Icons.Outlined.Cloud, null) }
+                                )
+                                else -> DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.common_download)) },
+                                    enabled = isSingleItemSelect && singleDownloadState?.isLocal == false,
+                                    onClick = {
+                                        showMoreMenu = false
+                                        singleItem?.let { libraryViewModel.startDownload(it) }
+                                        isSelectMode = false
+                                        selectedItemUuids = emptySet()
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Download, null) }
+                                )
+                            }
+                        }
+
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.common_delete)) },
+                            enabled = selectedItems.isNotEmpty(),
+                            onClick = {
+                                showMoreMenu = false
+                                itemsToDelete = selectedItems
+                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, null) }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_add_shortcut_to_home_screen)) },
+                            enabled = isSingleBookOrBound,
+                            onClick = {
+                                showMoreMenu = false
+                                ShortcutHelper.requestPinShortcut(context, selectedItems[0])
+                                isSelectMode = false
+                                selectedItemUuids = emptySet()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Home, null) }
+                        )
                     }
                 }
             } else {
@@ -935,6 +1216,7 @@ fun LibraryScreen(
                             text = { Text(stringResource(R.string.common_select)) },
                             onClick = {
                                 showMenu = false
+                                selectedItemUuids = emptySet()
                                 isSelectMode = true
                             },
                             leadingIcon = { Icon(Icons.Default.Checklist, null) },
@@ -1719,4 +2001,52 @@ fun FolderEmptyState(
             )
         }
     }
+}
+
+/**
+ * "Share" (iOS `export_button`), deliberately expanded beyond iOS: ACTION_SEND_MULTIPLE has no
+ * single-item export constraint, so a multi-selection shares in one chooser, and containers
+ * (folders/volumes) export every audio file currently on device under their directory.
+ */
+private suspend fun shareItems(context: android.content.Context, items: List<LibraryItemEntity>) {
+    // The directory walk + per-file FileProvider lookups are disk IO — resolve off the main
+    // thread; only the chooser launch returns to the caller's (main) context.
+    val uris = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val processedDir = java.io.File(context.filesDir, "Processed")
+        items.flatMap { item ->
+            val relativePath = item.relativePath ?: return@flatMap emptyList()
+            val target = java.io.File(processedDir, relativePath)
+            val files = when {
+                target.isDirectory -> target.walkTopDown().filter { it.isFile }.sortedBy { it.path }.toList()
+                target.isFile -> listOf(target)
+                else -> emptyList()
+            }
+            files.map { androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".fileprovider", it) }
+        }
+    }
+    if (uris.isEmpty()) return
+    val intent = if (uris.size == 1) {
+        android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "audio/*"
+            putExtra(android.content.Intent.EXTRA_STREAM, uris.first())
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    } else {
+        android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "audio/*"
+            putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, ArrayList(uris))
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+    context.startActivity(android.content.Intent.createChooser(intent, items.singleOrNull()?.title))
+}
+
+/**
+ * True when [item] has audio on device to export: the book's own file, or at least one file under
+ * a container's directory. Disk stats — call off the main thread.
+ */
+private fun hasShareableContent(context: android.content.Context, item: LibraryItemEntity): Boolean {
+    val relativePath = item.relativePath ?: return false
+    val target = java.io.File(java.io.File(context.filesDir, "Processed"), relativePath)
+    return if (target.isDirectory) target.walkTopDown().any { it.isFile } else target.isFile
 }

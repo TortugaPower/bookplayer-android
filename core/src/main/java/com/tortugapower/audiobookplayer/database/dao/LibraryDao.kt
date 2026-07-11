@@ -40,9 +40,6 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items WHERE type = 'FOLDER' AND relativePath LIKE :path || '/%' AND relativePath NOT LIKE :path || '/%/%'")
     fun getFoldersInPath(path: String): Flow<List<LibraryItemEntity>>
 
-    @Query("SELECT * FROM library_items WHERE type = 'FOLDER' OR type = 'BOUND' ORDER BY title ASC")
-    fun getAllContainers(): Flow<List<LibraryItemEntity>>
-
     @Query("SELECT * FROM library_items WHERE type = 'BOOK' AND title LIKE '%' || :query || '%' ORDER BY title ASC")
     fun searchBooks(query: String): Flow<List<LibraryItemEntity>>
 

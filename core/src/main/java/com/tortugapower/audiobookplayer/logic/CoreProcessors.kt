@@ -705,6 +705,27 @@ class DeleteProcessor : TaskProcessor {
     }
 }
 
+class ShallowDeleteProcessor : TaskProcessor {
+    private val gson = Gson()
+
+    override suspend fun process(task: SyncTaskEntity): Boolean {
+        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
+        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
+
+        val response = NetworkClient.libraryApi.shallowDeleteFolder(
+            mapOf(
+                "relativePath" to payload["relativePath"],
+                "uuid" to payload["uuid"]
+            )
+        )
+        return response.isSuccessful
+    }
+
+    override fun canHandle(jobType: String): Boolean {
+        return jobType == SyncTaskFactory.JOB_DELETE_SHALLOW
+    }
+}
+
 class RenameFolderProcessor : TaskProcessor {
     private val gson = Gson()
 

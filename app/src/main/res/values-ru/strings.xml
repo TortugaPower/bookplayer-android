@@ -171,10 +171,8 @@
     <string name="library_unknown_author">Неизвестный автор</string>
     <string name="library_unknown_title">Неизвестное название</string>
     <string name="library_convert_to_folder">Преобразовать в папку</string>
-    <string name="library_convert_to_volume">Преобразовать в том</string>
     <string name="library_combine_to_volume">Создать том</string>
     <string name="library_combine_to_volume_desc">Убедитесь, что элементы расположены в правильном порядке. Чтобы изменить порядок глав позже, вам нужно будет преобразовать том обратно в папку, изменить порядок элементов и снова создать том.</string>
-    <string name="library_open_folder">Открыть папку</string>
     <string name="library_edit_book_title">Редактировать книгу</string>
     <string name="library_title_placeholder">Заголовок</string>
     <string name="library_author_placeholder">Автор</string>
@@ -409,15 +407,11 @@
     <string name="shortcut_play_item_desc">Воспроизвести %1$s</string>
     <string name="shortcut_pin_failed">Не удалось добавить ярлык на главный экран</string>
 
-    <string name="library_play_from_beginning">Воспроизвести с начала</string>
     <string name="library_add_shortcut">Добавить ярлык</string>
     <string name="library_add_files">Добавить файлы</string>
     <string name="library_add_files_dialog_title">Добавить файлы</string>
     <string name="library_add_files_option_import">Импортировать файлы</string>
     <string name="library_download_from_url">Скачать по URL</string>
-    <string name="library_download_from_url_title">Скачать по URL</string>
-    <string name="library_download_from_url_message">Введите URL-адрес аудиофайла для скачивания:</string>
-    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">Настройки воспроизведения</string>
     <string name="settings_autoplay_label">Автовоспроизведение</string>
     <string name="settings_autoplay_library">Автовоспроизведение библиотеки</string>

@@ -5,6 +5,15 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import kotlinx.coroutines.flow.Flow
 
 /**
+ * Thrown by [LibraryRepository.convertFoldersToVolumes] when a folder can't become a bound
+ * volume — iOS parity (LibraryService.updateFolder(type: .bound) throws for non-book contents
+ * and for empty folders). The UI maps [reason] to a localized error dialog.
+ */
+class BoundConversionException(val reason: Reason) : Exception(reason.name) {
+    enum class Reason { NOT_ONLY_BOOKS, EMPTY_FOLDER }
+}
+
+/**
  * Interface for library data operations, allowing for easy testing and different data sources.
  */
 interface LibraryRepository {
@@ -24,7 +33,6 @@ interface LibraryRepository {
         getItemById(identifier) ?: getItemByPath(identifier)
     
     fun getFoldersInPath(path: String?): Flow<List<LibraryItemEntity>>
-    fun getAllContainers(): Flow<List<LibraryItemEntity>>
     
     fun searchBooks(query: String): Flow<List<LibraryItemEntity>>
 
@@ -62,6 +70,14 @@ interface LibraryRepository {
     fun getExternalResourcesForBook(itemUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity>>
     suspend fun saveExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity)
     suspend fun deleteExternalResource(itemUuid: String, provider: String)
+    /**
+     * iOS-parity "Delete folder only" (shallow delete): moves the folder's DIRECT children back to
+     * the library root (files + DB paths, descendants of moved sub-containers rewritten), then
+     * deletes the now-empty folder row and its directory. The server is informed separately
+     * (JOB_DELETE_SHALLOW → DELETE /v1/library/folder_in_out) by the syncing wrapper.
+     */
+    suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity)
+
     suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity
     suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity>
 

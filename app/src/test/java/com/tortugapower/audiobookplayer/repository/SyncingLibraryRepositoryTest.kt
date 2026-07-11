@@ -32,7 +32,6 @@ class SyncingLibraryRepositoryTest {
         override fun getRootItems(): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun getFoldersInPath(path: String?): Flow<List<LibraryItemEntity>> = emptyFlow()
-        override fun getAllContainers(): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun searchBooks(query: String): Flow<List<LibraryItemEntity>> = emptyFlow()
         override fun searchAllBooks(query: String): Flow<List<LibraryItemEntity>> = emptyFlow()
         override suspend fun isCloudSyncActive(): Boolean = false
@@ -70,6 +69,7 @@ class SyncingLibraryRepositoryTest {
         override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? = null
         override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
         override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
+        override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) = error("unused")
         override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
         override suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity> = emptyList()
 

@@ -374,7 +374,6 @@ class RoomLibraryRepositoryTest {
         override suspend fun existsWithFileName(fileName: String): Boolean = TODO()
         override fun getRootFolders(): Flow<List<LibraryItemEntity>> = TODO()
         override fun getFoldersInPath(path: String): Flow<List<LibraryItemEntity>> = TODO()
-        override fun getAllContainers(): Flow<List<LibraryItemEntity>> = TODO()
         override fun searchBooks(query: String): Flow<List<LibraryItemEntity>> = TODO()
         override suspend fun getAllBooksSync(): List<LibraryItemEntity> = TODO()
         override fun getCompletedBooksCount(): Flow<Int> = TODO()

@@ -72,7 +72,6 @@ class WearRootViewModelTest {
         override suspend fun getItemById(uuid: String): LibraryItemEntity? = null
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = null
         override fun getFoldersInPath(path: String?): Flow<List<LibraryItemEntity>> = flowOf(emptyList())
-        override fun getAllContainers(): Flow<List<LibraryItemEntity>> = flowOf(emptyList())
         override fun searchBooks(query: String): Flow<List<LibraryItemEntity>> = flowOf(emptyList())
         override fun searchAllBooks(query: String): Flow<List<LibraryItemEntity>> = flowOf(emptyList())
         override suspend fun isCloudSyncActive(): Boolean = false
@@ -103,6 +102,7 @@ class WearRootViewModelTest {
         override suspend fun deleteExternalResource(itemUuid: String, provider: String) {}
         override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
         override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
+        override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) = error("unused")
         override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
     }
 

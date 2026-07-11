@@ -5,4 +5,6 @@
     <!-- Cover art, so Android Auto's process can read it via a content:// URI (it can't read our
          app-private file:// paths). Only the Artworks/ subdir of filesDir is exposed. -->
     <files-path name="artworks" path="Artworks/" />
+    <!-- Audiobook files for the library's Share action (iOS parity: export_button ShareLink). -->
+    <files-path name="processed" path="Processed/" />
 </paths>

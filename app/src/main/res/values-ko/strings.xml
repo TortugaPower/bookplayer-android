@@ -170,8 +170,6 @@
     <string name="library_unknown_author">알 수 없는 저자</string>
     <string name="library_unknown_title">알 수 없는 제목</string>
     <string name="library_convert_to_folder">Convert to folder</string>
-    <string name="library_convert_to_volume">Convert to volume</string>
-    <string name="library_open_folder">폴더 열기</string>
     <string name="library_edit_book_title">도서 편집</string>
     <string name="library_title_placeholder">제목</string>
     <string name="library_author_placeholder">저자</string>
@@ -401,15 +399,11 @@
     <string name="shortcut_play_item_desc">%1$s 재생</string>
     <string name="shortcut_pin_failed">홈 화면에 바로가기를 추가할 수 없습니다</string>
 
-    <string name="library_play_from_beginning">처음부터 재생</string>
     <string name="library_add_shortcut">바로가기 추가</string>
     <string name="library_add_files">파일 추가</string>
     <string name="library_add_files_dialog_title">파일 추가</string>
     <string name="library_add_files_option_import">파일 가져오기</string>
     <string name="library_download_from_url">URL에서 다운로드</string>
-    <string name="library_download_from_url_title">URL에서 다운로드</string>
-    <string name="library_download_from_url_message">다운로드할 오디오 파일의 URL을 입력하세요:</string>
-    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">재생 설정</string>
     <string name="settings_autoplay_label">자동 재생</string>
     <string name="settings_autoplay_library">라이브러리 자동 재생</string>

@@ -155,6 +155,29 @@ class LibraryViewModel(
         }
     }
 
+    /** Cancel an in-flight download (iOS parity: the options dialog's "Cancel download"). */
+    fun cancelDownload(item: LibraryItemEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            OfflineDownloadManager.cancelDownload(repository, syncTaskRepository, item)
+        }
+    }
+
+    /**
+     * iOS parity ("Jump to start", `handleResetPlaybackPosition`): reset every selected item's
+     * progress WITHOUT starting playback; if one of them is currently loaded, pause and seek to 0
+     * so the player UI reflects the reset immediately.
+     */
+    fun jumpToStart(items: List<LibraryItemEntity>) {
+        viewModelScope.launch {
+            items.forEach { repository.updateItemProgress(it.uuid, 0.0, false) }
+            val current = com.tortugapower.audiobookplayer.logic.PlaybackManager.currentItem.value
+            if (current != null && items.any { it.uuid == current.uuid }) {
+                com.tortugapower.audiobookplayer.logic.PlaybackManager.pause()
+                com.tortugapower.audiobookplayer.logic.PlaybackManager.seekTo(0L)
+            }
+        }
+    }
+
     private val itemsCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()
     private val foldersCache = mutableMapOf<String?, StateFlow<List<LibraryItemEntity>>>()
 
@@ -213,14 +236,6 @@ class LibraryViewModel(
         }
     }
 
-    fun getAllContainers(): StateFlow<List<LibraryItemEntity>> {
-        return repository.getAllContainers().stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
-    }
-
     fun navigateTo(path: String) {
         _currentPath.value = path
     }
@@ -234,12 +249,16 @@ class LibraryViewModel(
 
     fun deleteItem(context: android.content.Context, item: LibraryItemEntity) {
         viewModelScope.launch {
+            // iOS parity (handleDelete): deleting what's playing stops the player BEFORE the file
+            // goes away. Also covers the playing item living inside a deleted folder.
+            stopPlaybackIfInside(listOf(item))
             repository.deleteItemWithFile(context, item)
         }
     }
 
     fun deleteSelectedItems(context: android.content.Context, items: List<LibraryItemEntity>) {
         viewModelScope.launch {
+            stopPlaybackIfInside(items)
             repository.deleteItemsWithFiles(context, items)
         }
     }
@@ -274,8 +293,9 @@ class LibraryViewModel(
 
     /**
      * Creates a folder under [basePath] (null = root) and moves [items] into it, sequentially in
-     * one coroutine so the move can't race the folder insert. Used by the post-import prompt's
-     * "New folder" option.
+     * one coroutine so the move can't race the folder insert (iOS parity:
+     * ItemListViewModel.createFolder(with:items:) is one sequential operation). Used by the
+     * post-import prompt's "New folder" option and the library Move dialog's "New Folder".
      */
     fun createFolderAndMoveItems(
         context: android.content.Context,
@@ -315,15 +335,46 @@ class LibraryViewModel(
         }
     }
 
+    private val _boundConversionError =
+        MutableStateFlow<com.tortugapower.audiobookplayer.repository.BoundConversionException.Reason?>(null)
+    /** Set when a folder→volume conversion is rejected; the UI shows the iOS-parity error dialog. */
+    val boundConversionError: StateFlow<com.tortugapower.audiobookplayer.repository.BoundConversionException.Reason?> =
+        _boundConversionError.asStateFlow()
+
+    fun clearBoundConversionError() {
+        _boundConversionError.value = null
+    }
+
+    /**
+     * iOS parity (ItemListViewModel.updateFolders): converting the container that holds the playing
+     * item — or the playing volume itself — invalidates the loaded timeline, so stop and unload it.
+     */
+    private fun stopPlaybackIfInside(items: List<LibraryItemEntity>) {
+        val current = com.tortugapower.audiobookplayer.logic.PlaybackManager.currentItem.value ?: return
+        val affected = items.any { container ->
+            current.uuid == container.uuid ||
+                container.relativePath?.let { path -> current.relativePath?.startsWith("$path/") } == true
+        }
+        if (affected) {
+            com.tortugapower.audiobookplayer.logic.PlaybackManager.stopAndUnloadCurrentItem(appContext)
+        }
+    }
+
     fun convertVolumesToFolders(items: List<LibraryItemEntity>) {
         viewModelScope.launch {
             repository.convertVolumesToFolders(items)
+            stopPlaybackIfInside(items)
         }
     }
 
     fun convertFoldersToVolumes(context: android.content.Context, items: List<LibraryItemEntity>) {
         viewModelScope.launch {
-            repository.convertFoldersToVolumes(context, items)
+            try {
+                repository.convertFoldersToVolumes(context, items)
+                stopPlaybackIfInside(items)
+            } catch (e: com.tortugapower.audiobookplayer.repository.BoundConversionException) {
+                _boundConversionError.value = e.reason
+            }
         }
     }
 
@@ -337,6 +388,13 @@ class LibraryViewModel(
                 item.author = newAuthor
                 repository.updateItem(item)
             }
+        }
+    }
+
+    /** iOS-parity "Delete folder only": contents move back to the library root, folder row goes. */
+    fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.shallowDeleteFolder(context, folder)
         }
     }
 
