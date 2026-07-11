@@ -397,18 +397,26 @@ suspend fun removeLocalFile(context: Context, repository: LibraryRepository, ite
         
         val db = AppDatabase.getDatabase(context)
         val extResources = db.libraryDao().getExternalResourcesForBookSync(item.uuid)
-        
+
+        // OFFLOAD semantics in every case: the file is gone (deleted above) but the library row
+        // always survives, so the book stays in the library as a not-downloaded item (cloud badge
+        // for subscribers, "audio not on this device" for free/signed-out) instead of vanishing
+        // until the next fetch happens to re-insert it. Nothing is ever deleted server-side from
+        // here (plain repository — no delete task).
         if (extResources.isNotEmpty()) {
+            // External items also clear relativePath and revert their resource to "stream": their
+            // playback URL is rebuilt from hostId+providerId, not the path.
             item.relativePath = null
             repository.updateItem(item)
             extResources.forEach { resource ->
                 if (resource.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED) {
-                    val updatedResource = resource.copy(syncStatus = ExternalResourceEntity.STATUS_STREAM)
-                    repository.saveExternalResource(updatedResource)
+                    // Through the DAO (REPLACE): repository.saveExternalResource early-returns when a
+                    // resource with the same providerId exists, silently dropping the status flip.
+                    db.libraryDao().insertExternalResource(resource.copy(syncStatus = ExternalResourceEntity.STATUS_STREAM))
                 }
             }
-        } else {
-            repository.deleteItemWithFile(context, item)
         }
+        // Cloud/local rows keep relativePath untouched — it's the item's identity on the server and
+        // in the play/download paths; the row's "not downloaded" state is pure disk truth.
     }
 }
