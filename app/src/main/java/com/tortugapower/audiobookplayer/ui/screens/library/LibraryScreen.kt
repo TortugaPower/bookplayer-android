@@ -1717,14 +1717,14 @@ fun LibraryEmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // iOS parity (EmptyListView, node == .root): the faint stacked-books-with-audio
-        // illustration — Material's LibraryMusic is the native equivalent (library + audio),
-        // preferred over custom Canvas art or the app logo.
-        Icon(
-            imageVector = Icons.Default.LibraryMusic,
+        // iOS parity (EmptyListView, node == .root): the SAME emptyLibrary illustration iOS
+        // ships (layered translucent books + speaker), imported as drawable-nodpi so both
+        // platforms' empty libraries are pixel-identical. Like iOS, one universal asset for
+        // light and dark.
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(R.drawable.empty_library),
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-            modifier = Modifier.size(140.dp)
+            modifier = Modifier.size(240.dp)
         )
 
         Spacer(modifier = Modifier.height(32.dp))
