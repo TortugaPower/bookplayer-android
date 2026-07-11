@@ -375,14 +375,6 @@
         <item quantity="one">%1$d day</item>
         <item quantity="other">%1$d days</item>
     </plurals>
-    <plurals name="library_folder_item_count">
-        <item quantity="one">1 File</item>
-        <item quantity="other">%1$d Files</item>
-    </plurals>
-    <plurals name="library_bound_chapter_count">
-        <item quantity="one">1 Chapter</item>
-        <item quantity="other">%1$d Chapters</item>
-    </plurals>
     <plurals name="profile_unit_months">
         <item quantity="one">%1$d month</item>
         <item quantity="other">%1$d months</item>

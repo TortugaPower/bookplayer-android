@@ -6,6 +6,7 @@ import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.datalayer.WatchChapter
 import com.tortugapower.audiobookplayer.datalayer.WatchNowPlaying
+import com.tortugapower.audiobookplayer.logic.LibraryContentsSync
 import com.tortugapower.audiobookplayer.logic.PlayableItem
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.SleepTimerManager
@@ -49,7 +50,12 @@ class StandalonePlayerViewModel : ViewModel() {
         RemoteUiState(
             connecting = false, // the watch is the source of truth in standalone mode — never "connecting"
             recentItems = emptyList(), // standalone plays from the library nav, not a recents row
-            nowPlaying = item?.let { toNowPlaying(it, playable) },
+            nowPlaying = item?.let {
+                toNowPlaying(it, playable) { entity ->
+                    // Localize a container's bare-count author (e.g. a BOUND's "N Chapters").
+                    LibraryContentsSync.displayDetails(context(), entity.type, entity.author).orEmpty()
+                }
+            },
             isPlaying = playing,
             speed = optSpeed ?: realSpeed,
             boostVolume = boost,
@@ -125,11 +131,16 @@ class StandalonePlayerViewModel : ViewModel() {
         fun steppedSpeed(base: Float, delta: Float): Float =
             kotlin.math.round((base + delta).coerceIn(SPEED_MIN, SPEED_MAX) * 100f) / 100f
 
-        /** Pure entity(+chapters) → now-playing mapping (unit-tested). */
-        fun toNowPlaying(item: LibraryItemEntity, playable: PlayableItem?): WatchNowPlaying = WatchNowPlaying(
+        /** Pure entity(+chapters) → now-playing mapping (unit-tested). [formatAuthor] localizes a
+         *  container's bare-count author (LibraryContentsSync.displayDetails at the call site). */
+        fun toNowPlaying(
+            item: LibraryItemEntity,
+            playable: PlayableItem?,
+            formatAuthor: (LibraryItemEntity) -> String = { it.author.orEmpty() },
+        ): WatchNowPlaying = WatchNowPlaying(
             id = item.relativePath ?: item.uuid,
             title = item.title,
-            author = item.author.orEmpty(),
+            author = formatAuthor(item),
             chapters = playable?.chapters.orEmpty().map { WatchChapter(it.title, it.start, it.index) },
         )
 

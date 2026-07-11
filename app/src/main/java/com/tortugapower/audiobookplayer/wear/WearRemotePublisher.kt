@@ -101,6 +101,10 @@ object WearRemotePublisher {
             current = PlaybackManager.currentPlayable.value,
             rewindInterval = PlaybackManager.rewindInterval.value,
             forwardInterval = PlaybackManager.forwardInterval.value,
+            // Localize container counts ("N Chapters") before they leave the phone.
+            formatAuthor = {
+                com.tortugapower.audiobookplayer.logic.LibraryContentsSync.displayDetails(appContext, it.type, it.author) ?: ""
+            },
         )
         put(WearDataLayer.PATH_LIBRARY_STATE, WatchRemoteCodec.encodeLibraryState(state))
     }

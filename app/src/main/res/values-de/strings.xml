@@ -232,14 +232,6 @@
         <item quantity="one">%1$d Tag</item>
         <item quantity="other">%1$d Tage</item>
     </plurals>
-    <plurals name="library_folder_item_count">
-        <item quantity="one">1 Datei</item>
-        <item quantity="other">%1$d Dateien</item>
-    </plurals>
-    <plurals name="library_bound_chapter_count">
-        <item quantity="one">1 Kapitel</item>
-        <item quantity="other">%1$d Kapitel</item>
-    </plurals>
     <plurals name="profile_unit_months">
         <item quantity="one">%1$d Monat</item>
         <item quantity="other">%1$d Monate</item>

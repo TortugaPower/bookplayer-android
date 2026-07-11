@@ -8,4 +8,10 @@
     <string name="playback_source_file_system">ファイルシステム</string>
     <string name="playback_source_external_resource">外部リソース</string>
     <string name="playback_source_server_url">サーバーURL</string>
+    <plurals name="library_folder_item_count">
+        <item quantity="other">%1$d 個のファイル</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="other">%1$d 章</item>
+    </plurals>
 </resources>

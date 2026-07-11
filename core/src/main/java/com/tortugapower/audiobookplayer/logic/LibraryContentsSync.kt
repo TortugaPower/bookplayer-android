@@ -146,6 +146,23 @@ object LibraryContentsSync {
     }
 
     /**
+     * Localized display form of a container's bare-count `author` for EVERY render surface —
+     * library rows, mini player, widgets, Android Auto browse, the Wear remote payload, and the
+     * watch's own standalone list — so they can't drift. Non-containers and non-numeric legacy
+     * values pass through unchanged.
+     */
+    fun displayDetails(context: android.content.Context, type: ItemType, author: String?): String? {
+        if (type != ItemType.FOLDER && type != ItemType.BOUND) return author
+        val count = author?.toIntOrNull() ?: return author
+        val plural = if (type == ItemType.BOUND) {
+            com.tortugapower.audiobookplayer.core.R.plurals.library_bound_chapter_count
+        } else {
+            com.tortugapower.audiobookplayer.core.R.plurals.library_folder_item_count
+        }
+        return context.resources.getQuantityString(plural, count, count)
+    }
+
+    /**
      * Server-facing `details` for an item at push time: containers translate their bare-count
      * `author` into the display string the server/iOS expect ("N Files" / "N Chapters" — the format
      * Android always pushed); everything else (books, non-numeric legacy values) passes through.

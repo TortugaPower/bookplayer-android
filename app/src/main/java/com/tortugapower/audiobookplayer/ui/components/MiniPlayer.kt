@@ -64,16 +64,13 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
     val rewindInterval by PlaybackManager.rewindInterval.collectAsStateWithLifecycle()
 
     val title = currentItem.title
-    // A BOUND book's `author` is the bare chapter count (canonical local format,
-    // LibraryContentsSync.recomputeFolder) — localize it like the library row does.
-    val boundChapterCount = currentItem.author?.toIntOrNull()
-        ?.takeIf { currentItem.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND }
-    val author = when {
-        boundChapterCount != null ->
-            androidx.compose.ui.res.pluralStringResource(R.plurals.library_bound_chapter_count, boundChapterCount, boundChapterCount)
-        currentItem.author.isNullOrBlank() -> stringResource(R.string.library_unknown_author)
-        else -> currentItem.author!!
-    }
+    // Containers store a bare child count as `author` — the shared helper localizes it
+    // ("N Chapters"); books pass through, blanks fall back to "Unknown author".
+    val localContext = LocalContext.current
+    val author = com.tortugapower.audiobookplayer.logic.LibraryContentsSync
+        .displayDetails(localContext, currentItem.type, currentItem.author)
+        ?.takeIf { it.isNotBlank() }
+        ?: stringResource(R.string.library_unknown_author)
     // Combined VoiceOver-equivalent label, mirroring iOS's "Currently playing X by Y".
     val nowPlayingLabel = stringResource(R.string.miniplayer_now_playing, title, author)
     val showPlayerLabel = stringResource(R.string.miniplayer_show_player)

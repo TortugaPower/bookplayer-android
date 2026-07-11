@@ -182,14 +182,11 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
         // 1. Setup now playing details
         if (currentBook != null) {
             views.setTextViewText(R.id.widget_title, currentBook.title)
-            // A BOUND book's `author` is the bare chapter count — localize it (same rule as the library row).
-            val boundCount = currentBook.author?.toIntOrNull()
-                ?.takeIf { currentBook.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND }
-            val authorText = when {
-                boundCount != null -> context.resources.getQuantityString(R.plurals.library_bound_chapter_count, boundCount, boundCount)
-                currentBook.author.isNullOrBlank() -> context.getString(R.string.library_unknown_author)
-                else -> currentBook.author
-            }
+            // Shared helper localizes a container's bare-count author ("N Chapters").
+            val authorText = com.tortugapower.audiobookplayer.logic.LibraryContentsSync
+                .displayDetails(context, currentBook.type, currentBook.author)
+                ?.takeIf { it.isNotBlank() }
+                ?: context.getString(R.string.library_unknown_author)
             views.setTextViewText(R.id.widget_author, authorText)
             views.setTextColor(R.id.widget_title, colors.textColorPrimary)
             views.setTextColor(R.id.widget_author, colors.textColorSecondary)

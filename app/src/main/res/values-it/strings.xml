@@ -232,14 +232,6 @@
         <item quantity="one">%1$d giorno</item>
         <item quantity="other">%1$d giorni</item>
     </plurals>
-    <plurals name="library_folder_item_count">
-        <item quantity="one">1 file</item>
-        <item quantity="other">%1$d file</item>
-    </plurals>
-    <plurals name="library_bound_chapter_count">
-        <item quantity="one">1 capitolo</item>
-        <item quantity="other">%1$d capitoli</item>
-    </plurals>
     <plurals name="profile_unit_months">
         <item quantity="one">%1$d mese</item>
         <item quantity="other">%1$d mesi</item>

@@ -1342,22 +1342,13 @@ fun LibraryListItem(
         if (h > 0) stringResource(R.string.duration_hms, h, m, s) else stringResource(R.string.duration_ms, m, s)
     } else ""
 
-    val authorText = if (item.author.isNullOrBlank()) {
-        if (item.type == ItemType.FOLDER) stringResource(R.string.library_folder_empty) 
-        else stringResource(R.string.library_unknown_author)
-    } else {
-        val count = item.author!!.toIntOrNull()
-        if (count != null && (item.type == ItemType.FOLDER || item.type == ItemType.BOUND)) {
-            if (item.type == ItemType.FOLDER) {
-                if (count == 0) stringResource(R.string.library_folder_empty)
-                else pluralStringResource(R.plurals.library_folder_item_count, count, count)
-            } else {
-                pluralStringResource(R.plurals.library_bound_chapter_count, count, count)
-            }
-        } else {
-            item.author!!
-        }
-    }
+    // Shared helper localizes container bare counts ("N Files"/"N Chapters" — every surface uses
+    // the same mapping); blanks fall back per type.
+    val authorText = com.tortugapower.audiobookplayer.logic.LibraryContentsSync
+        .displayDetails(context, item.type, item.author)
+        ?.takeIf { it.isNotBlank() }
+        ?: if (item.type == ItemType.FOLDER) stringResource(R.string.library_folder_empty)
+           else stringResource(R.string.library_unknown_author)
 
     val progressText = if (item.isFinished) {
         stringResource(R.string.common_completed)

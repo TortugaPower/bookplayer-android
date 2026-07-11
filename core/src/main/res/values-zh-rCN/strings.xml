@@ -8,4 +8,10 @@
     <string name="playback_source_file_system">文件系统</string>
     <string name="playback_source_external_resource">外部资源</string>
     <string name="playback_source_server_url">服务器网址</string>
+    <plurals name="library_folder_item_count">
+        <item quantity="other">%1$d 个文件</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="other">%1$d 章节</item>
+    </plurals>
 </resources>

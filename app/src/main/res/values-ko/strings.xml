@@ -232,12 +232,6 @@
     <plurals name="profile_unit_days">
         <item quantity="other">%1$d일</item>
     </plurals>
-    <plurals name="library_folder_item_count">
-        <item quantity="other">%1$d개 파일</item>
-    </plurals>
-    <plurals name="library_bound_chapter_count">
-        <item quantity="other">%1$d개 장</item>
-    </plurals>
     <plurals name="profile_unit_months">
         <item quantity="other">%1$d개월</item>
     </plurals>

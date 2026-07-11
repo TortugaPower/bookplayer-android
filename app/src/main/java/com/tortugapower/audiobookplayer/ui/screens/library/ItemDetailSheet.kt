@@ -30,7 +30,12 @@ fun ItemDetailSheet(
 ) {
     val context = LocalContext.current
     var title by remember { mutableStateOf(item.title) }
-    var author by remember { mutableStateOf(item.author ?: "") }
+    // Containers store a bare child count as `author` — show the localized form ("3 Chapters"), not "3".
+    var author by remember {
+        mutableStateOf(
+            com.tortugapower.audiobookplayer.logic.LibraryContentsSync.displayDetails(context, item.type, item.author) ?: ""
+        )
+    }
     var artworkURL by remember { mutableStateOf(item.artworkURL) }
     
     val navController = rememberNavController()

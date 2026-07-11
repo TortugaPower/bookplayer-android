@@ -11,4 +11,12 @@
     <string name="playback_source_file_system">file system</string>
     <string name="playback_source_external_resource">external resource</string>
     <string name="playback_source_server_url">server url</string>
+    <plurals name="library_folder_item_count">
+        <item quantity="one">1 File</item>
+        <item quantity="other">%1$d Files</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="one">1 Chapter</item>
+        <item quantity="other">%1$d Chapters</item>
+    </plurals>
 </resources>

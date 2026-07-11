@@ -17,8 +17,12 @@ object WearStateBuilder {
         current: PlayableItem?,
         rewindInterval: Int,
         forwardInterval: Int,
+        // Containers store a bare child count as `author`; the publisher passes the localizing
+        // formatter (LibraryContentsSync.displayDetails) so the watch's remote list matches the
+        // phone's library row. Defaulted so the pure mapping stays unit-testable without Android.
+        formatAuthor: (LibraryItemEntity) -> String = { it.author ?: "" },
     ): WatchLibraryState = WatchLibraryState(
-        recentItems = hoistCurrentFirst(recent.map { it.toWatchItem() }, current),
+        recentItems = hoistCurrentFirst(recent.map { it.toWatchItem(formatAuthor) }, current),
         currentItem = current?.toWatchNowPlaying(),
         rewindInterval = rewindInterval,
         forwardInterval = forwardInterval,
@@ -37,8 +41,8 @@ object WearStateBuilder {
     // Id is relativePath when present, else the uuid — so cloud items not yet downloaded (no relativePath,
     // common for PRO users streaming) still appear and stay playable: the phone's PLAY handler resolves the
     // id by path first, then by uuid.
-    private fun LibraryItemEntity.toWatchItem(): WatchItem =
-        WatchItem(id = relativePath ?: uuid, title = title, author = author ?: "")
+    private fun LibraryItemEntity.toWatchItem(formatAuthor: (LibraryItemEntity) -> String): WatchItem =
+        WatchItem(id = relativePath ?: uuid, title = title, author = formatAuthor(this))
 
     private fun PlayableItem.toWatchNowPlaying(): WatchNowPlaying =
         WatchNowPlaying(
