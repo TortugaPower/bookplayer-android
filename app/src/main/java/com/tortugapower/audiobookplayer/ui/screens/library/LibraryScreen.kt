@@ -160,7 +160,6 @@ fun LibraryScreen(
     var showSearchScreen by remember { mutableStateOf(false) }
     var showCombineToVolumeDialog by remember { mutableStateOf(false) }
     var showAddFilesDialog by remember { mutableStateOf(false) }
-    var showDownloadFromUrlDialog by remember { mutableStateOf(false) }
     var showSwipeOptionsDialog by remember { mutableStateOf(false) }
     var itemForSwipeOptions by remember { mutableStateOf<LibraryItemEntity?>(null) }
 
@@ -474,7 +473,9 @@ fun LibraryScreen(
                     Button(
                         onClick = {
                             showAddFilesDialog = false
-                            showDownloadFromUrlDialog = true
+                            // The ONE download-from-URL dialog (URLUtil validation, canonical
+                            // fileNameFromUrl, and the full import staging pipeline).
+                            showDownloadUrlDialog = true
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -511,76 +512,6 @@ fun LibraryScreen(
         )
     }
 
-    if (showDownloadFromUrlDialog) {
-        var url by remember { mutableStateOf("") }
-        val focusRequester = remember { FocusRequester() }
-
-        LaunchedEffect(Unit) {
-            focusRequester.requestFocus()
-        }
-
-        // A real URL check, not just non-blank: Uri.parse never throws, so garbage would otherwise
-        // sail into ImportManager.startDownload and fail opaquely later.
-        val isValidUrl = remember(url) {
-            val uri = runCatching { android.net.Uri.parse(url.trim()) }.getOrNull()
-            (uri?.scheme == "http" || uri?.scheme == "https") && !uri.host.isNullOrBlank()
-        }
-        AlertDialog(
-            onDismissRequest = { showDownloadFromUrlDialog = false },
-            title = { Text(stringResource(R.string.library_download_from_url_title)) },
-            text = {
-                Column {
-                    Text(stringResource(R.string.library_download_from_url_message))
-                    Spacer(modifier = Modifier.height(16.dp))
-                    OutlinedTextField(
-                        value = url,
-                        onValueChange = { url = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focusRequester),
-                        placeholder = { Text(stringResource(R.string.library_download_from_url_placeholder)) },
-                        singleLine = true,
-                        isError = url.isNotBlank() && !isValidUrl,
-                        supportingText = if (url.isNotBlank() && !isValidUrl) {
-                            { Text(stringResource(R.string.library_download_url_error)) }
-                        } else null
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showDownloadFromUrlDialog = false
-                        if (isValidUrl) {
-                            val trimmed = url.trim()
-                            val uri = android.net.Uri.parse(trimmed)
-                            val fileName = uri.lastPathSegment ?: "downloaded_file.mp3"
-                            ImportManager.startDownload(
-                                context = context,
-                                url = trimmed,
-                                fileName = fileName,
-                                headers = null,
-                                providerName = null,
-                                providerId = null,
-                                hostId = null
-                            )
-                        }
-                    },
-                    enabled = isValidUrl
-                ) {
-                    Text(stringResource(R.string.common_download))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDownloadFromUrlDialog = false }) {
-                    Text(stringResource(R.string.common_cancel))
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.surface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
 
     if (showSwipeOptionsDialog && itemForSwipeOptions != null) {
         val item = itemForSwipeOptions!!
