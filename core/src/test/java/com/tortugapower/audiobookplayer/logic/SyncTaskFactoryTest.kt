@@ -74,6 +74,25 @@ class SyncTaskFactoryTest {
         assertEquals(null, payloadOf(repo.saved!!)["lastPlayDateTimestamp"])
     }
 
+    @Test fun updateTask_clearedLastPlayDate_sendsExplicitZero() = runBlocking {
+        val repo = CapturingRepo()
+        // Bound-volume conversions clear lastPlayDate on purpose; iOS pushes an explicit 0 so the
+        // server drops its stale value instead of keeping it (null would be omitted by Gson).
+        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null), clearedLastPlayDate = true)
+        assertEquals(0.0, (payloadOf(repo.saved!!)["lastPlayDateTimestamp"] as Number).toDouble(), 0.0)
+    }
+
+    @Test fun shallowDeleteTask_syncQueue_carriesPathAndUuid() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createShallowDeleteTask(repo, item(lastPlayDateMs = null))
+
+        val task = repo.saved!!
+        assertEquals(SyncTaskFactory.QUEUE_SYNC, task.queueKey)
+        assertEquals(SyncTaskFactory.JOB_DELETE_SHALLOW, task.jobType)
+        // Gson drops null values, so relativePath only appears when the item has one.
+        assertEquals("u1", payloadOf(task)["uuid"])
+    }
+
     @Test fun uploadStreamFileTask_ownQueue_noFrozenUrl_dedupedByUuid() = runBlocking {
         val repo = CapturingRepo()
         SyncTaskFactory.createUploadStreamFileTask(repo, item(lastPlayDateMs = null))

@@ -170,8 +170,6 @@
     <string name="library_unknown_author">अज्ञात लेखक</string>
     <string name="library_unknown_title">अज्ञात शीर्षक</string>
     <string name="library_convert_to_folder">Convert to folder</string>
-    <string name="library_convert_to_volume">Convert to volume</string>
-    <string name="library_open_folder">फ़ोल्डर खोलें</string>
     <string name="library_edit_book_title">पुस्तक संपादित करें</string>
     <string name="library_title_placeholder">शीर्षक</string>
     <string name="library_author_placeholder">लेखक</string>
@@ -403,15 +401,11 @@
     <string name="shortcut_play_item_desc">%1$s चलाएं</string>
     <string name="shortcut_pin_failed">होम स्क्रीन पर शॉर्टकट नहीं जोड़ा जा सका</string>
 
-    <string name="library_play_from_beginning">शुरुआत से चलाएं</string>
     <string name="library_add_shortcut">शॉर्टकट जोड़ें</string>
     <string name="library_add_files">फ़ाइलें जोड़ें</string>
     <string name="library_add_files_dialog_title">फ़ाइलें जोड़ें</string>
     <string name="library_add_files_option_import">फ़ाइलें आयात करें</string>
     <string name="library_download_from_url">URL से डाउनलोड करें</string>
-    <string name="library_download_from_url_title">URL से डाउनलोड करें</string>
-    <string name="library_download_from_url_message">डाउनलोड करने के लिए ऑडियो फ़ाइल का URL दर्ज करें:</string>
-    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">प्लेबैक सेटिंग्स</string>
     <string name="settings_autoplay_label">ऑटोप्ले</string>
     <string name="settings_autoplay_library">लाइब्रेरी ऑटोप्ले</string>

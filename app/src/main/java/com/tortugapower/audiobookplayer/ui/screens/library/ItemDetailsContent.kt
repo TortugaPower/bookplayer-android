@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager
 import com.tortugapower.audiobookplayer.network.HardcoverBook
@@ -308,9 +309,10 @@ fun ItemDetailsContent(
             }
         }
 
-        // Hardcover Section (Only shown if token is set)
+        // Hardcover Section (only for playable items with a token — folders can now open this
+        // sheet for renaming, and a Hardcover link makes no sense on a container)
         val token by HardcoverSettingsManager.getToken(context).collectAsState(initial = "")
-        if (token.isNotEmpty()) {
+        if (token.isNotEmpty() && (item.type == ItemType.BOOK || item.type == ItemType.BOUND)) {
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(

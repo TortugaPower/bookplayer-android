@@ -137,6 +137,17 @@ class SyncingLibraryRepository(
         }
     }
 
+    override suspend fun shallowDeleteFolder(context: Context, folder: LibraryItemEntity) {
+        val parents = parentPathsOf(listOf(folder))
+        delegate.shallowDeleteFolder(context, folder)
+        if (isSubscribed()) {
+            // ONE task: the server performs the move-children-to-root + folder removal atomically
+            // (folder_in_out), exactly like iOS's shallowDelete job — no per-child move tasks.
+            SyncTaskFactory.createShallowDeleteTask(syncTaskRepository, folder)
+            pushParentFolderMetadata(parents)
+        }
+    }
+
     override suspend fun moveItems(context: Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {
         // Capture the source parents BEFORE the delegate mutates each item's relativePath in place.
         val sourceParents = parentPathsOf(items)
@@ -159,16 +170,25 @@ class SyncingLibraryRepository(
         delegate.convertVolumesToFolders(items)
         if (isSubscribed()) {
             items.forEach { item ->
-                SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
+                // The delegate cleared the ex-volume's lastPlayDate — push the explicit 0 (iOS parity).
+                SyncTaskFactory.createUpdateTask(syncTaskRepository, item, clearedLastPlayDate = true)
             }
         }
     }
 
     override suspend fun convertFoldersToVolumes(context: Context, items: List<LibraryItemEntity>) {
+        // A failed validation (BoundConversionException) propagates to the caller — no tasks enqueued.
         delegate.convertFoldersToVolumes(context, items)
         if (isSubscribed()) {
             items.forEach { item ->
                 SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
+                // The delegate cleared each book's lastPlayDate — push those too (iOS parity:
+                // updateFolder(.bound) sends a lastPlayDate: 0 metadata update per child).
+                item.relativePath?.let { path ->
+                    delegate.getItemsInPathSync(path).forEach { child ->
+                        SyncTaskFactory.createUpdateTask(syncTaskRepository, child, clearedLastPlayDate = true)
+                    }
+                }
             }
         }
     }

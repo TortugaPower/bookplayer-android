@@ -171,10 +171,8 @@
     <string name="library_unknown_author">Auteur inconnu</string>
     <string name="library_unknown_title">Titre inconnu</string>
     <string name="library_convert_to_folder">Convertir en dossier</string>
-    <string name="library_convert_to_volume">Convertir en volume</string>
     <string name="library_combine_to_volume">Créer un volume</string>
     <string name="library_combine_to_volume_desc">Assurez-vous que les éléments sont dans le bon ordre. Pour réorganiser les chapitres plus tard, vous devrez reconvertir le volume en dossier, réorganiser les éléments, puis recréer le volume.</string>
-    <string name="library_open_folder">Ouvrir le dossier</string>
     <string name="library_edit_book_title">Modifier le livre</string>
     <string name="library_title_placeholder">Titre</string>
     <string name="library_author_placeholder">Auteur</string>
@@ -403,15 +401,11 @@
     <string name="shortcut_play_item_desc">Lire %1$s</string>
     <string name="shortcut_pin_failed">Impossible d\'ajouter le raccourci à l\'écran d\'accueil</string>
 
-    <string name="library_play_from_beginning">Lire depuis le début</string>
     <string name="library_add_shortcut">Ajouter un raccourci</string>
     <string name="library_add_files">Ajouter des fichiers</string>
     <string name="library_add_files_dialog_title">Ajouter des fichiers</string>
     <string name="library_add_files_option_import">Importer des fichiers</string>
     <string name="library_download_from_url">Télécharger depuis une URL</string>
-    <string name="library_download_from_url_title">Télécharger depuis une URL</string>
-    <string name="library_download_from_url_message">Saisissez l\'URL du fichier audio à télécharger :</string>
-    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">Paramètres de lecture</string>
     <string name="settings_autoplay_label">Lecture automatique</string>
     <string name="settings_autoplay_library">Lecture automatique de la bibliothèque</string>

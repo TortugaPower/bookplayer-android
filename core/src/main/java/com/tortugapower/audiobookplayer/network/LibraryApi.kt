@@ -44,6 +44,11 @@ interface LibraryApi {
     @HTTP(method = "DELETE", path = "/v1/library", hasBody = true)
     suspend fun deleteItem(@Body params: Map<String, Any?>): Response<Unit>
 
+    // Shallow folder delete (iOS's shallowDelete job): server moves the folder's contents back to
+    // the library root and removes the folder.
+    @HTTP(method = "DELETE", path = "/v1/library/folder_in_out", hasBody = true)
+    suspend fun shallowDeleteFolder(@Body params: Map<String, Any?>): Response<Unit>
+
     @GET("/v1/library/bookmarks")
     suspend fun getBookmarks(
         @Query("relativePath") path: String,

@@ -170,8 +170,6 @@
     <string name="library_unknown_author">مؤلف غير معروف</string>
     <string name="library_unknown_title">عنوان غير معروف</string>
     <string name="library_convert_to_folder">Convert to folder</string>
-    <string name="library_convert_to_volume">Convert to volume</string>
-    <string name="library_open_folder">فتح المجلد</string>
     <string name="library_edit_book_title">تعديل الكتاب</string>
     <string name="library_title_placeholder">العنوان</string>
     <string name="library_author_placeholder">المؤلف</string>
@@ -415,15 +413,11 @@
     <string name="shortcut_play_item_desc">شغّل %1$s</string>
     <string name="shortcut_pin_failed">تعذّرت إضافة الاختصار إلى الشاشة الرئيسية</string>
 
-    <string name="library_play_from_beginning">التشغيل من البداية</string>
     <string name="library_add_shortcut">إضافة اختصار</string>
     <string name="library_add_files">إضافة ملفات</string>
     <string name="library_add_files_dialog_title">إضافة ملفات</string>
     <string name="library_add_files_option_import">استيراد ملفات</string>
     <string name="library_download_from_url">تنزيل من رابط URL</string>
-    <string name="library_download_from_url_title">تنزيل من رابط URL</string>
-    <string name="library_download_from_url_message">أدخل رابط URL الخاص بملف الصوت لتنزيله:</string>
-    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">إعدادات التشغيل</string>
     <string name="settings_autoplay_label">التشغيل التلقائي</string>
     <string name="settings_autoplay_library">تشغيل المكتبة تلقائيًا</string>

@@ -32,6 +32,8 @@ import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.hasQueuedUploadTask
+import com.tortugapower.audiobookplayer.logic.removeLocalFile
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
@@ -122,10 +124,7 @@ fun StorageManagementScreen(
                                 // iOS parity: a pending/running upload for this book means the file
                                 // hasn't reached the cloud — escalate to the upload warning instead
                                 // of silently destroying the only copy.
-                                val hasUploadTask = syncTaskRepository.getAllTasks().first().any {
-                                    it.jobType == com.tortugapower.audiobookplayer.logic.SyncTaskFactory.JOB_UPLOAD_FILE &&
-                                        it.taskID == item.uuid
-                                }
+                                val hasUploadTask = hasQueuedUploadTask(syncTaskRepository, item.uuid)
                                 itemToDelete = null
                                 if (hasUploadTask) {
                                     uploadWarningItem = item
@@ -412,56 +411,3 @@ private data class StorageStats(
     val totalSpace: Long = 0L,
     val artworkSpace: Long = 0L
 )
-
-suspend fun removeLocalFile(context: Context, repository: LibraryRepository, item: LibraryItemEntity) {
-    // If this book (or the BOUND book containing it) is loaded, stop playback and release the
-    // file before deleting it, so ExoPlayer doesn't stall on a vanished data source.
-    val current = PlaybackManager.currentItem.value
-    val backsCurrentPlayback = current != null && (
-        current.uuid == item.uuid ||
-            (current.type == ItemType.BOUND && !current.relativePath.isNullOrEmpty() &&
-                item.relativePath?.startsWith(current.relativePath + "/") == true)
-        )
-    if (backsCurrentPlayback) {
-        withContext(Dispatchers.Main) { PlaybackManager.stopAndUnloadCurrentItem(context) }
-    }
-
-    withContext(Dispatchers.IO) {
-        val processedDir = File(context.filesDir, "Processed")
-        val relativePath = item.relativePath
-        if (!relativePath.isNullOrEmpty()) {
-            val file = File(processedDir, relativePath)
-            if (file.exists()) {
-                if (file.isDirectory) {
-                    file.deleteRecursively()
-                } else {
-                    file.delete()
-                }
-            }
-        }
-        
-        val db = AppDatabase.getDatabase(context)
-        val extResources = db.libraryDao().getExternalResourcesForBookSync(item.uuid)
-
-        // OFFLOAD semantics in every case: the file is gone (deleted above) but the library row
-        // always survives, so the book stays in the library as a not-downloaded item (cloud badge
-        // for subscribers, "audio not on this device" for free/signed-out) instead of vanishing
-        // until the next fetch happens to re-insert it. Nothing is ever deleted server-side from
-        // here (plain repository — no delete task).
-        if (extResources.isNotEmpty()) {
-            // External items also clear relativePath and revert their resource to "stream": their
-            // playback URL is rebuilt from hostId+providerId, not the path.
-            item.relativePath = null
-            repository.updateItem(item)
-            extResources.forEach { resource ->
-                if (resource.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED) {
-                    // Through the DAO (REPLACE): repository.saveExternalResource early-returns when a
-                    // resource with the same providerId exists, silently dropping the status flip.
-                    db.libraryDao().insertExternalResource(resource.copy(syncStatus = ExternalResourceEntity.STATUS_STREAM))
-                }
-            }
-        }
-        // Cloud/local rows keep relativePath untouched — it's the item's identity on the server and
-        // in the play/download paths; the row's "not downloaded" state is pure disk truth.
-    }
-}

@@ -85,9 +85,6 @@ class RoomLibraryRepository(
         return if (path == null) libraryDao.getRootFolders() else libraryDao.getFoldersInPath(path)
     }
 
-    override fun getAllContainers(): Flow<List<LibraryItemEntity>> =
-        libraryDao.getAllContainers()
-
     override fun searchBooks(query: String): Flow<List<LibraryItemEntity>> =
         libraryDao.searchBooksWithResources(query).map { list ->
             list.map { wrapper ->
@@ -273,10 +270,39 @@ class RoomLibraryRepository(
                 item.orderRank = nextRank++
                 libraryDao.updateItem(item)
 
+                // Moving a container also moves everything under it on disk (the renameTo above),
+                // so every DESCENDANT row's path must be rewritten to the new prefix — otherwise
+                // the children keep pointing at the old location and become unplayable.
+                if (item.type == ItemType.FOLDER || item.type == ItemType.BOUND) {
+                    libraryDao.getDescendantsOfPath(oldPath).forEach { descendant ->
+                        descendant.relativePath = descendant.relativePath?.replaceFirst(oldPath, newPath)
+                        libraryDao.updateItem(descendant)
+                    }
+                }
+
                 // 3. Update parents for both old and new paths
                 updateParentFolders(previousPath)
                 updateParentFolders(newPath)
             }
+        }
+    }
+
+    override suspend fun shallowDeleteFolder(context: Context, folder: LibraryItemEntity) {
+        withContext(Dispatchers.IO) {
+            val folderPath = folder.relativePath ?: return@withContext
+            val processedDir = File(context.filesDir, "Processed")
+
+            // Move DIRECT children back to the library root. moveItems handles the file move, the
+            // child row's path, and parent recomputes — but not the DB paths of a moved
+            // sub-container's descendants, so rewrite those prefixes here.
+            // moveItems handles files, the child rows, AND (now) descendant-path rewriting for
+            // moved sub-containers.
+            moveItems(context, libraryDao.getItemsInPathSync(folderPath), targetFolderPath = null)
+
+            // The folder is now empty: remove its directory and its row.
+            File(processedDir, folderPath).takeIf { it.exists() }?.deleteRecursively()
+            libraryDao.deleteItem(folder)
+            com.tortugapower.audiobookplayer.logic.LibraryContentsSync.updateParentFolders(libraryDao, folderPath)
         }
     }
 
@@ -342,6 +368,9 @@ class RoomLibraryRepository(
             items.forEach { item ->
                 if (item.type == ItemType.BOUND) {
                     item.type = ItemType.FOLDER
+                    // A folder doesn't carry the volume's played-as-one-unit recency (iOS parity:
+                    // updateFolder(.folder) nils lastPlayDate).
+                    item.lastPlayDate = null
                     // Bare count (canonical local format); FOLDER vs BOUND wording is render-time.
                     item.author = libraryDao.getItemsInPathSync(item.relativePath ?: "").size.toString()
                     libraryDao.updateItem(item)
@@ -355,9 +384,24 @@ class RoomLibraryRepository(
         withContext(Dispatchers.IO) {
             items.forEach { item ->
                 if (item.type == ItemType.FOLDER) {
+                    // iOS parity (LibraryService.updateFolder(.bound)): a bound volume may only
+                    // contain books, and never nothing. Validate BEFORE mutating anything.
+                    val children = libraryDao.getItemsInPathSync(item.relativePath ?: "")
+                    if (children.isEmpty()) {
+                        throw BoundConversionException(BoundConversionException.Reason.EMPTY_FOLDER)
+                    }
+                    if (children.any { it.type != ItemType.BOOK }) {
+                        throw BoundConversionException(BoundConversionException.Reason.NOT_ONLY_BOOKS)
+                    }
+                    // The volume tracks recency as one unit — clear the books' own lastPlayDate
+                    // (iOS parity: updateFolder(.bound) nils each child's).
+                    children.forEach { child ->
+                        child.lastPlayDate = null
+                        libraryDao.updateItem(child)
+                    }
                     item.type = ItemType.BOUND
                     // Bare count (canonical local format); FOLDER vs BOUND wording is render-time.
-                    item.author = libraryDao.getItemsInPathSync(item.relativePath ?: "").size.toString()
+                    item.author = children.size.toString()
                     libraryDao.updateItem(item)
                     updateParentFolders(item.relativePath)
                 }

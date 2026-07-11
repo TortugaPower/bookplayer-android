@@ -7,6 +7,7 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
+import com.tortugapower.audiobookplayer.logic.removeLocalFile
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals

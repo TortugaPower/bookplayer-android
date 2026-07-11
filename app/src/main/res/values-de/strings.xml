@@ -171,10 +171,8 @@
     <string name="library_unknown_author">Unbekannter Autor</string>
     <string name="library_unknown_title">Unbekannter Titel</string>
     <string name="library_convert_to_folder">In Ordner umwandeln</string>
-    <string name="library_convert_to_volume">In Volume umwandeln</string>
     <string name="library_combine_to_volume">Ein Volume erstellen</string>
     <string name="library_combine_to_volume_desc">Stellen Sie sicher, dass die Elemente in der richtigen Reihenfolge sind. Um Kapitel später neu zu ordnen, müssen Sie das Volume wieder in einen Ordner umwandeln, die Elemente neu ordnen und dann das Volume neu erstellen.</string>
-    <string name="library_open_folder">Ordner öffnen</string>
     <string name="library_edit_book_title">Buch bearbeiten</string>
     <string name="library_title_placeholder">Titel</string>
     <string name="library_author_placeholder">Autor</string>
@@ -403,15 +401,11 @@
     <string name="shortcut_play_item_desc">%1$s abspielen</string>
     <string name="shortcut_pin_failed">Verknüpfung konnte nicht zum Startbildschirm hinzugefügt werden</string>
 
-    <string name="library_play_from_beginning">Von Anfang an abspielen</string>
     <string name="library_add_shortcut">Verknüpfung hinzufügen</string>
     <string name="library_add_files">Dateien hinzufügen</string>
     <string name="library_add_files_dialog_title">Dateien hinzufügen</string>
     <string name="library_add_files_option_import">Dateien importieren</string>
     <string name="library_download_from_url">Von URL herunterladen</string>
-    <string name="library_download_from_url_title">Von URL herunterladen</string>
-    <string name="library_download_from_url_message">Geben Sie die URL der Audiodatei ein, die heruntergeladen werden soll:</string>
-    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
     <string name="settings_playback_section">Wiedergabe-Einstellungen</string>
     <string name="settings_autoplay_label">Automatische Wiedergabe</string>
     <string name="settings_autoplay_library">Bibliothek automatisch abspielen</string>

@@ -166,16 +166,13 @@
     <string name="library_delete_folder_warning">\n\nNota: Eliminar una carpeta también eliminará todo su contenido.</string>
     <string name="library_empty_message">Tu biblioteca está vacía</string>
     <string name="library_see_details">Ver detalles</string>
-    <string name="library_play_from_beginning">Reproducir desde el principio</string>
     <string name="library_view_style">Estilo de vista</string>
     <string name="library_folder_empty">0 archivos</string>
     <string name="library_unknown_author">Autor desconocido</string>
     <string name="library_unknown_title">Título desconocido</string>
     <string name="library_convert_to_folder">Convertir en carpeta</string>
-    <string name="library_convert_to_volume">Convertir en volumen</string>
     <string name="library_combine_to_volume">Crear un volumen</string>
     <string name="library_combine_to_volume_desc">Asegúrate de que los elementos estén en el orden correcto. Para reordenar los capítulos más tarde, deberás volver a convertir el volumen en una carpeta, reordenar los elementos y luego volver a crear el volumen.</string>
-    <string name="library_open_folder">Abrir carpeta</string>
     <string name="library_edit_book_title">Editar libro</string>
     <string name="library_title_placeholder">Título</string>
     <string name="library_author_placeholder">Autor</string>
@@ -189,9 +186,6 @@
     <string name="library_add_files_dialog_title">Añadir archivos</string>
     <string name="library_add_files_option_import">Importar archivos</string>
     <string name="library_download_from_url">Descargar desde URL</string>
-    <string name="library_download_from_url_title">Descargar desde URL</string>
-    <string name="library_download_from_url_message">Introduce la URL del archivo de audio a descargar:</string>
-    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
 
     <!-- Import -->
     <string name="import_title">Importar</string>
