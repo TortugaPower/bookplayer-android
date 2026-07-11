@@ -402,4 +402,23 @@
     <string name="library_add_shortcut_to_home_screen">होम स्क्रीन पर शॉर्टकट जोड़ें</string>
     <string name="shortcut_play_item_desc">%1$s चलाएं</string>
     <string name="shortcut_pin_failed">होम स्क्रीन पर शॉर्टकट नहीं जोड़ा जा सका</string>
+
+    <string name="library_play_from_beginning">शुरुआत से चलाएं</string>
+    <string name="library_add_shortcut">शॉर्टकट जोड़ें</string>
+    <string name="library_add_files">फ़ाइलें जोड़ें</string>
+    <string name="library_add_files_dialog_title">फ़ाइलें जोड़ें</string>
+    <string name="library_add_files_option_import">फ़ाइलें आयात करें</string>
+    <string name="library_download_from_url">URL से डाउनलोड करें</string>
+    <string name="library_download_from_url_title">URL से डाउनलोड करें</string>
+    <string name="library_download_from_url_message">डाउनलोड करने के लिए ऑडियो फ़ाइल का URL दर्ज करें:</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
+    <string name="settings_playback_section">प्लेबैक सेटिंग्स</string>
+    <string name="settings_autoplay_label">ऑटोप्ले</string>
+    <string name="settings_autoplay_library">लाइब्रेरी ऑटोप्ले</string>
+    <string name="settings_autoplay_restart_finished">पूरी हो चुकी पुस्तकों को फिर से शुरू करें</string>
+    <string name="settings_autoplay_desc">एक ऑडियोबुक समाप्त होने के बाद, प्लेबैक लाइब्रेरी के सभी आइटमों (फ़ोल्डरों के आइटम सहित) के साथ फिर से शुरू होगा।</string>
+    <string name="settings_autolock_label">ऑटो लॉक</string>
+    <string name="settings_disable_autolock">ऑटो लॉक अक्षम करें</string>
+    <string name="settings_autolock_only_on_power">केवल पावर से कनेक्ट होने पर</string>
+    <string name="settings_autolock_desc">प्लेयर स्क्रीन पर होने पर डिवाइस को लॉक होने से रोकें।</string>
 </resources>

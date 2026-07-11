@@ -5,10 +5,12 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import android.content.Context
 import android.text.format.Formatter
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -35,6 +37,7 @@ import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -53,6 +56,7 @@ fun StorageManagementScreen(
     
     val database = remember { AppDatabase.getDatabase(context) }
     val repository = remember { RoomLibraryRepository(context.applicationContext, database.libraryDao()) }
+    val syncTaskRepository = remember { com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository(database.syncTaskDao()) }
 
     val booksFlow = remember { repository.searchBooks("") }
     val books by booksFlow.collectAsState(initial = emptyList())
@@ -63,6 +67,9 @@ fun StorageManagementScreen(
     var sortBy by remember { mutableStateOf(SortType.SIZE) }
     var showSortMenu by remember { mutableStateOf(false) }
     var itemToDelete by remember { mutableStateOf<LibraryItemEntity?>(null) }
+    // iOS parity (StorageViewModel.checkAndDeleteSelectedItem): a file with a queued upload task
+    // gets an extra warning — removing it means the app can never upload it.
+    var uploadWarningItem by remember { mutableStateOf<LibraryItemEntity?>(null) }
 
     // Directory walks and per-file stat calls are disk IO — computed off the main thread and
     // re-run whenever the library flow emits (removals update the DB, which re-triggers this).
@@ -112,8 +119,19 @@ fun StorageManagementScreen(
                         val item = itemToDelete
                         if (item != null) {
                             scope.launch {
-                                removeLocalFile(context, repository, item)
+                                // iOS parity: a pending/running upload for this book means the file
+                                // hasn't reached the cloud — escalate to the upload warning instead
+                                // of silently destroying the only copy.
+                                val hasUploadTask = syncTaskRepository.getAllTasks().first().any {
+                                    it.jobType == com.tortugapower.audiobookplayer.logic.SyncTaskFactory.JOB_UPLOAD_FILE &&
+                                        it.taskID == item.uuid
+                                }
                                 itemToDelete = null
+                                if (hasUploadTask) {
+                                    uploadWarningItem = item
+                                } else {
+                                    removeLocalFile(context, repository, item)
+                                }
                             }
                         }
                     }
@@ -126,6 +144,35 @@ fun StorageManagementScreen(
             },
             dismissButton = {
                 TextButton(onClick = { itemToDelete = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
+    }
+
+    // iOS's uploadTaskAlert: Warning + "queued upload task for <title>" + destructive Remove.
+    uploadWarningItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { uploadWarningItem = null },
+            title = { Text(stringResource(R.string.storage_management_warning_title)) },
+            text = { Text(stringResource(R.string.storage_management_upload_queued_warning, item.title)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            removeLocalFile(context, repository, item)
+                            uploadWarningItem = null
+                        }
+                    }
+                ) {
+                    Text(
+                        text = stringResource(R.string.storage_management_remove_button),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { uploadWarningItem = null }) {
                     Text(stringResource(R.string.common_cancel))
                 }
             }
@@ -261,16 +308,41 @@ fun StorageManagementScreen(
                 )
             }
 
-            items(sortedBooks, key = { it.first.uuid }) { (book, file) ->
-                val sizeStr = remember(stats, book.uuid) {
-                    Formatter.formatShortFileSize(context, stats.sizesByUuid[book.uuid] ?: 0L)
+            if (sortedBooks.isNotEmpty()) {
+                // One lazy slot per row (keyed) so large libraries stay virtualized — a single
+                // item{} wrapping every row composes them all eagerly. The continuous-card look is
+                // kept by rounding only the first/last rows and drawing dividers between.
+                itemsIndexed(sortedBooks, key = { _, (book, _) -> book.uuid }) { index, (book, file) ->
+                    val shape = when {
+                        sortedBooks.size == 1 -> RoundedCornerShape(12.dp)
+                        index == 0 -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+                        index == sortedBooks.size - 1 -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+                        else -> RoundedCornerShape(0.dp)
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(shape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    ) {
+                        val sizeStr = remember(stats, book.uuid) {
+                            Formatter.formatShortFileSize(context, stats.sizesByUuid[book.uuid] ?: 0L)
+                        }
+                        StorageFileListItem(
+                            title = book.title,
+                            fileName = book.originalFileName ?: file.name,
+                            sizeStr = sizeStr,
+                            onRemoveClick = { itemToDelete = book }
+                        )
+                        if (index < sortedBooks.size - 1) {
+                            HorizontalDivider(
+                                color = MaterialTheme.outlineVariantColor(),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
+                    }
                 }
-                StorageFileListItem(
-                    title = book.title,
-                    fileName = book.originalFileName ?: file.name,
-                    sizeStr = sizeStr,
-                    onRemoveClick = { itemToDelete = book }
-                )
             }
         }
     }
@@ -283,53 +355,47 @@ fun StorageFileListItem(
     sizeStr: String,
     onRemoveClick: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-        shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onRemoveClick) {
-                Icon(
-                    imageVector = Icons.Default.RemoveCircle,
-                    contentDescription = stringResource(R.string.storage_management_remove_button),
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
+        IconButton(onClick = onRemoveClick) {
+            Icon(
+                imageVector = Icons.Default.RemoveCircle,
+                contentDescription = stringResource(R.string.storage_management_remove_button),
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(28.dp)
+            )
+        }
 
-            Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(16.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = fileName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = sizeStr,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
-                )
-            }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = fileName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = sizeStr,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
         }
     }
 }
@@ -376,18 +442,26 @@ suspend fun removeLocalFile(context: Context, repository: LibraryRepository, ite
         
         val db = AppDatabase.getDatabase(context)
         val extResources = db.libraryDao().getExternalResourcesForBookSync(item.uuid)
-        
+
+        // OFFLOAD semantics in every case: the file is gone (deleted above) but the library row
+        // always survives, so the book stays in the library as a not-downloaded item (cloud badge
+        // for subscribers, "audio not on this device" for free/signed-out) instead of vanishing
+        // until the next fetch happens to re-insert it. Nothing is ever deleted server-side from
+        // here (plain repository — no delete task).
         if (extResources.isNotEmpty()) {
+            // External items also clear relativePath and revert their resource to "stream": their
+            // playback URL is rebuilt from hostId+providerId, not the path.
             item.relativePath = null
             repository.updateItem(item)
             extResources.forEach { resource ->
                 if (resource.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED) {
-                    val updatedResource = resource.copy(syncStatus = ExternalResourceEntity.STATUS_STREAM)
-                    repository.saveExternalResource(updatedResource)
+                    // Through the DAO (REPLACE): repository.saveExternalResource early-returns when a
+                    // resource with the same providerId exists, silently dropping the status flip.
+                    db.libraryDao().insertExternalResource(resource.copy(syncStatus = ExternalResourceEntity.STATUS_STREAM))
                 }
             }
-        } else {
-            repository.deleteItemWithFile(context, item)
         }
+        // Cloud/local rows keep relativePath untouched — it's the item's identity on the server and
+        // in the play/download paths; the row's "not downloaded" state is pure disk truth.
     }
 }

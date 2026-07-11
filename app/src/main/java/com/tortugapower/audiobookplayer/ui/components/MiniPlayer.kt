@@ -64,11 +64,13 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
     val rewindInterval by PlaybackManager.rewindInterval.collectAsStateWithLifecycle()
 
     val title = currentItem.title
-    val author = if (currentItem.author.isNullOrBlank()) {
-        stringResource(R.string.library_unknown_author)
-    } else {
-        currentItem.author!!
-    }
+    // Containers store a bare child count as `author` — the shared helper localizes it
+    // ("N Chapters"); books pass through, blanks fall back to "Unknown author".
+    val localContext = LocalContext.current
+    val author = com.tortugapower.audiobookplayer.logic.LibraryContentsSync
+        .displayDetails(localContext, currentItem.type, currentItem.author)
+        ?.takeIf { it.isNotBlank() }
+        ?: stringResource(R.string.library_unknown_author)
     // Combined VoiceOver-equivalent label, mirroring iOS's "Currently playing X by Y".
     val nowPlayingLabel = stringResource(R.string.miniplayer_now_playing, title, author)
     val showPlayerLabel = stringResource(R.string.miniplayer_show_player)

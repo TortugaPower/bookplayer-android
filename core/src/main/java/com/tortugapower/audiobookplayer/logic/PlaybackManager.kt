@@ -244,6 +244,12 @@ object PlaybackManager {
     private var lastPauseTime: Long = 0
     private var smartRewindEnabled = true
     private var smartRewindLimit = 30
+    // Both default TRUE, matching iOS (autoplayEnabled / autoplayRestartEnabled in
+    // DataInitializerCoordinator) and pre-existing Android behavior (unconditional auto-advance) —
+    // the field initializers must agree with the DataStore defaults so a cold-start STATE_ENDED
+    // before the first flow emission doesn't briefly disable autoplay.
+    private var autoplayLibrary = true
+    private var autoplayRestartFinished = true
     private val _isTransitioning = MutableStateFlow(false)
     val isTransitioning: StateFlow<Boolean> = _isTransitioning.asStateFlow()
     private var progressTrackerJob: kotlinx.coroutines.Job? = null
@@ -404,15 +410,23 @@ object PlaybackManager {
                                 // End-of-chapter armed on the last chapter: stop here, don't roll into
                                 // the next book (iOS's .bookEnd + autoplay=false safeguard).
                                 SleepTimerManager.onBookEnded()
-                            } else {
-                                // Auto-play next item
+                            } else if (autoplayLibrary) {
+                                // Auto-play next item. When restart-finished is OFF, skip finished
+                                // siblings (iOS parity: PlaybackService's isUnfinished makes autoplay
+                                // land on the next UNFINISHED book) — a finished neighbor would resume
+                                // at its end and instantly cascade another STATE_ENDED.
                                 scope.launch {
                                     val current = _currentItem.value ?: return@launch
                                     val db = AppDatabase.getDatabase(appContext)
                                     val repository = RoomLibraryRepository(appContext, db.libraryDao())
-                                    val nextItem = repository.getAdjacentItem(current.uuid, next = true)
+                                    var nextItem = repository.getAdjacentItem(current.uuid, next = true)
+                                    if (!autoplayRestartFinished) {
+                                        while (nextItem != null && nextItem.isFinished) {
+                                            nextItem = repository.getAdjacentItem(nextItem.uuid, next = true)
+                                        }
+                                    }
                                     if (nextItem != null) {
-                                        playItem(appContext, nextItem)
+                                        playItem(appContext, nextItem, isAutoplayTransition = true)
                                     }
                                 }
                             }
@@ -495,12 +509,31 @@ object PlaybackManager {
                     launch(Dispatchers.Main) { applyVolume(_volumeBoost.value, volume) }
                 }
             }
+            launch {
+                PlaybackSettingsManager.getAutoplayLibrary(appContext).collectLatest { autoplayLibrary = it }
+            }
+            launch {
+                PlaybackSettingsManager.getAutoplayRestartFinished(appContext).collectLatest { autoplayRestartFinished = it }
+            }
         }
     }
 
     private fun getRepository(context: Context): LibraryRepository {
         return repository ?: RoomLibraryRepository(context, AppDatabase.getDatabase(context).libraryDao())
     }
+
+    /**
+     * Whether loading [playItem]'s target should reset the position to 0:00. A finished book
+     * restarts on a MANUAL tap always, and on an autoplay transition only when the restart-finished
+     * preference is on (iOS parity: `autoplayRestartEnabled`); `fromBeginning` (library "Play from
+     * beginning") always restarts. Pure — pinned by PlaybackRestartDecisionTest.
+     */
+    internal fun shouldRestartFromZero(
+        isFinished: Boolean,
+        fromBeginning: Boolean,
+        isAutoplayTransition: Boolean,
+        autoplayRestartFinished: Boolean,
+    ): Boolean = (isFinished && (!isAutoplayTransition || autoplayRestartFinished)) || fromBeginning
 
     /**
      * Remote-streaming gate (iOS parity: `PlayerLoaderService.loadPlayer` throws `fileMissing`): a
@@ -805,6 +838,7 @@ object PlaybackManager {
         // Restart from 0:00 even if the book isn't finished (library "Play from beginning"). Handled in
         // here — not by the caller mutating the entity — so the seek below can't race the async DB reset.
         fromBeginning: Boolean = false,
+        isAutoplayTransition: Boolean = false,
     ) {
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
@@ -817,7 +851,7 @@ object PlaybackManager {
             updateProgress(context, itemToUpdate = _currentItem.value)
         }
         
-        val restartFromZero = item.isFinished || fromBeginning
+        val restartFromZero = shouldRestartFromZero(item.isFinished, fromBeginning, isAutoplayTransition, autoplayRestartFinished)
         if (restartFromZero) {
             item.currentTime = 0.0
             item.isFinished = false
@@ -1457,6 +1491,7 @@ object PlaybackManager {
                         val syncActive = repo.isCloudSyncActive()
                         val dao = if (syncActive) AppDatabase.getDatabase(context).libraryDao() else null
                         val generatedUuids = mutableSetOf<String>()
+                        val upsertedPaths = mutableSetOf<String>()
                         body.content.forEach { remoteSub ->
                             val localSub = resolvedSubItems.find { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }
                             if (localSub != null) {
@@ -1468,8 +1503,17 @@ object PlaybackManager {
                                     repo.updateItem(localSub)
                                 }
                             } else if (dao != null) {
-                                LibraryContentsSync.upsertItem(dao, null, remoteSub, generatedUuids)
+                                // skipParentUpdate: recomputing the parent chain once per sub-item is
+                                // O(items × siblings) DB round-trips during playback load AND transiently
+                                // rewrites the playing bound book's own progress fields mid-load. One
+                                // batch recompute below covers every inserted item (same shape as
+                                // FetchContentsProcessor).
+                                LibraryContentsSync.upsertItem(dao, null, remoteSub, generatedUuids, skipParentUpdate = true)
+                                upsertedPaths.add(remoteSub.relativePath)
                             }
+                        }
+                        if (dao != null && upsertedPaths.isNotEmpty()) {
+                            LibraryContentsSync.updateParentFoldersBatch(dao, upsertedPaths)
                         }
                         android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
                     } else {

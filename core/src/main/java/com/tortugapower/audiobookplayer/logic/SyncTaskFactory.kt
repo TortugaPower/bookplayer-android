@@ -55,7 +55,9 @@ object SyncTaskFactory {
         val payload = mapOf(
             "uuid" to item.uuid,
             "title" to item.title,
-            "details" to (item.author ?: ""),
+            // Containers translate their bare-count author into the server display format ("N Files"/
+            // "N Chapters") at this boundary; books pass through (LibraryContentsSync KDoc).
+            "details" to LibraryContentsSync.serverFolderDetails(item),
             "relativePath" to item.relativePath,
             "originalFileName" to (item.originalFileName ?: ""),
             "duration" to item.duration,
@@ -84,7 +86,9 @@ object SyncTaskFactory {
         val payload = mapOf(
             "uuid" to item.uuid,
             "title" to item.title,
-            "details" to (item.author ?: ""),
+            // Containers translate their bare-count author into the server display format ("N Files"/
+            // "N Chapters") at this boundary; books pass through (LibraryContentsSync KDoc).
+            "details" to LibraryContentsSync.serverFolderDetails(item),
             // Folder duration is recomputed together with its file count on moves — push both, like iOS's
             // rebuildFolderDetails metadata update, so a later fetch doesn't restore stale server values.
             "duration" to item.duration,

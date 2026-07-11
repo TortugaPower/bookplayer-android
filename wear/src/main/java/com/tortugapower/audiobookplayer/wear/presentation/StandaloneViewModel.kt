@@ -7,6 +7,7 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.logic.DownloadUnitStatus
+import com.tortugapower.audiobookplayer.logic.LibraryContentsSync
 import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
@@ -141,7 +142,10 @@ class StandaloneViewModel(
 
     /** Build the row with its discrete download state (disk + task queue); folders carry no download state. */
     private fun buildRow(source: RowSource, tasks: List<SyncTaskEntity>): LibraryRow {
-        val base = toRow(source.item)
+        val base = toRow(source.item) { entity ->
+            // Localize a container's bare-count author ("N Files"/"N Chapters") for the watch list.
+            LibraryContentsSync.displayDetails(appContext, entity.type, entity.author).orEmpty()
+        }
         if (source.item.type == ItemType.FOLDER) return base
         // Shared `:core` per-unit derivation (disk truth + task queue, partial-file rule included) —
         // the exact same statuses the phone library rows aggregate over.
@@ -177,11 +181,15 @@ class StandaloneViewModel(
         // Whole-book download progress moved to :core — OfflineDownloadManager.downloadProgressFraction —
         // so the phone library rows share the exact same aggregation.
 
-        /** Pure entity → row mapping (unit-tested). id = relativePath (nav/play key) or uuid fallback. */
-        fun toRow(item: LibraryItemEntity): LibraryRow = LibraryRow(
+        /** Pure entity → row mapping (unit-tested). id = relativePath (nav/play key) or uuid fallback.
+         *  [formatAuthor] localizes a container's bare-count author (displayDetails at the call site). */
+        fun toRow(
+            item: LibraryItemEntity,
+            formatAuthor: (LibraryItemEntity) -> String = { it.author.orEmpty() },
+        ): LibraryRow = LibraryRow(
             id = item.relativePath ?: item.uuid,
             title = item.title,
-            author = item.author.orEmpty(),
+            author = formatAuthor(item),
             isFolder = item.type == ItemType.FOLDER,
             percentCompleted = item.percentCompleted,
             isFinished = item.isFinished,

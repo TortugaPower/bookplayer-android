@@ -402,4 +402,23 @@
     <string name="library_add_shortcut_to_home_screen">Aggiungi collegamento alla schermata Home</string>
     <string name="shortcut_play_item_desc">Riproduci %1$s</string>
     <string name="shortcut_pin_failed">Impossibile aggiungere il collegamento alla schermata Home</string>
+
+    <string name="library_play_from_beginning">Riproduci dall\'inizio</string>
+    <string name="library_add_shortcut">Aggiungi collegamento</string>
+    <string name="library_add_files">Aggiungi file</string>
+    <string name="library_add_files_dialog_title">Aggiungi file</string>
+    <string name="library_add_files_option_import">Importa file</string>
+    <string name="library_download_from_url">Scarica da URL</string>
+    <string name="library_download_from_url_title">Scarica da URL</string>
+    <string name="library_download_from_url_message">Inserisci l\'URL del file audio da scaricare:</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
+    <string name="settings_playback_section">Impostazioni di riproduzione</string>
+    <string name="settings_autoplay_label">Riproduzione automatica</string>
+    <string name="settings_autoplay_library">Riproduzione automatica libreria</string>
+    <string name="settings_autoplay_restart_finished">Riavvia libri completati</string>
+    <string name="settings_autoplay_desc">Dopo aver terminato un audiolibro, la riproduzione riprenderà con tutti gli elementi della libreria, compresi gli elementi nelle cartelle.</string>
+    <string name="settings_autolock_label">Blocco automatico</string>
+    <string name="settings_disable_autolock">Disattiva blocco automatico</string>
+    <string name="settings_autolock_only_on_power">Solo sotto carica</string>
+    <string name="settings_autolock_desc">Impedisce il blocco del dispositivo quando si è nella schermata del lettore.</string>
 </resources>

@@ -400,4 +400,23 @@
     <string name="library_add_shortcut_to_home_screen">ホーム画面にショートカットを追加</string>
     <string name="shortcut_play_item_desc">%1$s を再生</string>
     <string name="shortcut_pin_failed">ホーム画面にショートカットを追加できませんでした</string>
+
+    <string name="library_play_from_beginning">最初から再生</string>
+    <string name="library_add_shortcut">ショートカットを追加</string>
+    <string name="library_add_files">ファイルを追加</string>
+    <string name="library_add_files_dialog_title">ファイルを追加</string>
+    <string name="library_add_files_option_import">ファイルをインポート</string>
+    <string name="library_download_from_url">URLからダウンロード</string>
+    <string name="library_download_from_url_title">URLからダウンロード</string>
+    <string name="library_download_from_url_message">ダウンロードするオーディオファイルのURLを入力してください：</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
+    <string name="settings_playback_section">再生設定</string>
+    <string name="settings_autoplay_label">自動再生</string>
+    <string name="settings_autoplay_library">ライブラリの自動再生</string>
+    <string name="settings_autoplay_restart_finished">読み終わった本を再起動する</string>
+    <string name="settings_autoplay_desc">オーディオブックの再生が終了すると、フォルダー内のアイテムを含むライブラリ内のすべてのアイテムの再生が再開されます。</string>
+    <string name="settings_autolock_label">自動ロック</string>
+    <string name="settings_disable_autolock">自動ロックを無効化</string>
+    <string name="settings_autolock_only_on_power">電源接続時のみ</string>
+    <string name="settings_autolock_desc">プレーヤー画面でデバイスがロックされるのを防ぎます。</string>
 </resources>

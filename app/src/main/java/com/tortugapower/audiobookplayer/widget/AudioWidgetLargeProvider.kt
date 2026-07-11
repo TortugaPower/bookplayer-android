@@ -182,7 +182,12 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
         // 1. Setup now playing details
         if (currentBook != null) {
             views.setTextViewText(R.id.widget_title, currentBook.title)
-            views.setTextViewText(R.id.widget_author, currentBook.author ?: context.getString(R.string.library_unknown_author))
+            // Shared helper localizes a container's bare-count author ("N Chapters").
+            val authorText = com.tortugapower.audiobookplayer.logic.LibraryContentsSync
+                .displayDetails(context, currentBook.type, currentBook.author)
+                ?.takeIf { it.isNotBlank() }
+                ?: context.getString(R.string.library_unknown_author)
+            views.setTextViewText(R.id.widget_author, authorText)
             views.setTextColor(R.id.widget_title, colors.textColorPrimary)
             views.setTextColor(R.id.widget_author, colors.textColorSecondary)
 

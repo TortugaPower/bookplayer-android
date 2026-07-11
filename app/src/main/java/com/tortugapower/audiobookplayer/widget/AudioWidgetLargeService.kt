@@ -45,7 +45,12 @@ class AudioWidgetLargeFactory(private val context: Context) : RemoteViewsService
 
         val views = RemoteViews(context.packageName, R.layout.widget_large_list_item)
         views.setTextViewText(R.id.widget_item_title, item.title)
-        views.setTextViewText(R.id.widget_item_author, item.author ?: context.getString(R.string.library_unknown_author))
+        // Shared helper localizes a container's bare-count author ("N Chapters").
+        val authorText = com.tortugapower.audiobookplayer.logic.LibraryContentsSync
+            .displayDetails(context, item.type, item.author)
+            ?.takeIf { it.isNotBlank() }
+            ?: context.getString(R.string.library_unknown_author)
+        views.setTextViewText(R.id.widget_item_author, authorText)
 
         val artworkPath = item.artworkURL
         val bitmap = if (!artworkPath.isNullOrEmpty()) {

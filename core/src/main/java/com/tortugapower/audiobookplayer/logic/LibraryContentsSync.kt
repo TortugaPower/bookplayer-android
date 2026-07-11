@@ -22,7 +22,8 @@ object LibraryContentsSync {
         libraryDao: LibraryDao,
         syncTaskRepository: SyncTaskRepository?,
         remote: SyncableItem,
-        generatedUuids: MutableSet<String>
+        generatedUuids: MutableSet<String>,
+        skipParentUpdate: Boolean = false
     ): Pair<String, Boolean> {
         var uuid = remote.uuid
         if (uuid.isNullOrEmpty()) {
@@ -88,6 +89,11 @@ object LibraryContentsSync {
             libraryDao.updateItem(entity)
         }
 
+        if (!skipParentUpdate) {
+            // Recursively update parents to sync their aggregate progress and metadata
+            updateParentFolders(libraryDao, entity.relativePath)
+        }
+
         // Sync external resources if provided
         val remoteResources = remote.externalResources
         if (remoteResources != null) {
@@ -117,5 +123,91 @@ object LibraryContentsSync {
         }
 
         return Pair(uuid!!, isNew)
+    }
+
+    /**
+     * Recompute a FOLDER/BOUND row's aggregates from its direct children — the ONE implementation
+     * shared by the walk-up ([updateParentFolders]), the batch ([updateParentFoldersBatch]), and the
+     * move/delete/convert paths in RoomLibraryRepository, so the formats can't drift.
+     *
+     * Canonical LOCAL format for a container's `author` is the BARE child count ("3"): render
+     * surfaces localize it (LibraryScreen / MiniPlayer / widget map numeric authors through plural
+     * resources), and the server push formats a display string at the boundary
+     * ([serverFolderDetails]) — the server stores client-written display text (iOS writes its
+     * locale's "N files" there), never the bare count.
+     */
+    fun recomputeFolder(folder: LibraryItemEntity, children: List<LibraryItemEntity>) {
+        folder.duration = children.sumOf { it.duration }
+        folder.currentTime = children.sumOf { it.currentTime }
+        folder.author = children.size.toString()
+        folder.percentCompleted =
+            if (folder.duration > 0) (folder.currentTime / folder.duration).coerceIn(0.0, 1.0) else 0.0
+        folder.isFinished = children.all { it.isFinished } && children.isNotEmpty()
+    }
+
+    /**
+     * Localized display form of a container's bare-count `author` for EVERY render surface —
+     * library rows, mini player, widgets, Android Auto browse, the Wear remote payload, and the
+     * watch's own standalone list — so they can't drift. Non-containers and non-numeric legacy
+     * values pass through unchanged.
+     */
+    fun displayDetails(context: android.content.Context, type: ItemType, author: String?): String? {
+        if (type != ItemType.FOLDER && type != ItemType.BOUND) return author
+        val count = author?.toIntOrNull() ?: return author
+        val plural = if (type == ItemType.BOUND) {
+            com.tortugapower.audiobookplayer.core.R.plurals.library_bound_chapter_count
+        } else {
+            com.tortugapower.audiobookplayer.core.R.plurals.library_folder_item_count
+        }
+        return context.resources.getQuantityString(plural, count, count)
+    }
+
+    /**
+     * Server-facing `details` for an item at push time: containers translate their bare-count
+     * `author` into the display string the server/iOS expect ("N Files" / "N Chapters" — the format
+     * Android always pushed); everything else (books, non-numeric legacy values) passes through.
+     */
+    fun serverFolderDetails(item: LibraryItemEntity): String {
+        if (item.type != ItemType.FOLDER && item.type != ItemType.BOUND) return item.author ?: ""
+        val count = item.author?.toIntOrNull() ?: return item.author ?: ""
+        return if (item.type == ItemType.BOUND) {
+            if (count == 1) "1 Chapter" else "$count Chapters"
+        } else {
+            if (count == 1) "1 File" else "$count Files"
+        }
+    }
+
+    suspend fun updateParentFolders(libraryDao: LibraryDao, childPath: String?) {
+        var path = childPath ?: return
+        while (path.contains('/')) {
+            path = path.substringBeforeLast('/')
+            val folder = libraryDao.getItemByPath(path) ?: continue
+            if (folder.type == ItemType.FOLDER || folder.type == ItemType.BOUND) {
+                recomputeFolder(folder, libraryDao.getItemsInPathSync(path))
+                libraryDao.updateItem(folder)
+            }
+        }
+    }
+
+    suspend fun updateParentFoldersBatch(libraryDao: LibraryDao, affectedPaths: Collection<String>) {
+        val foldersToUpdate = mutableSetOf<String>()
+        for (childPath in affectedPaths) {
+            var path = childPath
+            while (path.contains('/')) {
+                path = path.substringBeforeLast('/')
+                foldersToUpdate.add(path)
+            }
+        }
+
+        // Sort folders by depth descending so that we update children folders before their parents!
+        val sortedFolders = foldersToUpdate.sortedByDescending { it.count { char -> char == '/' } }
+
+        for (path in sortedFolders) {
+            val folder = libraryDao.getItemByPath(path) ?: continue
+            if (folder.type == ItemType.FOLDER || folder.type == ItemType.BOUND) {
+                recomputeFolder(folder, libraryDao.getItemsInPathSync(path))
+                libraryDao.updateItem(folder)
+            }
+        }
     }
 }

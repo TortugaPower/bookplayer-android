@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,12 +43,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -154,6 +158,9 @@ fun LibraryScreen(
     var itemToDetail by remember { mutableStateOf<LibraryItemEntity?>(null) }
     var showSearchScreen by remember { mutableStateOf(false) }
     var showCombineToVolumeDialog by remember { mutableStateOf(false) }
+    var showAddFilesDialog by remember { mutableStateOf(false) }
+    var showSwipeOptionsDialog by remember { mutableStateOf(false) }
+    var itemForSwipeOptions by remember { mutableStateOf<LibraryItemEntity?>(null) }
 
     if (showCombineToVolumeDialog) {
         val selectedItems = remember(selectedItemUuids) { items.filter { it.uuid in selectedItemUuids } }
@@ -444,6 +451,205 @@ fun LibraryScreen(
         )
     }
 
+    if (showAddFilesDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddFilesDialog = false },
+            title = { Text(stringResource(R.string.library_add_files_dialog_title)) },
+            confirmButton = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            showAddFilesDialog = false
+                            launcher.launch(arrayOf("audio/*"))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.library_add_files_option_import))
+                    }
+                    Button(
+                        onClick = {
+                            showAddFilesDialog = false
+                            // The ONE download-from-URL dialog (URLUtil validation, canonical
+                            // fileNameFromUrl, and the full import staging pipeline).
+                            showDownloadUrlDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.library_download_from_url))
+                    }
+                    Button(
+                        onClick = {
+                            showAddFilesDialog = false
+                            onNavigateToMediaServers()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.media_servers_title))
+                    }
+                    Button(
+                        onClick = {
+                            showAddFilesDialog = false
+                            showCreateFolderDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.library_create_folder_title))
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddFilesDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+
+    if (showSwipeOptionsDialog && itemForSwipeOptions != null) {
+        val item = itemForSwipeOptions!!
+        AlertDialog(
+            onDismissRequest = {
+                showSwipeOptionsDialog = false
+            },
+            title = { Text(item.title) },
+            confirmButton = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            showSwipeOptionsDialog = false
+                            selectedItemUuids = setOf(item.uuid)
+                            showChooseDestinationDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = stringResource(R.string.common_move),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            showSwipeOptionsDialog = false
+                            itemsToDelete = listOf(item)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    ) {
+                        Text(
+                            text = stringResource(R.string.common_delete),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    if (item.type == ItemType.BOOK || item.type == ItemType.BOUND) {
+                        Button(
+                            onClick = {
+                                showSwipeOptionsDialog = false
+                                itemToDetail = item
+                                showItemDetailSheet = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = stringResource(R.string.library_see_details),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                showSwipeOptionsDialog = false
+                                libraryViewModel.resetItemProgress(item.uuid)
+                                PlaybackManager.playItem(context, item, fromBeginning = true)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = stringResource(R.string.library_play_from_beginning),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                showSwipeOptionsDialog = false
+                                ShortcutHelper.requestPinShortcut(context, item)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = stringResource(R.string.library_add_shortcut),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            showSwipeOptionsDialog = false
+                            libraryViewModel.setFinishedStatus(listOf(item), !item.isFinished)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (item.isFinished) stringResource(R.string.player_mark_as_unfinished)
+                                   else stringResource(R.string.player_mark_as_finished),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    if (item.type == ItemType.BOUND) {
+                        Button(
+                            onClick = {
+                                showSwipeOptionsDialog = false
+                                libraryViewModel.convertVolumesToFolders(listOf(item))
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = stringResource(R.string.library_convert_to_folder),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    } else if (item.type == ItemType.FOLDER) {
+                        Button(
+                            onClick = {
+                                showSwipeOptionsDialog = false
+                                libraryViewModel.convertFoldersToVolumes(context, listOf(item))
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = stringResource(R.string.library_convert_to_volume),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showSwipeOptionsDialog = false
+                    }
+                ) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
     if (showChooseDestinationDialog) {
         AlertDialog(
             onDismissRequest = { showChooseDestinationDialog = false },
@@ -591,43 +797,44 @@ fun LibraryScreen(
                         onDismissRequest = { showMoreMenu = false },
                     ) {
                         val selectedItems = items.filter { it.uuid in selectedItemUuids }
+                        val isSingleItemSelect = selectedItems.size == 1
+                        val isSingleBookOrBound = isSingleItemSelect && 
+                                (selectedItems[0].type == ItemType.BOOK || selectedItems[0].type == ItemType.BOUND)
                         
-                        if (selectedItems.size == 1 && (selectedItems[0].type == ItemType.BOOK || selectedItems[0].type == ItemType.BOUND)) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.library_see_details)) },
-                                onClick = {
-                                    showMoreMenu = false
-                                    itemToDetail = selectedItems[0]
-                                    showItemDetailSheet = true
-                                },
-                                leadingIcon = { Icon(Icons.Default.Info, null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.library_play_from_beginning)) },
-                                onClick = {
-                                    showMoreMenu = false
-                                    val item = selectedItems[0]
-                                    // The restart itself is handled inside playItem (fromBeginning), so the
-                                    // seek can't race the async DB reset; resetItemProgress goes through the
-                                    // syncing repository so the rewound position is also pushed to the server.
-                                    libraryViewModel.resetItemProgress(item.uuid)
-                                    PlaybackManager.playItem(context, item, fromBeginning = true)
-                                    isSelectMode = false
-                                    selectedItemUuids = emptySet()
-                                },
-                                leadingIcon = { Icon(Icons.Default.PlayArrow, null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.library_add_shortcut_to_home_screen)) },
-                                onClick = {
-                                    showMoreMenu = false
-                                    ShortcutHelper.requestPinShortcut(context, selectedItems[0])
-                                    isSelectMode = false
-                                    selectedItemUuids = emptySet()
-                                },
-                                leadingIcon = { Icon(Icons.Default.Home, null) }
-                            )
-                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_see_details)) },
+                            enabled = isSingleBookOrBound,
+                            onClick = {
+                                showMoreMenu = false
+                                itemToDetail = selectedItems.firstOrNull()
+                                showItemDetailSheet = true
+                            },
+                            leadingIcon = { Icon(Icons.Default.Info, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_play_from_beginning)) },
+                            enabled = isSingleBookOrBound,
+                            onClick = {
+                                showMoreMenu = false
+                                val item = selectedItems[0]
+                                libraryViewModel.resetItemProgress(item.uuid)
+                                PlaybackManager.playItem(context, item, fromBeginning = true)
+                                isSelectMode = false
+                                selectedItemUuids = emptySet()
+                            },
+                            leadingIcon = { Icon(Icons.Default.PlayArrow, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_add_shortcut_to_home_screen)) },
+                            enabled = isSingleBookOrBound,
+                            onClick = {
+                                showMoreMenu = false
+                                ShortcutHelper.requestPinShortcut(context, selectedItems[0])
+                                isSelectMode = false
+                                selectedItemUuids = emptySet()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Home, null) }
+                        )
 
                         val allFinished = selectedItems.isNotEmpty() && selectedItems.all { it.isFinished }
                         DropdownMenuItem(
@@ -815,11 +1022,18 @@ fun LibraryScreen(
                             .verticalScroll(rememberScrollState()),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(stringResource(R.string.library_empty_message), color = Color.Gray)
+                        if (path.isNullOrEmpty()) {
+                            LibraryEmptyState(
+                                onAddFiles = { showAddFilesDialog = true }
+                            )
+                        } else {
+                            FolderEmptyState(
+                                onAddFiles = { showAddFilesDialog = true }
+                            )
+                        }
                     }
                 } else {
                     val lazyListState = rememberLazyListState()
-                    val density = LocalDensity.current
                 
                     LazyColumn(
                         state = lazyListState,
@@ -832,39 +1046,62 @@ fun LibraryScreen(
                             val isSelected = selectedItemUuids.contains(item.uuid)
                             val dismissState = rememberSwipeToDismissBoxState()
 
+                            val isThisItemForSwipe = itemForSwipeOptions?.uuid == item.uuid
                             LaunchedEffect(dismissState.currentValue) {
                                 if (!isSelectMode && dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
-                                    itemsToDelete = listOf(item)
+                                    itemForSwipeOptions = item
+                                    showSwipeOptionsDialog = true
+                                }
+                            }
+                            LaunchedEffect(isThisItemForSwipe, showSwipeOptionsDialog) {
+                                if (isThisItemForSwipe && !showSwipeOptionsDialog) {
                                     dismissState.reset()
+                                    itemForSwipeOptions = null
                                 }
                             }
 
                             SwipeToDismissBox(
                                 state = dismissState,
                                 backgroundContent = {
-                                    val isSwiping = !isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
-                                    val color = if (isSwiping) Color(0xFFE57373) else Color.Transparent
-                                
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(color)
-                                            .clickable { 
-                                                if (isSwiping) itemsToDelete = listOf(item)
-                                            }
-                                            .padding(horizontal = 24.dp),
-                                        contentAlignment = Alignment.CenterEnd
-                                    ) {
-                                        if (isSwiping) {
+                                    // Native Material treatment (the Gmail pattern): a full-width
+                                    // tinted background with ONE icon that emphasizes once the drag
+                                    // crosses the commit threshold. M3's SwipeToDismissBox has no
+                                    // persistent "revealed buttons" state (that's iOS's swipe-actions
+                                    // pattern) — a full swipe commits the single action, which here
+                                    // opens the item's options dialog (delete lives safely inside it).
+                                    if (!isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                                        val crossedThreshold = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+                                        val iconScale by animateFloatAsState(
+                                            targetValue = if (crossedThreshold) 1.2f else 1f,
+                                            label = "swipeIconScale"
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(
+                                                    if (crossedThreshold) MaterialTheme.colorScheme.primaryContainer
+                                                    else MaterialTheme.colorScheme.surfaceVariant
+                                                ),
+                                            contentAlignment = Alignment.CenterEnd
+                                        ) {
                                             Icon(
-                                                Icons.Default.Delete,
-                                                contentDescription = "Delete",
-                                                tint = Color.White
+                                                imageVector = Icons.Default.Info,
+                                                contentDescription = stringResource(R.string.library_see_details),
+                                                tint = if (crossedThreshold) MaterialTheme.colorScheme.onPrimaryContainer
+                                                       else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier
+                                                    .padding(end = 24.dp)
+                                                    .graphicsLayer {
+                                                        scaleX = iconScale
+                                                        scaleY = iconScale
+                                                    }
                                             )
                                         }
                                     }
                                 },
-                                enableDismissFromStartToEnd = false
+                                enableDismissFromStartToEnd = false,
+                                // Swiping must not fight the select-mode drag-reorder gesture.
+                                enableDismissFromEndToStart = !isSelectMode
                             ) {
                                 Surface(
                                     color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.background,
@@ -1016,10 +1253,13 @@ fun LibraryListItem(
         if (h > 0) stringResource(R.string.duration_hms, h, m, s) else stringResource(R.string.duration_ms, m, s)
     } else ""
 
-    val authorText = if (item.author.isNullOrBlank()) {
-        if (item.type == ItemType.FOLDER) stringResource(R.string.library_folder_empty) 
-        else stringResource(R.string.library_unknown_author)
-    } else item.author!!
+    // Shared helper localizes container bare counts ("N Files"/"N Chapters" — every surface uses
+    // the same mapping); blanks fall back per type.
+    val authorText = com.tortugapower.audiobookplayer.logic.LibraryContentsSync
+        .displayDetails(context, item.type, item.author)
+        ?.takeIf { it.isNotBlank() }
+        ?: if (item.type == ItemType.FOLDER) stringResource(R.string.library_folder_empty)
+           else stringResource(R.string.library_unknown_author)
 
     val progressText = if (item.isFinished) {
         stringResource(R.string.common_completed)
@@ -1390,6 +1630,92 @@ fun PieProgressIcon(
                 useCenter = true,
                 topLeft = Offset(center.x - arcRadius, center.y - arcRadius),
                 size = Size(arcRadius * 2, arcRadius * 2)
+            )
+        }
+    }
+}
+
+@Composable
+fun LibraryEmptyState(
+    onAddFiles: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        // iOS parity (EmptyListView, node == .root): the SAME emptyLibrary illustration iOS
+        // ships (layered translucent books + speaker), imported as drawable-nodpi so both
+        // platforms' empty libraries are pixel-identical. Like iOS, one universal asset for
+        // light and dark.
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(R.drawable.empty_library),
+            contentDescription = null,
+            modifier = Modifier.size(240.dp)
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        TextButton(
+            onClick = onAddFiles,
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.library_add_files),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+
+@Composable
+fun FolderEmptyState(
+    onAddFiles: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        // iOS parity (EmptyListView, non-root → the emptyPlaylist asset): a play triangle with
+        // list bars — exactly Material's PlaylistPlay, tinted like iOS tints it with the accent.
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+            modifier = Modifier.size(140.dp)
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        TextButton(
+            onClick = onAddFiles,
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.library_add_files),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
             )
         }
     }

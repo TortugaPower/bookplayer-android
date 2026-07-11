@@ -400,4 +400,23 @@
     <string name="library_add_shortcut_to_home_screen">添加到主屏幕快捷方式</string>
     <string name="shortcut_play_item_desc">播放 %1$s</string>
     <string name="shortcut_pin_failed">无法添加主屏幕快捷方式</string>
+
+    <string name="library_play_from_beginning">从头播放</string>
+    <string name="library_add_shortcut">添加快捷方式</string>
+    <string name="library_add_files">添加文件</string>
+    <string name="library_add_files_dialog_title">添加文件</string>
+    <string name="library_add_files_option_import">导入文件</string>
+    <string name="library_download_from_url">从 URL 下载</string>
+    <string name="library_download_from_url_title">从 URL 下载</string>
+    <string name="library_download_from_url_message">输入要下载的音频文件 URL：</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
+    <string name="settings_playback_section">播放设置</string>
+    <string name="settings_autoplay_label">自动播放</string>
+    <string name="settings_autoplay_library">自动播放书库</string>
+    <string name="settings_autoplay_restart_finished">重新开始已读完的书籍</string>
+    <string name="settings_autoplay_desc">播放完一本有声书后，将继续播放书库中的所有项目，包括文件夹中的项目。</string>
+    <string name="settings_autolock_label">自动锁定</string>
+    <string name="settings_disable_autolock">禁用自动锁定</string>
+    <string name="settings_autolock_only_on_power">仅在连接电源时</string>
+    <string name="settings_autolock_desc">在播放器界面时，防止设备自动锁定。</string>
 </resources>

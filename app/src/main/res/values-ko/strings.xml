@@ -400,4 +400,23 @@
     <string name="library_add_shortcut_to_home_screen">홈 화면에 바로가기 추가</string>
     <string name="shortcut_play_item_desc">%1$s 재생</string>
     <string name="shortcut_pin_failed">홈 화면에 바로가기를 추가할 수 없습니다</string>
+
+    <string name="library_play_from_beginning">처음부터 재생</string>
+    <string name="library_add_shortcut">바로가기 추가</string>
+    <string name="library_add_files">파일 추가</string>
+    <string name="library_add_files_dialog_title">파일 추가</string>
+    <string name="library_add_files_option_import">파일 가져오기</string>
+    <string name="library_download_from_url">URL에서 다운로드</string>
+    <string name="library_download_from_url_title">URL에서 다운로드</string>
+    <string name="library_download_from_url_message">다운로드할 오디오 파일의 URL을 입력하세요:</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
+    <string name="settings_playback_section">재생 설정</string>
+    <string name="settings_autoplay_label">자동 재생</string>
+    <string name="settings_autoplay_library">라이브러리 자동 재생</string>
+    <string name="settings_autoplay_restart_finished">완료된 도서 다시 시작</string>
+    <string name="settings_autoplay_desc">오디오북이 끝나면 폴더 안의 항목을 포함하여 라이브러리의 모든 항목이 차례로 재생됩니다.</string>
+    <string name="settings_autolock_label">자동 잠금</string>
+    <string name="settings_disable_autolock">자동 잠금 해제</string>
+    <string name="settings_autolock_only_on_power">전원이 연결된 경우에만</string>
+    <string name="settings_autolock_desc">재생기 화면에서 화면이 잠기는 것을 방지합니다.</string>
 </resources>

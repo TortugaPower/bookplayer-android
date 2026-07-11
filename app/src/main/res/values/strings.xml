@@ -318,12 +318,18 @@
     <string name="library_progress_percent">%1$d%%</string>
     <string name="library_last_played_label">Last Played</string>
     <string name="date_format_last_played">d MMM yyyy \'at\' h:mm a</string>
+    <string name="library_add_files">Add files</string>
+    <string name="library_add_files_dialog_title">Add files</string>
+    <string name="library_add_files_option_import">Import files</string>
+    <string name="library_download_from_url">Download from URL</string>
+    <string name="library_download_from_url_title">Download from URL</string>
+    <string name="library_download_from_url_message">Enter the URL of the audio file to download:</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
 
     <!-- Import -->
     <string name="import_title">Import</string>
     <string name="import_disclaimer">Transferring files may take a while, please make sure the number of files is complete before proceeding.</string>
     <string name="import_files_count">%1$d Files</string>
-    <string name="library_download_from_url">Download from URL</string>
     <string name="library_download_url_label">URL</string>
     <string name="library_download_url_error">Enter a valid URL</string>
     <string name="import_processing_file">Processing %1$s…</string>
@@ -510,6 +516,8 @@
     <string name="storage_management_remove_confirm_title">Remove File</string>
     <string name="storage_management_remove_confirm_text">Are you sure you want to remove the downloaded file for this audiobook?</string>
     <string name="storage_management_remove_button">Remove</string>
+    <string name="storage_management_warning_title">Warning</string>
+    <string name="storage_management_upload_queued_warning">There\'s a queued upload task for:\n%1$s\nRemoving the file will prevent the app from uploading it</string>
     <string name="storage_management_sort_label">Sort</string>
     <string name="storage_management_sort_by_size">Sort by Size</string>
     <string name="storage_management_sort_by_name">Sort by Name</string>
@@ -544,7 +552,18 @@
     <string name="cast_option_bluetooth_settings_title">Bluetooth Settings</string>
     <string name="cast_option_bluetooth_settings_desc">Pair a new device or manage connected Bluetooth accessories.</string>
 
+    <string name="library_add_shortcut">Add Shortcut</string>
     <string name="library_add_shortcut_to_home_screen">Add Shortcut to Home Screen</string>
     <string name="shortcut_play_item_desc">Play %1$s</string>
     <string name="shortcut_pin_failed">Couldn\'t add the shortcut to the Home Screen</string>
+
+    <string name="settings_playback_section">Playback Settings</string>
+    <string name="settings_autoplay_label">Autoplay</string>
+    <string name="settings_autoplay_library">AutoPlay Library</string>
+    <string name="settings_autoplay_restart_finished">Restart finished books</string>
+    <string name="settings_autoplay_desc">After finishing an audiobook, playback will resume with all items in the library, including items in folders.</string>
+    <string name="settings_autolock_label">Autolock</string>
+    <string name="settings_disable_autolock">Disable Autolock</string>
+    <string name="settings_autolock_only_on_power">Only when connected to power</string>
+    <string name="settings_autolock_desc">Prevent the device from locking when on the Player screen.</string>
 </resources>

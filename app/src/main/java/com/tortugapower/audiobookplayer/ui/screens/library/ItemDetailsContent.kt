@@ -94,7 +94,14 @@ fun ItemDetailsContent(
             ActionButton(
                 text = stringResource(R.string.common_save),
                 onClick = {
-                    viewModel.updateItemDetails(item, title, author)
+                    // Containers pre-fill the field with the LOCALIZED form of their stored bare
+                    // count ("3 Chapters"/"3 Kapitel"). If it's unedited, persist the canonical
+                    // count back — saving the display string would push a device-locale value to
+                    // the server until the next recompute overwrites it.
+                    val authorToSave = if (
+                        author == com.tortugapower.audiobookplayer.logic.LibraryContentsSync.displayDetails(context, item.type, item.author)
+                    ) item.author ?: author else author
+                    viewModel.updateItemDetails(item, title, authorToSave)
                     val hasChanged = linkedBook?.id != initialBookId
                     if (hasChanged) {
                         if (linkedBook != null) {

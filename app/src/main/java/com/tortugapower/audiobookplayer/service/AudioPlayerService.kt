@@ -430,7 +430,8 @@ class AudioPlayerService : MediaPlaybackService() {
         val browsable = MediaBrowseTree.isBrowsable(entity.type)
         val metadata = MediaMetadata.Builder()
             .setTitle(entity.title)
-            .setArtist(entity.author)
+            // Containers store a bare child count as `author` — localize it for the Auto row.
+            .setArtist(com.tortugapower.audiobookplayer.logic.LibraryContentsSync.displayDetails(this, entity.type, entity.author))
             .setIsBrowsable(browsable)
             .setIsPlayable(MediaBrowseTree.isPlayable(entity.type))
             .setMediaType(if (browsable) MediaMetadata.MEDIA_TYPE_FOLDER_MIXED else MediaMetadata.MEDIA_TYPE_AUDIO_BOOK)

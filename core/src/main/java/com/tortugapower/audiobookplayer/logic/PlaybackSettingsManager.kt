@@ -146,4 +146,29 @@ object PlaybackSettingsManager {
     suspend fun setAskReview(context: Context, ask: Boolean) {
         context.dataStore.edit { it[ASK_REVIEW] = ask }
     }
+    
+    private val AUTOPLAY_LIBRARY = booleanPreferencesKey("autoplay_library")
+    private val AUTOPLAY_RESTART_FINISHED = booleanPreferencesKey("autoplay_restart_finished")
+    private val PREVENT_AUTOLOCK = booleanPreferencesKey("prevent_autolock")
+    private val PREVENT_AUTOLOCK_ONLY_ON_POWER = booleanPreferencesKey("prevent_autolock_only_on_power")
+
+    fun getAutoplayLibrary(context: Context): Flow<Boolean> = context.dataStore.data.map { it[AUTOPLAY_LIBRARY] ?: true }
+    suspend fun setAutoplayLibrary(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[AUTOPLAY_LIBRARY] = enabled }
+    }
+
+    fun getAutoplayRestartFinished(context: Context): Flow<Boolean> = context.dataStore.data.map { it[AUTOPLAY_RESTART_FINISHED] ?: true }
+    suspend fun setAutoplayRestartFinished(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[AUTOPLAY_RESTART_FINISHED] = enabled }
+    }
+
+    fun getPreventAutolock(context: Context): Flow<Boolean> = context.dataStore.data.map { it[PREVENT_AUTOLOCK] ?: false }
+    suspend fun setPreventAutolock(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[PREVENT_AUTOLOCK] = enabled }
+    }
+
+    fun getPreventAutolockOnlyOnPower(context: Context): Flow<Boolean> = context.dataStore.data.map { it[PREVENT_AUTOLOCK_ONLY_ON_POWER] ?: false }
+    suspend fun setPreventAutolockOnlyOnPower(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[PREVENT_AUTOLOCK_ONLY_ON_POWER] = enabled }
+    }
 }

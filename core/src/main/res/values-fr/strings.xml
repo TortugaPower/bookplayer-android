@@ -8,4 +8,12 @@
     <string name="playback_source_file_system">le système de fichiers</string>
     <string name="playback_source_external_resource">la ressource externe</string>
     <string name="playback_source_server_url">l’URL du serveur</string>
+    <plurals name="library_folder_item_count">
+        <item quantity="one">1 fichier</item>
+        <item quantity="other">%1$d fichiers</item>
+    </plurals>
+    <plurals name="library_bound_chapter_count">
+        <item quantity="one">1 chapitre</item>
+        <item quantity="other">%1$d chapitres</item>
+    </plurals>
 </resources>

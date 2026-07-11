@@ -181,28 +181,10 @@ class RoomLibraryRepository(
         }
     }
 
+    // Same walk + aggregation as the sync path — LibraryContentsSync.recomputeFolder is the single
+    // implementation, so move/delete/convert and contents-sync can't diverge on the author format.
     private suspend fun updateParentFolders(childPath: String?) {
-        var path = childPath ?: return
-        while (path.contains('/')) {
-            path = path.substringBeforeLast('/')
-            val folder = libraryDao.getItemByPath(path) ?: continue
-            if (folder.type == ItemType.FOLDER || folder.type == ItemType.BOUND) {
-                val children = libraryDao.getItemsInPathSync(path)
-                folder.duration = children.sumOf { it.duration }
-                folder.currentTime = children.sumOf { it.currentTime }
-                val count = children.size
-                
-                if (folder.type == ItemType.FOLDER) {
-                    folder.author = if (count == 1) "1 File" else "$count Files"
-                } else {
-                    folder.author = if (count == 1) "1 Chapter" else "$count Chapters"
-                }
-
-                folder.percentCompleted = if (folder.duration > 0) (folder.currentTime / folder.duration).coerceIn(0.0, 1.0) else 0.0
-                folder.isFinished = children.all { it.isFinished } && children.isNotEmpty()
-                libraryDao.updateItem(folder)
-            }
-        }
+        com.tortugapower.audiobookplayer.logic.LibraryContentsSync.updateParentFolders(libraryDao, childPath)
     }
 
     suspend fun refreshParentMetadata(path: String?) {
@@ -322,7 +304,8 @@ class RoomLibraryRepository(
                 relativePath = volumePath,
                 type = ItemType.BOUND,
                 duration = items.sumOf { it.duration },
-                author = context.getString(R.string.library_chapter_count, items.size),
+                // Bare count — the canonical local format (see LibraryContentsSync.recomputeFolder).
+                author = items.size.toString(),
                 orderRank = (currentMaxRank ?: -1) + 1
             )
             libraryDao.insertItem(volumeItem)
@@ -359,12 +342,8 @@ class RoomLibraryRepository(
             items.forEach { item ->
                 if (item.type == ItemType.BOUND) {
                     item.type = ItemType.FOLDER
-                    
-                    // Update metadata to folder style (Files instead of Chapters)
-                    val children = libraryDao.getItemsInPathSync(item.relativePath ?: "")
-                    val count = children.size
-                    item.author = if (count == 1) "1 File" else "$count Files"
-                    
+                    // Bare count (canonical local format); FOLDER vs BOUND wording is render-time.
+                    item.author = libraryDao.getItemsInPathSync(item.relativePath ?: "").size.toString()
                     libraryDao.updateItem(item)
                     updateParentFolders(item.relativePath)
                 }
@@ -377,12 +356,8 @@ class RoomLibraryRepository(
             items.forEach { item ->
                 if (item.type == ItemType.FOLDER) {
                     item.type = ItemType.BOUND
-                    
-                    // Update metadata to volume style (Chapters instead of Files)
-                    val children = libraryDao.getItemsInPathSync(item.relativePath ?: "")
-                    val count = children.size
-                    item.author = context.getString(R.string.library_chapter_count, count)
-                    
+                    // Bare count (canonical local format); FOLDER vs BOUND wording is render-time.
+                    item.author = libraryDao.getItemsInPathSync(item.relativePath ?: "").size.toString()
                     libraryDao.updateItem(item)
                     updateParentFolders(item.relativePath)
                 }

@@ -54,6 +54,9 @@ fun SettingsScreen(
     onNavigateToHardcover: () -> Unit,
     onNavigateToStorageManagement: () -> Unit,
     onNavigateToStorageCloudDeleted: () -> Unit,
+    onNavigateToPlayerControls: () -> Unit,
+    onNavigateToAutoplay: () -> Unit,
+    onNavigateToAutolock: () -> Unit,
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -192,6 +195,23 @@ fun SettingsScreen(
                     label = stringResource(R.string.settings_app_icon_label),
                     value = stringResource(appIconTitleRes),
                     onClick = onNavigateToAppIcons,
+                )
+            }
+
+            settingsSection(titleRes = R.string.settings_playback_section) {
+                SettingsItem(
+                    label = stringResource(R.string.player_controls_title),
+                    onClick = onNavigateToPlayerControls,
+                )
+                HorizontalDivider()
+                SettingsItem(
+                    label = stringResource(R.string.settings_autoplay_label),
+                    onClick = onNavigateToAutoplay,
+                )
+                HorizontalDivider()
+                SettingsItem(
+                    label = stringResource(R.string.settings_autolock_label),
+                    onClick = onNavigateToAutolock,
                 )
             }
 

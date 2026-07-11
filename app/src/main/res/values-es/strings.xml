@@ -166,6 +166,7 @@
     <string name="library_delete_folder_warning">\n\nNota: Eliminar una carpeta también eliminará todo su contenido.</string>
     <string name="library_empty_message">Tu biblioteca está vacía</string>
     <string name="library_see_details">Ver detalles</string>
+    <string name="library_play_from_beginning">Reproducir desde el principio</string>
     <string name="library_view_style">Estilo de vista</string>
     <string name="library_folder_empty">0 archivos</string>
     <string name="library_unknown_author">Autor desconocido</string>
@@ -184,6 +185,13 @@
     <string name="library_progress_percent">%1$d%%</string>
     <string name="library_last_played_label">Última reproducción</string>
     <string name="date_format_last_played">d \'de\' MMM \'de\' yyyy \'a las\' h:mm a</string>
+    <string name="library_add_files">Añadir archivos</string>
+    <string name="library_add_files_dialog_title">Añadir archivos</string>
+    <string name="library_add_files_option_import">Importar archivos</string>
+    <string name="library_download_from_url">Descargar desde URL</string>
+    <string name="library_download_from_url_title">Descargar desde URL</string>
+    <string name="library_download_from_url_message">Introduce la URL del archivo de audio a descargar:</string>
+    <string name="library_download_from_url_placeholder">https://example.com/audiobook.mp3</string>
 
     <!-- Import -->
     <string name="import_title">Importar</string>
@@ -399,7 +407,18 @@
     <string name="cast_option_bluetooth_settings_title">Ajustes de Bluetooth</string>
     <string name="cast_option_bluetooth_settings_desc">Empareja un nuevo dispositivo o gestiona los accesorios Bluetooth conectados.</string>
 
+    <string name="library_add_shortcut">Añadir atajo</string>
     <string name="library_add_shortcut_to_home_screen">Añadir atajo a la pantalla de inicio</string>
     <string name="shortcut_play_item_desc">Reproducir %1$s</string>
     <string name="shortcut_pin_failed">No se pudo añadir el atajo a la pantalla de inicio</string>
+
+    <string name="settings_playback_section">Ajustes de reproducción</string>
+    <string name="settings_autoplay_label">Reproducción automática</string>
+    <string name="settings_autoplay_library">AutoPlay Biblioteca</string>
+    <string name="settings_autoplay_restart_finished">Reiniciar libros terminados</string>
+    <string name="settings_autoplay_desc">Después de terminar un audiolibro, la reproducción se reanudará con todos los elementos de la biblioteca, incluidos los elementos de las carpetas.</string>
+    <string name="settings_autolock_label">Bloqueo automático</string>
+    <string name="settings_disable_autolock">Desactivar bloqueo automático</string>
+    <string name="settings_autolock_only_on_power">Solo si está conectado a la corriente</string>
+    <string name="settings_autolock_desc">Evitar que el dispositivo se bloquee cuando se encuentra en la pantalla de reproducción.</string>
 </resources>
