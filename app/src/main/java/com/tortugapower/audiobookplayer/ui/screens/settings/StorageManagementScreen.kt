@@ -37,6 +37,7 @@ import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -55,6 +56,7 @@ fun StorageManagementScreen(
     
     val database = remember { AppDatabase.getDatabase(context) }
     val repository = remember { RoomLibraryRepository(context.applicationContext, database.libraryDao()) }
+    val syncTaskRepository = remember { com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository(database.syncTaskDao()) }
 
     val booksFlow = remember { repository.searchBooks("") }
     val books by booksFlow.collectAsState(initial = emptyList())
@@ -65,6 +67,9 @@ fun StorageManagementScreen(
     var sortBy by remember { mutableStateOf(SortType.SIZE) }
     var showSortMenu by remember { mutableStateOf(false) }
     var itemToDelete by remember { mutableStateOf<LibraryItemEntity?>(null) }
+    // iOS parity (StorageViewModel.checkAndDeleteSelectedItem): a file with a queued upload task
+    // gets an extra warning — removing it means the app can never upload it.
+    var uploadWarningItem by remember { mutableStateOf<LibraryItemEntity?>(null) }
 
     // Directory walks and per-file stat calls are disk IO — computed off the main thread and
     // re-run whenever the library flow emits (removals update the DB, which re-triggers this).
@@ -114,8 +119,19 @@ fun StorageManagementScreen(
                         val item = itemToDelete
                         if (item != null) {
                             scope.launch {
-                                removeLocalFile(context, repository, item)
+                                // iOS parity: a pending/running upload for this book means the file
+                                // hasn't reached the cloud — escalate to the upload warning instead
+                                // of silently destroying the only copy.
+                                val hasUploadTask = syncTaskRepository.getAllTasks().first().any {
+                                    it.jobType == com.tortugapower.audiobookplayer.logic.SyncTaskFactory.JOB_UPLOAD_FILE &&
+                                        it.taskID == item.uuid
+                                }
                                 itemToDelete = null
+                                if (hasUploadTask) {
+                                    uploadWarningItem = item
+                                } else {
+                                    removeLocalFile(context, repository, item)
+                                }
                             }
                         }
                     }
@@ -128,6 +144,35 @@ fun StorageManagementScreen(
             },
             dismissButton = {
                 TextButton(onClick = { itemToDelete = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
+    }
+
+    // iOS's uploadTaskAlert: Warning + "queued upload task for <title>" + destructive Remove.
+    uploadWarningItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { uploadWarningItem = null },
+            title = { Text(stringResource(R.string.storage_management_warning_title)) },
+            text = { Text(stringResource(R.string.storage_management_upload_queued_warning, item.title)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            removeLocalFile(context, repository, item)
+                            uploadWarningItem = null
+                        }
+                    }
+                ) {
+                    Text(
+                        text = stringResource(R.string.storage_management_remove_button),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { uploadWarningItem = null }) {
                     Text(stringResource(R.string.common_cancel))
                 }
             }
