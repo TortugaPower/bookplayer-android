@@ -22,6 +22,9 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Robolectric tests that resolve real resources (e.g. the :core-owned container-count
+        // plurals in LibraryContentsSyncTest.displayDetails) need them packaged for unit tests.
+        unitTests.isIncludeAndroidResources = true
     }
 }
 
