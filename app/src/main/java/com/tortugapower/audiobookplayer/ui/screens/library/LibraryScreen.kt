@@ -1717,32 +1717,16 @@ fun LibraryEmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(
-            modifier = Modifier.size(width = 280.dp, height = 210.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            val bookColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f)
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val width = size.width
-                val height = size.height
-                
-                // Draw 3 layered books:
-                // 1. Back book: rotated left, scaled down
-                drawBookShape(width, height, -12f, 0.85f, 0.4f, bookColor)
-                // 2. Middle book: rotated right, scaled down
-                drawBookShape(width, height, 8f, 0.92f, 0.6f, bookColor)
-                // 3. Front book: straight, full scale
-                drawBookShape(width, height, 0f, 1.0f, 1.0f, bookColor)
-            }
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
-                modifier = Modifier.size(72.dp)
-            )
-        }
+        // iOS parity (EmptyListView, node == .root): the faint stacked-books-with-audio
+        // illustration — Material's LibraryMusic is the native equivalent (library + audio),
+        // preferred over custom Canvas art or the app logo.
+        Icon(
+            imageVector = Icons.Default.LibraryMusic,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+            modifier = Modifier.size(140.dp)
+        )
 
-        
         Spacer(modifier = Modifier.height(32.dp))
         
         TextButton(
@@ -1764,66 +1748,6 @@ fun LibraryEmptyState(
     }
 }
 
-private fun DrawScope.drawBookShape(
-    width: Float,
-    height: Float,
-    rotationDegrees: Float,
-    scale: Float,
-    alpha: Float,
-    color: Color
-) {
-    val bookWidth = width * scale
-    val bookHeight = height * scale
-    val left = (width - bookWidth) / 2
-    val top = (height - bookHeight) / 2
-    
-    val spineX = left + bookWidth / 2
-    val pageW = bookWidth / 2
-    val topCurveOffset = bookHeight * 0.12f
-    
-    val path = Path().apply {
-        moveTo(spineX, top + topCurveOffset)
-        
-        cubicTo(
-            spineX - pageW * 0.4f, top,
-            spineX - pageW * 0.7f, top,
-            left, top + topCurveOffset
-        )
-        
-        lineTo(left, top + bookHeight - topCurveOffset)
-        
-        cubicTo(
-            spineX - pageW * 0.7f, top + bookHeight - topCurveOffset * 2,
-            spineX - pageW * 0.4f, top + bookHeight - topCurveOffset,
-            spineX, top + bookHeight
-        )
-        
-        cubicTo(
-            spineX + pageW * 0.4f, top + bookHeight - topCurveOffset,
-            spineX + pageW * 0.7f, top + bookHeight - topCurveOffset * 2,
-            left + bookWidth, top + bookHeight - topCurveOffset
-        )
-        
-        lineTo(left + bookWidth, top + topCurveOffset)
-        
-        cubicTo(
-            spineX + pageW * 0.7f, top,
-            spineX + pageW * 0.4f, top,
-            spineX, top + topCurveOffset
-        )
-        
-        close()
-    }
-    
-    withTransform({
-        rotate(rotationDegrees, pivot = Offset(width / 2, height / 2))
-    }) {
-        drawPath(
-            path = path,
-            color = color.copy(alpha = color.alpha * alpha)
-        )
-    }
-}
 
 @Composable
 fun FolderEmptyState(
@@ -1837,48 +1761,16 @@ fun FolderEmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        val color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-        Column(
-            modifier = Modifier.width(180.dp),
-            horizontalAlignment = Alignment.Start
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    tint = color,
-                    modifier = Modifier.size(36.dp)
-                )
-                Spacer(modifier = Modifier.width(16.dp))
-                Box(
-                    modifier = Modifier
-                        .width(100.dp)
-                        .height(16.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(color)
-                )
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(16.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(color)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(16.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(color)
-            )
-        }
-        
-        Spacer(modifier = Modifier.height(48.dp))
+        // iOS parity (EmptyListView, non-root → the emptyPlaylist asset): a play triangle with
+        // list bars — exactly Material's PlaylistPlay, tinted like iOS tints it with the accent.
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+            modifier = Modifier.size(140.dp)
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
         
         TextButton(
             onClick = onAddFiles,
