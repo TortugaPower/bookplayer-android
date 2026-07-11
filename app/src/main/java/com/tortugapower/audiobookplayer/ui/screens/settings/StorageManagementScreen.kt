@@ -124,7 +124,7 @@ fun StorageManagementScreen(
                                 // iOS parity: a pending/running upload for this book means the file
                                 // hasn't reached the cloud — escalate to the upload warning instead
                                 // of silently destroying the only copy.
-                                val hasUploadTask = hasQueuedUploadTask(syncTaskRepository, item.uuid)
+                                val hasUploadTask = hasQueuedUploadTask(syncTaskRepository, repository, item)
                                 itemToDelete = null
                                 if (hasUploadTask) {
                                     uploadWarningItem = item

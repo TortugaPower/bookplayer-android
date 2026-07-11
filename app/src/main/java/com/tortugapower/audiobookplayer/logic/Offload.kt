@@ -13,15 +13,23 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Whether [uuid] still has a queued/running upload task — removing its file would destroy the only
- * copy before it reaches the cloud, so callers show the iOS-parity Warning dialog first
- * (`sync_tasks_item_upload_queued`). Shared by Storage Management and the library's
+ * Whether [item] still has a queued/running upload task — removing its file(s) would destroy the
+ * only copy before it reaches the cloud, so callers show the iOS-parity Warning dialog first
+ * (`sync_tasks_item_upload_queued`). Containers offload recursively ([removeLocalFile] deletes the
+ * whole directory), and upload tasks are keyed by the BOOK's uuid — so the check covers every
+ * descendant book, not just the item's own uuid. Shared by Storage Management and the library's
  * "Remove from device" option.
  */
-suspend fun hasQueuedUploadTask(syncTaskRepository: SyncTaskRepository, uuid: String): Boolean =
-    syncTaskRepository.getAllTasks().first().any {
-        it.jobType == SyncTaskFactory.JOB_UPLOAD_FILE && it.taskID == uuid
+suspend fun hasQueuedUploadTask(
+    syncTaskRepository: SyncTaskRepository,
+    repository: LibraryRepository,
+    item: LibraryItemEntity
+): Boolean {
+    val uuids = repository.getDescendantBooks(item).mapTo(mutableSetOf()) { it.uuid } + item.uuid
+    return syncTaskRepository.getAllTasks().first().any {
+        it.jobType == SyncTaskFactory.JOB_UPLOAD_FILE && it.taskID in uuids
     }
+}
 
 /**
  * OFFLOAD an item: delete the local audio file(s) but ALWAYS keep the library row (explicit product

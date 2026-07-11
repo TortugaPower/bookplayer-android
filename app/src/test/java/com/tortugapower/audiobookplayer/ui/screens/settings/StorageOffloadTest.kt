@@ -88,4 +88,25 @@ class StorageOffloadTest {
         val resource = AppDatabase.getDatabase(context).libraryDao().getExternalResourcesForBookSync("b3").single()
         assertEquals(ExternalResourceEntity.STATUS_STREAM, resource.syncStatus)
     }
+
+    @Test fun `queued-upload guard covers a container's descendant books`() = runBlocking {
+        // Upload tasks are keyed by the BOOK's uuid; offloading a folder deletes its whole
+        // directory, so a queued child upload must trip the warning for the CONTAINER too.
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        val folder = LibraryItemEntity(uuid = "f1", title = "Series", relativePath = "Series", type = ItemType.FOLDER, orderRank = 0)
+        dao.insertItem(folder)
+        seedBookWithFile("child1", "Series/Part 1.mp3", remoteURL = null)
+        val syncTaskRepository = com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository(
+            AppDatabase.getDatabase(context).syncTaskDao()
+        )
+        com.tortugapower.audiobookplayer.logic.SyncTaskFactory.createUploadFileTask(
+            syncTaskRepository, dao.getItemById("child1")!!, remotePath = "Series/Part 1.mp3"
+        )
+
+        assertEquals(true, com.tortugapower.audiobookplayer.logic.hasQueuedUploadTask(syncTaskRepository, repository, folder))
+        // A sibling container with no queued descendants stays clean.
+        val other = LibraryItemEntity(uuid = "f2", title = "Other", relativePath = "Other", type = ItemType.FOLDER, orderRank = 1)
+        dao.insertItem(other)
+        assertEquals(false, com.tortugapower.audiobookplayer.logic.hasQueuedUploadTask(syncTaskRepository, repository, other))
+    }
 }

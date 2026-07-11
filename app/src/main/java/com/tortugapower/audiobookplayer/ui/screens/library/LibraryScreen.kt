@@ -722,7 +722,7 @@ fun LibraryScreen(
                                 onClick = {
                                     showSwipeOptionsDialog = false
                                     scope.launch {
-                                        if (hasQueuedUploadTask(syncTaskRepository, item.uuid)) {
+                                        if (hasQueuedUploadTask(syncTaskRepository, plainRepository, item)) {
                                             offloadWarningItem = item
                                         } else {
                                             removeLocalFile(context, plainRepository, item)
@@ -1120,7 +1120,7 @@ fun LibraryScreen(
                                         showMoreMenu = false
                                         singleItem?.let { item ->
                                             scope.launch {
-                                                if (hasQueuedUploadTask(syncTaskRepository, item.uuid)) {
+                                                if (hasQueuedUploadTask(syncTaskRepository, plainRepository, item)) {
                                                     offloadWarningItem = item
                                                 } else {
                                                     removeLocalFile(context, plainRepository, item)
