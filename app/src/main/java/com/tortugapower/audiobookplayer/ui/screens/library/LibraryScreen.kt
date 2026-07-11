@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -1103,7 +1104,6 @@ fun LibraryScreen(
                     }
                 } else {
                     val lazyListState = rememberLazyListState()
-                    val density = LocalDensity.current
                 
                     LazyColumn(
                         state = lazyListState,
@@ -1133,58 +1133,39 @@ fun LibraryScreen(
                             SwipeToDismissBox(
                                 state = dismissState,
                                 backgroundContent = {
-                                    val isSwiping = !isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
-                                    if (isSwiping) {
-                                        val buttonsWidthPx = with(density) { 160.dp.toPx() }
-
-                                        Row(
+                                    // Native Material treatment (the Gmail pattern): a full-width
+                                    // tinted background with ONE icon that emphasizes once the drag
+                                    // crosses the commit threshold. M3's SwipeToDismissBox has no
+                                    // persistent "revealed buttons" state (that's iOS's swipe-actions
+                                    // pattern) — a full swipe commits the single action, which here
+                                    // opens the item's options dialog (delete lives safely inside it).
+                                    if (!isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                                        val crossedThreshold = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+                                        val iconScale by animateFloatAsState(
+                                            targetValue = if (crossedThreshold) 1.2f else 1f,
+                                            label = "swipeIconScale"
+                                        )
+                                        Box(
                                             modifier = Modifier
                                                 .fillMaxSize()
-                                                .graphicsLayer {
-                                                    // Offset read INSIDE the draw-phase lambda: reading the
-                                                    // animating value during composition would recompose the
-                                                    // row on every drag frame.
-                                                    val offset = runCatching { dismissState.requireOffset() }.getOrDefault(0f)
-                                                    this.translationX = (offset + buttonsWidthPx).coerceAtLeast(0f)
-                                                },
-                                            horizontalArrangement = Arrangement.End,
-                                            verticalAlignment = Alignment.CenterVertically
+                                                .background(
+                                                    if (crossedThreshold) MaterialTheme.colorScheme.primaryContainer
+                                                    else MaterialTheme.colorScheme.surfaceVariant
+                                                ),
+                                            contentAlignment = Alignment.CenterEnd
                                         ) {
-                                            Box(
+                                            Icon(
+                                                imageVector = Icons.Default.Info,
+                                                contentDescription = stringResource(R.string.library_see_details),
+                                                tint = if (crossedThreshold) MaterialTheme.colorScheme.onPrimaryContainer
+                                                       else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier
-                                                    .fillMaxHeight()
-                                                    .width(80.dp)
-                                                    .background(Color(0xFFE57373))
-                                                    .clickable {
-                                                        itemsToDelete = listOf(item)
-                                                        coroutineScope.launch { dismissState.reset() }
-                                                    },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Delete,
-                                                    contentDescription = stringResource(R.string.common_delete),
-                                                    tint = Color.White
-                                                )
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxHeight()
-                                                    .width(80.dp)
-                                                    .background(MaterialTheme.colorScheme.primary)
-                                                    .clickable {
-                                                        itemForSwipeOptions = item
-                                                        showSwipeOptionsDialog = true
-                                                        coroutineScope.launch { dismissState.reset() }
-                                                    },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Info,
-                                                    contentDescription = stringResource(R.string.library_see_details),
-                                                    tint = Color.White
-                                                )
-                                            }
+                                                    .padding(end = 24.dp)
+                                                    .graphicsLayer {
+                                                        scaleX = iconScale
+                                                        scaleY = iconScale
+                                                    }
+                                            )
                                         }
                                     }
                                 },
