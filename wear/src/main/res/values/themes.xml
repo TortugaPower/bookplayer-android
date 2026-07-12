@@ -5,4 +5,13 @@
     <style name="Theme.BookPlayerWear" parent="@android:style/Theme.DeviceDefault">
         <item name="android:windowBackground">@android:color/black</item>
     </style>
+
+    <!-- Branded launch (Wear App Quality Guidelines / Play review "Missing app icon in splash
+         screen"): cold start must show the app icon on a black background. The SplashScreen
+         library renders the launcher icon, then hands over to the regular theme. -->
+    <style name="Theme.BookPlayerWear.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@android:color/black</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.BookPlayerWear</item>
+    </style>
 </resources>

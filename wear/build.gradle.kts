@@ -39,7 +39,7 @@ android {
         // Wear lives in its own 100xxx range: Play requires versionCodes to be unique across
         // EVERY bundle ever uploaded for the package (the phone app already consumed 1..13), so
         // the two apps increment independently without ever colliding.
-        versionCode = 100003
+        versionCode = 100004
         versionName = "1.0.0"
 
         buildConfigField("String", "REVENUECAT_API_KEY", "\"${localProp("REVENUECAT_API_KEY")}\"")
@@ -108,6 +108,10 @@ dependencies {
     implementation(project(":core"))
 
     implementation(libs.androidx.core.ktx)
+    // Branded launch (icon-on-black splash) — Wear App Quality requirement.
+    implementation(libs.androidx.core.splashscreen)
+    // Ongoing Activity (watch-face indicator + recents chip during playback) — Wear App Quality requirement.
+    implementation(libs.androidx.wear.ongoing)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     // ProcessLifecycleOwner: gate the sync foreground service on process-foreground state.
     implementation(libs.androidx.lifecycle.process)

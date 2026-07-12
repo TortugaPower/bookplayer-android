@@ -4,10 +4,17 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
 import androidx.annotation.OptIn
+import androidx.core.app.NotificationCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.CommandButton
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
+import androidx.media3.session.MediaNotification
+import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
+import androidx.wear.ongoing.OngoingActivity
+import androidx.wear.ongoing.Status
+import com.google.common.collect.ImmutableList
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.service.MediaPlaybackService
 import com.tortugapower.audiobookplayer.wear.R
@@ -30,6 +37,55 @@ class WearPlaybackService : MediaPlaybackService() {
     // Let ExoPlayer own the watch's media-stream volume so the rotary crown can drive it during standalone
     // playback (the crown calls PlaybackManager.increase/decreaseDeviceVolume). Off on the phone.
     override val deviceVolumeControlEnabled: Boolean = true
+
+    override fun onCreate() {
+        super.onCreate()
+        // Wear App Quality requirement ("Missing ongoing activity", 1.0.0 wear review): active playback
+        // must surface as an Ongoing Activity — the indicator on the watch face and the chip in recents.
+        // Both derive from the OngoingActivity attached to the playback notification below.
+        setMediaNotificationProvider(OngoingMediaNotificationProvider())
+    }
+
+    /**
+     * Media3's default provider builds the actual media notification (transport actions, metadata,
+     * media style); this wrapper only rebuilds its result so the wear [OngoingActivity] extras can be
+     * attached while something is playing. Paused/stopped notifications pass through untouched — the
+     * ongoing indicator should only exist while playback is genuinely ongoing.
+     */
+    private inner class OngoingMediaNotificationProvider : MediaNotification.Provider {
+        private val delegate = DefaultMediaNotificationProvider.Builder(this@WearPlaybackService).build()
+
+        override fun createNotification(
+            mediaSession: MediaSession,
+            mediaButtonPreferences: ImmutableList<CommandButton>,
+            actionFactory: MediaNotification.ActionFactory,
+            onNotificationChangedCallback: MediaNotification.Provider.Callback,
+        ): MediaNotification {
+            val default = delegate.createNotification(
+                mediaSession, mediaButtonPreferences, actionFactory, onNotificationChangedCallback,
+            )
+            val sessionPlayer = mediaSession.player
+            if (!sessionPlayer.playWhenReady || sessionPlayer.mediaItemCount == 0) return default
+
+            // Rebuild the default notification into a builder (the OngoingActivity API needs one).
+            val builder = NotificationCompat.Builder(this@WearPlaybackService, default.notification)
+            val title = sessionPlayer.mediaMetadata.title?.toString()
+                ?: getString(R.string.wear_now_playing)
+            OngoingActivity.Builder(applicationContext, default.notificationId, builder)
+                .setStaticIcon(R.drawable.ic_bookplayer_glyph)
+                .setTouchIntent(createSessionActivity())
+                .setStatus(Status.Builder().addTemplate(title).build())
+                .build()
+                .apply(applicationContext)
+            return MediaNotification(default.notificationId, builder.build())
+        }
+
+        override fun handleCustomCommand(
+            session: MediaSession,
+            action: String,
+            extras: Bundle,
+        ): Boolean = false
+    }
 
     override fun createSessionActivity(): PendingIntent {
         val intent = Intent(this, MainActivity::class.java).apply {
