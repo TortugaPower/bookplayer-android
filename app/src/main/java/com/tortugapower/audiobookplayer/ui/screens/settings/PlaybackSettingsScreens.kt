@@ -42,7 +42,7 @@ fun PlayerControlsSettingsScreen(
     val progressBarSeeking by remember { PlaybackSettingsManager.getProgressBarSeeking(context) }.collectAsStateWithLifecycle(initialValue = true)
     val listButtonOpens by remember { PlaybackSettingsManager.getListButtonOpens(context) }.collectAsStateWithLifecycle(initialValue = PlaybackSettingsManager.LIST_OPENS_CHAPTERS)
     val useRemainingTime by remember { PlaybackSettingsManager.getUseRemainingTime(context) }.collectAsStateWithLifecycle(initialValue = true)
-    val useChapterContext by remember { PlaybackSettingsManager.getUseChapterContext(context) }.collectAsStateWithLifecycle(initialValue = false)
+    val useChapterContext by remember { PlaybackSettingsManager.getUseChapterContext(context) }.collectAsStateWithLifecycle(initialValue = true)
 
     BookPlayerTabScaffold(
         title = stringResource(R.string.player_controls_title),

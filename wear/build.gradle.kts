@@ -14,6 +14,17 @@ val localProperties = Properties().apply {
 fun localProp(key: String, default: String = ""): String =
     (localProperties.getProperty(key) ?: System.getenv(key) ?: default).trim()
 
+// Same release keystore as :app (gitignored keystore.properties). The watch app MUST be signed
+// with the same key: the Play Store pairs phone + watch by applicationId + signing key, and the
+// Wear Data Layer refuses to connect nodes signed differently. Missing file → unsigned build.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun keystoreProp(key: String): String? =
+    keystoreProperties.getProperty(key) ?: System.getenv(key)
+
 android {
     namespace = "com.tortugapower.audiobookplayer.wear"
     compileSdk = 35
@@ -25,8 +36,11 @@ android {
         // Wear OS 3+ (API 30). The phone app goes back to 28, but there is no Wear OS below 30.
         minSdk = 30
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // Wear lives in its own 100xxx range: Play requires versionCodes to be unique across
+        // EVERY bundle ever uploaded for the package (the phone app already consumed 1..13), so
+        // the two apps increment independently without ever colliding.
+        versionCode = 100003
+        versionName = "1.0.0"
 
         buildConfigField("String", "REVENUECAT_API_KEY", "\"${localProp("REVENUECAT_API_KEY")}\"")
     }
@@ -46,6 +60,18 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val storePath = keystoreProp("RELEASE_STORE_FILE")
+            if (storePath != null) {
+                storeFile = rootProject.file(storePath)
+                storePassword = keystoreProp("RELEASE_STORE_PASSWORD")
+                keyAlias = keystoreProp("RELEASE_KEY_ALIAS")
+                keyPassword = keystoreProp("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -53,6 +79,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Only attach the signing config when the keystore is actually available.
+            // Builds without keystore.properties produce an unsigned release APK.
+            if (keystoreProp("RELEASE_STORE_FILE") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

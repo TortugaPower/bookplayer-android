@@ -110,7 +110,9 @@ object PlaybackSettingsManager {
         context.dataStore.edit { it[USE_REMAINING_TIME] = enabled }
     }
 
-    fun getUseChapterContext(context: Context): Flow<Boolean> = context.dataStore.data.map { it[USE_CHAPTER_CONTEXT] ?: false }
+    // Default ON — iOS parity (prefersChapterContext defaults true): the player shows the chapter's
+    // title and chapter-relative progress until the user opts out.
+    fun getUseChapterContext(context: Context): Flow<Boolean> = context.dataStore.data.map { it[USE_CHAPTER_CONTEXT] ?: true }
     suspend fun setUseChapterContext(context: Context, enabled: Boolean) {
         context.dataStore.edit { it[USE_CHAPTER_CONTEXT] = enabled }
     }

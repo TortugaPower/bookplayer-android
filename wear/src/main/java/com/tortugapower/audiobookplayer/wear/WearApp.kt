@@ -166,10 +166,17 @@ class WearApp : Application() {
 
     /** Re-request the now-playing tile + complication (they share [NowPlayingGlance]). */
     private fun refreshGlanceSurfaces() {
-        TileService.getUpdater(this).requestUpdate(NowPlayingTileService::class.java)
-        ComplicationDataSourceUpdateRequester
-            .create(this, ComponentName(this, NowPlayingComplicationService::class.java))
-            .requestUpdateAll()
+        // A glance refresh must never take the app down: the tiles SysUi requester talks to the
+        // system (settings read + broadcast) and can throw RemoteException on images/ROMs that
+        // restrict it — the tile just refreshes on its own cadence instead.
+        try {
+            TileService.getUpdater(this).requestUpdate(NowPlayingTileService::class.java)
+            ComplicationDataSourceUpdateRequester
+                .create(this, ComponentName(this, NowPlayingComplicationService::class.java))
+                .requestUpdateAll()
+        } catch (e: Exception) {
+            android.util.Log.w("WearApp", "Glance surface refresh failed: ${e.message}")
+        }
     }
 }
 

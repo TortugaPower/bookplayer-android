@@ -86,7 +86,7 @@ class PlayerViewModel(
     var progressBarSeeking by mutableStateOf(true)
     var listButtonOpens by mutableStateOf(PlaybackSettingsManager.LIST_OPENS_CHAPTERS)
     var useRemainingTime by mutableStateOf(true)
-    var useChapterContext by mutableStateOf(false)
+    var useChapterContext by mutableStateOf(true)
 
     init {
         // Load initial settings
@@ -303,7 +303,7 @@ class PlayerViewModel(
             var progressBarSeekingVal = true
             var listButtonOpensVal = PlaybackSettingsManager.LIST_OPENS_CHAPTERS
             var useRemainingTimeVal = true
-            var useChapterContextVal = false
+            var useChapterContextVal = true
 
             withContext(Dispatchers.IO) {
                 smartRewindVal = PlaybackSettingsManager.getSmartRewind(context).first()
