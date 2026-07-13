@@ -8,20 +8,17 @@ import com.tortugapower.audiobookplayer.datalayer.WatchTheme
 /**
  * Maps a synced [WatchTheme] onto a Wear [Colors], starting from [defaults] so untouched roles (error /
  * onError / secondary — the destructive buttons stay red, secondary chips keep their surface fill) survive.
- * We override only the brand roles: accent → primary (play button, progress ring, primary chips), the
- * theme's background/surface, and its foreground colors for text/icons.
+ * Only the ACCENT is adopted (play button, progress ring, primary chips): the Wear App Quality
+ * Guidelines require a pure-black app background (Play review rejects non-black — "Background not
+ * black", 1.0.0 wear review), so the theme's background/surface/foreground colors deliberately do NOT
+ * follow the phone; the default black palette keeps every synced theme compliant and readable.
  */
 fun WatchTheme.toWearColors(defaults: Colors = Colors()): Colors {
     val accent = parseHexColor(accentHex)
     return defaults.copy(
         primary = accent,
         primaryVariant = accent,
-        background = parseHexColor(backgroundHex),
-        surface = parseHexColor(surfaceHex),
         onPrimary = contrastOn(accent),
-        onBackground = parseHexColor(primaryHex),
-        onSurface = parseHexColor(primaryHex),
-        onSurfaceVariant = parseHexColor(secondaryHex),
     )
 }
 

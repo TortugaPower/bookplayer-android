@@ -1,0 +1,123 @@
+# Release automation — the Android equivalent of the iOS Xcode Cloud `release-*` hook.
+#
+# Push a branch named `release-*` (or run manually via workflow_dispatch) and this workflow:
+#   1. runs the unit-test + lint bar,
+#   2. builds BOTH signed prod bundles (:app phone + :wear watch),
+#   3. attaches them to the run as artifacts, and
+#   4. creates a DRAFT release on the Play production track containing both bundles —
+#      ready to review and submit by hand in Play Console. Nothing ever auto-publishes.
+#
+# ── One-time setup ────────────────────────────────────────────────────────────────────────────
+# 1. Service account: create one in Google Cloud, then Play Console → Users & permissions →
+#    invite its email with access to BookPlayer and release permissions (create/edit draft
+#    releases; leave rollout/publish OFF so CI can never ship anything).
+# 2. Repo secrets (Settings → Secrets and variables → Actions):
+#      PLAY_SERVICE_ACCOUNT_JSON   the service account's JSON key, pasted as plaintext
+#      RELEASE_KEYSTORE_BASE64     `base64 -i <your .keystore/.jks file>`
+#      RELEASE_STORE_PASSWORD      \
+#      RELEASE_KEY_ALIAS            > same values as keystore.properties
+#      RELEASE_KEY_PASSWORD        /
+#      PROD_BASE_URL               \
+#      GOOGLE_CLIENT_ID             > same values as local.properties
+#      REVENUECAT_API_KEY          /
+#      SENTRY_DSN
+#
+# Gradle needs no changes: keystoreProp()/localProp() in app/ and wear/ build files already fall
+# back to environment variables with these exact names.
+#
+# NOTE: uploaded versionCodes are burned permanently, even for drafts — bump versionCode in
+# app/build.gradle.kts and wear/build.gradle.kts BEFORE pushing the release branch, or the Play
+# upload step fails with "version code has already been used".
+
+name: Release
+
+on:
+  push:
+    branches: [ 'release-*' ]
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PROD_BASE_URL: ${{ secrets.PROD_BASE_URL }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      REVENUECAT_API_KEY: ${{ secrets.REVENUECAT_API_KEY }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # A missing config secret wouldn't fail the build — localProp() defaults to "" and the
+      # bundle would ship pointing at empty config. Refuse to continue instead.
+      - name: Check required secrets
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          missing=""
+          for name in PROD_BASE_URL GOOGLE_CLIENT_ID REVENUECAT_API_KEY SENTRY_DSN \
+                      RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD \
+                      RELEASE_KEYSTORE_BASE64 PLAY_SERVICE_ACCOUNT_JSON; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required secrets:$missing"
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # Same bar as ci.yml: :app/:wear tests via the dev flavor (no secrets needed), :core is
+      # flavorless, plus lint. A release build never ships from a red tree.
+      - name: Run unit tests
+        run: ./gradlew testDevDebugUnitTest :core:testDebugUnitTest --stacktrace
+
+      - name: Lint
+        run: ./gradlew lintDevDebug --stacktrace
+
+      - name: Decode release keystore
+        run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > release-ci.keystore
+
+      # RELEASE_STORE_FILE is resolved via rootProject.file(...) in both signing configs.
+      - name: Build signed prod bundles
+        env:
+          RELEASE_STORE_FILE: release-ci.keystore
+        run: ./gradlew :app:bundleProdRelease :wear:bundleProdRelease --stacktrace
+
+      # The bundles stay downloadable from the run even if the Play upload below fails.
+      - name: Attach bundles to the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundles
+          path: |
+            app/build/outputs/bundle/prodRelease/app-prod-release.aab
+            wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
+          if-no-files-found: error
+
+      # ONE draft release containing BOTH bundles (phone + watch), mirroring how 1.0.0 shipped:
+      # Play serves each device the right bundle by manifest targeting. Draft = parked in the
+      # console for manual review + submission, exactly like an Xcode Cloud archive in ASC.
+      - name: Create draft release on Play
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.tortugapower.audiobookplayer
+          releaseFiles: |
+            app/build/outputs/bundle/prodRelease/app-prod-release.aab
+            wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
+          track: production
+          status: draft

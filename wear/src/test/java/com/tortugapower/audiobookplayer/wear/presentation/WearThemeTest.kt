@@ -25,16 +25,16 @@ class WearThemeTest {
         assertEquals(Color(0xFF459EEC), theme("459EEC").toWearColors().primary)
     }
 
-    @Test fun backgroundAndSurfaceAreThemed() {
+    @Test fun `background and surface stay the Wear defaults - Play requires a black watch background`() {
+        // "Background not black" rejection (wear 1.0.0 review): the synced theme's background/surface
+        // must NOT recolor the watch — only the accent is adopted.
+        val defaults = androidx.wear.compose.material.Colors()
         val colors = theme("459EEC").toWearColors()
-        assertEquals(Color(0xFF202225), colors.background)
-        assertEquals(Color(0xFF111113), colors.surface)
-    }
-
-    @Test fun foregroundMapsToPrimaryAndSecondaryHex() {
-        val colors = theme("459EEC").toWearColors()
-        assertEquals(Color(0xFFFAFBFC), colors.onSurface)
-        assertEquals(Color(0xFF8F8E94), colors.onSurfaceVariant)
+        assertEquals(defaults.background, colors.background)
+        assertEquals(defaults.surface, colors.surface)
+        assertEquals(defaults.onBackground, colors.onBackground)
+        assertEquals(defaults.onSurface, colors.onSurface)
+        assertEquals(defaults.onSurfaceVariant, colors.onSurfaceVariant)
     }
 
     @Test fun darkAccentGetsWhiteIcon() {

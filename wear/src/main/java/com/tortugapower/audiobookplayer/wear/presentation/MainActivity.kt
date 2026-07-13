@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
@@ -28,6 +29,9 @@ import com.tortugapower.audiobookplayer.wear.R
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Branded launch (Wear App Quality): the launcher icon on black until the first frame,
+        // then postSplashScreenTheme (Theme.BookPlayerWear) takes over.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         setContent { WearRoot() }
     }
