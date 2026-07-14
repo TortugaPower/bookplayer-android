@@ -47,8 +47,21 @@ object ExternalServiceUtils {
      * Mirrors iOS's JellyfinHeaderInjector behavior.
      */
     fun sanitizeCustomHeaders(headers: Map<String, String>?): Map<String, String>? {
-        return headers?.filterKeys { !it.equals("Authorization", ignoreCase = true) }
+        return headers
+            ?.mapKeys { it.key.trim() }
+            ?.filterKeys { !it.equals("Authorization", ignoreCase = true) }
+            // OkHttp throws IllegalArgumentException at REQUEST time for non-ASCII header names or
+            // control chars in values — and since headers are persisted, one bad entry bricked the
+            // integration with a crash on every request (BOOKPLAYER-B: a Cyrillic header name).
+            // Drop illegal entries instead: name must be an RFC 7230 token, value printable ASCII.
+            ?.filter { (name, value) -> isLegalHeaderName(name) && isLegalHeaderValue(value) }
     }
+
+    private fun isLegalHeaderName(name: String): Boolean =
+        name.isNotEmpty() && name.all { it in "!#${'$'}%&'*+-.^_`|~" || it.isLetterOrDigit() && it.code < 128 }
+
+    private fun isLegalHeaderValue(value: String): Boolean =
+        value.all { it == '\t' || it.code in 0x20..0x7e }
 
     /**
      * The headers to attach to stream/download/artwork requests for an external server: the user's
