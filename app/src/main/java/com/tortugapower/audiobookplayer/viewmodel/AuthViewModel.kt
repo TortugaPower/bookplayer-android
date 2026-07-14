@@ -428,6 +428,13 @@ class AuthViewModel(
             revenuecatId = revenuecatId
         )
         accountRepository.saveAccount(account)
+        // Pull this user's synced preferences (library sort rules, etc.) now that we're
+        // authenticated. Set the token first so the request isn't racing the reactive token wiring.
+        runCatching {
+            NetworkClient.setToken(apiToken)
+            val prefsSync = com.tortugapower.audiobookplayer.BookPlayerApplication.instance.preferencesSyncService
+            viewModelScope.launch { prefsSync.pull(force = true) }
+        }
         // Subscription status is sourced from RevenueCat (the source of truth), mirroring iOS —
         // the server login response carries no subscription flag. This drives whether the UI
         // shows the "Complete Your Account" paywall, and updateAccountTier (inside) reconciles

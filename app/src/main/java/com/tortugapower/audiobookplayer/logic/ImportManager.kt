@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.tortugapower.audiobookplayer.BookPlayerApplication
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
@@ -500,6 +501,14 @@ object ImportManager : ImportService {
                 createdItems.firstOrNull()?.relativePath?.let {
                     RoomLibraryRepository(context.applicationContext, libraryDao).refreshParentMetadata(it)
                 }
+            }
+
+            // Sticky sort: if the destination sorts automatically, drop the freshly-imported items
+            // into rule order instead of appending them at the end.
+            try {
+                BookPlayerApplication.instance.librarySortManager.resortIfAutomatic(targetFolderPath)
+            } catch (e: Exception) {
+                android.util.Log.w("ImportManager", "Post-import resort skipped", e)
             }
         }
     }

@@ -2,6 +2,7 @@ package com.tortugapower.audiobookplayer.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tortugapower.audiobookplayer.BookPlayerApplication
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
@@ -106,6 +107,9 @@ class ProfileViewModel(
         NetworkClient.setToken(null)
         accountRepository.deleteAccount()
         syncTaskRepository.deleteAllTasks()
+        // Preference sync channel: cancel pending pushes, drop the dirty list, remove observers, and
+        // delete every library_sort:* key so the next login pulls fresh (no stale per-user sort state).
+        BookPlayerApplication.instance.preferencesSyncService.onLogout()
         SubscriptionManager.logout()
         SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
         // AFTER the account row is gone: stop + unload the loaded book if it's now gate-blocked

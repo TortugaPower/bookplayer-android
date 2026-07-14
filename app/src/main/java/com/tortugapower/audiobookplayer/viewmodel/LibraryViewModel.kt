@@ -10,8 +10,12 @@ import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.BookPlayerApplication
 import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
+import com.tortugapower.audiobookplayer.logic.sort.SortLocation
+import com.tortugapower.audiobookplayer.logic.sort.SortType
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -323,9 +327,52 @@ class LibraryViewModel(
         }
     }
 
+    // ---- Sticky sort -------------------------------------------------------------------------
+
+    private val sortManager get() = BookPlayerApplication.instance.librarySortManager
+
+    /**
+     * The current location's effective sort rule (or [EffectiveSort.Custom]). Recomputed when the
+     * folder changes; also lazily registers the folder's key with the preference sync service so its
+     * changes start syncing once its screen has been opened (idempotent).
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val effectiveSort: StateFlow<EffectiveSort> = _currentPath
+        .flatMapLatest { path ->
+            flow {
+                val location = sortManager.resolveLocation(path)
+                if (location is SortLocation.Folder) {
+                    runCatching {
+                        BookPlayerApplication.instance.preferencesSyncService.registerKey(location.storeKey)
+                    }
+                }
+                emitAll(sortManager.observeEffectiveSort(location))
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), EffectiveSort.Custom)
+
+    /** User picked a sort rule for the current location. */
+    fun sortBy(sortType: SortType) {
+        viewModelScope.launch { sortManager.applySort(_currentPath.value, sortType) }
+    }
+
+    /** User explicitly chose "Custom": flip to manual order, keeping current ranks. */
+    fun setCustomSort() {
+        viewModelScope.launch { sortManager.setCustom(_currentPath.value) }
+    }
+
+    /** One-off reverse of the current order; flips the location to a custom (manual) order. */
+    fun reverseOrder() {
+        viewModelScope.launch { sortManager.reverseOrder(_currentPath.value) }
+    }
+
+    /**
+     * Manual drag-and-drop reorder: persist the moved ranks and flip the location to custom. No-op
+     * for a placeholder folder / bound volume (an unresolved location can't be re-ranked).
+     */
     fun reorderItems(items: List<LibraryItemEntity>) {
         viewModelScope.launch {
-            repository.reorderItems(items)
+            sortManager.setCustomOrder(_currentPath.value, items)
         }
     }
 

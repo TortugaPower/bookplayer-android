@@ -80,6 +80,8 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.ImportManager
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
+import com.tortugapower.audiobookplayer.logic.sort.SortType
 import com.tortugapower.audiobookplayer.repository.BoundConversionException
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
@@ -151,10 +153,12 @@ fun LibraryScreen(
     // Fetch data for the actual current path (used by dialogs and actions)
     val items by libraryViewModel.getItemsForPath(currentPath).collectAsState()
     val availableFolders by libraryViewModel.getFoldersForPath(currentPath).collectAsState()
+    val effectiveSort by libraryViewModel.effectiveSort.collectAsState()
 
     var selectedItemUuids by remember { mutableStateOf(setOf<String>()) }
     var isSelectMode by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var showSortSheet by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var itemsToDelete by remember { mutableStateOf<List<LibraryItemEntity>>(emptyList()) }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
@@ -950,6 +954,88 @@ fun LibraryScreen(
         }
     }
 
+    if (showSortSheet) {
+        val activeSortType = (effectiveSort as? EffectiveSort.Automatic)?.sortType
+        val sortValueLabel = when (val current = effectiveSort) {
+            is EffectiveSort.Automatic -> when (current.sortType) {
+                SortType.metadataTitle -> R.string.library_sort_title
+                SortType.fileName -> R.string.library_sort_filename
+                SortType.mostRecent -> R.string.library_sort_most_recent
+            }
+            EffectiveSort.Custom -> R.string.library_sort_custom
+        }
+        ModalBottomSheet(
+            onDismissRequest = { showSortSheet = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            dragHandle = { BottomSheetDefaults.DragHandle() },
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.library_options_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(bottom = 8.dp)
+                )
+                Box {
+                    var showSortMenu by remember { mutableStateOf(false) }
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.library_sort_files_by)) },
+                        trailingContent = {
+                            Text(
+                                text = stringResource(sortValueLabel),
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        modifier = Modifier.clickable { showSortMenu = true },
+                    )
+                    DropdownMenu(
+                        expanded = showSortMenu,
+                        onDismissRequest = { showSortMenu = false },
+                    ) {
+                        @Composable
+                        fun sortItem(labelRes: Int, active: Boolean, onPick: () -> Unit) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(labelRes)) },
+                                onClick = { showSortMenu = false; onPick() },
+                                leadingIcon = { if (active) Icon(Icons.Default.Check, null) },
+                            )
+                        }
+                        sortItem(R.string.library_sort_title, activeSortType == SortType.metadataTitle) {
+                            libraryViewModel.sortBy(SortType.metadataTitle)
+                        }
+                        sortItem(R.string.library_sort_filename, activeSortType == SortType.fileName) {
+                            libraryViewModel.sortBy(SortType.fileName)
+                        }
+                        sortItem(R.string.library_sort_most_recent, activeSortType == SortType.mostRecent) {
+                            libraryViewModel.sortBy(SortType.mostRecent)
+                        }
+                        sortItem(R.string.library_sort_custom, effectiveSort is EffectiveSort.Custom) {
+                            libraryViewModel.setCustomSort()
+                        }
+                        HorizontalDivider()
+                        Text(
+                            text = stringResource(R.string.library_sort_quick_actions),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_sort_reverse_order)) },
+                            onClick = { showSortMenu = false; libraryViewModel.reverseOrder() },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     BookPlayerTabScaffold(
         title = if (isSelectMode) {
             stringResource(R.string.library_title_default) 
@@ -1203,6 +1289,9 @@ fun LibraryScreen(
                 }
                 IconButton(onClick = { showSearchScreen = true }) {
                     Icon(Icons.Default.Search, contentDescription = stringResource(R.string.common_search))
+                }
+                IconButton(onClick = { showSortSheet = true }) {
+                    Icon(Icons.Default.GridView, contentDescription = stringResource(R.string.library_options_title))
                 }
                 Box {
                     IconButton(onClick = { showMenu = true }) {

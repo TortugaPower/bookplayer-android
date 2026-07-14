@@ -21,6 +21,19 @@ import org.junit.Test
 
 class SyncingLibraryRepositoryTest {
 
+    // In-memory sort store so the repo's rank-sync suppression / resort hooks run without a Context.
+    private class InMemoryPreferencesStore : com.tortugapower.audiobookplayer.logic.preferences.PreferencesStore {
+        private val map = mutableMapOf<String, String>()
+        override suspend fun getString(key: String): String? = map[key]
+        override suspend fun setString(key: String, value: String) { map[key] = value }
+        override suspend fun remove(key: String) { map.remove(key) }
+        override suspend fun keysWithPrefix(prefix: String) = map.keys.filter { it.startsWith(prefix) }.toSet()
+        override suspend fun removeWithPrefix(prefix: String) { map.keys.filter { it.startsWith(prefix) }.forEach { map.remove(it) } }
+        override fun observeString(key: String) = kotlinx.coroutines.flow.flowOf(map[key])
+        override fun observeAll() = kotlinx.coroutines.flow.flowOf(map.toMap())
+    }
+    private val sortStore = com.tortugapower.audiobookplayer.logic.sort.LibrarySortStore(InMemoryPreferencesStore())
+
     private class FakeLibraryRepository : LibraryRepository {
         var savedResource: ExternalResourceEntity? = null
         var deletedUuid: String? = null
@@ -130,7 +143,7 @@ class SyncingLibraryRepositoryTest {
         val delegate = FakeLibraryRepository()
         val syncTaskRepository = FakeSyncTaskRepository()
         fun repoFor(tier: AccountTier) =
-            SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(tier))
+            SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(tier), sortStore)
 
         // Subscribed tiers (cloud sync) gate the on-play offloaded-bound sub-item insert.
         assertTrue(repoFor(AccountTier.PRO).isCloudSyncActive())
@@ -154,7 +167,7 @@ class SyncingLibraryRepositoryTest {
         )
         delegate.existingResource = existing
 
-        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, accountRepository)
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, accountRepository, sortStore)
         repository.deleteExternalResource("book-uuid-1", "hardcover")
 
         assertEquals("book-uuid-1", delegate.deletedUuid)
@@ -185,7 +198,7 @@ class SyncingLibraryRepositoryTest {
         )
         delegate.existingResource = existing
 
-        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, accountRepository)
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, accountRepository, sortStore)
         repository.deleteExternalResource("book-uuid-1", "hardcover")
 
         assertEquals("book-uuid-1", delegate.deletedUuid)
@@ -219,7 +232,7 @@ class SyncingLibraryRepositoryTest {
             libraryItemUuid = "book-uuid-1"
         )
 
-        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, accountRepository)
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, accountRepository, sortStore)
         repository.saveExternalResource(newResource)
 
         // Verify the existing resource was deleted first
@@ -249,7 +262,7 @@ class SyncingLibraryRepositoryTest {
     fun testMoveItems_pushesRecomputedParentFolderMetadataAfterMove() = runBlocking {
         val delegate = FakeLibraryRepository()
         val syncTaskRepository = FakeSyncTaskRepository()
-        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO), sortStore)
 
         // Parent folders as the delegate would hold them AFTER its local recompute (updateParentFolders).
         delegate.itemsByPath["old"] = folder(uuid = "folder-old", path = "old", author = "0 Files")
@@ -281,7 +294,7 @@ class SyncingLibraryRepositoryTest {
     fun testDeleteItems_pushesRecomputedParentFolderMetadata() = runBlocking {
         val delegate = FakeLibraryRepository()
         val syncTaskRepository = FakeSyncTaskRepository()
-        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO), sortStore)
 
         delegate.itemsByPath["old"] = folder(uuid = "folder-old", path = "old", author = "0 Files")
         val book = LibraryItemEntity(
@@ -304,7 +317,7 @@ class SyncingLibraryRepositoryTest {
     fun testMoveItems_toRoot_pushesOnlySourceParent() = runBlocking {
         val delegate = FakeLibraryRepository()
         val syncTaskRepository = FakeSyncTaskRepository()
-        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO), sortStore)
 
         delegate.itemsByPath["old"] = folder(uuid = "folder-old", path = "old", author = "0 Files")
         val book = LibraryItemEntity(
