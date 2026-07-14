@@ -76,12 +76,23 @@ class TaskConcurrencyManager(
                 // Keep worker alive as long as there are pending tasks for this queue
                 while (isProcessing) {
                     val task = mutex.withLock {
-                        // Re-fetch only the next pending task for this specific queue
-                        repository.getTasksInQueueByStatus(queueKey, SyncTaskStatus.PENDING).firstOrNull()
+                        // Re-fetch the next runnable pending task for this queue. File uploads are
+                        // SKIPPED (not the whole queue) while held on cellular, so a user-triggered
+                        // download sharing this queue still runs; the skipped uploads wait for Wi-Fi.
+                        val pending = repository.getTasksInQueueByStatus(queueKey, SyncTaskStatus.PENDING)
+                        // Only pay for the settings/connectivity check when this queue actually holds a
+                        // file upload that could be gated.
+                        if (pending.any { UploadDataPolicy.isFileUploadJob(it.jobType) } &&
+                            UploadDataPolicy.shouldHoldUploads(context)
+                        ) {
+                            pending.firstOrNull { !UploadDataPolicy.isFileUploadJob(it.jobType) }
+                        } else {
+                            pending.firstOrNull()
+                        }
                     }
-                    
+
                     if (task == null) {
-                        Log.d(TAG, "🏁 Queue $queueKey is empty. Worker retiring.")
+                        Log.d(TAG, "🏁 Queue $queueKey has no runnable task. Worker retiring.")
                         break
                     }
 
@@ -115,6 +126,23 @@ class TaskConcurrencyManager(
             }
         }
         queueJobs[queueKey] = job
+    }
+
+    /**
+     * Re-scan pending tasks and (re)start workers for any queue lacking one. Called when connectivity
+     * changes so uploads that were held on cellular resume promptly once Wi-Fi returns (the task Flow
+     * only re-emits on DB changes, which a network change is not).
+     */
+    fun requestWorkerScan() {
+        if (!isProcessing) return
+        serviceScope.launch {
+            repository.getPendingTasks()
+                .map { it.queueKey }
+                .distinct()
+                .forEach { queueKey ->
+                    if (queueJobs[queueKey]?.isActive != true) startQueueWorker(queueKey)
+                }
+        }
     }
 
     override fun stopProcessing() {

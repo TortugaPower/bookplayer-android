@@ -425,4 +425,6 @@
     <string name="library_sort_reverse_order">क्रम उलटें</string>
     <string name="library_show_progress_percentage">प्रगति को प्रतिशत के रूप में दिखाएँ</string>
     <string name="library_show_original_file_name">मूल फ़ाइल नाम दिखाएँ</string>
+    <string name="settings_data_usage_section">डेटा उपयोग</string>
+    <string name="settings_upload_cellular_label">सेलुलर डेटा से अपलोड करें</string>
 </resources>

@@ -524,6 +524,8 @@
     <string name="settings_storage_management_section">Storage Management</string>
     <string name="settings_manage_files_label">Manage your files</string>
     <string name="settings_files_removed_label">Files removed (sync operations)</string>
+    <string name="settings_data_usage_section">Data Usage</string>
+    <string name="settings_upload_cellular_label">Upload using cellular data</string>
     <string name="storage_management_title">Storage Management</string>
     <string name="storage_management_total_space">Total space used</string>
     <string name="storage_management_artwork_cache">Artwork cache size</string>

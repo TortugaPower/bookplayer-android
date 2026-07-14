@@ -425,4 +425,6 @@
     <string name="library_sort_reverse_order">Reihenfolge umkehren</string>
     <string name="library_show_progress_percentage">Fortschritt als Prozentsatz anzeigen</string>
     <string name="library_show_original_file_name">Originaldateinamen anzeigen</string>
+    <string name="settings_data_usage_section">Datennutzung</string>
+    <string name="settings_upload_cellular_label">Mobile Daten für Uploads verwenden</string>
 </resources>

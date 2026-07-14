@@ -425,4 +425,6 @@
     <string name="library_sort_reverse_order">Inverti ordine</string>
     <string name="library_show_progress_percentage">Mostra avanzamento in percentuale</string>
     <string name="library_show_original_file_name">Mostra nome file originale</string>
+    <string name="settings_data_usage_section">Utilizzo dati</string>
+    <string name="settings_upload_cellular_label">Carica usando la rete cellulare</string>
 </resources>

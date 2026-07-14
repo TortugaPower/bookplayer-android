@@ -431,4 +431,6 @@
     <string name="library_sort_reverse_order">Обратный порядок</string>
     <string name="library_show_progress_percentage">Показывать прогресс в процентах</string>
     <string name="library_show_original_file_name">Показывать исходное имя файла</string>
+    <string name="settings_data_usage_section">Использование данных</string>
+    <string name="settings_upload_cellular_label">Загружать через сотовую сеть</string>
 </resources>

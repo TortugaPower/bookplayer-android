@@ -36,6 +36,8 @@ import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.ui.components.SettingsItem
+import com.tortugapower.audiobookplayer.ui.components.SettingsToggleItem
+import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.logic.SupportLinks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -241,6 +243,18 @@ fun SettingsScreen(
                         } else {
                             showProSheet = true
                         }
+                    },
+                )
+            }
+
+            settingsSection(titleRes = R.string.settings_data_usage_section) {
+                val uploadOnCellular by PlaybackSettingsManager.getUploadUsingCellularData(context)
+                    .collectAsState(initial = false)
+                SettingsToggleItem(
+                    label = stringResource(R.string.settings_upload_cellular_label),
+                    checked = uploadOnCellular,
+                    onCheckedChange = { enabled ->
+                        scope.launch { PlaybackSettingsManager.setUploadUsingCellularData(context, enabled) }
                     },
                 )
             }

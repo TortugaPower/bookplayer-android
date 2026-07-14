@@ -40,6 +40,21 @@ class TaskConcurrencyServiceHost : Service() {
     private lateinit var taskConcurrencyManager: TaskConcurrencyManager
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
+    private var connectivityManager: android.net.ConnectivityManager? = null
+    // Nudge the worker manager when the network changes so uploads held on cellular resume once
+    // an un-metered connection is available (the task Flow won't re-emit on a network change alone).
+    private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: android.net.Network) {
+            taskConcurrencyManager.requestWorkerScan()
+        }
+        override fun onCapabilitiesChanged(
+            network: android.net.Network,
+            caps: android.net.NetworkCapabilities
+        ) {
+            taskConcurrencyManager.requestWorkerScan()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "⚙️ TaskConcurrencyServiceHost.onCreate() - Initializing task concurrency manager")
@@ -76,6 +91,11 @@ class TaskConcurrencyServiceHost : Service() {
         taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)
         Log.d(TAG, "🚀 Triggering taskConcurrencyManager.startProcessing()")
         taskConcurrencyManager.startProcessing()
+
+        // Resume cellular-held uploads promptly when the network changes (e.g. Wi-Fi returns).
+        connectivityManager = (getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager)?.also {
+            runCatching { it.registerDefaultNetworkCallback(networkCallback) }
+        }
 
         // Android 15 gives dataSync services a 6h/day budget; once it's exhausted this throws
         // ForegroundServiceStartNotAllowedException ("time limit already exhausted") — and with
@@ -122,6 +142,7 @@ class TaskConcurrencyServiceHost : Service() {
     }
 
     override fun onDestroy() {
+        connectivityManager?.let { runCatching { it.unregisterNetworkCallback(networkCallback) } }
         taskConcurrencyManager.stopProcessing()
         serviceScope.cancel()
         super.onDestroy()

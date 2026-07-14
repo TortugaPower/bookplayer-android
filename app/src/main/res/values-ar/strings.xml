@@ -437,4 +437,6 @@
     <string name="library_sort_reverse_order">عكس الترتيب</string>
     <string name="library_show_progress_percentage">عرض التقدم كنسبة مئوية</string>
     <string name="library_show_original_file_name">عرض اسم الملف الأصلي</string>
+    <string name="settings_data_usage_section">استخدام البيانات</string>
+    <string name="settings_upload_cellular_label">الرفع باستخدام بيانات الجوال</string>
 </resources>

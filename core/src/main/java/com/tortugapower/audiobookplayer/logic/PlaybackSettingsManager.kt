@@ -187,4 +187,13 @@ object PlaybackSettingsManager {
     suspend fun setShowOriginalFileName(context: Context, enabled: Boolean) {
         context.dataStore.edit { it[SHOW_ORIGINAL_FILE_NAME] = enabled }
     }
+
+    // Data usage: whether background FILE uploads may run over a metered (cellular) connection.
+    // Default OFF — uploads wait for un-metered Wi-Fi. Downloads are user-triggered and unaffected.
+    private val UPLOAD_USING_CELLULAR_DATA = booleanPreferencesKey("upload_using_cellular_data")
+
+    fun getUploadUsingCellularData(context: Context): Flow<Boolean> = context.dataStore.data.map { it[UPLOAD_USING_CELLULAR_DATA] ?: false }
+    suspend fun setUploadUsingCellularData(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[UPLOAD_USING_CELLULAR_DATA] = enabled }
+    }
 }

@@ -423,4 +423,6 @@
     <string name="library_sort_reverse_order">反转顺序</string>
     <string name="library_show_progress_percentage">以百分比显示进度</string>
     <string name="library_show_original_file_name">显示原始文件名</string>
+    <string name="settings_data_usage_section">数据使用</string>
+    <string name="settings_upload_cellular_label">使用移动数据上传</string>
 </resources>
