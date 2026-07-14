@@ -193,8 +193,8 @@
     <string name="interval_1_min">1 мин</string>
     <string name="interval_1_min_30_secs">1 мин, 30 сек</string>
     <string name="interval_minutes">%1$d мин</string>
-    <string name="duration_hms">%1$dч %2$дм %3$дс</string>
-    <string name="duration_ms">%1$дм %2$дс</string>
+    <string name="duration_hms">%1$dч %2$dм %3$dс</string>
+    <string name="duration_ms">%1$dм %2$dс</string>
 
     <!-- Sync Tasks -->
     <string name="sync_task_generic">Задача синхронизации</string>

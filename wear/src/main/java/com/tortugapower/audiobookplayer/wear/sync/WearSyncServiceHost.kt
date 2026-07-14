@@ -93,10 +93,25 @@ class WearSyncServiceHost : Service() {
         taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)
         taskConcurrencyManager.startProcessing()
 
-        startForeground(NOTIFICATION_ID, buildNotification())
+        // Same Android 15 dataSync-budget guard as the phone host (TaskConcurrencyServiceHost):
+        // promotion can throw once the 6h/day budget is exhausted even when the START was legal.
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification())
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "Foreground promotion denied (dataSync budget exhausted?): ${e.message}")
+            stopSelf()
+            return
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+
+    // Android 15 mid-run budget expiry: stop within the grace window or the system crashes the
+    // service. Queued tasks stay in Room and resume on the next start.
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "dataSync budget expired (type=$fgsType) — stopping; queued tasks resume later")
+        stopSelf()
+    }
 
     override fun onDestroy() {
         taskConcurrencyManager.stopProcessing()

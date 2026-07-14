@@ -77,7 +77,18 @@ class TaskConcurrencyServiceHost : Service() {
         Log.d(TAG, "🚀 Triggering taskConcurrencyManager.startProcessing()")
         taskConcurrencyManager.startProcessing()
 
-        startForeground(NOTIFICATION_ID, createNotification("Starting sync..."))
+        // Android 15 gives dataSync services a 6h/day budget; once it's exhausted this throws
+        // ForegroundServiceStartNotAllowedException ("time limit already exhausted") — and with
+        // START_STICKY that used to be a crash LOOP (Play pre-launch review hit it: BOOKPLAYER-9).
+        // Degrade instead: stop cleanly (which also satisfies the startForegroundService
+        // obligation) and let the next explicit start retry once the budget resets.
+        try {
+            startForeground(NOTIFICATION_ID, createNotification("Starting sync..."))
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "Foreground promotion denied (dataSync budget exhausted?): ${e.message}")
+            stopSelf()
+            return
+        }
 
         // Observe account changes to update NetworkClient token
         serviceScope.launch {
@@ -100,6 +111,14 @@ class TaskConcurrencyServiceHost : Service() {
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         return START_STICKY
+    }
+
+    // Android 15 calls this when the dataSync time budget runs out MID-RUN; not stopping within
+    // a few seconds crashes the service ("did not stop within its timeout"). Remaining tasks stay
+    // queued in Room and resume on the next start.
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "dataSync budget expired (type=$fgsType) — stopping; queued tasks resume later")
+        stopSelf()
     }
 
     override fun onDestroy() {

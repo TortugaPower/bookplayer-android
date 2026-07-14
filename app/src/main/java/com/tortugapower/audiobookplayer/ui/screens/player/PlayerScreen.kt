@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -520,18 +521,26 @@ fun PlayerScreen(
                         Spacer(modifier = Modifier.height(20.dp))
                     }
 
-                    PlayerArtwork(
-                        player = player,
-                        artworkURL = chapterArtworkURL ?: currentItem.artworkURL,
-                        // Embedded-art fallback from the book's own file when nothing is stored (most items).
-                        embeddedArtwork = ItemArtwork(currentItem.uuid, currentItem.relativePath, currentItem.remoteURL),
-                        isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
-                        hasVideo = hasVideo,
-                        isSheetVisible = !isHidden,
-                        isFullscreen = fullscreenActive,
-                        onToggleFullscreen = { isFullscreen = !isFullscreen },
-                        onCastClick = { viewModel.toggleCastSheet() }
-                    )
+                    // Compact-height windows (phones in landscape, < 480dp — the Material
+                    // WindowSizeClass bucket) drop the artwork: even the height-capped square plus
+                    // the player chrome overflows, clipping the bottom toolbar. Tablets are never
+                    // compact-height, so they keep the artwork in both orientations. Video books
+                    // keep the box regardless — it IS the playback surface.
+                    val isCompactHeight = LocalConfiguration.current.screenHeightDp < 480
+                    if (!isCompactHeight || hasVideo || fullscreenActive) {
+                        PlayerArtwork(
+                            player = player,
+                            artworkURL = chapterArtworkURL ?: currentItem.artworkURL,
+                            // Embedded-art fallback from the book's own file when nothing is stored (most items).
+                            embeddedArtwork = ItemArtwork(currentItem.uuid, currentItem.relativePath, currentItem.remoteURL),
+                            isBuffering = playbackState == Player.STATE_BUFFERING && !isLocal,
+                            hasVideo = hasVideo,
+                            isSheetVisible = !isHidden,
+                            isFullscreen = fullscreenActive,
+                            onToggleFullscreen = { isFullscreen = !isFullscreen },
+                            onCastClick = { viewModel.toggleCastSheet() }
+                        )
+                    }
 
                     if (!fullscreenActive) {
                         Spacer(modifier = Modifier.height(12.dp))
@@ -642,6 +651,9 @@ fun PlayerScreen(
     }
 }
 
+/** Sum of the player screen's fixed-height elements around the artwork (see artworkModifier). */
+private val PLAYER_CHROME_HEIGHT = 400.dp
+
 @Composable
 private fun PlayerArtwork(
     player: Player?,
@@ -742,8 +754,19 @@ private fun PlayerArtwork(
     val artworkModifier = if (isFullscreen) {
         Modifier.fillMaxSize()
     } else {
+        // The square is the tallest one the WIDTH allows only after the rest of the player's
+        // chrome (drag pill, title row, progress section, transport, bottom bar — all fixed
+        // intrinsic heights, ~summed in PLAYER_CHROME_HEIGHT) has claimed its share of the
+        // screen. Width-driven alone made the artwork swallow the whole screen on landscape
+        // tablets. The estimate errs HIGH on purpose: overshoot just hands a few dp back to the
+        // transport-centering weight spacers; undershoot would clip the controls.
+        val maxSquare = (LocalConfiguration.current.screenHeightDp.dp - PLAYER_CHROME_HEIGHT)
+            .coerceAtLeast(160.dp)
+        // No fillMaxWidth here: it would force MIN width = screen width, which forbids the
+        // height-first fallback aspectRatio needs on landscape tablets. aspectRatio alone already
+        // tries the max width first, so phones still get the full-width square.
         Modifier
-            .fillMaxWidth()
+            .heightIn(max = maxSquare)
             .aspectRatio(1f)
             .clip(RoundedCornerShape(12.dp)) // matches iOS ArtworkView .cornerRadius(12)
     }

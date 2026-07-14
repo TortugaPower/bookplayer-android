@@ -10,7 +10,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
@@ -1223,7 +1223,7 @@ fun LibraryScreen(
                         )
                         HorizontalDivider()
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.import_title)) },
+                            text = { Text(stringResource(R.string.library_import_files)) },
                             onClick = {
                                 showMenu = false
                                 // Audio, video (audio-in-container books like m4b are often
@@ -1395,21 +1395,24 @@ fun LibraryScreen(
                                         isSelectMode = isSelectMode,
                                         libraryViewModel = libraryViewModel,
                                         canDownload = canSyncLibrary,
-                                        modifier = if (isSelectMode) {
+                                        // The reorder gesture lives on the drag HANDLE (immediate drag, like
+                                        // iOS edit-mode handles) — not as a hidden long-press on the row.
+                                        dragHandleModifier = if (isSelectMode) {
                                             Modifier.pointerInput(item.uuid, reorderableItems) {
                                                 var dragAccumulator = 0f
-                                                detectDragGesturesAfterLongPress(
+                                                detectDragGestures(
                                                     onDragStart = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) },
                                                     onDragEnd = { libraryViewModel.reorderItems(reorderableItems.toList()) },
+                                                    onDragCancel = { libraryViewModel.reorderItems(reorderableItems.toList()) },
                                                     onDrag = { change, dragAmount ->
                                                         change.consume()
                                                         dragAccumulator += dragAmount.y
-                                                    
+
                                                         val currentIndex = reorderableItems.indexOfFirst { it.uuid == item.uuid }
-                                                        if (currentIndex == -1) return@detectDragGesturesAfterLongPress
-                                                    
+                                                        if (currentIndex == -1) return@detectDragGestures
+
                                                         val threshold = with(density) { 64.dp.toPx() }
-                                                    
+
                                                         if (dragAccumulator > threshold && currentIndex < reorderableItems.size - 1) {
                                                             reorderableItems[currentIndex] = reorderableItems[currentIndex + 1]
                                                             reorderableItems[currentIndex + 1] = item
@@ -1486,6 +1489,8 @@ fun LibraryListItem(
     isSelected: Boolean = false,
     isSelectMode: Boolean = false,
     modifier: Modifier = Modifier,
+    // Attached to the trailing reorder handle in select mode — the caller supplies the drag gesture.
+    dragHandleModifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
     libraryViewModel: com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel? = null,
@@ -1842,12 +1847,18 @@ fun LibraryListItem(
         Spacer(modifier = Modifier.width(8.dp))
 
         if (isSelectMode) {
-            Icon(
-                imageVector = Icons.Default.Reorder,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp).clearAndSetSemantics { }
-            )
+            // 44dp touch target around the 24dp glyph so the handle is actually grabbable.
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(44.dp).then(dragHandleModifier).clearAndSetSemantics { }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Reorder,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         } else {
             Row(
                 verticalAlignment = Alignment.CenterVertically,

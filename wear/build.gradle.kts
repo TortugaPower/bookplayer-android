@@ -107,6 +107,13 @@ dependencies {
     // Shared logic/data/network/subscription layer — the whole point of the module split.
     implementation(project(":core"))
 
+    constraints {
+        // Play requires Billing Library 7+; RevenueCat 7.x transitively pulls 6.2.1. The phone
+        // already resolves to 7.1.1 (its direct billing-ktx tip-jar dependency forces it) — this
+        // constraint gives the watch the same, Play-compliant resolution.
+        implementation(libs.billing)
+    }
+
     implementation(libs.androidx.core.ktx)
     // Branded launch (icon-on-black splash) — Wear App Quality requirement.
     implementation(libs.androidx.core.splashscreen)
