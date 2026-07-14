@@ -421,4 +421,14 @@
     <string name="settings_disable_autolock">Отключить автоблокировку</string>
     <string name="settings_autolock_only_on_power">Только при подключении к сети</string>
     <string name="settings_autolock_desc">Предотвращать блокировку устройства на экране плеера.</string>
+    <string name="library_options_title">Параметры</string>
+    <string name="library_sort_files_by">Сортировать файлы по</string>
+    <string name="library_sort_title">Названию</string>
+    <string name="library_sort_filename">Исходному имени файла</string>
+    <string name="library_sort_most_recent">Недавние</string>
+    <string name="library_sort_custom">Пользовательский</string>
+    <string name="library_sort_quick_actions">Быстрые действия</string>
+    <string name="library_sort_reverse_order">Обратный порядок</string>
+    <string name="library_show_progress_percentage">Показывать прогресс в процентах</string>
+    <string name="library_show_original_file_name">Показывать исходное имя файла</string>
 </resources>

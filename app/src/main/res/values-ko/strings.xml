@@ -413,4 +413,14 @@
     <string name="settings_disable_autolock">자동 잠금 해제</string>
     <string name="settings_autolock_only_on_power">전원이 연결된 경우에만</string>
     <string name="settings_autolock_desc">재생기 화면에서 화면이 잠기는 것을 방지합니다.</string>
+    <string name="library_options_title">옵션</string>
+    <string name="library_sort_files_by">파일 정렬 기준</string>
+    <string name="library_sort_title">제목</string>
+    <string name="library_sort_filename">원본 파일 이름</string>
+    <string name="library_sort_most_recent">최근 재생순</string>
+    <string name="library_sort_custom">사용자 지정</string>
+    <string name="library_sort_quick_actions">빠른 작업</string>
+    <string name="library_sort_reverse_order">순서 뒤집기</string>
+    <string name="library_show_progress_percentage">진행률을 백분율로 표시</string>
+    <string name="library_show_original_file_name">원본 파일 이름 표시</string>
 </resources>

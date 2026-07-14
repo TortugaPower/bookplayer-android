@@ -415,4 +415,14 @@
     <string name="settings_disable_autolock">Automatische Sperre deaktivieren</string>
     <string name="settings_autolock_only_on_power">Nur bei Stromverbindung</string>
     <string name="settings_autolock_desc">Verhindert, dass das Gerät auf dem Player-Bildschirm gesperrt wird.</string>
+    <string name="library_options_title">Optionen</string>
+    <string name="library_sort_files_by">Dateien sortieren nach</string>
+    <string name="library_sort_title">Titel</string>
+    <string name="library_sort_filename">Originaldateiname</string>
+    <string name="library_sort_most_recent">Zuletzt gespielt</string>
+    <string name="library_sort_custom">Benutzerdefiniert</string>
+    <string name="library_sort_quick_actions">Schnellaktionen</string>
+    <string name="library_sort_reverse_order">Reihenfolge umkehren</string>
+    <string name="library_show_progress_percentage">Fortschritt als Prozentsatz anzeigen</string>
+    <string name="library_show_original_file_name">Originaldateinamen anzeigen</string>
 </resources>

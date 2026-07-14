@@ -173,4 +173,18 @@ object PlaybackSettingsManager {
     suspend fun setPreventAutolockOnlyOnPower(context: Context, enabled: Boolean) {
         context.dataStore.edit { it[PREVENT_AUTOLOCK_ONLY_ON_POWER] = enabled }
     }
+
+    // Library display prefs (iOS parity: the library Options sheet's toggles). Both default OFF.
+    private val SHOW_PROGRESS_PERCENTAGE = booleanPreferencesKey("show_progress_percentage")
+    private val SHOW_ORIGINAL_FILE_NAME = booleanPreferencesKey("show_original_file_name")
+
+    fun getShowProgressAsPercentage(context: Context): Flow<Boolean> = context.dataStore.data.map { it[SHOW_PROGRESS_PERCENTAGE] ?: false }
+    suspend fun setShowProgressAsPercentage(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[SHOW_PROGRESS_PERCENTAGE] = enabled }
+    }
+
+    fun getShowOriginalFileName(context: Context): Flow<Boolean> = context.dataStore.data.map { it[SHOW_ORIGINAL_FILE_NAME] ?: false }
+    suspend fun setShowOriginalFileName(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[SHOW_ORIGINAL_FILE_NAME] = enabled }
+    }
 }

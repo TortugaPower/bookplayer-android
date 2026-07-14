@@ -1032,6 +1032,34 @@ fun LibraryScreen(
                         )
                     }
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+                val showPercentage by libraryViewModel.showProgressAsPercentage.collectAsState()
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.library_show_progress_percentage)) },
+                    trailingContent = {
+                        Switch(
+                            checked = showPercentage,
+                            onCheckedChange = { libraryViewModel.setShowProgressAsPercentage(it) },
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable { libraryViewModel.setShowProgressAsPercentage(!showPercentage) },
+                )
+
+                val showFileName by libraryViewModel.showOriginalFileName.collectAsState()
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.library_show_original_file_name)) },
+                    trailingContent = {
+                        Switch(
+                            checked = showFileName,
+                            onCheckedChange = { libraryViewModel.setShowOriginalFileName(it) },
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable { libraryViewModel.setShowOriginalFileName(!showFileName) },
+                )
             }
         }
     }
@@ -1622,6 +1650,16 @@ fun LibraryListItem(
     val currentPlayingItem by PlaybackManager.currentItem.collectAsState()
     val isCurrentlyPlaying = currentPlayingItem?.uuid == item.uuid
 
+    // Library display prefs (Options sheet). Default off when no ViewModel (e.g. previews).
+    val showOriginalFileName by (libraryViewModel?.showOriginalFileName
+        ?: kotlinx.coroutines.flow.MutableStateFlow(false)).collectAsState()
+    val showProgressAsPercentage by (libraryViewModel?.showProgressAsPercentage
+        ?: kotlinx.coroutines.flow.MutableStateFlow(false)).collectAsState()
+    // Books carry an original file name; folders/bound volumes don't, so they keep their title.
+    val displayTitle = item.originalFileName
+        ?.takeIf { showOriginalFileName && item.type != ItemType.FOLDER && it.isNotBlank() }
+        ?: item.title
+
     val durationText = if (item.duration > 0) {
         val h = (item.duration / 3600).toInt()
         val m = ((item.duration % 3600) / 60).toInt()
@@ -1640,7 +1678,7 @@ fun LibraryListItem(
     val progressText = if (item.isFinished) {
         stringResource(R.string.common_completed)
     } else {
-        "${(item.percentCompleted * 100).toInt()}% ${stringResource(R.string.common_completed).lowercase()}"
+        "${(item.percentCompleted.coerceIn(0.0, 1.0) * 100).toInt()}% ${stringResource(R.string.common_completed).lowercase()}"
     }
 
     val showCloud = downloadState?.isLocal == false
@@ -1823,7 +1861,7 @@ fun LibraryListItem(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                text = item.title.ifBlank { stringResource(R.string.library_unknown_title) },
+                text = displayTitle.ifBlank { stringResource(R.string.library_unknown_title) },
                 color = if (isCurrentlyPlaying) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.bodyLarge.copy(lineHeightStyle = trimmedLineHeight),
@@ -1960,9 +1998,15 @@ fun LibraryListItem(
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
                     )
+                } else if (showProgressAsPercentage) {
+                    Text(
+                        text = "${(item.percentCompleted.coerceIn(0.0, 1.0) * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 } else {
                     PieProgressIcon(
-                        progress = item.percentCompleted.toFloat(),
+                        progress = item.percentCompleted.coerceIn(0.0, 1.0).toFloat(),
                         modifier = Modifier.size(24.dp)
                     )
                 }

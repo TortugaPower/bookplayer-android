@@ -415,4 +415,14 @@
     <string name="settings_disable_autolock">ऑटो लॉक अक्षम करें</string>
     <string name="settings_autolock_only_on_power">केवल पावर से कनेक्ट होने पर</string>
     <string name="settings_autolock_desc">प्लेयर स्क्रीन पर होने पर डिवाइस को लॉक होने से रोकें।</string>
+    <string name="library_options_title">विकल्प</string>
+    <string name="library_sort_files_by">फ़ाइलें इसके अनुसार क्रमबद्ध करें</string>
+    <string name="library_sort_title">शीर्षक</string>
+    <string name="library_sort_filename">मूल फ़ाइल नाम</string>
+    <string name="library_sort_most_recent">सबसे हाल का</string>
+    <string name="library_sort_custom">कस्टम</string>
+    <string name="library_sort_quick_actions">त्वरित क्रियाएँ</string>
+    <string name="library_sort_reverse_order">क्रम उलटें</string>
+    <string name="library_show_progress_percentage">प्रगति को प्रतिशत के रूप में दिखाएँ</string>
+    <string name="library_show_original_file_name">मूल फ़ाइल नाम दिखाएँ</string>
 </resources>

@@ -286,6 +286,8 @@
     <string name="library_sort_custom">Custom</string>
     <string name="library_sort_quick_actions">Quick Actions</string>
     <string name="library_sort_reverse_order">Reverse Order</string>
+    <string name="library_show_progress_percentage">Show progress as percentage</string>
+    <string name="library_show_original_file_name">Show original file name</string>
     <string name="library_folder_name_label">Folder Name</string>
     <string name="library_folder_name_error">Use only letters, numbers, \'-\' or \'_\'</string>
     <string name="library_folder_name_exists_error">A folder or file with this name already exists</string>

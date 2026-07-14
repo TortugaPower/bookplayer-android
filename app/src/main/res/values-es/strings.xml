@@ -415,4 +415,14 @@
     <string name="settings_disable_autolock">Desactivar bloqueo automático</string>
     <string name="settings_autolock_only_on_power">Solo si está conectado a la corriente</string>
     <string name="settings_autolock_desc">Evitar que el dispositivo se bloquee cuando se encuentra en la pantalla de reproducción.</string>
+    <string name="library_options_title">Opciones</string>
+    <string name="library_sort_files_by">Ordenar archivos por</string>
+    <string name="library_sort_title">Título</string>
+    <string name="library_sort_filename">Nombre de archivo original</string>
+    <string name="library_sort_most_recent">Más reciente</string>
+    <string name="library_sort_custom">Personalizado</string>
+    <string name="library_sort_quick_actions">Acciones rápidas</string>
+    <string name="library_sort_reverse_order">Invertir orden</string>
+    <string name="library_show_progress_percentage">Mostrar progreso como porcentaje</string>
+    <string name="library_show_original_file_name">Mostrar nombre de archivo original</string>
 </resources>

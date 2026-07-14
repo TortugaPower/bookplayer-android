@@ -415,4 +415,14 @@
     <string name="settings_disable_autolock">Désactiver le verrouillage automatique</string>
     <string name="settings_autolock_only_on_power">Uniquement lorsque connecté à l\'alimentation</string>
     <string name="settings_autolock_desc">Empêcher l\'appareil de se verrouiller sur l\'écran du lecteur.</string>
+    <string name="library_options_title">Options</string>
+    <string name="library_sort_files_by">Trier les fichiers par</string>
+    <string name="library_sort_title">Titre</string>
+    <string name="library_sort_filename">Nom de fichier d\'origine</string>
+    <string name="library_sort_most_recent">Plus récent</string>
+    <string name="library_sort_custom">Personnalisé</string>
+    <string name="library_sort_quick_actions">Actions rapides</string>
+    <string name="library_sort_reverse_order">Inverser l\'ordre</string>
+    <string name="library_show_progress_percentage">Afficher la progression en pourcentage</string>
+    <string name="library_show_original_file_name">Afficher le nom de fichier d\'origine</string>
 </resources>

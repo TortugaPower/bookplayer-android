@@ -361,6 +361,28 @@ class LibraryViewModel(
         viewModelScope.launch { sortManager.setCustom(_currentPath.value) }
     }
 
+    // ---- Library display prefs (Options sheet toggles) --------------------------------------
+
+    val showProgressAsPercentage: StateFlow<Boolean> =
+        com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.getShowProgressAsPercentage(appContext)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val showOriginalFileName: StateFlow<Boolean> =
+        com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.getShowOriginalFileName(appContext)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun setShowProgressAsPercentage(enabled: Boolean) {
+        viewModelScope.launch {
+            com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.setShowProgressAsPercentage(appContext, enabled)
+        }
+    }
+
+    fun setShowOriginalFileName(enabled: Boolean) {
+        viewModelScope.launch {
+            com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.setShowOriginalFileName(appContext, enabled)
+        }
+    }
+
     /** One-off reverse of the current order; flips the location to a custom (manual) order. */
     fun reverseOrder() {
         viewModelScope.launch { sortManager.reverseOrder(_currentPath.value) }
