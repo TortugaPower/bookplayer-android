@@ -39,7 +39,7 @@ android {
         // Wear lives in its own 100xxx range: Play requires versionCodes to be unique across
         // EVERY bundle ever uploaded for the package (the phone app already consumed 1..13), so
         // the two apps increment independently without ever colliding.
-        versionCode = 100005
+        versionCode = 100006
         versionName = "1.1.1"
 
         buildConfigField("String", "REVENUECAT_API_KEY", "\"${localProp("REVENUECAT_API_KEY")}\"")
