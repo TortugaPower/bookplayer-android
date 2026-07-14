@@ -190,8 +190,8 @@
     <string name="interval_1_min">1 मिनट</string>
     <string name="interval_1_min_30_secs">1 मिनट, 30 सेकंड</string>
     <string name="interval_minutes">%1$d मिनट</string>
-    <string name="duration_hms">%1$dघं %2$दमि %3$दसे</string>
-    <string name="duration_ms">%1$दमि %2$दसे</string>
+    <string name="duration_hms">%1$dघं %2$dमि %3$dसे</string>
+    <string name="duration_ms">%1$dमि %2$dसे</string>
 
     <string name="library_combine_to_volume">Create a volume</string>
     <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>

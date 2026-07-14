@@ -333,6 +333,7 @@
 
     <!-- Import -->
     <string name="import_title">Import</string>
+    <string name="library_import_files">Import Files</string>
     <string name="import_disclaimer">Transferring files may take a while, please make sure the number of files is complete before proceeding.</string>
     <string name="import_files_count">%1$d Files</string>
     <string name="library_download_url_label">URL</string>
