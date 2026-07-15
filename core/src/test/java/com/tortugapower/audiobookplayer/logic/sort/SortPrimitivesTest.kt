@@ -151,9 +151,4 @@ class SortPrimitivesTest {
         assertEquals(SortLocation.Unresolved, SortLocationResolver.resolve("Ghost", getByPath, isSynced))
     }
 
-    @Test fun `parentPathOf returns empty string at root`() {
-        assertEquals("", SortLocationResolver.parentPathOf(book("a", path = "Book.mp3")))
-        assertEquals("Series", SortLocationResolver.parentPathOf(book("a", path = "Series/Book.mp3")))
-        assertEquals("A/B", SortLocationResolver.parentPathOf(book("a", path = "A/B/Book.mp3")))
-    }
 }

@@ -31,7 +31,4 @@ object SortLocationResolver {
         return SortLocation.Folder(folder.uuid)
     }
 
-    /** The relativePath of [item]'s immediate parent, or "" when [item] sits at the library root. */
-    fun parentPathOf(item: LibraryItemEntity): String =
-        item.relativePath?.substringBeforeLast('/', "") ?: ""
 }
