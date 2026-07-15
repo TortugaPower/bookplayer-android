@@ -20,11 +20,6 @@ import com.tortugapower.audiobookplayer.network.NetworkClient
 private const val SORT_VALUE_FIELD = "sort"
 
 /**
- * Pushes one preference level (root or a folder's sort rule) to the server via
- * `PATCH /v1/user/preferences {entries:[{key,value}]}` (iOS parity). The local key-value store is
- * the source of truth; this task mirrors a single changed key upward.
- */
-/**
  * PATCH body for one preference entry — the wire contract shared with iOS
  * (`{"entries":[{"key":…,"value":{"sort":…}}]}`). Internal so the shape is pinned by a unit test.
  */
@@ -35,6 +30,11 @@ internal fun buildPreferencePushBody(key: String, value: String): Map<String, An
 internal fun parsePulledSortValue(value: Map<String, Any?>?): String? =
     value?.get(SORT_VALUE_FIELD) as? String
 
+/**
+ * Pushes one preference level (root or a folder's sort rule) to the server via
+ * `PATCH /v1/user/preferences {entries:[{key,value}]}` (iOS parity). The local key-value store is
+ * the source of truth; this task mirrors a single changed key upward.
+ */
 class PreferenceUploadProcessor : TaskProcessor {
     private val gson = Gson()
 
