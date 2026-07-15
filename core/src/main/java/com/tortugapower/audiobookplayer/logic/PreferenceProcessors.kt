@@ -21,9 +21,7 @@ private const val SORT_VALUE_FIELD = "value"
  * `PATCH /v1/user/preferences {entries:[{key,value}]}` (iOS parity). The local key-value store is
  * the source of truth; this task mirrors a single changed key upward.
  */
-class PreferenceUploadProcessor(
-    private val context: Context
-) : TaskProcessor {
+class PreferenceUploadProcessor : TaskProcessor {
     private val gson = Gson()
 
     override fun canHandle(jobType: String): Boolean = jobType == SyncTaskFactory.JOB_UPLOAD_PREFERENCE

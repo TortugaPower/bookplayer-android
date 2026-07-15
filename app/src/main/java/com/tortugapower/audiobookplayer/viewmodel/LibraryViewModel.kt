@@ -206,7 +206,8 @@ class LibraryViewModel(
                     is EffectiveSort.Automatic -> sort.sortType.sorted(items)
                     EffectiveSort.Custom -> items
                 }
-            }.stateIn(
+            }.flowOn(ioDispatcher) // locale-aware sort is O(n log n) CPU — keep it off the main thread
+            .stateIn(
                 scope = viewModelScope,
                 // Root stays hot for the app's lifetime: it feeds the splash-hold gate below and the main
                 // tab; per-folder flows keep the subscriber-driven lifecycle.
@@ -377,7 +378,9 @@ class LibraryViewModel(
 
     /** User explicitly chose "Custom": freeze the visible order into ranks, then flip to manual. */
     fun setCustomSort() {
-        viewModelScope.launch { sortManager?.setCustom(_currentPath.value) }
+        // ioDispatcher: setCustom may run the locale-aware collator sort (materializing an automatic
+        // level's order) before persisting — keep that off the main thread, like the view transform.
+        viewModelScope.launch(ioDispatcher) { sortManager?.setCustom(_currentPath.value) }
     }
 
     // ---- Library display prefs (Options sheet toggles) --------------------------------------
@@ -404,7 +407,9 @@ class LibraryViewModel(
 
     /** One-off reverse of the current order; flips the location to a custom (manual) order. */
     fun reverseOrder() {
-        viewModelScope.launch { sortManager?.reverseOrder(_currentPath.value) }
+        // ioDispatcher: reverseOrder computes the current (collator-sorted, when automatic) order
+        // before reversing — keep that O(n log n) locale compare off the main thread.
+        viewModelScope.launch(ioDispatcher) { sortManager?.reverseOrder(_currentPath.value) }
     }
 
     /**

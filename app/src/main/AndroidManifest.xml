@@ -3,6 +3,10 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Read the active connection's metered state and observe network changes for the data-usage
+         upload gate (UploadDataPolicy / TaskConcurrencyServiceHost). Declared explicitly rather than
+         relying on transitive manifest merge from other libraries. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Keeps the CPU and (for streamed books) the Wi-Fi radio awake so audio keeps playing with the
          screen off / during doze (paired with ExoPlayer.setWakeMode(WAKE_MODE_NETWORK) in
          AudioPlayerService). The Wi-Fi lock also only needs WAKE_LOCK — no extra permission. -->

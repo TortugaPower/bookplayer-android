@@ -255,6 +255,11 @@ fun SettingsScreen(
                     checked = uploadOnCellular,
                     onCheckedChange = { enabled ->
                         scope.launch { PlaybackSettingsManager.setUploadUsingCellularData(context, enabled) }
+                        // Turning it ON: wake the (possibly retired) worker so held uploads resume now
+                        // instead of waiting for the next network change or sync-task write.
+                        if (enabled) {
+                            com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost.resumeUploads(context)
+                        }
                     },
                 )
             }

@@ -20,7 +20,8 @@ class TaskConcurrencyServiceHost : Service() {
     companion object {
         private const val CHANNEL_ID = "task_concurrency_channel"
         private const val NOTIFICATION_ID = 1001
-        
+        private const val ACTION_RESUME_UPLOADS = "com.tortugapower.audiobookplayer.action.RESUME_UPLOADS"
+
         fun start(context: Context) {
             val intent = Intent(context, TaskConcurrencyServiceHost::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -34,6 +35,18 @@ class TaskConcurrencyServiceHost : Service() {
             val intent = Intent(context, TaskConcurrencyServiceHost::class.java)
             context.stopService(intent)
         }
+
+        /**
+         * Nudge the worker manager to re-scan pending queues — used when "Upload using cellular data"
+         * is switched ON so held file uploads resume immediately instead of waiting for the next
+         * network change or sync-task write. Safe to call from the foreground (the user is in Settings).
+         */
+        fun resumeUploads(context: Context) {
+            val intent = Intent(context, TaskConcurrencyServiceHost::class.java).apply {
+                action = ACTION_RESUME_UPLOADS
+            }
+            runCatching { context.startService(intent) }
+        }
     }
 
     private val TAG = "TaskConcurrencyServiceHost"
@@ -41,17 +54,27 @@ class TaskConcurrencyServiceHost : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private var connectivityManager: android.net.ConnectivityManager? = null
+    // Tracks the active network's metered state so we only react to a real metered→unmetered flip.
+    private var lastNotMetered: Boolean? = null
     // Nudge the worker manager when the network changes so uploads held on cellular resume once
     // an un-metered connection is available (the task Flow won't re-emit on a network change alone).
     private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: android.net.Network) {
-            taskConcurrencyManager.requestWorkerScan()
+            if (::taskConcurrencyManager.isInitialized) taskConcurrencyManager.requestWorkerScan()
         }
         override fun onCapabilitiesChanged(
             network: android.net.Network,
             caps: android.net.NetworkCapabilities
         ) {
-            taskConcurrencyManager.requestWorkerScan()
+            // Capability callbacks fire constantly on the active network (bandwidth estimate,
+            // validation, etc.), and each scan hits the DB. Only nudge on a metered→unmetered
+            // transition — the one change that can release cellular-held uploads.
+            val notMetered = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+            val becameUnmetered = notMetered && lastNotMetered != true
+            lastNotMetered = notMetered
+            if (becameUnmetered && ::taskConcurrencyManager.isInitialized) {
+                taskConcurrencyManager.requestWorkerScan()
+            }
         }
     }
 
@@ -86,7 +109,7 @@ class TaskConcurrencyServiceHost : Service() {
             DeleteExternalResourceProcessor(),
             SetExternalResourceToDownloadProcessor(),
             ExternalUpdateProcessor(this),
-            PreferenceUploadProcessor(this),
+            PreferenceUploadProcessor(),
             PreferenceFetchProcessor(this)
         )
 
@@ -132,6 +155,9 @@ class TaskConcurrencyServiceHost : Service() {
         }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_RESUME_UPLOADS && ::taskConcurrencyManager.isInitialized) {
+            taskConcurrencyManager.requestWorkerScan()
+        }
         return START_STICKY
     }
 
