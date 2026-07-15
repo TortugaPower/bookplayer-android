@@ -10,8 +10,11 @@ import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.BookPlayerApplication
 import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
+import com.tortugapower.audiobookplayer.logic.sort.SortType
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -187,15 +190,28 @@ class LibraryViewModel(
      */
     fun getItemsForPath(path: String?): StateFlow<List<LibraryItemEntity>> {
         return itemsCache.getOrPut(path) {
-            val itemsFlow = if (path == null) {
-                // The gate flips UPSTREAM of the stateIn: Room's first real answer — even an EMPTY
-                // library — must open it, and downstream the StateFlow would conflate an empty first
-                // load against the emptyList seed (equal values don't re-emit), swallowing it.
-                repository.getRootItems().onEach { _isReady.value = true }
+            val rawFlow = if (path == null) {
+                repository.getRootItems()
             } else {
                 repository.getItemsInPath(path)
             }
-            itemsFlow.stateIn(
+            // Order is a VIEW transform: while the level sorts automatically we order by the rule and
+            // IGNORE orderRank (so a background fetch that rewrites ranks can't reorder the list or
+            // jump the scroll); a custom level keeps the DAO's orderRank order.
+            combine(rawFlow, effectiveSortFlow(path)) { items, sort ->
+                when (sort) {
+                    is EffectiveSort.Automatic -> sort.sortType.sorted(items)
+                    EffectiveSort.Custom -> items
+                }
+            }
+            // The splash gate flips on the COMBINED output — Room alone isn't enough now that the
+            // visible list also waits on the DataStore sort read; gating upstream let the splash
+            // lift onto the emptyList seed when Room won the cold-start race. Still upstream of
+            // stateIn, so an empty first load (== the seed, which stateIn would conflate away for
+            // subscribers) does open the gate.
+            .onEach { if (path == null) _isReady.value = true }
+            .flowOn(ioDispatcher) // locale-aware sort is O(n log n) CPU — keep it off the main thread
+            .stateIn(
                 scope = viewModelScope,
                 // Root stays hot for the app's lifetime: it feeds the splash-hold gate below and the main
                 // tab; per-folder flows keep the subscriber-driven lifecycle.
@@ -221,6 +237,8 @@ class LibraryViewModel(
         // Materialize the root cache entry at construction (it's Eagerly shared) so the load starts —
         // and the gate can open — while the splash is still up, independent of composition timing.
         getItemsForPath(null)
+        // Pull synced sort preferences for each level as it's visited (debounced), starting at root.
+        viewModelScope.launch { _currentPath.collect { maybePullPreferences() } }
     }
 
     /**
@@ -323,9 +341,98 @@ class LibraryViewModel(
         }
     }
 
+    // ---- Sort (view transform) ---------------------------------------------------------------
+
+    // Nullable so unit tests without the app singleton (plain Application) degrade to unsorted/custom
+    // rather than crashing. Present in the real app.
+    private val sortManager: com.tortugapower.audiobookplayer.logic.sort.LibrarySortManager?
+        get() = runCatching { BookPlayerApplication.instance.librarySortManager }.getOrNull()
+
+    /** Effective sort of a location; [EffectiveSort.Custom] when unresolved or no manager (tests). */
+    private fun effectiveSortFlow(path: String?): Flow<EffectiveSort> {
+        val manager = sortManager ?: return flowOf(EffectiveSort.Custom)
+        return flow {
+            val location = manager.resolveLocation(path)
+            emitAll(manager.observeEffectiveSort(location))
+        }
+    }
+
+    /** The current location's effective sort rule (drives the Options sheet's active indicator). */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val effectiveSort: StateFlow<EffectiveSort> = _currentPath
+        .flatMapLatest { effectiveSortFlow(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), EffectiveSort.Custom)
+
+    /**
+     * Whether the current location can hold a sort preference (false inside bound volumes and
+     * not-yet-synced folders, where every sort write is a silent no-op) — the Options sheet
+     * disables its sort controls instead of letting taps do nothing.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val sortLocationWritable: StateFlow<Boolean> = _currentPath
+        .mapLatest { path -> sortManager?.resolveLocation(path)?.isWritable ?: false }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    /**
+     * Pull synced preferences for the level being visited — debounced and skipped when we have an
+     * unsynced preference push queued (mirrors the fetch_contents logic). Only when cloud sync is on.
+     */
+    private fun maybePullPreferences() {
+        viewModelScope.launch(ioDispatcher) {
+            if (repository.isCloudSyncActive()) {
+                SyncTaskFactory.createFetchPreferencesTask(syncTaskRepository)
+            }
+        }
+    }
+
+    /** User picked a sort rule for the current location. */
+    fun sortBy(sortType: SortType) {
+        viewModelScope.launch { sortManager?.applySort(_currentPath.value, sortType) }
+    }
+
+    /** User explicitly chose "Custom": freeze the visible order into ranks, then flip to manual. */
+    fun setCustomSort() {
+        // ioDispatcher: setCustom may run the locale-aware collator sort (materializing an automatic
+        // level's order) before persisting — keep that off the main thread, like the view transform.
+        viewModelScope.launch(ioDispatcher) { sortManager?.setCustom(_currentPath.value) }
+    }
+
+    // ---- Library display prefs (Options sheet toggles) --------------------------------------
+
+    val showProgressAsPercentage: StateFlow<Boolean> =
+        com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.getShowProgressAsPercentage(appContext)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val showOriginalFileName: StateFlow<Boolean> =
+        com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.getShowOriginalFileName(appContext)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun setShowProgressAsPercentage(enabled: Boolean) {
+        viewModelScope.launch {
+            com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.setShowProgressAsPercentage(appContext, enabled)
+        }
+    }
+
+    fun setShowOriginalFileName(enabled: Boolean) {
+        viewModelScope.launch {
+            com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.setShowOriginalFileName(appContext, enabled)
+        }
+    }
+
+    /** One-off reverse of the current order; flips the location to a custom (manual) order. */
+    fun reverseOrder() {
+        // ioDispatcher: reverseOrder computes the current (collator-sorted, when automatic) order
+        // before reversing — keep that O(n log n) locale compare off the main thread.
+        viewModelScope.launch(ioDispatcher) { sortManager?.reverseOrder(_currentPath.value) }
+    }
+
+    /**
+     * Manual drag-and-drop reorder: persist the moved ranks and flip the location to custom. No-op
+     * for a placeholder folder / bound volume (an unresolved location can't be re-ranked).
+     */
     fun reorderItems(items: List<LibraryItemEntity>) {
         viewModelScope.launch {
-            repository.reorderItems(items)
+            sortManager?.setCustomOrder(_currentPath.value, items)
         }
     }
 

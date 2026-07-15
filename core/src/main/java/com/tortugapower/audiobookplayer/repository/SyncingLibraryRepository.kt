@@ -46,6 +46,18 @@ class SyncingLibraryRepository(
         }
     }
 
+    /**
+     * A rank rewrite. Only ever invoked while a location is in — or transitioning to — custom order
+     * (manual drag, reverse, or freezing the visible order on switch-to-custom), so the moved ranks
+     * always sync as normal item updates. Automatic sort never rewrites ranks; its order is derived
+     * at view time, so there is no rank churn to sync.
+     */
+    override suspend fun reorderItems(items: List<LibraryItemEntity>) {
+        delegate.reorderItems(items)
+        if (!isSubscribed()) return
+        items.forEach { SyncTaskFactory.createUpdateTask(syncTaskRepository, it) }
+    }
+
     override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {
         delegate.updateItemProgress(uuid, currentTime, isFinished)
 

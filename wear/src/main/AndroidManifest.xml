@@ -8,6 +8,9 @@
 
     <!-- Standalone (Pro) on-watch library sync runs in a foreground data-sync service; on-watch playback
          runs in a foreground media-playback service. -->
+    <!-- UploadDataPolicy (shared :core) checks isActiveNetworkMetered for the cellular-upload
+         hold; declared explicitly rather than relying on the transitive play-services grant. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />

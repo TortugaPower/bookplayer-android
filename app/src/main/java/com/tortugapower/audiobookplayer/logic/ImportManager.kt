@@ -501,6 +501,8 @@ object ImportManager : ImportService {
                     RoomLibraryRepository(context.applicationContext, libraryDao).refreshParentMetadata(it)
                 }
             }
+            // No re-sort on import: an automatically-sorted level derives its order from the rule at
+            // view time, so freshly-imported items appear in rule position without a rank rewrite.
         }
     }
 

@@ -135,6 +135,10 @@ class FetchContentsProcessor(
             // Run parent folder updates once in batch
             LibraryContentsSync.updateParentFoldersBatch(libraryDao, affectedPaths)
 
+            // No re-sort needed: an automatically-sorted level derives its order from the rule at
+            // view time and ignores orderRank, so the ranks this fetch just wrote have no visible
+            // effect. (Custom levels intentionally follow the synced orderRank.)
+
             return true
         }
         return false

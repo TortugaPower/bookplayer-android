@@ -64,9 +64,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -80,6 +82,8 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.ImportManager
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
+import com.tortugapower.audiobookplayer.logic.sort.SortType
 import com.tortugapower.audiobookplayer.repository.BoundConversionException
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
@@ -151,10 +155,12 @@ fun LibraryScreen(
     // Fetch data for the actual current path (used by dialogs and actions)
     val items by libraryViewModel.getItemsForPath(currentPath).collectAsState()
     val availableFolders by libraryViewModel.getFoldersForPath(currentPath).collectAsState()
+    val effectiveSort by libraryViewModel.effectiveSort.collectAsState()
 
     var selectedItemUuids by remember { mutableStateOf(setOf<String>()) }
     var isSelectMode by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var showSortSheet by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var itemsToDelete by remember { mutableStateOf<List<LibraryItemEntity>>(emptyList()) }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
@@ -950,6 +956,124 @@ fun LibraryScreen(
         }
     }
 
+    if (showSortSheet) {
+        val activeSortType = (effectiveSort as? EffectiveSort.Automatic)?.sortType
+        // Bound volumes and not-yet-synced folders can't hold a sort preference — every write is
+        // a silent no-op there, so the controls disable instead of appearing broken.
+        val sortWritable by libraryViewModel.sortLocationWritable.collectAsState()
+        val sortValueLabel = when (val current = effectiveSort) {
+            is EffectiveSort.Automatic -> when (current.sortType) {
+                SortType.metadataTitle -> R.string.library_sort_title
+                SortType.fileName -> R.string.library_sort_filename
+                SortType.mostRecent -> R.string.library_sort_most_recent
+            }
+            EffectiveSort.Custom -> R.string.library_sort_custom
+        }
+        ModalBottomSheet(
+            onDismissRequest = { showSortSheet = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            dragHandle = { BottomSheetDefaults.DragHandle() },
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.library_options_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(bottom = 8.dp)
+                )
+                Box {
+                    var showSortMenu by remember { mutableStateOf(false) }
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.library_sort_files_by)) },
+                        trailingContent = {
+                            Text(
+                                text = stringResource(sortValueLabel),
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        modifier = Modifier.clickable(enabled = sortWritable) { showSortMenu = true }
+                            .alpha(if (sortWritable) 1f else 0.38f),
+                    )
+                    DropdownMenu(
+                        expanded = showSortMenu,
+                        onDismissRequest = { showSortMenu = false },
+                    ) {
+                        @Composable
+                        fun sortItem(labelRes: Int, active: Boolean, onPick: () -> Unit) {
+                            // The checkmark is the only active-rule indicator — mirror it into the
+                            // semantics so TalkBack reads the selected state too.
+                            DropdownMenuItem(
+                                text = { Text(stringResource(labelRes)) },
+                                onClick = { showSortMenu = false; onPick() },
+                                leadingIcon = { if (active) Icon(Icons.Default.Check, null) },
+                                modifier = Modifier.semantics { selected = active },
+                            )
+                        }
+                        sortItem(R.string.library_sort_title, activeSortType == SortType.metadataTitle) {
+                            libraryViewModel.sortBy(SortType.metadataTitle)
+                        }
+                        sortItem(R.string.library_sort_filename, activeSortType == SortType.fileName) {
+                            libraryViewModel.sortBy(SortType.fileName)
+                        }
+                        sortItem(R.string.library_sort_most_recent, activeSortType == SortType.mostRecent) {
+                            libraryViewModel.sortBy(SortType.mostRecent)
+                        }
+                        sortItem(R.string.library_sort_custom, effectiveSort is EffectiveSort.Custom) {
+                            libraryViewModel.setCustomSort()
+                        }
+                        HorizontalDivider()
+                        Text(
+                            text = stringResource(R.string.library_sort_quick_actions),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.library_sort_reverse_order)) },
+                            onClick = { showSortMenu = false; libraryViewModel.reverseOrder() },
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+                val showPercentage by libraryViewModel.showProgressAsPercentage.collectAsState()
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.library_show_progress_percentage)) },
+                    trailingContent = {
+                        Switch(
+                            checked = showPercentage,
+                            onCheckedChange = { libraryViewModel.setShowProgressAsPercentage(it) },
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable { libraryViewModel.setShowProgressAsPercentage(!showPercentage) },
+                )
+
+                val showFileName by libraryViewModel.showOriginalFileName.collectAsState()
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.library_show_original_file_name)) },
+                    trailingContent = {
+                        Switch(
+                            checked = showFileName,
+                            onCheckedChange = { libraryViewModel.setShowOriginalFileName(it) },
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable { libraryViewModel.setShowOriginalFileName(!showFileName) },
+                )
+            }
+        }
+    }
+
     BookPlayerTabScaffold(
         title = if (isSelectMode) {
             stringResource(R.string.library_title_default) 
@@ -1203,6 +1327,9 @@ fun LibraryScreen(
                 }
                 IconButton(onClick = { showSearchScreen = true }) {
                     Icon(Icons.Default.Search, contentDescription = stringResource(R.string.common_search))
+                }
+                IconButton(onClick = { showSortSheet = true }) {
+                    Icon(Icons.Default.GridView, contentDescription = stringResource(R.string.library_options_title))
                 }
                 Box {
                     IconButton(onClick = { showMenu = true }) {
@@ -1533,6 +1660,18 @@ fun LibraryListItem(
     val currentPlayingItem by PlaybackManager.currentItem.collectAsState()
     val isCurrentlyPlaying = currentPlayingItem?.uuid == item.uuid
 
+    // Library display prefs (Options sheet). Default off when no ViewModel (e.g. previews).
+    val showOriginalFileName by remember(libraryViewModel) {
+        libraryViewModel?.showOriginalFileName ?: MutableStateFlow(false)
+    }.collectAsState()
+    val showProgressAsPercentage by remember(libraryViewModel) {
+        libraryViewModel?.showProgressAsPercentage ?: MutableStateFlow(false)
+    }.collectAsState()
+    // Books carry an original file name; folders/bound volumes don't, so they keep their title.
+    val displayTitle = item.originalFileName
+        ?.takeIf { showOriginalFileName && item.type != ItemType.FOLDER && it.isNotBlank() }
+        ?: item.title
+
     val durationText = if (item.duration > 0) {
         val h = (item.duration / 3600).toInt()
         val m = ((item.duration % 3600) / 60).toInt()
@@ -1551,7 +1690,7 @@ fun LibraryListItem(
     val progressText = if (item.isFinished) {
         stringResource(R.string.common_completed)
     } else {
-        "${(item.percentCompleted * 100).toInt()}% ${stringResource(R.string.common_completed).lowercase()}"
+        "${(item.percentCompleted.coerceIn(0.0, 1.0) * 100).toInt()}% ${stringResource(R.string.common_completed).lowercase()}"
     }
 
     val showCloud = downloadState?.isLocal == false
@@ -1734,7 +1873,7 @@ fun LibraryListItem(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                text = item.title.ifBlank { stringResource(R.string.library_unknown_title) },
+                text = displayTitle.ifBlank { stringResource(R.string.library_unknown_title) },
                 color = if (isCurrentlyPlaying) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.bodyLarge.copy(lineHeightStyle = trimmedLineHeight),
@@ -1871,9 +2010,28 @@ fun LibraryListItem(
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
                     )
+                } else if (showProgressAsPercentage) {
+                    // Match iOS PercentageProgressView: nothing at 0, the finished checkmark at
+                    // 100%, the number only in between (non-finite progress collapses to 0).
+                    val progress = item.percentCompleted
+                        .takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0
+                    if (progress >= 1.0) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    } else if (progress > 0.0) {
+                        Text(
+                            text = "${(progress * 100).roundToInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 } else {
                     PieProgressIcon(
-                        progress = item.percentCompleted.toFloat(),
+                        progress = item.percentCompleted.coerceIn(0.0, 1.0).toFloat(),
                         modifier = Modifier.size(24.dp)
                     )
                 }
