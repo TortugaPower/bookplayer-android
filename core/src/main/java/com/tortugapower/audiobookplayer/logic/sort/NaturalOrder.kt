@@ -15,9 +15,13 @@ object NaturalOrder : Comparator<String> {
 
     // SECONDARY strength: case-insensitive but accent-sensitive, matching a typical
     // "natural" library sort where "a" and "A" are equal but "e" and "é" are not.
-    private val collator: Collator = Collator.getInstance().apply {
-        strength = Collator.SECONDARY
+    // ThreadLocal because java.text.Collator is NOT thread-safe and this singleton comparator is
+    // used concurrently from the IO pool (multiple hot sorted flows can transform at once);
+    // sharing one instance intermittently corrupts comparisons or throws.
+    private val threadCollator: ThreadLocal<Collator> = ThreadLocal.withInitial {
+        Collator.getInstance().apply { strength = Collator.SECONDARY }
     }
+    private val collator: Collator get() = threadCollator.get()
 
     override fun compare(a: String, b: String): Int {
         var i = 0
