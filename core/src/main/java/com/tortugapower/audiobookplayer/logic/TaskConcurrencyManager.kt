@@ -34,6 +34,19 @@ class TaskConcurrencyManager(
     // Mutexes to ensure sequential processing within a single queueKey
     private val queueMutexes = ConcurrentHashMap<String, Mutex>()
     private val queueJobs = ConcurrentHashMap<String, Job>()
+
+    // Guards the is-a-worker-already-running check + job registration as one atomic step: the
+    // getAllTasks collector and requestWorkerScan (network callback) can race the same queue key,
+    // and a double start wastes a queueSemaphore slot until the orphaned worker retires.
+    private val workerStartLock = Any()
+
+    /** Atomically starts a worker for [queueKey] unless one is already active. */
+    private fun startQueueWorkerIfAbsent(queueKey: String) {
+        synchronized(workerStartLock) {
+            if (queueJobs[queueKey]?.isActive == true) return
+            startQueueWorker(queueKey)
+        }
+    }
     private val TAG = "TaskConcurrencyManager"
 
     override fun startProcessing() {
@@ -56,9 +69,7 @@ class TaskConcurrencyManager(
                 val activeQueueKeys = pendingTasks.map { it.queueKey }.distinct()
                 
                 for (queueKey in activeQueueKeys) {
-                    if (!queueJobs.containsKey(queueKey) || queueJobs[queueKey]?.isActive != true) {
-                        startQueueWorker(queueKey)
-                    }
+                    startQueueWorkerIfAbsent(queueKey)
                 }
             }
         }
@@ -139,9 +150,7 @@ class TaskConcurrencyManager(
             repository.getPendingTasks()
                 .map { it.queueKey }
                 .distinct()
-                .forEach { queueKey ->
-                    if (queueJobs[queueKey]?.isActive != true) startQueueWorker(queueKey)
-                }
+                .forEach { queueKey -> startQueueWorkerIfAbsent(queueKey) }
         }
     }
 

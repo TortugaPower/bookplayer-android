@@ -35,7 +35,10 @@ internal fun parsePulledSortValue(value: Map<String, Any?>?): String? =
  * `PATCH /v1/user/preferences {entries:[{key,value}]}` (iOS parity). The local key-value store is
  * the source of truth; this task mirrors a single changed key upward.
  */
-class PreferenceUploadProcessor : TaskProcessor {
+class PreferenceUploadProcessor(
+    // Injectable so tests can point at a MockWebServer-backed API; production uses the singleton.
+    private val api: com.tortugapower.audiobookplayer.network.PreferencesApi = NetworkClient.preferencesApi,
+) : TaskProcessor {
     private val gson = Gson()
 
     override fun canHandle(jobType: String): Boolean = jobType == SyncTaskFactory.JOB_UPLOAD_PREFERENCE
@@ -45,7 +48,7 @@ class PreferenceUploadProcessor : TaskProcessor {
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
         val key = payload["key"] as? String ?: return true // malformed → drop
         val value = payload["value"] as? String ?: return true
-        val response = NetworkClient.preferencesApi.setPreferences(buildPreferencePushBody(key, value))
+        val response = api.setPreferences(buildPreferencePushBody(key, value))
         return response.isSuccessful
     }
 }
@@ -58,12 +61,14 @@ class PreferenceUploadProcessor : TaskProcessor {
 class PreferenceFetchProcessor(
     private val context: Context,
     private val syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository,
+    // Injectable so tests can point at a MockWebServer-backed API; production uses the singleton.
+    private val api: com.tortugapower.audiobookplayer.network.PreferencesApi = NetworkClient.preferencesApi,
 ) : TaskProcessor {
 
     override fun canHandle(jobType: String): Boolean = jobType == SyncTaskFactory.JOB_FETCH_PREFERENCES
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
-        val response = NetworkClient.preferencesApi.getPreferences(prefix = SortLocation.KEY_PREFIX)
+        val response = api.getPreferences(prefix = SortLocation.KEY_PREFIX)
         if (!response.isSuccessful) return false
         val entries = response.body()?.entries ?: emptyList()
         val store = DataStorePreferencesStore(context)
