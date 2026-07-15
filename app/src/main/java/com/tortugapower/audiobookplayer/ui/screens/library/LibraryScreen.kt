@@ -68,6 +68,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -2010,11 +2011,24 @@ fun LibraryListItem(
                         modifier = Modifier.size(24.dp)
                     )
                 } else if (showProgressAsPercentage) {
-                    Text(
-                        text = "${(item.percentCompleted.coerceIn(0.0, 1.0) * 100).toInt()}%",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    // Match iOS PercentageProgressView: nothing at 0, the finished checkmark at
+                    // 100%, the number only in between (non-finite progress collapses to 0).
+                    val progress = item.percentCompleted
+                        .takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0
+                    if (progress >= 1.0) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    } else if (progress > 0.0) {
+                        Text(
+                            text = "${(progress * 100).roundToInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 } else {
                     PieProgressIcon(
                         progress = item.percentCompleted.coerceIn(0.0, 1.0).toFloat(),
