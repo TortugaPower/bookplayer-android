@@ -413,16 +413,4 @@
     <string name="settings_disable_autolock">自動ロックを無効化</string>
     <string name="settings_autolock_only_on_power">電源接続時のみ</string>
     <string name="settings_autolock_desc">プレーヤー画面でデバイスがロックされるのを防ぎます。</string>
-    <string name="library_options_title">オプション</string>
-    <string name="library_sort_files_by">ファイルの並べ替え</string>
-    <string name="library_sort_title">タイトル</string>
-    <string name="library_sort_filename">元のファイル名</string>
-    <string name="library_sort_most_recent">最近再生した順</string>
-    <string name="library_sort_custom">カスタム</string>
-    <string name="library_sort_quick_actions">クイックアクション</string>
-    <string name="library_sort_reverse_order">順序を逆にする</string>
-    <string name="library_show_progress_percentage">進捗をパーセンテージで表示</string>
-    <string name="library_show_original_file_name">元のファイル名を表示</string>
-    <string name="settings_data_usage_section">データ使用</string>
-    <string name="settings_upload_cellular_label">モバイルデータでアップロード</string>
 </resources>

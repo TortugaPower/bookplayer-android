@@ -415,16 +415,4 @@
     <string name="settings_disable_autolock">Disattiva blocco automatico</string>
     <string name="settings_autolock_only_on_power">Solo sotto carica</string>
     <string name="settings_autolock_desc">Impedisce il blocco del dispositivo quando si è nella schermata del lettore.</string>
-    <string name="library_options_title">Opzioni</string>
-    <string name="library_sort_files_by">Ordina file per</string>
-    <string name="library_sort_title">Titolo</string>
-    <string name="library_sort_filename">Nome file originale</string>
-    <string name="library_sort_most_recent">Più recente</string>
-    <string name="library_sort_custom">Personalizzato</string>
-    <string name="library_sort_quick_actions">Azioni rapide</string>
-    <string name="library_sort_reverse_order">Inverti ordine</string>
-    <string name="library_show_progress_percentage">Mostra avanzamento in percentuale</string>
-    <string name="library_show_original_file_name">Mostra nome file originale</string>
-    <string name="settings_data_usage_section">Utilizzo dati</string>
-    <string name="settings_upload_cellular_label">Carica usando la rete cellulare</string>
 </resources>

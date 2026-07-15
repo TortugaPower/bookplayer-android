@@ -427,16 +427,4 @@
     <string name="settings_disable_autolock">تعطيل القفل التلقائي</string>
     <string name="settings_autolock_only_on_power">فقط عند التوصيل بالطاقة</string>
     <string name="settings_autolock_desc">منع الجهاز من القفل عندما تكون في شاشة المشغل.</string>
-    <string name="library_options_title">الخيارات</string>
-    <string name="library_sort_files_by">ترتيب الملفات حسب</string>
-    <string name="library_sort_title">العنوان</string>
-    <string name="library_sort_filename">اسم الملف الأصلي</string>
-    <string name="library_sort_most_recent">الأحدث</string>
-    <string name="library_sort_custom">مخصص</string>
-    <string name="library_sort_quick_actions">إجراءات سريعة</string>
-    <string name="library_sort_reverse_order">عكس الترتيب</string>
-    <string name="library_show_progress_percentage">عرض التقدم كنسبة مئوية</string>
-    <string name="library_show_original_file_name">عرض اسم الملف الأصلي</string>
-    <string name="settings_data_usage_section">استخدام البيانات</string>
-    <string name="settings_upload_cellular_label">الرفع باستخدام بيانات الجوال</string>
 </resources>

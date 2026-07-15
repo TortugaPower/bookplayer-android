@@ -360,6 +360,16 @@ class LibraryViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), EffectiveSort.Custom)
 
     /**
+     * Whether the current location can hold a sort preference (false inside bound volumes and
+     * not-yet-synced folders, where every sort write is a silent no-op) — the Options sheet
+     * disables its sort controls instead of letting taps do nothing.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val sortLocationWritable: StateFlow<Boolean> = _currentPath
+        .mapLatest { path -> sortManager?.resolveLocation(path)?.isWritable ?: false }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    /**
      * Pull synced preferences for the level being visited — debounced and skipped when we have an
      * unsynced preference push queued (mirrors the fetch_contents logic). Only when cloud sync is on.
      */

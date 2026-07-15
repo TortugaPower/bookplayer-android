@@ -64,6 +64,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -956,6 +957,9 @@ fun LibraryScreen(
 
     if (showSortSheet) {
         val activeSortType = (effectiveSort as? EffectiveSort.Automatic)?.sortType
+        // Bound volumes and not-yet-synced folders can't hold a sort preference — every write is
+        // a silent no-op there, so the controls disable instead of appearing broken.
+        val sortWritable by libraryViewModel.sortLocationWritable.collectAsState()
         val sortValueLabel = when (val current = effectiveSort) {
             is EffectiveSort.Automatic -> when (current.sortType) {
                 SortType.metadataTitle -> R.string.library_sort_title
@@ -994,7 +998,8 @@ fun LibraryScreen(
                             )
                         },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        modifier = Modifier.clickable { showSortMenu = true },
+                        modifier = Modifier.clickable(enabled = sortWritable) { showSortMenu = true }
+                            .alpha(if (sortWritable) 1f else 0.38f),
                     )
                     DropdownMenu(
                         expanded = showSortMenu,
@@ -1002,10 +1007,13 @@ fun LibraryScreen(
                     ) {
                         @Composable
                         fun sortItem(labelRes: Int, active: Boolean, onPick: () -> Unit) {
+                            // The checkmark is the only active-rule indicator — mirror it into the
+                            // semantics so TalkBack reads the selected state too.
                             DropdownMenuItem(
                                 text = { Text(stringResource(labelRes)) },
                                 onClick = { showSortMenu = false; onPick() },
                                 leadingIcon = { if (active) Icon(Icons.Default.Check, null) },
+                                modifier = Modifier.semantics { selected = active },
                             )
                         }
                         sortItem(R.string.library_sort_title, activeSortType == SortType.metadataTitle) {

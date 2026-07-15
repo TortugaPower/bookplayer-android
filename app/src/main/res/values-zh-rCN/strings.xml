@@ -413,16 +413,4 @@
     <string name="settings_disable_autolock">禁用自动锁定</string>
     <string name="settings_autolock_only_on_power">仅在连接电源时</string>
     <string name="settings_autolock_desc">在播放器界面时，防止设备自动锁定。</string>
-    <string name="library_options_title">选项</string>
-    <string name="library_sort_files_by">文件排序方式</string>
-    <string name="library_sort_title">标题</string>
-    <string name="library_sort_filename">原始文件名</string>
-    <string name="library_sort_most_recent">最近播放</string>
-    <string name="library_sort_custom">自定义</string>
-    <string name="library_sort_quick_actions">快捷操作</string>
-    <string name="library_sort_reverse_order">反转顺序</string>
-    <string name="library_show_progress_percentage">以百分比显示进度</string>
-    <string name="library_show_original_file_name">显示原始文件名</string>
-    <string name="settings_data_usage_section">数据使用</string>
-    <string name="settings_upload_cellular_label">使用移动数据上传</string>
 </resources>
