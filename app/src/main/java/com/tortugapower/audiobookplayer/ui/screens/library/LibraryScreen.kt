@@ -1660,10 +1660,12 @@ fun LibraryListItem(
     val isCurrentlyPlaying = currentPlayingItem?.uuid == item.uuid
 
     // Library display prefs (Options sheet). Default off when no ViewModel (e.g. previews).
-    val showOriginalFileName by (libraryViewModel?.showOriginalFileName
-        ?: kotlinx.coroutines.flow.MutableStateFlow(false)).collectAsState()
-    val showProgressAsPercentage by (libraryViewModel?.showProgressAsPercentage
-        ?: kotlinx.coroutines.flow.MutableStateFlow(false)).collectAsState()
+    val showOriginalFileName by remember(libraryViewModel) {
+        libraryViewModel?.showOriginalFileName ?: MutableStateFlow(false)
+    }.collectAsState()
+    val showProgressAsPercentage by remember(libraryViewModel) {
+        libraryViewModel?.showProgressAsPercentage ?: MutableStateFlow(false)
+    }.collectAsState()
     // Books carry an original file name; folders/bound volumes don't, so they keep their title.
     val displayTitle = item.originalFileName
         ?.takeIf { showOriginalFileName && item.type != ItemType.FOLDER && it.isNotBlank() }
