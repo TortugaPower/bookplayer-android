@@ -248,8 +248,11 @@ fun SettingsScreen(
             }
 
             settingsSection(titleRes = R.string.settings_data_usage_section) {
-                val uploadOnCellular by PlaybackSettingsManager.getUploadUsingCellularData(context)
-                    .collectAsState(initial = false)
+                // remember-ed: a fresh cold flow per recomposition restarts collection from the
+                // initial value, flashing the toggle back to false before DataStore re-emits.
+                val uploadOnCellular by remember(context) {
+                    PlaybackSettingsManager.getUploadUsingCellularData(context)
+                }.collectAsState(initial = false)
                 SettingsToggleItem(
                     label = stringResource(R.string.settings_upload_cellular_label),
                     checked = uploadOnCellular,

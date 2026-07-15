@@ -108,7 +108,9 @@ class ProfileViewModel(
         accountRepository.deleteAccount()
         syncTaskRepository.deleteAllTasks() // also clears any queued preference push/fetch tasks
         // Drop every local library_sort:* preference so the next login pulls fresh (no stale state).
-        BookPlayerApplication.instance.librarySortManager.clearLocalPreferences()
+        // runCatching like LibraryViewModel's sortManager access: unit tests with a plain
+        // Application have no singleton, and logout cleanup must not abort halfway.
+        runCatching { BookPlayerApplication.instance.librarySortManager.clearLocalPreferences() }
         SubscriptionManager.logout()
         SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
         // AFTER the account row is gone: stop + unload the loaded book if it's now gate-blocked
