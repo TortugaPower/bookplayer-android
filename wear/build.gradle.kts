@@ -112,6 +112,10 @@ dependencies {
         // already resolves to 7.1.1 (its direct billing-ktx tip-jar dependency forces it) — this
         // constraint gives the watch the same, Play-compliant resolution.
         implementation(libs.billing)
+        // Play SDK Console flags the ancient fragment:1.1.0 that GMS/tiles pull transitively as
+        // outdated; nothing here uses fragments directly, the constraint just modernizes the
+        // resolution.
+        implementation(libs.androidx.fragment)
     }
 
     implementation(libs.androidx.core.ktx)
