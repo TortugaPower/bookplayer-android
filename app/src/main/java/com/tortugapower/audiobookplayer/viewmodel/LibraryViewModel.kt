@@ -191,10 +191,7 @@ class LibraryViewModel(
     fun getItemsForPath(path: String?): StateFlow<List<LibraryItemEntity>> {
         return itemsCache.getOrPut(path) {
             val rawFlow = if (path == null) {
-                // The gate flips UPSTREAM of the stateIn: Room's first real answer — even an EMPTY
-                // library — must open it, and downstream the StateFlow would conflate an empty first
-                // load against the emptyList seed (equal values don't re-emit), swallowing it.
-                repository.getRootItems().onEach { _isReady.value = true }
+                repository.getRootItems()
             } else {
                 repository.getItemsInPath(path)
             }
@@ -206,7 +203,14 @@ class LibraryViewModel(
                     is EffectiveSort.Automatic -> sort.sortType.sorted(items)
                     EffectiveSort.Custom -> items
                 }
-            }.flowOn(ioDispatcher) // locale-aware sort is O(n log n) CPU — keep it off the main thread
+            }
+            // The splash gate flips on the COMBINED output — Room alone isn't enough now that the
+            // visible list also waits on the DataStore sort read; gating upstream let the splash
+            // lift onto the emptyList seed when Room won the cold-start race. Still upstream of
+            // stateIn, so an empty first load (== the seed, which stateIn would conflate away for
+            // subscribers) does open the gate.
+            .onEach { if (path == null) _isReady.value = true }
+            .flowOn(ioDispatcher) // locale-aware sort is O(n log n) CPU — keep it off the main thread
             .stateIn(
                 scope = viewModelScope,
                 // Root stays hot for the app's lifetime: it feeds the splash-hold gate below and the main
