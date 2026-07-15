@@ -26,23 +26,21 @@ object NaturalOrder : Comparator<String> {
             val aDigit = a[i].isDigit()
             val bDigit = b[j].isDigit()
 
-            if (aDigit && bDigit) {
-                // Compare two numeric runs by value, ignoring leading zeros.
-                val aEnd = digitRunEnd(a, i)
-                val bEnd = digitRunEnd(b, j)
-                val cmp = compareNumericRuns(a, i, aEnd, b, j, bEnd)
-                if (cmp != 0) return cmp
-                i = aEnd
-                j = bEnd
+            // Extract each side's next chunk by ITS OWN type. Both chunks are always non-empty (each
+            // includes at least the current char), so the indices always advance — that's what keeps
+            // this comparator consistent (transitive). Comparing a digit chunk against a text chunk
+            // via the collator is fine and stable; only two digit chunks compare numerically.
+            val aEnd = if (aDigit) digitRunEnd(a, i) else textRunEnd(a, i)
+            val bEnd = if (bDigit) digitRunEnd(b, j) else textRunEnd(b, j)
+
+            val cmp = if (aDigit && bDigit) {
+                compareNumericRuns(a, i, aEnd, b, j, bEnd)
             } else {
-                // Compare a single "text" segment (up to the next digit) with the collator.
-                val aEnd = textRunEnd(a, i)
-                val bEnd = textRunEnd(b, j)
-                val cmp = collator.compare(a.substring(i, aEnd), b.substring(j, bEnd))
-                if (cmp != 0) return cmp
-                i = aEnd
-                j = bEnd
+                collator.compare(a.substring(i, aEnd), b.substring(j, bEnd))
             }
+            if (cmp != 0) return cmp
+            i = aEnd
+            j = bEnd
         }
         // Whichever string still has characters left sorts after the shorter prefix.
         return (a.length - i) - (b.length - j)

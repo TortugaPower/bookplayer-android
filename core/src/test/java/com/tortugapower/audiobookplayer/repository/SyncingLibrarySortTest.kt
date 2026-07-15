@@ -10,6 +10,7 @@ import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.preferences.FakePreferencesStore
 import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
@@ -30,8 +31,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * End-to-end sticky-sort behavior over the real Room DB + the syncing repository + the sort manager,
- * pinning the spec's acceptance checks (rank rewrite, sticky preference, and rank-sync suppression).
+ * End-to-end sticky-sort behavior under the view-transform model: picking a rule only writes the
+ * preference (no rank rewrite, no rank sync); custom transitions materialize the visible order into
+ * `orderRank` and sync those; every preference change queues a push task.
  */
 @RunWith(RobolectricTestRunner::class)
 class SyncingLibrarySortTest {
@@ -45,36 +47,35 @@ class SyncingLibrarySortTest {
     private lateinit var manager: LibrarySortManager
     private val gson = Gson()
 
-    private class ProAccountRepository : AccountRepository {
-        private val account = AccountEntity(id = "u", email = "e", apiToken = "t", tier = AccountTier.PRO)
+    private class TierAccountRepository(private val tier: AccountTier) : AccountRepository {
+        private val account = AccountEntity(id = "u", email = "e", apiToken = "t", tier = tier)
         override fun getAccountFlow(): Flow<AccountEntity?> = flowOf(account)
         override suspend fun getAccount(): AccountEntity = account
         override suspend fun saveAccount(account: AccountEntity) {}
         override suspend fun deleteAccount() {}
     }
 
+    private fun build(tier: AccountTier = AccountTier.PRO) {
+        val account = TierAccountRepository(tier)
+        val base = RoomLibraryRepository(context, db.libraryDao())
+        syncing = SyncingLibraryRepository(base, syncTaskRepository, account)
+        manager = LibrarySortManager(syncing, store, syncTaskRepository, account)
+    }
+
     @Before fun setUp() {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
             .allowMainThreadQueries().build()
-        val base = RoomLibraryRepository(context, db.libraryDao())
         syncTaskRepository = RoomSyncTaskRepository(db.syncTaskDao())
         prefs = FakePreferencesStore()
         store = LibrarySortStore(prefs)
-        syncing = SyncingLibraryRepository(base, syncTaskRepository, ProAccountRepository(), store)
-        manager = LibrarySortManager(syncing, store, syncTaskRepository)
+        build(AccountTier.PRO)
     }
 
     @After fun tearDown() = db.close()
 
-    private fun seed(
-        uuid: String, path: String, title: String, rank: Int,
-        type: ItemType = ItemType.BOOK, fileName: String? = null, lastPlayed: Long? = null,
-    ) = runBlocking {
+    private fun seed(uuid: String, path: String, title: String, rank: Int, type: ItemType = ItemType.BOOK) = runBlocking {
         db.libraryDao().insertItem(
-            LibraryItemEntity(
-                uuid = uuid, title = title, relativePath = path, type = type,
-                orderRank = rank, originalFileName = fileName, lastPlayDate = lastPlayed,
-            )
+            LibraryItemEntity(uuid = uuid, title = title, relativePath = path, type = type, orderRank = rank)
         )
     }
 
@@ -83,37 +84,53 @@ class SyncingLibrarySortTest {
         syncTaskRepository.getPendingTasks().filter { it.jobType == SyncTaskFactory.JOB_UPDATE && it.taskID == uuid }
     private suspend fun anyUpdateTasks() =
         syncTaskRepository.getPendingTasks().any { it.jobType == SyncTaskFactory.JOB_UPDATE }
+    private suspend fun prefPushes() =
+        syncTaskRepository.getPendingTasks().filter { it.jobType == SyncTaskFactory.JOB_UPLOAD_PREFERENCE }
+    private fun payloadOf(task: SyncTaskEntity): Map<String, Any?> =
+        gson.fromJson(task.payload, object : TypeToken<Map<String, Any?>>() {}.type)
 
-    @Test fun `sort by title persists ranks, holds the rule, and schedules no rank-only tasks`() = runBlocking {
+    @Test fun `picking a rule writes the preference, leaves ranks alone, and schedules no item updates`() = runBlocking {
         seed("a", "Chapter 10", "Chapter 10", 0)
         seed("b", "Chapter 2", "Chapter 2", 1)
-        seed("c", "Chapter 1", "Chapter 1", 2)
 
         manager.applySort(null, SortType.metadataTitle)
 
-        assertEquals(0, rankOf("c")) // Chapter 1
-        assertEquals(1, rankOf("b")) // Chapter 2
-        assertEquals(2, rankOf("a")) // Chapter 10
         assertEquals("metadataTitle", prefs.getString(SortLocation.Root.storeKey))
-        assertTrue("automatic sort must not schedule rank-only sync tasks", !anyUpdateTasks())
+        assertEquals(0, rankOf("a")) // ranks untouched — order is a view transform
+        assertEquals(1, rankOf("b"))
+        assertTrue("automatic sort must not schedule item/rank updates", !anyUpdateTasks())
+
+        val push = prefPushes().single()
+        val payload = payloadOf(push)
+        assertEquals("library_sort:default", payload["key"])
+        assertEquals("metadataTitle", payload["value"])
     }
 
-    @Test fun `import into an automatic folder lands in title position, not at the end`() = runBlocking {
+    @Test fun `repeated rule picks coalesce into one push with the latest value`() = runBlocking {
+        seed("a", "A", "A", 0)
+        manager.applySort(null, SortType.metadataTitle)
+        manager.applySort(null, SortType.fileName)
+
+        val push = prefPushes().single()
+        assertEquals("fileName", payloadOf(push)["value"])
+    }
+
+    @Test fun `switching to Custom freezes the visible rule order into ranks and syncs them`() = runBlocking {
         store.set(SortLocation.Root, EffectiveSort.Automatic(SortType.metadataTitle))
-        seed("a", "Apple", "Apple", 0)
-        seed("c", "Cherry", "Cherry", 1)
-        // Newcomer appended at the end (rank max+1), as the importer does.
-        seed("b", "Banana", "Banana", 2)
+        // DB order is B(0), A(1); the visible (title) order is A, B.
+        seed("b", "Bravo", "Bravo", 0)
+        seed("a", "Alpha", "Alpha", 1)
 
-        manager.resortIfAutomatic(null)
+        manager.setCustom(null)
 
-        assertEquals(0, rankOf("a"))
-        assertEquals(1, rankOf("b")) // Banana slots between Apple and Cherry
-        assertEquals(2, rankOf("c"))
-        assertTrue(!anyUpdateTasks())
+        assertEquals("custom", prefs.getString(SortLocation.Root.storeKey))
+        assertEquals(0, rankOf("a")) // frozen into visible order
+        assertEquals(1, rankOf("b"))
+        assertTrue(updateTasksFor("a").isNotEmpty() && updateTasksFor("b").isNotEmpty())
+        assertEquals("custom", payloadOf(prefPushes().single())["value"])
     }
 
-    @Test fun `manual drag flips the location to custom and DOES schedule rank updates`() = runBlocking {
+    @Test fun `manual drag sets custom, writes ranks, schedules updates, and pushes the pref`() = runBlocking {
         seed("a", "A", "A", 0)
         seed("b", "B", "B", 1)
         val reordered = listOf(db.libraryDao().getItemById("b")!!, db.libraryDao().getItemById("a")!!)
@@ -123,100 +140,73 @@ class SyncingLibrarySortTest {
         assertEquals("custom", prefs.getString(SortLocation.Root.storeKey))
         assertEquals(0, rankOf("b"))
         assertEquals(1, rankOf("a"))
-        assertTrue("manual order is the only source of truth — ranks must sync",
-            updateTasksFor("a").isNotEmpty() && updateTasksFor("b").isNotEmpty())
+        assertTrue(updateTasksFor("a").isNotEmpty() && updateTasksFor("b").isNotEmpty())
+        assertEquals("custom", payloadOf(prefPushes().single())["value"])
     }
 
-    @Test fun `selecting Custom flips the pref without rewriting ranks`() = runBlocking {
+    @Test fun `reverse order reverses the visible order and transitions to custom`() = runBlocking {
         store.set(SortLocation.Root, EffectiveSort.Automatic(SortType.metadataTitle))
-        seed("a", "B", "B", 0)
-        seed("b", "A", "A", 1)
+        seed("a", "A", "A", 2)
+        seed("b", "B", "B", 0)
+        seed("c", "C", "C", 1)
 
-        manager.setCustom(null)
+        manager.reverseOrder(null) // visible A,B,C -> reversed C,B,A
 
         assertEquals("custom", prefs.getString(SortLocation.Root.storeKey))
-        // Ranks are untouched — Custom means "respect the current manual order".
-        assertEquals(0, rankOf("a"))
-        assertEquals(1, rankOf("b"))
-    }
-
-    @Test fun `reverse order flips ranks and transitions to custom`() = runBlocking {
-        seed("a", "A", "A", 0)
-        seed("b", "B", "B", 1)
-        seed("c", "C", "C", 2)
-
-        manager.reverseOrder(null)
-
-        assertEquals(2, rankOf("a"))
-        assertEquals(1, rankOf("b"))
         assertEquals(0, rankOf("c"))
-        assertEquals("custom", prefs.getString(SortLocation.Root.storeKey))
-    }
-
-    @Test fun `device B applying a pulled automatic pref rewrites ranks with no rank data on the wire`() = runBlocking {
-        seed("a", "Zebra", "Zebra", 0)
-        seed("b", "Alpha", "Alpha", 1)
-        // Simulate the pull side effect: the pref value is written locally, then the resort runs.
-        store.set(SortLocation.Root, EffectiveSort.Automatic(SortType.metadataTitle))
-
-        manager.resortForStoreKey(SortLocation.Root.storeKey)
-
-        assertEquals(0, rankOf("b")) // Alpha
-        assertEquals(1, rankOf("a")) // Zebra
-        assertTrue("no rank updates cross the wire when the location is automatic", !anyUpdateTasks())
+        assertEquals(1, rankOf("b"))
+        assertEquals(2, rankOf("a"))
     }
 
     @Test fun `a placeholder-uuid folder is a no-op until its uuid is synced`() = runBlocking {
         val folder = LibraryItemEntity(uuid = "ph", title = "Offline", relativePath = "Offline", type = ItemType.FOLDER)
         db.libraryDao().insertItem(folder)
-        // A pending first-time upload marks the uuid as an unsynced placeholder.
-        SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, folder)
+        SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, folder) // pending → placeholder
         seed("x", "Offline/Beta", "Beta", 0)
-        seed("y", "Offline/Alpha", "Alpha", 1)
 
         manager.applySort("Offline", SortType.metadataTitle)
 
         assertNull("no partial pref write against a placeholder key", prefs.getString("library_sort:ph"))
-        assertEquals(0, rankOf("x")) // ranks untouched
-        assertEquals(1, rankOf("y"))
+        assertTrue("no pref push for an unresolved level", prefPushes().isEmpty())
 
-        // The upload completes → uuid materializes → retrying works.
+        // Upload completes → uuid materializes → retrying works.
         syncTaskRepository.getPendingTaskByTypeAndTaskId(SyncTaskFactory.JOB_UPLOAD_METADATA, "ph")
             ?.let { syncTaskRepository.deleteTask(it) }
         manager.applySort("Offline", SortType.metadataTitle)
 
         assertEquals("metadataTitle", prefs.getString("library_sort:ph"))
-        assertEquals(0, rankOf("y")) // Alpha
-        assertEquals(1, rankOf("x")) // Beta
+        assertEquals("library_sort:ph", payloadOf(prefPushes().single())["key"])
     }
 
-    @Test fun `a bound volume's chapters can never be re-ranked by sticky sort`() = runBlocking {
+    @Test fun `a bound volume can never be re-ranked or store a sort preference`() = runBlocking {
         db.libraryDao().insertItem(
             LibraryItemEntity(uuid = "vol", title = "Volume", relativePath = "Volume", type = ItemType.BOUND)
         )
         seed("c1", "Volume/Ch B", "Ch B", 0)
-        seed("c2", "Volume/Ch A", "Ch A", 1)
 
         manager.applySort("Volume", SortType.metadataTitle)
 
         assertNull(prefs.getString("library_sort:vol"))
-        assertEquals(0, rankOf("c1")) // unchanged
-        assertEquals(1, rankOf("c2"))
+        assertTrue(prefPushes().isEmpty())
     }
 
-    @Test fun `two rapid edits to one item merge into a single sync task with the latest values`() = runBlocking {
-        seed("a", "A", "Old", 0)
-        // Location is custom (default), so updates are not suppressed.
-        val first = db.libraryDao().getItemById("a")!!.apply { title = "New" }
-        syncing.updateItem(first)
-        val second = db.libraryDao().getItemById("a")!!.apply { orderRank = 5 }
-        syncing.updateItem(second)
+    @Test fun `a free account sets the preference locally but does not push it`() = runBlocking {
+        build(AccountTier.FREE)
+        seed("a", "A", "A", 0)
 
-        val tasks = updateTasksFor("a")
-        assertEquals("edits within the window merge into one task", 1, tasks.size)
-        val payload: Map<String, Any?> =
-            gson.fromJson(tasks.first().payload, object : TypeToken<Map<String, Any?>>() {}.type)
-        assertEquals("New", payload["title"])
-        assertEquals(5.0, payload["orderRank"]) // Gson decodes JSON numbers as Double
+        manager.applySort(null, SortType.metadataTitle)
+
+        assertEquals("metadataTitle", prefs.getString(SortLocation.Root.storeKey))
+        assertTrue("free tier does not sync preferences", prefPushes().isEmpty())
+    }
+
+    @Test fun `fetch preferences is skipped while a preference push is queued`() = runBlocking {
+        SyncTaskFactory.createUploadPreferenceTask(syncTaskRepository, "library_sort:default", "metadataTitle")
+        assertTrue("must not clobber an unsynced local change",
+            !SyncTaskFactory.createFetchPreferencesTask(syncTaskRepository))
+
+        prefPushes().forEach { syncTaskRepository.deleteTask(it) }
+        assertTrue(SyncTaskFactory.createFetchPreferencesTask(syncTaskRepository, force = true))
+        assertTrue(syncTaskRepository.getPendingTasks().any { it.jobType == SyncTaskFactory.JOB_FETCH_PREFERENCES })
     }
 }

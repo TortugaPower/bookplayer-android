@@ -29,4 +29,9 @@ class LibrarySortStore(private val prefs: PreferencesStore) {
             ?: return kotlinx.coroutines.flow.flowOf(EffectiveSort.Custom)
         return prefs.observeString(key).map { EffectiveSort.deserialize(it) }
     }
+
+    /** Remove every stored `library_sort:*` preference (used on logout). */
+    suspend fun removeAll() {
+        prefs.removeWithPrefix(SortLocation.KEY_PREFIX)
+    }
 }

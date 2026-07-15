@@ -5,21 +5,13 @@ import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
-import com.tortugapower.audiobookplayer.logic.preferences.DataStorePreferencesStore
-import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
-import com.tortugapower.audiobookplayer.logic.sort.LibrarySortStore
-import com.tortugapower.audiobookplayer.logic.sort.SortLocationResolver
-import com.tortugapower.audiobookplayer.logic.sort.SortType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 
 class SyncingLibraryRepository(
     private val delegate: LibraryRepository,
     private val syncTaskRepository: SyncTaskRepository,
-    private val accountRepository: AccountRepository,
-    // Read-only view of the sticky-sort store, used only for the rank-sync suppression decision.
-    // Defaulted so existing construction sites keep compiling; resolves via CoreContext at runtime.
-    private val librarySortStore: LibrarySortStore = LibrarySortStore(DataStorePreferencesStore())
+    private val accountRepository: AccountRepository
 ) : LibraryRepository by delegate {
 
     private suspend fun isSubscribed(): Boolean {
@@ -55,32 +47,15 @@ class SyncingLibraryRepository(
     }
 
     /**
-     * A rank rewrite — the sole rank-ONLY mutation. The base delegate re-numbers `orderRank` and
-     * persists; here we emit one metadata-changed event per item, applying the "Decision 9"
-     * suppression: if the item's PARENT location currently sorts automatically, a rank-only update
-     * is DROPPED (every device recomputes identical ranks locally from the synced sort rule, so
-     * syncing the churn would be N redundant tasks). Ranks DO sync when the parent is custom (manual
-     * order is the only source of truth) — a manual drag / reverse flips the location to custom FIRST,
-     * so those changes are observed here as non-automatic and sync normally.
+     * A rank rewrite. Only ever invoked while a location is in — or transitioning to — custom order
+     * (manual drag, reverse, or freezing the visible order on switch-to-custom), so the moved ranks
+     * always sync as normal item updates. Automatic sort never rewrites ranks; its order is derived
+     * at view time, so there is no rank churn to sync.
      */
     override suspend fun reorderItems(items: List<LibraryItemEntity>) {
         delegate.reorderItems(items)
-        if (!isSubscribed() || items.isEmpty()) return
-        // A reorder always targets one location's children, so resolve the parent's effective sort
-        // ONCE rather than per item.
-        if (parentEffectiveSort(items.first()) is EffectiveSort.Automatic) return
+        if (!isSubscribed()) return
         items.forEach { SyncTaskFactory.createUpdateTask(syncTaskRepository, it) }
-    }
-
-    /** A uuid is server-confirmed once it has no pending first-time upload task. */
-    private suspend fun isUuidSynced(uuid: String): Boolean =
-        syncTaskRepository.getPendingTaskByTypeAndTaskId(SyncTaskFactory.JOB_UPLOAD_METADATA, uuid) == null
-
-    /** The effective sort of [item]'s immediate parent location (root or containing folder). */
-    private suspend fun parentEffectiveSort(item: LibraryItemEntity): EffectiveSort {
-        val parentPath = SortLocationResolver.parentPathOf(item).ifEmpty { null }
-        val location = SortLocationResolver.resolve(parentPath, delegate::getItemByPath, ::isUuidSynced)
-        return librarySortStore.get(location)
     }
 
     override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {
@@ -201,22 +176,6 @@ class SyncingLibraryRepository(
             destinationFolder?.let { SyncTaskFactory.createUpdateTask(syncTaskRepository, it) }
             pushParentFolderMetadata(sourceParents - setOfNotNull(targetFolderPath))
         }
-        // Newcomers landing in an automatically-sorted destination must fall into rule order, not at
-        // the end. Runs for subscribed and free users alike (sticky sort is a local behavior). The
-        // rank rewrite is suppression-safe: an automatic location drops its own rank-only sync churn.
-        resortLocationIfAutomatic(targetFolderPath)
-    }
-
-    /**
-     * If [path] (null = library root) currently sorts automatically, re-run the sort so its contents
-     * are re-numbered in rule order. No-op for custom / unresolved locations.
-     */
-    private suspend fun resortLocationIfAutomatic(path: String?) {
-        val location = SortLocationResolver.resolve(path?.ifEmpty { null }, delegate::getItemByPath, ::isUuidSynced)
-        val sortType: SortType = librarySortStore.get(location).sortTypeOrNull ?: return
-        val children = if (path.isNullOrEmpty()) delegate.getRootItems().first()
-                       else delegate.getItemsInPathSync(path)
-        reorderItems(sortType.sorted(children))
     }
 
     override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {

@@ -106,10 +106,9 @@ class ProfileViewModel(
         // the delete path) so logout clears it too. None of the steps below need the token.
         NetworkClient.setToken(null)
         accountRepository.deleteAccount()
-        syncTaskRepository.deleteAllTasks()
-        // Preference sync channel: cancel pending pushes, drop the dirty list, remove observers, and
-        // delete every library_sort:* key so the next login pulls fresh (no stale per-user sort state).
-        BookPlayerApplication.instance.preferencesSyncService.onLogout()
+        syncTaskRepository.deleteAllTasks() // also clears any queued preference push/fetch tasks
+        // Drop every local library_sort:* preference so the next login pulls fresh (no stale state).
+        BookPlayerApplication.instance.librarySortManager.clearLocalPreferences()
         SubscriptionManager.logout()
         SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
         // AFTER the account row is gone: stop + unload the loaded book if it's now gate-blocked

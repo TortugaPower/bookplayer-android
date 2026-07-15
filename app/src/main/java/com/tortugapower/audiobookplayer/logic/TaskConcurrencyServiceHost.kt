@@ -85,7 +85,9 @@ class TaskConcurrencyServiceHost : Service() {
             UploadExternalResourceProcessor(),
             DeleteExternalResourceProcessor(),
             SetExternalResourceToDownloadProcessor(),
-            ExternalUpdateProcessor(this)
+            ExternalUpdateProcessor(this),
+            PreferenceUploadProcessor(this),
+            PreferenceFetchProcessor(this)
         )
 
         taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)

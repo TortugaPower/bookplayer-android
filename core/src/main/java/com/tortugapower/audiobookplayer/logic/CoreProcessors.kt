@@ -135,30 +135,13 @@ class FetchContentsProcessor(
             // Run parent folder updates once in batch
             LibraryContentsSync.updateParentFoldersBatch(libraryDao, affectedPaths)
 
-            // Newcomers arriving from server sync must land in rule order when this location sorts
-            // automatically. Uses the BASE repository so the local rank rewrite converges WITHOUT
-            // emitting any rank sync task (other devices recompute identical ranks from the rule).
-            maybeResortAfterFetch(libraryDao, normalizedPath.ifEmpty { null })
+            // No re-sort needed: an automatically-sorted level derives its order from the rule at
+            // view time and ignores orderRank, so the ranks this fetch just wrote have no visible
+            // effect. (Custom levels intentionally follow the synced orderRank.)
 
             return true
         }
         return false
-    }
-
-    private suspend fun maybeResortAfterFetch(
-        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao,
-        path: String?
-    ) {
-        try {
-            val baseRepo = com.tortugapower.audiobookplayer.repository.RoomLibraryRepository(context, libraryDao)
-            val store = com.tortugapower.audiobookplayer.logic.sort.LibrarySortStore(
-                com.tortugapower.audiobookplayer.logic.preferences.DataStorePreferencesStore(context)
-            )
-            com.tortugapower.audiobookplayer.logic.sort.LibrarySortManager(baseRepo, store, repository)
-                .resortIfAutomatic(path)
-        } catch (e: Exception) {
-            Log.w("FetchContentsProcessor", "Post-fetch resort skipped", e)
-        }
     }
 
     private suspend fun syncItem(

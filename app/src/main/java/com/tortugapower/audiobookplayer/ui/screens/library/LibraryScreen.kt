@@ -990,6 +990,7 @@ fun LibraryScreen(
                             Text(
                                 text = stringResource(sortValueLabel),
                                 color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.titleMedium,
                             )
                         },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),

@@ -14,12 +14,8 @@ import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
 import com.tortugapower.audiobookplayer.logic.preferences.DataStorePreferencesStore
-import com.tortugapower.audiobookplayer.logic.preferences.LibrarySortPreferenceFamily
-import com.tortugapower.audiobookplayer.logic.preferences.RetrofitPreferencesBackend
-import com.tortugapower.audiobookplayer.logic.preferences.UserPreferencesSyncService
 import com.tortugapower.audiobookplayer.logic.sort.LibrarySortManager
 import com.tortugapower.audiobookplayer.logic.sort.LibrarySortStore
-import com.tortugapower.audiobookplayer.logic.sort.SortLocation
 import io.sentry.Sentry
 import io.sentry.android.core.SentryAndroid
 import io.sentry.protocol.User
@@ -34,15 +30,9 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             private set
     }
 
-    /** Sticky-sort brain: sort actions + state-transition hooks. Set in [onCreate]. */
+    /** Library sort brain: sort actions + preference push/pull. Set in [onCreate]. */
     lateinit var librarySortManager: LibrarySortManager
         private set
-
-    /** Preference sync channel (library sort rules, future display prefs). Set in [onCreate]. */
-    lateinit var preferencesSyncService: UserPreferencesSyncService
-        private set
-
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * App-wide Coil loader with our [EmbeddedArtworkFetcher] registered, so the library list can resolve
@@ -73,33 +63,19 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         val syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
         val accountRepository = RoomAccountRepository(database.accountDao())
         
-        // One sort store shared by the syncing repo (for rank-sync suppression), the sort manager
-        // (sort actions), and the preference sync service (its side effects) so they can't drift.
-        val prefsStore = DataStorePreferencesStore(this)
-        val librarySortStore = LibrarySortStore(prefsStore)
-
         val syncingLibraryRepository = SyncingLibraryRepository(
             baseLibraryRepository,
             syncTaskRepository,
-            accountRepository,
-            librarySortStore
+            accountRepository
         )
 
+        val librarySortStore = LibrarySortStore(DataStorePreferencesStore(this))
         librarySortManager = LibrarySortManager(
             syncingLibraryRepository,
             librarySortStore,
-            syncTaskRepository
+            syncTaskRepository,
+            accountRepository
         )
-        preferencesSyncService = UserPreferencesSyncService(
-            prefs = prefsStore,
-            backend = RetrofitPreferencesBackend(),
-            families = listOf(LibrarySortPreferenceFamily(librarySortManager)),
-            scope = appScope,
-            // The root sort key is tracked from launch; folder keys register lazily when their
-            // screen first appears (LibraryViewModel).
-            alwaysTrackedKeys = setOf(SortLocation.Root.storeKey)
-        )
-        appScope.launch { preferencesSyncService.start() }
 
         // Initialize Managers
         PlaybackManager.initialize(

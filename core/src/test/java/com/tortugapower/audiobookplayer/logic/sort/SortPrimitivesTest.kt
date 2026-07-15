@@ -41,6 +41,40 @@ class SortPrimitivesTest {
         assertEquals(0, NaturalOrder.compare("Track 07", "Track 7"))
     }
 
+    @Test fun `number-prefixed titles sort by number and stay grouped before letters`() {
+        // Regression: a broken comparator scattered these (e.g. "30 …" first but "33 …" last).
+        val items = listOf(
+            book("j", "Jim Butcher - Ghost Story"),
+            book("c", "33 The Edge of Dawn"),
+            book("a", "30 Fire Emblem Theme (1)"),
+            book("b", "9 Prelude"),
+        )
+        val sorted = SortType.metadataTitle.sorted(items).map { it.title }
+        assertEquals(
+            listOf("9 Prelude", "30 Fire Emblem Theme (1)", "33 The Edge of Dawn", "Jim Butcher - Ghost Story"),
+            sorted,
+        )
+    }
+
+    @Test fun `comparator is self-consistent across a mixed set (transitive, antisymmetric)`() {
+        val samples = listOf(
+            "33 The Edge", "30 Fire Emblem", "9 Prelude", "Jim Butcher", "jim adams",
+            "Chapter 2", "Chapter 10", "007 Bond", "7 Up", "Éclair", "Zebra", "",
+        )
+        for (x in samples) for (y in samples) {
+            val xy = NaturalOrder.compare(x, y)
+            val yx = NaturalOrder.compare(y, x)
+            // Antisymmetry: sign(compare(x,y)) == -sign(compare(y,x)).
+            assertEquals("antisymmetry for '$x' vs '$y'", Integer.signum(xy), -Integer.signum(yx))
+            for (z in samples) {
+                if (xy <= 0 && NaturalOrder.compare(y, z) <= 0) {
+                    assertTrue("transitivity: '$x'<='$y'<='$z' implies '$x'<='$z'",
+                        NaturalOrder.compare(x, z) <= 0)
+                }
+            }
+        }
+    }
+
     // ---- SortType.fileName -------------------------------------------------------------------
 
     @Test fun `filename sort uses originalFileName ascending`() {
