@@ -64,6 +64,31 @@ abstract class MediaPlaybackService : MediaLibraryService() {
     protected var mediaSession: MediaLibrarySession? = null
         private set
     private var loudnessEnhancer: LoudnessEnhancer? = null
+
+    /** Last boost setting seen; re-applied whenever the enhancer re-attaches to a new session. */
+    private var volumeBoostEnabled = false
+
+    /**
+     * (Re)binds the volume-boost effect to [audioSessionId], releasing any previous instance.
+     * Called from onAudioSessionIdChanged — the session id changes when audio (re)initializes,
+     * and an enhancer bound to a dead/unset session silently does nothing.
+     */
+    private fun attachLoudnessEnhancer(audioSessionId: Int) {
+        try {
+            loudnessEnhancer?.release()
+        } catch (_: Exception) {
+        }
+        loudnessEnhancer = null
+        if (audioSessionId == C.AUDIO_SESSION_ID_UNSET) return
+        try {
+            loudnessEnhancer = LoudnessEnhancer(audioSessionId).apply {
+                setTargetGain(1000) // 10dB boost (approx double loudness)
+                enabled = volumeBoostEnabled
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
     protected val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     /** The Activity to launch when the user taps the media notification (phone: opens the player). */
@@ -152,6 +177,13 @@ abstract class MediaPlaybackService : MediaLibraryService() {
                     p.setWakeMode(wakeModeFor(mediaItem))
                 }
 
+                // The LoudnessEnhancer must attach to the REAL audio session, which ExoPlayer only
+                // assigns once audio initializes (it's 0/UNSET at build time — attaching then fails
+                // with ERROR_NO_INIT on many devices, e.g. Samsung, leaving boost a silent no-op).
+                override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                    attachLoudnessEnhancer(audioSessionId)
+                }
+
                 // Surface a 401/403 on an external-server stream as an app-level error (the stored
                 // session died mid-playback). Detected here on the REAL player — the full cause
                 // chain doesn't survive the session-controller bundling that PlaybackManager sees.
@@ -198,18 +230,17 @@ abstract class MediaPlaybackService : MediaLibraryService() {
             createSessionActivity()?.let { builder.setSessionActivity(it) }
             mediaSession = builder.build()
 
-            // Initialize LoudnessEnhancer
-            try {
-                loudnessEnhancer = LoudnessEnhancer(p.audioSessionId)
-                loudnessEnhancer?.setTargetGain(1000) // 10dB boost (approx double loudness)
-            } catch (e: Exception) {
-                e.printStackTrace()
+            // Attach the LoudnessEnhancer now only if the player already has a real session id
+            // (it usually doesn't — onAudioSessionIdChanged above handles the normal path).
+            if (p.audioSessionId != C.AUDIO_SESSION_ID_UNSET) {
+                attachLoudnessEnhancer(p.audioSessionId)
             }
         }
 
         // Observe volume boost setting
         serviceScope.launch {
             PlaybackSettingsManager.getVolumeBoost(this@MediaPlaybackService).collectLatest { enabled ->
+                volumeBoostEnabled = enabled
                 try {
                     loudnessEnhancer?.enabled = enabled
                 } catch (e: Exception) {
