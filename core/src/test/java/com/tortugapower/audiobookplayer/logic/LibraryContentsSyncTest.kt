@@ -286,6 +286,15 @@ class LibraryContentsSyncTest {
         assertEquals(0.45, LibraryContentsSync.normalizedRemotePercent(unfinished), 1e-9)
     }
 
+    @Test fun normalizedPercent_finishedOverridesDerivedFraction_matchingLocalWriter() {
+        // A finished item mid-book (e.g. marked finished manually) stores 1.0, exactly like
+        // RoomLibraryRepository's isFinished override — not the derived time fraction.
+        val finishedMidBook = remote("b1", artworkURL = null).copy(
+            duration = 300.0, currentTime = 150.0, percentCompleted = 50.0, isFinished = true
+        )
+        assertEquals(1.0, LibraryContentsSync.normalizedRemotePercent(finishedMidBook), 1e-9)
+    }
+
     @Test fun upsert_finishedServerItem_storesFractionNotServerScale() = runBlocking {
         // The exact 1.1.x bug: a finished book fetched from the server stored percentCompleted=100.0
         // (the API's scale) into a column every other writer treats as 0..1 — the details screen
