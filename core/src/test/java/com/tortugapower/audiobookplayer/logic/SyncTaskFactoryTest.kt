@@ -112,4 +112,18 @@ class SyncTaskFactoryTest {
         }
         SyncTaskFactory.createUploadStreamFileTask(dedupRepo, item(lastPlayDateMs = null))
     }
+
+    @Test fun updatePayload_sendsPercentCompletedOnTheApi100Scale() = runBlocking {
+        // Local column is the 0..1 fraction; iOS and the API store 0..100. Uploading the raw
+        // fraction made Android-played books sync to iOS as ~0% progress.
+        val repo = CapturingRepo()
+        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null))
+        assertEquals(50.0, (payloadOf(repo.saved!!)["percentCompleted"] as Number).toDouble(), 1e-9)
+    }
+
+    @Test fun metadataUploadPayload_sendsPercentCompletedOnTheApi100Scale() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createUploadMetadataTask(repo, item(lastPlayDateMs = null))
+        assertEquals(50.0, (payloadOf(repo.saved!!)["percentCompleted"] as Number).toDouble(), 1e-9)
+    }
 }

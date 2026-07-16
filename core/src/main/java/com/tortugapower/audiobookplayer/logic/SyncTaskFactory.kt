@@ -68,7 +68,8 @@ object SyncTaskFactory {
             "originalFileName" to (item.originalFileName ?: ""),
             "duration" to item.duration,
             "currentTime" to item.currentTime,
-            "percentCompleted" to item.percentCompleted,
+            // The API/iOS convention is 0..100; the local column is the 0..1 fraction.
+            "percentCompleted" to item.percentCompleted * 100.0,
             "isFinished" to item.isFinished,
             "orderRank" to item.orderRank,
             // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
@@ -107,7 +108,8 @@ object SyncTaskFactory {
             // rebuildFolderDetails metadata update, so a later fetch doesn't restore stale server values.
             "duration" to item.duration,
             "currentTime" to item.currentTime,
-            "percentCompleted" to item.percentCompleted,
+            // The API/iOS convention is 0..100; the local column is the 0..1 fraction.
+            "percentCompleted" to item.percentCompleted * 100.0,
             "isFinished" to item.isFinished,
             "orderRank" to item.orderRank,
             // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
