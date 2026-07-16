@@ -1,5 +1,7 @@
 package com.tortugapower.audiobookplayer.datalayer
 
+import com.google.gson.annotations.SerializedName
+
 /**
  * The state the phone publishes to the watch for remote-controller mode, and the model the watch renders.
  * Two independent DataItems (see [WearDataLayer]) so play/pause only re-sends the small [WatchPlaybackState]:
@@ -13,32 +15,32 @@ package com.tortugapower.audiobookplayer.datalayer
 
 /** A recently-played item as a remote-list row. [id] is the item's `relativePath` (used to play it). */
 data class WatchItem(
-    val id: String,
-    val title: String,
-    val author: String,
+    @SerializedName("id") val id: String,
+    @SerializedName("title") val title: String,
+    @SerializedName("author") val author: String,
 )
 
 /** A chapter of the current item. [start] is the whole-book offset in seconds. */
 data class WatchChapter(
-    val title: String,
-    val start: Double,
-    val index: Int,
+    @SerializedName("title") val title: String,
+    @SerializedName("start") val start: Double,
+    @SerializedName("index") val index: Int,
 )
 
 /** The currently-loaded item, with chapters for the now-playing chapter list. */
 data class WatchNowPlaying(
-    val id: String,
-    val title: String,
-    val author: String,
-    val chapters: List<WatchChapter>,
+    @SerializedName("id") val id: String,
+    @SerializedName("title") val title: String,
+    @SerializedName("author") val author: String,
+    @SerializedName("chapters") val chapters: List<WatchChapter>,
 )
 
 /** Rarely-changing library snapshot pushed to the watch (`PATH_LIBRARY_STATE`). */
 data class WatchLibraryState(
-    val recentItems: List<WatchItem>,
-    val currentItem: WatchNowPlaying?,
-    val rewindInterval: Int,
-    val forwardInterval: Int,
+    @SerializedName("recentItems") val recentItems: List<WatchItem>,
+    @SerializedName("currentItem") val currentItem: WatchNowPlaying?,
+    @SerializedName("rewindInterval") val rewindInterval: Int,
+    @SerializedName("forwardInterval") val forwardInterval: Int,
 )
 
 /**
@@ -48,9 +50,9 @@ data class WatchLibraryState(
  * free users too (iOS parity: the companion pushes the full current item), without re-sending the library.
  */
 data class WatchPlaybackState(
-    val isPlaying: Boolean,
-    val speed: Float,
-    val boostVolume: Boolean,
-    val progress: Float = 0f,
-    val currentChapter: Int = 0,
+    @SerializedName("isPlaying") val isPlaying: Boolean,
+    @SerializedName("speed") val speed: Float,
+    @SerializedName("boostVolume") val boostVolume: Boolean,
+    @SerializedName("progress") val progress: Float = 0f,
+    @SerializedName("currentChapter") val currentChapter: Int = 0,
 )

@@ -5,46 +5,46 @@ import com.google.gson.annotations.SerializedName
 // --- Email Verification ---
 
 data class EmailVerificationSendRequest(
-    val email: String
+    @SerializedName("email") val email: String
 )
 
 data class EmailVerificationSendResponse(
-    val success: Boolean,
+    @SerializedName("success") val success: Boolean,
     @SerializedName("expires_in") val expiresIn: Int,
-    val message: String?
+    @SerializedName("message") val message: String?
 )
 
 data class EmailVerificationCheckRequest(
-    val email: String,
-    val code: String
+    @SerializedName("email") val email: String,
+    @SerializedName("code") val code: String
 )
 
 data class EmailVerificationCheckResponse(
-    val verified: Boolean,
+    @SerializedName("verified") val verified: Boolean,
     @SerializedName("verification_token") val verificationToken: String?,
-    val message: String?
+    @SerializedName("message") val message: String?
 )
 
 // --- Passkey Registration ---
 
 data class PasskeyRegistrationOptionsRequest(
-    val email: String,
+    @SerializedName("email") val email: String,
     @SerializedName("verification_token") val verificationToken: String?,
     @SerializedName("device_name") val deviceName: String?
 )
 
 data class PasskeyCredentialDescriptor(
-    val type: String,
-    val id: String,
-    val transports: List<String>? = null
+    @SerializedName("type") val type: String,
+    @SerializedName("id") val id: String,
+    @SerializedName("transports") val transports: List<String>? = null
 )
 
 data class PasskeyRegistrationOptions(
-    val challenge: String,
+    @SerializedName("challenge") val challenge: String,
     @SerializedName("user_id") val userId: String,
     @SerializedName("rp_id") val rpId: String,
     @SerializedName("rp_name") val rpName: String,
-    val timeout: Int,
+    @SerializedName("timeout") val timeout: Int,
     @SerializedName("user_name") val userName: String,
     @SerializedName("user_display_name") val userDisplayName: String,
     @SerializedName("exclude_credentials") val excludeCredentials: List<PasskeyCredentialDescriptor>?
@@ -53,42 +53,42 @@ data class PasskeyRegistrationOptions(
 data class PasskeyResponse(
     @SerializedName("attestation_object") val attestationObject: String,
     @SerializedName("client_data_json") val clientDataJSON: String,
-    val transports: List<String> = emptyList()
+    @SerializedName("transports") val transports: List<String> = emptyList()
 )
 
 data class PasskeyRegistrationVerifyRequest(
-    val email: String,
+    @SerializedName("email") val email: String,
     @SerializedName("credential_id") val credentialId: String,
-    val response: PasskeyResponse,
+    @SerializedName("response") val response: PasskeyResponse,
     @SerializedName("device_name") val deviceName: String?
 )
 
 data class PasskeyAssertionResponse(
     @SerializedName("client_data_json") val clientDataJSON: String,
     @SerializedName("authenticator_data") val authenticatorData: String,
-    val signature: String,
+    @SerializedName("signature") val signature: String,
     @SerializedName("user_handle") val userHandle: String?
 )
 
 data class PasskeyVerifyRequest(
     @SerializedName("credential_id") val credentialId: String,
-    val response: PasskeyAssertionResponse
+    @SerializedName("response") val response: PasskeyAssertionResponse
 )
 
 data class PasskeySignInOptionsRequest(
-    val email: String
+    @SerializedName("email") val email: String
 )
 
 data class PasskeySignInOptionsResponse(
-    val challenge: String,
-    val timeout: Int,
+    @SerializedName("challenge") val challenge: String,
+    @SerializedName("timeout") val timeout: Int,
     @SerializedName("rp_id") val rpId: String,
     @SerializedName("allow_credentials") val allowCredentials: List<PasskeyCredentialDescriptor>?
 )
 
 data class PasskeyLoginResponse(
-    val email: String,
-    val token: String,
+    @SerializedName("email") val email: String,
+    @SerializedName("token") val token: String,
     @SerializedName("external_id") val externalId: String,
     @SerializedName("revenuecat_id") val revenuecatId: String?,
     @SerializedName("has_subscription") val hasSubscription: Boolean
@@ -101,15 +101,15 @@ data class GoogleLoginRequest(
 )
 
 data class GoogleLoginResponse(
-    val email: String,
-    val token: String,
+    @SerializedName("email") val email: String,
+    @SerializedName("token") val token: String,
     @SerializedName("revenuecat_id") val revenuecatId: String?
 )
 
 // --- Account ---
 
 data class DeleteAccountResponse(
-    val message: String?
+    @SerializedName("message") val message: String?
 )
 
 // --- Passkey management ---
@@ -123,6 +123,5 @@ data class PasskeyInfo(
 data class PasskeyListResponse(
     // Nullable on purpose: Gson bypasses Kotlin's non-null guarantee and writes a raw null when
     // the server omits the key (or sends `"passkeys": null`). The list call defaults it to empty.
-    val passkeys: List<PasskeyInfo>? = null
+    @SerializedName("passkeys") val passkeys: List<PasskeyInfo>? = null
 )
-

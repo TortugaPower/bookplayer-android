@@ -7,6 +7,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import com.google.gson.annotations.SerializedName
 
 /**
  * A predefined theme as authored in `assets/Themes.json`. Holds the 24 raw hex strings
@@ -14,32 +15,32 @@ import androidx.compose.ui.graphics.luminance
  * Call [resolve] to pick a variant and get back resolved [BookPlayerColors] for use in Compose.
  */
 data class BookPlayerThemeSpec(
-    val title: String,
-    val locked: Boolean = false,
-    val lightPrimaryHex: String,
-    val darkPrimaryHex: String,
-    val lightSecondaryHex: String,
-    val darkSecondaryHex: String,
-    val lightAccentHex: String,
-    val darkAccentHex: String,
-    val lightSeparatorHex: String,
-    val darkSeparatorHex: String,
-    val lightSystemBackgroundHex: String,
-    val darkSystemBackgroundHex: String,
-    val lightSecondarySystemBackgroundHex: String,
-    val darkSecondarySystemBackgroundHex: String,
-    val lightTertiarySystemBackgroundHex: String,
-    val darkTertiarySystemBackgroundHex: String,
-    val lightSystemGroupedBackgroundHex: String,
-    val darkSystemGroupedBackgroundHex: String,
-    val lightSystemFillHex: String,
-    val darkSystemFillHex: String,
-    val lightSecondarySystemFillHex: String,
-    val darkSecondarySystemFillHex: String,
-    val lightTertiarySystemFillHex: String,
-    val darkTertiarySystemFillHex: String,
-    val lightQuaternarySystemFillHex: String,
-    val darkQuaternarySystemFillHex: String,
+    @SerializedName("title") val title: String,
+    @SerializedName("locked") val locked: Boolean = false,
+    @SerializedName("lightPrimaryHex") val lightPrimaryHex: String,
+    @SerializedName("darkPrimaryHex") val darkPrimaryHex: String,
+    @SerializedName("lightSecondaryHex") val lightSecondaryHex: String,
+    @SerializedName("darkSecondaryHex") val darkSecondaryHex: String,
+    @SerializedName("lightAccentHex") val lightAccentHex: String,
+    @SerializedName("darkAccentHex") val darkAccentHex: String,
+    @SerializedName("lightSeparatorHex") val lightSeparatorHex: String,
+    @SerializedName("darkSeparatorHex") val darkSeparatorHex: String,
+    @SerializedName("lightSystemBackgroundHex") val lightSystemBackgroundHex: String,
+    @SerializedName("darkSystemBackgroundHex") val darkSystemBackgroundHex: String,
+    @SerializedName("lightSecondarySystemBackgroundHex") val lightSecondarySystemBackgroundHex: String,
+    @SerializedName("darkSecondarySystemBackgroundHex") val darkSecondarySystemBackgroundHex: String,
+    @SerializedName("lightTertiarySystemBackgroundHex") val lightTertiarySystemBackgroundHex: String,
+    @SerializedName("darkTertiarySystemBackgroundHex") val darkTertiarySystemBackgroundHex: String,
+    @SerializedName("lightSystemGroupedBackgroundHex") val lightSystemGroupedBackgroundHex: String,
+    @SerializedName("darkSystemGroupedBackgroundHex") val darkSystemGroupedBackgroundHex: String,
+    @SerializedName("lightSystemFillHex") val lightSystemFillHex: String,
+    @SerializedName("darkSystemFillHex") val darkSystemFillHex: String,
+    @SerializedName("lightSecondarySystemFillHex") val lightSecondarySystemFillHex: String,
+    @SerializedName("darkSecondarySystemFillHex") val darkSecondarySystemFillHex: String,
+    @SerializedName("lightTertiarySystemFillHex") val lightTertiarySystemFillHex: String,
+    @SerializedName("darkTertiarySystemFillHex") val darkTertiarySystemFillHex: String,
+    @SerializedName("lightQuaternarySystemFillHex") val lightQuaternarySystemFillHex: String,
+    @SerializedName("darkQuaternarySystemFillHex") val darkQuaternarySystemFillHex: String,
 ) {
     fun resolve(useDarkVariant: Boolean): BookPlayerColors = BookPlayerColors(
         title = title,

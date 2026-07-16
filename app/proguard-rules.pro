@@ -1,21 +1,22 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
+# BookPlayer release (R8) rules.
 #
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Deliberately minimal: our Gson wire contract is protected by @SerializedName on every
+# serialized field (enforced by SerializedNameCompletenessTest / ThemeSpecSerializedNameTest),
+# so NO keep rules for our own models are needed — R8 may rename them freely. Library needs
+# (Retrofit 2.11+, Gson, OkHttp, Media3, Room, RevenueCat, Sentry, AndroidX) ship their own
+# consumer rules.
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Readable release stack traces (Sentry + Play Console): keep file/line info, collapse the
+# original source-file attribute to a constant.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Sign in with Google (googleid): GoogleIdTokenCredential is materialized reflectively from the
+# CredentialManager Bundle; the library does not ship consumer rules that cover it.
+-keep class com.google.android.libraries.identity.googleid.** { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Compile-only GMS annotation referenced by play review-ktx bytecode; absent at runtime by design.
+-dontwarn com.google.android.gms.common.annotation.NoNullnessRewrite
+
+# If R8 reports missing classes on a future dependency bump, add the generated
+# missing_rules.txt suggestions here individually — never a blanket -dontwarn **.
