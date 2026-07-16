@@ -261,4 +261,41 @@ class LibraryContentsSyncTest {
         assertEquals(true, f1Finished?.isFinished)
         assertEquals("1", f1Finished?.author)
     }
+
+    // --- percentCompleted scale normalization (wire is iOS's 0..100 / legacy Android 0..1) ---
+
+    @Test fun normalizedPercent_derivesFractionFromTimes_regardlessOfWireScale() {
+        // Server value on the iOS 0..100 scale — derived fraction wins over the wire value.
+        val ios = remote("b1", artworkURL = null).copy(
+            duration = 200.0, currentTime = 100.0, percentCompleted = 50.0
+        )
+        assertEquals(0.5, LibraryContentsSync.normalizedRemotePercent(ios), 1e-9)
+
+        // Row last written by an old Android build (raw 0..1 fraction) — same derivation, same answer.
+        val legacy = ios.copy(percentCompleted = 0.5)
+        assertEquals(0.5, LibraryContentsSync.normalizedRemotePercent(legacy), 1e-9)
+    }
+
+    @Test fun normalizedPercent_durationlessItems_fallBackToFinishedThenWireAs100Scale() {
+        val finished = remote("b1", artworkURL = null).copy(
+            duration = 0.0, currentTime = 0.0, percentCompleted = 100.0, isFinished = true
+        )
+        assertEquals(1.0, LibraryContentsSync.normalizedRemotePercent(finished), 1e-9)
+
+        val unfinished = finished.copy(isFinished = false, percentCompleted = 45.0)
+        assertEquals(0.45, LibraryContentsSync.normalizedRemotePercent(unfinished), 1e-9)
+    }
+
+    @Test fun upsert_finishedServerItem_storesFractionNotServerScale() = runBlocking {
+        // The exact 1.1.x bug: a finished book fetched from the server stored percentCompleted=100.0
+        // (the API's scale) into a column every other writer treats as 0..1 — the details screen
+        // then rendered "10000%".
+        val finished = remote("b9", artworkURL = null).copy(
+            duration = 300.0, currentTime = 300.0, percentCompleted = 100.0, isFinished = true
+        )
+        LibraryContentsSync.upsertItem(db.libraryDao(), null, finished, mutableSetOf())
+
+        val stored = db.libraryDao().getItemById("b9")!!
+        assertEquals(1.0, stored.percentCompleted, 1e-9)
+    }
 }
