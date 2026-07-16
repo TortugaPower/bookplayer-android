@@ -173,7 +173,8 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val MIGRATION_7_8 = object : Migration(7, 8) {
+        // internal (not private) so the migration's data-touching SQL is unit-testable.
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Normalize percentCompleted to the canonical local 0..1 fraction. Rows fetched
                 // from the server before the scale fix kept the API's 0..100 value raw, so the
