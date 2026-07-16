@@ -8,7 +8,7 @@ import retrofit2.http.GET
 data class GitHubContributor(
     // Nullable: Gson injects null into non-null Kotlin fields when the JSON omits a key (e.g.
     // anonymous contributors). Callers filter out incomplete entries before rendering.
-    val login: String? = null,
+    @SerializedName("login") val login: String? = null,
     @SerializedName("avatar_url") val avatarUrl: String? = null,
     @SerializedName("html_url") val htmlUrl: String? = null,
 )

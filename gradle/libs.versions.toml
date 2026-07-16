@@ -27,7 +27,8 @@ wearOngoing = "1.0.0"
 fragment = "1.8.9"
 gson = "2.10.1"
 work = "2.9.0"
-retrofit = "2.9.0"
+# 2.11 ships maintained R8 consumer rules (2.9 predates them), incl. Kotlin suspend-signature fixes.
+retrofit = "2.11.0"
 credential = "1.2.2"
 googleid = "1.1.1"
 coil = "2.6.0"
@@ -36,6 +37,8 @@ billing = "7.1.1"
 playReview = "2.0.2"
 revenuecat = "7.11.0"
 sentry = "7.18.1"
+# Gradle plugin only (R8 mapping upload); the runtime SDK stays pinned above.
+sentryPlugin = "4.14.1"
 konfetti = "2.0.5"
 playServicesWearable = "18.2.0"
 # Matches the coroutines version resolved across the project (strictly 1.7.3).
@@ -127,4 +130,5 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+sentry = { id = "io.sentry.android.gradle", version.ref = "sentryPlugin" }
 

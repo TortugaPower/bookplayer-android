@@ -23,15 +23,21 @@ object MapConverter {
         return gson.toJson(map)
     }
 
+    // Explicit two-way mapping instead of .name/valueOf: the strings below are what existing
+    // installs already have persisted in Room, and literals stay stable under R8 obfuscation
+    // (reflective valueOf on a renamed constant would not).
     @TypeConverter
     @JvmStatic
-    fun fromExternalServiceType(value: ExternalServiceType): String {
-        return value.name
+    fun fromExternalServiceType(value: ExternalServiceType): String = when (value) {
+        ExternalServiceType.JELLYFIN -> "JELLYFIN"
+        ExternalServiceType.AUDIOBOOKSHELF -> "AUDIOBOOKSHELF"
     }
 
     @TypeConverter
     @JvmStatic
-    fun toExternalServiceType(value: String): ExternalServiceType {
-        return ExternalServiceType.valueOf(value)
+    fun toExternalServiceType(value: String): ExternalServiceType = when (value) {
+        "JELLYFIN" -> ExternalServiceType.JELLYFIN
+        "AUDIOBOOKSHELF" -> ExternalServiceType.AUDIOBOOKSHELF
+        else -> throw IllegalArgumentException("Unknown ExternalServiceType: $value")
     }
 }

@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.network
 
+import com.google.gson.annotations.SerializedName
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -30,10 +31,10 @@ interface PreferencesApi {
 
 /** GET response: a list of entries, each a key and its JSON-object value. */
 data class PreferencesResponse(
-    val entries: List<PreferenceEntryDto>? = null
+    @SerializedName("entries") val entries: List<PreferenceEntryDto>? = null
 )
 
 data class PreferenceEntryDto(
-    val key: String,
-    val value: Map<String, Any?>? = null
+    @SerializedName("key") val key: String,
+    @SerializedName("value") val value: Map<String, Any?>? = null
 )

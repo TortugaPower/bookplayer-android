@@ -3,49 +3,49 @@ package com.tortugapower.audiobookplayer.model
 import com.google.gson.annotations.SerializedName
 
 data class ContentsResponse(
-    val content: List<SyncableItem>,
-    val lastItemPlayed: SyncableItem?
+    @SerializedName("content") val content: List<SyncableItem>,
+    @SerializedName("lastItemPlayed") val lastItemPlayed: SyncableItem?
 )
 
 data class SyncableItem(
-    val uuid: String?,
-    val relativePath: String,
-    val title: String,
-    val details: String,
-    val originalFileName: String,
-    val duration: Double,
-    val currentTime: Double,
-    val percentCompleted: Double,
-    val isFinished: Boolean,
-    val orderRank: Int,
-    val type: Int, // Map to ItemType ordinal
+    @SerializedName("uuid") val uuid: String?,
+    @SerializedName("relativePath") val relativePath: String,
+    @SerializedName("title") val title: String,
+    @SerializedName("details") val details: String,
+    @SerializedName("originalFileName") val originalFileName: String,
+    @SerializedName("duration") val duration: Double,
+    @SerializedName("currentTime") val currentTime: Double,
+    @SerializedName("percentCompleted") val percentCompleted: Double,
+    @SerializedName("isFinished") val isFinished: Boolean,
+    @SerializedName("orderRank") val orderRank: Int,
+    @SerializedName("type") val type: Int, // Map to ItemType ordinal
     @SerializedName("url") val remoteURL: String?,
     @SerializedName("thumbnail") val artworkURL: String?,
-    val speed: Double?,
+    @SerializedName("speed") val speed: Double?,
     // The API (and iOS) send this as "lastPlayDateTimestamp" — NOT "lastPlayDate" (that's the DB/upload
     // key). Reading the wrong key left every synced item's lastPlayDate null, so server-synced plays never
     // surfaced in the Wear recents / Android Auto Recent tab until played locally.
     @SerializedName("lastPlayDateTimestamp") val lastPlayDateTimestamp: Double?,
-    val externalResources: List<SyncableExternalResource>? = null
+    @SerializedName("externalResources") val externalResources: List<SyncableExternalResource>? = null
 )
 
 data class SyncableExternalResource(
-    val providerName: String,
-    val providerId: String,
-    val syncStatus: String,
+    @SerializedName("providerName") val providerName: String,
+    @SerializedName("providerId") val providerId: String,
+    @SerializedName("syncStatus") val syncStatus: String,
     // ISO-8601 string: unlike lastPlayDate (epoch-seconds integer column), the API's
     // last_synced_at is a timestamp column serialized as a JS Date.
-    val lastSyncedAt: String?,
-    val processedFile: Boolean,
-    val hostId: String?
+    @SerializedName("lastSyncedAt") val lastSyncedAt: String?,
+    @SerializedName("processedFile") val processedFile: Boolean,
+    @SerializedName("hostId") val hostId: String?
 )
 
 data class UploadItemResponse(
-    val content: UploadItemContent
+    @SerializedName("content") val content: UploadItemContent
 )
 
 data class UploadItemContent(
-    val url: String?
+    @SerializedName("url") val url: String?
 )
 
 data class ArtworkResponse(
@@ -57,20 +57,20 @@ data class ArtworkResponse(
  * (`{uuid}` → [url]), or confirm the upload (`{uuid, uploaded: true}` → [uploaded], empty [url]).
  */
 data class ExternalSetResponse(
-    val url: String?,
-    val uploaded: Boolean?
+    @SerializedName("url") val url: String?,
+    @SerializedName("uploaded") val uploaded: Boolean?
 )
 
 data class IdentifiersResponse(
-    val content: List<String>
+    @SerializedName("content") val content: List<String>
 )
 
 data class MatchUuidsResponse(
-    val applied: List<String>,
-    val conflicts: List<ItemConflict>
+    @SerializedName("applied") val applied: List<String>,
+    @SerializedName("conflicts") val conflicts: List<ItemConflict>
 )
 
 data class ItemConflict(
-    val key: String, // Maps to the local sent "uuid" (our key in the map)
-    val uuid: String // Maps to the authoritative server uuid
+    @SerializedName("key") val key: String, // Maps to the local sent "uuid" (our key in the map)
+    @SerializedName("uuid") val uuid: String // Maps to the authoritative server uuid
 )

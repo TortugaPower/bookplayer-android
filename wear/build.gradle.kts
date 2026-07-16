@@ -74,7 +74,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8: shrink + optimize + obfuscate. The datalayer payload wire contract survives the
+            // phone/watch cross-build because every field carries @SerializedName (pinned by
+            // :core's SerializedNameCompletenessTest).
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
