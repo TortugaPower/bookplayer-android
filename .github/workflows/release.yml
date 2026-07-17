@@ -132,9 +132,9 @@ jobs:
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.tortugapower.audiobookplayer
-          releaseFiles: |
-            app/build/outputs/bundle/prodRelease/app-prod-release.aab
-            wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
+          # NOTE: comma-separated, NOT a YAML list/multiline — the action treats the whole
+          # string as glob patterns split on commas (maiden run failed on a multiline block).
+          releaseFiles: app/build/outputs/bundle/prodRelease/app-prod-release.aab,wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
           track: production
           status: draft
           mappingFile: app/build/outputs/mapping/prodRelease/mapping.txt
