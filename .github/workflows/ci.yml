@@ -38,3 +38,10 @@ jobs:
 
       - name: Lint
         run: ./gradlew lintDevDebug --stacktrace
+
+      # Exercise the R8/resource-shrink release config on every PR: a missing keep rule or a
+      # reflection path the @SerializedName completeness tests don't cover fails HERE instead of
+      # at release-cut time. Builds unsigned and secretless (config falls back to empty strings,
+      # signing attaches only when the keystore exists, Sentry upload skips without a token).
+      - name: Assemble minified prodRelease (unsigned)
+        run: ./gradlew :app:assembleProdRelease :wear:assembleProdRelease --stacktrace
