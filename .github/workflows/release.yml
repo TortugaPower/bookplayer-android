@@ -138,3 +138,7 @@ jobs:
           track: production
           status: draft
           mappingFile: app/build/outputs/mapping/prodRelease/mapping.txt
+          # Play refuses API edit commits that would auto-send for review whenever the app has a
+          # rejected change on file. We never auto-submit anyway (draft + manual console review),
+          # so keep this permanently true.
+          changesNotSentForReview: true
