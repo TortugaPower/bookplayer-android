@@ -1,6 +1,8 @@
 [versions]
-agp = "8.7.0"
-kotlin = "2.0.0"
+# 8.9.1+ required for compileSdk 36 (Play target-API deadline Aug 2026).
+agp = "8.13.2"
+# 2.2+ required: Billing 8.x / RevenueCat 9.x ship Kotlin 2.2 metadata.
+kotlin = "2.2.21"
 coreKtx = "1.10.1"
 junit = "4.13.2"
 junitVersion = "1.1.5"
@@ -18,7 +20,8 @@ media = "1.7.0"
 okhttp = "4.12.0"
 robolectric = "4.14.1"
 androidxTestCore = "1.6.1"
-room = "2.6.1"
+# 2.7+ required: 2.6.x KSP breaks on Kotlin 2.2 metadata (unexpected jvm signature V).
+room = "2.8.4"
 datastore = "1.1.1"
 splashscreen = "1.0.1"
 wearOngoing = "1.0.0"
@@ -35,10 +38,12 @@ retrofit = "2.11.0"
 credential = "1.2.2"
 googleid = "1.1.1"
 coil = "2.6.0"
-billing = "7.1.1"
+# Play requires Billing Library >= 8.0.0 from Aug 30, 2026; must stay on the same major
+# as the BillingClient bundled by RevenueCat (purchases 9.x -> BC 8.x).
+billing = "8.3.0"
 # Play In-App Review (post-book-finish rating prompt; Play decides whether the dialog shows).
 playReview = "2.0.2"
-revenuecat = "7.11.0"
+revenuecat = "9.29.1"
 sentry = "7.18.1"
 # Gradle plugin only (R8 mapping upload); the runtime SDK stays pinned above.
 sentryPlugin = "4.14.1"
