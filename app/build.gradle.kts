@@ -28,12 +28,12 @@ fun keystoreProp(key: String): String? =
 
 android {
     namespace = "com.tortugapower.audiobookplayer"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.tortugapower.audiobookplayer"
         minSdk = 28
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 18
         versionName = "1.1.2"
 

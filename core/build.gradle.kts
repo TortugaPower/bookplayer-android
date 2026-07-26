@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.tortugapower.audiobookplayer.core"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 28
@@ -41,6 +41,13 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.okhttp)
+    // Sentry OkHttp integration — captures failed backend responses (5xx) as Sentry
+    // error events. Attached ONLY to the shared backend client in NetworkClient;
+    // third-party (Jellyfin/ABS/Hardcover/GitHub) and S3 transfer clients are left
+    // uninstrumented so we only report on our own backend. On :wear (which consumes
+    // :core but deliberately never initializes Sentry) the interceptor binds to
+    // NoOpHub and is inert — wear backend 5xx are NOT reported.
+    implementation(libs.sentry.okhttp)
 
     // DataStore-backed settings that moved into :core (e.g. HardcoverSettingsManager).
     implementation(libs.androidx.datastore.preferences)
