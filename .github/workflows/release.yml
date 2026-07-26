@@ -127,7 +127,13 @@ jobs:
       # ONE draft release containing BOTH bundles (phone + watch), mirroring how 1.0.0 shipped:
       # Play serves each device the right bundle by manifest targeting. Draft = parked in the
       # console for manual review + submission, exactly like an Xcode Cloud archive in ASC.
+      # Play's edit-commit rules FLIP with app state: with a rejected change on file the commit
+      # MUST set changesNotSentForReview=true; with a change in review (or none) the same flag is
+      # FORBIDDEN ("must not be set"). Failed commits are atomic (nothing persists, no version
+      # codes burned), so try one way and fall back to the other — correct in both states.
       - name: Create draft release on Play
+        id: play_upload
+        continue-on-error: true
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
@@ -138,7 +144,15 @@ jobs:
           track: production
           status: draft
           mappingFile: app/build/outputs/mapping/prodRelease/mapping.txt
-          # Play refuses API edit commits that would auto-send for review whenever the app has a
-          # rejected change on file. We never auto-submit anyway (draft + manual console review),
-          # so keep this permanently true.
           changesNotSentForReview: true
+
+      - name: Create draft release on Play (retry for non-rejected app state)
+        if: steps.play_upload.outcome == 'failure'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.tortugapower.audiobookplayer
+          releaseFiles: app/build/outputs/bundle/prodRelease/app-prod-release.aab,wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
+          track: production
+          status: draft
+          mappingFile: app/build/outputs/mapping/prodRelease/mapping.txt
