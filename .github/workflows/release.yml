@@ -4,8 +4,9 @@
 #   1. runs the unit-test + lint bar,
 #   2. builds BOTH signed prod bundles (:app phone + :wear watch),
 #   3. attaches them to the run as artifacts, and
-#   4. creates a DRAFT release on the Play production track containing both bundles —
-#      ready to review and submit by hand in Play Console. Nothing ever auto-publishes.
+#   4. creates DRAFT releases per form-factor track — phone on `production`, watch on
+#      `wear:production` — ready to review and submit by hand in Play Console. Nothing ever
+#      auto-publishes.
 #
 # ── One-time setup ────────────────────────────────────────────────────────────────────────────
 # 1. Service account: create one in Google Cloud, then Play Console → Users & permissions →
@@ -111,10 +112,9 @@ jobs:
             wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
           if-no-files-found: error
 
-      # R8 deobfuscation mappings. The phone's also goes to Play below; the WEAR mapping must be
-      # attached by hand in Play Console (App bundle explorer → the wear versionCode → mapping),
-      # since the upload action accepts a single mappingFile per call. Both also land in Sentry
-      # automatically during the bundle build (Sentry gradle plugin) for the :app module.
+      # R8 deobfuscation mappings, kept downloadable from the run; each track upload below also
+      # sends its own mapping to Play. The :app mapping additionally lands in Sentry during the
+      # bundle build (Sentry gradle plugin).
       - name: Attach R8 mappings to the run
         uses: actions/upload-artifact@v4
         with:
@@ -124,35 +124,56 @@ jobs:
             wear/build/outputs/mapping/prodRelease/mapping.txt
           if-no-files-found: error
 
-      # ONE draft release containing BOTH bundles (phone + watch), mirroring how 1.0.0 shipped:
-      # Play serves each device the right bundle by manifest targeting. Draft = parked in the
-      # console for manual review + submission, exactly like an Xcode Cloud archive in ASC.
-      # Play's edit-commit rules FLIP with app state: with a rejected change on file the commit
-      # MUST set changesNotSentForReview=true; with a change in review (or none) the same flag is
-      # FORBIDDEN ("must not be set"). Failed commits are atomic (nothing persists, no version
-      # codes burned), so try one way and fall back to the other — correct in both states.
-      - name: Create draft release on Play
-        id: play_upload
+      # Separate releases per form-factor track (phone -> production, watch -> wear:production),
+      # matching how releases are actually managed in the console. Each upload carries its own
+      # R8 mapping. Play's edit-commit rules FLIP with app state: with a rejected change on file
+      # the commit MUST set changesNotSentForReview=true; with a change in review (or none) the
+      # same flag is FORBIDDEN. Failed commits are atomic (nothing persists, no version codes
+      # burned), so each track tries one way and falls back to the other.
+      - name: Create draft PHONE release on Play (production)
+        id: play_phone
         continue-on-error: true
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.tortugapower.audiobookplayer
-          # NOTE: comma-separated, NOT a YAML list/multiline — the action treats the whole
-          # string as glob patterns split on commas (maiden run failed on a multiline block).
-          releaseFiles: app/build/outputs/bundle/prodRelease/app-prod-release.aab,wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
+          releaseFiles: app/build/outputs/bundle/prodRelease/app-prod-release.aab
           track: production
           status: draft
           mappingFile: app/build/outputs/mapping/prodRelease/mapping.txt
           changesNotSentForReview: true
 
-      - name: Create draft release on Play (retry for non-rejected app state)
-        if: steps.play_upload.outcome == 'failure'
+      - name: Create draft PHONE release on Play (retry for non-rejected app state)
+        if: steps.play_phone.outcome == 'failure'
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.tortugapower.audiobookplayer
-          releaseFiles: app/build/outputs/bundle/prodRelease/app-prod-release.aab,wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
+          releaseFiles: app/build/outputs/bundle/prodRelease/app-prod-release.aab
           track: production
           status: draft
           mappingFile: app/build/outputs/mapping/prodRelease/mapping.txt
+
+      - name: Create draft WEAR release on Play (wear:production)
+        id: play_wear
+        continue-on-error: true
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.tortugapower.audiobookplayer
+          releaseFiles: wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
+          track: wear:production
+          status: draft
+          mappingFile: wear/build/outputs/mapping/prodRelease/mapping.txt
+          changesNotSentForReview: true
+
+      - name: Create draft WEAR release on Play (retry for non-rejected app state)
+        if: steps.play_wear.outcome == 'failure'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.tortugapower.audiobookplayer
+          releaseFiles: wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
+          track: wear:production
+          status: draft
+          mappingFile: wear/build/outputs/mapping/prodRelease/mapping.txt
