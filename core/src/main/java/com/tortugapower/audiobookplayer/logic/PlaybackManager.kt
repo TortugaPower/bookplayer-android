@@ -1011,15 +1011,12 @@ object PlaybackManager {
         item: LibraryItemEntity,
         processedDir: File,
     ): com.tortugapower.audiobookplayer.database.entities.ExternalServiceType? = withContext(Dispatchers.IO) {
-        val resource = item.externalResources.firstOrNull { it.providerName != "hardcover" }
-            ?: return@withContext null
         val hasLocalFile = item.relativePath?.let { File(processedDir, it).exists() } == true
-        if (hasLocalFile) return@withContext null
         val servers = com.tortugapower.audiobookplayer.repository.ExternalServerRepository(
             AppDatabase.getDatabase(context).externalServerDao()
         )
-        if (ExternalServiceUtils.serverForResource(servers, resource) != null) return@withContext null
-        ExternalServiceUtils.serviceTypeFor(resource.providerName)
+        // Pure decision lives in ExternalServiceUtils (testable without this singleton).
+        ExternalServiceUtils.missingServerPromptType(servers, item.externalResources, hasLocalFile)
     }
 
     fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {

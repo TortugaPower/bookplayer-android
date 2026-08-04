@@ -114,6 +114,24 @@ object ExternalServiceUtils {
     }
 
     /**
+     * The provider type to prompt "connect your server" for, or null when this isn't that case:
+     * the item is a media-server item (has a non-hardcover resource), has no local audio, and no
+     * configured server resolves its hostId — i.e. the book synced down but the server config
+     * (per-device) didn't. The pure decision behind PlaybackManager's connect-your-server dialog,
+     * extracted here so it's testable without the playback singleton.
+     */
+    suspend fun missingServerPromptType(
+        servers: ExternalServerRepository,
+        resources: List<ExternalResourceEntity>,
+        hasLocalFile: Boolean,
+    ): ExternalServiceType? {
+        if (hasLocalFile) return null
+        val resource = resources.firstOrNull { it.providerName != "hardcover" } ?: return null
+        if (serverForResource(servers, resource) != null) return null
+        return serviceTypeFor(resource.providerName)
+    }
+
+    /**
      * The provider's direct-download URL for [resource] on [server] (query-token auth, so it needs no
      * extra headers), or null for an unknown provider. Pure counterpart of the URL rebuild in
      * `resolveStreamingUrl`, also used to GET the source file for the stream-to-cloud pipe.

@@ -96,4 +96,26 @@ class ServerResolutionTest {
         val withoutGuid = withGuid.copy(stableId = null)
         assertEquals("https://jf.example.com", ExternalServiceUtils.stableHostId(withoutGuid))
     }
+
+    // --- the connect-your-server prompt decision ---
+
+    @Test fun `prompt fires only for unresolvable media-server items without local audio`() = runBlocking {
+        val unresolved = listOf(resource("audiobookshelf", "foreign-guid"))
+        // No local file + no matching server -> prompt with the provider type.
+        assertEquals(
+            ExternalServiceType.AUDIOBOOKSHELF,
+            ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = false)
+        )
+        // Local audio present -> never prompt, playback has a source.
+        assertNull(ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = true))
+        // Hardcover-only resources are not media servers -> not this prompt's case.
+        assertNull(
+            ExternalServiceUtils.missingServerPromptType(
+                servers, listOf(resource("hardcover", null)), hasLocalFile = false
+            )
+        )
+        // A configured matching server -> no prompt (playback proceeds/streams).
+        save(ExternalServiceType.AUDIOBOOKSHELF, "https://abs.example.com", "foreign-guid")
+        assertNull(ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = false))
+    }
 }
