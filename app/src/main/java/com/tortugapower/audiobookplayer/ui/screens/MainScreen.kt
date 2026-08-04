@@ -180,6 +180,36 @@ fun MainScreen() {
 
     var showMediaServersFlow by remember { mutableStateOf(false) }
 
+    // A synced-down media-server book whose server isn't configured on THIS device (configs are
+    // per-device; only the stable hostId syncs): prompt to connect it, deep-linking into the
+    // Media Servers flow. Emitted only from a real play attempt, mutually exclusive with the
+    // generic playback error.
+    val missingExternalServer by PlaybackManager.missingExternalServer.collectAsStateWithLifecycle()
+    missingExternalServer?.let { providerType ->
+        val providerName = when (providerType) {
+            com.tortugapower.audiobookplayer.database.entities.ExternalServiceType.JELLYFIN -> "Jellyfin"
+            com.tortugapower.audiobookplayer.database.entities.ExternalServiceType.AUDIOBOOKSHELF -> "Audiobookshelf"
+        }
+        AlertDialog(
+            onDismissRequest = { PlaybackManager.clearMissingExternalServer() },
+            title = { Text(stringResource(id = R.string.external_server_missing_title)) },
+            text = { Text(stringResource(id = R.string.external_server_missing_message, providerName)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    PlaybackManager.clearMissingExternalServer()
+                    showMediaServersFlow = true
+                }) {
+                    Text(stringResource(id = R.string.external_server_missing_connect))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { PlaybackManager.clearMissingExternalServer() }) {
+                    Text(stringResource(id = R.string.common_cancel))
+                }
+            }
+        )
+    }
+
     // Cold-start readiness (first local library load) is handled by MainActivity holding the OS splash
     // (setKeepOnScreenCondition on libraryViewModel.isReady): the real splash stays up until the library
     // has data, so no in-app loading replica — and no icon-size jump at the hand-off — is needed here.

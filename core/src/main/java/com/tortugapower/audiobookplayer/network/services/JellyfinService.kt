@@ -71,18 +71,21 @@ class JellyfinService : ExternalService {
                 val body = response.body()!!
                 val token = body.accessToken
                 
-                // Try to get server name
+                // Try to get server name + the instance's stable id (best-effort: a failed
+                // info call degrades to defaults, never a failed connect).
                 var serverName = "Jellyfin Server"
+                var stableId: String? = null
                 try {
                     val infoResponse = api.getSystemInfo(getAuthHeader(token))
                     if (infoResponse.isSuccessful && infoResponse.body() != null) {
                         serverName = infoResponse.body()!!.serverName
+                        stableId = infoResponse.body()!!.id
                     }
                 } catch (e: Exception) {
                     // Fallback to default name if system info fails
                 }
 
-                ConnectionResult.Success(token = token, name = serverName)
+                ConnectionResult.Success(token = token, name = serverName, stableId = stableId)
             } else {
                 ConnectionResult.Failure(
                     message = "Authentication failed: ${response.message()}",

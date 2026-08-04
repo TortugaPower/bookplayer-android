@@ -116,7 +116,12 @@ object LibraryContentsSync {
                         ?: localRes?.lastSyncedAt,
                     processedFile = remoteRes.processedFile,
                     libraryItemUuid = uuid!!,
-                    hostId = remoteRes.hostId
+                    // Pure-numeric hostIds are by construction legacy device-local rowids (the
+                    // stable contract writes GUIDs or canonical URL keys, never bare integers) —
+                    // ignore them in favor of local knowledge so a fetch can't clobber the
+                    // migration's rewritten values. Same local-wins philosophy as the artwork
+                    // rule above.
+                    hostId = remoteRes.hostId?.takeUnless { it.toLongOrNull() != null } ?: localRes?.hostId
                 )
                 libraryDao.insertExternalResource(resourceEntity)
             }

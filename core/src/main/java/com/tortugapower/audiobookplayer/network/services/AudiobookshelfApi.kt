@@ -56,7 +56,9 @@ data class AudiobookshelfUser(
 )
 
 data class AudiobookshelfServerSettings(
-    @SerializedName("serverName") val serverName: String?
+    @SerializedName("serverName") val serverName: String?,
+    // The ABS instance's unique id — the cross-device stable server identity (hostId contract).
+    @SerializedName("id") val id: String? = null
 )
 
 data class AudiobookshelfLibrariesResponse(

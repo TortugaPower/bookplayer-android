@@ -66,6 +66,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
 import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
 import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
 
 enum class LibraryTab { BOOKS, AUTHORS }
 
@@ -154,7 +155,7 @@ fun ExternalLibraryScreen(
                 context = context,
                 items = itemsToStream,
                 providerName = server.type.name.lowercase(),
-                hostId = server.id.toString()
+                hostId = ExternalServiceUtils.stableHostId(server)
             )
             onActionStarted()
         }
@@ -265,7 +266,7 @@ fun ExternalLibraryScreen(
                                                         headers = item.customHeaders,
                                                         providerName = viewModel.server?.type?.name?.lowercase(),
                                                         providerId = item.entity.uuid,
-                                                        hostId = viewModel.server?.id?.toString()
+                                                        hostId = viewModel.server?.let { ExternalServiceUtils.stableHostId(it) }
                                                     )
                                                     startedAny = true
                                                 }
