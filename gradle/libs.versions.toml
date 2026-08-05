@@ -1,6 +1,8 @@
 [versions]
-agp = "8.7.0"
-kotlin = "2.0.0"
+# 8.9.1+ required for compileSdk 36 (Play target-API deadline Aug 2026).
+agp = "8.13.2"
+# 2.2+ required: Billing 8.x / RevenueCat 9.x ship Kotlin 2.2 metadata.
+kotlin = "2.2.21"
 coreKtx = "1.10.1"
 junit = "4.13.2"
 junitVersion = "1.1.5"
@@ -18,28 +20,43 @@ media = "1.7.0"
 okhttp = "4.12.0"
 robolectric = "4.14.1"
 androidxTestCore = "1.6.1"
-room = "2.6.1"
+# 2.7+ required: 2.6.x KSP breaks on Kotlin 2.2 metadata (unexpected jvm signature V).
+room = "2.8.4"
 datastore = "1.1.1"
 splashscreen = "1.0.1"
 wearOngoing = "1.0.0"
-gson = "2.10.1"
+# Constraint-only pin (see wear/build.gradle.kts): modernizes the transitive fragment:1.1.0 that
+# GMS/tiles pull, per the Play SDK Console "outdated SDK" advisory.
+fragment = "1.8.9"
+# 2.11+ ships the R8 full-mode consumer rules that keep generic signatures of anonymous
+# TypeToken subclasses; 2.10.1 lacks them and every `object : TypeToken<...>() {}` throws
+# IllegalStateException in minified builds (caught live on the R8 smoke test).
+gson = "2.11.0"
 work = "2.9.0"
-retrofit = "2.9.0"
+# 2.11 ships maintained R8 consumer rules (2.9 predates them), incl. Kotlin suspend-signature fixes.
+retrofit = "2.11.0"
 credential = "1.2.2"
 googleid = "1.1.1"
 coil = "2.6.0"
-billing = "7.1.1"
+# Play requires Billing Library >= 8.0.0 from Aug 30, 2026; must stay on the same major
+# as the BillingClient bundled by RevenueCat (purchases 9.x -> BC 8.x).
+billing = "8.3.0"
 # Play In-App Review (post-book-finish rating prompt; Play decides whether the dialog shows).
 playReview = "2.0.2"
-revenuecat = "7.11.0"
+revenuecat = "9.29.1"
 sentry = "7.18.1"
+# Gradle plugin only (R8 mapping upload); the runtime SDK stays pinned above.
+sentryPlugin = "4.14.1"
 konfetti = "2.0.5"
 playServicesWearable = "18.2.0"
 # Matches the coroutines version resolved across the project (strictly 1.7.3).
 coroutinesTest = "1.7.3"
-# Wear Tiles + ProtoLayout (glanceable now-playing tile). tiles 1.4.x pairs with protolayout 1.2.x.
-wearTiles = "1.4.1"
-wearProtolayout = "1.2.1"
+# Wear Tiles + ProtoLayout (glanceable now-playing tile). tiles 1.6.x pairs with protolayout 1.4.x.
+# tiles >= 1.5.0 is REQUIRED when targeting API 35: 1.4.1 throws SecurityException on Wear 5
+# devices (Play SDK Console advisory against the 1.1.0 wear bundle; also the crash our
+# WearApp.refreshGlanceSurfaces guard caught on the Wear OS 5 emulator).
+wearTiles = "1.6.1"
+wearProtolayout = "1.4.1"
 # Wear watch-face complication data source (now-playing complication).
 wearWatchface = "1.2.1"
 # Bridges a suspend block to the ListenableFuture TileService.onTileRequest returns; matches coroutines 1.7.3.
@@ -50,10 +67,12 @@ purchases = { group = "com.revenuecat.purchases", name = "purchases", version.re
 # Wear OS Data Layer (MessageClient/CapabilityClient) — phone↔watch auth handoff.
 play-services-wearable = { group = "com.google.android.gms", name = "play-services-wearable", version.ref = "playServicesWearable" }
 sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "sentry" }
+sentry-okhttp = { group = "io.sentry", name = "sentry-okhttp", version.ref = "sentry" }
 konfetti-compose = { group = "nl.dionsegijn", name = "konfetti-compose", version.ref = "konfetti" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 billing-ktx = { group = "com.android.billingclient", name = "billing-ktx", version.ref = "billing" }
 billing = { group = "com.android.billingclient", name = "billing", version.ref = "billing" }
+androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "fragment" }
 play-review = { group = "com.google.android.play", name = "review-ktx", version.ref = "playReview" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
@@ -120,4 +139,5 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+sentry = { id = "io.sentry.android.gradle", version.ref = "sentryPlugin" }
 

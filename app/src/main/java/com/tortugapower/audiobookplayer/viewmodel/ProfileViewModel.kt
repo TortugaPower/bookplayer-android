@@ -2,6 +2,7 @@ package com.tortugapower.audiobookplayer.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tortugapower.audiobookplayer.BookPlayerApplication
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
@@ -105,7 +106,11 @@ class ProfileViewModel(
         // the delete path) so logout clears it too. None of the steps below need the token.
         NetworkClient.setToken(null)
         accountRepository.deleteAccount()
-        syncTaskRepository.deleteAllTasks()
+        syncTaskRepository.deleteAllTasks() // also clears any queued preference push/fetch tasks
+        // Drop every local library_sort:* preference so the next login pulls fresh (no stale state).
+        // runCatching like LibraryViewModel's sortManager access: unit tests with a plain
+        // Application have no singleton, and logout cleanup must not abort halfway.
+        runCatching { BookPlayerApplication.instance.librarySortManager.clearLocalPreferences() }
         SubscriptionManager.logout()
         SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
         // AFTER the account row is gone: stop + unload the loaded book if it's now gate-blocked

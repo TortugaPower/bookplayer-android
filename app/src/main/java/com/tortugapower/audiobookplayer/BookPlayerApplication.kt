@@ -13,6 +13,9 @@ import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
+import com.tortugapower.audiobookplayer.logic.preferences.DataStorePreferencesStore
+import com.tortugapower.audiobookplayer.logic.sort.LibrarySortManager
+import com.tortugapower.audiobookplayer.logic.sort.LibrarySortStore
 import io.sentry.Sentry
 import io.sentry.android.core.SentryAndroid
 import io.sentry.protocol.User
@@ -26,6 +29,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         lateinit var instance: BookPlayerApplication
             private set
     }
+
+    /** Library sort brain: sort actions + preference push/pull. Set in [onCreate]. */
+    lateinit var librarySortManager: LibrarySortManager
+        private set
 
     /**
      * App-wide Coil loader with our [EmbeddedArtworkFetcher] registered, so the library list can resolve
@@ -58,6 +65,14 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         
         val syncingLibraryRepository = SyncingLibraryRepository(
             baseLibraryRepository,
+            syncTaskRepository,
+            accountRepository
+        )
+
+        val librarySortStore = LibrarySortStore(DataStorePreferencesStore(this))
+        librarySortManager = LibrarySortManager(
+            syncingLibraryRepository,
+            librarySortStore,
             syncTaskRepository,
             accountRepository
         )

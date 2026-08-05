@@ -66,7 +66,7 @@ object LibraryContentsSync {
             author = remote.details,
             duration = remote.duration,
             currentTime = remote.currentTime,
-            percentCompleted = remote.percentCompleted,
+            percentCompleted = normalizedRemotePercent(remote),
             relativePath = remote.relativePath,
             remoteURL = remote.remoteURL,
             // Server artwork wins when it exists (the PRO thumbnail flow rewrites it server-side), but a
@@ -123,6 +123,20 @@ object LibraryContentsSync {
         }
 
         return Pair(uuid!!, isNew)
+    }
+
+    /**
+     * The local 0..1 progress fraction for a fetched item. The wire scale is ambiguous — iOS and
+     * the API use 0..100, but rows last written by older Android builds hold 0..1 (they uploaded
+     * the local fraction raw) — so the finished flag wins first (matching the local playback
+     * writer, which forces finished items to 1.0), then the fraction is DERIVED from
+     * currentTime/duration (always authoritative, either scale). Duration-less unfinished items
+     * (unresolved or legacy) fall back to the wire value read as iOS's 0..100.
+     */
+    fun normalizedRemotePercent(remote: SyncableItem): Double = when {
+        remote.isFinished -> 1.0
+        remote.duration > 0 -> (remote.currentTime / remote.duration).coerceIn(0.0, 1.0)
+        else -> (remote.percentCompleted / 100.0).coerceIn(0.0, 1.0)
     }
 
     /**

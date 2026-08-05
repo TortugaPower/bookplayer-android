@@ -73,6 +73,18 @@ object SyncStatusManager {
         return false
     }
 
+    // Debounce for pulling user preferences (sort rules) — same 30s throttle as contents fetch.
+    private var lastFetchPreferencesTimestamp: Long = 0L
+
+    @Synchronized
+    fun checkAndMarkFetchPreferences(): Boolean {
+        if ((System.currentTimeMillis() - lastFetchPreferencesTimestamp) > 30_000) {
+            lastFetchPreferencesTimestamp = System.currentTimeMillis()
+            return true
+        }
+        return false
+    }
+
     fun updateTaskProgress(taskId: String, progress: Double) {
         _taskProgress.update { it + (taskId to progress) }
     }

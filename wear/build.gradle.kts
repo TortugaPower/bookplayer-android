@@ -27,7 +27,7 @@ fun keystoreProp(key: String): String? =
 
 android {
     namespace = "com.tortugapower.audiobookplayer.wear"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         // Shared with :app on purpose — the Play Store pairs the phone + watch apps by applicationId,
@@ -35,12 +35,12 @@ android {
         applicationId = "com.tortugapower.audiobookplayer"
         // Wear OS 3+ (API 30). The phone app goes back to 28, but there is no Wear OS below 30.
         minSdk = 30
-        targetSdk = 35
+        targetSdk = 36
         // Wear lives in its own 100xxx range: Play requires versionCodes to be unique across
         // EVERY bundle ever uploaded for the package (the phone app already consumed 1..13), so
         // the two apps increment independently without ever colliding.
-        versionCode = 100006
-        versionName = "1.1.1"
+        versionCode = 100009
+        versionName = "1.1.2"
 
         buildConfigField("String", "REVENUECAT_API_KEY", "\"${localProp("REVENUECAT_API_KEY")}\"")
     }
@@ -74,7 +74,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8: shrink + optimize + obfuscate. The datalayer payload wire contract survives the
+            // phone/watch cross-build because every field carries @SerializedName (pinned by
+            // :core's SerializedNameCompletenessTest).
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -112,6 +116,10 @@ dependencies {
         // already resolves to 7.1.1 (its direct billing-ktx tip-jar dependency forces it) — this
         // constraint gives the watch the same, Play-compliant resolution.
         implementation(libs.billing)
+        // Play SDK Console flags the ancient fragment:1.1.0 that GMS/tiles pull transitively as
+        // outdated; nothing here uses fragments directly, the constraint just modernizes the
+        // resolution.
+        implementation(libs.androidx.fragment)
     }
 
     implementation(libs.androidx.core.ktx)

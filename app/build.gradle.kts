@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    // R8 mapping upload to Sentry (upload-only: instrumentation/auto-install disabled below).
+    alias(libs.plugins.sentry)
 }
 
 val localProperties = Properties().apply {
@@ -26,14 +28,14 @@ fun keystoreProp(key: String): String? =
 
 android {
     namespace = "com.tortugapower.audiobookplayer"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.tortugapower.audiobookplayer"
         minSdk = 28
-        targetSdk = 35
-        versionCode = 16
-        versionName = "1.1.1"
+        targetSdk = 36
+        versionCode = 19
+        versionName = "1.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -76,7 +78,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8: shrink + optimize + obfuscate. The Gson wire contract survives because every
+            // serialized field carries @SerializedName (pinned by SerializedNameCompletenessTest).
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -116,6 +121,28 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+}
+
+// Upload-only Sentry integration: ship the R8 mapping so release stack traces stay readable.
+// Everything else the plugin can do (bytecode instrumentation, SDK auto-install, source context)
+// is deliberately off — the runtime SDK stays the manually-initialized sentry-android dependency.
+// Without SENTRY_AUTH_TOKEN (local.properties or env) the upload is skipped and builds stay green.
+sentry {
+    org.set("tortuga-power")
+    projectName.set("android-bookplayer")
+    authToken.set(localProp("SENTRY_AUTH_TOKEN"))
+    includeProguardMapping.set(localProp("SENTRY_AUTH_TOKEN").isNotEmpty())
+    autoUploadProguardMapping.set(true)
+    uploadNativeSymbols.set(false)
+    includeSourceContext.set(false)
+    ignoredBuildTypes.set(setOf("debug"))
+    tracingInstrumentation {
+        enabled.set(false)
+    }
+    autoInstallation {
+        enabled.set(false)
+    }
+    telemetry.set(false)
 }
 
 dependencies {

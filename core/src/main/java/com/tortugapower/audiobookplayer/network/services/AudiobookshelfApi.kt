@@ -35,76 +35,76 @@ interface AudiobookshelfApi {
 }
 
 data class AudiobookshelfProgressRequest(
-    val progress: Double,
-    val currentTime: Double,
-    val isFinished: Boolean
+    @SerializedName("progress") val progress: Double,
+    @SerializedName("currentTime") val currentTime: Double,
+    @SerializedName("isFinished") val isFinished: Boolean
 )
 
 data class AudiobookshelfLoginRequest(
-    val username: String?,
-    val password: String?
+    @SerializedName("username") val username: String?,
+    @SerializedName("password") val password: String?
 )
 
 data class AudiobookshelfLoginResponse(
-    val user: AudiobookshelfUser,
-    val serverSettings: AudiobookshelfServerSettings?
+    @SerializedName("user") val user: AudiobookshelfUser,
+    @SerializedName("serverSettings") val serverSettings: AudiobookshelfServerSettings?
 )
 
 data class AudiobookshelfUser(
-    val token: String,
-    val username: String
+    @SerializedName("token") val token: String,
+    @SerializedName("username") val username: String
 )
 
 data class AudiobookshelfServerSettings(
-    val serverName: String?
+    @SerializedName("serverName") val serverName: String?
 )
 
 data class AudiobookshelfLibrariesResponse(
-    val libraries: List<AudiobookshelfLibrary>
+    @SerializedName("libraries") val libraries: List<AudiobookshelfLibrary>
 )
 
 data class AudiobookshelfLibrary(
-    val id: String,
-    val name: String,
+    @SerializedName("id") val id: String,
+    @SerializedName("name") val name: String,
     // "book" or "podcast" — what iOS filters on for the library picker.
-    val mediaType: String?
+    @SerializedName("mediaType") val mediaType: String?
 )
 
 data class AudiobookshelfItemsResponse(
-    val results: List<AudiobookshelfItem>,
-    val total: Int,
-    val limit: Int,
-    val page: Int
+    @SerializedName("results") val results: List<AudiobookshelfItem>,
+    @SerializedName("total") val total: Int,
+    @SerializedName("limit") val limit: Int,
+    @SerializedName("page") val page: Int
 )
 
 data class AudiobookshelfItem(
-    val id: String,
-    val libraryId: String,
-    val mediaType: String,
-    val media: AudiobookshelfMedia?
+    @SerializedName("id") val id: String,
+    @SerializedName("libraryId") val libraryId: String,
+    @SerializedName("mediaType") val mediaType: String,
+    @SerializedName("media") val media: AudiobookshelfMedia?
 )
 
 data class AudiobookshelfMedia(
-    val metadata: AudiobookshelfMetadata?,
-    val duration: Double?,
-    val coverPath: String?,
-    val audioFiles: List<AudiobookshelfAudioFile>?
+    @SerializedName("metadata") val metadata: AudiobookshelfMetadata?,
+    @SerializedName("duration") val duration: Double?,
+    @SerializedName("coverPath") val coverPath: String?,
+    @SerializedName("audioFiles") val audioFiles: List<AudiobookshelfAudioFile>?
 )
 
 data class AudiobookshelfAudioFile(
-    val index: Int,
-    val ino: String,
-    val metadata: AudiobookshelfFileMetadata?,
-    val duration: Double?,
-    val mimeType: String?
+    @SerializedName("index") val index: Int,
+    @SerializedName("ino") val ino: String,
+    @SerializedName("metadata") val metadata: AudiobookshelfFileMetadata?,
+    @SerializedName("duration") val duration: Double?,
+    @SerializedName("mimeType") val mimeType: String?
 )
 
 data class AudiobookshelfFileMetadata(
-    val filename: String?
+    @SerializedName("filename") val filename: String?
 )
 
 data class AudiobookshelfMetadata(
-    val title: String?,
-    val authorName: String?,
-    val genres: List<String>?
+    @SerializedName("title") val title: String?,
+    @SerializedName("authorName") val authorName: String?,
+    @SerializedName("genres") val genres: List<String>?
 )

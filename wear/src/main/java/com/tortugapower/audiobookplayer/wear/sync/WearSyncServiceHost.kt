@@ -55,6 +55,29 @@ class WearSyncServiceHost : Service() {
     private val TAG = "WearSyncServiceHost"
     private lateinit var taskConcurrencyManager: TaskConcurrencyManager
 
+    private var connectivityManager: android.net.ConnectivityManager? = null
+    // Same wake path as the phone host: uploads held on a metered network (UploadDataPolicy) can
+    // only resume when something re-scans the queue — the task Flow doesn't re-emit on a network
+    // change. Without this, a held upload on an LTE watch waits for an app restart.
+    private var lastNotMetered: Boolean? = null
+    private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: android.net.Network) {
+            if (::taskConcurrencyManager.isInitialized) taskConcurrencyManager.requestWorkerScan()
+        }
+        override fun onCapabilitiesChanged(
+            network: android.net.Network,
+            caps: android.net.NetworkCapabilities,
+        ) {
+            // Only nudge on the metered→unmetered flip (capability callbacks fire constantly).
+            val notMetered = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+            val becameUnmetered = notMetered && lastNotMetered != true
+            lastNotMetered = notMetered
+            if (becameUnmetered && ::taskConcurrencyManager.isInitialized) {
+                taskConcurrencyManager.requestWorkerScan()
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "⚙️ WearSyncServiceHost.onCreate() - starting sync engine")
@@ -93,6 +116,9 @@ class WearSyncServiceHost : Service() {
         taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)
         taskConcurrencyManager.startProcessing()
 
+        connectivityManager = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+        connectivityManager?.let { runCatching { it.registerDefaultNetworkCallback(networkCallback) } }
+
         // Same Android 15 dataSync-budget guard as the phone host (TaskConcurrencyServiceHost):
         // promotion can throw once the 6h/day budget is exhausted even when the START was legal.
         try {
@@ -114,6 +140,7 @@ class WearSyncServiceHost : Service() {
     }
 
     override fun onDestroy() {
+        connectivityManager?.let { runCatching { it.unregisterNetworkCallback(networkCallback) } }
         taskConcurrencyManager.stopProcessing()
         super.onDestroy()
     }

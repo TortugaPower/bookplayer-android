@@ -8,30 +8,31 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.google.gson.annotations.SerializedName
 import com.google.gson.reflect.TypeToken
 
 data class GraphQLRequest(
-    val query: String,
-    val variables: Map<String, Any>? = null
+    @SerializedName("query") val query: String,
+    @SerializedName("variables") val variables: Map<String, Any>? = null
 )
 
 data class HardcoverAuthor(
-    val name: String
+    @SerializedName("name") val name: String
 )
 
 data class HardcoverContribution(
-    val author: HardcoverAuthor?
+    @SerializedName("author") val author: HardcoverAuthor?
 )
 
 data class HardcoverImage(
-    val url: String?
+    @SerializedName("url") val url: String?
 )
 
 data class HardcoverBook(
-    val id: String,
-    val title: String,
-    val image: HardcoverImage?,
-    val contributions: List<HardcoverContribution>?
+    @SerializedName("id") val id: String,
+    @SerializedName("title") val title: String,
+    @SerializedName("image") val image: HardcoverImage?,
+    @SerializedName("contributions") val contributions: List<HardcoverContribution>?
 ) {
     fun getAuthorName(): String {
         return contributions?.mapNotNull { it.author?.name }?.joinToString(", ") ?: "Unknown Author"
@@ -39,8 +40,8 @@ data class HardcoverBook(
 }
 
 data class GraphQLResponse<T>(
-    val data: T?,
-    val errors: List<Map<String, Any>>?
+    @SerializedName("data") val data: T?,
+    @SerializedName("errors") val errors: List<Map<String, Any>>?
 )
 
 interface HardcoverApi {

@@ -14,6 +14,9 @@ object SyncTaskFactory {
     const val QUEUE_SYNC = "sync"
     const val QUEUE_FILE = "file"
     const val QUEUE_HARDCOVER = "hardcover"
+    // User preferences (library sort rules) sync on their own serial queue, independent of item sync
+    // and file transfers, so a pref push/pull never waits behind (or blocks) library operations.
+    const val QUEUE_PREFERENCES = "preferences"
     // Stream-to-cloud pipes get their own queue: the transfer depends on a third-party media server
     // being reachable, so it must never wedge the serial "file" queue that downloads/uploads share.
     const val QUEUE_PIPE = "pipe"
@@ -40,6 +43,8 @@ object SyncTaskFactory {
     const val JOB_DELETE_EXTERNAL_RESOURCE = "delete_external_resource"
     const val JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD = "set_external_resource_to_download"
     const val JOB_EXTERNAL_UPDATE = "external_update"
+    const val JOB_UPLOAD_PREFERENCE = "upload_preference"
+    const val JOB_FETCH_PREFERENCES = "fetch_preferences"
 
     suspend fun createSyncIdentifiersTask(repository: SyncTaskRepository): Boolean {
         if (!SyncStatusManager.checkAndMarkSyncIdentifiers()) return false
@@ -63,7 +68,8 @@ object SyncTaskFactory {
             "originalFileName" to (item.originalFileName ?: ""),
             "duration" to item.duration,
             "currentTime" to item.currentTime,
-            "percentCompleted" to item.percentCompleted,
+            // The API/iOS convention is 0..100; the local column is the 0..1 fraction.
+            "percentCompleted" to item.percentCompleted * 100.0,
             "isFinished" to item.isFinished,
             "orderRank" to item.orderRank,
             // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
@@ -102,7 +108,8 @@ object SyncTaskFactory {
             // rebuildFolderDetails metadata update, so a later fetch doesn't restore stale server values.
             "duration" to item.duration,
             "currentTime" to item.currentTime,
-            "percentCompleted" to item.percentCompleted,
+            // The API/iOS convention is 0..100; the local column is the 0..1 fraction.
+            "percentCompleted" to item.percentCompleted * 100.0,
             "isFinished" to item.isFinished,
             "orderRank" to item.orderRank,
             // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
@@ -383,6 +390,39 @@ object SyncTaskFactory {
             enqueue(repository, queueKey, JOB_EXTERNAL_UPDATE, taskId, payload)
         }
     }
+
+    /**
+     * Push one preference level (root or a folder) to the server. Keyed by the preference key so
+     * rapid changes to the same level coalesce onto a single pending task (last write wins) — the
+     * same merge [createUpdateTask] uses for items.
+     */
+    suspend fun createUploadPreferenceTask(repository: SyncTaskRepository, key: String, value: String) {
+        val payload = mapOf("key" to key, "value" to value)
+        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_UPLOAD_PREFERENCE, key)
+        if (existing != null) {
+            repository.updateTask(existing.copy(payload = gson.toJson(payload)))
+        } else {
+            enqueue(repository, QUEUE_PREFERENCES, JOB_UPLOAD_PREFERENCE, key, payload)
+        }
+    }
+
+    /**
+     * Pull the user's preferences from the server. Skipped (unless [force]) when we still have an
+     * unsynced preference push queued — the local store is the source of truth, so a pull must never
+     * clobber a change we haven't sent yet. Debounced to one per 30s per launch, like fetch_contents.
+     */
+    suspend fun createFetchPreferencesTask(repository: SyncTaskRepository, force: Boolean = false): Boolean {
+        if (!force) {
+            if (repository.countActiveTasksByType(JOB_UPLOAD_PREFERENCE) > 0) return false
+            if (!SyncStatusManager.checkAndMarkFetchPreferences()) return false
+        }
+        // Singleton task — one pending pull is enough.
+        if (repository.getPendingTaskByTypeAndTaskId(JOB_FETCH_PREFERENCES, PREFERENCES_TASK_ID) != null) return true
+        enqueue(repository, QUEUE_PREFERENCES, JOB_FETCH_PREFERENCES, PREFERENCES_TASK_ID, emptyMap<String, Any?>())
+        return true
+    }
+
+    const val PREFERENCES_TASK_ID = "all_preferences"
 
     private suspend fun enqueue(
         repository: SyncTaskRepository,

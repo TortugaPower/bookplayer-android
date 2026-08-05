@@ -80,7 +80,16 @@ object ImportManager : ImportService {
             val stagedFiles = withContext(Dispatchers.IO) {
                 val processedDir = File(context.filesDir, "Processed")
                 uris.forEach { uri ->
-                    val fileName = getFileName(context, uri) ?: "unknown_file_${System.currentTimeMillis()}"
+                    // A URI whose access grant expired (shared intent, process restart between pick
+                    // and import) throws SecurityException on ANY resolver call — skip that file and
+                    // keep importing the rest instead of crashing the whole batch (BOOKPLAYER-A).
+                    val fileName = try {
+                        getFileName(context, uri) ?: "unknown_file_${System.currentTimeMillis()}"
+                    } catch (e: SecurityException) {
+                        android.util.Log.w("ImportManager", "URI permission lost, skipping: $uri")
+                        currentSkipped++
+                        return@forEach
+                    }
 
                     // Archives skip the duplicate check: their fate is decided per extracted entry.
                     val existingItem = if (ImportArchiveUtils.isArchive(fileName)) null else libraryDao.getItemByFileName(fileName)
@@ -492,6 +501,8 @@ object ImportManager : ImportService {
                     RoomLibraryRepository(context.applicationContext, libraryDao).refreshParentMetadata(it)
                 }
             }
+            // No re-sort on import: an automatically-sorted level derives its order from the rule at
+            // view time, so freshly-imported items appear in rule position without a rank rewrite.
         }
     }
 

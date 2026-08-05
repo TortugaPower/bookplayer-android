@@ -128,4 +128,6 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
 
 ## Git
 
-- Default branch: `main`.
+- Branch model (mirrors the iOS repo): **`main` is what's live on the Play Store**; **`develop` is
+  the staging branch for the next release** — feature/fix PRs target `develop`, and a release is a
+  PR from `develop` into `main` (then tag + bundles from `main`).

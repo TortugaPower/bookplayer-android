@@ -3,7 +3,7 @@ name: Claude PR Review
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    branches: [main]
+    branches: [main, develop]
 
 # Cancel an in-flight review when the PR is updated again (saves API cost on rapid pushes).
 concurrency:

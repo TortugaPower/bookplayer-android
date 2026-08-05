@@ -4,8 +4,9 @@
 #   1. runs the unit-test + lint bar,
 #   2. builds BOTH signed prod bundles (:app phone + :wear watch),
 #   3. attaches them to the run as artifacts, and
-#   4. creates a DRAFT release on the Play production track containing both bundles —
-#      ready to review and submit by hand in Play Console. Nothing ever auto-publishes.
+#   4. creates DRAFT releases per form-factor track — phone on `production`, watch on
+#      `wear:production` — ready to review and submit by hand in Play Console. Nothing ever
+#      auto-publishes.
 #
 # ── One-time setup ────────────────────────────────────────────────────────────────────────────
 # 1. Service account: create one in Google Cloud, then Play Console → Users & permissions →
@@ -21,6 +22,7 @@
 #      GOOGLE_CLIENT_ID             > same values as local.properties
 #      REVENUECAT_API_KEY          /
 #      SENTRY_DSN
+#      SENTRY_AUTH_TOKEN           Sentry token (project:releases) — R8 mapping upload to Sentry
 #
 # Gradle needs no changes: keystoreProp()/localProp() in app/ and wear/ build files already fall
 # back to environment variables with these exact names.
@@ -45,6 +47,7 @@ jobs:
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       REVENUECAT_API_KEY: ${{ secrets.REVENUECAT_API_KEY }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
       RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
       RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
@@ -60,6 +63,7 @@ jobs:
         run: |
           missing=""
           for name in PROD_BASE_URL GOOGLE_CLIENT_ID REVENUECAT_API_KEY SENTRY_DSN \
+                      SENTRY_AUTH_TOKEN \
                       RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD \
                       RELEASE_KEYSTORE_BASE64 PLAY_SERVICE_ACCOUNT_JSON; do
             if [ -z "${!name}" ]; then missing="$missing $name"; fi
@@ -108,16 +112,68 @@ jobs:
             wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
           if-no-files-found: error
 
-      # ONE draft release containing BOTH bundles (phone + watch), mirroring how 1.0.0 shipped:
-      # Play serves each device the right bundle by manifest targeting. Draft = parked in the
-      # console for manual review + submission, exactly like an Xcode Cloud archive in ASC.
-      - name: Create draft release on Play
+      # R8 deobfuscation mappings, kept downloadable from the run; each track upload below also
+      # sends its own mapping to Play. The :app mapping additionally lands in Sentry during the
+      # bundle build (Sentry gradle plugin).
+      - name: Attach R8 mappings to the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-mappings
+          path: |
+            app/build/outputs/mapping/prodRelease/mapping.txt
+            wear/build/outputs/mapping/prodRelease/mapping.txt
+          if-no-files-found: error
+
+      # Separate releases per form-factor track (phone -> production, watch -> wear:production),
+      # matching how releases are actually managed in the console. Each upload carries its own
+      # R8 mapping. Play's edit-commit rules FLIP with app state: with a rejected change on file
+      # the commit MUST set changesNotSentForReview=true; with a change in review (or none) the
+      # same flag is FORBIDDEN. Failed commits are atomic (nothing persists, no version codes
+      # burned), so each track tries one way and falls back to the other.
+      - name: Create draft PHONE release on Play (production)
+        id: play_phone
+        continue-on-error: true
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.tortugapower.audiobookplayer
-          releaseFiles: |
-            app/build/outputs/bundle/prodRelease/app-prod-release.aab
-            wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
+          releaseFiles: app/build/outputs/bundle/prodRelease/app-prod-release.aab
           track: production
           status: draft
+          mappingFile: app/build/outputs/mapping/prodRelease/mapping.txt
+          changesNotSentForReview: true
+
+      - name: Create draft PHONE release on Play (retry for non-rejected app state)
+        if: steps.play_phone.outcome == 'failure'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.tortugapower.audiobookplayer
+          releaseFiles: app/build/outputs/bundle/prodRelease/app-prod-release.aab
+          track: production
+          status: draft
+          mappingFile: app/build/outputs/mapping/prodRelease/mapping.txt
+
+      - name: Create draft WEAR release on Play (wear:production)
+        id: play_wear
+        continue-on-error: true
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.tortugapower.audiobookplayer
+          releaseFiles: wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
+          track: wear:production
+          status: draft
+          mappingFile: wear/build/outputs/mapping/prodRelease/mapping.txt
+          changesNotSentForReview: true
+
+      - name: Create draft WEAR release on Play (retry for non-rejected app state)
+        if: steps.play_wear.outcome == 'failure'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.tortugapower.audiobookplayer
+          releaseFiles: wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
+          track: wear:production
+          status: draft
+          mappingFile: wear/build/outputs/mapping/prodRelease/mapping.txt

@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.datalayer
 
+import com.google.gson.annotations.SerializedName
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 
 /**
@@ -11,12 +12,12 @@ import com.tortugapower.audiobookplayer.database.entities.AccountTier
  * contract both `:app` and `:wear` compile against so the two sides can never disagree on the shape.
  */
 data class WatchAuthPayload(
-    val accountId: String,
-    val email: String,
-    val token: String,
-    val tier: AccountTier,
+    @SerializedName("accountId") val accountId: String,
+    @SerializedName("email") val email: String,
+    @SerializedName("token") val token: String,
+    @SerializedName("tier") val tier: AccountTier,
     // The RevenueCat app-user id (distinct from accountId). The watch must log into RevenueCat with this
     // — same as the phone (`revenuecatId ?: id`) — or it resolves a different RC user with no entitlement
     // and downgrades the tier. Nullable: falls back to accountId when the account has none.
-    val revenuecatId: String? = null,
+    @SerializedName("revenuecatId") val revenuecatId: String? = null,
 )
