@@ -86,16 +86,49 @@ object ExternalServiceUtils {
     }
 
     /**
-     * The saved server that can serve [resource]: hostId first, falling back to the first server of the
-     * provider's type. The single resolution used by streaming-URL rebuild, artwork backfill, and the
-     * stream-to-cloud pipe, so "which server owns this item" can't drift between them. Takes the
-     * [ExternalServerRepository] — never the DAO — because stored credentials are encrypted at rest:
-     * a DAO-read server carries a ciphertext token, which media servers reject with 401.
+     * The stable, cross-device hostId value written on external resources at import and matched
+     * at resolution: the server's SELF-REPORTED id when it gave one, else the canonical URL key.
+     * THE hostId contract (iOS follows it): `hostId := stableId ?: canonicalServerKey(url)`.
+     */
+    fun stableHostId(server: ExternalServerEntity): String =
+        server.stableId ?: canonicalServerKey(server.url)
+
+    /**
+     * The saved server that can serve [resource], by the stable hostId contract. Candidates are
+     * limited to the resource's provider type, then matched by the server's self-reported stable
+     * id (case-insensitive — Jellyfin reports lowercase hex, ABS a UUID), then by canonical URL
+     * key (covers servers that never reported an id, and URL-fallback hostIds). No other
+     * fallback: null means "this device has no matching server configured", which playback turns
+     * into the connect-your-server prompt. The single resolution used by streaming-URL rebuild,
+     * artwork backfill, the stream-to-cloud pipe, and external progress push, so "which server
+     * owns this item" can't drift between them. Takes the [ExternalServerRepository] — never the
+     * DAO — because stored credentials are encrypted at rest: a DAO-read server carries a
+     * ciphertext token, which media servers reject with 401.
      */
     suspend fun serverForResource(servers: ExternalServerRepository, resource: ExternalResourceEntity): ExternalServerEntity? {
-        resource.hostId?.toLongOrNull()?.let { servers.getServerById(it) }?.let { return it }
+        val hostId = resource.hostId ?: return null
         val type = serviceTypeFor(resource.providerName) ?: return null
-        return servers.allServers.first().find { it.type == type }
+        val candidates = servers.allServers.first().filter { it.type == type }
+        candidates.find { it.stableId?.equals(hostId, ignoreCase = true) == true }?.let { return it }
+        return candidates.find { canonicalServerKey(it.url) == hostId }
+    }
+
+    /**
+     * The provider type to prompt "connect your server" for, or null when this isn't that case:
+     * the item is a media-server item (has a non-hardcover resource), has no local audio, and no
+     * configured server resolves its hostId — i.e. the book synced down but the server config
+     * (per-device) didn't. The pure decision behind PlaybackManager's connect-your-server dialog,
+     * extracted here so it's testable without the playback singleton.
+     */
+    suspend fun missingServerPromptType(
+        servers: ExternalServerRepository,
+        resources: List<ExternalResourceEntity>,
+        hasLocalFile: Boolean,
+    ): ExternalServiceType? {
+        if (hasLocalFile) return null
+        val resource = resources.firstOrNull { it.providerName != "hardcover" } ?: return null
+        if (serverForResource(servers, resource) != null) return null
+        return serviceTypeFor(resource.providerName)
     }
 
     /**

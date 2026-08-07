@@ -584,4 +584,8 @@
     <string name="settings_disable_autolock">Disable Autolock</string>
     <string name="settings_autolock_only_on_power">Only when connected to power</string>
     <string name="settings_autolock_desc">Prevent the device from locking when on the Player screen.</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">Server not connected</string>
+    <string name="external_server_missing_message">This book streams from your %1$s server. Connect it on this device to play the book.</string>
+    <string name="external_server_missing_connect">Connect</string>
 </resources>

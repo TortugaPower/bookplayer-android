@@ -45,7 +45,9 @@ class AudiobookshelfService : ExternalService {
                 val body = response.body()!!
                 val token = body.user.token
                 val serverName = body.serverSettings?.serverName ?: "Audiobookshelf"
-                ConnectionResult.Success(token = token, name = serverName)
+                // serverSettings.id is the ABS instance's stable id (hostId contract) — rides the
+                // login response, no extra request.
+                ConnectionResult.Success(token = token, name = serverName, stableId = body.serverSettings?.id)
             } else {
                 ConnectionResult.Failure(
                     message = "Authentication failed: ${response.message()}",

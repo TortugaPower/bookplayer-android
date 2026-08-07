@@ -1068,21 +1068,23 @@ class ExternalUpdateProcessor(
         val isFinished = (payload["isFinished"] as? Boolean) ?: false
 
         val db = AppDatabase.getDatabase(context)
-        val serverDao = db.externalServerDao()
 
-        val server = if (!hostIdStr.isNullOrEmpty()) {
-            val hostId = hostIdStr.toLongOrNull()
-            if (hostId != null) serverDao.getServerById(hostId) else null
-        } else {
-            val serverType = when (providerName.lowercase()) {
-                "jellyfin" -> ExternalServiceType.JELLYFIN
-                "audiobookshelf" -> ExternalServiceType.AUDIOBOOKSHELF
-                else -> null
-            }
-            if (serverType != null) {
-                serverDao.getAllServers().first().find { it.type == serverType }
-            } else null
-        }
+        // Resolve through THE shared resolver (stable-id contract + decrypted credentials): the
+        // old inline rowid lookup read the DAO directly, so the token below was ciphertext and
+        // the provider rejected it with 401; it also stopped matching once hostIds became
+        // GUIDs/URL keys, silently discarding every progress push.
+        val serverRepository = com.tortugapower.audiobookplayer.repository.ExternalServerRepository(db.externalServerDao())
+        val server = ExternalServiceUtils.serverForResource(
+            serverRepository,
+            com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity(
+                providerName = providerName,
+                providerId = providerId,
+                syncStatus = "",
+                processedFile = false,
+                libraryItemUuid = uuid,
+                hostId = hostIdStr
+            )
+        )
 
         if (server == null) {
             // Server was removed by the user; the task is unfulfillable — discard it.

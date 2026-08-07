@@ -52,6 +52,7 @@ import com.tortugapower.audiobookplayer.viewmodel.ExternalLibraryViewModelFactor
 import com.tortugapower.audiobookplayer.viewmodel.ExternalServerViewModel
 import com.tortugapower.audiobookplayer.viewmodel.ExternalServerViewModelFactory
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
+import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -187,7 +188,7 @@ fun MediaServersFlow(
                                                 // existing row (same id, selectedLibraryId kept).
                                                 // join() so the reload below reads the new token.
                                                 externalServerViewModel
-                                                    .addServer(result.name ?: name, expiredServer.type, url, username, result.token, headers)
+                                                    .addServer(result.name ?: name, expiredServer.type, url, username, result.token, headers, result.stableId)
                                                     .join()
                                                 showReauthSheet = false
                                                 extLibViewModel.retryAfterReauth()
@@ -258,7 +259,7 @@ fun MediaServersFlow(
                                     context = context,
                                     items = listOf(item),
                                     providerName = server.type.name.lowercase(),
-                                    hostId = server.id.toString()
+                                    hostId = ExternalServiceUtils.stableHostId(server)
                                 )
                             }
                             onDismiss()
@@ -323,7 +324,7 @@ fun MediaServersFlow(
                                             headers = item.customHeaders,
                                             providerName = extLibViewModel.server?.type?.name?.lowercase(),
                                             providerId = item.entity.uuid,
-                                            hostId = extLibViewModel.server?.id?.toString()
+                                            hostId = extLibViewModel.server?.let { ExternalServiceUtils.stableHostId(it) }
                                         )
                                         onDismiss()
                                     }

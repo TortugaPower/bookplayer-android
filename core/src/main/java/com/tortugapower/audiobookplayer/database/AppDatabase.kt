@@ -28,7 +28,7 @@ import androidx.room.TypeConverters
         ExternalServerEntity::class,
         ExternalResourceEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(MapConverter::class)
@@ -185,6 +185,34 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Cross-device server identity: external_servers gains the server's self-reported
+                // stable id (captured at the next connect/re-auth; nullable until then).
+                db.execSQL("ALTER TABLE external_servers ADD COLUMN stableId TEXT")
+                // Local self-consistency rewrite: external resources used to carry the LOCAL Room
+                // rowid as hostId. Resolution no longer understands rowids (the hostId contract is
+                // stableId ?: canonicalServerKey(url)), so rewrite this device's rows to the
+                // canonical URL key of the server they pointed at — otherwise already-imported
+                // books stop resolving on the very device where they work today, and pending
+                // stream-to-cloud tasks retry forever. Server-side copies keep the old rowid
+                // (accepted); the LibraryContentsSync ingest guard keeps fetches from clobbering
+                // these rewritten values.
+                val cursor = db.query("SELECT id, url FROM external_servers")
+                cursor.use {
+                    while (it.moveToNext()) {
+                        val rowId = it.getLong(0)
+                        val key = com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
+                            .canonicalServerKey(it.getString(1))
+                        db.execSQL(
+                            "UPDATE external_resources SET hostId = ? WHERE hostId = ?",
+                            arrayOf(key, rowId.toString())
+                        )
+                    }
+                }
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -192,7 +220,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "bookplayer.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .build()
                 INSTANCE = instance
                 instance

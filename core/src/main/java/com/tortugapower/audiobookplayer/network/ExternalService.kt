@@ -48,7 +48,17 @@ data class ExternalLibraryInfo(
 class SessionExpiredException : Exception("Session expired")
 
 sealed class ConnectionResult {
-    data class Success(val token: String? = null, val name: String? = null) : ConnectionResult()
+    /**
+     * [stableId] is the server's SELF-REPORTED unique id (Jellyfin `/System/Info` `Id`,
+     * AudiobookShelf login `serverSettings.id`) — the cross-device half of the hostId contract
+     * (`hostId := stableId ?: canonicalServerKey(url)`). Null when the server didn't report one
+     * (old versions, info call failed): callers fall back to the canonical URL key.
+     */
+    data class Success(
+        val token: String? = null,
+        val name: String? = null,
+        val stableId: String? = null,
+    ) : ConnectionResult()
     data class Failure(
         val message: String,
         val messageResId: Int? = null,

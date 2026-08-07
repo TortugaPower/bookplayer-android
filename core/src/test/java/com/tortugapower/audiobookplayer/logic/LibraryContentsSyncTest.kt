@@ -307,4 +307,53 @@ class LibraryContentsSyncTest {
         val stored = db.libraryDao().getItemById("b9")!!
         assertEquals(1.0, stored.percentCompleted, 1e-9)
     }
+
+    // --- external-resource hostId ingest guard (stable hostId contract) ---
+
+    @Test fun upsert_numericRemoteHostId_isIgnoredInFavorOfLocalValue() = runBlocking {
+        // The server still holds legacy device-local rowids ("1") for resources imported before
+        // the stable-id contract. A fetch must not clobber this device's rewritten (or freshly
+        // imported) stable value with that foreign rowid.
+        val withResource = remote("b20", artworkURL = null).copy(
+            externalResources = listOf(
+                com.tortugapower.audiobookplayer.model.SyncableExternalResource(
+                    providerName = "audiobookshelf", providerId = "prov-1",
+                    syncStatus = "stream", lastSyncedAt = null, processedFile = false,
+                    hostId = "abs-guid-1",
+                )
+            )
+        )
+        LibraryContentsSync.upsertItem(db.libraryDao(), null, withResource, mutableSetOf())
+
+        // Second fetch: the server echoes a legacy rowid back for the same resource.
+        val legacyEcho = withResource.copy(
+            externalResources = listOf(
+                withResource.externalResources!!.first().copy(hostId = "1")
+            )
+        )
+        LibraryContentsSync.upsertItem(db.libraryDao(), null, legacyEcho, mutableSetOf())
+
+        val stored = db.libraryDao().getExternalResourcesForBookSync("b20").single()
+        // Local stable value survives the numeric echo.
+        org.junit.Assert.assertEquals("abs-guid-1", stored.hostId)
+    }
+
+    @Test fun upsert_nonNumericRemoteHostId_wins() = runBlocking {
+        val v1 = remote("b21", artworkURL = null).copy(
+            externalResources = listOf(
+                com.tortugapower.audiobookplayer.model.SyncableExternalResource(
+                    providerName = "audiobookshelf", providerId = "prov-1",
+                    syncStatus = "stream", lastSyncedAt = null, processedFile = false,
+                    hostId = "old-guid",
+                )
+            )
+        )
+        LibraryContentsSync.upsertItem(db.libraryDao(), null, v1, mutableSetOf())
+        val v2 = v1.copy(
+            externalResources = listOf(v1.externalResources!!.first().copy(hostId = "new-guid"))
+        )
+        LibraryContentsSync.upsertItem(db.libraryDao(), null, v2, mutableSetOf())
+        val stored = db.libraryDao().getExternalResourcesForBookSync("b21").single()
+        org.junit.Assert.assertEquals("new-guid", stored.hostId)
+    }
 }

@@ -29,7 +29,8 @@ class ExternalServerViewModel(private val repository: ExternalServerRepository) 
         url: String,
         username: String?,
         token: String?,
-        headers: Map<String, String>?
+        headers: Map<String, String>?,
+        stableId: String? = null
     ): kotlinx.coroutines.Job {
         return viewModelScope.launch {
             // Anonymous connects arrive as "" from the form; store null so the UI's
@@ -55,7 +56,10 @@ class ExternalServerViewModel(private val repository: ExternalServerRepository) 
                 token = token,
                 customHeaders = headers,
                 // Re-auth keeps the user's library choice, same as iOS.
-                selectedLibraryId = existing?.selectedLibraryId
+                selectedLibraryId = existing?.selectedLibraryId,
+                // Re-auth refreshes the server's self-reported stable id — but a connect whose
+                // info call happened to fail must not wipe a previously captured one.
+                stableId = stableId ?: existing?.stableId
             )
             if (existing != null) {
                 repository.updateServer(server)
