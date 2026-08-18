@@ -125,6 +125,14 @@ object PlaybackManager {
         _missingExternalServer.value = null
     }
 
+    // Whether the most recent playItem was user-initiated (autoplay=true: taps, Auto, autoplay
+    // transitions) vs a silent load (autoplay=false: launch restore, the post-fetch last-played
+    // re-arm). Player errors from silent loads must not alert — the E2E for stable host identity
+    // caught the fetch re-arm popping the generic error on a fresh second-device sign-in before
+    // the user touched anything.
+    @Volatile
+    private var lastLoadUserInitiated = true
+
     private suspend fun seedExternalHostHeaders(context: Context) {
         // Through the repository, not the DAO: stored credentials are encrypted at rest.
         val servers = com.tortugapower.audiobookplayer.repository.ExternalServerRepository(
@@ -454,10 +462,21 @@ object PlaybackManager {
                         // (externalStreamAuthError, set by the auth data source before the player
                         // errors out) — don't stack the generic dialog on top of it.
                         if (_externalStreamAuthError.value) return
+                        // Silent loads (launch restore, post-fetch last-played re-arm) fail
+                        // silently: an alert with no user action reads as a random error. The
+                        // user's actual tap on the same book retries as user-initiated.
+                        if (!lastLoadUserInitiated) return
                         scope.launch {
                             val currentItem = _currentItem.value
                             if (currentItem != null) {
                                 val processedDir = File(appContext.filesDir, "Processed")
+                                // Cross-device media-server book with no matching local server:
+                                // the connect-your-server prompt, never the generic error.
+                                val missingType = missingExternalServerType(appContext, currentItem, processedDir)
+                                if (missingType != null) {
+                                    _missingExternalServer.value = missingType
+                                    return@launch
+                                }
                                 val lastSource = determineLastTriedSource(appContext, currentItem, processedDir)
                                 val message = appContext.getString(R.string.playback_error_cannot_play, lastSource)
                                 _playbackError.value = message
@@ -852,6 +871,7 @@ object PlaybackManager {
         fromBeginning: Boolean = false,
         isAutoplayTransition: Boolean = false,
     ) {
+        lastLoadUserInitiated = autoplay
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
             _showPlayerScreen.value = true
@@ -954,15 +974,23 @@ object PlaybackManager {
                 playbackQueuedFlag = false
                 recomputeIsPlaying()
 
-                // Cross-device external item with no matching local server: show the
-                // connect-your-server prompt INSTEAD of the generic error (never both).
-                val missingType = missingExternalServerType(context, refreshedItem, processedDir)
-                if (missingType != null) {
-                    _missingExternalServer.value = missingType
-                } else {
-                    val lastSource = determineLastTriedSource(context, refreshedItem, processedDir)
-                    val message = context.getString(R.string.playback_error_cannot_play, lastSource)
-                    _playbackError.value = message
+                // Alerts only for USER-INITIATED plays (autoplay=true). The post-fetch
+                // last-played re-arm and launch restore load with autoplay=false — an alert
+                // popping without a user action reads as a random error (found in the stable-
+                // hostId E2E: a fresh sign-in on a second device auto-loaded a media-server book
+                // and alerted before the user touched anything). A real tap on the same book
+                // retries with autoplay=true and surfaces the right dialog then.
+                if (autoplay) {
+                    // Cross-device external item with no matching local server: show the
+                    // connect-your-server prompt INSTEAD of the generic error (never both).
+                    val missingType = missingExternalServerType(context, refreshedItem, processedDir)
+                    if (missingType != null) {
+                        _missingExternalServer.value = missingType
+                    } else {
+                        val lastSource = determineLastTriedSource(context, refreshedItem, processedDir)
+                        val message = context.getString(R.string.playback_error_cannot_play, lastSource)
+                        _playbackError.value = message
+                    }
                 }
             }
         }
@@ -1016,7 +1044,10 @@ object PlaybackManager {
             AppDatabase.getDatabase(context).externalServerDao()
         )
         // Pure decision lives in ExternalServiceUtils (testable without this singleton).
-        ExternalServiceUtils.missingServerPromptType(servers, item.externalResources, hasLocalFile)
+        ExternalServiceUtils.missingServerPromptType(
+            servers, item.externalResources, hasLocalFile,
+            hasRemoteUrl = !item.remoteURL.isNullOrEmpty(),
+        )
     }
 
     fun playItemByPath(context: Context, path: String, autoplay: Boolean = true, showPlayer: Boolean = true) {

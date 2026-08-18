@@ -101,21 +101,23 @@ class ServerResolutionTest {
 
     @Test fun `prompt fires only for unresolvable media-server items without local audio`() = runBlocking {
         val unresolved = listOf(resource("audiobookshelf", "foreign-guid"))
-        // No local file + no matching server -> prompt with the provider type.
+        // No local file, no cloud copy, no matching server -> prompt with the provider type.
         assertEquals(
             ExternalServiceType.AUDIOBOOKSHELF,
-            ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = false)
+            ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = false, hasRemoteUrl = false)
         )
         // Local audio present -> never prompt, playback has a source.
-        assertNull(ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = true))
+        assertNull(ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = true, hasRemoteUrl = false))
+        // A cloud copy (stream-to-cloud piped) -> generic error territory, not this prompt.
+        assertNull(ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = false, hasRemoteUrl = true))
         // Hardcover-only resources are not media servers -> not this prompt's case.
         assertNull(
             ExternalServiceUtils.missingServerPromptType(
-                servers, listOf(resource("hardcover", null)), hasLocalFile = false
+                servers, listOf(resource("hardcover", null)), hasLocalFile = false, hasRemoteUrl = false
             )
         )
         // A configured matching server -> no prompt (playback proceeds/streams).
         save(ExternalServiceType.AUDIOBOOKSHELF, "https://abs.example.com", "foreign-guid")
-        assertNull(ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = false))
+        assertNull(ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = false, hasRemoteUrl = false))
     }
 }

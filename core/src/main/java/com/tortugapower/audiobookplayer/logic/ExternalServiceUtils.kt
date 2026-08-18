@@ -124,8 +124,12 @@ object ExternalServiceUtils {
         servers: ExternalServerRepository,
         resources: List<ExternalResourceEntity>,
         hasLocalFile: Boolean,
+        hasRemoteUrl: Boolean,
     ): ExternalServiceType? {
-        if (hasLocalFile) return null
+        // Any other playback source disqualifies the prompt: local audio, or a cloud copy
+        // (stream-to-cloud piped items keep a BookPlayer remoteURL — a transient failure there
+        // must show the generic error, not "connect your server").
+        if (hasLocalFile || hasRemoteUrl) return null
         val resource = resources.firstOrNull { it.providerName != "hardcover" } ?: return null
         if (serverForResource(servers, resource) != null) return null
         return serviceTypeFor(resource.providerName)
