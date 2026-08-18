@@ -286,6 +286,20 @@ fun LibraryScreen(
         contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
         onResult = { uris -> if (uris.isNotEmpty()) ImportManager.startImport(context, uris) }
     )
+    // Some devices ship without ANY document-picker activity (stripped-down flip/feature phones),
+    // so OPEN_DOCUMENT throws ActivityNotFoundException — tell the user instead of crashing
+    // (ANDROID-BOOKPLAYER-H).
+    val launchFilePicker: (Array<String>) -> Unit = { mimeTypes ->
+        try {
+            launcher.launch(mimeTypes)
+        } catch (e: android.content.ActivityNotFoundException) {
+            android.widget.Toast.makeText(
+                context,
+                context.getString(R.string.library_no_file_picker),
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
+    }
 
     BackHandler(enabled = isSelectMode || currentPath != null || showSearchScreen) {
         if (showSearchScreen) {
@@ -543,7 +557,7 @@ fun LibraryScreen(
                     Button(
                         onClick = {
                             showAddFilesDialog = false
-                            launcher.launch(arrayOf("audio/*"))
+                            launchFilePicker(arrayOf("audio/*"))
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -1355,7 +1369,7 @@ fun LibraryScreen(
                                 showMenu = false
                                 // Audio, video (audio-in-container books like m4b are often
                                 // classified as video/mp4), and zip archives (zip import).
-                                launcher.launch(arrayOf(
+                                launchFilePicker(arrayOf(
                                     "audio/*",
                                     "video/*",
                                     "application/zip",

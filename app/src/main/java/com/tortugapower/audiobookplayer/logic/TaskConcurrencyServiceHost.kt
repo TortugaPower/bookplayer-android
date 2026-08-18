@@ -22,12 +22,33 @@ class TaskConcurrencyServiceHost : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val ACTION_RESUME_UPLOADS = "com.tortugapower.audiobookplayer.action.RESUME_UPLOADS"
 
+        // How long activeQueues must stay empty before the service stops itself. Long enough to
+        // ride out the gaps between chained tasks (fetch → downloads, the per-queue 5s failure
+        // pause) so a running sync doesn't churn stop/start; short enough that an idle app stops
+        // burning the Android 15+ dataSync budget within the first minute.
+        private const val IDLE_STOP_GRACE_MS = 60_000L
+
+        // Cheap running check so bursty enqueues (an import staging dozens of files) don't spam
+        // startForegroundService while the service is already up. Racy by nature — a stale false
+        // just means one redundant, idempotent start().
+        @Volatile
+        private var isAlive = false
+
         fun start(context: Context) {
+            if (isAlive) return
             val intent = Intent(context, TaskConcurrencyServiceHost::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            // A background start of a dataSync FGS throws ForegroundServiceStartNotAllowedException
+            // on API 31+ (e.g. a progress-sync task enqueued from playback while the app is
+            // backgrounded). Swallow it: the task stays queued in Room and runs on the next
+            // foreground start — never crash for it.
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.w("TaskConcurrencyServiceHost", "Sync service not started (likely a background start)", e)
             }
         }
 
@@ -81,6 +102,7 @@ class TaskConcurrencyServiceHost : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "⚙️ TaskConcurrencyServiceHost.onCreate() - Initializing task concurrency manager")
+        isAlive = true
         createNotificationChannel()
 
         val db = AppDatabase.getDatabase(this)
@@ -131,6 +153,9 @@ class TaskConcurrencyServiceHost : Service() {
             startForeground(NOTIFICATION_ID, createNotification("Starting sync..."))
         } catch (e: IllegalStateException) {
             Log.w(TAG, "Foreground promotion denied (dataSync budget exhausted?): ${e.message}")
+            // Cleared BEFORE stopping (same as the idle-stop/onTimeout paths, and the Wear host's
+            // twin catch): a waker start() during teardown must not be skipped by the fast-path.
+            isAlive = false
             stopSelf()
             return
         }
@@ -143,11 +168,22 @@ class TaskConcurrencyServiceHost : Service() {
             }
         }
 
-        // Observe active queues to update notification
+        // Observe active queues to update the notification — and to stop the service once work
+        // dries up. Android 15+ gives dataSync services a 6h/day budget that burns on wall-clock
+        // time, not work: an always-on "Idle" host exhausts it daily and gets killed mid-run
+        // (ANDROID-BOOKPLAYER-8) or refused promotion (ANDROID-BOOKPLAYER-9). collectLatest makes
+        // the grace delay self-cancelling — any queue going active restarts the block.
         serviceScope.launch {
             taskConcurrencyManager.activeQueues.collectLatest { activeQueues ->
                 if (activeQueues.isEmpty()) {
                     updateNotification("Idle")
+                    delay(IDLE_STOP_GRACE_MS)
+                    Log.d(TAG, "💤 No active queues for ${IDLE_STOP_GRACE_MS / 1000}s — stopping service to preserve the dataSync budget")
+                    // Cleared BEFORE stopping so a task enqueued mid-teardown isn't skipped by
+                    // start()'s isAlive fast-path — its startForegroundService recreates us.
+                    isAlive = false
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
                 } else {
                     updateNotification("Processing: ${activeQueues.joinToString(", ")}")
                 }
@@ -158,18 +194,27 @@ class TaskConcurrencyServiceHost : Service() {
         if (intent?.action == ACTION_RESUME_UPLOADS && ::taskConcurrencyManager.isInitialized) {
             taskConcurrencyManager.requestWorkerScan()
         }
-        return START_STICKY
+        // NOT_STICKY: a sticky null-intent restart arrives from the BACKGROUND, where dataSync
+        // promotion is refused (budget/exemption) — it can only churn, never do useful work.
+        // Every real producer (app start, SyncEngineWaker on task enqueue, settings toggles)
+        // starts the service explicitly anyway.
+        return START_NOT_STICKY
     }
 
     // Android 15 calls this when the dataSync time budget runs out MID-RUN; not stopping within
-    // a few seconds crashes the service ("did not stop within its timeout"). Remaining tasks stay
-    // queued in Room and resume on the next start.
+    // a few seconds crashes the service ("did not stop within its timeout"). Demote SYNCHRONOUSLY
+    // here — stopSelf() alone leaves the demotion to onDestroy, and any main-thread congestion
+    // past the grace window is the ANDROID-BOOKPLAYER-8 crash. Remaining tasks stay queued in
+    // Room and resume on the next start.
     override fun onTimeout(startId: Int, fgsType: Int) {
         Log.w(TAG, "dataSync budget expired (type=$fgsType) — stopping; queued tasks resume later")
+        isAlive = false
+        stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
+        isAlive = false
         connectivityManager?.let { runCatching { it.unregisterNetworkCallback(networkCallback) } }
         taskConcurrencyManager.stopProcessing()
         serviceScope.cancel()

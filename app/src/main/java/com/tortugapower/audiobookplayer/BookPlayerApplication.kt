@@ -92,7 +92,11 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         )
         SubscriptionManager.initialize(this, accountRepository, syncTaskRepository, BuildConfig.REVENUECAT_API_KEY)
 
-        // Start background services
+        // Start background services. The sync host stops itself when idle (Android 15+ dataSync
+        // budget), so :core wakes it back up whenever a new sync task is enqueued.
+        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
+            TaskConcurrencyServiceHost.start(this)
+        }
         TaskConcurrencyServiceHost.start(this)
 
         // Mirror playback state to a paired Wear watch (remote-controller mode).

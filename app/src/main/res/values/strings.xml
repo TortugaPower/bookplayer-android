@@ -340,6 +340,7 @@
     <string name="library_add_files_dialog_title">Add files</string>
     <string name="library_add_files_option_import">Import files</string>
     <string name="library_download_from_url">Download from URL</string>
+    <string name="library_no_file_picker">No file browser app was found on this device to pick files.</string>
 
     <!-- Import -->
     <string name="import_title">Import</string>

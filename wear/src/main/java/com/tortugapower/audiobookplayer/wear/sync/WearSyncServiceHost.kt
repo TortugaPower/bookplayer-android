@@ -37,6 +37,13 @@ import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.wear.R
 import com.tortugapower.audiobookplayer.wear.presentation.MainActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 /**
  * The watch's sync foreground service — the Wear counterpart of the phone's `TaskConcurrencyServiceHost`.
@@ -54,6 +61,7 @@ class WearSyncServiceHost : Service() {
 
     private val TAG = "WearSyncServiceHost"
     private lateinit var taskConcurrencyManager: TaskConcurrencyManager
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private var connectivityManager: android.net.ConnectivityManager? = null
     // Same wake path as the phone host: uploads held on a metered network (UploadDataPolicy) can
@@ -81,6 +89,7 @@ class WearSyncServiceHost : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "⚙️ WearSyncServiceHost.onCreate() - starting sync engine")
+        isAlive = true
         createNotificationChannel()
 
         val db = AppDatabase.getDatabase(this)
@@ -125,23 +134,50 @@ class WearSyncServiceHost : Service() {
             startForeground(NOTIFICATION_ID, buildNotification())
         } catch (e: IllegalStateException) {
             Log.w(TAG, "Foreground promotion denied (dataSync budget exhausted?): ${e.message}")
+            isAlive = false
             stopSelf()
             return
         }
+
+        // Stop once work dries up — same budget preservation as the phone host: the 6h/day
+        // dataSync budget burns on wall-clock time, not work, so an idle host exhausts it and
+        // gets killed mid-run. collectLatest makes the grace delay self-cancelling.
+        serviceScope.launch {
+            taskConcurrencyManager.activeQueues.collectLatest { activeQueues ->
+                if (activeQueues.isEmpty()) {
+                    delay(IDLE_STOP_GRACE_MS)
+                    Log.d(TAG, "💤 No active queues for ${IDLE_STOP_GRACE_MS / 1000}s — stopping to preserve the dataSync budget")
+                    // Cleared BEFORE stopping so a task enqueued mid-teardown isn't skipped by
+                    // start()'s isAlive fast-path — its startForegroundService recreates us.
+                    isAlive = false
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
+        }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    // NOT_STICKY: a sticky null-intent restart arrives from the BACKGROUND, where dataSync
+    // promotion is refused — it can only churn. Real producers (WearApp foreground gate,
+    // SyncEngineWaker on task enqueue) start the service explicitly.
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
 
     // Android 15 mid-run budget expiry: stop within the grace window or the system crashes the
-    // service. Queued tasks stay in Room and resume on the next start.
+    // service. Demote SYNCHRONOUSLY — leaving it to onDestroy risks blowing the grace window on
+    // a congested main thread (the ANDROID-BOOKPLAYER-8 crash). Queued tasks stay in Room and
+    // resume on the next start.
     override fun onTimeout(startId: Int, fgsType: Int) {
         Log.w(TAG, "dataSync budget expired (type=$fgsType) — stopping; queued tasks resume later")
+        isAlive = false
+        stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
+        isAlive = false
         connectivityManager?.let { runCatching { it.unregisterNetworkCallback(networkCallback) } }
         taskConcurrencyManager.stopProcessing()
+        serviceScope.cancel()
         super.onDestroy()
     }
 
@@ -177,7 +213,14 @@ class WearSyncServiceHost : Service() {
         private const val CHANNEL_ID = "wear_task_concurrency_channel"
         private const val NOTIFICATION_ID = 1001
 
+        // Same values/semantics as the phone host (TaskConcurrencyServiceHost).
+        private const val IDLE_STOP_GRACE_MS = 60_000L
+
+        @Volatile
+        private var isAlive = false
+
         fun start(context: Context) {
+            if (isAlive) return
             val intent = Intent(context, WearSyncServiceHost::class.java)
             // Callers only start this from the foreground, but guard defensively: a background
             // startForegroundService for a dataSync FGS throws ForegroundServiceStartNotAllowedException
