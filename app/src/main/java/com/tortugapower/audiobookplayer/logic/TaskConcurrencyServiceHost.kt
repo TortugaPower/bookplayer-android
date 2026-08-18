@@ -153,6 +153,9 @@ class TaskConcurrencyServiceHost : Service() {
             startForeground(NOTIFICATION_ID, createNotification("Starting sync..."))
         } catch (e: IllegalStateException) {
             Log.w(TAG, "Foreground promotion denied (dataSync budget exhausted?): ${e.message}")
+            // Cleared BEFORE stopping (same as the idle-stop/onTimeout paths, and the Wear host's
+            // twin catch): a waker start() during teardown must not be skipped by the fast-path.
+            isAlive = false
             stopSelf()
             return
         }
