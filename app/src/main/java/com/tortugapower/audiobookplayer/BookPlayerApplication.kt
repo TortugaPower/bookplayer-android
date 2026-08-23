@@ -76,6 +76,9 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             syncTaskRepository,
             accountRepository
         )
+        // Next/previous and end-of-book auto-advance follow the visible (effective) order.
+        // Property-wired: the manager depends on the repository, so this can't be a constructor arg.
+        baseLibraryRepository.effectiveSortResolver = librarySortManager::effectiveSort
 
         // Initialize Managers
         PlaybackManager.initialize(

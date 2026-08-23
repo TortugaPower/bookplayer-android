@@ -45,6 +45,23 @@ class LibrarySortManager(
     fun observeEffectiveSort(location: SortLocation): Flow<EffectiveSort> = sortStore.observe(location)
 
     /**
+     * Applies [path]'s effective sort to [items] — the one-shot counterpart of the library screen's
+     * view transform, for suspend surfaces (Android Auto's browse tree).
+     */
+    suspend fun sortedForDisplay(path: String?, items: List<LibraryItemEntity>): List<LibraryItemEntity> =
+        when (val sort = effectiveSort(path)) {
+            is EffectiveSort.Automatic -> sort.sortType.sorted(items)
+            EffectiveSort.Custom -> items
+        }
+
+    /**
+     * Snapshot of every stored `library_sort:*` preference; emits on any change (rule picks,
+     * custom flips, remote preference fetches). Android Auto uses it to invalidate cached
+     * browse nodes when the sort changes mid-session.
+     */
+    fun observeSortPreferences(): Flow<Map<String, String>> = sortStore.observeAllPreferences()
+
+    /**
      * User picked an automatic sort rule. Persist the preference only — the list re-derives its order
      * from the rule (no rank rewrite, no rank sync). No-op for an unresolved location.
      */
