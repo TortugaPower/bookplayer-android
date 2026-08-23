@@ -15,6 +15,7 @@ import com.tortugapower.audiobookplayer.logic.sort.LibrarySortStore
 import com.tortugapower.audiobookplayer.logic.sort.SortLocation
 import com.tortugapower.audiobookplayer.logic.sort.SortType
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -148,6 +149,19 @@ class AdjacentItemSortTest {
         // Visible inside the folder: Aardvark, Zebra.
         assertEquals("z", base.getAdjacentItem("a", next = true)?.uuid)
         assertNull(base.getAdjacentItem("z", next = true))
+    }
+
+    @Test fun `observeEffectiveSort by path resolves the location and follows the stored pref`() = runBlocking {
+        seed("f", "Series", "Series", 0, type = ItemType.FOLDER)
+
+        assertEquals("custom", manager.observeEffectiveSort(null).first().serialize())
+        assertEquals("custom", manager.observeEffectiveSort("Series").first().serialize())
+
+        manager.applySort(null, SortType.metadataTitle)
+        manager.applySort("Series", SortType.mostRecent)
+
+        assertEquals("metadataTitle", manager.observeEffectiveSort(null).first().serialize())
+        assertEquals("mostRecent", manager.observeEffectiveSort("Series").first().serialize())
     }
 
     @Test fun `sortedForDisplay applies the rule for automatic and passes through for Custom`() = runBlocking {
