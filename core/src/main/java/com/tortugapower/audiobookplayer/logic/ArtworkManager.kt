@@ -60,14 +60,13 @@ object ArtworkManager {
             null
         }
         if (located != null) {
-            val saved = saveProcessedBitmap(destFile) { ByteRangeInputStream(FileByteSource(audioFile), located.start, located.length) }
-            return if (saved) EmbeddedArtwork.Saved else EmbeddedArtwork.None // a picture that won't decode is as good as none
+            return decodeAndSave(destFile) { ByteRangeInputStream(FileByteSource(audioFile), located.start, located.length) }.toEmbeddedArtwork()
         }
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(audioFile.absolutePath)
             val picture = retriever.embeddedPicture ?: return EmbeddedArtwork.None
-            if (saveProcessedBitmap(picture, destFile)) EmbeddedArtwork.Saved else EmbeddedArtwork.None
+            decodeAndSave(destFile) { ByteArrayInputStream(picture) }.toEmbeddedArtwork()
         } catch (e: Exception) {
             android.util.Log.e("ArtworkManager", "Error extracting and saving artwork: ${e.message}")
             EmbeddedArtwork.Failed
@@ -112,13 +111,13 @@ object ArtworkManager {
             null
         }
         if (oversized) return EmbeddedArtwork.Failed
-        if (bytes != null) return if (saveProcessedBitmap(bytes, destFile)) EmbeddedArtwork.Saved else EmbeddedArtwork.None
+        if (bytes != null) return decodeAndSave(destFile) { ByteArrayInputStream(bytes) }.toEmbeddedArtwork()
 
         val retriever = MediaMetadataRetriever()
         return try {
             if (headers != null) retriever.setDataSource(uri, headers) else retriever.setDataSource(uri)
             val picture = retriever.embeddedPicture ?: return EmbeddedArtwork.None
-            if (saveProcessedBitmap(picture, destFile)) EmbeddedArtwork.Saved else EmbeddedArtwork.None
+            decodeAndSave(destFile) { ByteArrayInputStream(picture) }.toEmbeddedArtwork()
         } catch (e: Exception) {
             android.util.Log.e("ArtworkManager", "Error extracting remote artwork: ${e.message}")
             EmbeddedArtwork.Failed
@@ -131,13 +130,23 @@ object ArtworkManager {
     }
 
     private fun saveProcessedBitmap(bytes: ByteArray, destFile: File): Boolean =
-        saveProcessedBitmap(destFile) { ByteArrayInputStream(bytes) }
+        decodeAndSave(destFile) { ByteArrayInputStream(bytes) } == DecodeOutcome.SAVED
+
+    private enum class DecodeOutcome { SAVED, UNDECODABLE, OUT_OF_MEMORY }
+
+    private fun DecodeOutcome.toEmbeddedArtwork(): EmbeddedArtwork = when (this) {
+        DecodeOutcome.SAVED -> EmbeddedArtwork.Saved
+        DecodeOutcome.UNDECODABLE -> EmbeddedArtwork.None   // a picture that won't decode is as good as none
+        DecodeOutcome.OUT_OF_MEMORY -> EmbeddedArtwork.Failed // the picture is fine; this heap wasn't — retry later
+    }
 
     /**
      * Two-pass decode (bounds, then sampled) from streams that [open] produces fresh for each pass, so
-     * the image is never held whole in memory — only the downsampled bitmap is.
+     * the image is never held whole in memory — only the downsampled bitmap is. Decoding can still
+     * exhaust the heap (an extreme aspect ratio keeps `inSampleSize` at 1); that is reported, never thrown,
+     * so an oversized picture costs the cover and not the import that asked for it.
      */
-    private fun saveProcessedBitmap(destFile: File, open: () -> InputStream): Boolean {
+    private fun decodeAndSave(destFile: File, open: () -> InputStream): DecodeOutcome {
         return try {
             val options = BitmapFactory.Options().apply {
                 inJustDecodeBounds = true
@@ -162,7 +171,7 @@ object ArtworkManager {
                 this.inSampleSize = inSampleSize
             }
             
-            val bitmap = open().use { BitmapFactory.decodeStream(it, null, decodeOptions) } ?: return false
+            val bitmap = open().use { BitmapFactory.decodeStream(it, null, decodeOptions) } ?: return DecodeOutcome.UNDECODABLE
             
             // Final precision scaling if needed
             val finalBitmap = if (bitmap.width > maxSize || bitmap.height > maxSize) {
@@ -185,10 +194,13 @@ object ArtworkManager {
                 finalBitmap.recycle()
             }
             bitmap.recycle()
-            true
+            DecodeOutcome.SAVED
         } catch (e: Exception) {
             android.util.Log.e("ArtworkManager", "Error saving processed bitmap: ${e.message}")
-            false
+            DecodeOutcome.UNDECODABLE
+        } catch (e: OutOfMemoryError) {
+            android.util.Log.e("ArtworkManager", "Not enough heap to decode artwork: ${e.message}")
+            DecodeOutcome.OUT_OF_MEMORY
         }
     }
 
