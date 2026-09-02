@@ -9,6 +9,21 @@ interface StatisticsDao {
     @Insert
     suspend fun insertSession(session: PlaybackSessionEntity): Long
 
+    @Query("SELECT COUNT(*) FROM library_items WHERE uuid = :uuid")
+    suspend fun libraryItemExists(uuid: String): Int
+
+    /**
+     * Insert [session] only if its book is still in the library, returning the new id or null.
+     * `playback_sessions.bookUuid` is a FOREIGN KEY to `library_items`; a session for a book that was
+     * deleted or replaced by a sync pull while it was playing would otherwise fail the insert
+     * (Sentry ANDROID-BOOKPLAYER-19). One transaction, so the check cannot race the delete.
+     */
+    @Transaction
+    suspend fun startSession(session: PlaybackSessionEntity): Long? {
+        if (libraryItemExists(session.bookUuid) == 0) return null
+        return insertSession(session)
+    }
+
     @Update
     suspend fun updateSession(session: PlaybackSessionEntity)
 

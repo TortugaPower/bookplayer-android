@@ -105,6 +105,11 @@ interface LibraryDao {
      */
     @Transaction
     suspend fun replaceChaptersForBook(bookUuid: String, chapters: List<ChapterEntity>) {
+        // Chapter extraction runs asynchronously after a play/load; by the time it lands the book may
+        // have been deleted or replaced by a sync pull (uuid churn). `chapters.bookUuid` is a FOREIGN KEY
+        // to `library_items`, so inserting would fail the transaction and, unhandled, the process
+        // (Sentry ANDROID-BOOKPLAYER-15). Checked inside the same transaction, so it cannot race the delete.
+        if (getItemById(bookUuid) == null) return
         deleteChaptersForBook(bookUuid)
         insertChapters(chapters)
     }

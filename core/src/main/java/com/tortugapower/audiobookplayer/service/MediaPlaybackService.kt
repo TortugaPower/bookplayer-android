@@ -218,6 +218,13 @@ abstract class MediaPlaybackService : MediaLibraryService() {
             )
 
             val builder = MediaLibrarySession.Builder(this, sessionPlayer, createSessionCallback())
+                // media3 keeps session ids in a process-wide registry and refuses a duplicate. With the
+                // default "" id, one session that was never released — a build that failed after
+                // registering, an OEM retrying service creation in the same process — made every later
+                // service creation die with "Session ID must be unique" (Sentry ANDROID-BOOKPLAYER-1A).
+                // Controllers connect through the service's ComponentName, never by id, so each instance
+                // simply takes a fresh one.
+                .setId("bookplayer-${SESSION_SEQUENCE.getAndIncrement()}")
                 .setMediaButtonPreferences(buildMediaButtonPreferences())
                 // Load notification artwork through the same data source factory as playback, so
                 // external-server covers (auth via headers, not URL tokens) render in the media
@@ -292,9 +299,13 @@ abstract class MediaPlaybackService : MediaLibraryService() {
         // flow emission can't drive invalidateState()/getState() against a released ExoPlayer.
         serviceScope.cancel()
         mediaSession?.run {
-            player.release()
-            release()
-            mediaSession = null
+            // The session is released even if the player throws: it is what the registry holds.
+            try {
+                player.release()
+            } finally {
+                release()
+                mediaSession = null
+            }
         }
         loudnessEnhancer?.release()
         loudnessEnhancer = null
@@ -413,6 +424,9 @@ abstract class MediaPlaybackService : MediaLibraryService() {
     }
 
     companion object {
+        /** Per-process sequence for media session ids; see the `setId` call in [onCreate]. */
+        private val SESSION_SEQUENCE = java.util.concurrent.atomic.AtomicInteger()
+
         const val APP_ACTION_REWIND = "com.tortugapower.audiobookplayer.action.REWIND"
         const val APP_ACTION_FORWARD = "com.tortugapower.audiobookplayer.action.FORWARD"
         // Now Playing speed-cycle custom action (shared: phone Auto + Wear).

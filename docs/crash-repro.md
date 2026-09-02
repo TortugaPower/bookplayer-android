@@ -80,13 +80,40 @@ file and opens the import sheet; the item is created after **Accept** and then c
 tree. Files pushed to `/sdcard/Android/data/<pkg>` after `adb root` are unreadable by the app
 (`EACCES`); the script copies into the app's private files dir instead.
 
+### ANDROID-BOOKPLAYER-19 / -15 — FOREIGN KEY failures writing child rows for a vanished book
+
+Both `playback_sessions.bookUuid` (-19, `StatisticsDao.insertSession`) and `chapters.bookUuid`
+(-15, `LibraryDao.replaceChaptersForBook` from the play-time chapter extraction) reference
+`library_items.uuid`. Both writers run asynchronously after a play/load, so the book can be gone by
+the time they land: deleted by the user, or replaced by a sync pull (uuid churn). The failed insert
+threw out of a coroutine with no handler and took the process down.
+
+Reproduction is unit-level (the race is a timing window, not a UI path):
+`LibraryDaoTest.replaceChaptersForBook_skipsWhenTheBookIsGone` (in-memory Room, real FK) and
+`StatisticsManagerTest.testStartSession_bookNoLongerInLibrary_recordsNothing` /
+`testDaoFailure_isLoggedNotThrown_andLaterEventsStillWork`.
+
+Fix: both DAO writes check the parent row **inside the same transaction** and write nothing when it is
+gone (`StatisticsDao.startSession` returns null, `replaceChaptersForBook` returns). Statistics
+coroutines additionally run under a `CoroutineExceptionHandler` — bookkeeping must never take
+playback down, whatever the DB throws (this also covers a full disk on the heartbeat write).
+
+### ANDROID-BOOKPLAYER-1A — "Session ID must be unique" creating the playback service
+
+media3 keeps session ids in a process-wide registry and refuses a duplicate; the service used the
+default `""` id. A session registered but never released in the same process — a `build()` that
+failed after registering, an OEM retrying service creation without killing the process (both
+reports are OPPO / ColorOS) — made every later service creation die at `MediaLibrarySession.Builder.build()`.
+Not reproducible on a stock emulator (a failed `onCreate` kills the process there, which also clears
+the registry). Fix: each instance takes a fresh `bookplayer-<n>` id (controllers connect through the
+ComponentName, never the id), and `onDestroy` releases the session even if the player's release throws.
+Smoke: start playback and check `adb shell dumpsys media_session | grep bookplayer-`.
+
 ### Not yet scripted
 
 | Issue | Planned recipe |
 |---|---|
 | -Q media3 `mergePlayerInfo` | Several controllers connected (UI, widget, Auto DHU, Wear); loop rapid switches between a 1-chapter and a 200-chapter book while toggling chapter context. Fix is media3 1.7.1 → 1.11.0 plus a `BookTimelinePlayer` invariant test. |
-| -19 / -15 statistics FK | Play a book, delete it from the library while playing, pause/resume. |
-| -1A duplicate media session id | Debug flag throwing after `MediaLibrarySession.Builder.build()`, then restart the service in the same process. |
 | -12 / -10 / -S / -V storage full | `fallocate` in `/data/local/tmp` until a few MB remain; run sync, import and a playback statistics tick. |
 | -1H / -X sync-host promotion timeout | `bp-lowend-31`, 500-item library, cold start; or a debug flag blocking the main thread 12 s after launch. |
 
