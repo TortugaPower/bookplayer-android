@@ -56,7 +56,9 @@ data class JellyfinUserDataRequest(
 )
 
 data class JellyfinSystemInfo(
-    @SerializedName("ServerName") val serverName: String
+    @SerializedName("ServerName") val serverName: String,
+    // The Jellyfin instance's unique id — the cross-device stable server identity (hostId contract).
+    @SerializedName("Id") val id: String? = null
 )
 
 data class JellyfinAuthRequest(

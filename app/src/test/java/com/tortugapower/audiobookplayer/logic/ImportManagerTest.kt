@@ -182,4 +182,38 @@ class ImportManagerTest {
         assertEquals(folder!!.uuid, resource!!.libraryItemUuid)
         assertEquals(ExternalResourceEntity.STATUS_SYNCED, resource.syncStatus)
     }
+
+    // --- resolveImportFileName: the per-URI guard that keeps one bad pick from killing the batch ---
+
+    /**
+     * Stand-in for a DocumentsProvider whose document vanished between pick and import: real ones
+     * throw IllegalArgumentException ("Failed to determine if X is child of Y: FileNotFoundException")
+     * from query() instead of returning null — the ANDROID-BOOKPLAYER-T crash loop.
+     */
+    class VanishedDocumentProvider : android.content.ContentProvider() {
+        override fun onCreate() = true
+        override fun query(
+            uri: android.net.Uri, projection: Array<String>?, selection: String?,
+            selectionArgs: Array<String>?, sortOrder: String?
+        ): android.database.Cursor =
+            throw IllegalArgumentException("Failed to determine if document is child of root: java.io.FileNotFoundException")
+        override fun getType(uri: android.net.Uri): String? = null
+        override fun insert(uri: android.net.Uri, values: android.content.ContentValues?) = null
+        override fun delete(uri: android.net.Uri, selection: String?, selectionArgs: Array<String>?) = 0
+        override fun update(
+            uri: android.net.Uri, values: android.content.ContentValues?, selection: String?,
+            selectionArgs: Array<String>?
+        ) = 0
+    }
+
+    @Test fun resolveImportFileName_vanishedDocument_returnsNullInsteadOfThrowing() {
+        org.robolectric.Robolectric.setupContentProvider(VanishedDocumentProvider::class.java, "vanished.docs")
+        val uri = android.net.Uri.parse("content://vanished.docs/document/gone.m4b")
+        org.junit.Assert.assertNull(ImportManager.resolveImportFileName(context, uri))
+    }
+
+    @Test fun resolveImportFileName_plainFileUri_resolvesFromPath() {
+        val uri = android.net.Uri.parse("file:///storage/emulated/0/Download/book.m4b")
+        assertEquals("book.m4b", ImportManager.resolveImportFileName(context, uri))
+    }
 }

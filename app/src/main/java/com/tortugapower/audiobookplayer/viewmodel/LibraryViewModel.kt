@@ -627,10 +627,6 @@ class LibraryViewModel(
         }
     }
 
-    suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity {
-        return repository.resolveStreamingUrl(item)
-    }
-
     companion object {
         /** Upper bound on how long the pull-to-refresh indicator waits for the fetch task to drain. */
         private const val REFRESH_TIMEOUT_MS = 30_000L

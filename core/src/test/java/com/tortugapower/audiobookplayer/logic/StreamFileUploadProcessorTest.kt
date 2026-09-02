@@ -58,7 +58,7 @@ class StreamFileUploadProcessorTest {
         payload = """{"uuid":"$uuid","title":"Book One","relativePath":"$relativePath"}""",
     )
 
-    private suspend fun insertStreamItem(hostId: String? = "1") {
+    private suspend fun insertStreamItem(hostId: String? = "srv-guid") {
         val dao = AppDatabase.getDatabase(context).libraryDao()
         dao.insertItemWithExternalResource(
             LibraryItemEntity(uuid = uuid, title = "Book One", relativePath = relativePath, type = ItemType.BOOK),
@@ -82,7 +82,7 @@ class StreamFileUploadProcessorTest {
 
     private suspend fun insertServer() {
         serverRepository().saveServer(
-            ExternalServerEntity(id = 1, name = "jf", type = ExternalServiceType.JELLYFIN, url = server.url("/").toString(), token = "tok"),
+            ExternalServerEntity(id = 1, name = "jf", type = ExternalServiceType.JELLYFIN, url = server.url("/").toString(), token = "tok", stableId = "srv-guid"),
         )
     }
 
@@ -164,7 +164,7 @@ class StreamFileUploadProcessorTest {
             LibraryItemEntity(uuid = uuid, title = "Book One", relativePath = relativePath, type = ItemType.BOOK),
             ExternalResourceEntity(
                 providerName = "jellyfin", providerId = "jf-9",
-                syncStatus = ExternalResourceEntity.STATUS_DOWNLOADED, libraryItemUuid = uuid, hostId = "1",
+                syncStatus = ExternalResourceEntity.STATUS_DOWNLOADED, libraryItemUuid = uuid, hostId = "srv-guid",
             ),
         )
         val repo = RecordingSyncTaskRepository()

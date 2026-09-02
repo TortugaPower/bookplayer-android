@@ -80,13 +80,7 @@ object ImportManager : ImportService {
             val stagedFiles = withContext(Dispatchers.IO) {
                 val processedDir = File(context.filesDir, "Processed")
                 uris.forEach { uri ->
-                    // A URI whose access grant expired (shared intent, process restart between pick
-                    // and import) throws SecurityException on ANY resolver call — skip that file and
-                    // keep importing the rest instead of crashing the whole batch (BOOKPLAYER-A).
-                    val fileName = try {
-                        getFileName(context, uri) ?: "unknown_file_${System.currentTimeMillis()}"
-                    } catch (e: SecurityException) {
-                        android.util.Log.w("ImportManager", "URI permission lost, skipping: $uri")
+                    val fileName = resolveImportFileName(context, uri) ?: run {
                         currentSkipped++
                         return@forEach
                     }
@@ -789,6 +783,24 @@ object ImportManager : ImportService {
         } finally {
             retriever.release()
         }
+    }
+
+    /**
+     * Display name for one picked URI, or null when the URI is unusable and the file must be
+     * skipped (the batch continues). Unusable means the resolver call threw:
+     *  - SecurityException — the access grant expired (shared intent, process restart between
+     *    pick and import): BOOKPLAYER-A;
+     *  - IllegalArgumentException — the document vanished between pick and import (e.g. a
+     *    torrent client's finished file moved/deleted): the DocumentsProvider throws instead of
+     *    returning null, which crash-looped the import: ANDROID-BOOKPLAYER-T.
+     * Any other resolver failure is equally unactionable for that file, so catch broadly.
+     * Internal (not private) for direct unit testing.
+     */
+    internal fun resolveImportFileName(context: Context, uri: Uri): String? = try {
+        getFileName(context, uri) ?: "unknown_file_${System.currentTimeMillis()}"
+    } catch (e: Exception) {
+        android.util.Log.w("ImportManager", "Unusable URI (grant expired or file gone), skipping: $uri", e)
+        null
     }
 
     private fun getFileName(context: Context, uri: Uri): String? {

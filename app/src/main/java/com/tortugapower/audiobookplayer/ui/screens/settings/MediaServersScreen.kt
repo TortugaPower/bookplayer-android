@@ -118,7 +118,7 @@ fun MediaServersScreen(
                     when (result) {
                         is ConnectionResult.Success -> {
                             val finalName = result.name ?: name
-                            viewModel.addServer(finalName, showAddServerDialog!!, url, username, result.token, headers)
+                            viewModel.addServer(finalName, showAddServerDialog!!, url, username, result.token, headers, result.stableId)
                             showAddServerDialog = null
                         }
                         is ConnectionResult.Failure -> {

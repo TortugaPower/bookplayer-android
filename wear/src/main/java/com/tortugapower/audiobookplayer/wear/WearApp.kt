@@ -104,6 +104,12 @@ class WearApp : Application() {
             }
         }
 
+        // The sync host stops itself when idle (Android 15+ dataSync budget); wake it when new
+        // work is enqueued. start() no-ops while running and swallows background-start refusals.
+        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
+            WearSyncServiceHost.start(this)
+        }
+
         // Run the on-watch sync foreground service while PRO AND the app is in use. Start/stop use
         // ASYMMETRIC conditions on purpose:
         //  - START only while foreground — starting a dataSync FGS from the background throws on API 31+
