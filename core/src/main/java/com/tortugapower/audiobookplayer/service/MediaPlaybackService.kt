@@ -106,14 +106,6 @@ abstract class MediaPlaybackService : MediaLibraryService() {
      *  refresh). The shared volume-boost and speed observers are already running by this point. */
     protected open fun onSessionReady() {}
 
-    /**
-     * Whether ExoPlayer controls the system media-stream (device) volume, exposing
-     * `COMMAND_ADJUST_DEVICE_VOLUME` to controllers. OFF on the phone (the OS/hardware buttons already own
-     * STREAM_MUSIC, and enabling it would add a session volume slider); the WATCH turns it on so the rotary
-     * crown can drive the watch's own volume during standalone playback (iOS `WKInterfaceVolumeControl`).
-     */
-    protected open val deviceVolumeControlEnabled: Boolean = false
-
     override fun onCreate() {
         super.onCreate()
 
@@ -162,8 +154,6 @@ abstract class MediaPlaybackService : MediaLibraryService() {
             // only needed while actually streaming). Requires only the WAKE_LOCK permission; ExoPlayer
             // acquires/releases the wake lock (and Wi-Fi lock, in NETWORK mode) with the play state.
             .setWakeMode(C.WAKE_MODE_NETWORK)
-            // Watch-only (see [deviceVolumeControlEnabled]): lets the crown drive the watch's media volume.
-            .setDeviceVolumeControlEnabled(deviceVolumeControlEnabled)
             .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(dataSourceFactory))
             .build()
 

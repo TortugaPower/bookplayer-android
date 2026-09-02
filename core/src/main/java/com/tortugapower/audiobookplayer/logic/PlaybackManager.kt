@@ -206,7 +206,9 @@ object PlaybackManager {
     // System media-stream (device) volume as a 0..1 fraction, for the watch's crown volume indicator. Only
     // meaningful when device-volume control is enabled (the watch); stays 0 on the phone.
     private val _deviceVolume = MutableStateFlow(0f)
+    /** Media-stream volume as a 0..1 fraction for the watch's crown indicator; see [DeviceVolume]. */
     val deviceVolume: StateFlow<Float> = _deviceVolume.asStateFlow()
+    private var deviceVolumeControl: DeviceVolume? = null
 
     /**
      * Current playback position in WHOLE-BOOK ms — already inverted from the (possibly virtualized)
@@ -297,6 +299,17 @@ object PlaybackManager {
         this.appContext = appContext
         this.unknownAuthorLabel = unknownAuthorLabel
 
+        // Device (media-stream) volume for the watch crown. The platform volume broadcast is only
+        // observed while something collects [deviceVolume] — the phone never does.
+        val volumeControl = DeviceVolume(appContext) { _deviceVolume.value = it }
+        deviceVolumeControl = volumeControl
+        scope.launch {
+            _deviceVolume.subscriptionCount
+                .map { it > 0 }
+                .distinctUntilChanged()
+                .collect { observed -> if (observed) volumeControl.startObserving() else volumeControl.stopObserving() }
+        }
+
         // Seed the external-server header map eagerly (off the main thread), so the runBlocking
         // fallback inside getHeadersForUri stays a cold-restore edge case rather than the norm.
         scope.launch(Dispatchers.IO) {
@@ -341,15 +354,9 @@ object PlaybackManager {
             try {
                 val mediaController = controllerFuture?.get() ?: return@addListener
                 player = mediaController
-                // Seed the device-volume fraction (0 unless device-volume control is enabled, i.e. the watch).
-                _deviceVolume.value = deviceVolumeFraction(mediaController)
 
                 // Add listener once
                 mediaController.addListener(object : Player.Listener {
-                    override fun onDeviceVolumeChanged(volume: Int, muted: Boolean) {
-                        _deviceVolume.value = deviceVolumeFraction(mediaController)
-                    }
-
                     override fun onIsPlayingChanged(playing: Boolean) {
                         if (_isPlaying.value == playing) return
                         _isPlaying.value = playing
@@ -1490,32 +1497,17 @@ object PlaybackManager {
     }
 
     /**
-     * Crown volume (watch standalone): nudge the system media-stream (device) volume one step through the
-     * session player. No-op when device-volume control isn't enabled (the phone, see
-     * [com.tortugapower.audiobookplayer.service.MediaPlaybackService.deviceVolumeControlEnabled]) or before
-     * the controller connects, so the call is safe from any target. Main-thread only, like the other
-     * transport calls.
+     * Crown volume (watch standalone): nudge the system media-stream (device) volume one step. Goes to
+     * [AudioManager][android.media.AudioManager] through [DeviceVolume] — media3 1.10 stopped honouring
+     * device-volume commands sent through a `MediaController` for local playback. No-op before
+     * [initialize], so the call is safe from any target.
      */
-    fun increaseDeviceVolume() = adjustDeviceVolume(up = true)
-    fun decreaseDeviceVolume() = adjustDeviceVolume(up = false)
-
-    private fun adjustDeviceVolume(up: Boolean) {
-        val p = player ?: return
-        if (!p.isCommandAvailable(Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)) return
-        // No FLAG_SHOW_UI: on Wear that pops a full-screen system slider that grabs the crown. We adjust
-        // silently and render our own peripheral volume indicator ([deviceVolume]) on the now-playing screen.
-        if (up) p.increaseDeviceVolume(0) else p.decreaseDeviceVolume(0)
-    }
-
-    /** Current device (media-stream) volume as a 0..1 fraction, or 0 when the range is unknown/unsupported. */
-    private fun deviceVolumeFraction(p: Player): Float =
-        deviceVolumeFraction(p.deviceVolume, p.deviceInfo.minVolume, p.deviceInfo.maxVolume)
+    fun increaseDeviceVolume() { deviceVolumeControl?.increase() }
+    fun decreaseDeviceVolume() { deviceVolumeControl?.decrease() }
 
     /** Pure 0..1 mapping of [volume] within [[minVolume], [maxVolume]] (0 when the range is empty). Unit-tested. */
-    fun deviceVolumeFraction(volume: Int, minVolume: Int, maxVolume: Int): Float {
-        val range = maxVolume - minVolume
-        return if (range > 0) ((volume - minVolume).toFloat() / range).coerceIn(0f, 1f) else 0f
-    }
+    fun deviceVolumeFraction(volume: Int, minVolume: Int, maxVolume: Int): Float =
+        DeviceVolume.fractionOf(volume, minVolume, maxVolume)
 
     fun toggleVolumeBoost(context: Context) {
         scope.launch {
