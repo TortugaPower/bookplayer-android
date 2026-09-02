@@ -437,12 +437,14 @@ object PlaybackManager {
                                 // at its end and instantly cascade another STATE_ENDED.
                                 scope.launch {
                                     val current = _currentItem.value ?: return@launch
-                                    val db = AppDatabase.getDatabase(appContext)
-                                    val repository = RoomLibraryRepository(appContext, db.libraryDao())
-                                    var nextItem = repository.getAdjacentItem(current.uuid, next = true)
+                                    // The shared repository, not a bare inline one: adjacency must
+                                    // resolve through the instance carrying the effective-sort hook,
+                                    // or auto-advance walks rank order while the list shows the rule.
+                                    val libraryRepo = getRepository(appContext)
+                                    var nextItem = libraryRepo.getAdjacentItem(current.uuid, next = true)
                                     if (!autoplayRestartFinished) {
                                         while (nextItem != null && nextItem.isFinished) {
-                                            nextItem = repository.getAdjacentItem(nextItem.uuid, next = true)
+                                            nextItem = libraryRepo.getAdjacentItem(nextItem.uuid, next = true)
                                         }
                                     }
                                     if (nextItem != null) {
