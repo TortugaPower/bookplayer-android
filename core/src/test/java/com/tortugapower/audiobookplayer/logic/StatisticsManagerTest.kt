@@ -35,6 +35,8 @@ class StatisticsManagerTest {
         StatisticsManager.testDao = fakeDao
         StatisticsManager.timeProvider = { timeCurrent }
         fakeDao.sessions.clear()
+        fakeDao.existingBooks = null
+        fakeDao.failWith = null
     }
 
     @After
@@ -74,6 +76,34 @@ class StatisticsManagerTest {
         assertEquals("Book One", active?.bookTitle)
         assertEquals(10_000L, active?.startTime)
         assertNull(active?.endTime)
+    }
+
+    @Test
+    fun testStartSession_bookNoLongerInLibrary_recordsNothing() = runBlocking {
+        // Sentry ANDROID-BOOKPLAYER-19: the book was deleted / replaced by a sync pull while playing.
+        // playback_sessions.bookUuid is a FOREIGN KEY, so the insert must be skipped, not attempted.
+        fakeDao.existingBooks = setOf("some-other-book")
+        val item = makeItem("book-gone", "Vanished")
+
+        StatisticsManager.setPlaybackState(dummyContext, item, isPlaying = true)
+
+        assertNull("no session may be recorded for a book that is gone", fakeDao.getActiveSession())
+        assertTrue(fakeDao.sessions.isEmpty())
+    }
+
+    @Test
+    fun testDaoFailure_isLoggedNotThrown_andLaterEventsStillWork() = runBlocking {
+        // Statistics are bookkeeping: a DB failure must never propagate out of the scope (which in the
+        // app would be an uncaught exception and a crash). Same handler as production.
+        StatisticsManager.scope = CoroutineScope(Dispatchers.Unconfined + SupervisorJob() + StatisticsManager.exceptionHandler)
+        fakeDao.failWith = IllegalStateException("simulated FOREIGN KEY constraint failed")
+
+        StatisticsManager.setPlaybackState(dummyContext, makeItem("book-1", "Book One"), isPlaying = true)
+        assertTrue(fakeDao.sessions.isEmpty())
+
+        fakeDao.failWith = null
+        StatisticsManager.setPlaybackState(dummyContext, makeItem("book-2", "Book Two"), isPlaying = true)
+        assertEquals("book-2", fakeDao.getActiveSession()?.bookUuid)
     }
 
     @Test
@@ -267,8 +297,16 @@ class StatisticsManagerTest {
     private class FakeStatisticsDao : StatisticsDao {
         val sessions = mutableListOf<PlaybackSessionEntity>()
         private var nextId = 1L
+        /** Books the fake library "contains"; null = every book exists (the default for the lifecycle tests). */
+        var existingBooks: Set<String>? = null
+        /** When set, every write throws it — simulates a DB-level failure (constraint, full disk). */
+        var failWith: Throwable? = null
+
+        override suspend fun libraryItemExists(uuid: String): Int =
+            if (existingBooks == null || uuid in existingBooks!!) 1 else 0
 
         override suspend fun insertSession(session: PlaybackSessionEntity): Long {
+            failWith?.let { throw it }
             val id = nextId++
             val saved = session.copy(id = id)
             sessions.add(saved)
