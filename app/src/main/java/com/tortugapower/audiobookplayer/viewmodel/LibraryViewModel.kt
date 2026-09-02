@@ -351,10 +351,7 @@ class LibraryViewModel(
     /** Effective sort of a location; [EffectiveSort.Custom] when unresolved or no manager (tests). */
     private fun effectiveSortFlow(path: String?): Flow<EffectiveSort> {
         val manager = sortManager ?: return flowOf(EffectiveSort.Custom)
-        return flow {
-            val location = manager.resolveLocation(path)
-            emitAll(manager.observeEffectiveSort(location))
-        }
+        return manager.observeEffectiveSort(path)
     }
 
     /** The current location's effective sort rule (drives the Options sheet's active indicator). */
