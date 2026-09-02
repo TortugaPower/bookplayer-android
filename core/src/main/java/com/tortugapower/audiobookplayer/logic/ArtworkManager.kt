@@ -20,7 +20,11 @@ object ArtworkManager {
         data object Saved : EmbeddedArtwork
         /** The container was read and holds no usable picture — definitive, safe to remember. */
         data object None : EmbeddedArtwork
-        /** I/O error, timeout, or a heap too small for the platform reader — transient, try again later. */
+        /**
+         * Nothing was written, but the picture may well exist: I/O error, timeout, a heap too small for
+         * the platform reader, or a remote cover skipped for size. Transient — try again later (e.g. once
+         * the file is local); never remember it as "no art".
+         */
         data object Failed : EmbeddedArtwork
     }
 
@@ -86,9 +90,10 @@ object ArtworkManager {
 
     /** Remote counterpart of [saveEmbeddedArtwork]: the same locate-then-read approach over HTTP `Range` requests. */
     fun saveEmbeddedArtwork(uri: String, headers: Map<String, String>?, destFile: File): EmbeddedArtwork {
-        // Capped: a browse thumbnail is not worth pulling a 30 MB cover over the network. Servers that
-        // ignore `Range` make the locator return null, which lands in the platform-reader fallback below
-        // (the previous behaviour).
+        // Capped: a browse thumbnail is not worth pulling a 30 MB cover over the network. The skip is
+        // [EmbeddedArtwork.Failed], not None — the cover exists and the local path will extract it once
+        // the book is downloaded. Servers that ignore `Range` make the locator return null, which lands
+        // in the platform-reader fallback below (the previous behaviour).
         val extension = Uri.parse(uri).lastPathSegment?.substringAfterLast('.', "")?.lowercase() ?: ""
         var oversized = false
         val bytes = try {
@@ -106,7 +111,7 @@ object ArtworkManager {
         } catch (e: Exception) {
             null
         }
-        if (oversized) return EmbeddedArtwork.None
+        if (oversized) return EmbeddedArtwork.Failed
         if (bytes != null) return if (saveProcessedBitmap(bytes, destFile)) EmbeddedArtwork.Saved else EmbeddedArtwork.None
 
         val retriever = MediaMetadataRetriever()

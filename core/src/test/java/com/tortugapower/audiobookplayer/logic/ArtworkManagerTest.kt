@@ -1,6 +1,11 @@
 package com.tortugapower.audiobookplayer.logic
 
 import com.tortugapower.audiobookplayer.ContainerFixtures
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
+import okio.Buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -37,6 +42,59 @@ class ArtworkManagerTest {
         val dest = File.createTempFile("artwork", ".jpg").apply { deleteOnExit(); delete() }
 
         assertFalse(ArtworkManager.extractAndSaveArtwork(audio, dest))
+    }
+
+    // --- remote (HTTP Range) ---------------------------------------------------------------------
+
+    /** Serves byte ranges of [data] with 206 + Content-Range, recording how many bytes were actually sent. */
+    private fun rangeServer(data: ByteArray): Pair<MockWebServer, () -> Long> {
+        var served = 0L
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val range = request.getHeader("Range")?.removePrefix("bytes=")?.split("-") ?: return MockResponse().setResponseCode(200).setBody(Buffer().write(data))
+                val start = range[0].toInt()
+                val end = minOf(range[1].toIntOrNull() ?: (data.size - 1), data.size - 1)
+                served += end - start + 1
+                return MockResponse().setResponseCode(206)
+                    .setHeader("Content-Range", "bytes $start-$end/${data.size}")
+                    .setBody(Buffer().write(data.copyOfRange(start, end + 1)))
+            }
+        }
+        server.start()
+        return server to { served }
+    }
+
+    @Test
+    fun remoteCover_isLocatedOverRangeRequestsAndSaved() {
+        val m4b = ContainerFixtures.toBytes(ContainerFixtures.m4bWithMoovChild(
+            ContainerFixtures.fixtureBytes("m4b_WELLFORMED.m4b"), "udta", ContainerFixtures.coverArtUdtaPayload(listOf(ContainerFixtures.tinyPng(32, 32)))))
+        val (server, _) = rangeServer(m4b)
+        val dest = File.createTempFile("artwork", ".jpg").apply { deleteOnExit(); delete() }
+        try {
+            assertEquals(ArtworkManager.EmbeddedArtwork.Saved, ArtworkManager.saveEmbeddedArtwork(server.url("/book.m4b").toString(), null, dest))
+            assertTrue(dest.length() > 0)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun oversizedRemoteCover_isSkippedAsTransient_notRememberedAsNoArt() {
+        // A 9 MB cover (over the 8 MB remote cap): the picture EXISTS, so the outcome must be Failed —
+        // CoverArtResolver negative-caches None, which would hide the cover even after the book is downloaded.
+        val nineMb = 9L * ContainerFixtures.MB
+        val m4b = ContainerFixtures.toBytes(ContainerFixtures.m4bWithMoovChild(
+            ContainerFixtures.fixtureBytes("m4b_WELLFORMED.m4b"), "udta", ContainerFixtures.coverArtUdtaPayload(listOf(ContainerFixtures.PNG_SIGNATURE, nineMb - ContainerFixtures.PNG_SIGNATURE.size))))
+        val (server, served) = rangeServer(m4b)
+        val dest = File.createTempFile("artwork", ".jpg").apply { deleteOnExit(); delete() }
+        try {
+            assertEquals(ArtworkManager.EmbeddedArtwork.Failed, ArtworkManager.saveEmbeddedArtwork(server.url("/book.m4b").toString(), null, dest))
+            assertFalse(dest.exists())
+            assertTrue("only headers should have been fetched, not the cover (served ${served()} bytes)", served() < 1L * ContainerFixtures.MB)
+        } finally {
+            server.shutdown()
+        }
     }
 
     @Test
