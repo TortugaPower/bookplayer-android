@@ -202,6 +202,27 @@ class ServerAddressTest {
         assertEquals(8443, address.port)
     }
 
+    /** Typing a port into the Host row is a misuse, but it must not be mangled under the cursor: `host:` stays `host:` and simply never assembles. */
+    @Test fun `a single colon in the host is left raw and never assembles`() {
+        for (typed in listOf("host:", "host:80", "host:abc", "192.168.1.5:")) {
+            val address = ServerAddress(Scheme.HTTPS, typed)
+            assertEquals(typed, typed, address.host)
+            assertNull(typed, address.url)
+        }
+        // …while a colon followed by a valid port in the field is peeled into the port row.
+        val peeled = ServerAddress(Scheme.HTTPS, "").withHostField("host:8096")
+        assertEquals("host", peeled.host)
+        assertEquals(8096, peeled.port)
+    }
+
+    @Test fun `only IPv6-looking text gains brackets`() {
+        assertEquals("[fe80::1]", ServerAddress(Scheme.HTTP, "fe80::1").host)
+        assertEquals("[::ffff:192.0.2.128]", ServerAddress(Scheme.HTTP, "::ffff:192.0.2.128").host)
+        assertEquals("not:an:address", ServerAddress(Scheme.HTTP, "not:an:address").host)
+        assertNull(ServerAddress(Scheme.HTTP, "not:an:address").url)
+        assertNull("a bracketed non-address must not assemble either", ServerAddress(Scheme.HTTP, "[host:]").url)
+    }
+
     @Test fun `display address drops the scheme only`() {
         assertEquals("media.example.com:8443/abs", ServerAddress.parse("https://media.example.com:8443/abs")!!.displayAddress)
         assertEquals("jellyfin.local", ServerAddress.parse("http://jellyfin.local")!!.displayAddress)

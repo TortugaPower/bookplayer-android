@@ -174,21 +174,27 @@ class ServerAddress private constructor(
             return ServerAddress(scheme, host, normalizedPath(uri.rawPath ?: ""), port)
         }
 
-        /** True when [host] is something a URL can carry: non-empty, no separators, and any colon only inside IPv6 brackets. */
+        /** True when [host] is something a URL can carry: non-empty, no separators, and a colon only inside a bracketed IPv6 literal. */
         private fun isAssemblableHost(host: String): Boolean {
             if (host.isEmpty()) return false
             if (host.any { it.isWhitespace() || it == '/' || it == '?' || it == '#' || it == '@' }) return false
-            if (host.startsWith("[")) return host.endsWith("]") && host.length > 2
+            if (host.startsWith("[")) return host.endsWith("]") && looksLikeIPv6(host.substring(1, host.length - 1))
             return !host.contains(':')
         }
 
         /**
          * A bare IPv6 literal gains its brackets: a host containing a colon cannot assemble without them,
-         * so a bare `"::1"` would make [url] silently null. No other legitimate host contains a colon —
-         * ports live in their own field — so the wrap cannot misfire.
+         * so a bare `"::1"` would make [url] silently null. Only text that actually looks like an IPv6
+         * address is wrapped — two or more colons, hex digits and dots (an embedded IPv4 tail). A single
+         * colon is a user typing a port into the Host row, and bracketing that mid-keystroke turned
+         * `host:` into `[host:]` under their cursor; left raw, it simply never assembles.
          */
         private fun normalizedHost(raw: String): String =
-            if (raw.contains(':') && !raw.startsWith("[")) "[$raw]" else raw
+            if (looksLikeIPv6(raw)) "[$raw]" else raw
+
+        private fun looksLikeIPv6(raw: String): Boolean =
+            raw.count { it == ':' } >= 2 &&
+                raw.all { it == ':' || it == '.' || it == '%' || it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }
 
         /**
          * Empty stays empty; anything else gains a leading slash and loses trailing ones, so `"abs/"`,
