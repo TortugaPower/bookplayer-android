@@ -53,6 +53,10 @@ android {
                 "BASE_URL",
                 "\"${localProp("DEV_BASE_URL", "http://10.0.2.2:5003")}\""
             )
+            // Dev builds (emulators, local devices) stay out of Sentry unless a developer opts in with
+            // SENTRY_DEV_REPORTING=true in local.properties: crash reproductions and chaos runs were
+            // landing in the production issue list as fresh fingerprints.
+            buildConfigField("boolean", "SENTRY_REPORTING", (localProp("SENTRY_DEV_REPORTING") == "true").toString())
         }
         create("prod") {
             dimension = "env"
@@ -61,6 +65,7 @@ android {
                 "BASE_URL",
                 "\"${localProp("PROD_BASE_URL")}\""
             )
+            buildConfigField("boolean", "SENTRY_REPORTING", "true")
         }
     }
 

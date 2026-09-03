@@ -195,3 +195,7 @@ throw; a repository-level guard is the follow-up.
   never plain "resolved": builds stay in the field for months, and only "in release" ignores the
   stragglers while still reopening on a regression in the fixed build.
 * The release labelled `1.0.0+14` is the public 1.1.0 build (its `versionName` was never bumped).
+* `dev`-flavor builds do **not** report to Sentry unless `SENTRY_DEV_REPORTING=true` is in
+  `local.properties`. Before that gate, emulator reproductions landed in the production issue list as
+  fresh fingerprints (`environment:dev` on the 1.1.3+20 release) — the -1N / -1K / -1M / -1J issues
+  were archived for that reason. When you do opt in, filter the issue list by `environment:prod`.
