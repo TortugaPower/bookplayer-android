@@ -81,6 +81,10 @@ class WearApp : Application() {
             // Google-login path, which the watch never invokes.
             googleClientId = "",
         )
+        com.tortugapower.audiobookplayer.network.ClientIdentity.configure(
+            appName = "BookPlayer",
+            appVersion = BuildConfig.VERSION_NAME,
+        )
 
         val database = AppDatabase.getDatabase(this)
         accountRepository = RoomAccountRepository(database.accountDao())

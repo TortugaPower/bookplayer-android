@@ -2,8 +2,14 @@ package com.tortugapower.audiobookplayer.network.services
 
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
+import com.tortugapower.audiobookplayer.network.ClientIdentity
+import com.tortugapower.audiobookplayer.network.ConnectionError
 import com.tortugapower.audiobookplayer.network.ConnectionResult
 import com.tortugapower.audiobookplayer.network.ExternalService
+import com.tortugapower.audiobookplayer.network.PendingServer
+import com.tortugapower.audiobookplayer.network.ProbeResult
+import com.tortugapower.audiobookplayer.network.ServerCapabilities
+import kotlinx.coroutines.CancellationException
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
@@ -49,16 +55,49 @@ class JellyfinService : ExternalService {
         }
     }
 
+    // The MediaBrowser scheme Jellyfin requires on every call, token or not. Client/Device/Version come
+    // from ClientIdentity (injected by the host at startup) — they are what Jellyfin shows in its Quick
+    // Connect approval and Devices dashboard, so a hardcoded version would misreport every install.
     private fun getAuthHeader(token: String? = null): String {
-        val device = "Android"
         val deviceId = getDeviceId()
-        val client = "BookPlayer"
-        val version = "1.0.0"
-        var header = "MediaBrowser Client=\"$client\", Device=\"$device\", DeviceId=\"$deviceId\", Version=\"$version\""
+        var header = "MediaBrowser Client=\"${ClientIdentity.appName}\", Device=\"${ClientIdentity.deviceName}\", DeviceId=\"$deviceId\", Version=\"${ClientIdentity.appVersion}\""
         if (token != null) {
             header += ", Token=\"$token\""
         }
         return header
+    }
+
+    override suspend fun probe(url: String, headers: Map<String, String>?): ProbeResult {
+        return try {
+            val api = getApi(url, headers)
+            val info = api.getPublicSystemInfo()
+            if (!info.isSuccessful) {
+                return ProbeResult.Failure(ConnectionError.fromResponse(info.code(), info.errorBody()?.string()))
+            }
+            val body = info.body() ?: return ProbeResult.Failure(ConnectionError.UnexpectedResponse(null))
+            // Best-effort: a server too old to expose the endpoint, or one that errors, simply isn't
+            // offered Quick Connect — the safe default. Failing the probe over a capability check would
+            // block password sign-in for no reason.
+            val quickConnectEnabled = try {
+                api.getQuickConnectEnabled(getAuthHeader()).takeIf { it.isSuccessful }?.body() == true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                false
+            }
+            ProbeResult.Found(
+                PendingServer(
+                    url = url,
+                    serverName = body.serverName.orEmpty(),
+                    stableId = body.id,
+                    capabilities = ServerCapabilities(quickConnectEnabled = quickConnectEnabled),
+                )
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ProbeResult.Failure(ConnectionError.Network(e.message ?: ""))
+        }
     }
 
     override suspend fun connect(url: String, username: String?, password: String?, headers: Map<String, String>?): ConnectionResult {
@@ -81,24 +120,24 @@ class JellyfinService : ExternalService {
                         serverName = infoResponse.body()!!.serverName
                         stableId = infoResponse.body()!!.id
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     // Fallback to default name if system info fails
                 }
 
-                ConnectionResult.Success(token = token, name = serverName, stableId = stableId)
+                ConnectionResult.Success(token = token, name = serverName, stableId = stableId, userId = body.user.id)
+            } else if (response.code() == 401) {
+                // Wrong credentials. Same copy as iOS's `IntegrationError.clientError(401)`; the HTTP
+                // reason phrase this used to interpolate is usually empty on HTTP/2.
+                ConnectionError.Unauthorized.toFailure()
             } else {
-                ConnectionResult.Failure(
-                    message = "Authentication failed: ${response.message()}",
-                    messageResId = com.tortugapower.audiobookplayer.core.R.string.media_servers_error_auth_failed,
-                    args = listOf(response.message())
-                )
+                ConnectionError.fromResponse(response.code(), response.errorBody()?.string()).toFailure()
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            ConnectionResult.Failure(
-                message = "Connection error: ${e.message}",
-                messageResId = com.tortugapower.audiobookplayer.core.R.string.media_servers_error_connection_failed,
-                args = listOf(e.message ?: "")
-            )
+            ConnectionError.Network(e.message ?: "").toFailure()
         }
     }
 

@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
-import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
+import com.tortugapower.audiobookplayer.logic.ExternalServerUpsert
 import com.tortugapower.audiobookplayer.network.ConnectionResult
 import com.tortugapower.audiobookplayer.network.ExternalServiceFactory
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
@@ -22,7 +22,13 @@ class ExternalServerViewModel(private val repository: ExternalServerRepository) 
         initialValue = emptyList()
     )
 
-    /** Returns the persistence Job so callers that must sequence on the saved row can join() it. */
+    /**
+     * Returns the persistence Job so callers that must sequence on the saved row can join() it.
+     *
+     * [userId] is the account's id from the auth response; [replacingId] is the row a re-authentication
+     * started from, so a sign-in at an edited URL (a server that moved host) updates that row instead
+     * of orphaning it — only when the account matches (see [ExternalServerUpsert]).
+     */
     fun addServer(
         name: String,
         type: ExternalServiceType,
@@ -30,7 +36,9 @@ class ExternalServerViewModel(private val repository: ExternalServerRepository) 
         username: String?,
         token: String?,
         headers: Map<String, String>?,
-        stableId: String? = null
+        stableId: String? = null,
+        userId: String? = null,
+        replacingId: Long? = null,
     ): kotlinx.coroutines.Job {
         return viewModelScope.launch {
             // Anonymous connects arrive as "" from the form; store null so the UI's
@@ -40,12 +48,16 @@ class ExternalServerViewModel(private val repository: ExternalServerRepository) 
             // Re-adding the same logical server + account (the natural response to an expired
             // token) replaces the existing row — preserving its id — instead of accumulating
             // duplicates. Different accounts on the same server stay separate. Mirrors iOS.
-            val urlKey = ExternalServiceUtils.canonicalServerKey(url)
-            val existing = repository.allServers.first().find {
-                it.type == type &&
-                    ExternalServiceUtils.canonicalServerKey(it.url) == urlKey &&
-                    it.username == normalizedUsername
-            }
+            val existing = ExternalServerUpsert.rowToReplace(
+                repository.allServers.first(),
+                ExternalServerUpsert.Incoming(
+                    type = type,
+                    url = url,
+                    username = normalizedUsername,
+                    userId = userId,
+                    replacingId = replacingId,
+                )
+            )
 
             val server = ExternalServerEntity(
                 id = existing?.id ?: 0,
@@ -59,7 +71,8 @@ class ExternalServerViewModel(private val repository: ExternalServerRepository) 
                 selectedLibraryId = existing?.selectedLibraryId,
                 // Re-auth refreshes the server's self-reported stable id — but a connect whose
                 // info call happened to fail must not wipe a previously captured one.
-                stableId = stableId ?: existing?.stableId
+                stableId = stableId ?: existing?.stableId,
+                userId = userId ?: existing?.userId,
             )
             if (existing != null) {
                 repository.updateServer(server)

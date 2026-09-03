@@ -16,4 +16,10 @@
         <item quantity="one">1 capítulo</item>
         <item quantity="other">%1$d capítulos</item>
     </plurals>
+    <string name="media_servers_error_unauthorized">Error al iniciar sesión. Verifique su nombre de usuario y contraseña.</string>
+    <string name="media_servers_error_unexpected_response">Respuesta inesperada del servidor</string>
+    <string name="media_servers_error_unexpected_response_with_code">Respuesta inesperada del servidor (Código: %1$d)</string>
+    <string name="media_servers_error_server_message">El servidor respondió con %1$d: %2$s</string>
+    <string name="media_servers_error_sso_requires_https">El inicio de sesión único necesita una conexión segura (https) con su servidor.</string>
+    <string name="media_servers_error_sso_requires_chrome">El inicio de sesión único necesita Chrome 137 o posterior como navegador predeterminado en este dispositivo.</string>
 </resources>

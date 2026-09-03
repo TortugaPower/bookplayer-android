@@ -188,7 +188,7 @@ fun MediaServersFlow(
                                                 // existing row (same id, selectedLibraryId kept).
                                                 // join() so the reload below reads the new token.
                                                 externalServerViewModel
-                                                    .addServer(result.name ?: name, expiredServer.type, url, username, result.token, headers, result.stableId)
+                                                    .addServer(result.name ?: name, expiredServer.type, url, username, result.token, headers, result.stableId, result.userId, replacingId = expiredServer.id)
                                                     .join()
                                                 showReauthSheet = false
                                                 extLibViewModel.retryAfterReauth()

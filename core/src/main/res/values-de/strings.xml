@@ -16,4 +16,10 @@
         <item quantity="one">1 Kapitel</item>
         <item quantity="other">%1$d Kapitel</item>
     </plurals>
+    <string name="media_servers_error_unauthorized">Anmeldung fehlgeschlagen. Überprüfe deinen Benutzernamen und dein Passwort.</string>
+    <string name="media_servers_error_unexpected_response">Unerwartete Serverantwort</string>
+    <string name="media_servers_error_unexpected_response_with_code">Unerwartete Serverantwort (Code: %1$d)</string>
+    <string name="media_servers_error_server_message">Der Server hat mit %1$d geantwortet: %2$s</string>
+    <string name="media_servers_error_sso_requires_https">Single Sign-on erfordert eine sichere (https) Verbindung zu deinem Server.</string>
+    <string name="media_servers_error_sso_requires_chrome">Single Sign-on erfordert Chrome 137 oder neuer als Standardbrowser auf diesem Gerät.</string>
 </resources>

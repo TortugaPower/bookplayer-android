@@ -4,6 +4,14 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 
 interface ExternalService {
+    /**
+     * Validates that a server is reachable at [url] and asks it which sign-in methods it offers, before
+     * any credentials exist. Nothing is persisted; the result feeds the connection flow's routing
+     * (`ConnectionRouting.decide`). Never throws for server/network failures — those come back as
+     * [ProbeResult.Failure] with a typed [ConnectionError].
+     */
+    suspend fun probe(url: String, headers: Map<String, String>? = null): ProbeResult
+
     suspend fun connect(url: String, username: String? = null, password: String? = null, headers: Map<String, String>? = null): ConnectionResult
 
     /**
@@ -47,17 +55,74 @@ data class ExternalLibraryInfo(
  */
 class SessionExpiredException : Exception("Session expired")
 
+/**
+ * What a server told us it can do, so the UI only offers sign-in methods that can actually work.
+ * Defaults are the failure-safe direction: when a probe can't answer, offering a password form that
+ * might work beats hiding the only sign-in path a server may have.
+ */
+data class ServerCapabilities(
+    /**
+     * Whether the server accepts username/password at all. AudiobookShelf admins can disable local
+     * auth outright (SSO-only servers), and `/status` then omits `"local"` from `authMethods`.
+     * Jellyfin's core API always accepts it.
+     */
+    val supportsPassword: Boolean = true,
+    /** AudiobookShelf: an OpenID provider is configured (`authMethods` contains `"openid"`). */
+    val supportsOidc: Boolean = false,
+    /** The provider button label ABS's own web UI shows (`authFormData.authOpenIDButtonText`), when set. */
+    val oidcButtonText: String? = null,
+    /** Jellyfin: `/QuickConnect/Enabled` answered `true`. Admins can switch the feature off. */
+    val quickConnectEnabled: Boolean = false,
+)
+
+/**
+ * A validated-but-not-yet-signed-in server: what the probe learned, held by the flow across the
+ * Connect → sign-in transition. Mirrors iOS's `PendingServer` / `pingedURL`: credentials only ever go
+ * to the address that was probed, so an edit between Connect and Sign In can't redirect them.
+ */
+data class PendingServer(
+    /** The address as probed — the string [ExternalService.connect] and friends must be given. */
+    val url: String,
+    /** Jellyfin: the public `ServerName`. AudiobookShelf: the host (iOS parity — `/ping` carries no name; the login response does). */
+    val serverName: String,
+    /** The server's self-reported id when the probe can see it (Jellyfin public info `Id`); ABS only reports it at login. */
+    val stableId: String?,
+    val capabilities: ServerCapabilities,
+)
+
+sealed class ProbeResult {
+    data class Found(val server: PendingServer) : ProbeResult()
+    data class Failure(val error: ConnectionError) : ProbeResult()
+}
+
+/**
+ * What the method screen offers besides typing a password — at most one, which is why this is a single
+ * optional value rather than parallel booleans (the invalid "both at once" state is unrepresentable).
+ */
+sealed class AlternativeSignIn {
+    /** Native SSO through the server's identity provider (AudiobookShelf OIDC). [buttonText] is the provider's own label when the server supplied one. */
+    data class Oidc(val buttonText: String?) : AlternativeSignIn()
+
+    /** Out-of-band code flow (Jellyfin Quick Connect). */
+    data object QuickConnect : AlternativeSignIn()
+}
+
 sealed class ConnectionResult {
     /**
      * [stableId] is the server's SELF-REPORTED unique id (Jellyfin `/System/Info` `Id`,
      * AudiobookShelf login `serverSettings.id`) — the cross-device half of the hostId contract
      * (`hostId := stableId ?: canonicalServerKey(url)`). Null when the server didn't report one
      * (old versions, info call failed): callers fall back to the canonical URL key.
+     *
+     * [userId] is the account's id on the server (Jellyfin `User.Id`, AudiobookShelf `user.id`) — the
+     * identity connections are de-duplicated on, so two accounts on one server stay separate and a
+     * re-auth of the same account replaces its row. Null when the response lacked it.
      */
     data class Success(
         val token: String? = null,
         val name: String? = null,
         val stableId: String? = null,
+        val userId: String? = null,
     ) : ConnectionResult()
     data class Failure(
         val message: String,

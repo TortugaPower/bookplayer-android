@@ -14,4 +14,10 @@
     <plurals name="library_bound_chapter_count">
         <item quantity="other">%1$d 章节</item>
     </plurals>
+    <string name="media_servers_error_unauthorized">登录失败。请检查您的用户名和密码。</string>
+    <string name="media_servers_error_unexpected_response">意外的服务器响应</string>
+    <string name="media_servers_error_unexpected_response_with_code">意外的服务器响应（代码：%1$d）</string>
+    <string name="media_servers_error_server_message">服务器返回 %1$d：%2$s</string>
+    <string name="media_servers_error_sso_requires_https">单点登录需要与服务器建立安全（https）连接。</string>
+    <string name="media_servers_error_sso_requires_chrome">单点登录需要将 Chrome 137 或更高版本设为此设备的默认浏览器。</string>
 </resources>

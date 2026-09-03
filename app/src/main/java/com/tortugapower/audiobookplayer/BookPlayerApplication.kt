@@ -66,6 +66,11 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             baseUrl = BuildConfig.BASE_URL,
             googleClientId = BuildConfig.GOOGLE_CLIENT_ID
         )
+        // How this install introduces itself to media servers (Jellyfin's MediaBrowser header).
+        com.tortugapower.audiobookplayer.network.ClientIdentity.configure(
+            appName = "BookPlayer",
+            appVersion = BuildConfig.VERSION_NAME,
+        )
 
         // Global Initialization
         val database = AppDatabase.getDatabase(this)
