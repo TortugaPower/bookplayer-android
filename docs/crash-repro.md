@@ -183,6 +183,29 @@ Sentry shapes, thresholds, hysteresis, the handler forwarding non-storage errors
 while the disk is full — the banner appears within one heartbeat, but a write racing it can still
 throw; a repository-level guard is the follow-up.
 
+### ANDROID-BOOKPLAYER-11 — Background ANR creating the LoudnessEnhancer
+
+The main thread was parked in `LoudnessEnhancer.<init>` → `AudioFlinger::createEffect`, a synchronous
+binder call into audioserver, called from ExoPlayer's `onAudioSessionIdChanged` listener (which runs on
+the application looper). On a low-end Redmi (Android 14) that call stalled long enough for a Background
+ANR. Fix: `LoudnessBooster` (`:core/service`) owns the effect on its own single-thread executor; the
+service only posts attach / setEnabled / release commands, so a stalled audioserver stalls that thread
+and nothing else. Commands apply in order (latest session wins, the boost setting is remembered across
+re-attach, release drops later commands).
+
+Not reproducible on the emulator — its audioserver never stalls. The contract is unit-tested instead
+(`LoudnessBoosterTest`: a factory that blocks on a latch must not block `attach()`; ordering; failure;
+release). Sanity check on a device or emulator: play, toggle *Volume boost* in settings a few times;
+`adb shell dumpsys media.audio_flinger | grep -i loudness` shows the effect attached to the session.
+
+### ANDROID-BOOKPLAYER-1E — "Bad notification for startForeground"
+
+One TECNO (Android 12) report on 1.1.2; the breadcrumbs show only rapid background/foreground cycling.
+Android 12+ dropped the cause from this message and the stack has no app frames, so the report cannot
+say which service was promoting. Both promotion sites now leave an `fgs` breadcrumb
+(`TaskConcurrencyServiceHost` before `startForeground`, `AudioPlayerService.onUpdateNotification` when
+`startInForegroundRequired`). Nothing to fix until it recurs with a breadcrumb attached.
+
 ### Not yet scripted
 
 | Issue | Planned recipe |
@@ -195,3 +218,7 @@ throw; a repository-level guard is the follow-up.
   never plain "resolved": builds stay in the field for months, and only "in release" ignores the
   stragglers while still reopening on a regression in the fixed build.
 * The release labelled `1.0.0+14` is the public 1.1.0 build (its `versionName` was never bumped).
+* `dev`-flavor builds do **not** report to Sentry unless `SENTRY_DEV_REPORTING=true` is in
+  `local.properties`. Before that gate, emulator reproductions landed in the production issue list as
+  fresh fingerprints (`environment:dev` on the 1.1.3+20 release) — the -1N / -1K / -1M / -1J issues
+  were archived for that reason. When you do opt in, filter the issue list by `environment:prod`.

@@ -139,8 +139,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
 
     private fun initSentry(accountRepository: AccountRepository) {
         val dsn = BuildConfig.SENTRY_DSN
-        // Builds without a DSN (OSS contributors, fresh checkouts) are a graceful no-op.
-        if (dsn.isBlank()) return
+        // Builds without a DSN (OSS contributors, fresh checkouts) are a graceful no-op, and so are
+        // dev-flavor builds unless the developer opted in (SENTRY_REPORTING, see app/build.gradle.kts):
+        // emulator crash reproductions must not show up as production issues.
+        if (dsn.isBlank() || !BuildConfig.SENTRY_REPORTING) return
 
         SentryAndroid.init(this) { options ->
             options.dsn = dsn

@@ -107,6 +107,8 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   so `devDebug` builds and unit tests run with **no secrets**) and `prod`.
 - **Secrets** (`GOOGLE_CLIENT_ID`, `SENTRY_DSN`, `REVENUECAT_API_KEY`, `*_BASE_URL`) are read from a
   gitignored `local.properties` or env vars into `BuildConfig` — **never hardcode them in source**.
+- **Sentry reporting** is on for `prod` builds only; a `dev` build reports only with
+  `SENTRY_DEV_REPORTING=true` in `local.properties` (keeps emulator reproductions out of the issue list).
 - **Release signing** comes from a gitignored `keystore.properties`; absent it, release builds unsigned.
 - **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest`, `lintDevDebug` on JDK 17.
 
