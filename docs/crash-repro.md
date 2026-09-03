@@ -109,11 +109,35 @@ the registry). Fix: each instance takes a fresh `bookplayer-<n>` id (controllers
 ComponentName, never the id), and `onDestroy` releases the session even if the player's release throws.
 Smoke: start playback and check `adb shell dumpsys media_session | grep bookplayer-`.
 
+### ANDROID-BOOKPLAYER-Q — media3 `IllegalStateException` in `MediaUtils.mergePlayerInfo`
+
+The app's own `MediaController` merged a player update against a stale timeline whose window count
+was smaller than the new item index (`PlayerInfo.Builder.build` assertion). It is a session ↔
+controller race inside media3, not something our wrapper reports inconsistently: `BookTimelinePlayer`
+derives every index from `BoundTimeline.chapterLocalOf`, whose clamping at both ends is pinned by
+`BoundTimelineTest`. Fixed upstream in media3 1.11.0 ("Fix an out-of-bounds timeline merge crash by
+tracking state consistency per-controller on the session side"), so the fix here is the dependency bump.
+
+Not reproducible on demand (it needs several controllers and rapid timeline changes to line up), so
+the evidence is the release note plus the fleet: -Q must stay quiet on the release that ships 1.11.0.
+
+What the bump changed for us (1.7.1 → 1.11.0):
+- `MediaNotification.Provider` gained a required `getNotificationChannelInfo()`; the Wear
+  `OngoingMediaNotificationProvider` delegates it to the default provider.
+- 1.10 stopped honouring device-volume commands from a `MediaController` for local playback — the
+  Wear crown's path. Volume now goes through `AudioManager` (`DeviceVolume`, tested under Robolectric);
+  ExoPlayer's `setDeviceVolumeControlEnabled` is gone with it.
+- `MediaSession` getters now throw off the application looper (1.11); all our calls are on main.
+- No notification for an idle player holding items (1.8) does not apply: every `setMediaItems` is
+  followed by `prepare()`.
+
+Smoke after the bump: phone playback, media notification, media-button seek/pause on the emulator;
+**Wear crown volume + ongoing activity, and Android Auto, still need a manual pass** on real hardware.
+
 ### Not yet scripted
 
 | Issue | Planned recipe |
 |---|---|
-| -Q media3 `mergePlayerInfo` | Several controllers connected (UI, widget, Auto DHU, Wear); loop rapid switches between a 1-chapter and a 200-chapter book while toggling chapter context. Fix is media3 1.7.1 → 1.11.0 plus a `BookTimelinePlayer` invariant test. |
 | -12 / -10 / -S / -V storage full | `fallocate` in `/data/local/tmp` until a few MB remain; run sync, import and a playback statistics tick. |
 | -1H / -X sync-host promotion timeout | `bp-lowend-31`, 500-item library, cold start; or a debug flag blocking the main thread 12 s after launch. |
 
