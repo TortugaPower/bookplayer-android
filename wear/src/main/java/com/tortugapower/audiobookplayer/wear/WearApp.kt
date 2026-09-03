@@ -65,13 +65,15 @@ class WearApp : Application() {
     lateinit var librarySortManager: LibrarySortManager
         private set
 
-    private val appScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val appScope = CoroutineScope(Dispatchers.Main + SupervisorJob() + com.tortugapower.audiobookplayer.logic.StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull })
 
     override fun onCreate() {
         super.onCreate()
 
         // Give :core the app context + flavored config before anything touches Room/network/RevenueCat.
         CoreContext.init(this)
+        // Playback is refused while storage is critically full (progress can't be saved); measure up front.
+        com.tortugapower.audiobookplayer.logic.StorageMonitor.refresh(this)
         NetworkConstants.configure(
             baseUrl = BuildConfig.BASE_URL,
             // The watch authenticates by handing the token off from the phone (Data Layer), never via

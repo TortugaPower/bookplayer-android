@@ -72,7 +72,7 @@ class TaskConcurrencyServiceHost : Service() {
 
     private val TAG = "TaskConcurrencyServiceHost"
     private lateinit var taskConcurrencyManager: TaskConcurrencyManager
-    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob() + com.tortugapower.audiobookplayer.logic.StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull })
 
     private var connectivityManager: android.net.ConnectivityManager? = null
     // Tracks the active network's metered state so we only react to a real metered→unmetered flip.
