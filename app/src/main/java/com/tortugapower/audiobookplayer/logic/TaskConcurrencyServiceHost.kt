@@ -6,6 +6,8 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import io.sentry.Breadcrumb
+import io.sentry.Sentry
 import androidx.core.app.NotificationCompat
 import com.tortugapower.audiobookplayer.MainActivity
 import com.tortugapower.audiobookplayer.R
@@ -117,10 +119,14 @@ class TaskConcurrencyServiceHost : Service() {
         // START_STICKY that used to be a crash LOOP (Play pre-launch review hit it: BOOKPLAYER-9).
         // Degrade instead: stop cleanly (which also satisfies the startForegroundService
         // obligation) and let the next explicit start retry once the budget resets.
+        // Breadcrumb, not a log: "Bad notification for startForeground" (Sentry ANDROID-BOOKPLAYER-1E)
+        // carries no cause on Android 12+, so the crash has to say which service was promoting.
+        Sentry.addBreadcrumb(Breadcrumb.info("promote TaskConcurrencyServiceHost").apply { category = "fgs" })
         try {
             startForeground(NOTIFICATION_ID, createNotification("Starting sync..."))
         } catch (e: IllegalStateException) {
             Log.w(TAG, "Foreground promotion denied (dataSync budget exhausted?): ${e.message}")
+            Sentry.addBreadcrumb(Breadcrumb.info("promotion denied: ${e.message}").apply { category = "fgs" })
             // Cleared BEFORE stopping (same as the idle-stop/onTimeout paths, and the Wear host's
             // twin catch): a waker start() during teardown must not be skipped by the fast-path.
             isAlive = false

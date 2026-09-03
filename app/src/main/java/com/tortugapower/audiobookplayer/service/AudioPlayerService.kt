@@ -27,6 +27,8 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.CoverArtResolver
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import io.sentry.Breadcrumb
+import io.sentry.Sentry
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -56,6 +58,22 @@ class AudioPlayerService : MediaPlaybackService() {
     }
 
     override fun createSessionCallback(): MediaLibrarySession.Callback = CustomMediaLibrarySessionCallback()
+
+    /**
+     * media3 promotes this service with the media notification from here. "Bad notification for
+     * startForeground" (Sentry ANDROID-BOOKPLAYER-1E) carries no cause on Android 12+, so leave a
+     * breadcrumb on every promotion attempt: the next report will at least say which notification
+     * was being posted.
+     */
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        if (startInForegroundRequired) {
+            Sentry.addBreadcrumb(
+                Breadcrumb.info("promote AudioPlayerService (media notification, playing=${session.player.isPlaying})")
+                    .apply { category = "fgs" }
+            )
+        }
+        super.onUpdateNotification(session, startInForegroundRequired)
+    }
 
     override fun onSessionReady() {
         // Keep Android Auto's Recent tab fresh: Auto caches a browse node's children, so when the playing
