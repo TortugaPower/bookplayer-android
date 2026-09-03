@@ -72,7 +72,8 @@ sealed class ConnectionError {
          */
         fun fromResponse(code: Int, body: String?): ConnectionError {
             val text = body?.trim().orEmpty()
-            if (text.isEmpty() || text.length > 200 || text.startsWith("<") || text.startsWith("{")) {
+            // Structured bodies — an HTML error page, a JSON object or array — are never dumped into an alert.
+            if (text.isEmpty() || text.length > 200 || text.startsWith("<") || text.startsWith("{") || text.startsWith("[")) {
                 return UnexpectedResponse(code)
             }
             return ServerMessage(code, text)
