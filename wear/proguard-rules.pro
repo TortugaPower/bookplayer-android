@@ -16,3 +16,9 @@
 # class + Parcelizer, which is not enough. Keep the whole surface (few KB).
 -keep class androidx.wear.ongoing.** { *; }
 -keep class androidx.versionedparcelable.** { *; }
+
+# Move every obfuscated class to the unnamed package: drops package-name strings from the DEX
+# (Play Console "Repackage Classes"; the AGP 9.1 default). Kept classes are untouched, so the
+# ongoing-activity surface above keeps its names AND packages — scripts/audit-mapping.sh proves
+# that on every CI build (the check that would have caught the 100007 rejection).
+-repackageclasses
