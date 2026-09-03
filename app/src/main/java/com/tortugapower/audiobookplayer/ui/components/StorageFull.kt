@@ -43,9 +43,11 @@ import com.tortugapower.audiobookplayer.logic.StorageMonitor
 
 /** Opens the system storage-management UI (the same "Free up space" screen Files/Settings use). */
 fun openStorageSettings(context: Context) {
+    // Most specific first; ACTION_SETTINGS resolves on every device, so the button is never a no-op.
     val candidates = listOf(
         Intent(StorageManager.ACTION_MANAGE_STORAGE),
         Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS),
+        Intent(Settings.ACTION_SETTINGS),
     )
     for (intent in candidates) {
         try {
