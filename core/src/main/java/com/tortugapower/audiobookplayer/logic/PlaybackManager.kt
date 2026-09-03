@@ -46,7 +46,9 @@ object PlaybackManager {
     // Cap the per-process "already attempted remote chapter fetch" dedup set (cleared on overflow).
     private const val REMOTE_ATTEMPT_CAP = 1000
 
-    val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    // Full-disk failures from progress/settings writes are recorded (storage state) instead of
+    // killing the process; every other exception still reaches the default handler.
+    val scope = CoroutineScope(Dispatchers.Main + SupervisorJob() + StorageMonitor.exceptionHandler { appContext })
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var player: Player? = null
         private set
@@ -210,6 +212,29 @@ object PlaybackManager {
     val deviceVolume: StateFlow<Float> = _deviceVolume.asStateFlow()
     private var deviceVolumeControl: DeviceVolume? = null
 
+    private val _playbackBlockedByStorage = MutableStateFlow(false)
+    /**
+     * True after a play attempt was refused, or running playback stopped, because storage is full and
+     * progress could not be saved — the UI explains why. Cleared by [dismissStorageBlock] and when
+     * storage recovers (playback is not resumed automatically).
+     */
+    val playbackBlockedByStorage: StateFlow<Boolean> = _playbackBlockedByStorage.asStateFlow()
+
+    fun dismissStorageBlock() {
+        _playbackBlockedByStorage.value = false
+    }
+
+    /**
+     * Listening progress cannot be saved while the disk is full, so playback is refused rather than
+     * silently losing the user's place. Re-measures first, so a disk the user just freed isn't blocked
+     * by a stale reading.
+     */
+    private fun blockedByStorage(): Boolean {
+        val critical = appContext?.let { StorageMonitor.refresh(it).isCritical } ?: StorageMonitor.isCritical
+        if (critical) _playbackBlockedByStorage.value = true
+        return critical
+    }
+
     /**
      * Current playback position in WHOLE-BOOK ms — already inverted from the (possibly virtualized)
      * session window via [controllerToWholeBookMs], so consumers (PlayerScreen) use it directly with no
@@ -310,6 +335,24 @@ object PlaybackManager {
                 .collect { observed -> if (observed) volumeControl.startObserving() else volumeControl.stopObserving() }
         }
 
+        // Storage full mid-playback (a progress write just failed): stop, and say why. Recovery clears
+        // the explanation but leaves the player paused — the user decides when to resume.
+        scope.launch {
+            StorageMonitor.state
+                .map { it.isCritical }
+                .distinctUntilChanged()
+                .collect { critical ->
+                    if (critical) {
+                        if (player?.isPlaying == true || _isPlaying.value) {
+                            player?.pause()
+                            _playbackBlockedByStorage.value = true
+                        }
+                    } else {
+                        _playbackBlockedByStorage.value = false
+                    }
+                }
+        }
+
         // Seed the external-server header map eagerly (off the main thread), so the runBlocking
         // fallback inside getHeadersForUri stays a cold-restore edge case rather than the norm.
         scope.launch(Dispatchers.IO) {
@@ -358,6 +401,13 @@ object PlaybackManager {
                 // Add listener once
                 mediaController.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
+                        // Play from a surface that bypasses PlaybackManager (notification, Auto, Wear,
+                        // Bluetooth): same rule — no playback while progress can't be saved.
+                        if (playing && StorageMonitor.isCritical) {
+                            mediaController.pause()
+                            _playbackBlockedByStorage.value = true
+                            return
+                        }
                         if (_isPlaying.value == playing) return
                         _isPlaying.value = playing
                         if (!playing) {
@@ -881,6 +931,7 @@ object PlaybackManager {
         isAutoplayTransition: Boolean = false,
     ) {
         lastLoadUserInitiated = autoplay
+        if (autoplay && blockedByStorage()) return
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
             _showPlayerScreen.value = true
@@ -1270,6 +1321,7 @@ object PlaybackManager {
     fun play() {
         val p = player ?: return
         if (isPlaying.value) return
+        if (blockedByStorage()) return
         if (p.playbackState == Player.STATE_IDLE) {
             p.prepare()
         } else if (p.playbackState == Player.STATE_ENDED) {

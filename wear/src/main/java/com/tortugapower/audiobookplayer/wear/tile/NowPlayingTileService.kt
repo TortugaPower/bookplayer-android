@@ -38,7 +38,7 @@ import kotlinx.coroutines.guava.future
  */
 class NowPlayingTileService : TileService() {
 
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob() + com.tortugapower.audiobookplayer.logic.StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull })
 
     override fun onTileRequest(
         requestParams: RequestBuilders.TileRequest,

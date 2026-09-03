@@ -23,7 +23,10 @@ object SubscriptionManager {
     private const val TAG = "SubscriptionManager"
     private var accountRepository: AccountRepository? = null
     private var syncTaskRepository: SyncTaskRepository? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(
+        Dispatchers.IO + kotlinx.coroutines.SupervisorJob() +
+            StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull }
+    )
     private var lastProcessedTier: AccountTier? = null
 
     /**

@@ -589,4 +589,14 @@
     <string name="external_server_missing_title">Server not connected</string>
     <string name="external_server_missing_message">This book streams from your %1$s server. Connect it on this device to play the book.</string>
     <string name="external_server_missing_connect">Connect</string>
+
+    <!-- Storage full (StorageMonitor): launch gate, banner, refused playback -->
+    <string name="storage_full_title">Storage full</string>
+    <string name="storage_full_message">Your device has run out of storage (%1$s free). BookPlayer can’t save your listening progress, so playback, downloads and imports are paused until you free up space.</string>
+    <string name="storage_full_banner">Storage full — playback, sync and imports are paused</string>
+    <string name="storage_low_banner">Not enough storage for a pending download or import</string>
+    <string name="storage_full_playback_blocked">Playback is paused because your listening progress can’t be saved while storage is full (%1$s free). Free up space, then press play again.</string>
+    <string name="storage_full_free_up">Free up space</string>
+    <string name="storage_full_retry">Check again</string>
+    <string name="storage_full_dismiss">OK</string>
 </resources>

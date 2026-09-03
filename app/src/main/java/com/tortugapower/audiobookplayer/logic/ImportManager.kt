@@ -29,7 +29,10 @@ import java.io.FileOutputStream
  * Managed as a singleton via the [ImportManager] object for global access.
  */
 object ImportManager : ImportService {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main +
+            StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull }
+    )
 
     override var importedFiles by mutableStateOf<List<ImportFile>>(emptyList())
         private set
@@ -98,6 +101,19 @@ object ImportManager : ImportService {
                         isFileOnly = true
                     }
 
+                    // Refuse a file that can't fit with headroom to spare: an import that fills the disk
+                    // takes the database down with it. It counts as skipped; the storage banner explains.
+                    val size = try {
+                        context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+                    } catch (e: Exception) {
+                        -1L
+                    }
+                    if (size > 0 && !StorageMonitor.hasRoomFor(context, size)) {
+                        StorageMonitor.noteTransferDoesNotFit(context, size)
+                        currentSkipped++
+                        return@forEach
+                    }
+
                     val destFile = ImportArchiveUtils.uniqueDestination(backupDir, fileName)
 
                     try {
@@ -108,6 +124,8 @@ object ImportManager : ImportService {
                         }
                         newFiles.add(ImportFile(destFile.name, destFile, isFileOnly = isFileOnly))
                     } catch (e: Exception) {
+                        StorageMonitor.reportFailure(context, e) // ENOSPC mid-copy: storage state, not a silent skip
+                        destFile.delete()
                         e.printStackTrace()
                     }
                 }

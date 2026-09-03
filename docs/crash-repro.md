@@ -134,12 +134,60 @@ What the bump changed for us (1.7.1 → 1.11.0):
 Smoke after the bump: phone playback, media notification, media-button seek/pause on the emulator;
 **Wear crown volume + ongoing activity, and Android Auto, still need a manual pass** on real hardware.
 
+### ANDROID-BOOKPLAYER-12 / -10 / -1D / -1G / -S / -V — device out of storage
+
+Six groups, one condition. Two shapes: `SQLITE_IOERR_SHMSIZE` on `PRAGMA journal_mode` is the
+database failing to *open* (SQLite can't size its WAL shared-memory file at zero bytes free — every
+launch dies); `SQLiteFullException` / `ENOSPC` is a write failing while the app runs (a progress
+tick, a settings save, a download). Storage most often fills *while* the app runs, so the guard has
+two layers sharing one state, `StorageMonitor` (`:core`):
+
+- **Measured**: free bytes on the app's data volume at launch, on resume, before any transfer of
+  known size, and every 10 s while the state is short. Below 32 MB is *critical*.
+- **Observed**: a write that failed for lack of space (recognised anywhere in the cause chain) flips
+  the state to critical and stays sticky until a later measurement sees 64 MB free again.
+
+What the state drives: `MainActivity` shows the storage screen instead of the app when critical at
+launch (nothing touches the database); `MainScreen` shows a banner; the sync engine runs nothing
+while critical and holds downloads while a transfer is known not to fit (`StoragePolicy`); downloads
+and imports pre-flight their size against free space with a 64 MB reserve; **playback is refused, and
+running playback is paused, while critical** — listening progress can't be saved, and losing the
+user's place is not acceptable; a dialog explains. Every long-lived coroutine scope that writes
+(`PlaybackManager`, the sync engine and host, statistics, settings, imports, Wear publishers,
+widget, shortcuts) runs under `StorageMonitor.exceptionHandler`: a full-disk failure is recorded, any
+other exception still crashes as before. The unused WorkManager dependency is gone — its auto-init
+wrote to its own database at process start and was the first thing to die at zero bytes free.
+
+Recipes (`scripts/chaos/fill-disk.sh`; note the root-vs-app free-space difference in its header):
+
+```
+# launch with no free space → storage screen, no exit; free space → "Check again" restarts the app
+adb shell "run-as com.tortugapower.audiobookplayer sh -c 'rm -f databases/bookplayer.db-shm databases/bookplayer.db-wal'"
+scripts/chaos/fill-disk.sh fill; <launch>; scripts/chaos/fill-disk.sh free
+# free space runs out during playback → paused within one progress tick (≤10 s), dialog, media-key play refused;
+# free space → banner clears within 10 s, play works again
+<play a book>; scripts/chaos/fill-disk.sh fill; …; scripts/chaos/fill-disk.sh free
+# an import that would leave less than the reserve is refused (stage the file, then leave ~70 MB app-visible)
+scripts/chaos/fill-disk.sh fill 214000; <open the file>; scripts/chaos/fill-disk.sh free
+```
+
+Verified 2026-09-03 on `bp-lowend-31`: before, launch at zero bytes died (`SQLiteFullException` on
+WorkManager's `WM.task-1`, then `SQLITE_IOERR_SHMSIZE` from the account flow); after, all three
+recipes complete with no process exit. The recovery restart was also exercised under load ("Check
+again" → `recreate()` → sync host start, with an import fired straight after): the host was created
+200 ms after the tap and promoted at once. While gated, a handful of startup scopes still touch the
+database once each and log `A write failed because storage is full` — that is the handler doing its
+job, not a leak. Unit tests: `StorageMonitorTest` (classification of the
+Sentry shapes, thresholds, hysteresis, the handler forwarding non-storage errors),
+`StoragePolicyTest`. Not covered yet: writes launched from ViewModel scopes (rename, delete, bookmarks)
+while the disk is full — the banner appears within one heartbeat, but a write racing it can still
+throw; a repository-level guard is the follow-up.
+
 ### Not yet scripted
 
 | Issue | Planned recipe |
 |---|---|
-| -12 / -10 / -S / -V storage full | `fallocate` in `/data/local/tmp` until a few MB remain; run sync, import and a playback statistics tick. |
-| -1H / -X sync-host promotion timeout | `bp-lowend-31`, 500-item library, cold start; or a debug flag blocking the main thread 12 s after launch. |
+| -1H / -X sync-host promotion timeout | `bp-lowend-31`, 500-item library, cold start; or a debug flag blocking the main thread 12 s after launch. The host now promotes before opening the database (hardening, not a verified fix). Beware the false positive: freeing a multi-GB *written* fill file freezes the emulator's storage for minutes and any pending host start then "times out" — `fill-disk.sh` keeps a ballast for that reason. |
 
 ## Sentry conventions
 
