@@ -19,7 +19,9 @@ class TaskConcurrencyManager(
     private var maxQueues: Int = 3
 ) : TaskConcurrencyService {
 
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    // A full disk turns the engine's own bookkeeping writes into SQLiteFullException; those are
+    // recorded (and the storage state flips) instead of killing the process.
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + StorageMonitor.exceptionHandler { context })
     private var collectorJob: Job? = null
     private var isProcessing = false
 
@@ -91,14 +93,18 @@ class TaskConcurrencyManager(
                         // SKIPPED (not the whole queue) while held on cellular, so a user-triggered
                         // download sharing this queue still runs; the skipped uploads wait for Wi-Fi.
                         val pending = repository.getTasksInQueueByStatus(queueKey, SyncTaskStatus.PENDING)
+                        // Storage: nothing runs while the disk is critically full (every task ends in a
+                        // DB write), and file downloads wait while a transfer is known not to fit. The
+                        // host is restarted when storage recovers (see the app's StorageMonitor observer).
+                        val runnable = StoragePolicy.runnable(pending, StorageMonitor.state.value)
                         // Only pay for the settings/connectivity check when this queue actually holds a
                         // file upload that could be gated.
-                        if (pending.any { UploadDataPolicy.isFileUploadJob(it.jobType) } &&
+                        if (runnable.any { UploadDataPolicy.isFileUploadJob(it.jobType) } &&
                             UploadDataPolicy.shouldHoldUploads(context)
                         ) {
-                            pending.firstOrNull { !UploadDataPolicy.isFileUploadJob(it.jobType) }
+                            runnable.firstOrNull { !UploadDataPolicy.isFileUploadJob(it.jobType) }
                         } else {
-                            pending.firstOrNull()
+                            runnable.firstOrNull()
                         }
                     }
 
