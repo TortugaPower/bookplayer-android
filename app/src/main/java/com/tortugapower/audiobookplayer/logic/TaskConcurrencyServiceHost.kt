@@ -105,6 +105,29 @@ class TaskConcurrencyServiceHost : Service() {
         isAlive = true
         createNotificationChannel()
 
+        // Promote FIRST. startForegroundService() gives us a few seconds to call startForeground(),
+        // measured from the start request — and this runs on the main thread, which may be busy with
+        // a recreate or an import sheet when the request lands (storage recovery, a waker start).
+        // Opening the database and building the processors below used to come first; on a congested
+        // main thread that overran the deadline: ForegroundServiceDidNotStartInTimeException
+        // (Sentry ANDROID-BOOKPLAYER-1H / -X, reproduced on the emulator).
+        //
+        // Android 15 gives dataSync services a 6h/day budget; once it's exhausted this throws
+        // ForegroundServiceStartNotAllowedException ("time limit already exhausted") — and with
+        // START_STICKY that used to be a crash LOOP (Play pre-launch review hit it: BOOKPLAYER-9).
+        // Degrade instead: stop cleanly (which also satisfies the startForegroundService
+        // obligation) and let the next explicit start retry once the budget resets.
+        try {
+            startForeground(NOTIFICATION_ID, createNotification("Starting sync..."))
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "Foreground promotion denied (dataSync budget exhausted?): ${e.message}")
+            // Cleared BEFORE stopping (same as the idle-stop/onTimeout paths, and the Wear host's
+            // twin catch): a waker start() during teardown must not be skipped by the fast-path.
+            isAlive = false
+            stopSelf()
+            return
+        }
+
         val db = AppDatabase.getDatabase(this)
         val repository = RoomSyncTaskRepository(db.syncTaskDao())
         val accountRepository = com.tortugapower.audiobookplayer.repository.RoomAccountRepository(db.accountDao())
@@ -142,22 +165,6 @@ class TaskConcurrencyServiceHost : Service() {
         // Resume cellular-held uploads promptly when the network changes (e.g. Wi-Fi returns).
         connectivityManager = (getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager)?.also {
             runCatching { it.registerDefaultNetworkCallback(networkCallback) }
-        }
-
-        // Android 15 gives dataSync services a 6h/day budget; once it's exhausted this throws
-        // ForegroundServiceStartNotAllowedException ("time limit already exhausted") — and with
-        // START_STICKY that used to be a crash LOOP (Play pre-launch review hit it: BOOKPLAYER-9).
-        // Degrade instead: stop cleanly (which also satisfies the startForegroundService
-        // obligation) and let the next explicit start retry once the budget resets.
-        try {
-            startForeground(NOTIFICATION_ID, createNotification("Starting sync..."))
-        } catch (e: IllegalStateException) {
-            Log.w(TAG, "Foreground promotion denied (dataSync budget exhausted?): ${e.message}")
-            // Cleared BEFORE stopping (same as the idle-stop/onTimeout paths, and the Wear host's
-            // twin catch): a waker start() during teardown must not be skipped by the fast-path.
-            isAlive = false
-            stopSelf()
-            return
         }
 
         // Observe account changes to update NetworkClient token
