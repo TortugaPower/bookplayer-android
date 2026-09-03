@@ -110,7 +110,12 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
 - **Sentry reporting** is on for `prod` builds only; a `dev` build reports only with
   `SENTRY_DEV_REPORTING=true` in `local.properties` (keeps emulator reproductions out of the issue list).
 - **Release signing** comes from a gitignored `keystore.properties`; absent it, release builds unsigned.
-- **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest`, `lintDevDebug` on JDK 17.
+- **Release R8 config** (`app`/`wear` `proguard-rules.pro` + `gradle.properties`): full mode, optimized
+  resource shrinking and `-repackageclasses`. Anything another process resolves **by class name**
+  (manifest components, Room `_Impl`, the Wear ongoing-activity surface) needs a keep rule AND an
+  entry in `scripts/audit-mapping.sh`, which fails CI when such a class is renamed or moved.
+- **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest`, `lintDevDebug`, then an
+  unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17.
 
 ## Conventions
 
