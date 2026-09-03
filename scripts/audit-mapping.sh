@@ -26,8 +26,13 @@ set -euo pipefail
 MODULE=${1:?usage: audit-mapping.sh <app|wear> [mapping.txt]}
 MAPPING=${2:-$MODULE/build/outputs/mapping/prodRelease/mapping.txt}
 [ -f "$MAPPING" ] || { echo "no mapping at $MAPPING — build the prodRelease variant first"; exit 2; }
-MANIFEST=$(ls "$MODULE"/build/intermediates/merged_manifests/prodRelease/*/AndroidManifest.xml 2>/dev/null | head -1)
-[ -n "$MANIFEST" ] || { echo "no merged manifest under $MODULE/build/intermediates/merged_manifests/prodRelease"; exit 2; }
+# Resolved with a nullglob array rather than `ls`: under `set -euo pipefail` a failing `ls` inside
+# the substitution would abort the script before the guard below could print its message.
+shopt -s nullglob
+MANIFESTS=("$MODULE"/build/intermediates/merged_manifests/prodRelease/*/AndroidManifest.xml)
+shopt -u nullglob
+MANIFEST=${MANIFESTS[0]:-}
+[ -n "$MANIFEST" ] || { echo "no merged manifest under $MODULE/build/intermediates/merged_manifests/prodRelease — build the prodRelease variant first"; exit 2; }
 
 python3 - "$MODULE" "$MAPPING" "$MANIFEST" <<'PY'
 import re, sys, xml.etree.ElementTree as ET
