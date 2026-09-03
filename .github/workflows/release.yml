@@ -103,6 +103,11 @@ jobs:
         run: ./gradlew :app:bundleProdRelease :wear:bundleProdRelease --stacktrace
 
       # The bundles stay downloadable from the run even if the Play upload below fails.
+      # Nothing reaches Play if a class another process resolves by name lost its name (see
+      # scripts/audit-mapping.sh — the check that would have caught the 1.1.2 wear rejection).
+      - name: Audit R8 mapping (cross-process keeps)
+        run: scripts/audit-mapping.sh app && scripts/audit-mapping.sh wear
+
       - name: Attach bundles to the run
         uses: actions/upload-artifact@v4
         with:

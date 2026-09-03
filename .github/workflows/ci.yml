@@ -45,3 +45,9 @@ jobs:
       # signing attaches only when the keystore exists, Sentry upload skips without a token).
       - name: Assemble minified prodRelease (unsigned)
         run: ./gradlew :app:assembleProdRelease :wear:assembleProdRelease --stacktrace
+
+      # Classes another process resolves BY NAME (manifest components, Room's _Impl, the Wear
+      # ongoing-activity surface) must survive R8 with their names and packages intact. Play review
+      # was the only thing that caught the 1.1.2 wear rejection; this catches it on the PR.
+      - name: Audit R8 mapping (cross-process keeps)
+        run: scripts/audit-mapping.sh app && scripts/audit-mapping.sh wear
