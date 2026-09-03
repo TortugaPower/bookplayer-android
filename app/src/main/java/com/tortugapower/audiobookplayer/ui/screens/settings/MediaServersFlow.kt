@@ -25,7 +25,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.tortugapower.audiobookplayer.network.ConnectionResult
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -52,6 +51,8 @@ import com.tortugapower.audiobookplayer.viewmodel.ExternalLibraryViewModelFactor
 import com.tortugapower.audiobookplayer.viewmodel.ExternalServerViewModel
 import com.tortugapower.audiobookplayer.viewmodel.ExternalServerViewModelFactory
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
+import com.tortugapower.audiobookplayer.ui.screens.settings.connection.ConnectionFlowSheet
+import com.tortugapower.audiobookplayer.viewmodel.ConnectionFlowMode
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
 import kotlinx.coroutines.launch
 
@@ -61,7 +62,9 @@ fun MediaServersFlow(
     externalServerRepository: ExternalServerRepository,
     externalLibraryRepository: ExternalLibraryRepository,
     importViewModel: ImportViewModel,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    /** Opens the add-server flow for this integration right away (the "connect your server" prompt). */
+    initialAddServerType: com.tortugapower.audiobookplayer.database.entities.ExternalServiceType? = null,
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
@@ -94,6 +97,8 @@ fun MediaServersFlow(
             ) {
                 MediaServersScreen(
                     viewModel = externalServerViewModel,
+                    externalServerRepository = externalServerRepository,
+                    initialAddServerType = initialAddServerType,
                     onBack = onDismiss,
                     onServerClick = { server ->
                         val encodedName = android.net.Uri.encode(server.name)
@@ -155,50 +160,18 @@ fun MediaServersFlow(
                         val servers by externalServerViewModel.servers.collectAsState()
                         val expiredServer = servers.find { it.id == serverId }
                         if (expiredServer != null) {
-                            var isConnecting by remember { mutableStateOf(false) }
-                            var connectionError by remember { mutableStateOf<ConnectionResult.Failure?>(null) }
-                            val errorDisplayMessage = connectionError?.let { error ->
-                                error.messageResId?.let { resId ->
-                                    stringResource(id = resId, *(error.args?.toTypedArray() ?: emptyArray()))
-                                } ?: error.message
-                            }
-
-                            AddServerSheet(
+                            // Same flow as Add Server, prefilled from the saved row (URL editable — a
+                            // server that moved host updates its row instead of forking). The saved
+                            // row is written before SignedIn fires, so the reload reads the new token.
+                            ConnectionFlowSheet(
                                 type = expiredServer.type,
-                                isConnecting = isConnecting,
-                                errorMessage = errorDisplayMessage,
-                                initialUrl = expiredServer.url,
-                                initialUsername = expiredServer.username.orEmpty(),
-                                initialHeaders = expiredServer.customHeaders,
-                                lockUrl = true,
-                                onDismiss = {
+                                mode = ConnectionFlowMode.Reauth(expiredServer),
+                                externalServerRepository = externalServerRepository,
+                                onDismiss = { showReauthSheet = false },
+                                onSignedIn = {
                                     showReauthSheet = false
-                                    connectionError = null
+                                    extLibViewModel.retryAfterReauth()
                                 },
-                                onConnect = { name, url, username, password, headers ->
-                                    scope.launch {
-                                        isConnecting = true
-                                        connectionError = null
-                                        val result = externalServerViewModel.testConnection(expiredServer.type, url, username, password, headers)
-                                        isConnecting = false
-
-                                        when (result) {
-                                            is ConnectionResult.Success -> {
-                                                // The canonical-URL+username dedup replaces the
-                                                // existing row (same id, selectedLibraryId kept).
-                                                // join() so the reload below reads the new token.
-                                                externalServerViewModel
-                                                    .addServer(result.name ?: name, expiredServer.type, url, username, result.token, headers, result.stableId, result.userId, replacingId = expiredServer.id)
-                                                    .join()
-                                                showReauthSheet = false
-                                                extLibViewModel.retryAfterReauth()
-                                            }
-                                            is ConnectionResult.Failure -> {
-                                                connectionError = result
-                                            }
-                                        }
-                                    }
-                                }
                             )
                         }
                     }

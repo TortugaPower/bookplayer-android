@@ -290,10 +290,16 @@
     <string name="media_servers_custom_headers_section_title">カスタムヘッダー</string>
 
     <!-- Add Server Sheet -->
+    <string name="media_servers_address_scheme_label">接続タイプ</string>
+    <string name="media_servers_address_host_label">ホスト</string>
+    <string name="media_servers_address_port_label">ポート</string>
+    <string name="media_servers_name_section_title">名前</string>
+    <string name="media_servers_password_signin_button">ユーザ名とパスワード</string>
+    <string name="media_servers_headers_detail_footer">これらのヘッダーは、このサーバーへのすべてのリクエストに付加されます。サーバーアドレス画面で編集できます。</string>
+    <string name="media_servers_sso_button">SSOでサインイン</string>
+    <string name="media_servers_quick_connect_button">Quick Connect を使用</string>
     <string name="media_servers_add_server_connect_button">接続</string>
     <string name="media_servers_add_server_sign_in_button">サインイン</string>
-    <string name="media_servers_add_server_url_label">サーバー URL</string>
-    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">カスタム HTTP ヘッダー</string>
     <string name="media_servers_add_server_header_name_placeholder">ヘッダー名</string>
     <string name="media_servers_add_server_header_value_placeholder">ヘッダー値</string>
@@ -301,7 +307,6 @@
     <string name="media_servers_add_server_headers_description">ここに追加されたヘッダーは、このサーバーに送信されるすべてのリクエストに添付されます。</string>
     <string name="media_servers_add_server_username_placeholder">ユーザー名</string>
     <string name="media_servers_add_server_password_placeholder">パスワード</string>
-    <string name="media_servers_add_server_connect_to_server">あなたの%1$sサーバーに接続</string>
     <string name="media_servers_error_server_not_found">サーバーが見つかりません</string>
     <string name="media_servers_error_failed_to_fetch_library">ライブラリを取得できませんでした</string>
     <string name="media_servers_error_session_expired">%1$s のセッションの有効期限が切れました。続行するには再度サインインしてください。</string>

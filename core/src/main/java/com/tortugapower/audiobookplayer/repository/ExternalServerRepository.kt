@@ -2,6 +2,7 @@ package com.tortugapower.audiobookplayer.repository
 
 import com.tortugapower.audiobookplayer.database.dao.ExternalServerDao
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
@@ -17,12 +18,14 @@ class ExternalServerRepository(
     private val externalServerDao: ExternalServerDao,
     // Same seam as RoomAccountRepository: the real cipher needs a device Keystore, so tests swap it.
     private val cipher: TokenCipher = KeystoreTokenCipher,
+    // Where decryption runs; tests inject their scheduler so nothing hops to a real thread pool.
+    private val decryptDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     val allServers: Flow<List<ExternalServerEntity>> =
         externalServerDao.getAllServers()
             .map { servers -> servers.map { it.decrypted() } }
             // Keep decryption off the collector's (usually Main) thread.
-            .flowOn(Dispatchers.Default)
+            .flowOn(decryptDispatcher)
 
     suspend fun getServerById(id: Long): ExternalServerEntity? {
         return externalServerDao.getServerById(id)?.decrypted()

@@ -12,7 +12,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -20,21 +19,37 @@ import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
-import com.tortugapower.audiobookplayer.network.ConnectionResult
+import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
+import com.tortugapower.audiobookplayer.ui.screens.settings.connection.ConnectionFlowSheet
+import com.tortugapower.audiobookplayer.viewmodel.ConnectionFlowMode
 import com.tortugapower.audiobookplayer.viewmodel.ExternalServerViewModel
-import kotlinx.coroutines.launch
 import java.util.Locale
 
+/**
+ * The saved media servers, one section per integration, each with an add button. Adding a server
+ * runs the connection flow ([ConnectionFlowSheet]); on success the sheet has already hidden itself
+ * and the new server's library opens through [onServerClick].
+ *
+ * @param initialAddServerType opens the add-server flow for that integration as soon as the screen
+ *   appears — the "connect your server" prompt deep-links here for a synced-down book whose server
+ *   isn't configured on this device.
+ */
 @Composable
 fun MediaServersScreen(
     viewModel: ExternalServerViewModel,
+    externalServerRepository: ExternalServerRepository,
     onBack: () -> Unit,
-    onServerClick: (ExternalServerEntity) -> Unit
+    onServerClick: (ExternalServerEntity) -> Unit,
+    initialAddServerType: ExternalServiceType? = null,
 ) {
     val servers by viewModel.servers.collectAsState()
-    var showAddServerDialog by remember { mutableStateOf<ExternalServiceType?>(null) }
+    var addServerType by remember { mutableStateOf<ExternalServiceType?>(null) }
     var showServerInfo by remember { mutableStateOf<ExternalServerEntity?>(null) }
     var isEditing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(initialAddServerType) {
+        if (initialAddServerType != null) addServerType = initialAddServerType
+    }
 
     Scaffold(
         topBar = {
@@ -72,7 +87,7 @@ fun MediaServersScreen(
                         type = type,
                         servers = servers.filter { it.type == type },
                         isEditing = isEditing,
-                        onAddClick = { showAddServerDialog = type },
+                        onAddClick = { addServerType = type },
                         onDeleteClick = { viewModel.deleteServer(it) },
                         onServerClick = onServerClick,
                         onInfoClick = { showServerInfo = it }
@@ -82,10 +97,6 @@ fun MediaServersScreen(
         }
     }
 
-    val scope = rememberCoroutineScope()
-    var connectionError by remember { mutableStateOf<ConnectionResult.Failure?>(null) }
-    var isConnecting by remember { mutableStateOf(false) }
-
     if (showServerInfo != null) {
         ServerInfoSheet(
             server = showServerInfo!!,
@@ -93,40 +104,17 @@ fun MediaServersScreen(
         )
     }
 
-    val errorDisplayMessage = connectionError?.let { error ->
-        error.messageResId?.let { resId ->
-            stringResource(id = resId, *(error.args?.toTypedArray() ?: emptyArray()))
-        } ?: error.message
-    }
-
-    if (showAddServerDialog != null) {
-        AddServerSheet(
-            type = showAddServerDialog!!,
-            isConnecting = isConnecting,
-            errorMessage = errorDisplayMessage,
-            onDismiss = { 
-                showAddServerDialog = null
-                connectionError = null
+    addServerType?.let { type ->
+        ConnectionFlowSheet(
+            type = type,
+            mode = ConnectionFlowMode.AddServer,
+            externalServerRepository = externalServerRepository,
+            onDismiss = { addServerType = null },
+            onSignedIn = { server ->
+                // The sheet has finished hiding by now, so presenting the library can't race it.
+                addServerType = null
+                onServerClick(server)
             },
-            onConnect = { name, url, username, password, headers ->
-                scope.launch {
-                    isConnecting = true
-                    connectionError = null
-                    val result = viewModel.testConnection(showAddServerDialog!!, url, username, password, headers)
-                    isConnecting = false
-                    
-                    when (result) {
-                        is ConnectionResult.Success -> {
-                            val finalName = result.name ?: name
-                            viewModel.addServer(finalName, showAddServerDialog!!, url, username, result.token, headers, result.stableId, result.userId)
-                            showAddServerDialog = null
-                        }
-                        is ConnectionResult.Failure -> {
-                            connectionError = result
-                        }
-                    }
-                }
-            }
         )
     }
 }
@@ -350,289 +338,3 @@ fun ServerInfoSheet(
         }
     }
 }
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AddServerSheet(
-    type: ExternalServiceType,
-    isConnecting: Boolean,
-    errorMessage: String?,
-    onDismiss: () -> Unit,
-    onConnect: (String, String, String?, String?, Map<String, String>?) -> Unit,
-    // Re-auth mode: prefill from the saved server and start at the credentials step with the
-    // URL locked, so signing in again replaces the token on the same logical server.
-    initialUrl: String = "",
-    initialUsername: String = "",
-    initialHeaders: Map<String, String>? = null,
-    lockUrl: Boolean = false
-) {
-    var url by remember { mutableStateOf(initialUrl) }
-    var username by remember { mutableStateOf(initialUsername) }
-    var password by remember { mutableStateOf("") }
-    val headers = remember {
-        mutableStateListOf<Pair<String, String>>().apply {
-            initialHeaders?.forEach { (k, v) -> add(k to v) }
-        }
-    }
-
-    var currentStep by remember { mutableStateOf(if (lockUrl) 2 else 1) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
-        onDismissRequest = if (isConnecting) ({}) else onDismiss,
-        sheetState = sheetState,
-        dragHandle = null,
-        containerColor = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.fillMaxHeight(0.92f)
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Top Bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(onClick = { if (currentStep == 1 || lockUrl) onDismiss() else currentStep = 1 }, enabled = !isConnecting) {
-                    Text(if (currentStep == 1 || lockUrl) stringResource(id = R.string.common_cancel) else stringResource(id = R.string.common_back), color = MaterialTheme.colorScheme.primary)
-                }
-                
-                Text(
-                    text = if (currentStep == 1) "" else type.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                
-                TextButton(
-                    onClick = {
-                        if (currentStep == 1) {
-                            currentStep = 2
-                        } else {
-                            val headersMap = if (headers.isEmpty()) null else headers.toMap()
-                            val derivedName = android.net.Uri.parse(url).host ?: url
-                            onConnect(derivedName, url, username, password, headersMap)
-                        }
-                    },
-                    enabled = url.isNotBlank() && !isConnecting
-                ) {
-                    Text(if (currentStep == 1) stringResource(id = R.string.media_servers_add_server_connect_button) else stringResource(id = R.string.media_servers_add_server_sign_in_button), color = MaterialTheme.colorScheme.primary)
-                }
-            }
-
-            Column(
-                modifier = Modifier
-                    .padding(16.dp)
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                // Server URL Section (Always visible)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(id = R.string.media_servers_add_server_url_label),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold
-                    )
-                    OutlinedTextField(
-                        value = url,
-                        onValueChange = { url = it },
-                        placeholder = { Text(stringResource(id = R.string.media_servers_add_server_url_placeholder)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        trailingIcon = {
-                            if (url.isNotEmpty()) {
-                                IconButton(onClick = { url = "" }) {
-                                    Icon(Icons.Default.Close, contentDescription = stringResource(id = R.string.common_clear), modifier = Modifier.size(18.dp))
-                                }
-                            }
-                        },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            focusedIndicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                            unfocusedIndicatorColor = Color.Transparent
-                        ),
-                        singleLine = true,
-                        enabled = !isConnecting && currentStep == 1
-                    )
-                    if (currentStep == 1) {
-                        Text(
-                            text = stringResource(id = R.string.media_servers_add_server_connect_to_server, type.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-
-                if (currentStep == 1) {
-                    // Step 1: Custom HTTP Headers
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = stringResource(id = R.string.media_servers_add_server_custom_headers_label),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Bold
-                        )
-                        
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column {
-                                headers.forEachIndexed { index, pair ->
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            TextField(
-                                                value = pair.first,
-                                                onValueChange = { newKey -> headers[index] = newKey to pair.second },
-                                                placeholder = { Text(stringResource(id = R.string.media_servers_add_server_header_name_placeholder)) },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                colors = TextFieldDefaults.colors(
-                                                    focusedContainerColor = Color.Transparent,
-                                                    unfocusedContainerColor = Color.Transparent,
-                                                    focusedIndicatorColor = Color.Transparent,
-                                                    unfocusedIndicatorColor = Color.Transparent
-                                                ),
-                                                singleLine = true,
-                                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
-                                            )
-                                            TextField(
-                                                value = pair.second,
-                                                onValueChange = { newVal -> headers[index] = pair.first to newVal },
-                                                placeholder = { Text(stringResource(id = R.string.media_servers_add_server_header_value_placeholder)) },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                colors = TextFieldDefaults.colors(
-                                                    focusedContainerColor = Color.Transparent,
-                                                    unfocusedContainerColor = Color.Transparent,
-                                                    focusedIndicatorColor = Color.Transparent,
-                                                    unfocusedIndicatorColor = Color.Transparent
-                                                ),
-                                                singleLine = true,
-                                                textStyle = MaterialTheme.typography.bodySmall
-                                            )
-                                        }
-                                        IconButton(onClick = { headers.removeAt(index) }) {
-                                            Icon(
-                                                Icons.Default.Delete, 
-                                                contentDescription = stringResource(id = R.string.common_remove), 
-                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f), 
-                                                modifier = Modifier.size(24.dp)
-                                            )
-                                        }
-                                    }
-                                    if (index < headers.size - 1) {
-                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp), thickness = 0.5.dp)
-                                    }
-                                }
-                                
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { 
-                                            headers.add("" to "")
-                                        }
-                                        .padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        Icons.Default.AddCircle, 
-                                        contentDescription = null, 
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text(stringResource(id = R.string.media_servers_add_server_add_header_button), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
-                                }
-                            }
-                        }
-                        
-                        Text(
-                            text = stringResource(id = R.string.media_servers_add_server_headers_description),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-                } else {
-                    // Step 2: Login replaces Headers
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text(
-                            text = stringResource(id = R.string.media_servers_login_section_title),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column {
-                                TextField(
-                                    value = username,
-                                    onValueChange = { username = it },
-                                    placeholder = { Text(stringResource(id = R.string.media_servers_add_server_username_placeholder)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = TextFieldDefaults.colors(
-                                        focusedContainerColor = Color.Transparent,
-                                        unfocusedContainerColor = Color.Transparent,
-                                        focusedIndicatorColor = Color.Transparent,
-                                        unfocusedIndicatorColor = Color.Transparent
-                                    ),
-                                    trailingIcon = {
-                                        if (username.isNotEmpty()) {
-                                            IconButton(onClick = { username = "" }) {
-                                                Icon(Icons.Default.Close, contentDescription = stringResource(id = R.string.common_clear), modifier = Modifier.size(18.dp))
-                                            }
-                                        }
-                                    },
-                                    singleLine = true,
-                                    enabled = !isConnecting
-                                )
-                                HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp), thickness = 0.5.dp)
-                                TextField(
-                                    value = password,
-                                    onValueChange = { password = it },
-                                    placeholder = { Text(stringResource(id = R.string.media_servers_add_server_password_placeholder)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = TextFieldDefaults.colors(
-                                        focusedContainerColor = Color.Transparent,
-                                        unfocusedContainerColor = Color.Transparent,
-                                        focusedIndicatorColor = Color.Transparent,
-                                        unfocusedIndicatorColor = Color.Transparent
-                                    ),
-                                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                                    singleLine = true,
-                                    enabled = !isConnecting
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (errorMessage != null) {
-                    Text(
-                        text = errorMessage,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
-
-                if (isConnecting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .padding(top = 16.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
-
