@@ -53,8 +53,15 @@ fun CustomHeadersEditor(
     /** Rows that won't be sent (see `ConnectionFlowViewModel.droppedHeaderIds`); their key is struck through. */
     dropped: Set<Long> = emptySet(),
 ) {
-    // The strikethrough waits until the row loses focus, so the user doesn't see "crossed-out" text mid-typing.
-    var focusedId by remember { mutableStateOf<Long?>(null) }
+    // The strikethrough waits until the row loses focus, so the user doesn't see "crossed-out" text
+    // mid-typing. Focus is tracked per field (key and value separately): moving between the two fields
+    // of one row is a loss on one and a gain on the other in no guaranteed order, so a single shared id
+    // could clear and flash the hint for a frame.
+    var focusedFields by remember { mutableStateOf(emptySet<FocusedField>()) }
+    fun Modifier.trackFocus(id: Long, isKey: Boolean) = onFocusChanged { state ->
+        val field = FocusedField(id, isKey)
+        focusedFields = if (state.isFocused) focusedFields + field else focusedFields - field
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FlowSectionLabel(stringResource(R.string.media_servers_add_server_custom_headers_label))
@@ -67,14 +74,15 @@ fun CustomHeadersEditor(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            val struck = entry.id in dropped && focusedId != entry.id
+                            val rowFocused = focusedFields.any { it.id == entry.id }
+                            val struck = entry.id in dropped && !rowFocused
                             TextField(
                                 value = entry.key,
                                 onValueChange = { onChange(entry.id, it, entry.value) },
                                 placeholder = { Text(stringResource(R.string.media_servers_add_server_header_name_placeholder)) },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .onFocusChanged { if (it.isFocused) focusedId = entry.id else if (focusedId == entry.id) focusedId = null },
+                                    .trackFocus(entry.id, isKey = true),
                                 colors = transparentFieldColors(),
                                 singleLine = true,
                                 enabled = enabled,
@@ -90,7 +98,7 @@ fun CustomHeadersEditor(
                                 placeholder = { Text(stringResource(R.string.media_servers_add_server_header_value_placeholder)) },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .onFocusChanged { if (it.isFocused) focusedId = entry.id else if (focusedId == entry.id) focusedId = null },
+                                    .trackFocus(entry.id, isKey = false),
                                 colors = transparentFieldColors(),
                                 singleLine = true,
                                 enabled = enabled,
@@ -142,6 +150,9 @@ fun CustomHeadersEditor(
         )
     }
 }
+
+/** One focused text field of a header row: the row's id plus which of its two fields it is. */
+private data class FocusedField(val id: Long, val isKey: Boolean)
 
 @Composable
 fun transparentFieldColors() = TextFieldDefaults.colors(
