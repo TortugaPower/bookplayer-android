@@ -32,8 +32,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.browser.auth.AuthTabIntent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +47,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
@@ -72,15 +79,33 @@ fun ConnectionFlowSheet(
     onDismiss: () -> Unit,
     onSignedIn: (ExternalServerEntity) -> Unit,
 ) {
+    val context = LocalContext.current
+    // The browser that can run the SSO leg (Auth Tab), or null — a hard requirement the routing consumes.
+    // Resolved off the composition pass: the lookup is a handful of PackageManager binder calls, and the
+    // answer is only needed once the user taps Connect, so the view model reads it lazily.
+    val ssoProvider by produceState<String?>(initialValue = null, context) {
+        value = withContext(Dispatchers.Default) { SsoAvailability.authTabProvider(context.applicationContext) }
+    }
     val reauthId = (mode as? ConnectionFlowMode.Reauth)?.server?.id
     val viewModel: ConnectionFlowViewModel = viewModel(
         key = "ConnectionFlow-$type-${reauthId ?: "add"}",
-        factory = ConnectionFlowViewModelFactory(type, mode, externalServerRepository)
+        factory = ConnectionFlowViewModelFactory(type, mode, externalServerRepository, ssoAvailableOnDevice = { ssoProvider != null })
     )
     val state by viewModel.uiState.collectAsState()
     val navController = rememberNavController()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val keyboard = LocalSoftwareKeyboardController.current
+
+    // The Auth Tab returns through the activity-result API, which only a composable (or Activity) can
+    // register for — so the authenticator lives here and is handed to the view model.
+    val webAuthenticator = remember(ssoProvider) { ssoProvider?.let { AuthTabWebAuthenticator(context.applicationContext, it) } }
+    val authLauncher = rememberLauncherForActivityResult(AuthTabIntent.AuthenticateUserResultContract()) { result ->
+        webAuthenticator?.deliver(result)
+    }
+    LaunchedEffect(webAuthenticator, authLauncher) {
+        webAuthenticator?.launcher = authLauncher
+        viewModel.attachWebAuthenticator(webAuthenticator)
+    }
 
     fun dismiss() {
         // Leaving the flow: stop anything in flight and forget the form, so the next presentation

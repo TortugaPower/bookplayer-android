@@ -167,6 +167,7 @@ dependencies {
     implementation(libs.androidx.core.splashscreen)
 
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.browser) // Auth Tab: the SSO browser leg (AuthTabWebAuthenticator)
     implementation(libs.androidx.material.icons.extended)
 
     implementation(libs.gson)
