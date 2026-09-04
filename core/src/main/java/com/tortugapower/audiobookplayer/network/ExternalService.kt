@@ -23,6 +23,13 @@ interface ExternalService {
     suspend fun getLibraries(url: String, token: String, headers: Map<String, String>? = null): List<ExternalLibraryInfo>
 
     suspend fun getLibrary(url: String, token: String, startIndex: Int = 0, limit: Int = 50, headers: Map<String, String>? = null, libraryId: String? = null): LibraryResult
+    /**
+     * The REAL audio file extension (no leading dot) of each requested item, keyed by the item's id on the
+     * server. List responses don't carry audio-file metadata, so a virtual import hydrates its selection
+     * through this before naming anything; an id absent from the result has no audio file the server
+     * knows about and is skipped — an extension is never guessed. Mirrors iOS's `fetchItems(ids:)`.
+     */
+    suspend fun getFileExtensions(url: String, token: String, ids: List<String>, headers: Map<String, String>? = null): Map<String, String>
     suspend fun getStreamUrl(url: String, token: String, item: LibraryItemEntity): String
     suspend fun getThumbnailUrl(url: String, token: String, item: LibraryItemEntity): String?
 

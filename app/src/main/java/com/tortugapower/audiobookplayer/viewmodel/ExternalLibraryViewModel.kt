@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
+import com.tortugapower.audiobookplayer.logic.VirtualImportManager
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
 import com.tortugapower.audiobookplayer.network.ExternalLibraryInfo
 import com.tortugapower.audiobookplayer.network.SessionExpiredException
@@ -203,6 +204,38 @@ class ExternalLibraryViewModel(
         } else {
             loadMore()
         }
+    }
+
+    /**
+     * A selection ready to stage as stream imports: the items the server reported a REAL audio file
+     * extension for, named `<title>.<ext>` as iOS names them, plus how many were left out for having none.
+     */
+    data class ImportSelection(val items: List<ExternalLibraryItem>, val skippedWithoutAudio: Int)
+
+    /**
+     * iOS parity (`VirtualImportPipeline`): list responses don't carry audio-file metadata, so the
+     * selection is hydrated for its REAL file extensions and items without one are skipped — an extension
+     * is never guessed. Null when the server couldn't be asked; the failure is in [error] (or the session
+     * expiry in [sessionExpiredServerName]) for the screen's alert.
+     */
+    suspend fun prepareStreamImport(items: List<ExternalLibraryItem>): ImportSelection? {
+        val currentServer = server ?: return null
+        val extensions = try {
+            libraryRepository.getFileExtensions(currentServer, items.map { it.entity.uuid })
+        } catch (e: SessionExpiredException) {
+            _sessionExpiredServerName.value = currentServer.name
+            return null
+        } catch (e: Exception) {
+            _error.value = e.message?.let { UiText.DynamicString(it) }
+                ?: UiText.StringResource(R.string.media_servers_error_failed_to_fetch_library)
+            return null
+        }
+        val hydrated = items.mapNotNull { item ->
+            extensions[item.entity.uuid]?.let { extension ->
+                item.copy(entity = item.entity.copy(originalFileName = VirtualImportManager.importFileName(item.entity.title, extension)))
+            }
+        }
+        return ImportSelection(hydrated, items.size - hydrated.size)
     }
 
     suspend fun getStreamUrl(item: LibraryItemEntity): String {

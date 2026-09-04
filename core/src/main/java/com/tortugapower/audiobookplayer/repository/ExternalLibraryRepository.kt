@@ -17,6 +17,12 @@ open class ExternalLibraryRepository {
             ?: com.tortugapower.audiobookplayer.network.LibraryResult(emptyList(), 0)
     }
 
+    /** See [com.tortugapower.audiobookplayer.network.ExternalService.getFileExtensions]; empty without a token to ask with. */
+    open suspend fun getFileExtensions(server: ExternalServerEntity, ids: List<String>): Map<String, String> {
+        val service = ExternalServiceFactory.getService(server.type)
+        return server.token?.let { service.getFileExtensions(server.url, it, ids, server.customHeaders) } ?: emptyMap()
+    }
+
     suspend fun getStreamUrl(server: ExternalServerEntity, item: LibraryItemEntity): String {
         val service = ExternalServiceFactory.getService(server.type)
         return server.token?.let { service.getStreamUrl(server.url, it, item) } ?: ""

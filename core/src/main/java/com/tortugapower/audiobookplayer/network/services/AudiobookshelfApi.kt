@@ -41,6 +41,16 @@ interface AudiobookshelfApi {
         @Query("include") include: String = "media"
     ): Response<AudiobookshelfItemsResponse>
 
+    /**
+     * Expanded items for exact ids, in one round-trip — list endpoints return MINIFIED items without
+     * `audioFiles`, and virtual import needs the REAL file extension.
+     */
+    @POST("api/items/batch/get")
+    suspend fun getItemsBatch(
+        @Header("Authorization") auth: String,
+        @Body request: AudiobookshelfBatchItemsRequest
+    ): Response<AudiobookshelfBatchItemsResponse>
+
     @PATCH("api/me/progress/{id}")
     suspend fun updateProgress(
         @Header("Authorization") auth: String,
@@ -132,7 +142,17 @@ data class AudiobookshelfAudioFile(
 )
 
 data class AudiobookshelfFileMetadata(
-    @SerializedName("filename") val filename: String?
+    @SerializedName("filename") val filename: String?,
+    /** The file's extension WITH its leading dot, as the server reports it (`".m4b"`). */
+    @SerializedName("ext") val ext: String? = null
+)
+
+data class AudiobookshelfBatchItemsRequest(
+    @SerializedName("libraryItemIds") val libraryItemIds: List<String>
+)
+
+data class AudiobookshelfBatchItemsResponse(
+    @SerializedName("libraryItems") val libraryItems: List<AudiobookshelfItem>?
 )
 
 data class AudiobookshelfMetadata(

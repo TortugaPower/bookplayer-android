@@ -175,6 +175,8 @@ fun ExternalLibraryScreen(
     // Selection captured when Stream is tapped without a subscription, so the import can proceed
     // once the lite flow ends in a subscription.
     var pendingStreamItems by remember { mutableStateOf<List<ExternalLibraryItem>>(emptyList()) }
+    var showNoAudioAlert by remember { mutableStateOf(false) }
+    if (showNoAudioAlert) NoAudioFilesDialog(onDismiss = { showNoAudioAlert = false })
     var showLiteSheet by remember { mutableStateOf(false) }
     var showLiteAuthSheet by remember { mutableStateOf(false) }
     var showLitePaywall by remember { mutableStateOf(false) }
@@ -188,13 +190,24 @@ fun ExternalLibraryScreen(
         if (server == null) {
             android.widget.Toast.makeText(context, downloadFailedMessage, android.widget.Toast.LENGTH_SHORT).show()
         } else {
-            importViewModel.startStreamImport(
-                context = context,
-                items = itemsToStream,
-                providerName = server.type.name.lowercase(),
-                hostId = ExternalServiceUtils.stableHostId(server)
-            )
-            onActionStarted()
+            scope.launch {
+                // iOS parity: the selection is hydrated for its REAL file extensions first; items the
+                // server reports no audio file for are skipped, never guessed. A failure shows the
+                // library's error alert; a selection with nothing to import gets its own.
+                val selection = viewModel.prepareStreamImport(itemsToStream) ?: return@launch
+                if (selection.items.isEmpty()) {
+                    showNoAudioAlert = true
+                    return@launch
+                }
+                importViewModel.startStreamImport(
+                    context = context,
+                    items = selection.items,
+                    providerName = server.type.name.lowercase(),
+                    hostId = ExternalServiceUtils.stableHostId(server),
+                    skippedWithoutAudio = selection.skippedWithoutAudio
+                )
+                onActionStarted()
+            }
         }
     }
 

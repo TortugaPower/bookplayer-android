@@ -66,6 +66,9 @@ class ExternalLibraryViewModelTest {
         var itemsCalls = 0
         override suspend fun getLibraries(server: ExternalServerEntity): List<ExternalLibraryInfo> { librariesCalls++; return libraries() }
         override suspend fun getLibraryItems(server: ExternalServerEntity, startIndex: Int, limit: Int): LibraryResult { itemsCalls++; return items() }
+        var extensions: (List<String>) -> Map<String, String> = { ids -> ids.associateWith { "m4b" } }
+        val extensionCalls = mutableListOf<List<String>>()
+        override suspend fun getFileExtensions(server: ExternalServerEntity, ids: List<String>): Map<String, String> { extensionCalls += ids; return extensions(ids) }
     }
 
     @Before fun setUp() = runTest(dispatcher) {
@@ -159,5 +162,39 @@ class ExternalLibraryViewModelTest {
 
         assertNull(vm.error.value)
         assertEquals(1, library.itemsCalls)
+    }
+
+    // MARK: - Virtual import hydration (iOS parity: real extensions, never guessed)
+
+    @Test fun `a stream import selection is named title dot real extension and counts the items without one`() = runTest(dispatcher) {
+        library.extensions = { mapOf("a" to "m4b", "b" to ".mp3") }
+        val vm = viewModel()
+        advanceUntilIdle()
+
+        val selection = vm.prepareStreamImport(listOf(item("a"), item("b"), item("c")))!!
+
+        assertEquals(listOf("a.m4b", "b.mp3"), selection.items.map { it.entity.originalFileName })
+        assertEquals("c has no audio file the server knows about", 1, selection.skippedWithoutAudio)
+        assertEquals("one hydration request for the whole selection", listOf(listOf("a", "b", "c")), library.extensionCalls)
+        assertNull(vm.error.value)
+    }
+
+    @Test fun `a failed hydration is the library's error alert, and nothing is staged`() = runTest(dispatcher) {
+        library.extensions = { throw IllegalStateException("server down") }
+        val vm = viewModel()
+        advanceUntilIdle()
+
+        assertNull(vm.prepareStreamImport(listOf(item("a"))))
+        assertEquals("server down", message(vm))
+    }
+
+    @Test fun `an expired session during hydration is the sign-in alert`() = runTest(dispatcher) {
+        library.extensions = { throw SessionExpiredException() }
+        val vm = viewModel()
+        advanceUntilIdle()
+
+        assertNull(vm.prepareStreamImport(listOf(item("a"))))
+        assertEquals("Home", vm.sessionExpiredServerName.value)
+        assertNull(vm.error.value)
     }
 }

@@ -173,6 +173,19 @@ class AudiobookshelfService : ExternalService, SsoCapable {
             }
     }
 
+    override suspend fun getFileExtensions(url: String, token: String, ids: List<String>, headers: Map<String, String>?): Map<String, String> {
+        if (ids.isEmpty()) return emptyMap()
+        val api = getApi(url, headers)
+        val response = api.getItemsBatch(getAuthHeader(token), AudiobookshelfBatchItemsRequest(ids))
+        if (response.code() == 401 || response.code() == 403) throw com.tortugapower.audiobookplayer.network.SessionExpiredException()
+        if (!response.isSuccessful || response.body() == null) {
+            throw Exception("Audiobookshelf API error fetching items: ${response.code()} ${response.message()}")
+        }
+        return response.body()!!.libraryItems.orEmpty()
+            .mapNotNull { item -> fileExtension(item)?.let { item.id to it } }
+            .toMap()
+    }
+
     override suspend fun getLibrary(url: String, token: String, startIndex: Int, limit: Int, headers: Map<String, String>?, libraryId: String?): LibraryResult {
         return try {
             val api = getApi(url, headers)
@@ -255,6 +268,19 @@ class AudiobookshelfService : ExternalService, SsoCapable {
             getApi(url, headers).logout(getAuthHeader(token))
         } catch (e: Exception) {
             android.util.Log.w("AudiobookshelfService", "Failed to revoke token (ignored)", e)
+        }
+    }
+
+    companion object {
+        /**
+         * The REAL extension of the item's first audio file (lowest index), without the leading dot the
+         * server includes; the file name's extension when `ext` is missing. Null when the item has no audio
+         * files — skipped by the importer, never guessed.
+         */
+        fun fileExtension(item: AudiobookshelfItem): String? {
+            val first = item.media?.audioFiles?.minByOrNull { it.index } ?: return null
+            first.metadata?.ext?.trimStart('.')?.takeIf { it.isNotEmpty() }?.let { return it }
+            return first.metadata?.filename?.substringAfterLast('.', "")?.takeIf { it.isNotEmpty() }
         }
     }
 }

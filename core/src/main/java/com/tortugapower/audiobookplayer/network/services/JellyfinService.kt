@@ -211,6 +211,23 @@ class JellyfinService : ExternalService, QuickConnectCapable {
         }
     }
 
+    override suspend fun getFileExtensions(url: String, token: String, ids: List<String>, headers: Map<String, String>?): Map<String, String> {
+        if (ids.isEmpty()) return emptyMap()
+        val api = getApi(url, headers)
+        val authHeader = getAuthHeader(token)
+        val extensions = mutableMapOf<String, String>()
+        // The ids travel in the query string — chunk so a whole-folder import can't overflow the URL.
+        ids.chunked(HYDRATION_CHUNK).forEach { chunk ->
+            val response = api.getItemsByIds(authHeader, chunk.joinToString(","))
+            if (response.code() == 401 || response.code() == 403) throw com.tortugapower.audiobookplayer.network.SessionExpiredException()
+            if (!response.isSuccessful || response.body() == null) {
+                throw Exception("Jellyfin API error fetching items: ${response.code()} ${response.message()}")
+            }
+            response.body()!!.items.forEach { item -> fileExtension(item)?.let { extensions[item.id] = it } }
+        }
+        return extensions
+    }
+
     override suspend fun getLibrary(url: String, token: String, startIndex: Int, limit: Int, headers: Map<String, String>?, libraryId: String?): com.tortugapower.audiobookplayer.network.LibraryResult {
         return try {
             val api = getApi(url, headers)
@@ -278,6 +295,23 @@ class JellyfinService : ExternalService, QuickConnectCapable {
             getApi(url, headers).logout(getAuthHeader(token))
         } catch (e: Exception) {
             android.util.Log.w("JellyfinService", "Failed to revoke token (ignored)", e)
+        }
+    }
+
+    companion object {
+        private const val HYDRATION_CHUNK = 100
+
+        /**
+         * The item's REAL audio extension in iOS's order of trust: the first media source's container
+         * (first entry of a comma list), else the extension of its file path. Null when the server reports
+         * neither — the item has nothing to stream and is skipped, never guessed.
+         */
+        fun fileExtension(item: JellyfinItem): String? {
+            val source = item.mediaSources?.firstOrNull()
+            val container = source?.container?.split(',')?.firstOrNull()?.trim()?.trimStart('.')
+            if (!container.isNullOrEmpty()) return container
+            val fileName = (source?.path ?: item.path)?.substringAfterLast('/')?.substringAfterLast('\\') ?: return null
+            return fileName.substringAfterLast('.', "").takeIf { it.isNotEmpty() }
         }
     }
 }

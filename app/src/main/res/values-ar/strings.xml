@@ -182,6 +182,8 @@
 
     <!-- Import -->
     <string name="import_title">استيراد</string>
+    <string name="import_no_audio_files_alert">العناصر المحددة لا تحتوي على ملفات صوتية لاستيرادها.</string>
+    <string name="import_skipped_no_audio_files">تم تخطي %1$d من العناصر لأنها لا تحتوي على ملفات صوتية</string>
     <string name="import_disclaimer">قد يستغرق نقل الملفات بعض الوقت، يرجى التأكد من اكتمال عدد الملفات قبل المتابعة.</string>
     <string name="import_files_count">%1$d ملفات</string>
 

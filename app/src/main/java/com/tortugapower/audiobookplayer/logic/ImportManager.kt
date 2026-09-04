@@ -46,6 +46,9 @@ object ImportManager : ImportService {
     override var skippedItemsCount by mutableStateOf(0)
         private set
 
+    override var skippedNoAudioCount by mutableIntStateOf(0)
+        private set
+
     override var showImportSheet by mutableStateOf(false)
 
     override var processingFileName by mutableStateOf<String?>(null)
@@ -277,9 +280,11 @@ object ImportManager : ImportService {
         context: Context,
         items: List<com.tortugapower.audiobookplayer.model.ExternalLibraryItem>,
         providerName: String,
-        hostId: String?
+        hostId: String?,
+        skippedWithoutAudio: Int
     ) {
         scope.launch {
+            skippedNoAudioCount += skippedWithoutAudio
             val libraryDao = AppDatabase.getDatabase(context).libraryDao()
 
             // Claimed on Main before suspending, so a second staging of the same items can't race.
@@ -314,7 +319,7 @@ object ImportManager : ImportService {
 
             importedFiles = importedFiles + staged
             skippedItemsCount += currentSkipped
-            if (importedFiles.isNotEmpty() || skippedItemsCount > 0) {
+            if (importedFiles.isNotEmpty() || skippedItemsCount > 0 || skippedNoAudioCount > 0) {
                 showImportSheet = true
             }
         }
@@ -326,6 +331,7 @@ object ImportManager : ImportService {
         if (importedFiles.isEmpty()) {
             showImportSheet = false
             skippedItemsCount = 0
+            skippedNoAudioCount = 0
         }
     }
 
@@ -335,6 +341,7 @@ object ImportManager : ImportService {
         }
         importedFiles = emptyList()
         skippedItemsCount = 0
+        skippedNoAudioCount = 0
         suggestedFolderName = null
         showImportSheet = false
     }
@@ -413,7 +420,11 @@ object ImportManager : ImportService {
                             enqueueSyncTasks = isSubscribed,
                             isPro = isPro
                         )
-                        if (!result.alreadyImported) {
+                        if (result == null) {
+                            // No file name to store it under — staging hydrates the real extension, so
+                            // this only happens if an unhydrated item slipped through. Never guessed.
+                            skippedNoAudioCount++
+                        } else if (!result.alreadyImported) {
                             currentMaxRank = maxOf(currentMaxRank, result.item.orderRank)
                             enqueueHardcoverAutoMatch(context, syncTaskRepository, result.item.uuid)
                         }
