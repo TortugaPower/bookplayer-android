@@ -186,6 +186,25 @@ class ExternalLibraryViewModel(
         viewModelScope.launch { resolveLibrary() }
     }
 
+    fun clearError() {
+        _error.value = null
+    }
+
+    /**
+     * Retry after a generic load failure: re-runs whichever step failed — library resolution when
+     * nothing is resolved yet, otherwise the next page. The iOS alert's Retry does the same.
+     */
+    fun reload() {
+        _error.value = null
+        if (_resolvedLibraryId.value == null) {
+            _noLibraries.value = false
+            _availableLibraries.value = null
+            viewModelScope.launch { resolveLibrary() }
+        } else {
+            loadMore()
+        }
+    }
+
     suspend fun getStreamUrl(item: LibraryItemEntity): String {
         val currentServer = server ?: serverRepository.getServerById(serverId).also { server = it }
         return currentServer?.let { libraryRepository.getStreamUrl(it, item) }.orEmpty()

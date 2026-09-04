@@ -283,6 +283,7 @@
     <string name="media_servers_anonymous_username">Anonyme</string>
 
     <!-- Server Info Sheet -->
+    <string name="media_servers_rename_connection">Renommer la connexion</string>
     <string name="media_servers_connection_details_title">Détails de connexion</string>
     <string name="media_servers_server_section_title">SERVEUR</string>
     <string name="media_servers_name_label">Nom</string>

@@ -281,6 +281,7 @@
     <string name="media_servers_anonymous_username">匿名</string>
 
     <!-- Server Info Sheet -->
+    <string name="media_servers_rename_connection">接続の名前を変更</string>
     <string name="media_servers_connection_details_title">接続の詳細</string>
     <string name="media_servers_server_section_title">サーバー</string>
     <string name="media_servers_name_label">名前</string>

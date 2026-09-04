@@ -97,10 +97,17 @@ fun MediaServersScreen(
         }
     }
 
-    if (showServerInfo != null) {
+    showServerInfo?.let { info ->
+        // Keep the sheet on the live row so a rename shows immediately.
+        val live = servers.find { it.id == info.id } ?: info
         ServerInfoSheet(
-            server = showServerInfo!!,
-            onDismiss = { showServerInfo = null }
+            server = live,
+            onDismiss = { showServerInfo = null },
+            onRename = { name -> viewModel.renameServer(live, name) },
+            onLogout = {
+                viewModel.deleteServer(live)
+                showServerInfo = null
+            }
         )
     }
 
@@ -223,13 +230,32 @@ fun ServerItem(
     }
 }
 
+/**
+ * Read-only connection details, as on iOS: Server (name, URL), Login (username), the custom headers in
+ * full, and Log out — which is deletion. The one thing that can be edited here is the display name
+ * ([onRename]); address, account and headers change only through the connection flow.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ServerInfoSheet(
     server: ExternalServerEntity,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onRename: ((String) -> Unit)? = null,
+    onLogout: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showRename by remember { mutableStateOf(false) }
+
+    if (showRename && onRename != null) {
+        RenameConnectionDialog(
+            currentName = server.name,
+            onDismiss = { showRename = false },
+            onSave = { name ->
+                onRename(name)
+                showRename = false
+            }
+        )
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -280,9 +306,26 @@ fun ServerInfoSheet(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(if (onRename != null) Modifier.clickable { showRename = true } else Modifier),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Text(stringResource(id = R.string.media_servers_name_label), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(server.name, fontWeight = FontWeight.Medium)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(server.name, fontWeight = FontWeight.Medium)
+                                    if (onRename != null) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Icon(
+                                            Icons.Default.Edit,
+                                            contentDescription = stringResource(id = R.string.media_servers_rename_connection),
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
                             }
                             HorizontalDivider(thickness = 0.5.dp)
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -333,8 +376,48 @@ fun ServerInfoSheet(
                             }
                         }
                     }
+
+                    if (onLogout != null) {
+                        // Signing out is deletion, as on iOS: the connection this screen describes no
+                        // longer exists afterwards, so the presenter dismisses the sheet.
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            TextButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
+                                Text(stringResource(id = R.string.common_logout), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/** Renames a saved connection. Save is enabled only for a non-blank name that differs from the current one. */
+@Composable
+private fun RenameConnectionDialog(currentName: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var name by remember { mutableStateOf(currentName) }
+    val canSave = name.isNotBlank() && name.trim() != currentName
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(id = R.string.media_servers_rename_connection)) },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text(stringResource(id = R.string.media_servers_name_label)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(name.trim()) }, enabled = canSave) { Text(stringResource(id = R.string.common_save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(id = R.string.common_cancel)) }
+        }
+    )
 }

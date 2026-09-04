@@ -283,6 +283,7 @@
     <string name="media_servers_anonymous_username">गुमनाम</string>
 
     <!-- Server Info Sheet -->
+    <string name="media_servers_rename_connection">कनेक्शन का नाम बदलें</string>
     <string name="media_servers_connection_details_title">कनेक्शन विवरण</string>
     <string name="media_servers_server_section_title">सर्वर</string>
     <string name="media_servers_name_label">नाम</string>
