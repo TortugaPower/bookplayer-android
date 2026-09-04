@@ -3,11 +3,13 @@ package com.tortugapower.audiobookplayer.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import com.tortugapower.audiobookplayer.logic.ConnectionRouting
 import com.tortugapower.audiobookplayer.logic.ExternalServerSaver
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
+import com.tortugapower.audiobookplayer.logic.JellyfinQuickConnect
 import com.tortugapower.audiobookplayer.logic.ServerAddress
 import com.tortugapower.audiobookplayer.network.AlternativeSignIn
 import com.tortugapower.audiobookplayer.network.ConnectionError
@@ -16,6 +18,7 @@ import com.tortugapower.audiobookplayer.network.ExternalService
 import com.tortugapower.audiobookplayer.network.ExternalServiceFactory
 import com.tortugapower.audiobookplayer.network.PendingServer
 import com.tortugapower.audiobookplayer.network.ProbeResult
+import com.tortugapower.audiobookplayer.network.QuickConnectCapable
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import com.tortugapower.audiobookplayer.ui.UiText
 import kotlinx.coroutines.Job
@@ -48,6 +51,22 @@ sealed class ConnectionFlowEvent {
 /** One editable custom-header row. Keyed by [id] so Compose can track rows as they're added and removed. */
 data class HeaderEntry(val id: Long, val key: String = "", val value: String = "")
 
+/**
+ * Render state of an in-flight Quick Connect flow — what its sheet shows. Null when none is running.
+ * Kept apart from [ConnectionFlowUiState.alternativeSignIn]: that is availability, decided once at
+ * Connect; this mutates several times per flow.
+ */
+sealed class QuickConnectStatus {
+    /** Initiate is in flight. Briefly visible while the round-trip completes. */
+    data object RetrievingCode : QuickConnectStatus()
+    /** The server returned a code and we're polling. The user must enter it on the server's web UI. */
+    data class AwaitingCode(val code: String) : QuickConnectStatus()
+    /** The user approved; the secret is being exchanged for a token. */
+    data object Authenticating : QuickConnectStatus()
+    /** The flow ended in a failure; [message] is ready for display. */
+    data class Failed(val message: UiText) : QuickConnectStatus()
+}
+
 data class ConnectionFlowUiState(
     val type: ExternalServiceType,
     val isReauth: Boolean,
@@ -68,6 +87,7 @@ data class ConnectionFlowUiState(
     val route: ConnectionRouting.Decision.Route? = null,
     val isLoading: Boolean = false,
     val error: UiText? = null,
+    val quickConnectStatus: QuickConnectStatus? = null,
 ) {
     val url: String? get() = address.url
     val canConnect: Boolean get() = url != null && !isLoading
@@ -80,10 +100,10 @@ data class ConnectionFlowUiState(
 }
 
 /**
- * Drives the add-server / re-auth flow: address → (method) → password, mirroring iOS's
- * connection view models. Owns the routing decision (what Connect lands on) so it is plain testable
- * logic, and every in-flight network call so leaving the sheet can cancel it — a dismissed sheet
- * must never persist a connection the user gave up on.
+ * Drives the add-server / re-auth flow: address → (method) → password or Quick Connect, mirroring
+ * iOS's connection view models. Owns the routing decision (what Connect lands on) so it is plain
+ * testable logic, and every in-flight network call and poller so leaving the sheet can cancel it — a
+ * dismissed sheet must never persist a connection the user gave up on.
  */
 class ConnectionFlowViewModel(
     val type: ExternalServiceType,
@@ -92,12 +112,6 @@ class ConnectionFlowViewModel(
     private val service: ExternalService = ExternalServiceFactory.getService(type),
     /** Whether this device can run the SSO browser leg (Chrome 137+ Auth Tab). Wired in the SSO phase; false until then. */
     private val ssoAvailableOnDevice: () -> Boolean = { false },
-    /**
-     * Whether the alternative sign-in methods are wired. The screens ship first; until Quick Connect
-     * and SSO land, a server that offers one still routes straight to the password form rather than
-     * to a button that does nothing.
-     */
-    private val alternativesEnabled: Boolean = false,
     private val revokeStaleToken: suspend (ExternalServerEntity) -> Unit = { stale ->
         stale.token?.let { ExternalServiceFactory.getService(stale.type).revokeToken(stale.url, it, stale.customHeaders) }
     },
@@ -111,6 +125,11 @@ class ConnectionFlowViewModel(
 
     private var actionJob: Job? = null
     private var nextHeaderId = (_uiState.value.headers.maxOfOrNull { it.id } ?: 0L) + 1
+
+    /** The active Quick Connect poller, its state subscription, and the final token exchange — all torn down together. */
+    private var quickConnect: JellyfinQuickConnect? = null
+    private var quickConnectStateJob: Job? = null
+    private var quickConnectSignInJob: Job? = null
 
     // MARK: - Address
 
@@ -185,15 +204,10 @@ class ConnectionFlowViewModel(
                         is ConnectionRouting.Decision.Blocked ->
                             _uiState.update { it.copy(pending = null, route = null, error = decision.error.toUiText()) }
                         is ConnectionRouting.Decision.Route -> {
-                            val route = if (!alternativesEnabled && decision.alternativeSignIn != null) {
-                                decision.copy(step = ConnectionRouting.Step.PASSWORD, alternativeSignIn = null)
-                            } else {
-                                decision
-                            }
-                            _uiState.update { it.copy(pending = result.server, route = route) }
+                            _uiState.update { it.copy(pending = result.server, route = decision) }
                             _events.send(
                                 ConnectionFlowEvent.NavigateTo(
-                                    if (route.step == ConnectionRouting.Step.METHOD) ConnectionFlowStep.METHOD else ConnectionFlowStep.PASSWORD
+                                    if (decision.step == ConnectionRouting.Step.METHOD) ConnectionFlowStep.METHOD else ConnectionFlowStep.PASSWORD
                                 )
                             )
                         }
@@ -233,13 +247,20 @@ class ConnectionFlowViewModel(
         viewModelScope.launch { _events.send(ConnectionFlowEvent.NavigateTo(ConnectionFlowStep.HEADERS)) }
     }
 
-    /** Quick Connect / SSO land in later phases; until then the method screen is unreachable (see [alternativesEnabled]). */
-    fun startAlternativeSignIn() = Unit
+    /** Begins whichever alternative the method screen offers. Quick Connect and SSO present modally — they hand off to an external authority and come back. */
+    fun startAlternativeSignIn() {
+        when (_uiState.value.alternativeSignIn) {
+            AlternativeSignIn.QuickConnect -> startQuickConnect()
+            is AlternativeSignIn.Oidc -> Unit // SSO lands in the next phase.
+            null -> Unit
+        }
+    }
 
-    /** Stops any in-flight connect or sign-in. Called when the sheet is dismissed so nothing persists afterwards. */
+    /** Stops any in-flight connect, sign-in or Quick Connect. Called when the sheet is dismissed so nothing persists afterwards. */
     fun cancel() {
         actionJob?.cancel()
         actionJob = null
+        cancelQuickConnect()
         _uiState.update { it.copy(isLoading = false) }
     }
 
@@ -250,12 +271,107 @@ class ConnectionFlowViewModel(
      * re-prefilled from the saved row. The view model is keyed to the enclosing nav entry and outlives a
      * single opening of the sheet, so without this a reopened Add Server showed the last typed address
      * and headers. Called when the flow is left (dismissed, or finished) rather than when it is shown, so
-     * a configuration change mid-typing keeps the user's input.
+     * a configuration change mid-typing keeps the user's input. Also tears down any Quick Connect in flight.
      */
     fun reset() {
         cancel()
         _uiState.value = initialState(type, mode)
     }
+
+    // MARK: - Quick Connect
+
+    /**
+     * Starts the Quick Connect flow against the probed server. Idempotent while one is running; the
+     * poller runs against the pending server's address, so no credentials exist yet.
+     */
+    private fun startQuickConnect() {
+        if (quickConnect != null) return
+        val pending = _uiState.value.pending ?: return
+        val capable = service as? QuickConnectCapable ?: return
+        val controller = capable.quickConnect(pending.url, headersMap())
+        quickConnect = controller
+        _uiState.update { it.copy(quickConnectStatus = QuickConnectStatus.RetrievingCode, error = null) }
+        quickConnectStateJob = viewModelScope.launch {
+            controller.state.collect { handleQuickConnectState(it, pending, capable) }
+        }
+        controller.start(viewModelScope)
+    }
+
+    /**
+     * Cancels an in-flight Quick Connect and dismisses any failure status. Safe to call when none is
+     * running. Cancels the token exchange too: without that there is a full network round-trip (the
+     * `Authenticating` phase, during which the sheet still shows Cancel) that nothing could stop, and
+     * it used to persist a connection the user had explicitly backed out of.
+     */
+    fun cancelQuickConnect() {
+        quickConnectSignInJob?.cancel()
+        quickConnectSignInJob = null
+        teardownQuickConnect()
+        _uiState.update { it.copy(quickConnectStatus = null) }
+    }
+
+    private fun handleQuickConnectState(state: JellyfinQuickConnect.State, pending: PendingServer, capable: QuickConnectCapable) {
+        when (state) {
+            // The StateFlow replays its initial Idle to every new subscriber (and stop() publishes one).
+            // Mapping it to "no status" would tear the sheet down a hop after presenting it.
+            JellyfinQuickConnect.State.Idle -> Unit
+            JellyfinQuickConnect.State.RetrievingCode ->
+                _uiState.update { it.copy(quickConnectStatus = QuickConnectStatus.RetrievingCode) }
+            is JellyfinQuickConnect.State.AwaitingCode ->
+                _uiState.update { it.copy(quickConnectStatus = QuickConnectStatus.AwaitingCode(state.code)) }
+            is JellyfinQuickConnect.State.Authenticated -> {
+                _uiState.update { it.copy(quickConnectStatus = QuickConnectStatus.Authenticating) }
+                quickConnectSignInJob = viewModelScope.launch { completeQuickConnect(state.secret, pending, capable) }
+            }
+            is JellyfinQuickConnect.State.Failed -> {
+                _uiState.update { it.copy(quickConnectStatus = QuickConnectStatus.Failed(quickConnectMessage(state.reason))) }
+                teardownQuickConnect()
+            }
+        }
+    }
+
+    /** Exchanges the approved secret for a token, then ends the flow exactly like a password sign-in. */
+    private suspend fun completeQuickConnect(secret: String, pending: PendingServer, capable: QuickConnectCapable) {
+        when (val result = capable.signInWithQuickConnect(pending.url, secret, headersMap())) {
+            is ConnectionResult.Failure -> {
+                // Keep `pending` so the user can retry or fall back to the password without re-probing.
+                _uiState.update { it.copy(quickConnectStatus = QuickConnectStatus.Failed(failureToUiText(result))) }
+                teardownQuickConnect()
+            }
+            is ConnectionResult.Success -> {
+                // Drop the sheet before the flow ends, so it never lingers over the hide animation.
+                _uiState.update { it.copy(quickConnectStatus = null) }
+                teardownQuickConnect()
+                persistAndFinish(
+                    result = result,
+                    fallbackName = pending.serverName.ifBlank { _uiState.value.address.host },
+                    // Quick Connect doesn't ask for a username up front; the auth response carries it.
+                    username = result.userName ?: _uiState.value.username,
+                    url = pending.url,
+                    stableId = result.stableId ?: pending.stableId,
+                )
+            }
+        }
+    }
+
+    /** Drops the poller and its subscription. Leaves the status alone so callers decide between dismissing and showing a failure. */
+    private fun teardownQuickConnect() {
+        // stop() unconditionally: releasing the reference is not enough to end a poll, and an
+        // unstopped poller keeps hitting the server for its full ~16-minute budget with nobody listening.
+        quickConnect?.stop()
+        quickConnect = null
+        quickConnectStateJob?.cancel()
+        quickConnectStateJob = null
+    }
+
+    /** User-presentable copy per failure reason. Never the raw payload — the poller keeps that for logs. */
+    private fun quickConnectMessage(reason: JellyfinQuickConnect.Failure): UiText = UiText.StringResource(
+        when (reason) {
+            JellyfinQuickConnect.Failure.TIMEOUT -> R.string.media_servers_quick_connect_error_timeout
+            JellyfinQuickConnect.Failure.NO_CODE -> R.string.media_servers_quick_connect_error_no_code
+            JellyfinQuickConnect.Failure.OTHER -> R.string.media_servers_quick_connect_error_generic
+        }
+    )
 
     // MARK: - Internals
 

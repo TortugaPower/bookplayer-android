@@ -4,11 +4,13 @@ import android.app.Application
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.core.R as CoreR
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.logic.JellyfinQuickConnect
 import com.tortugapower.audiobookplayer.logic.ServerAddress
 import com.tortugapower.audiobookplayer.network.AlternativeSignIn
 import com.tortugapower.audiobookplayer.network.ConnectionError
@@ -18,6 +20,7 @@ import com.tortugapower.audiobookplayer.network.ExternalService
 import com.tortugapower.audiobookplayer.network.LibraryResult
 import com.tortugapower.audiobookplayer.network.PendingServer
 import com.tortugapower.audiobookplayer.network.ProbeResult
+import com.tortugapower.audiobookplayer.network.QuickConnectCapable
 import com.tortugapower.audiobookplayer.network.ServerCapabilities
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import com.tortugapower.audiobookplayer.repository.TokenCipher
@@ -30,7 +33,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -70,11 +75,25 @@ class ConnectionFlowViewModelTest {
     }
 
     /** A media server that answers whatever the test loaded into it; records what sign-in was asked. */
-    private class FakeService : ExternalService {
+    private class FakeService : ExternalService, QuickConnectCapable {
         var probeResult: ProbeResult = ProbeResult.Found(pending())
         var connectResult: ConnectionResult = ConnectionResult.Success(token = "tok", name = "Home", stableId = "srv-1", userId = "u1")
         var probeGate: CompletableDeferred<Unit>? = null
         val connectCalls = mutableListOf<Triple<String, String?, String?>>()
+
+        /** Quick Connect: the poller's transport, and the exchange the approved secret runs through. */
+        val quickConnectTransport = FakeTransport()
+        var quickConnectResult: ConnectionResult = ConnectionResult.Success(token = "qc-tok", name = "Home", stableId = "srv-1", userId = "u1", userName = "hana")
+        var quickConnectGate: CompletableDeferred<Unit>? = null
+        val quickConnectSecrets = mutableListOf<String>()
+
+        override fun quickConnect(url: String, headers: Map<String, String>?) = JellyfinQuickConnect(quickConnectTransport, pollIntervalMs = 5_000, maxPolls = 3)
+
+        override suspend fun signInWithQuickConnect(url: String, secret: String, headers: Map<String, String>?): ConnectionResult {
+            quickConnectSecrets += secret
+            quickConnectGate?.await()
+            return quickConnectResult
+        }
 
         override suspend fun probe(url: String, headers: Map<String, String>?): ProbeResult {
             probeGate?.await()
@@ -100,6 +119,14 @@ class ConnectionFlowViewModelTest {
         }
     }
 
+    private class FakeTransport : JellyfinQuickConnect.Transport {
+        var ticket: JellyfinQuickConnect.Ticket? = JellyfinQuickConnect.Ticket("s3cr3t", "7H2K9Q")
+        var approvedAfterPolls = Int.MAX_VALUE
+        var polls = 0
+        override suspend fun initiate() = ticket
+        override suspend fun isAuthorized(secret: String): Boolean { polls++; return polls > approvedAfterPolls }
+    }
+
     @Before fun setUp() {
         Dispatchers.setMain(dispatcher)
         // Everything stays on the test scheduler: Room's executors run inline and the repository's
@@ -121,7 +148,6 @@ class ConnectionFlowViewModelTest {
     private fun viewModel(
         type: ExternalServiceType = ExternalServiceType.AUDIOBOOKSHELF,
         mode: ConnectionFlowMode = ConnectionFlowMode.AddServer,
-        alternativesEnabled: Boolean = false,
         ssoAvailable: Boolean = false,
     ) = ConnectionFlowViewModel(
         type = type,
@@ -129,9 +155,21 @@ class ConnectionFlowViewModelTest {
         repository = repository,
         service = service,
         ssoAvailableOnDevice = { ssoAvailable },
-        alternativesEnabled = alternativesEnabled,
         revokeStaleToken = { revoked += it },
     )
+
+    /** A Jellyfin view model that has already probed a Quick-Connect-enabled server and landed on the method screen. */
+    private fun TestScope.jellyfinOnMethodScreen(): Pair<ConnectionFlowViewModel, MutableList<ConnectionFlowEvent>> {
+        service.probeResult = ProbeResult.Found(FakeService.pending(url = "http://jf.example.com:8096", capabilities = ServerCapabilities(quickConnectEnabled = true)))
+        val vm = viewModel(type = ExternalServiceType.JELLYFIN)
+        val events = eventsOf(vm)
+        vm.onHostChanged("http://jf.example.com:8096")
+        vm.connect()
+        advanceUntilIdle()
+        assertEquals(listOf<ConnectionFlowEvent>(ConnectionFlowEvent.NavigateTo(ConnectionFlowStep.METHOD)), events)
+        assertEquals(AlternativeSignIn.QuickConnect, vm.uiState.value.alternativeSignIn)
+        return vm to events
+    }
 
     /** Collects the one-shot events on the test's background scope. */
     private fun TestScope.eventsOf(viewModel: ConnectionFlowViewModel): MutableList<ConnectionFlowEvent> {
@@ -165,32 +203,16 @@ class ConnectionFlowViewModelTest {
         assertNull(vm.uiState.value.error)
     }
 
-    /** The screens ship before Quick Connect does: a server that offers it must not land on a button that does nothing. */
-    @Test fun `alternatives stay off until they are wired`() = runTest(dispatcher) {
-        service.probeResult = ProbeResult.Found(FakeService.pending(url = "http://jf.example.com:8096", capabilities = ServerCapabilities(quickConnectEnabled = true)))
-
-        val gated = viewModel(type = ExternalServiceType.JELLYFIN, alternativesEnabled = false)
-        val gatedEvents = eventsOf(gated)
-        gated.onHostChanged("http://jf.example.com:8096")
-        gated.connect()
-        advanceUntilIdle()
-        assertEquals(listOf<ConnectionFlowEvent>(ConnectionFlowEvent.NavigateTo(ConnectionFlowStep.PASSWORD)), gatedEvents)
-        assertNull(gated.uiState.value.alternativeSignIn)
-        assertTrue(gated.uiState.value.supportsPassword)
-
-        val wired = viewModel(type = ExternalServiceType.JELLYFIN, alternativesEnabled = true)
-        val wiredEvents = eventsOf(wired)
-        wired.onHostChanged("http://jf.example.com:8096")
-        wired.connect()
-        advanceUntilIdle()
-        assertEquals(listOf<ConnectionFlowEvent>(ConnectionFlowEvent.NavigateTo(ConnectionFlowStep.METHOD)), wiredEvents)
-        assertEquals(AlternativeSignIn.QuickConnect, wired.uiState.value.alternativeSignIn)
+    @Test fun `a jellyfin server with quick connect routes to the method screen with password still offered`() = runTest(dispatcher) {
+        val (vm, _) = jellyfinOnMethodScreen()
+        assertTrue(vm.uiState.value.supportsPassword)
+        assertNull(vm.uiState.value.quickConnectStatus)
     }
 
     /** The dead-end config: SSO-only over plaintext. Connect fails with the reason, and no screen is pushed. */
     @Test fun `an sso-only server over http blocks connect on the address screen`() = runTest(dispatcher) {
         service.probeResult = ProbeResult.Found(FakeService.pending(url = "http://abs.example.com", capabilities = ServerCapabilities(supportsPassword = false, supportsOidc = true)))
-        val vm = viewModel(alternativesEnabled = true, ssoAvailable = true)
+        val vm = viewModel(ssoAvailable = true)
         val events = eventsOf(vm)
         vm.onHostChanged("http://abs.example.com")
 
@@ -204,7 +226,7 @@ class ConnectionFlowViewModelTest {
 
     @Test fun `an sso-only server without auth tab names the browser requirement`() = runTest(dispatcher) {
         service.probeResult = ProbeResult.Found(FakeService.pending(capabilities = ServerCapabilities(supportsPassword = false, supportsOidc = true)))
-        val vm = viewModel(alternativesEnabled = true, ssoAvailable = false)
+        val vm = viewModel(ssoAvailable = false)
         vm.typeAddress()
 
         vm.connect()
@@ -471,5 +493,130 @@ class ConnectionFlowViewModelTest {
         assertFalse(vm.uiState.value.isLoading)
         assertTrue(events.isEmpty())
         assertNull(vm.uiState.value.pending)
+    }
+
+    // MARK: - Quick Connect
+
+    @Test fun `quick connect signs in with the approved secret and ends the flow with the server's username`() = runTest(dispatcher) {
+        val (vm, events) = jellyfinOnMethodScreen()
+        service.quickConnectTransport.approvedAfterPolls = 1
+
+        vm.startAlternativeSignIn()
+        runCurrent()
+        assertEquals(QuickConnectStatus.AwaitingCode("7H2K9Q"), vm.uiState.value.quickConnectStatus)
+        assertEquals(1, service.quickConnectTransport.polls)
+
+        advanceTimeBy(5_001)
+        runCurrent()
+        advanceUntilIdle()
+
+        assertEquals(listOf("s3cr3t"), service.quickConnectSecrets)
+        val signedIn = events.filterIsInstance<ConnectionFlowEvent.SignedIn>().single()
+        val stored = repository.allServers.first().single()
+        assertEquals(stored.id, signedIn.server.id)
+        assertEquals("quick connect never asked for a username; the auth response supplies it", "hana", stored.username)
+        assertEquals("qc-tok", stored.token)
+        assertEquals("u1", stored.userId)
+        assertEquals("http://jf.example.com:8096", stored.url)
+        assertNull(vm.uiState.value.quickConnectStatus)
+        assertNull(vm.uiState.value.pending)
+    }
+
+    @Test fun `quick connect failures map to copy and keep the pending server`() = runTest(dispatcher) {
+        val (vm, events) = jellyfinOnMethodScreen()
+        service.quickConnectTransport.ticket = null
+
+        vm.startAlternativeSignIn()
+        advanceUntilIdle()
+
+        val failed = vm.uiState.value.quickConnectStatus as QuickConnectStatus.Failed
+        assertEquals(R.string.media_servers_quick_connect_error_no_code, (failed.message as UiText.StringResource).resId)
+        assertNotNull("the user can retry or fall back to the password without re-probing", vm.uiState.value.pending)
+        assertTrue(events.filterIsInstance<ConnectionFlowEvent.SignedIn>().isEmpty())
+
+        // OK dismisses the failure, and the flow can start again.
+        vm.cancelQuickConnect()
+        assertNull(vm.uiState.value.quickConnectStatus)
+        service.quickConnectTransport.ticket = JellyfinQuickConnect.Ticket("s3cr3t", "7H2K9Q")
+        vm.startAlternativeSignIn()
+        runCurrent()
+        assertEquals(QuickConnectStatus.AwaitingCode("7H2K9Q"), vm.uiState.value.quickConnectStatus)
+    }
+
+    @Test fun `quick connect times out with its own copy`() = runTest(dispatcher) {
+        val (vm, _) = jellyfinOnMethodScreen()
+        vm.startAlternativeSignIn()
+        advanceUntilIdle()
+        val failed = vm.uiState.value.quickConnectStatus as QuickConnectStatus.Failed
+        assertEquals(R.string.media_servers_quick_connect_error_timeout, (failed.message as UiText.StringResource).resId)
+    }
+
+    @Test fun `a failed exchange shows the sign-in error inside the sheet`() = runTest(dispatcher) {
+        val (vm, events) = jellyfinOnMethodScreen()
+        service.quickConnectTransport.approvedAfterPolls = 0
+        service.quickConnectResult = ConnectionError.Unauthorized.toFailure()
+
+        vm.startAlternativeSignIn()
+        advanceUntilIdle()
+
+        val failed = vm.uiState.value.quickConnectStatus as QuickConnectStatus.Failed
+        assertEquals(CoreR.string.media_servers_error_unauthorized, (failed.message as UiText.StringResource).resId)
+        assertTrue(events.filterIsInstance<ConnectionFlowEvent.SignedIn>().isEmpty())
+        assertTrue(repository.allServers.first().isEmpty())
+    }
+
+    @Test fun `cancelling quick connect while polling stops the poller`() = runTest(dispatcher) {
+        val (vm, events) = jellyfinOnMethodScreen()
+        vm.startAlternativeSignIn()
+        runCurrent()
+        val pollsAtCancel = service.quickConnectTransport.polls
+
+        vm.cancelQuickConnect()
+        advanceTimeBy(60_000)
+        runCurrent()
+
+        assertNull(vm.uiState.value.quickConnectStatus)
+        assertEquals("no poll may land after cancel", pollsAtCancel, service.quickConnectTransport.polls)
+        assertEquals(1, events.size)
+    }
+
+    @Test fun `cancelling during the exchange persists nothing`() = runTest(dispatcher) {
+        val (vm, events) = jellyfinOnMethodScreen()
+        service.quickConnectTransport.approvedAfterPolls = 0
+        service.quickConnectGate = CompletableDeferred()
+
+        vm.startAlternativeSignIn()
+        runCurrent()
+        assertEquals(QuickConnectStatus.Authenticating, vm.uiState.value.quickConnectStatus)
+
+        vm.cancelQuickConnect()
+        service.quickConnectGate!!.complete(Unit)
+        advanceUntilIdle()
+
+        assertNull(vm.uiState.value.quickConnectStatus)
+        assertTrue(events.filterIsInstance<ConnectionFlowEvent.SignedIn>().isEmpty())
+        assertTrue(repository.allServers.first().isEmpty())
+    }
+
+    @Test fun `dismissing the flow tears quick connect down too`() = runTest(dispatcher) {
+        val (vm, _) = jellyfinOnMethodScreen()
+        vm.startAlternativeSignIn()
+        runCurrent()
+        val pollsAtCancel = service.quickConnectTransport.polls
+
+        vm.cancel()
+        advanceTimeBy(60_000)
+        runCurrent()
+
+        assertNull(vm.uiState.value.quickConnectStatus)
+        assertEquals(pollsAtCancel, service.quickConnectTransport.polls)
+    }
+
+    @Test fun `starting quick connect twice does not start a second poller`() = runTest(dispatcher) {
+        val (vm, _) = jellyfinOnMethodScreen()
+        vm.startAlternativeSignIn()
+        vm.startAlternativeSignIn()
+        runCurrent()
+        assertEquals(1, service.quickConnectTransport.polls)
     }
 }

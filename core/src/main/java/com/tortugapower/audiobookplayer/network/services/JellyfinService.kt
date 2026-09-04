@@ -8,6 +8,9 @@ import com.tortugapower.audiobookplayer.network.ConnectionResult
 import com.tortugapower.audiobookplayer.network.ExternalService
 import com.tortugapower.audiobookplayer.network.PendingServer
 import com.tortugapower.audiobookplayer.network.ProbeResult
+import com.tortugapower.audiobookplayer.network.QuickConnectCapable
+import com.tortugapower.audiobookplayer.logic.JellyfinQuickConnect
+import java.io.IOException
 import com.tortugapower.audiobookplayer.network.ServerCapabilities
 import kotlinx.coroutines.CancellationException
 import okhttp3.Interceptor
@@ -16,7 +19,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
 
-class JellyfinService : ExternalService {
+class JellyfinService : ExternalService, QuickConnectCapable {
 
     private fun getApi(url: String, headers: Map<String, String>? = null): JellyfinApi {
         val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
@@ -108,28 +111,73 @@ class JellyfinService : ExternalService {
 
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
-                val token = body.accessToken
-                
-                // Try to get server name + the instance's stable id (best-effort: a failed
-                // info call degrades to defaults, never a failed connect).
-                var serverName = "Jellyfin Server"
-                var stableId: String? = null
-                try {
-                    val infoResponse = api.getSystemInfo(getAuthHeader(token))
-                    if (infoResponse.isSuccessful && infoResponse.body() != null) {
-                        serverName = infoResponse.body()!!.serverName
-                        stableId = infoResponse.body()!!.id
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    // Fallback to default name if system info fails
-                }
-
-                ConnectionResult.Success(token = token, name = serverName, stableId = stableId, userId = body.user.id)
+                val (serverName, stableId) = fetchServerInfo(api, body.accessToken)
+                ConnectionResult.Success(token = body.accessToken, name = serverName, stableId = stableId, userId = body.user.id, userName = body.user.name)
             } else if (response.code() == 401) {
                 // Wrong credentials. Same copy as iOS's `IntegrationError.clientError(401)`; the HTTP
                 // reason phrase this used to interpolate is usually empty on HTTP/2.
+                ConnectionError.Unauthorized.toFailure()
+            } else {
+                ConnectionError.fromResponse(response.code(), response.errorBody()?.string()).toFailure()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ConnectionError.Network(e.message ?: "").toFailure()
+        }
+    }
+
+    /**
+     * Server name + the instance's stable id for a freshly issued token. Best-effort: a failed info
+     * call degrades to defaults, never a failed sign-in.
+     */
+    private suspend fun fetchServerInfo(api: JellyfinApi, token: String): Pair<String, String?> {
+        return try {
+            val infoResponse = api.getSystemInfo(getAuthHeader(token))
+            val info = infoResponse.body()
+            if (infoResponse.isSuccessful && info != null) info.serverName to info.id else "Jellyfin Server" to null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            "Jellyfin Server" to null
+        }
+    }
+
+    // MARK: - Quick Connect
+
+    override fun quickConnect(url: String, headers: Map<String, String>?): JellyfinQuickConnect =
+        JellyfinQuickConnect(quickConnectTransport(url, headers))
+
+    /** The raw Quick Connect calls the poller drives, bound to one server. Public so tests can exercise them without the poller. */
+    fun quickConnectTransport(url: String, headers: Map<String, String>?): JellyfinQuickConnect.Transport {
+        val api = getApi(url, headers)
+        return object : JellyfinQuickConnect.Transport {
+            override suspend fun initiate(): JellyfinQuickConnect.Ticket? {
+                val response = api.initiateQuickConnect(getAuthHeader())
+                if (!response.isSuccessful) throw IOException("Quick Connect initiate failed: HTTP ${response.code()}")
+                val body = response.body() ?: return null
+                val secret = body.secret
+                val code = body.code
+                return if (secret.isNullOrEmpty() || code.isNullOrEmpty()) null else JellyfinQuickConnect.Ticket(secret, code)
+            }
+
+            override suspend fun isAuthorized(secret: String): Boolean {
+                val response = api.getQuickConnectState(getAuthHeader(), secret)
+                if (!response.isSuccessful) throw IOException("Quick Connect poll failed: HTTP ${response.code()}")
+                return response.body()?.authenticated == true
+            }
+        }
+    }
+
+    override suspend fun signInWithQuickConnect(url: String, secret: String, headers: Map<String, String>?): ConnectionResult {
+        return try {
+            val api = getApi(url, headers)
+            val response = api.authenticateWithQuickConnect(getAuthHeader(), JellyfinQuickConnectRequest(secret))
+            if (response.isSuccessful && response.body() != null) {
+                val body = response.body()!!
+                val (serverName, stableId) = fetchServerInfo(api, body.accessToken)
+                ConnectionResult.Success(token = body.accessToken, name = serverName, stableId = stableId, userId = body.user.id, userName = body.user.name)
+            } else if (response.code() == 401) {
                 ConnectionError.Unauthorized.toFailure()
             } else {
                 ConnectionError.fromResponse(response.code(), response.errorBody()?.string()).toFailure()
