@@ -55,5 +55,6 @@ Run each on a fresh install (no saved servers), then again with the server alrea
 11. Log out from either place deletes the connection; from inside a library it also leaves the library.
 12. Revoke the token server-side, then open the library → the "sign in again" alert; Sign In opens the
     flow prefilled at the address step; signing in resumes the library with the same selected library.
-13. Stop the server, then open the library → the error alert with Retry / Connection Details / Cancel;
-    start it again and Retry loads. With items already showing, a failed next page is an alert with OK.
+13. Stop the server, then open the library → the error alert with Retry / Cancel (no Connection Details:
+    a saved connection is rename-only, so the sheet has nothing that fixes a load failure); start it
+    again and Retry loads. With items already showing, a failed next page is an alert with OK.

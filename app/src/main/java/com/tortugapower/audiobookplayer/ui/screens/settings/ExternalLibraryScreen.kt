@@ -103,9 +103,11 @@ fun ExternalLibraryScreen(
         }
     }
 
-    // iOS parity for every other load failure: Retry where it could help, Connection Details as the
-    // manual recovery path, Cancel to back out — while the library is still unresolved. Once items are
-    // on screen a paging failure is just an alert with OK (iOS's errorAlert on the list views).
+    // Every other load failure while the library is still unresolved: Retry where it could help, Cancel
+    // to back out. No Connection Details path from here — a saved connection can't be edited beyond its
+    // name, so the sheet has nothing that fixes a load failure (an expired session has its own Sign In
+    // alert below). Once items are on screen a paging failure is just an alert with OK (iOS's errorAlert
+    // on the list views).
     val sessionExpiredServerName by viewModel.sessionExpiredServerName.collectAsState()
     error?.let { loadError ->
         if (sessionExpiredServerName == null) {
@@ -118,12 +120,7 @@ fun ExternalLibraryScreen(
                         TextButton(onClick = { viewModel.reload() }) { Text(stringResource(id = R.string.common_retry)) }
                     },
                     dismissButton = {
-                        Row {
-                            TextButton(onClick = { viewModel.clearError(); onShowConnectionDetails() }) {
-                                Text(stringResource(id = R.string.media_servers_connection_details_title))
-                            }
-                            TextButton(onClick = onBack) { Text(stringResource(id = R.string.common_cancel)) }
-                        }
+                        TextButton(onClick = onBack) { Text(stringResource(id = R.string.common_cancel)) }
                     }
                 )
             } else {
@@ -443,7 +440,7 @@ fun ExternalLibraryScreen(
                     )
                 }
             } else if (error != null && items.isEmpty()) {
-                // The failure is up as an alert (Retry / Connection Details / Cancel); nothing to show behind it.
+                // The failure is up as an alert (Retry / Cancel); nothing to show behind it.
             } else if (resolvedLibraryId == null || (isLoading && items.isEmpty())) {
                 // Resolving libraries / picker pending / first page loading. Mirrors iOS keeping
                 // the browser disabled until a library is resolved.
