@@ -185,6 +185,8 @@
 
     <!-- Import -->
     <string name="import_title">Importer</string>
+    <string name="import_no_audio_files_alert">Les éléments sélectionnés ne contiennent aucun fichier audio à importer.</string>
+    <string name="import_skipped_no_audio_files">%1$d éléments ont été ignorés car ils ne contiennent aucun fichier audio</string>
     <string name="import_disclaimer">Le transfert de fichiers peut prendre un certain temps, assurez-vous que le nombre de fichiers est complet avant de continuer.</string>
     <string name="import_files_count">%1$d fichiers</string>
 

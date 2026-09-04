@@ -182,6 +182,8 @@
 
     <!-- Import -->
     <string name="import_title">इंपोर्ट</string>
+    <string name="import_no_audio_files_alert">चयनित आइटम में आयात करने के लिए कोई ऑडियो फ़ाइल नहीं है।</string>
+    <string name="import_skipped_no_audio_files">%1$d आइटम छोड़ दिए गए क्योंकि उनमें कोई ऑडियो फ़ाइल नहीं है</string>
     <string name="import_disclaimer">फ़ाइलों को स्थानांतरित करने में कुछ समय लग सकता है, कृपया आगे बढ़ने से पहले सुनिश्चित करें कि फ़ाइलों की संख्या पूरी है।</string>
     <string name="import_files_count">%1$d फ़ाइलें</string>
 

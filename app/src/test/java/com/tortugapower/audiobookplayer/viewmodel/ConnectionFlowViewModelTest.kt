@@ -120,6 +120,7 @@ class ConnectionFlowViewModelTest {
 
         override suspend fun getLibraries(url: String, token: String, headers: Map<String, String>?): List<ExternalLibraryInfo> = error("unused")
         override suspend fun getLibrary(url: String, token: String, startIndex: Int, limit: Int, headers: Map<String, String>?, libraryId: String?): LibraryResult = error("unused")
+        override suspend fun getFileExtensions(url: String, token: String, ids: List<String>, headers: Map<String, String>?): Map<String, String> = error("unused")
         override suspend fun getStreamUrl(url: String, token: String, item: LibraryItemEntity): String = error("unused")
         override suspend fun getThumbnailUrl(url: String, token: String, item: LibraryItemEntity): String? = error("unused")
         override suspend fun revokeToken(url: String, token: String, headers: Map<String, String>?) = Unit

@@ -182,6 +182,8 @@
 
     <!-- Import -->
     <string name="import_title">インポート</string>
+    <string name="import_no_audio_files_alert">選択した項目にはインポートできる音声ファイルがありません。</string>
+    <string name="import_skipped_no_audio_files">音声ファイルがないため、%1$d件の項目をスキップしました</string>
     <string name="import_disclaimer">ファイルの転送には時間がかかる場合があります。続行する前にファイル数が正しいことを確認してください。</string>
     <string name="import_files_count">%1$d個のファイル</string>
 

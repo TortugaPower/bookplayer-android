@@ -158,6 +158,12 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     `connect.sid`), only the IdP URL goes to the browser, and the exchange runs on the same client.
     Never log the authorization code, the PKCE verifier, or a token. Device testing recipe:
     `docs/media-servers-testing.md`.
+  - **Virtual (stream) import never guesses a file extension.** List responses carry no audio-file
+    metadata, so `ExternalLibraryViewModel.prepareStreamImport` hydrates the selection through
+    `ExternalService.getFileExtensions` (Jellyfin `Items?Ids=…&Fields=MediaSources,Path`, ABS
+    `POST api/items/batch/get`), names each item `<title>.<ext>` (`VirtualImportManager.importFileName`,
+    the iOS name, so both platforms produce the same `relativePath`) and skips items without one
+    (`import_no_audio_files_alert` / the skipped count on the import sheet).
 
 ## Git
 

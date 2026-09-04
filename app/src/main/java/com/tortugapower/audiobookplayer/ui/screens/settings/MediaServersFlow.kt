@@ -236,6 +236,8 @@ fun MediaServersFlow(
                         var showLiteSheet by remember { mutableStateOf(false) }
                         var showLiteAuthSheet by remember { mutableStateOf(false) }
                         var showLitePaywall by remember { mutableStateOf(false) }
+                        var showNoAudioAlert by remember { mutableStateOf(false) }
+                        if (showNoAudioAlert) NoAudioFilesDialog(onDismiss = { showNoAudioAlert = false })
 
                         // Stage the item as a "virtual" import: it lands in the shared import
                         // sheet for confirmation, and only on accept is it created in the library
@@ -246,15 +248,25 @@ fun MediaServersFlow(
                                 // The saved server row hasn't resolved (shouldn't happen once the
                                 // library is loaded) — stream directly without importing.
                                 PlaybackManager.playItem(context, item.entity, headers = item.customHeaders)
+                                onDismiss()
                             } else {
-                                importViewModel.startStreamImport(
-                                    context = context,
-                                    items = listOf(item),
-                                    providerName = server.type.name.lowercase(),
-                                    hostId = ExternalServiceUtils.stableHostId(server)
-                                )
+                                scope.launch {
+                                    // iOS parity: hydrate the REAL file extension first; an item the
+                                    // server reports no audio file for is never guessed at.
+                                    val selection = extLibViewModel.prepareStreamImport(listOf(item)) ?: return@launch
+                                    if (selection.items.isEmpty()) {
+                                        showNoAudioAlert = true
+                                        return@launch
+                                    }
+                                    importViewModel.startStreamImport(
+                                        context = context,
+                                        items = selection.items,
+                                        providerName = server.type.name.lowercase(),
+                                        hostId = ExternalServiceUtils.stableHostId(server)
+                                    )
+                                    onDismiss()
+                                }
                             }
-                            onDismiss()
                         }
 
                         // Shared by the intro sheet's Google button and the stacked passkey sheet

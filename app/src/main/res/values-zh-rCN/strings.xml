@@ -182,6 +182,8 @@
 
     <!-- Import -->
     <string name="import_title">导入</string>
+    <string name="import_no_audio_files_alert">所选项目没有可导入的音频文件。</string>
+    <string name="import_skipped_no_audio_files">已跳过 %1$d 个项目，因为它们没有音频文件</string>
     <string name="import_disclaimer">传输文件可能需要一些时间，请在继续前确保文件数量完整。</string>
     <string name="import_files_count">%1$d 个文件</string>
 

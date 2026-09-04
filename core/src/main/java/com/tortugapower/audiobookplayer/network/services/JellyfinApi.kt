@@ -55,6 +55,17 @@ interface JellyfinApi {
         @Query("ParentId") parentId: String? = null
     ): Response<JellyfinItemsResponse>
 
+    /**
+     * Hydrates exact items with their media sources (container, path), which list responses don't carry —
+     * virtual import needs the REAL file extension. No type or recursion filters: the ids are exact.
+     */
+    @GET("Items")
+    suspend fun getItemsByIds(
+        @Header("X-Emby-Authorization") authHeader: String,
+        @Query("Ids") ids: String,
+        @Query("Fields") fields: String = "MediaSources,Path"
+    ): Response<JellyfinItemsResponse>
+
     // The authenticated user's top-level views (libraries); the user is inferred from the token.
     @GET("UserViews")
     suspend fun getUserViews(
@@ -141,7 +152,15 @@ data class JellyfinItem(
     @SerializedName("ArtistItems") val artistItems: List<JellyfinArtist>?,
     @SerializedName("ImageTags") val imageTags: Map<String, String>?,
     @SerializedName("Path") val path: String?,
-    @SerializedName("Genres") val genres: List<String>?
+    @SerializedName("Genres") val genres: List<String>?,
+    /** Only present when `Fields=MediaSources` was requested (see [JellyfinApi.getItemsByIds]). */
+    @SerializedName("MediaSources") val mediaSources: List<JellyfinMediaSource>? = null
+)
+
+data class JellyfinMediaSource(
+    /** The container format — may be a comma list (`"mp4,m4a,m4b"`); the first entry is the one iOS uses. */
+    @SerializedName("Container") val container: String?,
+    @SerializedName("Path") val path: String?
 )
 
 data class JellyfinArtist(
