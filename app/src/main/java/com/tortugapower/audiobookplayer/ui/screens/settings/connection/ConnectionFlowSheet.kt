@@ -164,6 +164,16 @@ fun ConnectionFlowSheet(
             }
         }
 
+        // Quick Connect presents modally from the method screen. Bound to the view model's status: a
+        // successful flow nils it and the sheet goes away; a failure keeps it up until the user taps OK.
+        state.quickConnectStatus?.let { status ->
+            QuickConnectSheet(
+                status = status,
+                serverUrl = state.pending?.url ?: state.url.orEmpty(),
+                onCancel = viewModel::cancelQuickConnect,
+            )
+        }
+
         // Errors surface as a native alert, like every other sheet in the app; the user stays on
         // the screen that produced them (a failed Connect keeps the address screen, and its
         // scheme control, in front of them).

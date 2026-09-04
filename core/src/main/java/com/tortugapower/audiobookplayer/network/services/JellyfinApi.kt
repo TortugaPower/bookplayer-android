@@ -22,6 +22,26 @@ interface JellyfinApi {
         @Header("X-Emby-Authorization") authHeader: String
     ): Response<Boolean>
 
+    // Quick Connect: start a request (server returns the user-facing Code + our Secret) …
+    @POST("QuickConnect/Initiate")
+    suspend fun initiateQuickConnect(
+        @Header("X-Emby-Authorization") authHeader: String
+    ): Response<JellyfinQuickConnectResult>
+
+    // … poll until the user approves it from the web UI (Authenticated flips to true; 404 once the secret expired) …
+    @GET("QuickConnect/Connect")
+    suspend fun getQuickConnectState(
+        @Header("X-Emby-Authorization") authHeader: String,
+        @Query("secret") secret: String
+    ): Response<JellyfinQuickConnectResult>
+
+    // … then exchange the approved secret for a session, same shape as a password sign-in.
+    @POST("Users/AuthenticateWithQuickConnect")
+    suspend fun authenticateWithQuickConnect(
+        @Header("X-Emby-Authorization") authHeader: String,
+        @Body request: JellyfinQuickConnectRequest
+    ): Response<JellyfinAuthResponse>
+
     @GET("Items")
     suspend fun getItems(
         @Header("X-Emby-Authorization") authHeader: String,
@@ -77,6 +97,20 @@ data class JellyfinPublicSystemInfo(
     @SerializedName("ServerName") val serverName: String? = null,
     @SerializedName("Id") val id: String? = null,
     @SerializedName("Version") val version: String? = null
+)
+
+data class JellyfinQuickConnectResult(
+    @SerializedName("Secret") val secret: String? = null,
+    @SerializedName("Code") val code: String? = null,
+    @SerializedName("Authenticated") val authenticated: Boolean? = null,
+    @SerializedName("DeviceId") val deviceId: String? = null,
+    @SerializedName("DeviceName") val deviceName: String? = null,
+    @SerializedName("AppName") val appName: String? = null,
+    @SerializedName("AppVersion") val appVersion: String? = null
+)
+
+data class JellyfinQuickConnectRequest(
+    @SerializedName("Secret") val secret: String
 )
 
 data class JellyfinAuthRequest(

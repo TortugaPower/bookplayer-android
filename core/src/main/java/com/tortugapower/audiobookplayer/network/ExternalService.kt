@@ -107,6 +107,19 @@ sealed class AlternativeSignIn {
     data object QuickConnect : AlternativeSignIn()
 }
 
+/**
+ * Implemented by services whose server offers Jellyfin-style Quick Connect: an out-of-band code the
+ * user enters in an already-signed-in web session, exchanged here for a token. The flow only offers
+ * the method when the probe reported it enabled ([ServerCapabilities.quickConnectEnabled]).
+ */
+interface QuickConnectCapable {
+    /** A poller bound to [url] (and its custom headers); the caller owns its lifecycle. */
+    fun quickConnect(url: String, headers: Map<String, String>?): com.tortugapower.audiobookplayer.logic.JellyfinQuickConnect
+
+    /** Exchanges an approved Quick Connect secret for a session. Returns the same shape as [ExternalService.connect]. */
+    suspend fun signInWithQuickConnect(url: String, secret: String, headers: Map<String, String>?): ConnectionResult
+}
+
 sealed class ConnectionResult {
     /**
      * [stableId] is the server's SELF-REPORTED unique id (Jellyfin `/System/Info` `Id`,
@@ -123,6 +136,8 @@ sealed class ConnectionResult {
         val name: String? = null,
         val stableId: String? = null,
         val userId: String? = null,
+        /** The account's display name from the auth response — Quick Connect never asks for one up front. */
+        val userName: String? = null,
     ) : ConnectionResult()
     data class Failure(
         val message: String,

@@ -471,6 +471,21 @@
     <string name="media_servers_headers_detail_footer">These headers are attached to every request sent to this server. They can be edited from the server address screen.</string>
     <string name="media_servers_sso_button">Sign in with SSO</string>
     <string name="media_servers_quick_connect_button">Use Quick Connect</string>
+    <!-- Quick Connect sheet (Jellyfin). Copy mirrors iOS's integration_quick_connect_* keys. -->
+    <string name="media_servers_quick_connect_sheet_title">Quick Connect</string>
+    <string name="media_servers_quick_connect_retrieving_message">Requesting a code from your server…</string>
+    <string name="media_servers_quick_connect_awaiting_message">Enter this code on your server’s Quick Connect screen to sign in.</string>
+    <string name="media_servers_quick_connect_authenticating_message">Signing you in…</string>
+    <string name="media_servers_quick_connect_code_label">Quick Connect code</string>
+    <string name="media_servers_quick_connect_copy_code">Copy code</string>
+    <string name="media_servers_quick_connect_instructions_title">How to enter the code</string>
+    <string name="media_servers_quick_connect_instruction_open">Open %1$s in your browser.</string>
+    <string name="media_servers_quick_connect_instruction_sign_in">Sign in to your Jellyfin account.</string>
+    <string name="media_servers_quick_connect_instruction_open_menu">Open the user menu and choose Quick Connect.</string>
+    <string name="media_servers_quick_connect_instruction_enter_code">Type the code shown above and confirm.</string>
+    <string name="media_servers_quick_connect_error_no_code">Your Jellyfin server didn’t return a Quick Connect code. Make sure Quick Connect is enabled in the server’s dashboard.</string>
+    <string name="media_servers_quick_connect_error_generic">Quick Connect couldn’t complete. Check that Quick Connect is enabled on your server and try again.</string>
+    <string name="media_servers_quick_connect_error_timeout">Timed out waiting for the code to be entered. Please try again.</string>
     <string name="media_servers_add_server_connect_button">Connect</string>
     <string name="media_servers_add_server_sign_in_button">Sign In</string>
     <string name="media_servers_add_server_custom_headers_label">Custom HTTP Headers</string>
