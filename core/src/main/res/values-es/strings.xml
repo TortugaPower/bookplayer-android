@@ -21,5 +21,6 @@
     <string name="media_servers_error_unexpected_response_with_code">Respuesta inesperada del servidor (Código: %1$d)</string>
     <string name="media_servers_error_server_message">El servidor respondió con %1$d: %2$s</string>
     <string name="media_servers_error_sso_requires_https">El inicio de sesión único necesita una conexión segura (https) con su servidor.</string>
+    <string name="media_servers_error_sso_no_code">Su proveedor de identidad inició su sesión, pero no devolvió un código de autorización, lo que suele indicar que denegó la solicitud. Verifique las restricciones de grupo o de acceso del cliente y que sus URL de retorno permitidas incluyan:\n\n%1$s</string>
     <string name="media_servers_error_sso_requires_chrome">El inicio de sesión único necesita Chrome 137 o posterior como navegador predeterminado en este dispositivo.</string>
 </resources>

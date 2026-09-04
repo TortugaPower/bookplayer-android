@@ -29,5 +29,6 @@
     <string name="media_servers_error_unexpected_response_with_code">استجابة غير متوقعة من الخادم (الرمز: %1$d)</string>
     <string name="media_servers_error_server_message">استجاب الخادم بالرمز %1$d: %2$s</string>
     <string name="media_servers_error_sso_requires_https">يتطلب الدخول الموحّد اتصالاً آمناً (https) بخادمك.</string>
+    <string name="media_servers_error_sso_no_code">قام موفّر الهوية بتسجيل دخولك لكنه لم يُرجع رمز تفويض، وهذا يعني عادةً أنه رفض الطلب. تحقق من أي قيود على المجموعات أو الوصول في العميل، ومن أن عناوين إعادة التوجيه المسموح بها لديه تتضمن:\n\n%1$s</string>
     <string name="media_servers_error_sso_requires_chrome">يتطلب الدخول الموحّد تعيين Chrome 137 أو أحدث كمتصفح افتراضي على هذا الجهاز.</string>
 </resources>

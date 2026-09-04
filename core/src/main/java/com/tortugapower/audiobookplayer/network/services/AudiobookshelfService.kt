@@ -9,6 +9,11 @@ import com.tortugapower.audiobookplayer.network.LibraryResult
 import com.tortugapower.audiobookplayer.network.PendingServer
 import com.tortugapower.audiobookplayer.network.ProbeResult
 import com.tortugapower.audiobookplayer.network.ServerCapabilities
+import com.tortugapower.audiobookplayer.network.SsoCapable
+import com.tortugapower.audiobookplayer.network.SsoResult
+import com.tortugapower.audiobookplayer.network.WebAuthenticator
+import com.tortugapower.audiobookplayer.network.OkHttpOidcClient
+import com.tortugapower.audiobookplayer.logic.AbsOidcFlow
 import kotlinx.coroutines.CancellationException
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -17,7 +22,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
 import com.tortugapower.audiobookplayer.logic.ServerAddress
 
-class AudiobookshelfService : ExternalService {
+class AudiobookshelfService : ExternalService, SsoCapable {
 
     private fun getApi(url: String, headers: Map<String, String>? = null): AudiobookshelfApi {
         val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
@@ -108,6 +113,42 @@ class AudiobookshelfService : ExternalService {
             throw e
         } catch (e: Exception) {
             ConnectionError.Network(e.message ?: "").toFailure()
+        }
+    }
+
+    // MARK: - SSO (OpenID Connect)
+
+    /** Builds the handshake for one attempt. `internal` so tests can point it at a plain-http MockWebServer. */
+    internal var ssoFlowFactory: (WebAuthenticator) -> AbsOidcFlow = { webAuth -> AbsOidcFlow(OkHttpOidcClient(), webAuth) }
+
+    override suspend fun signInWithSso(url: String, headers: Map<String, String>?, webAuth: WebAuthenticator, ephemeral: Boolean): SsoResult {
+        val customHeaders = ExternalServiceUtils.sanitizeCustomHeaders(headers).orEmpty()
+        return when (val outcome = ssoFlowFactory(webAuth).run(url, customHeaders, ephemeral)) {
+            AbsOidcFlow.Outcome.Cancelled -> SsoResult.Cancelled
+            is AbsOidcFlow.Outcome.Failure -> SsoResult.Failure(outcome.error.toFailure())
+            is AbsOidcFlow.Outcome.Success -> {
+                val credentials = outcome.credentials
+                // The exchange returns only the user. `/api/authorize` with the fresh token yields the
+                // login-response shape, so the row gets the server's real name and its stable id (the
+                // cross-device hostId contract) exactly like a password sign-in. Best-effort: a failure
+                // degrades to the host as the name and no stable id, which is what iOS stores.
+                val settings = try {
+                    getApi(url, headers).authorize(getAuthHeader(credentials.token)).takeIf { it.isSuccessful }?.body()?.serverSettings
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+                SsoResult.Success(
+                    ConnectionResult.Success(
+                        token = credentials.token,
+                        name = settings?.serverName ?: ServerAddress.parse(url)?.host ?: url,
+                        stableId = settings?.id,
+                        userId = credentials.userId,
+                        userName = credentials.userName,
+                    )
+                )
+            }
         }
     }
 

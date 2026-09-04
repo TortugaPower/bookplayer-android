@@ -19,5 +19,6 @@
     <string name="media_servers_error_unexpected_response_with_code">意外的服务器响应（代码：%1$d）</string>
     <string name="media_servers_error_server_message">服务器返回 %1$d：%2$s</string>
     <string name="media_servers_error_sso_requires_https">单点登录需要与服务器建立安全（https）连接。</string>
+    <string name="media_servers_error_sso_no_code">您的身份提供商已完成登录，但未返回授权代码，这通常表示请求被拒绝。请检查客户端的群组或访问限制，并确认其允许的回调 URL 包含：\n\n%1$s</string>
     <string name="media_servers_error_sso_requires_chrome">单点登录需要将 Chrome 137 或更高版本设为此设备的默认浏览器。</string>
 </resources>

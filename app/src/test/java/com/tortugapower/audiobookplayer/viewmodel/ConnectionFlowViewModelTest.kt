@@ -21,6 +21,10 @@ import com.tortugapower.audiobookplayer.network.LibraryResult
 import com.tortugapower.audiobookplayer.network.PendingServer
 import com.tortugapower.audiobookplayer.network.ProbeResult
 import com.tortugapower.audiobookplayer.network.QuickConnectCapable
+import com.tortugapower.audiobookplayer.network.SsoCapable
+import com.tortugapower.audiobookplayer.network.SsoResult
+import com.tortugapower.audiobookplayer.network.WebAuthResult
+import com.tortugapower.audiobookplayer.network.WebAuthenticator
 import com.tortugapower.audiobookplayer.network.ServerCapabilities
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import com.tortugapower.audiobookplayer.repository.TokenCipher
@@ -75,7 +79,7 @@ class ConnectionFlowViewModelTest {
     }
 
     /** A media server that answers whatever the test loaded into it; records what sign-in was asked. */
-    private class FakeService : ExternalService, QuickConnectCapable {
+    private class FakeService : ExternalService, QuickConnectCapable, SsoCapable {
         var probeResult: ProbeResult = ProbeResult.Found(pending())
         var connectResult: ConnectionResult = ConnectionResult.Success(token = "tok", name = "Home", stableId = "srv-1", userId = "u1")
         var probeGate: CompletableDeferred<Unit>? = null
@@ -88,6 +92,15 @@ class ConnectionFlowViewModelTest {
         val quickConnectSecrets = mutableListOf<String>()
 
         override fun quickConnect(url: String, headers: Map<String, String>?) = JellyfinQuickConnect(quickConnectTransport, pollIntervalMs = 5_000, maxPolls = 3)
+
+        /** SSO: what the handshake returns, and what it was asked for. */
+        var ssoResult: SsoResult = SsoResult.Success(ConnectionResult.Success(token = "sso-tok", name = "Home", stableId = "srv-1", userId = "u1", userName = "gianni"))
+        val ssoCalls = mutableListOf<Pair<String, Boolean>>()
+
+        override suspend fun signInWithSso(url: String, headers: Map<String, String>?, webAuth: WebAuthenticator, ephemeral: Boolean): SsoResult {
+            ssoCalls += url to ephemeral
+            return ssoResult
+        }
 
         override suspend fun signInWithQuickConnect(url: String, secret: String, headers: Map<String, String>?): ConnectionResult {
             quickConnectSecrets += secret
@@ -422,6 +435,103 @@ class ConnectionFlowViewModelTest {
 
         vm.onHeaderRemoved(ids[0])
         assertEquals(mapOf("X-Dup" to "second"), vm.headersMap())
+    }
+
+    // MARK: - SSO
+
+    private val fakeWebAuth = object : WebAuthenticator {
+        override suspend fun authenticate(url: String, callbackScheme: String, ephemeral: Boolean): WebAuthResult = WebAuthResult.Callback("audiobookshelf://oauth?code=c&state=s")
+    }
+
+    /** An ABS view model that has probed an SSO-capable server on an Auth-Tab-capable device and landed on the method screen. */
+    private fun TestScope.absOnMethodScreen(buttonText: String? = "Login with Pocket ID"): Pair<ConnectionFlowViewModel, MutableList<ConnectionFlowEvent>> {
+        service.probeResult = ProbeResult.Found(FakeService.pending(capabilities = ServerCapabilities(supportsPassword = true, supportsOidc = true, oidcButtonText = buttonText)))
+        val vm = viewModel(ssoAvailable = true)
+        vm.attachWebAuthenticator(fakeWebAuth)
+        val events = eventsOf(vm)
+        vm.typeAddress()
+        vm.connect()
+        advanceUntilIdle()
+        assertEquals(listOf<ConnectionFlowEvent>(ConnectionFlowEvent.NavigateTo(ConnectionFlowStep.METHOD)), events)
+        assertEquals(AlternativeSignIn.Oidc(buttonText), vm.uiState.value.alternativeSignIn)
+        return vm to events
+    }
+
+    @Test fun `an sso server routes to the method screen only when auth tab is available`() = runTest(dispatcher) {
+        absOnMethodScreen()
+
+        service.probeResult = ProbeResult.Found(FakeService.pending(capabilities = ServerCapabilities(supportsOidc = true)))
+        val without = viewModel(ssoAvailable = false)
+        val events = eventsOf(without)
+        without.typeAddress()
+        without.connect()
+        advanceUntilIdle()
+        assertEquals(listOf<ConnectionFlowEvent>(ConnectionFlowEvent.NavigateTo(ConnectionFlowStep.PASSWORD)), events)
+        assertNull(without.uiState.value.alternativeSignIn)
+    }
+
+    @Test fun `sso sign-in persists the response's identity and ends the flow`() = runTest(dispatcher) {
+        val (vm, events) = absOnMethodScreen()
+
+        vm.startAlternativeSignIn()
+        advanceUntilIdle()
+
+        assertEquals(listOf("https://abs.example.com" to false), service.ssoCalls)
+        val stored = repository.allServers.first().single()
+        assertEquals("gianni", stored.username)
+        assertEquals("sso-tok", stored.token)
+        assertEquals("u1", stored.userId)
+        assertEquals("srv-1", stored.stableId)
+        assertEquals("Home", stored.name)
+        assertEquals(stored.id, events.filterIsInstance<ConnectionFlowEvent.SignedIn>().single().server.id)
+        assertFalse(vm.uiState.value.isLoading)
+    }
+
+    @Test fun `sso asks for an ephemeral browser when the server already has a connection`() = runTest(dispatcher) {
+        repository.saveServer(ExternalServerEntity(name = "Home", type = ExternalServiceType.AUDIOBOOKSHELF, url = "https://ABS.example.com:443/", username = "first", userId = "u0", token = "t0"))
+        val (vm, _) = absOnMethodScreen()
+
+        vm.startAlternativeSignIn()
+        advanceUntilIdle()
+
+        assertEquals(listOf("https://abs.example.com" to true), service.ssoCalls)
+        assertEquals("a different account is a second row, not a replacement", 2, repository.allServers.first().size)
+    }
+
+    @Test fun `a cancelled sso is silent and keeps the pending server`() = runTest(dispatcher) {
+        val (vm, events) = absOnMethodScreen()
+        service.ssoResult = SsoResult.Cancelled
+
+        vm.startAlternativeSignIn()
+        advanceUntilIdle()
+
+        assertNull(vm.uiState.value.error)
+        assertNotNull(vm.uiState.value.pending)
+        assertTrue(events.filterIsInstance<ConnectionFlowEvent.SignedIn>().isEmpty())
+        assertTrue(repository.allServers.first().isEmpty())
+    }
+
+    @Test fun `a failed sso shows the reason and keeps the pending server`() = runTest(dispatcher) {
+        val (vm, _) = absOnMethodScreen()
+        service.ssoResult = SsoResult.Failure(ConnectionError.SsoNoAuthorizationCode("https://abs.example.com/auth/openid/mobile-redirect").toFailure())
+
+        vm.startAlternativeSignIn()
+        advanceUntilIdle()
+
+        assertEquals(CoreR.string.media_servers_error_sso_no_code, errorResId(vm))
+        assertNotNull(vm.uiState.value.pending)
+        assertTrue(repository.allServers.first().isEmpty())
+    }
+
+    @Test fun `sso is a no-op without a web authenticator attached`() = runTest(dispatcher) {
+        val (vm, _) = absOnMethodScreen()
+        vm.attachWebAuthenticator(null)
+
+        vm.startAlternativeSignIn()
+        advanceUntilIdle()
+
+        assertTrue(service.ssoCalls.isEmpty())
+        assertFalse(vm.uiState.value.isLoading)
     }
 
     // MARK: - Reset between presentations

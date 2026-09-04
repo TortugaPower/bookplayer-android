@@ -57,6 +57,17 @@ sealed class ConnectionError {
         override val messageResId: Int get() = R.string.media_servers_error_sso_requires_chrome
     }
 
+    /**
+     * The identity provider came back without an authorization code. AudiobookShelf's mobile-redirect
+     * handler drops the provider's own error and forwards the literal `undefined`, so the provider's
+     * reason is unrecoverable from the app; the message names the two usual causes (a group/access
+     * restriction on the client, a disallowed redirect URI) and the URI the provider must allow.
+     */
+    data class SsoNoAuthorizationCode(val providerCallbackUrl: String) : ConnectionError() {
+        override val messageResId: Int get() = R.string.media_servers_error_sso_no_code
+        override val args: List<Any> get() = listOf(providerCallbackUrl)
+    }
+
     /** The carrier the existing screens already render (resource id + args, with a debug fallback). */
     fun toFailure(): ConnectionResult.Failure = ConnectionResult.Failure(
         message = toString(),

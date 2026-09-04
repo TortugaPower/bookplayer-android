@@ -17,6 +17,12 @@ interface AudiobookshelfApi {
     @POST("login")
     suspend fun login(@Body request: AudiobookshelfLoginRequest): Response<AudiobookshelfLoginResponse>
 
+    // What the web client calls on startup with a token: the login-response shape (user + serverSettings)
+    // without credentials. SSO uses it to learn the server's name and stable id, which the OIDC
+    // exchange doesn't return.
+    @POST("api/authorize")
+    suspend fun authorize(@Header("Authorization") auth: String): Response<AudiobookshelfLoginResponse>
+
     // Revokes the session behind the supplied token.
     @POST("logout")
     suspend fun logout(@Header("Authorization") auth: String): Response<Unit>

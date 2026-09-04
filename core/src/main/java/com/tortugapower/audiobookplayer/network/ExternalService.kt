@@ -120,6 +120,27 @@ interface QuickConnectCapable {
     suspend fun signInWithQuickConnect(url: String, secret: String, headers: Map<String, String>?): ConnectionResult
 }
 
+/**
+ * Implemented by services whose server offers native single sign-on through an identity provider
+ * (AudiobookShelf OpenID Connect). The flow only offers it when the probe reported it, the address is
+ * `https`, and this device has a browser that supports Auth Tab.
+ */
+interface SsoCapable {
+    /**
+     * Runs the handshake against [url] with [webAuth] driving the browser leg. [ephemeral] asks for a
+     * private browser session (a second account on a server that already has one). Never throws for
+     * server/network failures.
+     */
+    suspend fun signInWithSso(url: String, headers: Map<String, String>?, webAuth: WebAuthenticator, ephemeral: Boolean): SsoResult
+}
+
+sealed class SsoResult {
+    data class Success(val result: ConnectionResult.Success) : SsoResult()
+    /** The user closed the browser. Callers stay silent. */
+    data object Cancelled : SsoResult()
+    data class Failure(val failure: ConnectionResult.Failure) : SsoResult()
+}
+
 sealed class ConnectionResult {
     /**
      * [stableId] is the server's SELF-REPORTED unique id (Jellyfin `/System/Info` `Id`,

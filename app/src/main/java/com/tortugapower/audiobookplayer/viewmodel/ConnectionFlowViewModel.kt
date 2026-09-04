@@ -19,6 +19,9 @@ import com.tortugapower.audiobookplayer.network.ExternalServiceFactory
 import com.tortugapower.audiobookplayer.network.PendingServer
 import com.tortugapower.audiobookplayer.network.ProbeResult
 import com.tortugapower.audiobookplayer.network.QuickConnectCapable
+import com.tortugapower.audiobookplayer.network.SsoCapable
+import com.tortugapower.audiobookplayer.network.SsoResult
+import com.tortugapower.audiobookplayer.network.WebAuthenticator
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import com.tortugapower.audiobookplayer.ui.UiText
 import kotlinx.coroutines.Job
@@ -27,6 +30,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -110,7 +114,10 @@ class ConnectionFlowViewModel(
     private val mode: ConnectionFlowMode,
     private val repository: ExternalServerRepository,
     private val service: ExternalService = ExternalServiceFactory.getService(type),
-    /** Whether this device can run the SSO browser leg (Chrome 137+ Auth Tab). Wired in the SSO phase; false until then. */
+    /**
+     * Whether this device has a browser that supports Auth Tab (Chrome 137+), the SSO browser leg. A hard
+     * requirement: when false, SSO is not offered and an SSO-only server fails Connect with the reason.
+     */
     private val ssoAvailableOnDevice: () -> Boolean = { false },
     private val revokeStaleToken: suspend (ExternalServerEntity) -> Unit = { stale ->
         stale.token?.let { ExternalServiceFactory.getService(stale.type).revokeToken(stale.url, it, stale.customHeaders) }
@@ -125,6 +132,13 @@ class ConnectionFlowViewModel(
 
     private var actionJob: Job? = null
     private var nextHeaderId = (_uiState.value.headers.maxOfOrNull { it.id } ?: 0L) + 1
+
+    /** Drives the SSO browser leg. Attached by the sheet that owns the activity-result launcher; null until then. */
+    private var webAuthenticator: WebAuthenticator? = null
+
+    fun attachWebAuthenticator(authenticator: WebAuthenticator?) {
+        webAuthenticator = authenticator
+    }
 
     /** The active Quick Connect poller, its state subscription, and the final token exchange — all torn down together. */
     private var quickConnect: JellyfinQuickConnect? = null
@@ -251,7 +265,7 @@ class ConnectionFlowViewModel(
     fun startAlternativeSignIn() {
         when (_uiState.value.alternativeSignIn) {
             AlternativeSignIn.QuickConnect -> startQuickConnect()
-            is AlternativeSignIn.Oidc -> Unit // SSO lands in the next phase.
+            is AlternativeSignIn.Oidc -> startSso()
             null -> Unit
         }
     }
@@ -276,6 +290,39 @@ class ConnectionFlowViewModel(
     fun reset() {
         cancel()
         _uiState.value = initialState(type, mode)
+    }
+
+    // MARK: - SSO (OpenID Connect)
+
+    /**
+     * Runs the SSO handshake against the probed server. The browser leg is a separate activity, so the
+     * loading overlay covers the token exchange after the user comes back (iOS shows one for the same
+     * reason). Cancelling in the browser is silent; a failure keeps the probed server so the user can
+     * retry or fall back to the password.
+     */
+    private fun startSso() {
+        val pending = _uiState.value.pending ?: return
+        val capable = service as? SsoCapable ?: return
+        val webAuth = webAuthenticator ?: return
+        runAction {
+            // A fresh browser session when this server already has a connection: otherwise the provider's
+            // live SSO cookie signs the *existing* user straight back in, making a second account impossible.
+            val urlKey = ExternalServiceUtils.canonicalServerKey(pending.url)
+            val ephemeral = repository.allServers.first().any {
+                it.type == type && ExternalServiceUtils.canonicalServerKey(it.url) == urlKey
+            }
+            when (val result = capable.signInWithSso(pending.url, headersMap(), webAuth, ephemeral)) {
+                SsoResult.Cancelled -> Unit
+                is SsoResult.Failure -> _uiState.update { it.copy(error = failureToUiText(result.failure)) }
+                is SsoResult.Success -> persistAndFinish(
+                    result = result.result,
+                    fallbackName = pending.serverName.ifBlank { _uiState.value.address.host },
+                    username = result.result.userName ?: _uiState.value.username,
+                    url = pending.url,
+                    stableId = result.result.stableId ?: pending.stableId,
+                )
+            }
+        }
     }
 
     // MARK: - Quick Connect
@@ -448,11 +495,12 @@ class ConnectionFlowViewModelFactory(
     private val type: ExternalServiceType,
     private val mode: ConnectionFlowMode,
     private val repository: ExternalServerRepository,
+    private val ssoAvailableOnDevice: () -> Boolean = { false },
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ConnectionFlowViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return ConnectionFlowViewModel(type, mode, repository) as T
+            return ConnectionFlowViewModel(type, mode, repository, ssoAvailableOnDevice = ssoAvailableOnDevice) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

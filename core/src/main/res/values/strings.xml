@@ -25,5 +25,6 @@
     <string name="media_servers_error_unexpected_response_with_code">Unexpected server response (Code: %1$d)</string>
     <string name="media_servers_error_server_message">The server responded with %1$d: %2$s</string>
     <string name="media_servers_error_sso_requires_https">Single sign-on needs a secure (https) connection to your server.</string>
+    <string name="media_servers_error_sso_no_code">Your identity provider signed you in but didn\'t return an authorization code, which usually means it denied the request. Check any group or access restrictions on the client, and that its allowed callback URLs include:\n\n%1$s</string>
     <string name="media_servers_error_sso_requires_chrome">Single sign-on needs Chrome 137 or newer set as the default browser on this device.</string>
 </resources>
