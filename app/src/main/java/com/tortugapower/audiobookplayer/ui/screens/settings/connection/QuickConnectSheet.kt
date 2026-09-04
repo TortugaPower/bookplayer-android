@@ -153,8 +153,9 @@ private fun ProgressBlock(message: String) {
 
 /**
  * The user-facing code, large and monospaced so it's quick to read off the device and unambiguous to
- * retype (0/O, 1/l). Long-press copies it: the authorizing session is often a browser tab on this same
- * phone, not a TV. TalkBack reads it character by character.
+ * retype (0/O, 1/l). Tap or long-press copies it: the authorizing session is often a browser tab on this
+ * same phone, not a TV — and a tile that announces as clickable must do something on a tap. TalkBack
+ * reads it character by character and exposes Copy as a custom action.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -170,7 +171,7 @@ private fun CodeTile(code: String) {
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = {}, onLongClick = copy)
+            .combinedClickable(onClick = copy, onLongClick = copy)
             .semantics {
                 contentDescription = "$codeLabel, $spelled"
                 customActions = listOf(CustomAccessibilityAction(copyLabel) { copy(); true })
