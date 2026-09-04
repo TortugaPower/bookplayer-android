@@ -83,7 +83,9 @@ fun ConnectionFlowSheet(
     val keyboard = LocalSoftwareKeyboardController.current
 
     fun dismiss() {
-        viewModel.cancel()
+        // Leaving the flow: stop anything in flight and forget the form, so the next presentation
+        // starts clean (the view model outlives the sheet).
+        viewModel.reset()
         onDismiss()
     }
 
@@ -98,6 +100,8 @@ fun ConnectionFlowSheet(
                 is ConnectionFlowEvent.SignedIn -> {
                     keyboard?.hide()
                     sheetState.hide()
+                    // Reset after the hide animation, so the fields don't blank under it.
+                    viewModel.reset()
                     onSignedIn(event.server)
                 }
             }

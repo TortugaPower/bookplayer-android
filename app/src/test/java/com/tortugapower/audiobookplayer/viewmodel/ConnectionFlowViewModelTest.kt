@@ -402,6 +402,56 @@ class ConnectionFlowViewModelTest {
         assertEquals(mapOf("X-Dup" to "second"), vm.headersMap())
     }
 
+    // MARK: - Reset between presentations
+
+    /** The view model outlives the sheet, so leaving the flow must forget the form — a reopened Add Server starts empty. */
+    @Test fun `reset returns an add-server flow to an empty form`() = runTest(dispatcher) {
+        val vm = viewModel()
+        vm.onHostChanged("http://abs.example.com:13378/abs")
+        vm.onHeaderAdded()
+        vm.onHeaderChanged(vm.uiState.value.headers.single().id, "CF-Access-Client-Id", "abc")
+        vm.onUsernameChanged("gianni")
+        vm.onPasswordChanged("pw")
+        vm.connect()
+        advanceUntilIdle()
+        assertNotNull(vm.uiState.value.pending)
+
+        vm.reset()
+
+        val state = vm.uiState.value
+        assertEquals("", state.hostText)
+        assertEquals("", state.portText)
+        assertEquals(ServerAddress.Scheme.HTTPS, state.address.scheme)
+        assertTrue(state.headers.isEmpty())
+        assertEquals("", state.username)
+        assertEquals("", state.password)
+        assertNull(state.pending)
+        assertNull(state.route)
+        assertNull(state.error)
+        assertFalse(state.isLoading)
+    }
+
+    /** …while a re-auth flow re-prefills from the saved row it was opened for. */
+    @Test fun `reset re-prefills a re-auth flow from the saved row`() = runTest(dispatcher) {
+        val saved = ExternalServerEntity(
+            id = 7, name = "Home", type = ExternalServiceType.AUDIOBOOKSHELF, url = "https://abs.example.com:8443/abs",
+            username = "gianni", token = "stale", customHeaders = mapOf("X-One" to "1"),
+        )
+        val vm = viewModel(mode = ConnectionFlowMode.Reauth(saved))
+        vm.onHostChanged("elsewhere.example.com")
+        vm.onUsernameChanged("someone-else")
+        vm.onHeaderRemoved(vm.uiState.value.headers.single().id)
+
+        vm.reset()
+
+        val state = vm.uiState.value
+        assertEquals("abs.example.com/abs", state.hostText)
+        assertEquals("8443", state.portText)
+        assertEquals("gianni", state.username)
+        assertEquals(listOf("X-One"), state.headers.map { it.key })
+        assertTrue(state.isReauth)
+    }
+
     // MARK: - Cancellation
 
     @Test fun `cancel stops an in-flight connect and leaves nothing behind`() = runTest(dispatcher) {

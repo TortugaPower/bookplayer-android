@@ -245,6 +245,18 @@ class ConnectionFlowViewModel(
 
     fun clearError() = _uiState.update { it.copy(error = null) }
 
+    /**
+     * Returns the flow to its starting point for the next presentation: Add Server empty, re-auth
+     * re-prefilled from the saved row. The view model is keyed to the enclosing nav entry and outlives a
+     * single opening of the sheet, so without this a reopened Add Server showed the last typed address
+     * and headers. Called when the flow is left (dismissed, or finished) rather than when it is shown, so
+     * a configuration change mid-typing keeps the user's input.
+     */
+    fun reset() {
+        cancel()
+        _uiState.value = initialState(type, mode)
+    }
+
     // MARK: - Internals
 
     private fun runAction(block: suspend () -> Unit) {
