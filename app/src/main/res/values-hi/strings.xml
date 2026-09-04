@@ -292,10 +292,16 @@
     <string name="media_servers_custom_headers_section_title">कस्टम हेडर</string>
 
     <!-- Add Server Sheet -->
+    <string name="media_servers_address_scheme_label">कनेक्शन प्रकार</string>
+    <string name="media_servers_address_host_label">होस्ट</string>
+    <string name="media_servers_address_port_label">पोर्ट</string>
+    <string name="media_servers_name_section_title">नाम</string>
+    <string name="media_servers_password_signin_button">उपयोगकर्ता नाम और पासवर्ड</string>
+    <string name="media_servers_headers_detail_footer">ये हेडर इस सर्वर को भेजे जाने वाले हर अनुरोध के साथ जोड़े जाते हैं। इन्हें सर्वर पता स्क्रीन से संपादित किया जा सकता है।</string>
+    <string name="media_servers_sso_button">SSO से साइन इन करें</string>
+    <string name="media_servers_quick_connect_button">Quick Connect का उपयोग करें</string>
     <string name="media_servers_add_server_connect_button">कनेक्ट करें</string>
     <string name="media_servers_add_server_sign_in_button">साइन इन करें</string>
-    <string name="media_servers_add_server_url_label">सर्वर URL</string>
-    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">कस्टम HTTP हेडर</string>
     <string name="media_servers_add_server_header_name_placeholder">हेडर का नाम</string>
     <string name="media_servers_add_server_header_value_placeholder">हेडर का मान</string>
@@ -303,7 +309,6 @@
     <string name="media_servers_add_server_headers_description">यहां जोड़े गए हेडर इस सर्वर पर भेजे गए प्रत्येक अनुरोध से जुड़े होते हैं।</string>
     <string name="media_servers_add_server_username_placeholder">उपयोगकर्ता नाम</string>
     <string name="media_servers_add_server_password_placeholder">पासवर्ड</string>
-    <string name="media_servers_add_server_connect_to_server">अपने %1$s सर्वर से कनेक्ट करें</string>
     <string name="media_servers_error_server_not_found">सर्वर नहीं मिला</string>
     <string name="media_servers_error_failed_to_fetch_library">लाइब्रेरी प्राप्त करने में विफल</string>
     <string name="media_servers_error_session_expired">%1$s के लिए आपका सत्र समाप्त हो गया है। जारी रखने के लिए फिर से साइन इन करें।</string>

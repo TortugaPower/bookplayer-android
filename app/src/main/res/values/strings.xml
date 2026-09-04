@@ -460,10 +460,19 @@
     <string name="media_servers_custom_headers_section_title">CUSTOM HEADERS</string>
 
     <!-- Add Server Sheet -->
+    <!-- Connection flow (address → method → password). Copy mirrors iOS's integration_* keys. -->
+    <string name="media_servers_address_scheme_label">Connection type</string>
+    <string name="media_servers_address_host_label">Host</string>
+    <string name="media_servers_address_port_label">Port</string>
+    <string name="media_servers_address_host_placeholder_jellyfin">jellyfin.example.com</string>
+    <string name="media_servers_address_host_placeholder_audiobookshelf">audiobookshelf.example.com</string>
+    <string name="media_servers_name_section_title">NAME</string>
+    <string name="media_servers_password_signin_button">Username &amp; Password</string>
+    <string name="media_servers_headers_detail_footer">These headers are attached to every request sent to this server. They can be edited from the server address screen.</string>
+    <string name="media_servers_sso_button">Sign in with SSO</string>
+    <string name="media_servers_quick_connect_button">Use Quick Connect</string>
     <string name="media_servers_add_server_connect_button">Connect</string>
     <string name="media_servers_add_server_sign_in_button">Sign In</string>
-    <string name="media_servers_add_server_url_label">Server URL</string>
-    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">Custom HTTP Headers</string>
     <string name="media_servers_add_server_header_name_placeholder">Header name</string>
     <string name="media_servers_add_server_header_value_placeholder">Header value</string>
@@ -471,7 +480,6 @@
     <string name="media_servers_add_server_headers_description">Headers added here are attached to every request sent to this server.</string>
     <string name="media_servers_add_server_username_placeholder">Username</string>
     <string name="media_servers_add_server_password_placeholder">Password</string>
-    <string name="media_servers_add_server_connect_to_server">Connect to your %1$s server</string>
     <string name="media_servers_error_server_not_found">Server not found</string>
     <string name="media_servers_error_failed_to_fetch_library">Failed to fetch library</string>
     <string name="media_servers_error_session_expired">Your session for %1$s expired. Sign in again to continue.</string>

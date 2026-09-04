@@ -100,9 +100,11 @@ fun ExternalLibraryScreen(
         }
     }
 
-    // iOS parity: expired session gets Connection Details/Cancel only — no Retry. The alert
-    // stays up until re-auth succeeds (retryAfterReauth clears the state), so dismissing the
-    // re-auth sheet without signing in lands back here instead of on a broken screen.
+    // iOS parity: expired session gets Sign In/Cancel only — no Retry (it would hit the same 401).
+    // "Sign In", not "Connection Details": the button opens the connection flow at the address
+    // step, prefilled, not the read-only details sheet. The alert stays up until re-auth succeeds
+    // (retryAfterReauth clears the state), so dismissing the sheet without signing in lands back
+    // here instead of on a broken screen.
     val sessionExpiredServerName by viewModel.sessionExpiredServerName.collectAsState()
     sessionExpiredServerName?.let { expiredName ->
         AlertDialog(
@@ -111,7 +113,7 @@ fun ExternalLibraryScreen(
             text = { Text(stringResource(id = R.string.media_servers_error_session_expired, expiredName.ifBlank { serverName })) },
             confirmButton = {
                 TextButton(onClick = onReauthRequested) {
-                    Text(stringResource(id = R.string.media_servers_connection_details_title))
+                    Text(stringResource(id = R.string.media_servers_add_server_sign_in_button))
                 }
             },
             dismissButton = {

@@ -292,10 +292,16 @@
     <string name="media_servers_custom_headers_section_title">EN-TÊTES PERSONNALISÉS</string>
 
     <!-- Add Server Sheet -->
+    <string name="media_servers_address_scheme_label">Type de connexion</string>
+    <string name="media_servers_address_host_label">Hôte</string>
+    <string name="media_servers_address_port_label">Port</string>
+    <string name="media_servers_name_section_title">NOM</string>
+    <string name="media_servers_password_signin_button">Nom d\'utilisateur et mot de passe</string>
+    <string name="media_servers_headers_detail_footer">Ces en-têtes sont joints à chaque requête envoyée à ce serveur. Ils peuvent être modifiés depuis l\'écran d\'adresse du serveur.</string>
+    <string name="media_servers_sso_button">Se connecter avec le SSO</string>
+    <string name="media_servers_quick_connect_button">Utiliser Quick Connect</string>
     <string name="media_servers_add_server_connect_button">Connecter</string>
     <string name="media_servers_add_server_sign_in_button">Se connecter</string>
-    <string name="media_servers_add_server_url_label">URL du serveur</string>
-    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">En-têtes HTTP personnalisés</string>
     <string name="media_servers_add_server_header_name_placeholder">Nom de l\'en-tête</string>
     <string name="media_servers_add_server_header_value_placeholder">Valeur de l\'en-tête</string>
@@ -303,7 +309,6 @@
     <string name="media_servers_add_server_headers_description">Les en-têtes ajoutés ici sont attachés à chaque requête envoyée à ce serveur.</string>
     <string name="media_servers_add_server_username_placeholder">Nom d\'utilisateur</string>
     <string name="media_servers_add_server_password_placeholder">Mot de passe</string>
-    <string name="media_servers_add_server_connect_to_server">Connectez-vous à votre serveur %1$s</string>
     <string name="media_servers_error_server_not_found">Serveur introuvable</string>
     <string name="media_servers_error_failed_to_fetch_library">Impossible de récupérer la bibliothèque</string>
     <string name="media_servers_error_session_expired">Votre session pour %1$s a expiré. Reconnectez-vous pour continuer.</string>

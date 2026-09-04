@@ -290,10 +290,16 @@
     <string name="media_servers_custom_headers_section_title">사용자 지정 헤더</string>
 
     <!-- Add Server Sheet -->
+    <string name="media_servers_address_scheme_label">연결 유형</string>
+    <string name="media_servers_address_host_label">호스트</string>
+    <string name="media_servers_address_port_label">포트</string>
+    <string name="media_servers_name_section_title">이름</string>
+    <string name="media_servers_password_signin_button">사용자 이름 및 비밀번호</string>
+    <string name="media_servers_headers_detail_footer">이 헤더는 이 서버로 보내는 모든 요청에 첨부됩니다. 서버 주소 화면에서 편집할 수 있습니다.</string>
+    <string name="media_servers_sso_button">SSO로 로그인</string>
+    <string name="media_servers_quick_connect_button">Quick Connect 사용</string>
     <string name="media_servers_add_server_connect_button">연결</string>
     <string name="media_servers_add_server_sign_in_button">로그인</string>
-    <string name="media_servers_add_server_url_label">서버 URL</string>
-    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">사용자 지정 HTTP 헤더</string>
     <string name="media_servers_add_server_header_name_placeholder">헤더 이름</string>
     <string name="media_servers_add_server_header_value_placeholder">헤더 값</string>
@@ -301,7 +307,6 @@
     <string name="media_servers_add_server_headers_description">여기에 추가된 헤더는 이 서버로 전송되는 모든 요청에 첨부됩니다.</string>
     <string name="media_servers_add_server_username_placeholder">사용자 이름</string>
     <string name="media_servers_add_server_password_placeholder">비밀번호</string>
-    <string name="media_servers_add_server_connect_to_server">%1$s 서버에 연결</string>
     <string name="media_servers_error_server_not_found">서버를 찾을 수 없습니다</string>
     <string name="media_servers_error_failed_to_fetch_library">라이브러리를 가져오지 못했습니다</string>
     <string name="media_servers_error_session_expired">%1$s의 세션이 만료되었습니다. 계속하려면 다시 로그인하세요.</string>

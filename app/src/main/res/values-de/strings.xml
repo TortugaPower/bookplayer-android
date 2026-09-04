@@ -292,10 +292,16 @@
     <string name="media_servers_custom_headers_section_title">BENUTZERDEFINIERTE HEADER</string>
 
     <!-- Add Server Sheet -->
+    <string name="media_servers_address_scheme_label">Verbindungstyp</string>
+    <string name="media_servers_address_host_label">Host</string>
+    <string name="media_servers_address_port_label">Port</string>
+    <string name="media_servers_name_section_title">NAME</string>
+    <string name="media_servers_password_signin_button">Benutzername und Passwort</string>
+    <string name="media_servers_headers_detail_footer">Diese Header werden an jede Anfrage an diesen Server angehängt. Sie können im Bildschirm für die Serveradresse bearbeitet werden.</string>
+    <string name="media_servers_sso_button">Mit SSO anmelden</string>
+    <string name="media_servers_quick_connect_button">Quick Connect verwenden</string>
     <string name="media_servers_add_server_connect_button">Verbinden</string>
     <string name="media_servers_add_server_sign_in_button">Anmelden</string>
-    <string name="media_servers_add_server_url_label">Server-URL</string>
-    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">Benutzerdefinierte HTTP-Header</string>
     <string name="media_servers_add_server_header_name_placeholder">Header-Name</string>
     <string name="media_servers_add_server_header_value_placeholder">Header-Wert</string>
@@ -303,7 +309,6 @@
     <string name="media_servers_add_server_headers_description">Hier hinzugefügte Header werden an jede an diesen Server gesendete Anfrage angehängt.</string>
     <string name="media_servers_add_server_username_placeholder">Benutzername</string>
     <string name="media_servers_add_server_password_placeholder">Passwort</string>
-    <string name="media_servers_add_server_connect_to_server">Verbinden Sie sich mit Ihrem %1$s-Server</string>
     <string name="media_servers_error_server_not_found">Server nicht gefunden</string>
     <string name="media_servers_error_failed_to_fetch_library">Bibliothek konnte nicht geladen werden</string>
     <string name="media_servers_error_session_expired">Ihre Sitzung für %1$s ist abgelaufen. Melden Sie sich erneut an, um fortzufahren.</string>

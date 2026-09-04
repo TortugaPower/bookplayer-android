@@ -204,6 +204,7 @@ fun MainScreen() {
 
 
     var showMediaServersFlow by remember { mutableStateOf(false) }
+    var mediaServersInitialType by remember { mutableStateOf<com.tortugapower.audiobookplayer.database.entities.ExternalServiceType?>(null) }
 
     // A synced-down media-server book whose server isn't configured on THIS device (configs are
     // per-device; only the stable hostId syncs): prompt to connect it, deep-linking into the
@@ -222,6 +223,7 @@ fun MainScreen() {
             confirmButton = {
                 TextButton(onClick = {
                     PlaybackManager.clearMissingExternalServer()
+                    mediaServersInitialType = providerType
                     showMediaServersFlow = true
                 }) {
                     Text(stringResource(id = R.string.external_server_missing_connect))
@@ -642,7 +644,11 @@ fun MainScreen() {
                         externalServerRepository = externalServerRepository,
                         externalLibraryRepository = externalLibraryRepository,
                         importViewModel = importViewModel,
-                        onDismiss = { showMediaServersFlow = false }
+                        onDismiss = {
+                            showMediaServersFlow = false
+                            mediaServersInitialType = null
+                        },
+                        initialAddServerType = mediaServersInitialType,
                     )
                 }
               }
