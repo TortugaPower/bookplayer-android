@@ -11,6 +11,17 @@ interface JellyfinApi {
         @Body request: JellyfinAuthRequest
     ): Response<JellyfinAuthResponse>
 
+    // Unauthenticated server identity — what the connection flow probes before any credentials exist.
+    @GET("System/Info/Public")
+    suspend fun getPublicSystemInfo(): Response<JellyfinPublicSystemInfo>
+
+    // Whether the admin has Quick Connect switched on. Answers a bare JSON boolean. Sent with the
+    // client-identity header (no token) like every other pre-auth Jellyfin call.
+    @GET("QuickConnect/Enabled")
+    suspend fun getQuickConnectEnabled(
+        @Header("X-Emby-Authorization") authHeader: String
+    ): Response<Boolean>
+
     @GET("Items")
     suspend fun getItems(
         @Header("X-Emby-Authorization") authHeader: String,
@@ -59,6 +70,13 @@ data class JellyfinSystemInfo(
     @SerializedName("ServerName") val serverName: String,
     // The Jellyfin instance's unique id — the cross-device stable server identity (hostId contract).
     @SerializedName("Id") val id: String? = null
+)
+
+// `/System/Info/Public`: the subset any client may read before signing in.
+data class JellyfinPublicSystemInfo(
+    @SerializedName("ServerName") val serverName: String? = null,
+    @SerializedName("Id") val id: String? = null,
+    @SerializedName("Version") val version: String? = null
 )
 
 data class JellyfinAuthRequest(

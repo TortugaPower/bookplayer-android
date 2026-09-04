@@ -24,4 +24,10 @@
         <item quantity="many">%1$d فصلًا</item>
         <item quantity="other">%1$d فصل</item>
     </plurals>
+    <string name="media_servers_error_unauthorized">فشل تسجيل الدخول. تحقق من اسم المستخدم وكلمة المرور.</string>
+    <string name="media_servers_error_unexpected_response">استجابة غير متوقعة من الخادم</string>
+    <string name="media_servers_error_unexpected_response_with_code">استجابة غير متوقعة من الخادم (الرمز: %1$d)</string>
+    <string name="media_servers_error_server_message">استجاب الخادم بالرمز %1$d: %2$s</string>
+    <string name="media_servers_error_sso_requires_https">يتطلب الدخول الموحّد اتصالاً آمناً (https) بخادمك.</string>
+    <string name="media_servers_error_sso_requires_chrome">يتطلب الدخول الموحّد تعيين Chrome 137 أو أحدث كمتصفح افتراضي على هذا الجهاز.</string>
 </resources>

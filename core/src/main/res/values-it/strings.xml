@@ -16,4 +16,10 @@
         <item quantity="one">1 capitolo</item>
         <item quantity="other">%1$d capitoli</item>
     </plurals>
+    <string name="media_servers_error_unauthorized">Accesso non riuscito. Controlla il tuo nome utente e la tua password.</string>
+    <string name="media_servers_error_unexpected_response">Risposta imprevista del server</string>
+    <string name="media_servers_error_unexpected_response_with_code">Risposta imprevista del server (codice: %1$d)</string>
+    <string name="media_servers_error_server_message">Il server ha risposto con %1$d: %2$s</string>
+    <string name="media_servers_error_sso_requires_https">L\'accesso singolo richiede una connessione sicura (https) al tuo server.</string>
+    <string name="media_servers_error_sso_requires_chrome">L\'accesso singolo richiede Chrome 137 o successivo come browser predefinito su questo dispositivo.</string>
 </resources>

@@ -20,4 +20,10 @@
         <item quantity="many">%1$d глав</item>
         <item quantity="other">%1$d главы</item>
     </plurals>
+    <string name="media_servers_error_unauthorized">Ошибка входа. Проверьте имя пользователя и пароль.</string>
+    <string name="media_servers_error_unexpected_response">Неожиданный ответ сервера</string>
+    <string name="media_servers_error_unexpected_response_with_code">Неожиданный ответ сервера (Код: %1$d)</string>
+    <string name="media_servers_error_server_message">Сервер ответил с кодом %1$d: %2$s</string>
+    <string name="media_servers_error_sso_requires_https">Для единого входа требуется защищённое (https) подключение к серверу.</string>
+    <string name="media_servers_error_sso_requires_chrome">Для единого входа на этом устройстве браузером по умолчанию должен быть Chrome 137 или новее.</string>
 </resources>

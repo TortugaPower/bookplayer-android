@@ -16,4 +16,10 @@
         <item quantity="one">1 अध्याय</item>
         <item quantity="other">%1$d अध्याय</item>
     </plurals>
+    <string name="media_servers_error_unauthorized">साइन इन विफल रहा। अपना उपयोगकर्ता नाम और पासवर्ड जांचें।</string>
+    <string name="media_servers_error_unexpected_response">सर्वर से अनपेक्षित प्रतिक्रिया</string>
+    <string name="media_servers_error_unexpected_response_with_code">सर्वर से अनपेक्षित प्रतिक्रिया (कोड: %1$d)</string>
+    <string name="media_servers_error_server_message">सर्वर ने %1$d के साथ उत्तर दिया: %2$s</string>
+    <string name="media_servers_error_sso_requires_https">सिंगल साइन-ऑन के लिए आपके सर्वर से सुरक्षित (https) कनेक्शन आवश्यक है।</string>
+    <string name="media_servers_error_sso_requires_chrome">सिंगल साइन-ऑन के लिए इस डिवाइस पर Chrome 137 या नया संस्करण डिफ़ॉल्ट ब्राउज़र के रूप में सेट होना आवश्यक है।</string>
 </resources>

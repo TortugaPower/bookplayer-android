@@ -5,6 +5,15 @@ import retrofit2.Response
 import retrofit2.http.*
 
 interface AudiobookshelfApi {
+    // Unauthenticated reachability check — `{"success": true}`.
+    @GET("ping")
+    suspend fun ping(): Response<AudiobookshelfPingResponse>
+
+    // Unauthenticated capability probe: which sign-in methods the admin enabled (`authMethods`:
+    // "local", "openid") and the provider button label the web UI shows.
+    @GET("status")
+    suspend fun status(): Response<AudiobookshelfStatusResponse>
+
     @POST("login")
     suspend fun login(@Body request: AudiobookshelfLoginRequest): Response<AudiobookshelfLoginResponse>
 
@@ -34,6 +43,19 @@ interface AudiobookshelfApi {
     ): Response<Unit>
 }
 
+data class AudiobookshelfPingResponse(
+    @SerializedName("success") val success: Boolean? = null
+)
+
+data class AudiobookshelfStatusResponse(
+    @SerializedName("authMethods") val authMethods: List<String>? = null,
+    @SerializedName("authFormData") val authFormData: AudiobookshelfAuthFormData? = null
+)
+
+data class AudiobookshelfAuthFormData(
+    @SerializedName("authOpenIDButtonText") val authOpenIDButtonText: String? = null
+)
+
 data class AudiobookshelfProgressRequest(
     @SerializedName("progress") val progress: Double,
     @SerializedName("currentTime") val currentTime: Double,
@@ -51,6 +73,8 @@ data class AudiobookshelfLoginResponse(
 )
 
 data class AudiobookshelfUser(
+    // The account's id on this server — the identity connections de-duplicate on.
+    @SerializedName("id") val id: String? = null,
     @SerializedName("token") val token: String,
     @SerializedName("username") val username: String
 )

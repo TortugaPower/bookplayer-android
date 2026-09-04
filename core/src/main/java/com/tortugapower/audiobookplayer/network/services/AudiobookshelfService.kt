@@ -2,14 +2,20 @@ package com.tortugapower.audiobookplayer.network.services
 
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.model.ExternalLibraryItem
+import com.tortugapower.audiobookplayer.network.ConnectionError
 import com.tortugapower.audiobookplayer.network.ConnectionResult
 import com.tortugapower.audiobookplayer.network.ExternalService
 import com.tortugapower.audiobookplayer.network.LibraryResult
+import com.tortugapower.audiobookplayer.network.PendingServer
+import com.tortugapower.audiobookplayer.network.ProbeResult
+import com.tortugapower.audiobookplayer.network.ServerCapabilities
+import kotlinx.coroutines.CancellationException
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
+import com.tortugapower.audiobookplayer.logic.ServerAddress
 
 class AudiobookshelfService : ExternalService {
 
@@ -36,10 +42,55 @@ class AudiobookshelfService : ExternalService {
 
     private fun getAuthHeader(token: String): String = "Bearer $token"
 
+    override suspend fun probe(url: String, headers: Map<String, String>?): ProbeResult {
+        return try {
+            val api = getApi(url, headers)
+            // `/ping` is unauthenticated, so its failures are never a session-expiry signal.
+            val ping = api.ping()
+            if (!ping.isSuccessful) {
+                return ProbeResult.Failure(ConnectionError.fromResponse(ping.code(), ping.errorBody()?.string()))
+            }
+            // Best-effort capability probe: a server that doesn't answer `/status`, or answers something
+            // we don't recognise, simply isn't offered SSO and keeps its password form — hiding the only
+            // sign-in path a server may have is the unsafe direction.
+            val status = try {
+                api.status().takeIf { it.isSuccessful }?.body()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            val methods = status?.authMethods.orEmpty()
+            val capabilities = ServerCapabilities(
+                // An absent or empty `authMethods` means the server predates the field or answered
+                // something unexpected — treat local auth as available rather than locking the user out.
+                supportsPassword = methods.isEmpty() || methods.contains("local"),
+                supportsOidc = methods.contains("openid"),
+                oidcButtonText = status?.authFormData?.authOpenIDButtonText?.takeIf { it.isNotBlank() },
+            )
+            ProbeResult.Found(
+                PendingServer(
+                    url = url,
+                    // `/ping` carries no name; the host stands in (iOS parity). The login response's
+                    // `serverSettings.serverName` replaces it once the user signs in.
+                    serverName = ServerAddress.parse(url)?.host ?: url,
+                    stableId = null,
+                    capabilities = capabilities,
+                )
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ProbeResult.Failure(ConnectionError.Network(e.message ?: ""))
+        }
+    }
+
     override suspend fun connect(url: String, username: String?, password: String?, headers: Map<String, String>?): ConnectionResult {
         return try {
             val api = getApi(url, headers)
-            val response = api.login(AudiobookshelfLoginRequest(username, password))
+            // ABS doesn't trim whitespace server-side, so a keyboard inserting a trailing space on the
+            // username is enough to silently reject otherwise-correct credentials (iOS parity).
+            val response = api.login(AudiobookshelfLoginRequest(username?.trim(), password?.trim()))
 
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
@@ -47,20 +98,16 @@ class AudiobookshelfService : ExternalService {
                 val serverName = body.serverSettings?.serverName ?: "Audiobookshelf"
                 // serverSettings.id is the ABS instance's stable id (hostId contract) — rides the
                 // login response, no extra request.
-                ConnectionResult.Success(token = token, name = serverName, stableId = body.serverSettings?.id)
+                ConnectionResult.Success(token = token, name = serverName, stableId = body.serverSettings?.id, userId = body.user.id)
+            } else if (response.code() == 401) {
+                ConnectionError.Unauthorized.toFailure()
             } else {
-                ConnectionResult.Failure(
-                    message = "Authentication failed: ${response.message()}",
-                    messageResId = com.tortugapower.audiobookplayer.core.R.string.media_servers_error_auth_failed,
-                    args = listOf(response.message())
-                )
+                ConnectionError.fromResponse(response.code(), response.errorBody()?.string()).toFailure()
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            ConnectionResult.Failure(
-                message = "Connection error: ${e.message}",
-                messageResId = com.tortugapower.audiobookplayer.core.R.string.media_servers_error_connection_failed,
-                args = listOf(e.message ?: "")
-            )
+            ConnectionError.Network(e.message ?: "").toFailure()
         }
     }
 
