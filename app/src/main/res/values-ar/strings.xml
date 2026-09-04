@@ -295,6 +295,7 @@
     <string name="media_servers_anonymous_username">مجهول</string>
 
     <!-- Server Info Sheet -->
+    <string name="media_servers_rename_connection">إعادة تسمية الاتصال</string>
     <string name="media_servers_connection_details_title">تفاصيل الاتصال</string>
     <string name="media_servers_server_section_title">الخادم</string>
     <string name="media_servers_name_label">الاسم</string>

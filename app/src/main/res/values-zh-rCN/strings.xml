@@ -281,6 +281,7 @@
     <string name="media_servers_anonymous_username">匿名</string>
 
     <!-- Server Info Sheet -->
+    <string name="media_servers_rename_connection">重命名连接</string>
     <string name="media_servers_connection_details_title">连接详情</string>
     <string name="media_servers_server_section_title">服务器</string>
     <string name="media_servers_name_label">名称</string>

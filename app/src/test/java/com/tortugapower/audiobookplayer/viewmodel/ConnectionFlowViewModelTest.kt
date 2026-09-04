@@ -729,4 +729,37 @@ class ConnectionFlowViewModelTest {
         runCurrent()
         assertEquals(1, service.quickConnectTransport.polls)
     }
+
+    // MARK: - Header strikethrough rule
+
+    private fun header(id: Long, key: String, value: String) = HeaderEntry(id = id, key = key, value = value)
+
+    @Test fun `a header row is dropped for an empty key or value`() {
+        val dropped = ConnectionFlowViewModel.droppedHeaderIds(listOf(header(1, "", "v"), header(2, "  ", "v"), header(3, "X-A", ""), header(4, "X-B", "1")))
+        assertEquals(setOf(1L, 2L, 3L), dropped)
+    }
+
+    @Test fun `authorization and illegal names or values are dropped`() {
+        val dropped = ConnectionFlowViewModel.droppedHeaderIds(
+            listOf(header(1, "authorization", "Bearer x"), header(2, "Имя", "1"), header(3, "X-A", "bad\u0001value"), header(4, "X-Ok", "fine"))
+        )
+        assertEquals(setOf(1L, 2L, 3L), dropped)
+    }
+
+    @Test fun `later duplicates win, earlier ones are struck`() {
+        val dropped = ConnectionFlowViewModel.droppedHeaderIds(listOf(header(1, "X-A", "1"), header(2, "X-B", "2"), header(3, " X-A ", "3")))
+        assertEquals("the first X-A is shadowed by the trimmed later one", setOf(1L), dropped)
+    }
+
+    @Test fun `the rule matches what headersMap sends`() {
+        val vm = viewModel()
+        vm.onHeaderAdded(); vm.onHeaderAdded(); vm.onHeaderAdded()
+        val ids = vm.uiState.value.headers.map { it.id }
+        vm.onHeaderChanged(ids[0], "X-A", "old")
+        vm.onHeaderChanged(ids[1], "Authorization", "nope")
+        vm.onHeaderChanged(ids[2], "X-A", "new")
+
+        assertEquals(setOf(ids[0], ids[1]), vm.uiState.value.droppedHeaderIds)
+        assertEquals(mapOf("X-A" to "new"), vm.headersMap())
+    }
 }

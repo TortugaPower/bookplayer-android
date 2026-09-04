@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -78,7 +79,9 @@ fun ExternalLibraryScreen(
     onBack: () -> Unit,
     onItemClick: (ExternalLibraryItem) -> Unit,
     onActionStarted: () -> Unit = {},
-    onReauthRequested: () -> Unit = {}
+    onReauthRequested: () -> Unit = {},
+    /** Opens this server's Connection Details (read-only, with Log out) — iOS's gear menu inside a library. */
+    onShowConnectionDetails: () -> Unit = {}
 ) {
     val items by viewModel.items.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -100,12 +103,47 @@ fun ExternalLibraryScreen(
         }
     }
 
+    // iOS parity for every other load failure: Retry where it could help, Connection Details as the
+    // manual recovery path, Cancel to back out — while the library is still unresolved. Once items are
+    // on screen a paging failure is just an alert with OK (iOS's errorAlert on the list views).
+    val sessionExpiredServerName by viewModel.sessionExpiredServerName.collectAsState()
+    error?.let { loadError ->
+        if (sessionExpiredServerName == null) {
+            if (resolvedLibraryId == null) {
+                AlertDialog(
+                    onDismissRequest = onBack,
+                    title = { Text(stringResource(id = R.string.common_error)) },
+                    text = { Text(loadError.asString()) },
+                    confirmButton = {
+                        TextButton(onClick = { viewModel.reload() }) { Text(stringResource(id = R.string.common_retry)) }
+                    },
+                    dismissButton = {
+                        Row {
+                            TextButton(onClick = { viewModel.clearError(); onShowConnectionDetails() }) {
+                                Text(stringResource(id = R.string.media_servers_connection_details_title))
+                            }
+                            TextButton(onClick = onBack) { Text(stringResource(id = R.string.common_cancel)) }
+                        }
+                    }
+                )
+            } else {
+                AlertDialog(
+                    onDismissRequest = viewModel::clearError,
+                    title = { Text(stringResource(id = R.string.common_error)) },
+                    text = { Text(loadError.asString()) },
+                    confirmButton = {
+                        TextButton(onClick = viewModel::clearError) { Text(stringResource(id = R.string.common_ok)) }
+                    }
+                )
+            }
+        }
+    }
+
     // iOS parity: expired session gets Sign In/Cancel only — no Retry (it would hit the same 401).
     // "Sign In", not "Connection Details": the button opens the connection flow at the address
     // step, prefilled, not the read-only details sheet. The alert stays up until re-auth succeeds
     // (retryAfterReauth clears the state), so dismissing the sheet without signing in lands back
     // here instead of on a broken screen.
-    val sessionExpiredServerName by viewModel.sessionExpiredServerName.collectAsState()
     sessionExpiredServerName?.let { expiredName ->
         AlertDialog(
             onDismissRequest = onBack,
@@ -370,6 +408,10 @@ fun ExternalLibraryScreen(
                         IconButton(onClick = { isSearchActive = true }) {
                             Icon(Icons.Default.Search, contentDescription = stringResource(id = R.string.common_search))
                         }
+                        // iOS keeps Connection Details behind a gear menu on every library tab.
+                        IconButton(onClick = onShowConnectionDetails) {
+                            Icon(Icons.Default.Settings, contentDescription = stringResource(id = R.string.media_servers_connection_details_title))
+                        }
                     }
                 )
             }
@@ -401,12 +443,7 @@ fun ExternalLibraryScreen(
                     )
                 }
             } else if (error != null && items.isEmpty()) {
-                Text(
-                    text = error!!.asString(),
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.align(Alignment.Center).padding(16.dp),
-                    textAlign = TextAlign.Center
-                )
+                // The failure is up as an alert (Retry / Connection Details / Cancel); nothing to show behind it.
             } else if (resolvedLibraryId == null || (isLoading && items.isEmpty())) {
                 // Resolving libraries / picker pending / first page loading. Mirrors iOS keeping
                 // the browser disabled until a library is resolved.

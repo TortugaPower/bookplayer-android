@@ -451,6 +451,7 @@
     <string name="media_servers_anonymous_username">Anonymous</string>
 
     <!-- Server Info Sheet -->
+    <string name="media_servers_rename_connection">Rename connection</string>
     <string name="media_servers_connection_details_title">Connection Details</string>
     <string name="media_servers_server_section_title">SERVER</string>
     <string name="media_servers_name_label">Name</string>

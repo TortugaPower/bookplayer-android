@@ -164,6 +164,7 @@ fun AddressScreen(
                 CustomHeadersEditor(
                     headers = state.headers,
                     enabled = !state.isLoading,
+                    dropped = state.droppedHeaderIds,
                     onAdd = onHeaderAdded,
                     onChange = onHeaderChanged,
                     onRemove = onHeaderRemoved,

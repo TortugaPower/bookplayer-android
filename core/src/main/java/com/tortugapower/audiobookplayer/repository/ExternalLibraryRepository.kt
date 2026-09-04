@@ -4,13 +4,14 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.network.ExternalServiceFactory
 
-class ExternalLibraryRepository {
-    suspend fun getLibraries(server: ExternalServerEntity): List<com.tortugapower.audiobookplayer.network.ExternalLibraryInfo> {
+/** Open so a test can script what the media server answers without standing up a network. */
+open class ExternalLibraryRepository {
+    open suspend fun getLibraries(server: ExternalServerEntity): List<com.tortugapower.audiobookplayer.network.ExternalLibraryInfo> {
         val service = ExternalServiceFactory.getService(server.type)
         return server.token?.let { service.getLibraries(server.url, it, server.customHeaders) } ?: emptyList()
     }
 
-    suspend fun getLibraryItems(server: ExternalServerEntity, startIndex: Int = 0, limit: Int = 50): com.tortugapower.audiobookplayer.network.LibraryResult {
+    open suspend fun getLibraryItems(server: ExternalServerEntity, startIndex: Int = 0, limit: Int = 50): com.tortugapower.audiobookplayer.network.LibraryResult {
         val service = ExternalServiceFactory.getService(server.type)
         return server.token?.let { service.getLibrary(server.url, it, startIndex, limit, server.customHeaders, server.selectedLibraryId) }
             ?: com.tortugapower.audiobookplayer.network.LibraryResult(emptyList(), 0)

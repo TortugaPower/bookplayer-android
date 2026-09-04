@@ -101,6 +101,8 @@ data class ConnectionFlowUiState(
     val displayAddress: String get() = pending?.url?.let { ServerAddress.parse(it)?.displayAddress } ?: address.displayAddress
     val alternativeSignIn: AlternativeSignIn? get() = route?.alternativeSignIn
     val supportsPassword: Boolean get() = route?.supportsPassword ?: true
+    /** Header rows that won't be sent — the editor strikes their key through as a hint. */
+    val droppedHeaderIds: Set<Long> get() = ConnectionFlowViewModel.droppedHeaderIds(headers)
 }
 
 /**
@@ -466,6 +468,27 @@ class ConnectionFlowViewModel(
     private fun ConnectionError.toUiText(): UiText = UiText.StringResource(messageResId, *args.toTypedArray())
 
     companion object {
+        /**
+         * The rows [headersMap] drops: an empty key or value, an illegal name/value or `Authorization`
+         * (what `sanitizeCustomHeaders` refuses), and any row shadowed by a later duplicate of its key
+         * (later duplicates win). Same rule iOS's `CustomHeaderEntry.normalized` drives its strikethrough with.
+         */
+        fun droppedHeaderIds(headers: List<HeaderEntry>): Set<Long> {
+            val dropped = mutableSetOf<Long>()
+            val lastWinner = mutableMapOf<String, Long>()
+            for (entry in headers) {
+                val key = entry.key.trim()
+                val value = entry.value.trim()
+                if (key.isEmpty() || value.isEmpty() || ExternalServiceUtils.sanitizeCustomHeaders(mapOf(key to value)).isNullOrEmpty()) {
+                    dropped += entry.id
+                    continue
+                }
+                lastWinner[key]?.let { dropped += it }
+                lastWinner[key] = entry.id
+            }
+            return dropped
+        }
+
         private fun initialState(type: ExternalServiceType, mode: ConnectionFlowMode): ConnectionFlowUiState {
             val server = (mode as? ConnectionFlowMode.Reauth)?.server
             val address = server?.let { ServerAddress.parse(it.url) } ?: ServerAddress(ServerAddress.Scheme.HTTPS, "")

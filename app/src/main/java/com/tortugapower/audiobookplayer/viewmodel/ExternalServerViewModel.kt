@@ -22,6 +22,16 @@ class ExternalServerViewModel(private val repository: ExternalServerRepository) 
         initialValue = emptyList()
     )
 
+    /**
+     * The one editable field of a saved connection: its display name. Everything else (address, account,
+     * headers) changes only through the connection flow, which re-validates against the server.
+     */
+    fun renameServer(server: ExternalServerEntity, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty() || trimmed == server.name) return
+        viewModelScope.launch { repository.updateServer(server.copy(name = trimmed)) }
+    }
+
     fun deleteServer(server: ExternalServerEntity) {
         viewModelScope.launch {
             repository.deleteServer(server)

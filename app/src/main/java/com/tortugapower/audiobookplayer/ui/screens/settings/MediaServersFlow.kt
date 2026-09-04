@@ -143,22 +143,41 @@ fun MediaServersFlow(
                     )
 
                     var showReauthSheet by remember { mutableStateOf(false) }
+                    var showDetails by remember { mutableStateOf(false) }
+                    val servers by externalServerViewModel.servers.collectAsState()
+                    val liveServer = servers.find { it.id == serverId }
 
                     ExternalLibraryScreen(
                         viewModel = extLibViewModel,
                         importViewModel = importViewModel,
-                        serverName = serverName,
+                        // The saved row's current name, so a rename from the details sheet shows at once.
+                        serverName = liveServer?.name ?: serverName,
                         onBack = { navController.popBackStack() },
                         onItemClick = { item ->
                             navController.navigate("itemDetail/${item.entity.uuid}")
                         },
                         onActionStarted = onDismiss,
-                        onReauthRequested = { showReauthSheet = true }
+                        onReauthRequested = { showReauthSheet = true },
+                        onShowConnectionDetails = { showDetails = true }
                     )
 
+                    if (showDetails && liveServer != null) {
+                        ServerInfoSheet(
+                            server = liveServer,
+                            onDismiss = { showDetails = false },
+                            onRename = { name -> externalServerViewModel.renameServer(liveServer, name) },
+                            onLogout = {
+                                // Signing out is deletion (iOS): the connection this library describes
+                                // no longer exists, so the library leaves with it.
+                                externalServerViewModel.deleteServer(liveServer)
+                                showDetails = false
+                                navController.popBackStack()
+                            }
+                        )
+                    }
+
                     if (showReauthSheet) {
-                        val servers by externalServerViewModel.servers.collectAsState()
-                        val expiredServer = servers.find { it.id == serverId }
+                        val expiredServer = liveServer
                         if (expiredServer != null) {
                             // Same flow as Add Server, prefilled from the saved row (URL editable — a
                             // server that moved host updates its row instead of forking). The saved
