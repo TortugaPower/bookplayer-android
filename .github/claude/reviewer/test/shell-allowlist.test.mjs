@@ -832,6 +832,15 @@ test('brace expansion cannot smuggle a path past the read roots', () => {
   assert.ok(FORBIDDEN_PATH.test('cat .aws/credentials'));
   assert.ok(FORBIDDEN_PATH.test('cat .gnupg/secring.gpg'));
   assert.ok(FORBIDDEN_PATH.test('cat .gradle/gradle.properties'));
+  // ...but a template of one is not the thing itself, while a real per-environment file still is.
+  assert.equal(FORBIDDEN_PATH.test('cat .env.example'), false);
+  assert.equal(FORBIDDEN_PATH.test('cat config/.env.template'), false);
+  assert.ok(FORBIDDEN_PATH.test('cat .env.local'));
+  assert.ok(FORBIDDEN_PATH.test('cat .env'));
+  // local.properties.example is committed here and describes the keys, which is exactly what a reviewer should read.
+  assert.equal(isAllowedBash('cat local.properties.example'), true);
+  assert.equal(isAllowedBash('cat local.properties'), false);
+  assert.equal(isAllowedBash('cat keystore.properties'), false);
   // Quoted braces are literal to bash, so a regex quantifier still works.
   assert.equal(isAllowedBash('grep -rn "a{2}" core/src'), true);
   assert.equal(isAllowedBash("grep -rn 'id{3,4}' app/src"), true);

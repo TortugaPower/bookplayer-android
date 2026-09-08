@@ -357,13 +357,20 @@ export function isReadOnlyShell(command) {
 
 // Locations that expose credentials even to a read-only agent: process environments, the git credential
 // helper config actions/checkout may leave behind, and home-directory tool configs.
-export const FORBIDDEN_PATH =
-  /(^|[\s"'=:])~|\/proc\/|\/dev\/(fd|stdin)|\.git\/config|(^|[\s/"'=:])\.(git-credentials|config|claude|npmrc|netrc|ssh|env|aws|gnupg|docker|kube|gradle|m2)(\b|$)/;
+// `.example`/`.template`/`.sample` are committed templates, and reading one tells the agent what a config holds
+// without holding it. Spelled out as an exception rather than "the name may not continue", which would also have
+// stopped denying `.env.local` — a real secrets file.
+const TEMPLATE_SUFFIX = '(?!\\.(example|template|sample))';
+export const FORBIDDEN_PATH = new RegExp(
+  `(^|[\\s"'=:])~|\\/proc\\/|\\/dev\\/(fd|stdin)|\\.git\\/config|(^|[\\s/"'=:])\\.(git-credentials|config|claude|npmrc|netrc|ssh|env|aws|gnupg|docker|kube|gradle|m2)${TEMPLATE_SUFFIX}(\\b|$)`,
+);
 
 // This repo's own secret files. Gitignored today and no step materialises them, so this is defence in depth: the
 // moment a build step writes local.properties from Actions secrets, the agent could otherwise read it and quote a
 // value that redact() has no pattern for (a base URL, a client id).
-const REPO_SECRET_PATH = /(^|[\s"'=:\/])(local\.properties|keystore\.properties|google-services\.json)(\b|$)/;
+const REPO_SECRET_PATH = new RegExp(
+  `(^|[\\s"'=:\\/])(local\\.properties|keystore\\.properties|google-services\\.json)${TEMPLATE_SUFFIX}(\\b|$)`,
+);
 
 // Where the agent may read: the checkout and the runner temp dir (which holds the diff). Anything absolute
 // outside these, any `..`, or any existing path whose *real* location (symlinks resolved) is outside them is
