@@ -252,8 +252,8 @@ function hasDeniedFlag(segment) {
 }
 const BASH_DENY_MESSAGE =
   'Bash is restricted to read-only commands: git diff/log/show/blame/status, cat, ls, head, tail, wc, grep, ' +
-  'find, stat, file, du. No interpreters, test runners, gh, curl, redirects, or $-expansion (use single quotes ' +
-  'for literal $). ' +
+  'find, stat, file, du. No interpreters, test runners, gh, curl, redirects, $-expansion, or unquoted braces ' +
+  '(quote them: \'a{2}\' is fine as a regex quantifier, {a,b} as an expansion is not). ' +
   'No cd — paths are relative to the checkout. Use Read/Grep/Glob for files.';
 
 // Walk the command once, tracking quotes, and produce what bash would actually execute: simple commands split
@@ -287,8 +287,11 @@ export function analyzeShell(command) {
       quote = ch;
       continue;
     }
-    // Outside quotes: redirects, backticks, any `$` (parameter or command expansion), process substitution.
-    if (ch === '`' || ch === '>' || ch === '$' || (ch === '<' && cmd[i + 1] === '(')) unsafe = true;
+    // Outside quotes: redirects, backticks, any `$` (parameter or command expansion), process substitution, and
+    // brace expansion — `cat {/etc/hostname,x}` reaches the path check as one token that exists nowhere, and bash
+    // expands braces BEFORE `~`, so `{~/.aws/credentials,x}` would slip past the tilde rule as well. No read-only
+    // command needs braces; a regex quantifier goes through the Grep tool instead.
+    if (ch === '`' || ch === '>' || ch === '$' || ch === '{' || ch === '}' || (ch === '<' && cmd[i + 1] === '(')) unsafe = true;
     if (ch === '|' || ch === '&' || ch === ';' || ch === '\n') {
       segments.push(current);
       current = '';
@@ -310,7 +313,7 @@ export function isReadOnlyShell(command) {
 // Locations that expose credentials even to a read-only agent: process environments, the git credential
 // helper config actions/checkout may leave behind, and home-directory tool configs.
 export const FORBIDDEN_PATH =
-  /(^|[\s"'=:])~|\/proc\/|\/dev\/(fd|stdin)|\.git\/config|(^|[\s/"'=:])\.(git-credentials|config|claude|npmrc|netrc|ssh|env)(\b|$)/;
+  /(^|[\s"'=:])~|\/proc\/|\/dev\/(fd|stdin)|\.git\/config|(^|[\s/"'=:])\.(git-credentials|config|claude|npmrc|netrc|ssh|env|aws|gnupg|docker|kube|gradle|m2)(\b|$)/;
 
 // Where the agent may read: the checkout and the runner temp dir (which holds the diff). Anything absolute
 // outside these, any `..`, or any existing path whose *real* location (symlinks resolved) is outside them is

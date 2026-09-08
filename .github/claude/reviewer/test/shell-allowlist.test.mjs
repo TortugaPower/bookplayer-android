@@ -817,3 +817,19 @@ test('a long thread still resolves to its opening comment', () => {
   assert.ok(prompt.includes('still chatting')); // a maintainer reply in the window is not sliced away
   assert.ok(!prompt.includes('much later chatter')); // ...and a non-maintainer's is not shown
 });
+
+
+test('brace expansion cannot smuggle a path past the read roots', () => {
+  // Verified live on PR #114 before this fix: the whole token exists nowhere, so isPathAllowed waved it through
+  // and bash expanded it afterwards. Braces also expand BEFORE `~`, evading the tilde rule.
+  assert.equal(isAllowedBash('cat {/etc/hostname,/etc/hostname}'), false);
+  assert.equal(isAllowedBash('cat {~/.aws/credentials,x}'), false);
+  assert.equal(isAllowedBash('head {../outside,.}/f'), false);
+  // Credential directories a home-relative read would target are named outright too.
+  assert.ok(FORBIDDEN_PATH.test('cat .aws/credentials'));
+  assert.ok(FORBIDDEN_PATH.test('cat .gnupg/secring.gpg'));
+  assert.ok(FORBIDDEN_PATH.test('cat .gradle/gradle.properties'));
+  // Quoted braces are literal to bash, so a regex quantifier still works.
+  assert.equal(isAllowedBash('grep -rn "a{2}" core/src'), true);
+  assert.equal(isAllowedBash("grep -rn 'id{3,4}' app/src"), true);
+});
