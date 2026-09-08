@@ -1221,7 +1221,12 @@ async function main() {
 // module's real path would silently evaluate false when any component is a symlink, and the step would then
 // exit 0 with no review at all.
 const invokedDirectly = safeRealpath(resolve(process.argv[1] ?? '')) === safeRealpath(fileURLToPath(import.meta.url));
-if (invokedDirectly) main().catch((err) => {
+if (invokedDirectly) main().catch(async (err) => {
+  // Say so on the PR before failing, whatever went wrong and wherever it happened — the setup calls before the
+  // agent runs (the PR fetch, the diff fetch, writing it to disk) are outside main()'s own degrade paths, and a
+  // red check with no comment is the invisible failure this harness exists to avoid. upsertSummary is an upsert,
+  // so a second call from here is harmless when main() already explained itself.
+  await explainFailure(err).catch(() => {});
   console.error('Fatal:', redact(err.stack || String(err)));
   if (err.capturedStderr) {
     console.error('--- claude stderr ---');
