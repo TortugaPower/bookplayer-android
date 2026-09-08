@@ -397,6 +397,13 @@ async function canUseTool(toolName, input) {
     return { behavior: 'allow', updatedInput: input };
   }
   if (toolName === 'Bash') {
+    // Only the command is inspected below, so nothing else may travel with it: a `cwd` (or any future field that
+    // relocates execution) would make the relative paths in that command resolve somewhere this never checked.
+    const extra = Object.keys(input).filter((k) => !['command', 'description', 'timeout'].includes(k));
+    if (extra.length) {
+      console.log(`  [denied] Bash: unexpected input fields: ${extra.join(', ')}`);
+      return { behavior: 'deny', message: 'Pass only `command`; paths are relative to the checkout and cwd cannot be changed.' };
+    }
     if (isAllowedBash(input.command)) {
       return { behavior: 'allow', updatedInput: input };
     }
@@ -632,9 +639,17 @@ export function isTerminalResult(text) {
 
 // Environment for the agent subprocess: the harness fetches the diff and posts the results, so the agent
 // needs ANTHROPIC_API_KEY for its own calls and no GitHub credential at all.
-function agentEnv() {
-  const env = { ...process.env };
-  for (const k of ['REVIEW_RESOLVE_TOKEN', 'GITHUB_TOKEN', 'GH_TOKEN']) delete env[k];
+// The agent inherits the job environment minus anything that looks like a credential. Naming the three tokens we
+// know about would only ever be "we remembered to delete it"; the pattern makes adding a secret to this workflow
+// unable to widen the agent's environment by accident. ANTHROPIC_API_KEY is kept: the SDK needs it.
+const SECRET_ENV_RE = /(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE_KEY|_KEY|KEYSTORE|API_KEY|DSN|SESSION)/i;
+const AGENT_ENV_KEEP = new Set(['ANTHROPIC_API_KEY']);
+export function agentEnv(source = process.env) {
+  const env = {};
+  for (const [k, v] of Object.entries(source)) {
+    if (AGENT_ENV_KEEP.has(k)) env[k] = v;
+    else if (!SECRET_ENV_RE.test(k)) env[k] = v;
+  }
   return env;
 }
 
@@ -1053,28 +1068,32 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
 // Say why on the PR before failing, WITHOUT erasing the last good review: upsertSummary overwrites, so a
 // transient fatal (a 500 from the diff endpoint, say) would otherwise replace a complete summary with this note.
 // The note is appended to whatever is there, and replaced rather than stacked if the previous run also failed.
+// Append a note to the summary comment, keeping whatever review is already there and replacing (not stacking) a
+// previous note of the same kind. Both degrade routes use this: overwriting the comment would wipe a complete
+// review a human may be reading, and the deadline route is the likely one on a large PR.
+async function appendNoteToSummary(note, heading) {
+  try {
+    const previous = (await listIssueComments(PR_NUMBER)).find(
+      (c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY),
+    );
+    const kept = (previous?.body || '').split(MARKER_FAILURE_NOTE)[0].replace(MARKER_SUMMARY, '').trimEnd();
+    const MAX_COMMENT = 60000; // GitHub's limit is 65 536; leave room for the note and the markers
+    const body = kept
+      ? `${kept.slice(0, MAX_COMMENT)}\n\n---\n\n${note}\n\n${MARKER_SUMMARY}`
+      : [heading, '', note, '', MARKER_SUMMARY].join('\n');
+    await upsertSummary(body);
+  } catch {
+    // the PR could not be updated: the run log still carries the reason
+  }
+}
+
 async function explainFailure(err) {
   if (DRY_RUN) return err;
   // Bounded: rest()/graphql() embed the whole upstream response in their message, and this note is appended to
   // the previous summary — an unbounded body would push the comment past GitHub's 65 536-char limit, the post
   // would fail, and the catch below would swallow exactly the failure this function exists to surface.
   const note = `> ⚠️ **A run did not complete:** the reviewer failed before producing a result: ${boundedDump(err.message || String(err), 2000)}\n\n${MARKER_FAILURE_NOTE}`;
-  try {
-    const previous = (await listIssueComments(PR_NUMBER)).find(
-      (c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY),
-    );
-    const kept = (previous?.body || '')
-      .split(MARKER_FAILURE_NOTE)[0]
-      .replace(MARKER_SUMMARY, '')
-      .trimEnd();
-    const MAX_COMMENT = 60000; // GitHub's limit is 65 536; leave room for the note and the markers
-    const body = kept
-      ? `${kept.slice(0, MAX_COMMENT)}\n\n---\n\n${note}\n\n${MARKER_SUMMARY}`
-      : ['## ⚠️ Claude PR Review — did not run', '', note, '', MARKER_SUMMARY].join('\n');
-    await upsertSummary(body);
-  } catch {
-    // the PR could not be updated: the run log still carries the failure
-  }
+  await appendNoteToSummary(note, '## ⚠️ Claude PR Review — did not run');
   return err;
 }
 
@@ -1164,9 +1183,8 @@ async function main() {
       if (finalText) logAgentOutput('Agent output', finalText);
       else if (lastAnswer) logAgentOutput('Agent output, the answer before its last tool call', lastAnswer);
       if (!DRY_RUN) {
-        await upsertSummary(
-          ['## ⚠️ Claude PR Review — incomplete', '', `The reviewer ${reason}`, '', MARKER_SUMMARY].join('\n'),
-        ).catch((err) => console.warn(`Could not post incomplete-review note: ${err.message}`));
+        // Appended, not overwritten: a 14-minute timeout on a later push must not wipe the review a human reads.
+        await appendNoteToSummary(`> ⚠️ **This round did not finish:** the reviewer ${reason}\n\n${MARKER_FAILURE_NOTE}`, '## ⚠️ Claude PR Review — incomplete');
       }
       return;
     }

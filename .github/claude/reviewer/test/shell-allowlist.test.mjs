@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH } from '../review.mjs';
+import { isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
@@ -932,4 +932,19 @@ test('a diff rebuilt from per-file patches is stitched, marked and bounded', asy
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+
+test('the agent inherits nothing that looks like a credential', () => {
+  const env = agentEnv({
+    PATH: '/usr/bin', HOME: '/home/runner', LANG: 'C.UTF-8', RUNNER_TEMP: '/tmp',
+    ANTHROPIC_API_KEY: 'keep-me',
+    GITHUB_TOKEN: 'x', GH_TOKEN: 'x', REVIEW_RESOLVE_TOKEN: 'x',
+    SENTRY_AUTH_TOKEN: 'x', SENTRY_DSN: 'x', REVENUECAT_API_KEY: 'x',
+    RELEASE_KEY_PASSWORD: 'x', RELEASE_KEYSTORE_BASE64: 'x', PLAY_SERVICE_ACCOUNT_JSON_PRIVATE_KEY: 'x',
+  });
+  assert.deepEqual(Object.keys(env).sort(), ['ANTHROPIC_API_KEY', 'HOME', 'LANG', 'PATH', 'RUNNER_TEMP']);
+  // The guarantee is the pattern, not a list we maintain: a secret added to the workflow later is dropped too.
+  assert.equal(agentEnv({ SOME_NEW_TOKEN: 'x' }).SOME_NEW_TOKEN, undefined);
+  assert.equal(agentEnv({ MY_SERVICE_PASSWORD: 'x' }).MY_SERVICE_PASSWORD, undefined);
 });
