@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { summaryWithNote, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
@@ -1024,4 +1024,45 @@ test('a re-reported finding still surfaces when the reopen fails', async () => {
   assert.equal(stats.reopened, 0);
   assert.deepEqual(unpostable, [f]);
   assert.ok(renderSummary({ verdict: 'warn', summary: 's', findings: [f] }, stats, unpostable).includes('came back'));
+});
+
+test('stdin redirection cannot smuggle a path past the confinement check', () => {
+  // `cat </etc/passwd` arrives as one token that is not absolute and resolves to a workspace-relative name that
+  // does not exist, so the path check passed it while bash read the real file. Both spacings, and `<<`/`<()` too.
+  for (const cmd of ['cat </etc/passwd', 'cat < /etc/passwd', 'cat <~/.aws/credentials', 'grep -rn x <$HOME/.netrc',
+    'cat <<< /etc/passwd', 'cat <(ls /etc)', 'wc -l <../../.npmrc']) {
+    assert.equal(isAllowedBash(cmd), false, `should deny: ${cmd}`);
+  }
+  // A literal `<` still works where it belongs: inside quotes.
+  assert.equal(isAllowedBash('grep -rn "a < b" services'), true);
+});
+
+test('a degrade note replaces the previous one instead of stacking', () => {
+  const HEADING = '## ⚠️ Claude PR Review — incomplete';
+  const first = summaryWithNote('', 'ran out of time', HEADING);
+  assert.ok(first.startsWith(HEADING));
+  assert.ok(first.includes('ran out of time'));
+  // A review already in the comment is kept, and the note goes after it.
+  const review = '## ✅ Claude PR Review — `PASS`\n\nlooks fine\n\n<!-- bp-ai-review-summary -->';
+  const withNote = summaryWithNote(review, 'ran out of time', HEADING);
+  assert.ok(withNote.includes('looks fine'));
+  assert.ok(withNote.indexOf('looks fine') < withNote.indexOf('ran out of time'));
+  // The second failure of the same run (main() explains it, then the top-level handler explains it again) and
+  // every later failing push REPLACE that note rather than adding a paragraph.
+  const twice = summaryWithNote(withNote, 'failed before producing a result', HEADING);
+  assert.ok(twice.includes('looks fine'));
+  assert.equal(twice.includes('ran out of time'), false);
+  assert.equal(twice.split('failed before producing a result').length - 1, 1);
+  assert.equal(twice.split('bp-ai-review-failed').length - 1, 1);
+  assert.equal(summaryWithNote(twice, 'failed again', HEADING).split('---').length, 2); // one separator, not three
+});
+
+test('the provisional banner names the limit that was actually hit', () => {
+  const result = { verdict: 'warn', summary: 's', findings: [{ severity: 'info', file: 'a.kt', line: 1, comment: 'c' }] };
+  const stats = { posted: 1, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
+  const turns = renderSummary(result, stats, [], { provisional: true, provisionalCause: 'error_max_turns' });
+  assert.ok(turns.includes('turn limit') && turns.includes('REVIEW_MAX_TURNS'));
+  const clock = renderSummary(result, stats, [], { provisional: true, provisionalCause: 'error_deadline' });
+  assert.ok(clock.includes('time limit') && clock.includes('REVIEW_DEADLINE_MS'));
+  assert.equal(clock.includes('turn limit'), false); // the wrong knob is worse than no knob
 });

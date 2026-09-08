@@ -261,7 +261,8 @@ function hasDeniedFlag(segment) {
 }
 const BASH_DENY_MESSAGE =
   'Bash is restricted to read-only commands: git diff/log/show/blame/status, cat, ls, head, tail, wc, grep, ' +
-  'find, stat, file, du. No interpreters, test runners, gh, curl, redirects, $-expansion, or unquoted braces ' +
+  'find, stat, file, du. No interpreters, test runners, gh, curl, redirects (`<` and `>` alike), $-expansion, ' +
+  'or unquoted braces ' +
   '(quote them: \'a{2}\' is fine as a regex quantifier, {a,b} as an expansion is not). ' +
   'No cd — paths are relative to the checkout. Use Read/Grep/Glob for files.';
 
@@ -296,11 +297,14 @@ export function analyzeShell(command) {
       quote = ch;
       continue;
     }
-    // Outside quotes: redirects, backticks, any `$` (parameter or command expansion), process substitution, and
-    // brace expansion — `cat {/etc/hostname,x}` reaches the path check as one token that exists nowhere, and bash
-    // expands braces BEFORE `~`, so `{~/.aws/credentials,x}` would slip past the tilde rule as well. No read-only
-    // command needs braces; a regex quantifier goes through the Grep tool instead.
-    if (ch === '`' || ch === '>' || ch === '$' || ch === '{' || ch === '}' || (ch === '<' && cmd[i + 1] === '(')) unsafe = true;
+    // Outside quotes: redirects in BOTH directions, backticks, any `$` (parameter or command expansion), process
+    // substitution, and brace expansion. Every one of them reaches the path check as something other than a path:
+    // `cat </etc/passwd` arrives as the single token `</etc/passwd`, which is not absolute and resolves to a
+    // workspace-relative name that does not exist, so the confinement check passed it and bash read the file.
+    // `cat {/etc/hostname,x}` is the same shape, and bash expands braces BEFORE `~`, so `{~/.aws/credentials,x}`
+    // would slip past the tilde rule too. No read-only command needs any of these: a regex quantifier or a literal
+    // `<` goes inside quotes, and file arguments are passed as arguments.
+    if (ch === '`' || ch === '>' || ch === '<' || ch === '$' || ch === '{' || ch === '}') unsafe = true;
     if (ch === '|' || ch === '&' || ch === ';' || ch === '\n') {
       segments.push(current);
       current = '';
@@ -773,7 +777,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
   return { finalText, lastAnswer, turns, resultSubtype };
 }
 
-export function renderSummary(result, stats, unpostable, { provisional = false, previously = [], priorState = 'unknown' } = {}) {
+export function renderSummary(result, stats, unpostable, { provisional = false, provisionalCause = '', previously = [], priorState = 'unknown' } = {}) {
   const emoji = result.verdict === 'fail' ? '🔴' : result.verdict === 'warn' ? '🟡' : '✅';
   const counts = result.findings.reduce(
     (a, f) => ({ ...a, [f.severity]: (a[f.severity] || 0) + 1 }),
@@ -814,13 +818,18 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
   }
 
   if (provisional) {
-    lines.push('', '> ⚠️ The reviewer hit its turn limit after this answer and one more tool call; the result is the last complete answer it produced and may be provisional.');
+    // Which limit it was decides which knob a maintainer should reach for, so the banner may not guess.
+    const timedOut = provisionalCause === 'error_deadline';
+    lines.push(
+      '',
+      `> ⚠️ The reviewer hit its ${timedOut ? 'time limit' : 'turn limit'} before it had finished; the result is the last complete answer it produced and may be provisional, so no earlier finding was resolved from it. ${timedOut ? 'Raise `REVIEW_DEADLINE_MS` (and `timeout-minutes`)' : 'Bump `REVIEW_MAX_TURNS`'} or split the PR if this repeats.`,
+    );
   }
 
   if (unpostable.length) {
     lines.push(
       '',
-      `<details><summary>Findings not attached inline (line not in this diff, or beyond the ${MAX_INLINE}-comment cap)</summary>`,
+      `<details><summary>Findings not visible inline (no line in this diff, beyond the ${MAX_INLINE}-comment cap, or on a thread that could not be reopened)</summary>`,
       '',
       ...unpostable.map((f) => `- ${severityEmoji(f.severity)} \`${neutralizeMarkup(String(f.file).replace(/`/g, ''))}:${f.line}\` — ${neutralizeMarkup(f.comment)}`),
       '',
@@ -1108,23 +1117,30 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
 }
 
 // Say why on the PR before failing the check — the run log alone is easy to miss. Returns the error for rethrow.
-// Say why on the PR before failing, WITHOUT erasing the last good review: upsertSummary overwrites, so a
-// transient fatal (a 500 from the diff endpoint, say) would otherwise replace a complete summary with this note.
-// The note is appended to whatever is there, and replaced rather than stacked if the previous run also failed.
-// Append a note to the summary comment, keeping whatever review is already there and replacing (not stacking) a
-// previous note of the same kind. Both degrade routes use this: overwriting the comment would wipe a complete
-// review a human may be reading, and the deadline route is the likely one on a large PR.
+// Build the summary body for a degrade note: keep whatever review is already there (upsertSummary overwrites, and
+// a transient fatal must not replace a complete review a human may be reading) and REPLACE a previous note of the
+// same kind rather than stacking one. Pure, so the replace rule is unit-tested.
+export function summaryWithNote(previousBody, note, heading) {
+  // The marker leads the note, so splitting on it drops the previous note entirely. With the marker trailing it,
+  // the split kept all of the note's text and dropped only the marker, so a paragraph accumulated on every failing
+  // push — and twice per run, since main() explains a fatal and the top-level handler explains the same one again.
+  const kept = String(previousBody || '')
+    .split(MARKER_FAILURE_NOTE)[0]
+    .replace(MARKER_SUMMARY, '')
+    .replace(/\n*---\s*$/, '')
+    .trimEnd();
+  const MAX_COMMENT = 60000; // GitHub's limit is 65 536; leave room for the note and the markers
+  const body = `${MARKER_FAILURE_NOTE}\n\n${note}`;
+  return kept ? `${kept.slice(0, MAX_COMMENT)}\n\n---\n\n${body}\n\n${MARKER_SUMMARY}` : [heading, '', body, '', MARKER_SUMMARY].join('\n');
+}
+
+// Both degrade routes use this: the deadline route is the likely one on a large PR.
 async function appendNoteToSummary(note, heading) {
   try {
     const previous = (await listIssueComments(PR_NUMBER)).find(
       (c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY),
     );
-    const kept = (previous?.body || '').split(MARKER_FAILURE_NOTE)[0].replace(MARKER_SUMMARY, '').trimEnd();
-    const MAX_COMMENT = 60000; // GitHub's limit is 65 536; leave room for the note and the markers
-    const body = kept
-      ? `${kept.slice(0, MAX_COMMENT)}\n\n---\n\n${note}\n\n${MARKER_SUMMARY}`
-      : [heading, '', note, '', MARKER_SUMMARY].join('\n');
-    await upsertSummary(body);
+    await upsertSummary(summaryWithNote(previous?.body || '', note, heading));
   } catch {
     // the PR could not be updated: the run log still carries the reason
   }
@@ -1135,7 +1151,7 @@ async function explainFailure(err) {
   // Bounded: rest()/graphql() embed the whole upstream response in their message, and this note is appended to
   // the previous summary — an unbounded body would push the comment past GitHub's 65 536-char limit, the post
   // would fail, and the catch below would swallow exactly the failure this function exists to surface.
-  const note = `> ⚠️ **A run did not complete:** the reviewer failed before producing a result: ${boundedDump(err.message || String(err), 2000)}\n\n${MARKER_FAILURE_NOTE}`;
+  const note = `> ⚠️ **A run did not complete:** the reviewer failed before producing a result: ${boundedDump(err.message || String(err), 2000)}`;
   await appendNoteToSummary(note, '## ⚠️ Claude PR Review — did not run');
   return err;
 }
@@ -1202,6 +1218,10 @@ async function main() {
     // assertResultShape throws before the assignment, so `parsed` stays unset and the degrade path below
     // (gated on `!parsed`) still runs.
     parsed = assertResultShape(extractJson(finalText));
+    // A run the clock interrupted is by construction less complete than the answer it was about to revise, and the
+    // salvage gate is deliberately tolerant — as tolerant as this parser — so what it kept could be a result-shaped
+    // block quoted from the diff rather than the agent's own conclusion. Post it, say so, and resolve nothing on it.
+    provisional = resultSubtype === 'error_deadline';
   } catch (e) {
     // Turn-limit fallback: the agent finished an answer, made one more tool call (with or without trailing prose)
     // and was cut off. Use the remembered terminal answer, flagged provisional: it may have been superseded by
@@ -1210,7 +1230,7 @@ async function main() {
       try {
         parsed = assertResultShape(extractJson(lastAnswer));
         provisional = true;
-        console.warn(`Turn limit hit after a tool call; using the last complete answer (provisional): ${e.message}`);
+        console.warn(`${resultSubtype === 'error_deadline' ? 'Time' : 'Turn'} limit hit after a tool call; using the last complete answer (provisional): ${e.message}`);
         if (finalText) logAgentOutput('Agent output, superseded by the last complete answer', finalText);
       } catch {
         // no usable remembered answer either: degrade below
@@ -1230,7 +1250,7 @@ async function main() {
       else if (lastAnswer) logAgentOutput('Agent output, the answer before its last tool call', lastAnswer);
       if (!DRY_RUN) {
         // Appended, not overwritten: a 14-minute timeout on a later push must not wipe the review a human reads.
-        await appendNoteToSummary(`> ⚠️ **This round did not finish:** the reviewer ${reason}\n\n${MARKER_FAILURE_NOTE}`, '## ⚠️ Claude PR Review — incomplete');
+        await appendNoteToSummary(`> ⚠️ **This round did not finish:** the reviewer ${reason}`, '## ⚠️ Claude PR Review — incomplete');
       }
       return;
     }
@@ -1341,7 +1361,7 @@ async function main() {
 
   // The review itself succeeded by this point; a flaky comments API must not turn the check red.
   const priorState = verified ? 'verified' : toVerify.length === 0 ? 'none-open' : 'unknown';
-  await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, previously, priorState })).catch((e) =>
+  await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause: resultSubtype, previously, priorState })).catch((e) =>
     console.warn(`Could not post the summary comment: ${e.message}`),
   );
   console.log(
