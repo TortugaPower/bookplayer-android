@@ -1055,7 +1055,10 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
 // The note is appended to whatever is there, and replaced rather than stacked if the previous run also failed.
 async function explainFailure(err) {
   if (DRY_RUN) return err;
-  const note = `> ⚠️ **A run did not complete:** the reviewer failed before producing a result: ${redact(err.message || String(err))}\n\n${MARKER_FAILURE_NOTE}`;
+  // Bounded: rest()/graphql() embed the whole upstream response in their message, and this note is appended to
+  // the previous summary — an unbounded body would push the comment past GitHub's 65 536-char limit, the post
+  // would fail, and the catch below would swallow exactly the failure this function exists to surface.
+  const note = `> ⚠️ **A run did not complete:** the reviewer failed before producing a result: ${boundedDump(err.message || String(err), 2000)}\n\n${MARKER_FAILURE_NOTE}`;
   try {
     const previous = (await listIssueComments(PR_NUMBER)).find(
       (c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY),
@@ -1064,8 +1067,9 @@ async function explainFailure(err) {
       .split(MARKER_FAILURE_NOTE)[0]
       .replace(MARKER_SUMMARY, '')
       .trimEnd();
+    const MAX_COMMENT = 60000; // GitHub's limit is 65 536; leave room for the note and the markers
     const body = kept
-      ? `${kept}\n\n---\n\n${note}\n\n${MARKER_SUMMARY}`
+      ? `${kept.slice(0, MAX_COMMENT)}\n\n---\n\n${note}\n\n${MARKER_SUMMARY}`
       : ['## ⚠️ Claude PR Review — did not run', '', note, '', MARKER_SUMMARY].join('\n');
     await upsertSummary(body);
   } catch {

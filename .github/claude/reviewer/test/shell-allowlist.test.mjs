@@ -893,3 +893,43 @@ test('a hostile filename cannot break the summary table', async () => {
   assert.ok(!rows[0].label.includes('<!--'));
   assert.ok(rows[0].label.includes('app/weirdname'));
 });
+
+
+// ---- the 406 diff fallback -----------------------------------------------------------------------------------
+
+test('a diff rebuilt from per-file patches is stitched, marked and bounded', async () => {
+  const { fetchDiffFromFiles } = await import('../github.mjs');
+  const realFetch = globalThis.fetch;
+  process.env.GITHUB_REPOSITORY = 'TortugaPower/bookplayer-android';
+  process.env.GITHUB_TOKEN = 'x';
+  const page = (n, count, extra = []) => [
+    ...Array.from({ length: count }, (_, i) => ({ filename: `p${n}f${i}.kt`, status: 'modified', additions: 1, deletions: 0, patch: `@@ -1 +1 @@\n+p${n}f${i}` })),
+    ...extra,
+  ];
+  try {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      const body = calls === 1
+        ? page(1, 100)
+        : page(2, 1, [
+            { filename: 'new/Name.kt', previous_filename: 'old/Name.kt', status: 'renamed', additions: 0, deletions: 0, patch: '@@ -1 +1 @@\n+renamed' },
+            { filename: 'art/cover.png', status: 'added', additions: 0, deletions: 0 }, // binary: no patch
+          ]);
+      return { ok: true, status: 200, json: async () => body, text: async () => '' };
+    };
+    const diff = await fetchDiffFromFiles(1);
+    assert.equal(calls, 2); // a full page is followed by the next
+    assert.ok(diff.indexOf('+p1f0') < diff.indexOf('+p2f0')); // stitched in order
+    assert.ok(diff.includes('diff --git a/old/Name.kt b/new/Name.kt')); // a rename names both sides
+    assert.ok(diff.includes('[no patch returned by the API')); // a binary file is named, not silently dropped
+    assert.ok(!diff.includes('diff truncated')); // ...and nothing claims truncation when there was none
+
+    // Exhausting the page cap must say so inside the diff, not only in the log.
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => page(9, 100), text: async () => '' });
+    const truncated = await fetchDiffFromFiles(1, 2);
+    assert.ok(truncated.includes('[diff truncated: more than 200 files changed'));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

@@ -88,7 +88,7 @@ export async function fetchPullRequestDiff(prNumber) {
 
 // A unified diff assembled from `pulls/{n}/files`. Each file carries its own `patch`; a file GitHub omits a patch
 // for (binary, or too large on its own) is named so the agent knows it changed and was not shown.
-async function fetchDiffFromFiles(prNumber, maxPages = 30) {
+export async function fetchDiffFromFiles(prNumber, maxPages = 30) {
   const { owner, name } = repo();
   const parts = [];
   let page = 1;
