@@ -143,8 +143,10 @@ export async function listReviewThreads(prNumber) {
                 path
                 line
                 originalLine
-                # last:30, not first:30 — every consumer reasons about the newest state (whose marker came
-                # after whose reply), so the window must be the newest comments, not the oldest.
+                # Three selections, because they answer three different questions and a long thread makes them
+                # disagree: the opening comment (which carries the fingerprint marker), the newest 30 (whose
+                # marker came after whose reply), and the newest one (is our note the last word).
+                first: comments(first:1){ nodes{ databaseId body author { login } } }
                 comments(last:30){ nodes{ databaseId body author { login } authorAssociation createdAt } }
                 last: comments(last:1){ nodes{ body author { login } createdAt } }
               }
@@ -172,9 +174,11 @@ export async function listReviewThreads(prNumber) {
         line: node.line ?? null,
         originalLine: node.originalLine ?? null,
         comments,
-        firstCommentId: comments[0]?.id ?? null,
-        firstCommentBody: comments[0]?.body || '',
-        firstCommentAuthor: comments[0]?.author || '',
+        // From the `first` selection: on a thread past 30 comments, comments[0] is no longer the opening one,
+        // and the fingerprint marker lives in the opening comment.
+        firstCommentId: node.first?.nodes?.[0]?.databaseId ?? null,
+        firstCommentBody: node.first?.nodes?.[0]?.body || '',
+        firstCommentAuthor: node.first?.nodes?.[0]?.author?.login || '',
         // From its own selection, not the capped list: a thread with >30 comments would otherwise report the 30th.
         // The author comes with it: the harness's markers are public strings, so a marker only counts as ours
         // when we wrote the comment carrying it.

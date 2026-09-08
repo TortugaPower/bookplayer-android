@@ -816,7 +816,6 @@ Include every id you were given, exactly once.`;
 export function buildVerifyPrompt(entries, headSha) {
   const blocks = entries.map(({ id, thread: t }) => {
     const replies = t.comments
-      .slice(1)
       .filter((c) => !isHarnessComment(c.author) && MAINTAINER_ASSOCIATIONS.has(c.association))
       .slice(-5)
       .map((c) => `  <reply author_role="${escapeAttr(c.association)}">${escapePrText(c.body.slice(0, MAX_VERIFY_CHARS))}</reply>`)
@@ -828,8 +827,8 @@ export function buildVerifyPrompt(entries, headSha) {
         ? `line="${anchor.line}" anchor="stale: from the commit the finding was raised on — the code may have moved"`
         : `line="${anchor.line}"`;
     return [
-      `<finding id="${id}" severity="${escapeAttr(findingSeverity(t.comments[0]?.body))}" file="${escapeAttr(t.path)}" ${lineAttr}>`,
-      escapePrText(stripHarnessMarkup(t.comments[0]?.body || '').slice(0, MAX_VERIFY_CHARS)),
+      `<finding id="${id}" severity="${escapeAttr(findingSeverity(t.firstCommentBody))}" file="${escapeAttr(t.path)}" ${lineAttr}>`,
+      escapePrText(stripHarnessMarkup(t.firstCommentBody || '').slice(0, MAX_VERIFY_CHARS)),
       replies ? `\n${replies}` : '',
       '</finding>',
     ].join('\n');
@@ -908,9 +907,9 @@ export async function applyVerification(verdicts, entries, io, { commit = '' } =
     const status = VERIFY_STATUSES.has(v.status) ? v.status : 'present';
     const evidence = neutralizeMarkup(String(v.evidence || '').slice(0, 400));
     const anchor = threadAnchor(t);
-    const severity = findingSeverity(t.comments[0]?.body);
+    const severity = findingSeverity(t.firstCommentBody);
     const label = `\`${t.path}:${anchor.line ?? '?'}\`${severity ? ` (${severity})` : ''}${anchor.stale ? ' ⚠︎ moved' : ''}`;
-    const hasMaintainerReply = t.comments.slice(1).some((c) => MAINTAINER_ASSOCIATIONS.has(c.association) && !isHarnessComment(c.author));
+    const hasMaintainerReply = t.comments.some((c) => MAINTAINER_ASSOCIATIONS.has(c.association) && !isHarnessComment(c.author));
     if (status === 'accepted' && !hasMaintainerReply) {
       // The model may not close a thread on its own opinion: without a maintainer reply this is just "still open".
       rows.push({ label, status: 'open', note: 'still open' });
