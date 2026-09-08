@@ -833,3 +833,28 @@ test('brace expansion cannot smuggle a path past the read roots', () => {
   assert.equal(isAllowedBash('grep -rn "a{2}" core/src'), true);
   assert.equal(isAllowedBash("grep -rn 'id{3,4}' app/src"), true);
 });
+
+
+test('the PR author cannot accept their own finding', async () => {
+  const io = recordingIo();
+  // On a same-repo PR the author's association is usually OWNER, so "a maintainer accepted it" must exclude them.
+  const selfReplied = thread({ comments: [thread().comments[0], { id: 2, body: 'intentional, leaving it', author: 'gianni', association: 'OWNER', createdAt: '2026-01-02T00:00:00Z' }] });
+  const verdict = verdictsById([{ id: 1, status: 'accepted', evidence: 'the author says it is intentional' }]);
+  const own = await applyVerification(verdict, numbered(selfReplied), io, { prAuthor: 'gianni' });
+  assert.equal(own.rows[0].status, 'open');
+  assert.deepEqual(io.calls, []);
+  // ...and their reply is not shown to the verifier either.
+  assert.ok(!buildVerifyPrompt(numbered(selfReplied), 'abcdef1', 'gianni').includes('intentional, leaving it'));
+  // Somebody else with the same association still closes it.
+  const io2 = recordingIo();
+  const other = await applyVerification(verdict, numbered(selfReplied), io2, { prAuthor: 'someone-else' });
+  assert.equal(other.rows[0].status, 'resolved');
+});
+
+test('a finished answer survives the deadline as well as the turn limit', () => {
+  // The premise of the deadline is that the turn cap never bound anything, so the deadline is the likely stop —
+  // a validated answer must not be thrown away just because the clock, not the counter, ran out.
+  assert.equal(shouldHardFail({ finalText: '', lastAnswer: 'x', resultSubtype: 'error_deadline' }), false);
+  assert.equal(shouldHardFail({ finalText: '', lastAnswer: 'x', resultSubtype: 'error_max_turns' }), false);
+  assert.equal(shouldHardFail({ finalText: '', lastAnswer: 'x', resultSubtype: 'error_during_execution' }), true);
+});

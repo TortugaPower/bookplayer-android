@@ -528,7 +528,7 @@ function isSummary(v) {
 const DEGRADABLE_SUBTYPES = new Set(['error_max_turns', 'error_deadline']);
 export function shouldHardFail({ finalText, lastAnswer, resultSubtype } = {}) {
   if (finalText) return false;
-  if (lastAnswer && resultSubtype === 'error_max_turns') return false; // the fallback below can still use it
+  if (lastAnswer && DEGRADABLE_SUBTYPES.has(resultSubtype)) return false; // the fallback below can still use it
   if (!resultSubtype || resultSubtype === 'success') return false;
   return !DEGRADABLE_SUBTYPES.has(resultSubtype);
 }
@@ -703,7 +703,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
   } catch (err) {
     if (abort.signal.aborted) {
       console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns (agent aborted)`);
-      return { finalText: isFinished(finalText) ? finalText : '', lastAnswer: '', turns, resultSubtype: 'error_deadline' };
+      return { finalText: isFinished(finalText) ? finalText : '', lastAnswer, turns, resultSubtype: 'error_deadline' };
     }
     err.capturedStderr = stderrChunks.join('');
     throw err;
@@ -812,10 +812,10 @@ shape, with NOTHING after it:
 Include every id you were given, exactly once.`;
 
 // Threads are PR-author-influenced text: bounded and tag-escaped, exactly like the diff.
-export function buildVerifyPrompt(entries, headSha) {
+export function buildVerifyPrompt(entries, headSha, prAuthor = '') {
   const blocks = entries.map(({ id, thread: t }) => {
     const replies = t.comments
-      .filter((c) => !isHarnessComment(c.author) && MAINTAINER_ASSOCIATIONS.has(c.association))
+      .filter((c) => isMaintainerReply(c, prAuthor))
       .slice(-5)
       .map((c) => `  <reply author_role="${escapeAttr(c.association)}">${escapePrText(c.body.slice(0, MAX_VERIFY_CHARS))}</reply>`)
       .join('\n');
@@ -870,6 +870,15 @@ export function verdictsById(threads) {
   return map;
 }
 
+// A reply that can close a thread must come from someone other than the harness and other than the PR author:
+// on a same-repo PR the author's own association is usually OWNER, so "a maintainer accepted it" would otherwise
+// include the author accepting their own finding.
+function isMaintainerReply(c, prAuthor = '') {
+  if (isHarnessComment(c.author)) return false;
+  if (prAuthor && c.author === prAuthor) return false;
+  return MAINTAINER_ASSOCIATIONS.has(c.association);
+}
+
 // Decide what to do with each verified thread. Pure apart from `io`, so the trust rules are unit-tested:
 // a human's "accepted" needs a maintainer reply on the thread, and the model may never invent one.
 // The newest comment comes from listReviewThreads' own `last` selection: `comments` is capped, so its tail is not
@@ -898,7 +907,7 @@ export function harnessClosed(t, markers = HARNESS_RESOLVED_MARKERS) {
   return maintainerAt === null || maintainerAt <= markedAt;
 }
 
-export async function applyVerification(verdicts, entries, io, { commit = '' } = {}) {
+export async function applyVerification(verdicts, entries, io, { commit = '', prAuthor = '' } = {}) {
   const rows = [];
   const stats = { verifiedFixed: 0, stillOpen: 0, closedByHuman: 0, dropped: 0 };
   for (const { id, thread: t } of entries) {
@@ -908,7 +917,7 @@ export async function applyVerification(verdicts, entries, io, { commit = '' } =
     const anchor = threadAnchor(t);
     const severity = findingSeverity(t.firstCommentBody);
     const label = `\`${t.path}:${anchor.line ?? '?'}\`${severity ? ` (${severity})` : ''}${anchor.stale ? ' ⚠︎ moved' : ''}`;
-    const hasMaintainerReply = t.comments.some((c) => MAINTAINER_ASSOCIATIONS.has(c.association) && !isHarnessComment(c.author));
+    const hasMaintainerReply = t.comments.some((c) => isMaintainerReply(c, prAuthor));
     if (status === 'accepted' && !hasMaintainerReply) {
       // The model may not close a thread on its own opinion: without a maintainer reply this is just "still open".
       rows.push({ label, status: 'open', note: 'still open' });
@@ -1102,7 +1111,7 @@ async function main() {
     // Turn-limit fallback: the agent finished an answer, made one more tool call (with or without trailing prose)
     // and was cut off. Use the remembered terminal answer, flagged provisional: it may have been superseded by
     // what the agent was about to check, so the summary says so and stale threads are not resolved from it.
-    if (lastAnswer && resultSubtype === 'error_max_turns') {
+    if (lastAnswer && (resultSubtype === 'error_max_turns' || resultSubtype === 'error_deadline')) {
       try {
         parsed = assertResultShape(extractJson(lastAnswer));
         provisional = true;
@@ -1214,11 +1223,11 @@ async function main() {
       // recognise one — otherwise a complete verdict list arriving near the bell would be discarded and these
       // threads would fall back to the fingerprint heuristic, unverified.
       const verifyFinished = (t) => parseVerifyResult(t) !== null;
-      const run = await runAgent(buildVerifyPrompt(numbered, COMMIT), verifyBudget, VERIFY_SYSTEM_PROMPT, verifyFinished);
+      const run = await runAgent(buildVerifyPrompt(numbered, COMMIT, pr.author), verifyBudget, VERIFY_SYSTEM_PROMPT, verifyFinished);
       // No lastAnswer fallback here: runAgent only remembers an answer that is a *review* result block.
       const parsedThreads = parseVerifyResult(run.finalText || '');
       if (!parsedThreads) throw new Error('no parseable {threads:[...]} in the verifier output');
-      const applied = await applyVerification(verdictsById(parsedThreads), numbered, io, { commit: COMMIT });
+      const applied = await applyVerification(verdictsById(parsedThreads), numbered, io, { commit: COMMIT, prAuthor: pr.author });
       previously = applied.rows.concat(
         overflow.map((t) => ({ label: `\`${t.path}:${threadAnchor(t).line ?? '?'}\``, status: 'open', note: 'not checked this round' })),
       );

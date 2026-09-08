@@ -64,7 +64,7 @@ async function graphql(queryStr, variables, tok) {
 export async function getPullRequest(prNumber) {
   const { owner, name } = repo();
   const pr = await rest('GET', `/repos/${owner}/${name}/pulls/${prNumber}`);
-  return { title: pr.title || '', body: pr.body || '' };
+  return { title: pr.title || '', body: pr.body || '', author: pr.user?.login || '' };
 }
 
 export async function fetchPullRequestDiff(prNumber) {
@@ -73,11 +73,33 @@ export async function fetchPullRequestDiff(prNumber) {
     headers: { ...headers(), Accept: 'application/vnd.github.diff' },
     signal: AbortSignal.timeout(API_TIMEOUT_MS),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`GitHub GET diff -> ${res.status}: ${text}`);
+  if (res.ok) return res.text();
+  // GitHub answers 406 for a diff it will not render (very large PRs). The per-file endpoint still serves the
+  // patches, so stitch them together rather than failing the whole review.
+  if (res.status === 406) {
+    console.warn('Diff endpoint refused this PR (406); rebuilding it from the per-file patches');
+    return fetchDiffFromFiles(prNumber);
   }
-  return res.text();
+  const text = await res.text().catch(() => '');
+  throw new Error(`GitHub GET diff -> ${res.status}: ${text}`);
+}
+
+// A unified diff assembled from `pulls/{n}/files`. Each file carries its own `patch`; a file GitHub omits a patch
+// for (binary, or too large on its own) is named so the agent knows it changed and was not shown.
+async function fetchDiffFromFiles(prNumber, maxPages = 30) {
+  const { owner, name } = repo();
+  const parts = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const files = await rest('GET', `/repos/${owner}/${name}/pulls/${prNumber}/files?per_page=100&page=${page}`);
+    if (!Array.isArray(files) || files.length === 0) break;
+    for (const f of files) {
+      const header = `diff --git a/${f.previous_filename || f.filename} b/${f.filename}`;
+      parts.push(f.patch ? `${header}\n--- a/${f.previous_filename || f.filename}\n+++ b/${f.filename}\n${f.patch}` : `${header}\n[no patch returned by the API: binary or too large — ${f.status}, +${f.additions}/-${f.deletions}]`);
+    }
+    if (files.length < 100) break;
+  }
+  if (!parts.length) throw new Error('GitHub returned no files for this PR');
+  return `${parts.join('\n')}\n`;
 }
 
 // ---------- Summary (issue-level) comments ----------
