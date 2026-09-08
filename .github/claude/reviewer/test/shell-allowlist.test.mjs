@@ -723,3 +723,12 @@ test('a path attached to a short flag is confined too', () => {
   assert.equal(isAllowedBash('grep -rn "PlaybackManager" core/src'), true);
   assert.equal(isAllowedBash('git blame -L 10,20 LibraryViewModel.kt'), true);
 });
+
+
+test('a finished answer that lands just before the deadline is not thrown away', () => {
+  // The deadline path keeps the buffer only when it already holds the contract's terminal block, the same test
+  // the turn-limit path applies to a discarded segment.
+  const finished = 'Done.\n\n```json\n{"verdict": "pass", "summary": "ok", "findings": []}\n```';
+  assert.equal(isTerminalResult(finished), true);
+  assert.equal(isTerminalResult('I still need to check the callers before concluding'), false);
+});

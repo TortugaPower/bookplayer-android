@@ -648,7 +648,8 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
       if (Date.now() - startedAt > budgetMs) {
         console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns; stopping the agent`);
         resultSubtype = 'error_deadline';
-        finalText = ''; // whatever was emitted so far is not a finished result
+        // Keep a finished answer that landed just before the bell; anything else is a partial thought.
+        if (!isTerminalResult(finalText)) finalText = '';
         if (typeof iterator.interrupt === 'function') await iterator.interrupt().catch(() => {});
         break; // closes the generator (and with it the agent subprocess)
       }
@@ -676,7 +677,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
   } catch (err) {
     if (abort.signal.aborted) {
       console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns (agent aborted)`);
-      return { finalText: '', lastAnswer: '', turns, resultSubtype: 'error_deadline' };
+      return { finalText: isTerminalResult(finalText) ? finalText : '', lastAnswer: '', turns, resultSubtype: 'error_deadline' };
     }
     err.capturedStderr = stderrChunks.join('');
     throw err;
