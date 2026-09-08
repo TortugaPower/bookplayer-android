@@ -348,13 +348,29 @@ export function isAllowedBash(command, roots = READ_ROOTS, cwd = process.cwd()) 
     const slash = tok.indexOf('/');
     return slash !== -1 ? tok.slice(slash) : tok; // `-f/etc/passwd` -> `/etc/passwd`
   };
-  return segments.every((segment) =>
-    segment
-      .split(/\s+/)
-      .map(pathish)
+  return segments.every((segment) => {
+    const tokens = segment.split(/\s+/);
+    // grep's first non-flag argument is the PATTERN, not a path: searching for a route literal like
+    // "/auth/openid" must not read as an absolute path outside the read roots. FORBIDDEN_PATH still applies to
+    // the whole segment, and `-e PATTERN` is skipped the same way.
+    const skip = new Set();
+    if (tokens[0] === 'grep') {
+      for (let i = 1; i < tokens.length; i++) {
+        if (tokens[i] === '-e' || tokens[i] === '-f') {
+          skip.add(i + 1); // the value of -e is a pattern; -f names a file, still checked via pathish below
+          if (tokens[i] === '-f') skip.delete(i + 1);
+          continue;
+        }
+        if (tokens[i].startsWith('-')) continue;
+        skip.add(i); // the pattern
+        break;
+      }
+    }
+    return tokens
+      .map((tok, i) => (skip.has(i) ? '' : pathish(tok)))
       .filter((tok) => tok && !tok.startsWith('-'))
-      .every((tok) => isPathAllowed(tok, roots, cwd)),
-  );
+      .every((tok) => isPathAllowed(tok, roots, cwd));
+  });
 }
 
 async function canUseTool(toolName, input) {
@@ -1206,10 +1222,10 @@ async function main() {
 // exit 0 with no review at all.
 const invokedDirectly = safeRealpath(resolve(process.argv[1] ?? '')) === safeRealpath(fileURLToPath(import.meta.url));
 if (invokedDirectly) main().catch((err) => {
-  console.error('Fatal:', err);
+  console.error('Fatal:', redact(err.stack || String(err)));
   if (err.capturedStderr) {
     console.error('--- claude stderr ---');
-    console.error(err.capturedStderr);
+    console.error(boundedDump(err.capturedStderr));
   }
   process.exit(1);
 });

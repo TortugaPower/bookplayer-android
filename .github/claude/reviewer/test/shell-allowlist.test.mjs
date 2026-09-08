@@ -732,3 +732,15 @@ test('a finished answer that lands just before the deadline is not thrown away',
   assert.equal(isTerminalResult(finished), true);
   assert.equal(isTerminalResult('I still need to check the callers before concluding'), false);
 });
+
+
+test("a grep pattern is not treated as a path", () => {
+  // Searching for a route or URL literal is routine on this repo and must not read as an absolute path.
+  assert.equal(isAllowedBash('grep -rn "/auth/openid" core/src'), true);
+  assert.equal(isAllowedBash('grep -rn /api/items/batch/get app/src'), true);
+  assert.equal(isAllowedBash('grep -e "/v1/library" -rn core/src'), true);
+  // ...but a real path argument is still confined, and -f still names a file.
+  assert.equal(isAllowedBash('grep -rn "pattern" /etc'), false);
+  assert.equal(isAllowedBash('grep -f/etc/passwd .'), false);
+  assert.equal(isAllowedBash('grep -rn "x" ../outside'), false);
+});

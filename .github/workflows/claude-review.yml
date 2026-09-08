@@ -26,6 +26,12 @@ jobs:
     permissions:
       contents: read
       pull-requests: write   # post inline + summary comments and resolve review threads
+    # Accepted residual: for a same-repo `pull_request` event GitHub runs the workflow file, the harness and the
+    # lockfile as they exist on the PR head, so anyone who can push a branch here can already reach the secrets
+    # below by editing this file. Checking the harness out from the base ref would close one path and not the
+    # class, since the workflow itself is still PR-authored. What limits the exposure is push access plus branch
+    # protection on develop/main; the allowlist and env-stripping below constrain the *model*, which is a
+    # different threat. Revisit with an environment protection rule if outside contributors ever get push access.
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v5
@@ -42,9 +48,11 @@ jobs:
         with:
           node-version: '20'
 
+      # --ignore-scripts: the lockfile comes from the PR head, so an install hook would be PR-authored code
+      # running before anything else in this job.
       - name: Install reviewer deps
         working-directory: .github/claude/reviewer
-        run: npm ci --no-audit --no-fund --silent
+        run: npm ci --ignore-scripts --no-audit --no-fund --silent
 
       - name: Test the agent's tool allowlist and redaction
         working-directory: .github/claude/reviewer

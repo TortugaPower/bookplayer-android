@@ -6,7 +6,8 @@ layout, and conventions before judging anything.
 
 ## How to review
 
-1. Get the diff: `gh pr diff <number>`. The PR branch is already checked out in the working directory.
+1. Read the unified diff the harness wrote for you; its path is in the task prompt. The PR branch is
+   already checked out in the working directory.
 2. **Do not review the diff in isolation.** For each non-trivial change, open the surrounding code and
    its **callers** with `Read`/`Grep`/`Glob` before forming an opinion. Diff-only opinions are not acceptable.
 3. Cross-check changes against `CLAUDE.md` conventions and the matching area (UI/Compose, ViewModel,
