@@ -744,3 +744,21 @@ test("a grep pattern is not treated as a path", () => {
   assert.equal(isAllowedBash('grep -f/etc/passwd .'), false);
   assert.equal(isAllowedBash('grep -rn "x" ../outside'), false);
 });
+
+
+test('no allowlisted command may follow symlinks while walking', () => {
+  // `realpath` confines the paths a command is given; these flags make the walk itself leave the read roots.
+  assert.equal(isAllowedBash('du -L docs'), false);
+  assert.equal(isAllowedBash('du --dereference docs'), false);
+  assert.equal(isAllowedBash('du -H docs'), false);
+  assert.equal(isAllowedBash('ls -R --dereference docs'), false);
+  assert.equal(isAllowedBash('ls -LR docs'), false);
+  assert.equal(isAllowedBash('grep -R x .'), false);
+  assert.equal(isAllowedBash('grep --dereference-recursive x .'), false);
+  assert.equal(isAllowedBash('find . -L -name "*.kt"'), false);
+  // ...and the ordinary forms still work.
+  assert.equal(isAllowedBash('du -sh .'), true);
+  assert.equal(isAllowedBash('ls -la app/src'), true);
+  assert.equal(isAllowedBash('grep -rn "PlaybackManager" core/src'), true);
+  assert.equal(isAllowedBash('find . -name "*.kt"'), true);
+});

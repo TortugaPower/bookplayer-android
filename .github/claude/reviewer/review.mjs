@@ -237,7 +237,10 @@ const DENY_FLAGS_ANY = /(^|\s)--output(=|\s)/;
 const DENY_FLAGS_BY_COMMAND = {
   grep: /(^|\s)(-[A-Za-z]*R[A-Za-z]*|--dereference-recursive)(\s|$)/,
   find: /(^|\s)(-L|-H|-follow|-(exec|execdir|ok|okdir|delete|fprint0?|fprintf|fls))(\s|$)/,
-  ls: /(^|\s)-[A-Za-z]*L[A-Za-z]*(\s|$)/,
+  // Short clusters and long forms both, for every command that can walk a tree: the realpath check covers the
+  // paths a command is *given*, not the ones a walk discovers through a symlink committed in the checkout.
+  ls: /(^|\s)(-[A-Za-z]*L[A-Za-z]*|--dereference(-command-line(-symlink-to-dir)?)?)(\s|$)/,
+  du: /(^|\s)(-[A-Za-z]*[LH][A-Za-z]*|--dereference(-args)?)(\s|$)/,
 };
 function hasDeniedFlag(segment) {
   const command = segment.split(/\s+/)[0];
