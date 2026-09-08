@@ -41,6 +41,7 @@ const MARKER_HUMAN_ACCEPTED = '<!-- bp-ai-review-accepted-by-human -->';
 // A note on a thread that stays OPEN. Deliberately not a resolution marker: if a human later resolves the thread
 // themselves, that decision must stand rather than being reopened as if the harness had closed it.
 const MARKER_VERIFY_NOTE = '<!-- bp-ai-review-verify-note -->';
+const MARKER_FAILURE_NOTE = '<!-- bp-ai-review-failed -->';
 // Resolutions this harness made: if the fresh review reports the finding again, the thread reopens once. That
 // includes an "accepted" close, because the acceptance is the model's reading of a maintainer's reply — the harness
 // only knows a maintainer replied, not that they dismissed it. If the human resolves it again themselves, their
@@ -1002,6 +1003,10 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
         }
       } else {
         // A human resolved it: that is a decision, not a fix. Don't nag.
+        // One-time wrinkle on PRs already open when this harness landed: the previous version resolved threads
+        // without leaving a note, so those carry no marker and are read here as human decisions — a finding
+        // re-reported on such a thread is neither reopened nor re-posted. It cannot be told apart from a human
+        // who resolved silently, and it self-heals on every PR opened afterwards.
         stats.dismissed++;
       }
       continue;
@@ -1045,11 +1050,26 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
 }
 
 // Say why on the PR before failing the check — the run log alone is easy to miss. Returns the error for rethrow.
+// Say why on the PR before failing, WITHOUT erasing the last good review: upsertSummary overwrites, so a
+// transient fatal (a 500 from the diff endpoint, say) would otherwise replace a complete summary with this note.
+// The note is appended to whatever is there, and replaced rather than stacked if the previous run also failed.
 async function explainFailure(err) {
-  if (!DRY_RUN) {
-    await upsertSummary(
-      ['## ⚠️ Claude PR Review — did not run', '', `The reviewer failed before producing a result: ${redact(err.message || String(err))}`, '', MARKER_SUMMARY].join('\n'),
-    ).catch(() => {});
+  if (DRY_RUN) return err;
+  const note = `> ⚠️ **A run did not complete:** the reviewer failed before producing a result: ${redact(err.message || String(err))}\n\n${MARKER_FAILURE_NOTE}`;
+  try {
+    const previous = (await listIssueComments(PR_NUMBER)).find(
+      (c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY),
+    );
+    const kept = (previous?.body || '')
+      .split(MARKER_FAILURE_NOTE)[0]
+      .replace(MARKER_SUMMARY, '')
+      .trimEnd();
+    const body = kept
+      ? `${kept}\n\n---\n\n${note}\n\n${MARKER_SUMMARY}`
+      : ['## ⚠️ Claude PR Review — did not run', '', note, '', MARKER_SUMMARY].join('\n');
+    await upsertSummary(body);
+  } catch {
+    // the PR could not be updated: the run log still carries the failure
   }
   return err;
 }

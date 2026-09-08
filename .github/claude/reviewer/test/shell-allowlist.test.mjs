@@ -16,9 +16,9 @@ const ALLOWED = [
   'git status', 'git ls-files services', 'git log --format=\'%h %s\'', 'git show HEAD~2:LibraryViewModel.kt', 'git diff HEAD~3..HEAD -- tests',
   'git -C . ls-files | grep -c node_modules', 'git -C . log --oneline -3',
   'find . -maxdepth 3 -type d -name "sdk" 2>/dev/null | head', 'ls nonexistent 2>&1',
-  'cat LibraryViewModel.kt', 'cat LibraryViewModel.kt | head -50', 'ls -la .github/claude', 'head -n 40 services/discord_service.py',
-  'tail -20 tests/test_LibraryViewModel.kt', 'wc -l tests/*.py', 'stat LibraryViewModel.kt', 'file lambda.zip', 'du -sh .', 'pwd',
-  'grep -rn "imaplib" --include=*.py .', 'grep -n "1024\\|Discord alert\\|trace" .github/claude/review-guide.md',
+  'cat LibraryViewModel.kt', 'cat LibraryViewModel.kt | head -50', 'ls -la .github/claude', 'head -n 40 core/src/main/java/com/tortugapower/audiobookplayer/PlaybackManager.kt',
+  'tail -20 app/src/test/java/LibraryViewModelTest.kt', 'wc -l app/src/test/java/*.kt', 'stat LibraryViewModel.kt', 'file app/build/outputs/apk/release/app-release.apk', 'du -sh .', 'pwd',
+  'grep -rn "MediaSession" --include=*.py .', 'grep -n "1024\\|Discord alert\\|trace" .github/claude/review-guide.md',
   'grep -rn "->" services/', "grep -rn '>' LibraryViewModel.kt", "grep -n '$(' build.sh", "grep -n 'foo$' LibraryViewModel.kt", 'grep -c def LibraryViewModel.kt && wc -l LibraryViewModel.kt',
   'find . -name "*.py" -not -path "./node_modules/*"',
 ];
@@ -83,7 +83,7 @@ test('credential locations are forbidden for Read and Bash', () => {
     '.ssh/id_ed25519', '.npmrc', '../../.config/gh/hosts.yml', 'cat ~/.netrc', '~/.claude/settings.json', 'cat .env']) {
     assert.equal(FORBIDDEN_PATH.test(p), true, `should forbid: ${p}`);
   }
-  for (const p of ['LibraryViewModel.kt', 'services/discord_service.py', '.github/workflows/claude-review.yml', 'tests/fixtures/sample-spam.eml',
+  for (const p of ['LibraryViewModel.kt', 'core/src/main/java/com/tortugapower/audiobookplayer/PlaybackManager.kt', '.github/workflows/claude-review.yml', 'app/src/test/resources/library.json',
     '.gitignore', 'environment.md', 'app.config.js', 'src/sshclient.py', 'docs/environment.md', 'grep -rn "os.environ" .',
     'git diff HEAD~1 -- LibraryViewModel.kt', 'git show HEAD~2:LibraryViewModel.kt']) {
     assert.equal(FORBIDDEN_PATH.test(p), false, `should permit: ${p}`);
@@ -112,11 +112,11 @@ test('rankOpusModels: highest version, undated alias before dated snapshot, non-
 
 test('absolute paths are confined to the checkout and runner temp; .. is refused', () => {
   const roots = ['/home/runner/work/repo/repo', '/home/runner/work/_temp'];
-  for (const p of ['LibraryViewModel.kt', 'services/x.py', './tests', '/home/runner/work/repo/repo/LibraryViewModel.kt', '/home/runner/work/_temp/pr-1.diff',
-    '/home/runner/work/repo/repo', '"/home/runner/work/repo/repo/.github"', '**/*.py', 'tests/**/*.eml']) {
+  for (const p of ['LibraryViewModel.kt', 'core/src/main/java/x.kt', './tests', '/home/runner/work/repo/repo/LibraryViewModel.kt', '/home/runner/work/_temp/pr-1.diff',
+    '/home/runner/work/repo/repo', '"/home/runner/work/repo/repo/.github"', '**/*.py', 'app/src/test/**/*.kt']) {
     assert.equal(isPathAllowed(p, roots), true, `should allow: ${p}`);
   }
-  for (const p of ['/home/runner', '/home/runner/work', '/home/runner/work/repo', '/etc/passwd', '/', '../../.npmrc', 'tests/../../x',
+  for (const p of ['/home/runner', '/home/runner/work', '/home/runner/work/repo', '/etc/passwd', '/', '../../.npmrc', 'app/../../x',
     '/home/runner/work/repo/repo-other/x']) {
     assert.equal(isPathAllowed(p, roots), false, `should deny: ${p}`);
   }
@@ -127,7 +127,7 @@ test('absolute paths are confined to the checkout and runner temp; .. is refused
     'find / -maxdepth 3 -type d -name "sdk" 2>/dev/null | head', 'ls /nonexistent 2>&1']) {
     assert.equal(isAllowedBash(cmd, roots, roots[0]), false, `should deny: ${cmd}`);
   }
-  for (const cmd of ['grep -rn "imaplib" /home/runner/work/repo/repo/services', 'grep -n "^diff --git" /home/runner/work/_temp/pr-1.diff | head -60',
+  for (const cmd of ['grep -rn "MediaSession" /home/runner/work/repo/repo/services', 'grep -n "^diff --git" /home/runner/work/_temp/pr-1.diff | head -60',
     'grep -rn "api/webhooks" services/', 'find . -name "*.py"', 'cat LibraryViewModel.kt']) {
     assert.equal(isAllowedBash(cmd, roots, roots[0]), true, `should allow: ${cmd}`);
   }
