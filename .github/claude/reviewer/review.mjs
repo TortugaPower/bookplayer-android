@@ -152,6 +152,9 @@ const escapePrText = (s) => String(s).replace(/</g, '&lt;');
 const escapeAttr = (s) => escapePrText(s).replace(/"/g, '&quot;');
 // Model-authored text is posted next to our HTML-comment markers; make sure it can't contain one itself.
 const neutralizeMarkup = (s) => String(s).replace(/<!--/g, '&lt;!--');
+// A path is PR-author text and these labels are rendered inside a Markdown table in our own comment: a backtick
+// or a pipe in a filename would break the table, and `<!--` would smuggle a comment into it.
+const mdPath = (p) => neutralizeMarkup(String(p).replace(/[`|]/g, ''));
 
 function severityEmoji(s) {
   return s === 'error' ? '🔴' : s === 'warn' ? '🟡' : '🔵';
@@ -671,14 +674,8 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
   });
   try {
     for await (const msg of iterator) {
-      if (Date.now() - startedAt > budgetMs) {
-        console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns; stopping the agent`);
-        resultSubtype = 'error_deadline';
-        // Keep a finished answer that landed just before the bell; anything else is a partial thought.
-        if (!isFinished(finalText)) finalText = '';
-        if (typeof iterator.interrupt === 'function') await iterator.interrupt().catch(() => {});
-        break; // closes the generator (and with it the agent subprocess)
-      }
+      // The message in hand is processed BEFORE the clock is read: an answer that lands in the same iteration as
+      // the bell is then still available to isFinished below, rather than discarded unexamined.
       if (msg.type === 'assistant') {
         turns++;
         const content = msg.message?.content;
@@ -698,6 +695,14 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
         if (resultSubtype && resultSubtype !== 'success') {
           console.warn(`Agent terminated: ${resultSubtype}`);
         }
+      }
+      if (Date.now() - startedAt > budgetMs) {
+        console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns; stopping the agent`);
+        resultSubtype = 'error_deadline';
+        // Keep a finished answer that landed just before the bell; anything else is a partial thought.
+        if (!isFinished(finalText)) finalText = '';
+        if (typeof iterator.interrupt === 'function') await iterator.interrupt().catch(() => {});
+        break; // closes the generator (and with it the agent subprocess)
       }
     }
   } catch (err) {
@@ -917,7 +922,7 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
     const evidence = neutralizeMarkup(String(v.evidence || '').slice(0, 400));
     const anchor = threadAnchor(t);
     const severity = findingSeverity(t.firstCommentBody);
-    const label = `\`${t.path}:${anchor.line ?? '?'}\`${severity ? ` (${severity})` : ''}${anchor.stale ? ' ⚠︎ moved' : ''}`;
+    const label = `\`${mdPath(t.path)}:${anchor.line ?? '?'}\`${severity ? ` (${severity})` : ''}${anchor.stale ? ' ⚠︎ moved' : ''}`;
     const hasMaintainerReply = t.comments.some((c) => isMaintainerReply(c, prAuthor));
     if (status === 'accepted' && !hasMaintainerReply) {
       // The model may not close a thread on its own opinion: without a maintainer reply this is just "still open".
@@ -1231,7 +1236,7 @@ async function main() {
       if (!parsedThreads) throw new Error('no parseable {threads:[...]} in the verifier output');
       const applied = await applyVerification(verdictsById(parsedThreads), numbered, io, { commit: COMMIT, prAuthor: pr.author });
       previously = applied.rows.concat(
-        overflow.map((t) => ({ label: `\`${t.path}:${threadAnchor(t).line ?? '?'}\``, status: 'open', note: 'not checked this round' })),
+        overflow.map((t) => ({ label: `\`${mdPath(t.path)}:${threadAnchor(t).line ?? '?'}\``, status: 'open', note: 'not checked this round' })),
       );
       verified = true;
       console.log(`Verification: ${applied.stats.verifiedFixed} fixed, ${applied.stats.dropped} no longer apply, ${applied.stats.closedByHuman} closed by a maintainer, ${applied.stats.stillOpen} still open`);

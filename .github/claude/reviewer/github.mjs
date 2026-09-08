@@ -91,7 +91,8 @@ export async function fetchPullRequestDiff(prNumber) {
 async function fetchDiffFromFiles(prNumber, maxPages = 30) {
   const { owner, name } = repo();
   const parts = [];
-  for (let page = 1; page <= maxPages; page++) {
+  let page = 1;
+  for (; page <= maxPages; page++) {
     const files = await rest('GET', `/repos/${owner}/${name}/pulls/${prNumber}/files?per_page=100&page=${page}`);
     if (!Array.isArray(files) || files.length === 0) break;
     for (const f of files) {
@@ -101,6 +102,12 @@ async function fetchDiffFromFiles(prNumber, maxPages = 30) {
     if (files.length < 100) break;
   }
   if (!parts.length) throw new Error('GitHub returned no files for this PR');
+  if (page > maxPages) {
+    // Say so in the diff itself, not just the log: this path exists for PRs too large to render, and the agent
+    // must not treat a truncated change set as the whole one.
+    console.warn(`Diff rebuilt from files was truncated at ${maxPages} pages`);
+    parts.push(`[diff truncated: more than ${maxPages * 100} files changed — the rest was not fetched]`);
+  }
   return `${parts.join('\n')}\n`;
 }
 

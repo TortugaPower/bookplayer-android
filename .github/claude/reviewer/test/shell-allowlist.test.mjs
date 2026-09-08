@@ -883,3 +883,13 @@ test('a human resolving after we reopened has the last word (realistic comment l
   const reopened = await reconcile(current, [oursToReopen], io2, {});
   assert.equal(reopened.stats.reopened, 1);
 });
+
+
+test('a hostile filename cannot break the summary table', async () => {
+  const io = recordingIo();
+  const nasty = thread({ path: 'app/we|ird`name<!--x.kt' });
+  const { rows } = await applyVerification(verdictsById([{ id: 1, status: 'present', evidence: 'x' }]), numbered(nasty), io, {});
+  assert.ok(!rows[0].label.includes('|'));
+  assert.ok(!rows[0].label.includes('<!--'));
+  assert.ok(rows[0].label.includes('app/weirdname'));
+});
