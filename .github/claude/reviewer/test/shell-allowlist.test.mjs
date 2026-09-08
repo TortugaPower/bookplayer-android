@@ -929,6 +929,18 @@ test('a diff rebuilt from per-file patches is stitched, marked and bounded', asy
     globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => page(9, 100), text: async () => '' });
     const truncated = await fetchDiffFromFiles(1, 2);
     assert.ok(truncated.includes('[diff truncated: more than 200 files changed'));
+
+    // A change set that is an exact multiple of the cap fetched every file: the last page being full is not
+    // evidence that anything was left behind, and telling the agent otherwise makes it distrust a whole diff.
+    let probes = 0;
+    globalThis.fetch = async (url) => {
+      const beyond = String(url).includes('per_page=1&');
+      if (beyond) probes++;
+      return { ok: true, status: 200, json: async () => (beyond ? [] : page(9, 100)), text: async () => '' };
+    };
+    const exact = await fetchDiffFromFiles(1, 2);
+    assert.equal(probes, 1); // it asks whether a further file exists...
+    assert.ok(!exact.includes('diff truncated')); // ...and stays quiet when none does
   } finally {
     globalThis.fetch = realFetch;
   }

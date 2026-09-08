@@ -54,7 +54,11 @@ const REOPENED_NOTE = 'Reported again in the latest run — reopened. <!-- bp-ai
 const FP_REGEX = /<!-- bp-ai-review-fp:([a-f0-9]+) -->/;
 
 // Model is resolved at runtime (newest Opus-tier id from the Models API) unless REVIEW_MODEL pins one.
-const FALLBACK_MODEL = 'claude-opus-5';
+// Used only when the Models API cannot be reached. An ordered list, not one constant: a single retired id would
+// otherwise leave the retry with nowhere to go (retryModel === MODEL trips its own guard) and the reviewer offline
+// until someone edited this file.
+const FALLBACK_MODELS = ['claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6'];
+const FALLBACK_MODEL = FALLBACK_MODELS[0];
 let MODEL = process.env.REVIEW_MODEL || '';
 let RANKED_MODELS = []; // from the Models API, newest first; the retry prefers the runner-up to the constant
 // A non-numeric override must fall back to the default rather than become NaN: setTimeout(fn, NaN) fires
@@ -106,6 +110,7 @@ async function resolveModel() {
     return ranked[0];
   } catch (e) {
     console.warn(`Could not resolve the latest Opus model (${e.message}); using ${FALLBACK_MODEL}`);
+    RANKED_MODELS = FALLBACK_MODELS; // so the model-unavailable retry has a runner-up to try
     return FALLBACK_MODEL;
   }
 }
@@ -1144,6 +1149,9 @@ async function main() {
   requireEnv('ANTHROPIC_API_KEY');
   requireEnv('GITHUB_TOKEN');
   requireEnv('PR_NUMBER');
+  // Everything downstream — the diff path, every REST call, the prompt — assumes a real number; a non-numeric
+  // value would otherwise reach GitHub as `/pulls/NaN` and read as their problem rather than a bad input.
+  if (!Number.isInteger(PR_NUMBER) || PR_NUMBER < 1) throw new Error(`PR_NUMBER must be a positive integer, got ${JSON.stringify(process.env.PR_NUMBER)}`);
   requireEnv('COMMIT');
   const diffPath = DIFF_PATH;
   const startedAt = Date.now();
