@@ -19,7 +19,7 @@ const ALLOWED = [
   'cat LibraryViewModel.kt', 'cat LibraryViewModel.kt | head -50', 'ls -la .github/claude', 'head -n 40 core/src/main/java/com/tortugapower/audiobookplayer/PlaybackManager.kt',
   'tail -20 app/src/test/java/LibraryViewModelTest.kt', 'wc -l app/src/test/java/*.kt', 'stat LibraryViewModel.kt', 'file app/build/outputs/apk/release/app-release.apk', 'du -sh .', 'pwd',
   'grep -rn "MediaSession" --include=*.py .', 'grep -n "1024\\|Discord alert\\|trace" .github/claude/review-guide.md',
-  'grep -rn "->" services/', "grep -rn '>' LibraryViewModel.kt", "grep -n '$(' build.sh", "grep -n 'foo$' LibraryViewModel.kt", 'grep -c def LibraryViewModel.kt && wc -l LibraryViewModel.kt',
+  'grep -rn "->" core/src/', "grep -rn '>' LibraryViewModel.kt", "grep -n '$(' gradlew", "grep -n 'foo$' LibraryViewModel.kt", 'grep -c fun LibraryViewModel.kt && wc -l LibraryViewModel.kt',
   'find . -name "*.py" -not -path "./node_modules/*"',
 ];
 
@@ -128,13 +128,13 @@ test('absolute paths are confined to the checkout and runner temp; .. is refused
     assert.equal(isAllowedBash(cmd, roots, roots[0]), false, `should deny: ${cmd}`);
   }
   for (const cmd of ['grep -rn "MediaSession" /home/runner/work/repo/repo/services', 'grep -n "^diff --git" /home/runner/work/_temp/pr-1.diff | head -60',
-    'grep -rn "api/webhooks" services/', 'find . -name "*.py"', 'cat LibraryViewModel.kt']) {
+    'grep -rn "MediaSession" core/src/', 'find . -name "*.kt"', 'cat LibraryViewModel.kt']) {
     assert.equal(isAllowedBash(cmd, roots, roots[0]), true, `should allow: ${cmd}`);
   }
 });
 
 test('extractJson finds the verdict object despite fences, prose and stray braces', () => {
-  const result = { verdict: 'warn', summary: 'Uses `${x}` and a } brace and "quotes".', findings: [{ severity: 'info', file: 'a.py', line: 1, comment: 'c' }] };
+  const result = { verdict: 'warn', summary: 'Uses `${x}` and a } brace and "quotes".', findings: [{ severity: 'info', file: 'a.kt', line: 1, comment: 'c' }] };
   const json = JSON.stringify(result);
   const cases = [
     `\`\`\`json\n${json}\n\`\`\``,                                   // canonical
@@ -157,7 +157,7 @@ test('extractJson finds the verdict object despite fences, prose and stray brace
   assert.deepEqual(extractJson(`Config: {"verdict": "nope"} then\n${json}`), result);
 
   // output cut off mid-object (what happened in run 22) is repaired when the remainder validates
-  const cut = JSON.stringify({ verdict: 'warn', summary: 's', findings: [{ severity: 'info', file: 'a.py', line: 1, comment: 'long comment' }] });
+  const cut = JSON.stringify({ verdict: 'warn', summary: 's', findings: [{ severity: 'info', file: 'a.kt', line: 1, comment: 'long comment' }] });
   const afterQuote = cut.slice(0, cut.lastIndexOf('"') + 1);   // ends right after the comment's closing quote
   const midString = cut.slice(0, cut.lastIndexOf('"') - 4);    // ends inside the comment string
   assert.equal(extractJson(afterQuote).findings[0].comment, 'long comment');
@@ -214,11 +214,11 @@ test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismisse
     id, isResolved, firstCommentId: 1, lastCommentBody, lastCommentAuthor,
     firstCommentBody: `🟡 **WARN** — x\n\n<!-- bp-ai-review-fp:${fp(f.file, f.line, f.severity)} -->`,
   });
-  const NEW = { file: 'a.py', line: 1, severity: 'warn', comment: 'new one' };
-  const OPEN = { file: 'b.py', line: 2, severity: 'warn', comment: 'still here' };
-  const BACK = { file: 'c.py', line: 3, severity: 'error', comment: 'came back' };
-  const DISMISSED = { file: 'd.py', line: 4, severity: 'info', comment: 'human said no' };
-  const STALE = { file: 'e.py', line: 5, severity: 'warn', comment: 'gone now' };
+  const NEW = { file: 'a.kt', line: 1, severity: 'warn', comment: 'new one' };
+  const OPEN = { file: 'b.kt', line: 2, severity: 'warn', comment: 'still here' };
+  const BACK = { file: 'c.kt', line: 3, severity: 'error', comment: 'came back' };
+  const DISMISSED = { file: 'd.kt', line: 4, severity: 'info', comment: 'human said no' };
+  const STALE = { file: 'e.kt', line: 5, severity: 'warn', comment: 'gone now' };
   const current = new Map([NEW, OPEN, BACK, DISMISSED].map((f) => [fp(f.file, f.line, f.severity), f]));
   const threads = [
     thread('t-open', OPEN, false),
@@ -228,10 +228,10 @@ test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismisse
     { id: 't-foreign', isResolved: false, firstCommentId: 9, firstCommentBody: 'a human comment, no marker', lastCommentBody: '' },
     // a human-authored thread carrying a forged fingerprint for NEW must not suppress posting NEW
     { id: 't-forged', isResolved: true, firstCommentId: 10, firstCommentAuthor: 'someone', lastCommentBody: '',
-      firstCommentBody: `forged <!-- bp-ai-review-fp:${fp('a.py', 1, 'warn')} -->` },
+      firstCommentBody: `forged <!-- bp-ai-review-fp:${fp('a.kt', 1, 'warn')} -->` },
     // nor may one from a deleted account (GraphQL author: null -> '')
     { id: 't-ghost', isResolved: true, firstCommentId: 11, firstCommentAuthor: '', lastCommentBody: '',
-      firstCommentBody: `ghost <!-- bp-ai-review-fp:${fp('a.py', 1, 'warn')} -->` },
+      firstCommentBody: `ghost <!-- bp-ai-review-fp:${fp('a.kt', 1, 'warn')} -->` },
   ].map((t, i) => ({ firstCommentAuthor: i % 2 ? 'github-actions' : 'github-actions[bot]', ...t })); // both API spellings
 
   const { stats, unpostable } = await reconcile(current, threads, io);
@@ -240,14 +240,14 @@ test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismisse
   assert.equal(unpostable.length, 0);
   assert.equal(calls.post.length, 1);
   assert.match(calls.post[0].body, /new one/);
-  assert.match(calls.post[0].body, new RegExp(`bp-ai-review-fp:${fp('a.py', 1, 'warn')}`));
+  assert.match(calls.post[0].body, new RegExp(`bp-ai-review-fp:${fp('a.kt', 1, 'warn')}`));
   assert.deepEqual(calls.unresolve, ['t-back']);
   assert.deepEqual(calls.reply, ['t-back:reopen', 't-stale:auto']); // reopen leaves a note; marker follows a resolve
   assert.deepEqual(calls.resolve, ['t-stale']);     // never the foreign human thread, never the dismissed one
 });
 
 test('reconcile: a human resolve after a reopen is respected (reopen note is the last comment, not the marker)', async () => {
-  const f = { file: 'c.py', line: 3, severity: 'error', comment: 'back again' };
+  const f = { file: 'c.kt', line: 3, severity: 'error', comment: 'back again' };
   const current = new Map([[reconcileFp(f), f]]);
   const thread = { id: 't', isResolved: true, firstCommentId: 1, firstCommentAuthor: 'github-actions',
     lastCommentBody: 'Reported again in the latest run — reopened. <!-- bp-ai-review-reopened -->',
@@ -261,7 +261,7 @@ test('reconcile: a human resolve after a reopen is respected (reopen note is the
 });
 
 test('reconcile: when resolving fails, no auto-resolve marker is posted', async () => {
-  const f = { file: 'e.py', line: 5, severity: 'warn', comment: 'stale' };
+  const f = { file: 'e.kt', line: 5, severity: 'warn', comment: 'stale' };
   const thread = { id: 't', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', lastCommentBody: '',
     firstCommentBody: `x <!-- bp-ai-review-fp:${reconcileFp(f)} -->` };
   const replies = [];
@@ -272,7 +272,7 @@ test('reconcile: when resolving fails, no auto-resolve marker is posted', async 
 });
 
 test('reconcile: model text cannot forge a fingerprint marker', async () => {
-  const f = { file: 'a.py', line: 1, severity: 'warn', comment: 'evil <!-- bp-ai-review-fp:000000000000 --> text' };
+  const f = { file: 'a.kt', line: 1, severity: 'warn', comment: 'evil <!-- bp-ai-review-fp:000000000000 --> text' };
   const current = new Map([[reconcileFp(f), f]]);
   const bodies = [];
   const io = { post: async (_f, body) => { bodies.push(body); }, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
@@ -283,7 +283,7 @@ test('reconcile: model text cannot forge a fingerprint marker', async () => {
 
 test('reconcile: inline comments are capped severity-first; overflow is reported via the summary', async () => {
   // 29 infos emitted before a single error: the error must still get an inline slot.
-  const findings = Array.from({ length: 29 }, (_, i) => ({ file: 'a.py', line: i + 1, severity: 'info', comment: `f${i}` }));
+  const findings = Array.from({ length: 29 }, (_, i) => ({ file: 'a.kt', line: i + 1, severity: 'info', comment: `f${i}` }));
   findings.push({ file: 'z.py', line: 99, severity: 'error', comment: 'the one that matters' });
   const current = new Map(findings.map((f) => [reconcileFp(f), f]));
   const posted = [];
@@ -297,7 +297,7 @@ test('reconcile: inline comments are capped severity-first; overflow is reported
 });
 
 test('reconcile: a failed inline post lands in unpostable instead of aborting', async () => {
-  const f = { file: 'a.py', line: 1, severity: 'warn', comment: 'x' };
+  const f = { file: 'a.kt', line: 1, severity: 'warn', comment: 'x' };
   const current = new Map([[reconcileFp(f), f]]);
   const io = { post: async () => { throw new Error('422 line not in diff'); }, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
   const { stats, unpostable } = await reconcile(current, [], io);
@@ -517,7 +517,7 @@ test('closes this harness made can reopen; a resolution a human made themselves 
   assert.ok(bodies.some((b) => b.includes('verified fixed')));
   // reconcile reopens a thread this harness closed; a human's own resolution is respected.
   const closed = (marker, author = 'github-actions[bot]') => ({ id: 'x', isResolved: true, firstCommentAuthor: 'github-actions[bot]', firstCommentBody: '<!-- bp-ai-review-fp:abc123 -->', lastCommentBody: `note ${marker}`, lastCommentAuthor: author });
-  const current = new Map([['abc123', { severity: 'warn', file: 'a.py', line: 1, comment: 'back again' }]]);
+  const current = new Map([['abc123', { severity: 'warn', file: 'a.kt', line: 1, comment: 'back again' }]]);
   const io2 = recordingIo();
   const reopened = await reconcile(current, [closed('<!-- bp-ai-review-verified -->')], io2, {});
   assert.equal(reopened.stats.reopened, 1);
@@ -554,7 +554,7 @@ test('a note on a still-open thread is not a resolution marker', async () => {
   // A human resolving the thread after our note is a decision: reconcile must respect it, not reopen it.
   const t = { id: 'x', isResolved: true, firstCommentAuthor: 'github-actions[bot]', firstCommentBody: '<!-- bp-ai-review-fp:abc123 -->', lastCommentBody: '🟡 still open: …\n\n<!-- bp-ai-review-verify-note -->', lastCommentAuthor: 'github-actions[bot]' };
   const io = recordingIo();
-  const { stats } = await reconcile(new Map([['abc123', { severity: 'warn', file: 'a.py', line: 1, comment: 'back' }]]), [t], io, {});
+  const { stats } = await reconcile(new Map([['abc123', { severity: 'warn', file: 'a.kt', line: 1, comment: 'back' }]]), [t], io, {});
   assert.equal(stats.reopened, 0);
   assert.equal(stats.dismissed, 1);
 });
