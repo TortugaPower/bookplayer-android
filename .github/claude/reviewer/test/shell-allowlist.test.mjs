@@ -858,3 +858,28 @@ test('a finished answer survives the deadline as well as the turn limit', () => 
   assert.equal(shouldHardFail({ finalText: '', lastAnswer: 'x', resultSubtype: 'error_max_turns' }), false);
   assert.equal(shouldHardFail({ finalText: '', lastAnswer: 'x', resultSubtype: 'error_during_execution' }), true);
 });
+
+
+test('a human resolving after we reopened has the last word (realistic comment list)', async () => {
+  // The fixtures elsewhere omit `comments`, which short-circuits harnessClosed; listReviewThreads always fills it,
+  // so this exercises the branch that actually runs: opening finding, our auto-resolve note, our reopen note.
+  const fp = '<!-- bp-ai-review-fp:abc123 -->';
+  const comments = [
+    { id: 1, body: `🔴 **ERROR** — the credential is logged\n\n${fp}`, author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-01T00:00:00Z' },
+    { id: 2, body: 'Not reported in the latest run — resolved automatically. <!-- bp-ai-review-auto-resolved -->', author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-02T00:00:00Z' },
+    { id: 3, body: 'Reported again in the latest run — reopened. <!-- bp-ai-review-reopened -->', author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-03T00:00:00Z' },
+  ];
+  const current = new Map([['abc123', { severity: 'error', file: 'a.kt', line: 1, comment: 'still here' }]]);
+  // A human then resolved it silently: our newest comment is the reopen note, so the resolution is not ours.
+  const humanResolved = { id: 'x', isResolved: true, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', firstCommentBody: comments[0].body, lastCommentBody: comments[2].body, lastCommentAuthor: 'github-actions[bot]', comments };
+  const io = recordingIo();
+  const respected = await reconcile(current, [humanResolved], io, {});
+  assert.equal(respected.stats.reopened, 0);
+  assert.equal(respected.stats.dismissed, 1);
+  assert.deepEqual(io.calls, []);
+  // ...whereas a thread whose newest comment from us IS the resolve note is ours to reopen.
+  const oursToReopen = { ...humanResolved, comments: comments.slice(0, 2), lastCommentBody: comments[1].body };
+  const io2 = recordingIo();
+  const reopened = await reconcile(current, [oursToReopen], io2, {});
+  assert.equal(reopened.stats.reopened, 1);
+});

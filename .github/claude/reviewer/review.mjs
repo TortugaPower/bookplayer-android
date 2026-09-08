@@ -894,17 +894,18 @@ export function harnessClosed(t, markers = HARNESS_RESOLVED_MARKERS) {
   const carries = (body) => markers.some((m) => String(body || '').includes(m));
   const comments = Array.isArray(t.comments) ? t.comments : [];
   if (!comments.length) return isHarnessComment(t.lastCommentAuthor) && carries(t.lastCommentBody);
-  let markedAt = null;
+  // The *newest* harness comment must be the one carrying the marker. An older marker does not mean we hold the
+  // thread: after we reopen a finding ("reported again"), a human who then resolves it silently has the last word
+  // on the resolution, and reopening it again on the strength of that stale marker would be nagging. (`resolvedBy`
+  // cannot settle this — the harness resolves with REVIEW_RESOLVE_TOKEN, so its resolutions show as its owner.)
+  let ours = null;
   let maintainerAt = null;
   for (const c of comments) {
-    if (isHarnessComment(c.author)) {
-      if (carries(c.body)) markedAt = c.createdAt || '';
-    } else if (MAINTAINER_ASSOCIATIONS.has(c.association)) {
-      maintainerAt = c.createdAt || '';
-    }
+    if (isHarnessComment(c.author)) ours = { at: c.createdAt || '', marked: carries(c.body) };
+    else if (MAINTAINER_ASSOCIATIONS.has(c.association)) maintainerAt = c.createdAt || '';
   }
-  if (markedAt === null) return false;
-  return maintainerAt === null || maintainerAt <= markedAt;
+  if (!ours || !ours.marked) return false;
+  return maintainerAt === null || maintainerAt <= ours.at;
 }
 
 export async function applyVerification(verdicts, entries, io, { commit = '', prAuthor = '' } = {}) {
@@ -1224,8 +1225,9 @@ async function main() {
       // threads would fall back to the fingerprint heuristic, unverified.
       const verifyFinished = (t) => parseVerifyResult(t) !== null;
       const run = await runAgent(buildVerifyPrompt(numbered, COMMIT, pr.author), verifyBudget, VERIFY_SYSTEM_PROMPT, verifyFinished);
-      // No lastAnswer fallback here: runAgent only remembers an answer that is a *review* result block.
-      const parsedThreads = parseVerifyResult(run.finalText || '');
+      // `verifyFinished` gates what runAgent remembers, so lastAnswer here is a verdict list, not a review
+      // result — usable when the deadline landed after a complete list but before the run ended.
+      const parsedThreads = parseVerifyResult(run.finalText || run.lastAnswer || '');
       if (!parsedThreads) throw new Error('no parseable {threads:[...]} in the verifier output');
       const applied = await applyVerification(verdictsById(parsedThreads), numbered, io, { commit: COMMIT, prAuthor: pr.author });
       previously = applied.rows.concat(

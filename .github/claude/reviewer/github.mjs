@@ -71,7 +71,9 @@ export async function fetchPullRequestDiff(prNumber) {
   const { owner, name } = repo();
   const res = await fetch(`${REST}/repos/${owner}/${name}/pulls/${prNumber}`, {
     headers: { ...headers(), Accept: 'application/vnd.github.diff' },
-    signal: AbortSignal.timeout(API_TIMEOUT_MS),
+    // A longer cap than the JSON calls: this one streams the whole diff body, and AbortSignal.timeout bounds the
+    // entire exchange rather than idle time, so a big PR on a slow link would otherwise abort mid-download.
+    signal: AbortSignal.timeout(API_TIMEOUT_MS * 4),
   });
   if (res.ok) return res.text();
   // GitHub answers 406 for a diff it will not render (very large PRs). The per-file endpoint still serves the
