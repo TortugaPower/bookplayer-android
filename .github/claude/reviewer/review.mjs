@@ -492,6 +492,18 @@ function isSummary(v) {
 // The one place the post-extraction invariant is stated: whatever reaches reconcile() has a known verdict, a string
 // summary and an array of findings. extractJson already guarantees it via normaliseResult; this makes that explicit
 // for both the normal and the turn-limit-fallback path.
+// Running out of time or turns is an expected outcome on a large PR: it must degrade to the visible "incomplete"
+// note and exit 0, which is what the reasons in the parse block are written for. Only an unexpected subtype with no
+// output at all is a real failure worth the red "did not run" check. (Before this, a deadline threw here and the
+// error_deadline reason below was unreachable.)
+const DEGRADABLE_SUBTYPES = new Set(['error_max_turns', 'error_deadline']);
+export function shouldHardFail({ finalText, lastAnswer, resultSubtype } = {}) {
+  if (finalText) return false;
+  if (lastAnswer && resultSubtype === 'error_max_turns') return false; // the fallback below can still use it
+  if (!resultSubtype || resultSubtype === 'success') return false;
+  return !DEGRADABLE_SUBTYPES.has(resultSubtype);
+}
+
 function assertResultShape(o) {
   if (!VERDICTS.has(o?.verdict) || typeof o.summary !== 'string' || !Array.isArray(o.findings)) {
     throw new Error('JSON missing or malformed verdict/summary/findings');
@@ -1002,9 +1014,7 @@ async function main() {
   let agentRun;
   try {
     agentRun = await runAgent(buildUserPrompt(pr, diffPath));
-    // Only the turn-limit case may recover from a remembered answer; every other failure subtype stays a hard error.
-    const recoverable = Boolean(agentRun.lastAnswer) && agentRun.resultSubtype === 'error_max_turns';
-    if (!agentRun.finalText && !recoverable && agentRun.resultSubtype && agentRun.resultSubtype !== 'success') {
+    if (shouldHardFail(agentRun)) {
       throw new Error(`agent ended with ${agentRun.resultSubtype} and no output`);
     }
   } catch (e) {

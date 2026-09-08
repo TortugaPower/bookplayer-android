@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, parseVerifyResult, verdictsById, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH } from '../review.mjs';
+import { isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
@@ -696,4 +696,18 @@ test('attribute values cannot break out of the finding tag', () => {
   const prompt = buildVerifyPrompt(numbered(t), 'abcdef1234567');
   assert.ok(prompt.includes('file="weird&quot;name.py"'));
   assert.ok(!prompt.includes('file="weird"name.py"'));
+});
+
+
+test('running out of time or turns degrades to the incomplete note, not a red check', () => {
+  // The deadline clears the buffer, so this is exactly the shape runAgent returns on a timeout.
+  assert.equal(shouldHardFail({ finalText: '', lastAnswer: '', resultSubtype: 'error_deadline' }), false);
+  assert.equal(shouldHardFail({ finalText: '', lastAnswer: '', resultSubtype: 'error_max_turns' }), false);
+  // A remembered answer still routes to the turn-limit fallback rather than failing.
+  assert.equal(shouldHardFail({ finalText: '', lastAnswer: 'x', resultSubtype: 'error_max_turns' }), false);
+  // Anything unexpected with no output at all is a genuine failure.
+  assert.equal(shouldHardFail({ finalText: '', lastAnswer: '', resultSubtype: 'error_during_execution' }), true);
+  // ...and a normal run is never a failure.
+  assert.equal(shouldHardFail({ finalText: 'answer', lastAnswer: '', resultSubtype: 'success' }), false);
+  assert.equal(shouldHardFail({ finalText: '', lastAnswer: '', resultSubtype: null }), false);
 });
