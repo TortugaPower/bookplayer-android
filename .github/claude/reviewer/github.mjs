@@ -144,7 +144,7 @@ export async function listReviewThreads(prNumber) {
                 line
                 originalLine
                 comments(first:30){ nodes{ databaseId body author { login } authorAssociation createdAt } }
-                last: comments(last:1){ nodes{ body } }
+                last: comments(last:1){ nodes{ body author { login } createdAt } }
               }
             }
           }
@@ -174,7 +174,11 @@ export async function listReviewThreads(prNumber) {
         firstCommentBody: comments[0]?.body || '',
         firstCommentAuthor: comments[0]?.author || '',
         // From its own selection, not the capped list: a thread with >30 comments would otherwise report the 30th.
+        // The author comes with it: the harness's markers are public strings, so a marker only counts as ours
+        // when we wrote the comment carrying it.
         lastCommentBody: node.last?.nodes?.[0]?.body || '',
+        lastCommentAuthor: node.last?.nodes?.[0]?.author?.login || '',
+        lastCommentAt: node.last?.nodes?.[0]?.createdAt || '',
       });
     }
     if (!conn.pageInfo.hasNextPage) break;

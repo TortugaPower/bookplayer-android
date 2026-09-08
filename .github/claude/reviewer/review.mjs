@@ -321,7 +321,9 @@ const safeRealpath = (p) => {
   }
 };
 // The diff file is the only thing outside the checkout the agent needs; the root is that file, not the temp dir.
-const DIFF_PATH = join(process.env.RUNNER_TEMP || tmpdir(), `pr-${PR_NUMBER}.diff`);
+// The directory is realpath'd (it exists; the file does not yet), so the root and the later resolution of the
+// written file agree even where the temp path has a symlinked component, e.g. macOS /var -> /private/var.
+const DIFF_PATH = join(safeRealpath(process.env.RUNNER_TEMP || tmpdir()), `pr-${PR_NUMBER}.diff`);
 const READ_ROOTS = [process.env.GITHUB_WORKSPACE || process.cwd(), DIFF_PATH].map(safeRealpath);
 const stripQuotes = (s) => s.replace(/^["']|["']$/g, '');
 export function isPathAllowed(rawPath, roots = READ_ROOTS, cwd = process.cwd()) {
@@ -869,7 +871,27 @@ export function verdictsById(threads) {
 // The newest comment comes from listReviewThreads' own `last` selection: `comments` is capped, so its tail is not
 // necessarily the newest on a long thread.
 function answeredAlready(t) {
-  return (t.lastCommentBody || '').includes(MARKER_VERIFY_NOTE);
+  return harnessClosed(t, [MARKER_VERIFY_NOTE]);
+}
+
+// True when this harness wrote one of `markers` on the thread and no maintainer has spoken since. Both halves
+// matter: the markers are public strings that anyone can paste, so only a comment the harness authored counts,
+// and a maintainer's word after ours is a decision to respect rather than something to reopen or talk over.
+export function harnessClosed(t, markers = HARNESS_RESOLVED_MARKERS) {
+  const carries = (body) => markers.some((m) => String(body || '').includes(m));
+  const comments = Array.isArray(t.comments) ? t.comments : [];
+  if (!comments.length) return isHarnessComment(t.lastCommentAuthor) && carries(t.lastCommentBody);
+  let markedAt = null;
+  let maintainerAt = null;
+  for (const c of comments) {
+    if (isHarnessComment(c.author)) {
+      if (carries(c.body)) markedAt = c.createdAt || '';
+    } else if (MAINTAINER_ASSOCIATIONS.has(c.association)) {
+      maintainerAt = c.createdAt || '';
+    }
+  }
+  if (markedAt === null) return false;
+  return maintainerAt === null || maintainerAt <= markedAt;
 }
 
 export async function applyVerification(verdicts, entries, io, { commit = '' } = {}) {
@@ -950,7 +972,7 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
     if (existing) {
       if (!existing.isResolved) {
         stats.kept++;
-      } else if (HARNESS_RESOLVED_MARKERS.some((m) => (existing.lastCommentBody || '').includes(m))) {
+      } else if (harnessClosed(existing)) {
         // We closed it (not re-reported, or verified fixed) and it is back: reopen it.
         try {
           await io.unresolve(existing);

@@ -210,8 +210,8 @@ test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismisse
     resolve: async (t) => { calls.resolve.push(t.id); },
     unresolve: async (t) => { calls.unresolve.push(t.id); },
   };
-  const thread = (id, f, isResolved, lastCommentBody = '') => ({
-    id, isResolved, firstCommentId: 1, lastCommentBody,
+  const thread = (id, f, isResolved, lastCommentBody = '', lastCommentAuthor = 'github-actions[bot]') => ({
+    id, isResolved, firstCommentId: 1, lastCommentBody, lastCommentAuthor,
     firstCommentBody: `🟡 **WARN** — x\n\n<!-- bp-ai-review-fp:${fp(f.file, f.line, f.severity)} -->`,
   });
   const NEW = { file: 'a.py', line: 1, severity: 'warn', comment: 'new one' };
@@ -467,7 +467,7 @@ const thread = (over = {}) => ({
   id: 't1', isResolved: false, path: 'core/src/main/java/PlaybackManager.kt', line: 42,
   firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]',
   firstCommentBody: '🟡 **WARN** — the socket is never closed\n\n<!-- bp-ai-review-fp:abc123 -->',
-  comments: [{ id: 1, body: '🟡 **WARN** — the socket is never closed', author: 'github-actions[bot]', association: 'NONE' }],
+  comments: [{ id: 1, body: '🟡 **WARN** — the socket is never closed', author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-01T00:00:00Z' }],
   ...over,
 });
 
@@ -516,12 +516,17 @@ test('closes this harness made can reopen; a resolution a human made themselves 
   const bodies = io.calls.filter((c) => Array.isArray(c)).map((c) => c[1]);
   assert.ok(bodies.some((b) => b.includes('verified fixed')));
   // reconcile reopens a thread this harness closed; a human's own resolution is respected.
-  const closed = (marker) => ({ id: 'x', isResolved: true, firstCommentAuthor: 'github-actions[bot]', firstCommentBody: '<!-- bp-ai-review-fp:abc123 -->', lastCommentBody: `note ${marker}` });
+  const closed = (marker, author = 'github-actions[bot]') => ({ id: 'x', isResolved: true, firstCommentAuthor: 'github-actions[bot]', firstCommentBody: '<!-- bp-ai-review-fp:abc123 -->', lastCommentBody: `note ${marker}`, lastCommentAuthor: author });
   const current = new Map([['abc123', { severity: 'warn', file: 'a.py', line: 1, comment: 'back again' }]]);
   const io2 = recordingIo();
   const reopened = await reconcile(current, [closed('<!-- bp-ai-review-verified -->')], io2, {});
   assert.equal(reopened.stats.reopened, 1);
   const io3 = recordingIo();
+  // A marker pasted by someone else is not ours: the thread stays closed.
+  const io5 = recordingIo();
+  const forged = await reconcile(current, [closed('<!-- bp-ai-review-verified -->', 'someone')], io5, {});
+  assert.equal(forged.stats.reopened, 0);
+  assert.equal(forged.stats.dismissed, 1);
   // An "accepted" close is the model's reading of a maintainer's reply, so a re-report reopens it once…
   const acceptedAgain = await reconcile(current, [closed('<!-- bp-ai-review-accepted-by-human -->')], io3, {});
   assert.equal(acceptedAgain.stats.reopened, 1);
@@ -535,18 +540,19 @@ test('closes this harness made can reopen; a resolution a human made themselves 
 test('an insufficient thread is answered once, not on every push', async () => {
   const io = recordingIo();
   const note = '🟡 still open: the leak stands\n\n<!-- bp-ai-review-verify-note -->';
-  const answered = thread({ lastCommentBody: note, comments: [thread().comments[0], { id: 2, body: note, author: 'github-actions[bot]', association: 'NONE' }] });
+  const answered = thread({ lastCommentBody: note, lastCommentAuthor: 'github-actions[bot]', comments: [thread().comments[0], { id: 2, body: note, author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-02T00:00:00Z' }] });
   await applyVerification(verdictsById([{ id: 1, status: 'insufficient', evidence: 'still leaks' }]), numbered(answered), io, {});
   assert.deepEqual(io.calls, []); // our note is already the last word
   // ...and a human replying after it reopens the conversation, so we answer again.
-  const humanReplied = thread({ lastCommentBody: 'but the pool is per-thread', comments: answered.comments.concat({ id: 3, body: 'but the pool is per-thread', author: 'gianni', association: 'OWNER' }) });
+  // A maintainer's reply is newer than our note, so the thread is live again and gets an answer.
+  const humanReplied = thread({ lastCommentBody: 'but the pool is per-thread', lastCommentAuthor: 'gianni', comments: answered.comments.concat({ id: 3, body: 'but the pool is per-thread', author: 'gianni', association: 'OWNER', createdAt: '2026-01-03T00:00:00Z' }) });
   await applyVerification(verdictsById([{ id: 1, status: 'insufficient', evidence: 'still leaks' }]), numbered(humanReplied), io, {});
   assert.equal(io.calls.length, 1);
 });
 
 test('a note on a still-open thread is not a resolution marker', async () => {
   // A human resolving the thread after our note is a decision: reconcile must respect it, not reopen it.
-  const t = { id: 'x', isResolved: true, firstCommentAuthor: 'github-actions[bot]', firstCommentBody: '<!-- bp-ai-review-fp:abc123 -->', lastCommentBody: '🟡 still open: …\n\n<!-- bp-ai-review-verify-note -->' };
+  const t = { id: 'x', isResolved: true, firstCommentAuthor: 'github-actions[bot]', firstCommentBody: '<!-- bp-ai-review-fp:abc123 -->', lastCommentBody: '🟡 still open: …\n\n<!-- bp-ai-review-verify-note -->', lastCommentAuthor: 'github-actions[bot]' };
   const io = recordingIo();
   const { stats } = await reconcile(new Map([['abc123', { severity: 'warn', file: 'a.py', line: 1, comment: 'back' }]]), [t], io, {});
   assert.equal(stats.reopened, 0);
