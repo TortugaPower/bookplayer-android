@@ -200,6 +200,9 @@ test('key-shaped strings are redacted at the post boundary', () => {
   assert.equal(redact('rc goog_' + 'A'.repeat(24) + ' set'), 'rc [redacted] set');
   assert.equal(redact('-----BEGIN PRIVATE KEY-----\nMIIabc\n-----END PRIVATE KEY-----'), '[redacted private key]');
   assert.equal(redact('the googleusercontent client id stays'), 'the googleusercontent client id stays');
+  // ...but a real one does not: a recursive grep can reach local.properties' contents even though naming the
+  // file is denied, so the post boundary is the backstop.
+  assert.equal(redact('id 123456789012-abcdefghijklmnopqrstuvwxyz012345.apps.googleusercontent.com set'), 'id [redacted client id] set');
   assert.equal(redact('the read-only allow-list flag'), 'the read-only allow-list flag');
   assert.equal(redact('a data-sync-task-uuid identifier'), 'a data-sync-task-uuid identifier');
 });
@@ -943,22 +946,26 @@ test('a diff rebuilt from per-file patches is stitched, marked and bounded', asy
     assert.ok(diff.includes('[no patch returned by the API')); // a binary file is named, not silently dropped
     assert.ok(!diff.includes('diff truncated')); // ...and nothing claims truncation when there was none
 
-    // Exhausting the page cap must say so inside the diff, not only in the log.
+    // Reaching the page cap with a full last page must say so inside the diff, not only in the log: the listing
+    // stopped where GitHub stops serving, so the agent is looking at a change set that may be incomplete.
     globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => page(9, 100), text: async () => '' });
     const truncated = await fetchDiffFromFiles(1, 2);
-    assert.ok(truncated.includes('[diff truncated: more than 200 files changed'));
+    assert.match(truncated, /\[diff truncated: 200 files listed/);
 
-    // A change set that is an exact multiple of the cap fetched every file: the last page being full is not
-    // evidence that anything was left behind, and telling the agent otherwise makes it distrust a whole diff.
+    // No probe for a further page: this endpoint serves at most 3000 files, which is exactly the default cap, so
+    // asking for page 3001 always came back empty and the marker could never appear.
     let probes = 0;
     globalThis.fetch = async (url) => {
-      const beyond = String(url).includes('per_page=1&');
-      if (beyond) probes++;
-      return { ok: true, status: 200, json: async () => (beyond ? [] : page(9, 100)), text: async () => '' };
+      if (String(url).includes('per_page=1&')) probes++;
+      return { ok: true, status: 200, json: async () => page(9, 100), text: async () => '' };
     };
-    const exact = await fetchDiffFromFiles(1, 2);
-    assert.equal(probes, 1); // it asks whether a further file exists...
-    assert.ok(!exact.includes('diff truncated')); // ...and stays quiet when none does
+    await fetchDiffFromFiles(1, 2);
+    assert.equal(probes, 0);
+
+    // A short final page means the whole change set was listed: no marker.
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => page(9, 42), text: async () => '' });
+    const whole = await fetchDiffFromFiles(1, 2);
+    assert.ok(!whole.includes('diff truncated'))
   } finally {
     globalThis.fetch = realFetch;
     // Restored, so test order can never matter: another test reading GITHUB_REPOSITORY would otherwise see this

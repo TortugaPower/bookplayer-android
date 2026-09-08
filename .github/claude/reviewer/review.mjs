@@ -77,6 +77,11 @@ const MAX_OUTPUT_TOKENS = num(process.env.REVIEW_MAX_OUTPUT_TOKENS, 32_000);
 // Wall-clock bound for the agent, under the job's timeout-minutes: hitting it degrades to the "incomplete"
 // note instead of a cancelled job that may have half-reconciled the PR.
 const DEADLINE_MS = num(process.env.REVIEW_DEADLINE_MS, 14 * 60 * 1000);
+// The whole run's budget, comfortably under the workflow's timeout-minutes. The review and the verification pass
+// are both measured against THIS, not against each other: taking the verify slice out of the review's own
+// deadline meant a review that used its full 14 minutes left a negative verify budget, so the second pass was
+// silently skipped on exactly the large PRs it was added for, falling back to "was not re-reported".
+const JOB_BUDGET_MS = num(process.env.REVIEW_JOB_BUDGET_MS, 18 * 60 * 1000);
 // Failure dump of the agent's answer in the run log (head + tail). Extraction failures are visible in the first and
 // last couple of KB; the full 20 KB is available with ACTIONS_STEP_DEBUG, since the log of a public repo is public
 // and redact() does not know every secret shape (an app-specific password quoted from a diff, for instance).
@@ -157,6 +162,10 @@ export function redact(text) {
     // (Keystore passwords are deliberately not pattern-matched: they live only in a gitignored
     // keystore.properties and in Actions secrets, and no useful pattern exists that would not mangle prose.)
     .replace(/https:\/\/[0-9a-f]{16,}@[\w.-]*ingest[\w.-]*sentry\.io\/\d+/gi, 'https://[redacted]@sentry.io/[redacted]')
+    // A recursive grep can reach the CONTENTS of local.properties even though naming the file is denied, so the
+    // post boundary has to catch what the path rule cannot: an OAuth client id is the one value in there with a
+    // shape worth matching. (A base URL is not a secret shape; the path rule remains the defence for those.)
+    .replace(/\b\d{6,}-[a-z0-9]{20,}\.apps\.googleusercontent\.com\b/g, '[redacted client id]')
     .replace(/\b(goog|appl|amzn|strp|rcb)_[A-Za-z0-9]{20,}\b/g, '[redacted]')
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[redacted private key]');
 }
@@ -1157,7 +1166,9 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
     if (status === 'fixed' || status === 'not_applicable' || status === 'accepted') {
       const note =
         status === 'fixed' ? `verified fixed${commit ? ` in \`${commit.slice(0, 7)}\`` : ''}`
-          : status === 'not_applicable' ? 'no longer applies'
+          // `not_applicable` is the one close that rests on neither a code change nor a human, so the summary
+          // table carries the model's own reason rather than making a maintainer open the thread to find it.
+          : status === 'not_applicable' ? `no longer applies — ${evidence.replace(/\s+/g, ' ').slice(0, 180)}`
             : 'closed by a maintainer';
       try {
         // Resolve first: without REVIEW_RESOLVE_TOKEN the resolve fails, and a "verified fixed" reply on a thread
@@ -1343,6 +1354,11 @@ async function reportSetupFailure(reason) {
   await appendNoteToSummary(note, '## ⚠️ Claude PR Review — did not run');
 }
 
+// What the review may spend: its own deadline, capped by the job budget minus the slice held back for the
+// verification pass. Setup (the PR fetch, the diff, retries) has already run, so it is measured from `startedAt`.
+const reviewBudget = (startedAt) =>
+  Math.max(60_000, Math.min(DEADLINE_MS, JOB_BUDGET_MS - (Date.now() - startedAt) - VERIFY_BUDGET_MS));
+
 async function main() {
   // Before the --setup-failed branch too: NaN would otherwise reach listIssueComments(NaN), whose failure
   // appendNoteToSummary swallows — leaving exactly the silent red check that mode exists to prevent.
@@ -1373,7 +1389,7 @@ async function main() {
     // The time that is left, not the whole budget: fetching the PR, the diff (up to 4x the API timeout, retried)
     // and writing it to disk all happen first, and a deadline measured from here could outlast the job's own
     // timeout — a cancelled job is the half-reconciled, comment-less outcome the deadline exists to prevent.
-    agentRun = await runAgent(buildUserPrompt(pr, diffPath), Math.max(60_000, DEADLINE_MS - (Date.now() - startedAt)));
+    agentRun = await runAgent(buildUserPrompt(pr, diffPath), reviewBudget(startedAt));
     if (shouldHardFail(agentRun)) {
       throw new Error(`agent ended with ${agentRun.resultSubtype} and no output`);
     }
@@ -1388,7 +1404,7 @@ async function main() {
     console.warn(`Run with ${MODEL} failed (${msg}); retrying once with ${retryModel}`);
     MODEL = retryModel;
     try {
-      agentRun = await runAgent(buildUserPrompt(pr, diffPath), Math.max(60_000, DEADLINE_MS - (Date.now() - startedAt)));
+      agentRun = await runAgent(buildUserPrompt(pr, diffPath), reviewBudget(startedAt));
     } catch (e2) {
       throw await explainFailure(e2);
     }
@@ -1544,7 +1560,16 @@ async function main() {
   const openUnreported = openUnreportedAll.filter((t) => !supersededIds.has(t.id));
   const toVerify = openUnreported.slice(0, MAX_VERIFY_THREADS);
   const overflow = openUnreported.slice(MAX_VERIFY_THREADS); // left open for the next run, never resolved unverified
-  const verifyBudget = Math.min(VERIFY_BUDGET_MS, DEADLINE_MS - (Date.now() - startedAt) - 30_000);
+  const verifyBudget = Math.min(VERIFY_BUDGET_MS, JOB_BUDGET_MS - (Date.now() - startedAt) - 30_000);
+  if (toVerify.length && (provisional || verifyBudget <= 60_000)) {
+    // Say why in the log: silently falling back to "was not re-reported" is how this pass came to look like it
+    // was working on the large PRs where it was in fact being skipped.
+    console.warn(
+      provisional
+        ? `Verification skipped: the result is provisional, so ${toVerify.length} open finding(s) go unjudged this round`
+        : `Verification skipped: only ${Math.round(verifyBudget / 1000)}s of the job budget left for ${toVerify.length} open finding(s)`,
+    );
+  }
   if (!provisional && toVerify.length && verifyBudget > 60_000) {
     console.log(`Verifying ${toVerify.length} open finding(s) from earlier runs against ${COMMIT.slice(0, 8)}`);
     try {

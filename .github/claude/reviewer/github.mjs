@@ -37,7 +37,10 @@ const API_TIMEOUT_MS = 30_000;
 const RETRY_TRIES = 3;
 // 406 is deliberate (the diff is too large to render), and a bare 403 is usually "not permitted", which will not
 // pass however often it is tried. The secondary rate limit also answers 403, and says so in its headers.
-const rateLimited = (res) => Boolean(res.headers?.get?.('retry-after')) || res.headers?.get?.('x-ratelimit-remaining') === '0';
+// Only the SECONDARY limit, which clears on this timescale and says so with Retry-After. The primary hourly limit
+// also answers 403, with x-ratelimit-remaining: 0, but it resets at x-ratelimit-reset — up to an hour out — so
+// retrying it three times half a second apart burns the attempts and fails anyway.
+const rateLimited = (res) => Boolean(res.headers?.get?.('retry-after'));
 const isRetryableResponse = (res) => res.status >= 500 || res.status === 429 || (res.status === 403 && rateLimited(res));
 const retryableError = (e) => e?.name === 'TimeoutError' || e?.name === 'AbortError' || e?.code === 'ECONNRESET' || e instanceof TypeError;
 const backoffMs = (attempt) => 500 * 2 ** attempt + Math.floor(Math.random() * 250);
@@ -147,6 +150,7 @@ export async function fetchDiffFromFiles(prNumber, maxPages = 30) {
   const { owner, name } = repo();
   const parts = [];
   let page = 1;
+  let lastPageFull = false;
   for (; page <= maxPages; page++) {
     const files = await rest('GET', `/repos/${owner}/${name}/pulls/${prNumber}/files?per_page=100&page=${page}`);
     if (!Array.isArray(files) || files.length === 0) break;
@@ -159,18 +163,17 @@ export async function fetchDiffFromFiles(prNumber, maxPages = 30) {
       const to = f.status === 'removed' ? '/dev/null' : `b/${f.filename}`;
       parts.push(f.patch ? `${header}\n--- ${from}\n+++ ${to}\n${f.patch}` : `${header}\n[no patch returned by the API: binary or too large — ${f.status}, +${f.additions}/-${f.deletions}]`);
     }
-    if (files.length < 100) break;
+    lastPageFull = files.length === 100;
+    if (!lastPageFull) break;
   }
   if (!parts.length) throw new Error('GitHub returned no files for this PR');
-  if (page > maxPages) {
-    // Only claim truncation once another page is known to exist: a change set that is an exact multiple of the
-    // cap fetches every file and would otherwise be reported as incomplete, telling the agent to distrust a whole
-    // diff. Say it in the diff itself, not just the log, since that is what the agent reads.
-    const beyond = await rest('GET', `/repos/${owner}/${name}/pulls/${prNumber}/files?per_page=1&page=${maxPages * 100 + 1}`).catch(() => []);
-    if (Array.isArray(beyond) && beyond.length) {
-      console.warn(`Diff rebuilt from files was truncated at ${maxPages} pages`);
-      parts.push(`[diff truncated: more than ${maxPages * 100} files changed — the rest was not fetched]`);
-    }
+  if (page > maxPages && lastPageFull) {
+    // The cap was reached and the last page was full, so the change set is at least this large. Probing one page
+    // further cannot tell us more — GitHub serves at most 3000 files from this endpoint, exactly the default cap,
+    // so the probe came back empty every time and this marker could never appear. Say it in the diff itself, not
+    // only the log: the diff is what the agent reads.
+    console.warn(`Diff rebuilt from files stopped at the ${maxPages}-page cap`);
+    parts.push(`[diff truncated: ${maxPages * 100} files listed, which is all GitHub serves from this endpoint — anything beyond that is not shown]`);
   }
   return `${parts.join('\n')}\n`;
 }
