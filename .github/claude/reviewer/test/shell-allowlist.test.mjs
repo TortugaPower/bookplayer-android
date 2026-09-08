@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH } from '../review.mjs';
+import { isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
@@ -112,13 +112,16 @@ test('rankOpusModels: highest version, undated alias before dated snapshot, non-
 
 test('absolute paths are confined to the checkout and runner temp; .. is refused', () => {
   const roots = ['/home/runner/work/repo/repo', '/home/runner/work/_temp'];
+  // The cwd is passed explicitly, as the runtime does: a relative token is resolved against the checkout, which is
+  // itself a read root. Left to the default, this case would pass or fail depending on whether a fixture name
+  // happens to exist in the directory the tests were started from.
   for (const p of ['LibraryViewModel.kt', 'core/src/main/java/x.kt', './tests', '/home/runner/work/repo/repo/LibraryViewModel.kt', '/home/runner/work/_temp/pr-1.diff',
     '/home/runner/work/repo/repo', '"/home/runner/work/repo/repo/.github"', '**/*.kt', 'app/src/test/**/*.kt']) {
-    assert.equal(isPathAllowed(p, roots), true, `should allow: ${p}`);
+    assert.equal(isPathAllowed(p, roots, roots[0]), true, `should allow: ${p}`);
   }
   for (const p of ['/home/runner', '/home/runner/work', '/home/runner/work/repo', '/etc/passwd', '/', '../../.npmrc', 'app/../../x',
     '/home/runner/work/repo/repo-other/x']) {
-    assert.equal(isPathAllowed(p, roots), false, `should deny: ${p}`);
+    assert.equal(isPathAllowed(p, roots, roots[0]), false, `should deny: ${p}`);
   }
   // and through the Bash predicate, where the recursive-read bypass lived
   for (const cmd of ['grep -rn "BEGIN OPENSSH" /home/runner', 'find / -name id_rsa', 'cat ../../../etc/passwd', 'ls /etc',
@@ -212,14 +215,14 @@ test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismisse
   };
   const thread = (id, f, isResolved, lastCommentBody = '', lastCommentAuthor = 'github-actions[bot]') => ({
     id, isResolved, firstCommentId: 1, lastCommentBody, lastCommentAuthor,
-    firstCommentBody: `🟡 **WARN** — x\n\n<!-- bp-ai-review-fp:${fp(f.file, f.line, f.severity)} -->`,
+    firstCommentBody: `🟡 **WARN** — x\n\n<!-- bp-ai-review-fp:${reconcileFp(f)} -->`,
   });
   const NEW = { file: 'a.kt', line: 1, severity: 'warn', comment: 'new one' };
   const OPEN = { file: 'b.kt', line: 2, severity: 'warn', comment: 'still here' };
   const BACK = { file: 'c.kt', line: 3, severity: 'error', comment: 'came back' };
   const DISMISSED = { file: 'd.kt', line: 4, severity: 'info', comment: 'human said no' };
   const STALE = { file: 'e.kt', line: 5, severity: 'warn', comment: 'gone now' };
-  const current = new Map([NEW, OPEN, BACK, DISMISSED].map((f) => [fp(f.file, f.line, f.severity), f]));
+  const current = new Map([NEW, OPEN, BACK, DISMISSED].map((f) => [reconcileFp(f), f]));
   const threads = [
     thread('t-open', OPEN, false),
     thread('t-back', BACK, true, 'Not reported in the latest run — resolved automatically. <!-- bp-ai-review-auto-resolved -->'),
@@ -996,4 +999,29 @@ test("the SDK's own Bash fields are accepted, and the ones that change how it ru
   const cwd = await canUseToolForTest('Bash', { command: 'ls app', cwd: '/etc' });
   assert.equal(cwd.behavior, 'deny');
   assert.match(cwd.message, /`cwd`/);
+});
+
+
+test('a re-reported finding still surfaces when the reopen fails', async () => {
+  // A stale REVIEW_RESOLVE_TOKEN makes unresolve throw. The thread then stays collapsed as resolved while the
+  // finding is live again, so it must reach the summary body instead of being a number in the counts line.
+  const f = { file: 'c.kt', line: 3, severity: 'error', comment: 'came back' };
+  const t = {
+    id: 't-back', isResolved: true, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]',
+    firstCommentBody: `old <!-- bp-ai-review-fp:${reconcileFp(f)} -->`,
+    lastCommentAuthor: 'github-actions[bot]',
+    lastCommentBody: 'Not reported in the latest run — resolved automatically. <!-- bp-ai-review-auto-resolved -->',
+  };
+  const io = {
+    post: async () => {},
+    reply: async () => {},
+    resolve: async () => {},
+    unresolve: async () => {
+      throw new Error('Resource not accessible by integration');
+    },
+  };
+  const { stats, unpostable } = await reconcile(new Map([[reconcileFp(f), f]]), [t], io, {});
+  assert.equal(stats.reopened, 0);
+  assert.deepEqual(unpostable, [f]);
+  assert.ok(renderSummary({ verdict: 'warn', summary: 's', findings: [f] }, stats, unpostable).includes('came back'));
 });

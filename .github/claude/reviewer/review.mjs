@@ -665,7 +665,7 @@ export function isTerminalResult(text) {
 // The agent inherits the job environment minus anything that looks like a credential. Naming the three tokens we
 // know about would only ever be "we remembered to delete it"; the pattern makes adding a secret to this workflow
 // unable to widen the agent's environment by accident. ANTHROPIC_API_KEY is kept: the SDK needs it.
-const SECRET_ENV_RE = /(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE_KEY|_KEY|KEYSTORE|API_KEY|DSN|SESSION)/i;
+const SECRET_ENV_RE = /(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE_KEY|_KEY|KEYSTORE|API_KEY|WEBHOOK|DSN|SESSION)/i;
 const AGENT_ENV_KEEP = new Set(['ANTHROPIC_API_KEY']);
 export function agentEnv(source = process.env) {
   const env = {};
@@ -773,7 +773,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
   return { finalText, lastAnswer, turns, resultSubtype };
 }
 
-function renderSummary(result, stats, unpostable, { provisional = false, previously = [], priorState = 'unknown' } = {}) {
+export function renderSummary(result, stats, unpostable, { provisional = false, previously = [], priorState = 'unknown' } = {}) {
   const emoji = result.verdict === 'fail' ? '🔴' : result.verdict === 'warn' ? '🟡' : '✅';
   const counts = result.findings.reduce(
     (a, f) => ({ ...a, [f.severity]: (a[f.severity] || 0) + 1 }),
@@ -1053,7 +1053,11 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
           stats.reopened++;
           await io.reply(existing, REOPENED_NOTE).catch((e) => console.warn(`reopen note failed (fp:${fp}) — ${e.message}`));
         } catch (e) {
+          // The reopen failed (a stale REVIEW_RESOLVE_TOKEN is the likely reason), so the thread stays collapsed
+          // as resolved while the finding is live again. Surface it in the summary body rather than leaving it
+          // as a number in the counts line, exactly as a failed inline post does below.
           console.warn(`unresolve failed (fp:${fp}) — ${e.message}`);
+          unpostable.push(f);
         }
       } else {
         // A human resolved it: that is a decision, not a fix. Don't nag.
