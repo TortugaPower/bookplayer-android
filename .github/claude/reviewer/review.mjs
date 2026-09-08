@@ -390,6 +390,8 @@ export function isAllowedBash(command, roots = READ_ROOTS, cwd = AGENT_CWD) {
   });
 }
 
+export const canUseToolForTest = (toolName, input) => canUseTool(toolName, input); // the permission gate is the boundary; it is unit-tested
+
 async function canUseTool(toolName, input) {
   if (READ_ONLY_TOOLS.has(toolName)) {
     // Every path-like field, not just the first present one. Grep's `pattern` is a regex searched *within*
@@ -403,15 +405,25 @@ async function canUseTool(toolName, input) {
     return { behavior: 'allow', updatedInput: input };
   }
   if (toolName === 'Bash') {
-    // Only the command is inspected below, so nothing else may travel with it: a `cwd` (or any future field that
-    // relocates execution) would make the relative paths in that command resolve somewhere this never checked.
-    const extra = Object.keys(input).filter((k) => !['command', 'description', 'timeout'].includes(k));
+    // Only the command is inspected below, so nothing that changes how or where it runs may travel with it. The
+    // SDK's BashInput is {command, timeout?, description?, run_in_background?}: the first three are inert, and the
+    // last two are neutralised rather than refused — a backgrounded command would outlive the deadline and its
+    // output would never be seen. An unknown field (a future `cwd`, say) is refused by name, because it could
+    // relocate execution and make the relative paths in that command resolve somewhere this never checked.
+    const INERT_BASH_FIELDS = ['command', 'timeout', 'description'];
+    const NEUTRALISED_BASH_FIELDS = ['run_in_background', 'dangerouslyDisableSandbox'];
+    const extra = Object.keys(input).filter((k) => ![...INERT_BASH_FIELDS, ...NEUTRALISED_BASH_FIELDS].includes(k));
     if (extra.length) {
       console.log(`  [denied] Bash: unexpected input fields: ${extra.join(', ')}`);
-      return { behavior: 'deny', message: 'Pass only `command`; paths are relative to the checkout and cwd cannot be changed.' };
+      return {
+        behavior: 'deny',
+        message: `Remove ${extra.map((k) => `\`${k}\``).join(', ')} and pass only \`command\` (plus \`timeout\`/\`description\`). Paths are relative to the checkout; the working directory cannot be changed.`,
+      };
     }
     if (isAllowedBash(input.command)) {
-      return { behavior: 'allow', updatedInput: input };
+      const updatedInput = { ...input };
+      for (const k of NEUTRALISED_BASH_FIELDS) if (k in updatedInput) updatedInput[k] = false;
+      return { behavior: 'allow', updatedInput };
     }
     console.log(`  [denied] Bash: ${redact(String(input.command || '')).slice(0, 200)}`);
     return { behavior: 'deny', message: BASH_DENY_MESSAGE };

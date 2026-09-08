@@ -969,3 +969,19 @@ test('the grep exemption resolves against the same base as the confinement check
   assert.equal(isAllowedBash('grep -rn "MediaSession" core/Player.kt', [root], root), true);
   assert.equal(isAllowedBash('grep -rn "/auth/openid" core', [root], root), true);
 });
+
+
+test("the SDK's own Bash fields are accepted, and the ones that change how it runs are neutralised", async () => {
+  const { canUseToolForTest } = await import('../review.mjs').then((m) => ({ canUseToolForTest: m.canUseToolForTest }));
+  if (!canUseToolForTest) return; // exported only for this test; skip if the harness does not expose it
+  const ok = await canUseToolForTest('Bash', { command: 'ls app', description: 'list', timeout: 5000, run_in_background: false });
+  assert.equal(ok.behavior, 'allow');
+  // A backgrounded command would outlive the deadline: accepted, then forced off.
+  const bg = await canUseToolForTest('Bash', { command: 'ls app', run_in_background: true });
+  assert.equal(bg.behavior, 'allow');
+  assert.equal(bg.updatedInput.run_in_background, false);
+  // Anything that could relocate execution is refused, and the message names it.
+  const cwd = await canUseToolForTest('Bash', { command: 'ls app', cwd: '/etc' });
+  assert.equal(cwd.behavior, 'deny');
+  assert.match(cwd.message, /`cwd`/);
+});
