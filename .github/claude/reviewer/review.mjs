@@ -604,7 +604,10 @@ export function parseTerminalFencedJson(text, accept = () => true) {
   // Every line-start ```json fence, then tried newest first: the JSON routinely contains fenced code inside a
   // comment, so the fence nearest the end is not necessarily the one that opens the final block.
   const opens = [];
-  for (const m of t.slice(0, closeIdx).matchAll(/(?:^|\n)```json[ \t]*\r?\n/g)) opens.push(m.index + m[0].length);
+  // The tag may be `json` in any case, or absent: this is the verifier's primary parser as well as the review's
+  // recovery gate, and we have twice seen the model deviate harmlessly from its own contract. What actually
+  // guards against adopting a block quoted from the diff is the terminal position plus the shape check below.
+  for (const m of t.slice(0, closeIdx).matchAll(/(?:^|\n)```[ \t]*(?:json)?[ \t]*\r?\n/gi)) opens.push(m.index + m[0].length);
   for (let k = opens.length - 1; k >= 0; k--) {
     const inner = t.slice(opens[k], closeIdx).trim();
     if (!inner.startsWith('{') || !inner.endsWith('}') || balancedEnd(inner, 0) !== inner.length - 1) continue;

@@ -143,7 +143,9 @@ export async function listReviewThreads(prNumber) {
                 path
                 line
                 originalLine
-                comments(first:30){ nodes{ databaseId body author { login } authorAssociation createdAt } }
+                # last:30, not first:30 — every consumer reasons about the newest state (whose marker came
+                # after whose reply), so the window must be the newest comments, not the oldest.
+                comments(last:30){ nodes{ databaseId body author { login } authorAssociation createdAt } }
                 last: comments(last:1){ nodes{ body author { login } createdAt } }
               }
             }

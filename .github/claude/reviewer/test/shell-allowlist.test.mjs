@@ -780,3 +780,16 @@ test('a finished verifier answer is recognised by its own shape', () => {
   assert.equal(isTerminalResult(review), true);
   assert.equal(parseVerifyResult(review), null);
 });
+
+
+test('the result block is recognised however the fence is tagged', () => {
+  const body = '{"verdict": "pass", "summary": "ok", "findings": []}';
+  for (const tag of ['json', 'JSON', 'Json', '']) {
+    assert.equal(isTerminalResult(`Done.\n\n\`\`\`${tag}\n${body}\n\`\`\``), true, `tag: ${tag || '(none)'}`);
+  }
+  // The guards that matter still hold: position and shape.
+  assert.equal(isTerminalResult(`\`\`\`json\n${body}\n\`\`\`\nand one more thought`), false);
+  assert.equal(isTerminalResult('```json\n{"verdict": "maybe", "summary": "s", "findings": []}\n```'), false);
+  // ...and the verifier's own shape too.
+  assert.notEqual(parseVerifyResult('```\n{"threads": [{"id": 1, "status": "fixed"}]}\n```'), null);
+});
