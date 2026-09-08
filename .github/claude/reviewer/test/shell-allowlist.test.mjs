@@ -768,3 +768,15 @@ test('no allowlisted command may follow symlinks while walking', () => {
   assert.equal(isAllowedBash('grep -rn "PlaybackManager" core/src'), true);
   assert.equal(isAllowedBash('find . -name "*.kt"'), true);
 });
+
+
+test('a finished verifier answer is recognised by its own shape', () => {
+  // The deadline path asks "is this finished?" — for the verify pass that means a {threads:[…]} block, not a
+  // review result. Using the review predicate there would discard a complete verdict list.
+  const verdicts = '```json\n{"threads": [{"id": 1, "status": "fixed", "evidence": "x"}]}\n```';
+  assert.equal(isTerminalResult(verdicts), false);
+  assert.notEqual(parseVerifyResult(verdicts), null);
+  const review = '```json\n{"verdict": "pass", "summary": "ok", "findings": []}\n```';
+  assert.equal(isTerminalResult(review), true);
+  assert.equal(parseVerifyResult(review), null);
+});

@@ -56,10 +56,13 @@ const FP_REGEX = /<!-- bp-ai-review-fp:([a-f0-9]+) -->/;
 const FALLBACK_MODEL = 'claude-opus-5';
 let MODEL = process.env.REVIEW_MODEL || '';
 let RANKED_MODELS = []; // from the Models API, newest first; the retry prefers the runner-up to the constant
-const MAX_TURNS = Number(process.env.REVIEW_MAX_TURNS || 40);
+// A non-numeric override must fall back to the default rather than become NaN: setTimeout(fn, NaN) fires
+// immediately, which would degrade every run to the "incomplete" note with no hint why.
+const num = (v, fallback) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : fallback);
+const MAX_TURNS = num(process.env.REVIEW_MAX_TURNS, 40);
 // Wall-clock bound for the agent, under the job's timeout-minutes: hitting it degrades to the "incomplete"
 // note instead of a cancelled job that may have half-reconciled the PR.
-const DEADLINE_MS = Number(process.env.REVIEW_DEADLINE_MS || 14 * 60 * 1000);
+const DEADLINE_MS = num(process.env.REVIEW_DEADLINE_MS, 14 * 60 * 1000);
 // Failure dump of the agent's answer in the run log (head + tail). Extraction failures are visible in the first and
 // last couple of KB; the full 20 KB is available with ACTIONS_STEP_DEBUG, since the log of a public repo is public
 // and redact() does not know every secret shape (an app-specific password quoted from a diff, for instance).
@@ -394,7 +397,7 @@ async function canUseTool(toolName, input) {
     if (isAllowedBash(input.command)) {
       return { behavior: 'allow', updatedInput: input };
     }
-    console.log(`  [denied] Bash: ${String(input.command || '').slice(0, 200)}`);
+    console.log(`  [denied] Bash: ${redact(String(input.command || '')).slice(0, 200)}`);
     return { behavior: 'deny', message: BASH_DENY_MESSAGE };
   }
   console.log(`  [denied] ${toolName}`);
@@ -629,7 +632,7 @@ function agentEnv() {
   return env;
 }
 
-async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTEM_PROMPT) {
+async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTEM_PROMPT, isFinished = isTerminalResult) {
   let finalText = '';
   let lastAnswer = ''; // the most recent complete answer that a later tool call reset; a fallback for the turn-limit case
   let turns = 0;
@@ -670,7 +673,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
         console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns; stopping the agent`);
         resultSubtype = 'error_deadline';
         // Keep a finished answer that landed just before the bell; anything else is a partial thought.
-        if (!isTerminalResult(finalText)) finalText = '';
+        if (!isFinished(finalText)) finalText = '';
         if (typeof iterator.interrupt === 'function') await iterator.interrupt().catch(() => {});
         break; // closes the generator (and with it the agent subprocess)
       }
@@ -685,7 +688,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
           finalText = text;
           // A tool call reset the buffer: remember what it held ONLY if it was a finished answer. Interstitial prose
           // ("let me check the callers…") precedes most tool calls and must not make a turn-limit failure recoverable.
-          const finished = discarded.filter((d) => isTerminalResult(d)).pop();
+          const finished = discarded.filter((d) => isFinished(d)).pop();
           if (finished) lastAnswer = finished;
         }
       } else if (msg.type === 'result') {
@@ -698,7 +701,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
   } catch (err) {
     if (abort.signal.aborted) {
       console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns (agent aborted)`);
-      return { finalText: isTerminalResult(finalText) ? finalText : '', lastAnswer: '', turns, resultSubtype: 'error_deadline' };
+      return { finalText: isFinished(finalText) ? finalText : '', lastAnswer: '', turns, resultSubtype: 'error_deadline' };
     }
     err.capturedStderr = stderrChunks.join('');
     throw err;
@@ -774,7 +777,7 @@ function renderSummary(result, stats, unpostable, { provisional = false, previou
 
 const MAX_VERIFY_THREADS = 20;
 const MAX_VERIFY_CHARS = 1200; // per finding, and per reply
-const VERIFY_BUDGET_MS = Number(process.env.REVIEW_VERIFY_BUDGET_MS || 5 * 60 * 1000);
+const VERIFY_BUDGET_MS = num(process.env.REVIEW_VERIFY_BUDGET_MS, 5 * 60 * 1000);
 const MAINTAINER_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const VERIFY_STATUSES = new Set(['fixed', 'present', 'not_applicable', 'accepted', 'insufficient']);
 
@@ -1206,7 +1209,11 @@ async function main() {
     console.log(`Verifying ${toVerify.length} open finding(s) from earlier runs against ${COMMIT.slice(0, 8)}`);
     try {
       const numbered = toVerify.map((t, i) => ({ id: i + 1, thread: t }));
-      const run = await runAgent(buildVerifyPrompt(numbered, COMMIT), verifyBudget, VERIFY_SYSTEM_PROMPT);
+      // A finished verifier answer has a different shape from a review's, so the deadline path is told how to
+      // recognise one — otherwise a complete verdict list arriving near the bell would be discarded and these
+      // threads would fall back to the fingerprint heuristic, unverified.
+      const verifyFinished = (t) => parseVerifyResult(t) !== null;
+      const run = await runAgent(buildVerifyPrompt(numbered, COMMIT), verifyBudget, VERIFY_SYSTEM_PROMPT, verifyFinished);
       // No lastAnswer fallback here: runAgent only remembers an answer that is a *review* result block.
       const parsedThreads = parseVerifyResult(run.finalText || '');
       if (!parsedThreads) throw new Error('no parseable {threads:[...]} in the verifier output');
