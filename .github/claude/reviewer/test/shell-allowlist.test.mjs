@@ -18,9 +18,9 @@ const ALLOWED = [
   'find . -maxdepth 3 -type d -name "sdk" 2>/dev/null | head', 'ls nonexistent 2>&1',
   'cat LibraryViewModel.kt', 'cat LibraryViewModel.kt | head -50', 'ls -la .github/claude', 'head -n 40 core/src/main/java/com/tortugapower/audiobookplayer/PlaybackManager.kt',
   'tail -20 app/src/test/java/LibraryViewModelTest.kt', 'wc -l app/src/test/java/*.kt', 'stat LibraryViewModel.kt', 'file app/build/outputs/apk/release/app-release.apk', 'du -sh .', 'pwd',
-  'grep -rn "MediaSession" --include=*.py .', 'grep -n "1024\\|Discord alert\\|trace" .github/claude/review-guide.md',
+  'grep -rn "MediaSession" --include=*.kt .', 'grep -n "1024\\|MediaSession\\|trace" .github/claude/review-guide.md',
   'grep -rn "->" core/src/', "grep -rn '>' LibraryViewModel.kt", "grep -n '$(' gradlew", "grep -n 'foo$' LibraryViewModel.kt", 'grep -c fun LibraryViewModel.kt && wc -l LibraryViewModel.kt',
-  'find . -name "*.py" -not -path "./node_modules/*"',
+  'find . -name "*.kt" -not -path "./build/*"',
 ];
 
 const DENIED = [
@@ -84,7 +84,7 @@ test('credential locations are forbidden for Read and Bash', () => {
     assert.equal(FORBIDDEN_PATH.test(p), true, `should forbid: ${p}`);
   }
   for (const p of ['LibraryViewModel.kt', 'core/src/main/java/com/tortugapower/audiobookplayer/PlaybackManager.kt', '.github/workflows/claude-review.yml', 'app/src/test/resources/library.json',
-    '.gitignore', 'environment.md', 'app.config.js', 'src/sshclient.py', 'docs/environment.md', 'grep -rn "os.environ" .',
+    '.gitignore', 'environment.md', 'app.config.js', 'app/src/main/java/SshClient.kt', 'docs/environment.md', 'grep -rn "BuildConfig" .',
     'git diff HEAD~1 -- LibraryViewModel.kt', 'git show HEAD~2:LibraryViewModel.kt']) {
     assert.equal(FORBIDDEN_PATH.test(p), false, `should permit: ${p}`);
   }
@@ -113,7 +113,7 @@ test('rankOpusModels: highest version, undated alias before dated snapshot, non-
 test('absolute paths are confined to the checkout and runner temp; .. is refused', () => {
   const roots = ['/home/runner/work/repo/repo', '/home/runner/work/_temp'];
   for (const p of ['LibraryViewModel.kt', 'core/src/main/java/x.kt', './tests', '/home/runner/work/repo/repo/LibraryViewModel.kt', '/home/runner/work/_temp/pr-1.diff',
-    '/home/runner/work/repo/repo', '"/home/runner/work/repo/repo/.github"', '**/*.py', 'app/src/test/**/*.kt']) {
+    '/home/runner/work/repo/repo', '"/home/runner/work/repo/repo/.github"', '**/*.kt', 'app/src/test/**/*.kt']) {
     assert.equal(isPathAllowed(p, roots), true, `should allow: ${p}`);
   }
   for (const p of ['/home/runner', '/home/runner/work', '/home/runner/work/repo', '/etc/passwd', '/', '../../.npmrc', 'app/../../x',
@@ -284,7 +284,7 @@ test('reconcile: model text cannot forge a fingerprint marker', async () => {
 test('reconcile: inline comments are capped severity-first; overflow is reported via the summary', async () => {
   // 29 infos emitted before a single error: the error must still get an inline slot.
   const findings = Array.from({ length: 29 }, (_, i) => ({ file: 'a.kt', line: i + 1, severity: 'info', comment: `f${i}` }));
-  findings.push({ file: 'z.py', line: 99, severity: 'error', comment: 'the one that matters' });
+  findings.push({ file: 'z.kt', line: 99, severity: 'error', comment: 'the one that matters' });
   const current = new Map(findings.map((f) => [reconcileFp(f), f]));
   const posted = [];
   const io = { post: async (f) => { posted.push(f); }, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
@@ -700,10 +700,10 @@ test('an insufficient verdict with no human reply posts nothing', async () => {
 
 
 test('attribute values cannot break out of the finding tag', () => {
-  const t = thread({ path: 'weird"name.py' });
+  const t = thread({ path: 'weird"name.kt' });
   const prompt = buildVerifyPrompt(numbered(t), 'abcdef1234567');
-  assert.ok(prompt.includes('file="weird&quot;name.py"'));
-  assert.ok(!prompt.includes('file="weird"name.py"'));
+  assert.ok(prompt.includes('file="weird&quot;name.kt"'));
+  assert.ok(!prompt.includes('file="weird"name.kt"'));
 });
 
 
