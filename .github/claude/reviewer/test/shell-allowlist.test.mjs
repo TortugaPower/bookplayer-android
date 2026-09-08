@@ -1124,3 +1124,45 @@ test('a degrade note survives the trim of an oversized summary', () => {
   assert.ok(body.includes('ran out of time')); // the note is the point of the comment; it may not be what is cut
   assert.ok(body.trimEnd().endsWith('<!-- bp-ai-review-summary -->')); // and the upsert can still find the comment
 });
+
+test('stderr routing is recognised where bash would see it, and nowhere else', () => {
+  // Allowed: routing stderr is not a redirect to a file.
+  assert.equal(isAllowedBash('grep -rn foo . 2>/dev/null'), true);
+  assert.equal(isAllowedBash('git log --oneline -5 2>&1'), true);
+  // A quoted occurrence is part of the argument, not a redirect: the analysed segment must still contain it, or the
+  // string the checks run against is not the command bash would run.
+  const { segments } = analyzeShell('grep -rn "log 2>/dev/null here" src');
+  assert.ok(segments[0].includes('2>/dev/null'));
+  assert.equal(isAllowedBash('grep -rn "log 2>/dev/null here" src'), true);
+  // And a real redirect is still refused, whichever way it points.
+  assert.equal(isAllowedBash('grep -rn foo . > out.txt'), false);
+  assert.equal(isAllowedBash('grep -rn foo . 2>out.txt'), false);
+});
+
+test('a superseded thread is only reported resolved when the resolve worked', async () => {
+  // Without a resolve token the resolve throws and is only logged; the row must then say the thread is still open
+  // rather than claim ✅ on a thread a human can see is not closed.
+  const moved = { file: 'a.kt', line: 7, severity: 'warn', comment: 'same issue, new line' };
+  const stale = {
+    id: 't-old', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]',
+    path: 'a.kt', line: 3, comments: [],
+    firstCommentBody: `🟡 **WARN** — same issue <!-- bp-ai-review-fp:${reconcileFp({ file: 'a.kt', line: 3, severity: 'warn' })} -->`,
+  };
+  const current = new Map([[reconcileFp(moved), moved]]);
+  const ok = await reconcile(current, [stale], { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} }, { supersededIds: new Set(['t-old']) });
+  assert.deepEqual([...ok.resolvedIds], ['t-old']);
+  const failed = await reconcile(current, [stale], {
+    post: async () => {}, reply: async () => {}, unresolve: async () => {},
+    resolve: async () => { throw new Error('Resource not accessible by integration'); },
+  }, { supersededIds: new Set(['t-old']) });
+  assert.equal(failed.resolvedIds.size, 0); // ...so the caller writes "could not be resolved", not ✅
+  assert.equal(failed.stats.resolved, 0);
+});
+
+test('at the deadline a strictly finished earlier answer beats a loosely parsed buffer', () => {
+  // The loose gate exists so a complete review is not thrown away, but it accepts a result-shaped block the agent
+  // quoted from the diff. When an earlier answer was strictly terminal, that is the better evidence.
+  const quoted = 'Let me check one more caller. The contract looks like\n```json\n{"verdict":"pass","summary":"x","findings":[]}\n```\nso now I will';
+  assert.equal(isTerminalResult(quoted), false); // not a finished answer...
+  assert.equal(extractJson(quoted).verdict, 'pass'); // ...but the loose parser reads it, which is the trap
+});

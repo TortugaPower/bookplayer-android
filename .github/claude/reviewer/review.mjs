@@ -10,7 +10,9 @@ import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+// The agent SDK is imported lazily, inside runAgent: `npm ci` wipes node_modules before it installs, so a failed
+// install would otherwise make `--setup-failed` (which never reaches runAgent) die on ERR_MODULE_NOT_FOUND —
+// exactly the silent red check that mode exists to prevent. Nothing else here needs a dependency.
 import {
   getPullRequest,
   fetchPullRequestDiff,
@@ -278,9 +280,15 @@ const BASH_DENY_MESSAGE = `Bash is restricted to read-only commands: ${BASH_RULE
 // (`cat \/proc\/self\/environ` and `cat "docs"/host/x` normalise to the paths the shell sees). Constructs that
 // would write or expand are flagged: redirects and process substitution outside quotes, and any `$` or backtick
 // outside single quotes. A backslash-escaped `$` is literal and therefore not flagged.
+// `2>/dev/null` and `2>&1` only route stderr, so they are not the redirects the walk refuses. They are recognised
+// INSIDE the walk, outside quotes only: stripping them up front also stripped them from inside a quoted argument
+// (`grep "log 2>/dev/null here" f`), which left the analysed string no longer matching the command bash would run.
+// No bypass came of that — removal only ever deletes text — but the two must agree, or a later change here is
+// reasoning about a string the shell never sees.
+const STDERR_REDIRECT = /^2>(&1|\/dev\/null)(?=\s|$)/;
+
 export function analyzeShell(command) {
-  // `2>/dev/null` and `2>&1` only route stderr; drop them before looking for real redirects.
-  const cmd = String(command || '').replace(/\s2>(&1|\/dev\/null)(?=\s|$)/g, '');
+  const cmd = String(command || '');
   const segments = [];
   let current = '';
   let quote = null;
@@ -311,6 +319,12 @@ export function analyzeShell(command) {
     // `cat {/etc/hostname,x}` is the same shape, and bash expands braces BEFORE `~`, so `{~/.aws/credentials,x}`
     // would slip past the tilde rule too. No read-only command needs any of these: a regex quantifier or a literal
     // `<` goes inside quotes, and file arguments are passed as arguments.
+    if (ch === '2' && STDERR_REDIRECT.test(cmd.slice(i))) {
+      // stderr routing, not a redirect to a file: skip it whole, and drop the space that preceded it.
+      i += STDERR_REDIRECT.exec(cmd.slice(i))[0].length - 1;
+      current = current.replace(/\s+$/, '');
+      continue;
+    }
     if (ch === '`' || ch === '>' || ch === '<' || ch === '$' || ch === '{' || ch === '}') unsafe = true;
     if (ch === '|' || ch === '&' || ch === ';' || ch === '\n') {
       segments.push(current);
@@ -710,6 +724,7 @@ const reviewAnswerParses = (t) => {
 };
 
 async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTEM_PROMPT, isFinished = isTerminalResult, isSalvageable = reviewAnswerParses) {
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
   let finalText = '';
   let lastAnswer = ''; // the most recent complete answer that a later tool call reset; a fallback for the turn-limit case
   let turns = 0;
@@ -774,8 +789,10 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
         if (resultSubtype) break;
         console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns; stopping the agent`);
         resultSubtype = 'error_deadline';
-        // Keep an answer the parser can actually read; anything else is a partial thought.
-        if (!isSalvageable(finalText)) finalText = '';
+        // What to keep, in order of how much it can be trusted: a strictly terminal answer in the buffer; else a
+        // strictly terminal earlier answer, which the fallback path will use; else whatever the parser can read,
+        // which is better than nothing but may be a result-shaped block the agent quoted from the diff.
+        if (!isFinished(finalText) && (lastAnswer || !isSalvageable(finalText))) finalText = '';
         if (typeof iterator.interrupt === 'function') await iterator.interrupt().catch(() => {});
         break; // closes the generator (and with it the agent subprocess)
       }
@@ -1084,6 +1101,7 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
 
   const stats = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
   const unpostable = [];
+  const resolvedIds = new Set(); // what was actually resolved, for a caller that reports it to a human
   for (const [fp, f] of currentByFp) {
     const existing = existingByFp.get(fp);
     if (existing) {
@@ -1131,7 +1149,7 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
   if (provisional) {
     // A fallback answer is less complete than what the agent was about to check: judge nothing on it.
     console.log('Provisional result: stale threads left for the next run');
-    return { stats, unpostable };
+    return { stats, unpostable, resolvedIds };
   }
   for (const [fp, t] of existingByFp) {
     if (currentByFp.has(fp) || t.isResolved) continue;
@@ -1140,6 +1158,7 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
     try {
       await io.resolve(t);
       stats.resolved++;
+      resolvedIds.add(t.id);
       // Marker only after a successful resolve — otherwise a run without a resolve token would add a
       // "resolved automatically" reply on every push while the thread stays open. The note says which of the two
       // reasons it was: gone from the run, or moved and re-posted at its new line.
@@ -1149,7 +1168,7 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
       console.warn(`resolve failed (fp:${fp}) — ${e.message}`);
     }
   }
-  return { stats, unpostable };
+  return { stats, unpostable, resolvedIds };
 }
 
 // Say why on the PR before failing the check — the run log alone is easy to miss. Returns the error for rethrow.
@@ -1404,7 +1423,11 @@ async function main() {
     .map((t) => ({ t, fp: (FP_REGEX.exec(t.firstCommentBody || '') || [])[1] }))
     .filter(({ fp }) => fp && !currentByFp.has(fp))
     .map(({ t }) => t);
-  const superseded = openUnreportedAll.filter((t) => reportedFileSeverities.has(`${t.path}|${findingSeverity(t.firstCommentBody)}`));
+  // Never on a provisional result: reconcile resolves nothing then, so calling a thread superseded would be a
+  // claim about a resolve that was never attempted.
+  const superseded = provisional
+    ? []
+    : openUnreportedAll.filter((t) => reportedFileSeverities.has(`${t.path}|${findingSeverity(t.firstCommentBody)}`));
   const supersededIds = new Set(superseded.map((t) => t.id));
   const openUnreported = openUnreportedAll.filter((t) => !supersededIds.has(t.id));
   const toVerify = openUnreported.slice(0, MAX_VERIFY_THREADS);
@@ -1435,14 +1458,9 @@ async function main() {
     }
   }
 
-  if (superseded.length) {
-    console.log(`${superseded.length} earlier thread(s) re-reported at a new line; resolving them as superseded`);
-    previously = previously.concat(
-      superseded.map((t) => ({ label: `\`${mdPath(t.path)}:${threadAnchor(t).line ?? '?'}\``, status: 'resolved', note: 'reported again at a new line' })),
-    );
-  }
+  if (superseded.length) console.log(`${superseded.length} earlier thread(s) re-reported at a new line; resolving them as superseded`);
 
-  const { stats, unpostable } = await reconcile(currentByFp, threads, io, {
+  const { stats, unpostable, resolvedIds } = await reconcile(currentByFp, threads, io, {
     provisional,
     // Threads the second pass judged, plus the ones it deliberately left for the next run: "was not re-reported"
     // must not overrule either. `handledIds` is filled in as applyVerification goes, so a throw halfway through
@@ -1451,6 +1469,17 @@ async function main() {
     verifiedIds: verified || handledIds.size ? new Set([...handledIds, ...toVerify, ...overflow].map((t) => (typeof t === 'object' ? t.id : t))) : null,
     supersededIds,
   });
+
+  // Written from what reconcile actually resolved, never from what it was asked to: without a resolve token the
+  // resolve throws and is only logged, and every other row in this table is written after a successful one.
+  previously = previously.concat(
+    superseded.map((t) => {
+      const label = `\`${mdPath(t.path)}:${threadAnchor(t).line ?? '?'}\``;
+      return resolvedIds.has(t.id)
+        ? { label, status: 'resolved', note: 'reported again at a new line' }
+        : { label, status: 'open', note: 'reported again at a new line (this thread could not be resolved)' };
+    }),
+  );
 
   // The review itself succeeded by this point; a flaky comments API must not turn the check red.
   const priorState = verified ? 'verified' : toVerify.length === 0 ? 'none-open' : 'unknown';
