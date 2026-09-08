@@ -363,16 +363,12 @@ export function isAllowedBash(command, roots = READ_ROOTS, cwd = process.cwd()) 
     // the whole segment, and `-e PATTERN` is skipped the same way.
     const skip = new Set();
     if (tokens[0] === 'grep') {
-      for (let i = 1; i < tokens.length; i++) {
-        if (tokens[i] === '-e' || tokens[i] === '-f') {
-          skip.add(i + 1); // the value of -e is a pattern; -f names a file, still checked via pathish below
-          if (tokens[i] === '-f') skip.delete(i + 1);
-          continue;
-        }
-        if (tokens[i].startsWith('-')) continue;
-        skip.add(i); // the pattern
-        break;
-      }
+      // grep's first positional is usually the PATTERN, and a pattern that reads like a path ("/auth/openid",
+      // "/v1/library") must not be rejected as one. It is exempt only when nothing exists at that path, which is
+      // what makes the exemption safe: an existing file is always checked, whether it is really the pattern or a
+      // file pushed into first place by an attached `-eFOO`, and a path that does not exist can leak nothing.
+      const first = tokens.findIndex((tok, i) => i > 0 && !tok.startsWith('-'));
+      if (first !== -1 && !existsSync(tokens[first])) skip.add(first);
     }
     return tokens
       .map((tok, i) => (skip.has(i) ? '' : pathish(tok)))

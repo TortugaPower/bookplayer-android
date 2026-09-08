@@ -742,12 +742,16 @@ test('a finished answer that lands just before the deadline is not thrown away',
 });
 
 
-test("a grep pattern is not treated as a path", () => {
+test("a grep pattern is not treated as a path, but an existing file always is", () => {
   // Searching for a route or URL literal is routine on this repo and must not read as an absolute path.
   assert.equal(isAllowedBash('grep -rn "/auth/openid" core/src'), true);
   assert.equal(isAllowedBash('grep -rn /api/items/batch/get app/src'), true);
   assert.equal(isAllowedBash('grep -e "/v1/library" -rn core/src'), true);
-  // ...but a real path argument is still confined, and -f still names a file.
+  // ...but anything that exists is checked, including a file an attached pattern pushes into first place —
+  // `grep -eFOO /etc/passwd` has no separate pattern token, so the first positional is the file itself.
+  assert.equal(isAllowedBash('grep -eFOO /etc/passwd'), false);
+  assert.equal(isAllowedBash('grep -ieFOO /etc/passwd'), false);
+  assert.equal(isAllowedBash('grep --regexp=FOO /etc/passwd'), false);
   assert.equal(isAllowedBash('grep -rn "pattern" /etc'), false);
   assert.equal(isAllowedBash('grep -f/etc/passwd .'), false);
   assert.equal(isAllowedBash('grep -rn "x" ../outside'), false);
