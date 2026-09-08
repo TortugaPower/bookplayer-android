@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { summaryWithNote, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
@@ -846,8 +846,12 @@ test('the PR author cannot accept their own finding', async () => {
   const own = await applyVerification(verdict, numbered(selfReplied), io, { prAuthor: 'gianni' });
   assert.equal(own.rows[0].status, 'open');
   assert.deepEqual(io.calls, []);
-  // ...and their reply is not shown to the verifier either.
-  assert.ok(!buildVerifyPrompt(numbered(selfReplied), 'abcdef1', 'gianni').includes('intentional, leaving it'));
+  // ...but their reply IS shown to the verifier, under its own role: it may carry a fact about the system that the
+  // code cannot show, and hiding it left every thread on a solo repo looking as though nobody had answered.
+  const prompt = buildVerifyPrompt(numbered(selfReplied), 'abcdef1', 'gianni');
+  assert.ok(prompt.includes('intentional, leaving it'));
+  assert.ok(prompt.includes('author_role="AUTHOR"'));
+  assert.ok(!prompt.includes('author_role="OWNER"')); // the author is never presented as an independent maintainer
   // Somebody else with the same association still closes it.
   const io2 = recordingIo();
   const other = await applyVerification(verdict, numbered(selfReplied), io2, { prAuthor: 'someone-else' });
@@ -1065,4 +1069,16 @@ test('the provisional banner names the limit that was actually hit', () => {
   const clock = renderSummary(result, stats, [], { provisional: true, provisionalCause: 'error_deadline' });
   assert.ok(clock.includes('time limit') && clock.includes('REVIEW_DEADLINE_MS'));
   assert.equal(clock.includes('turn limit'), false); // the wrong knob is worse than no knob
+});
+
+test('an answer the parser had to close itself is provisional', () => {
+  // A truncated final answer is repaired so the review is not lost, but its finding list is partial by
+  // construction: acting on it as authoritative auto-resolves every earlier finding it never got to mention.
+  const whole = '```json\n{"verdict":"warn","summary":"s","findings":[{"severity":"info","file":"a.kt","line":1,"comment":"c"}]}\n```';
+  assert.equal(wasTruncationRepaired(extractJson(whole)), false);
+  const cut = '```json\n{"verdict":"warn","summary":"s","findings":[{"severity":"info","file":"a.kt","line":1,"comment":"half a comm';
+  const repaired = extractJson(cut);
+  assert.equal(repaired.verdict, 'warn'); // still used...
+  assert.equal(wasTruncationRepaired(repaired), true); // ...but flagged
+  assert.equal(JSON.stringify(repaired).includes('truncation'), false); // the flag cannot reach a comment
 });
