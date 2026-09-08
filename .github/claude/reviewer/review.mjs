@@ -336,7 +336,11 @@ const safeRealpath = (p) => {
 const DIFF_PATH = join(safeRealpath(process.env.RUNNER_TEMP || tmpdir()), `pr-${PR_NUMBER}.diff`);
 const READ_ROOTS = [process.env.GITHUB_WORKSPACE || process.cwd(), DIFF_PATH].map(safeRealpath);
 const stripQuotes = (s) => s.replace(/^["']|["']$/g, '');
-export function isPathAllowed(rawPath, roots = READ_ROOTS, cwd = process.cwd()) {
+// The base a relative token is resolved against. It is the checkout, stated explicitly rather than inherited from
+// wherever the harness happens to run, and the agent's shell cannot drift away from it: `cd` (and `pushd`) are not
+// on BASH_ALLOW, so every `cd …` segment is refused, and `git -C <path>` still has that path confined below.
+const AGENT_CWD = process.env.GITHUB_WORKSPACE || process.cwd();
+export function isPathAllowed(rawPath, roots = READ_ROOTS, cwd = AGENT_CWD) {
   const p = stripQuotes(String(rawPath || ''));
   if (p.split('/').includes('..')) return false;
   const within = (abs) => roots.some((root) => abs === root || abs.startsWith(root.endsWith('/') ? root : `${root}/`));
@@ -347,7 +351,7 @@ export function isPathAllowed(rawPath, roots = READ_ROOTS, cwd = process.cwd()) 
 }
 
 // The single predicate canUseTool applies to a Bash command — tested as a unit, not as its parts.
-export function isAllowedBash(command, roots = READ_ROOTS, cwd = process.cwd()) {
+export function isAllowedBash(command, roots = READ_ROOTS, cwd = AGENT_CWD) {
   const cmd = String(command || '');
   if (!isReadOnlyShell(cmd)) return false;
   // From here on, look only at the normalised segments — the strings bash would execute — never the raw text.
@@ -375,7 +379,9 @@ export function isAllowedBash(command, roots = READ_ROOTS, cwd = process.cwd()) 
       // what makes the exemption safe: an existing file is always checked, whether it is really the pattern or a
       // file pushed into first place by an attached `-eFOO`, and a path that does not exist can leak nothing.
       const first = tokens.findIndex((tok, i) => i > 0 && !tok.startsWith('-'));
-      if (first !== -1 && !existsSync(tokens[first])) skip.add(first);
+      // Resolved against the same base as isPathAllowed below, or the two would disagree about which file
+      // "app/x.kt" means and the exemption would be decided on a different file from the confinement check.
+      if (first !== -1 && !existsSync(resolve(cwd, stripQuotes(tokens[first])))) skip.add(first);
     }
     return tokens
       .map((tok, i) => (skip.has(i) ? '' : pathish(tok)))
@@ -653,7 +659,20 @@ export function agentEnv(source = process.env) {
   return env;
 }
 
-async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTEM_PROMPT, isFinished = isTerminalResult) {
+// Two different questions, so two predicates. `isFinished` decides whether a segment a tool call discarded was a
+// finished answer, and must stay strict (a result block quoted from the diff must not qualify). `isSalvageable`
+// decides whether the text in hand at the deadline is worth keeping, and should be as tolerant as the parser that
+// will read it — otherwise a complete, parseable review is thrown away for the "hit the time limit" note.
+const reviewAnswerParses = (t) => {
+  try {
+    extractJson(t);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTEM_PROMPT, isFinished = isTerminalResult, isSalvageable = reviewAnswerParses) {
   let finalText = '';
   let lastAnswer = ''; // the most recent complete answer that a later tool call reset; a fallback for the turn-limit case
   let turns = 0;
@@ -713,10 +732,13 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
         }
       }
       if (Date.now() - startedAt > budgetMs) {
+        // A run that already reported its own outcome is done: relabelling it `error_deadline` would discard a
+        // complete review just because the bell rang while its result message was in flight.
+        if (resultSubtype) break;
         console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns; stopping the agent`);
         resultSubtype = 'error_deadline';
-        // Keep a finished answer that landed just before the bell; anything else is a partial thought.
-        if (!isFinished(finalText)) finalText = '';
+        // Keep an answer the parser can actually read; anything else is a partial thought.
+        if (!isSalvageable(finalText)) finalText = '';
         if (typeof iterator.interrupt === 'function') await iterator.interrupt().catch(() => {});
         break; // closes the generator (and with it the agent subprocess)
       }
@@ -724,7 +746,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
   } catch (err) {
     if (abort.signal.aborted) {
       console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns (agent aborted)`);
-      return { finalText: isFinished(finalText) ? finalText : '', lastAnswer, turns, resultSubtype: 'error_deadline' };
+      return { finalText: isSalvageable(finalText) ? finalText : '', lastAnswer, turns, resultSubtype: 'error_deadline' };
     }
     err.capturedStderr = stderrChunks.join('');
     throw err;
@@ -1271,7 +1293,7 @@ async function main() {
       // recognise one — otherwise a complete verdict list arriving near the bell would be discarded and these
       // threads would fall back to the fingerprint heuristic, unverified.
       const verifyFinished = (t) => parseVerifyResult(t) !== null;
-      const run = await runAgent(buildVerifyPrompt(numbered, COMMIT, pr.author), verifyBudget, VERIFY_SYSTEM_PROMPT, verifyFinished);
+      const run = await runAgent(buildVerifyPrompt(numbered, COMMIT, pr.author), verifyBudget, VERIFY_SYSTEM_PROMPT, verifyFinished, verifyFinished);
       // `verifyFinished` gates what runAgent remembers, so lastAnswer here is a verdict list, not a review
       // result — usable when the deadline landed after a complete list but before the run ended.
       const parsedThreads = parseVerifyResult(run.finalText || run.lastAnswer || '');

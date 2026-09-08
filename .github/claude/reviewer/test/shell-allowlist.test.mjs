@@ -948,3 +948,24 @@ test('the agent inherits nothing that looks like a credential', () => {
   assert.equal(agentEnv({ SOME_NEW_TOKEN: 'x' }).SOME_NEW_TOKEN, undefined);
   assert.equal(agentEnv({ MY_SERVICE_PASSWORD: 'x' }).MY_SERVICE_PASSWORD, undefined);
 });
+
+
+test('a finished run is never relabelled by the bell, and a parseable answer is salvaged', () => {
+  // The deadline is checked after every message, including the result message of a run that just succeeded, so
+  // the guard is "did the run already report its own outcome". Regression seen on PR #114 round 19.
+  assert.equal(shouldHardFail({ finalText: 'answer', lastAnswer: '', resultSubtype: 'success' }), false);
+  // The bell keeps whatever the real parser can read, which is more tolerant than the strict terminal-block test.
+  const looseAnswer = '```json\n{"verdict": "pass", "summary": "ok", "findings": []}\n```\nand one more thought';
+  assert.equal(isTerminalResult(looseAnswer), false); // too loose to adopt as a remembered answer...
+  assert.equal(extractJson(looseAnswer).verdict, 'pass'); // ...but perfectly readable, so it is not discarded
+});
+
+test('the grep exemption resolves against the same base as the confinement check', () => {
+  // Both look at the same file now: previously existsSync used the process cwd while isPathAllowed honoured the
+  // injected one, so the unit tests passed for a reason the runtime did not share.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'grepbase-')));
+  mkdirSync(join(root, 'core'), { recursive: true });
+  writeFileSync(join(root, 'core', 'Player.kt'), 'class Player');
+  assert.equal(isAllowedBash('grep -rn "MediaSession" core/Player.kt', [root], root), true);
+  assert.equal(isAllowedBash('grep -rn "/auth/openid" core', [root], root), true);
+});
