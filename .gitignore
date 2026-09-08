@@ -23,3 +23,6 @@ keystore.properties
 .kotlin/
 app/dev/
 app/prod/
+
+# Reviewer harness deps (installed in CI with `npm ci`; the lockfile is committed)
+.github/claude/reviewer/node_modules/

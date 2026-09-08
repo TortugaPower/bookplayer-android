@@ -16,9 +16,11 @@ jobs:
     # Skip fork PRs: pull_request runs from a fork don't receive repo secrets
     # (ANTHROPIC_API_KEY), so the reviewer can't run — skip to keep the check
     # neutral instead of a hard failure.
+    # Skip Dependabot for the same reason: its runs get a read-only token and no repository secrets.
     if: >-
       github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' 
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -32,6 +34,8 @@ jobs:
           # match the commit_id we anchor inline comments to.
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
+          # The agent may `cat .git/config`; don't leave the checkout token in it.
+          persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -40,7 +44,11 @@ jobs:
 
       - name: Install reviewer deps
         working-directory: .github/claude/reviewer
-        run: npm install --no-audit --no-fund --silent
+        run: npm ci --no-audit --no-fund --silent
+
+      - name: Test the agent's tool allowlist and redaction
+        working-directory: .github/claude/reviewer
+        run: node --test test/
 
       - name: Run Claude review
         env:
@@ -48,15 +56,16 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           # PAT/App token used ONLY to resolve review threads (GITHUB_TOKEN can't — "Resource not
           # accessible by integration"). Optional: if unset, stale comments only show as "Outdated".
+          # Prefer a fine-grained PAT scoped to this repo with "Pull requests: read & write" — this step
+          # runs PR-branch code, so a classic repo-scope PAT would over-reach if it ever leaked.
           REVIEW_RESOLVE_TOKEN: ${{ secrets.REVIEW_RESOLVE_TOKEN }}
-          GH_TOKEN: ${{ github.token }}              # for `gh pr diff` inside the agent
-          GH_REPO: ${{ github.repository }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           COMMIT: ${{ github.event.pull_request.head.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          REVIEW_MODEL: claude-opus-4-8
-          REVIEW_MAX_TURNS: '50'   # agent only reads/reports (posting is done by the script), so turns go far
-          IS_SANDBOX: '1'
+          # Model is NOT pinned: review.mjs asks the Models API for the newest Opus-tier model on
+          # every run (Opus 5 today). To pin, e.g. while diagnosing a regression, set an exact id.
+          # REVIEW_MODEL: claude-opus-5
+          REVIEW_MAX_TURNS: '50'   # a coarse guard only; the real bound is REVIEW_DEADLINE_MS (14 min) in review.mjs
         run: node .github/claude/reviewer/review.mjs

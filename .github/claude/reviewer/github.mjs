@@ -27,12 +27,16 @@ function headers(tok) {
   };
 }
 
+// A stalled GitHub call should fail into the harness's degrade paths, not sit until the job timeout.
+const API_TIMEOUT_MS = 30_000;
+
 async function rest(method, path, body) {
   const url = path.startsWith('http') ? path : `${REST}${path}`;
   const res = await fetch(url, {
     method,
     headers: headers(),
     body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(API_TIMEOUT_MS),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -46,12 +50,34 @@ async function graphql(queryStr, variables, tok) {
     method: 'POST',
     headers: headers(tok),
     body: JSON.stringify({ query: queryStr, variables }),
+    signal: AbortSignal.timeout(API_TIMEOUT_MS),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok || json.errors) {
     throw new Error(`GitHub GraphQL -> ${res.status}: ${JSON.stringify(json.errors || json)}`);
   }
   return json.data;
+}
+
+// ---------- Pull request metadata + diff (fetched by the harness so the agent needs no token) ----------
+
+export async function getPullRequest(prNumber) {
+  const { owner, name } = repo();
+  const pr = await rest('GET', `/repos/${owner}/${name}/pulls/${prNumber}`);
+  return { title: pr.title || '', body: pr.body || '' };
+}
+
+export async function fetchPullRequestDiff(prNumber) {
+  const { owner, name } = repo();
+  const res = await fetch(`${REST}/repos/${owner}/${name}/pulls/${prNumber}`, {
+    headers: { ...headers(), Accept: 'application/vnd.github.diff' },
+    signal: AbortSignal.timeout(API_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`GitHub GET diff -> ${res.status}: ${text}`);
+  }
+  return res.text();
 }
 
 // ---------- Summary (issue-level) comments ----------
@@ -98,7 +124,8 @@ export async function postInlineComment({ prNumber, commitId, path, line, body }
 
 // ---------- Review threads (dedup source + resolve) ----------
 
-// Returns [{ id, isResolved, firstCommentBody }] for every review thread on the PR.
+// Every review thread on the PR: identity, resolution state, where it is anchored, and its full comment list
+// (author login + association, so the harness can tell a maintainer's reply from anyone else's).
 export async function listReviewThreads(prNumber) {
   const { owner, name } = repo();
   const threads = [];
@@ -113,7 +140,11 @@ export async function listReviewThreads(prNumber) {
               nodes{
                 id
                 isResolved
-                comments(first:1){ nodes{ body } }
+                path
+                line
+                originalLine
+                comments(first:30){ nodes{ databaseId body author { login } authorAssociation createdAt } }
+                last: comments(last:1){ nodes{ body } }
               }
             }
           }
@@ -123,16 +154,50 @@ export async function listReviewThreads(prNumber) {
     );
     const conn = data.repository.pullRequest.reviewThreads;
     for (const node of conn.nodes) {
+      const comments = (node.comments?.nodes || []).map((c) => ({
+        id: c.databaseId ?? null,
+        body: c.body || '',
+        author: c.author?.login || '',
+        association: c.authorAssociation || 'NONE',
+        createdAt: c.createdAt || '',
+      }));
       threads.push({
         id: node.id,
         isResolved: node.isResolved,
-        firstCommentBody: node.comments?.nodes?.[0]?.body || '',
+        path: node.path || '',
+        // Distinct on purpose: `line` is null exactly when the thread is outdated, and `originalLine` then points
+        // into the commit the finding was raised on — a stale anchor the caller must not present as current.
+        line: node.line ?? null,
+        originalLine: node.originalLine ?? null,
+        comments,
+        firstCommentId: comments[0]?.id ?? null,
+        firstCommentBody: comments[0]?.body || '',
+        firstCommentAuthor: comments[0]?.author || '',
+        // From its own selection, not the capped list: a thread with >30 comments would otherwise report the 30th.
+        lastCommentBody: node.last?.nodes?.[0]?.body || '',
       });
     }
     if (!conn.pageInfo.hasNextPage) break;
     cursor = conn.pageInfo.endCursor;
   }
   return threads;
+}
+
+// Reply inside an existing review thread (used to leave the auto-resolve marker).
+export async function replyToReviewComment(prNumber, commentId, body) {
+  const { owner, name } = repo();
+  return rest('POST', `/repos/${owner}/${name}/pulls/${prNumber}/comments/${commentId}/replies`, { body });
+}
+
+export async function unresolveReviewThread(threadId) {
+  const tok = process.env.REVIEW_RESOLVE_TOKEN || process.env.GITHUB_TOKEN;
+  return graphql(
+    `mutation($threadId:ID!){
+      unresolveReviewThread(input:{threadId:$threadId}){ thread{ id isResolved } }
+    }`,
+    { threadId },
+    tok,
+  );
 }
 
 export async function resolveReviewThread(threadId) {
