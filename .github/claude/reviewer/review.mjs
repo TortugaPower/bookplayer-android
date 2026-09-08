@@ -338,10 +338,16 @@ export function isAllowedBash(command, roots = READ_ROOTS, cwd = process.cwd()) 
   // From here on, look only at the normalised segments — the strings bash would execute — never the raw text.
   const { segments } = analyzeShell(cmd);
   if (segments.some((segment) => FORBIDDEN_PATH.test(segment))) return false;
-  // Every token that could name a path is checked — including the value of a `--flag=value` token. Flags
-  // themselves are skipped; everything else goes through isPathAllowed, which resolves symlinks for names
-  // that exist, so a relative path through a committed symlink is confined just like an absolute one.
-  const pathish = (tok) => (tok.startsWith('-') && tok.includes('=') ? tok.slice(tok.indexOf('=') + 1) : tok);
+  // Every token that could name a path is checked — including a value attached to a flag, whether written
+  // `--file=/p` or `-f/p`. Bare flags are skipped; everything else goes through isPathAllowed, which resolves
+  // symlinks for names that exist, so a relative path through a committed symlink is confined like an absolute one.
+  const pathish = (tok) => {
+    if (!tok.startsWith('-')) return tok;
+    const eq = tok.indexOf('=');
+    if (eq !== -1) return tok.slice(eq + 1);
+    const slash = tok.indexOf('/');
+    return slash !== -1 ? tok.slice(slash) : tok; // `-f/etc/passwd` -> `/etc/passwd`
+  };
   return segments.every((segment) =>
     segment
       .split(/\s+/)
@@ -640,7 +646,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
   try {
     for await (const msg of iterator) {
       if (Date.now() - startedAt > budgetMs) {
-        console.warn(`Deadline of ${Math.round(DEADLINE_MS / 60000)} min reached after ${turns} turns; stopping the agent`);
+        console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns; stopping the agent`);
         resultSubtype = 'error_deadline';
         finalText = ''; // whatever was emitted so far is not a finished result
         if (typeof iterator.interrupt === 'function') await iterator.interrupt().catch(() => {});
@@ -669,7 +675,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
     }
   } catch (err) {
     if (abort.signal.aborted) {
-      console.warn(`Deadline of ${Math.round(DEADLINE_MS / 60000)} min reached after ${turns} turns (agent aborted)`);
+      console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns (agent aborted)`);
       return { finalText: '', lastAnswer: '', turns, resultSubtype: 'error_deadline' };
     }
     err.capturedStderr = stderrChunks.join('');
@@ -1193,9 +1199,11 @@ async function main() {
   // exit 1 here when parsed.verdict === 'fail'.
 }
 
-// Run only when executed directly (not when imported by a test). argv[1] is resolved because the
-// workflow invokes this file by relative path.
-const invokedDirectly = resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url);
+// Run only when executed directly (not when imported by a test). argv[1] is resolved because the workflow
+// invokes this file by relative path, and both sides are realpath'd: comparing a lexical path against this
+// module's real path would silently evaluate false when any component is a symlink, and the step would then
+// exit 0 with no review at all.
+const invokedDirectly = safeRealpath(resolve(process.argv[1] ?? '')) === safeRealpath(fileURLToPath(import.meta.url));
 if (invokedDirectly) main().catch((err) => {
   console.error('Fatal:', err);
   if (err.capturedStderr) {

@@ -711,3 +711,15 @@ test('running out of time or turns degrades to the incomplete note, not a red ch
   assert.equal(shouldHardFail({ finalText: 'answer', lastAnswer: '', resultSubtype: 'success' }), false);
   assert.equal(shouldHardFail({ finalText: '', lastAnswer: '', resultSubtype: null }), false);
 });
+
+
+test('a path attached to a short flag is confined too', () => {
+  const outside = '/etc/passwd';
+  assert.equal(isPathAllowed(outside), false);
+  // `--file=` was already covered; `-f/path` used to slip past the confinement check as if it were a flag.
+  assert.equal(isAllowedBash(`grep -f${outside} .`), false);
+  assert.equal(isAllowedBash(`grep --file=${outside} .`), false);
+  // ...and ordinary flags still work.
+  assert.equal(isAllowedBash('grep -rn "PlaybackManager" core/src'), true);
+  assert.equal(isAllowedBash('git blame -L 10,20 LibraryViewModel.kt'), true);
+});
