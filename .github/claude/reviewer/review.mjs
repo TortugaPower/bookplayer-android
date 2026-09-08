@@ -70,6 +70,10 @@ let RANKED_MODELS = []; // from the Models API, newest first; the retry prefers 
 // immediately, which would degrade every run to the "incomplete" note with no hint why.
 const num = (v, fallback) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : fallback);
 const MAX_TURNS = num(process.env.REVIEW_MAX_TURNS, 40);
+// The agent's answer is one JSON object holding every finding, so it is far longer than a chat reply and the
+// default output cap cut it off mid-object on two real runs: the summary named two problems and only the first
+// finding survived the truncation repair. The SDK reads this from the subprocess environment.
+const MAX_OUTPUT_TOKENS = num(process.env.REVIEW_MAX_OUTPUT_TOKENS, 32_000);
 // Wall-clock bound for the agent, under the job's timeout-minutes: hitting it degrades to the "incomplete"
 // note instead of a cancelled job that may have half-reconciled the PR.
 const DEADLINE_MS = num(process.env.REVIEW_DEADLINE_MS, 14 * 60 * 1000);
@@ -188,6 +192,10 @@ You have read-only tools: Read, Grep, Glob, and a Bash that accepts ONLY read-on
 ${BASH_RULES} Anything else is denied. Do NOT post comments,
 create reviews, push, or modify anything — an automated harness posts your findings, de-duplicates them
 against previous runs, and resolves stale ones. Your job is only to investigate and report.
+
+Report at most ${MAX_INLINE} findings, most consequential first, and keep each \`comment\` under about 1200
+characters. The whole answer has to fit in one response: a JSON object cut off mid-object costs the findings that
+came after the cut, so prefer the findings that matter over a complete catalogue of small ones.
 
 After investigating, your FINAL assistant message MUST end with a single fenced \`\`\`json block of
 exactly this shape, with NOTHING after it:
@@ -751,7 +759,8 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = SYSTE
       canUseTool,
       maxTurns: MAX_TURNS,
       abortController: abort,
-      env: agentEnv(),
+      // Set after agentEnv(), which strips anything matching /TOKEN/ — including this one.
+      env: { ...agentEnv(), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(MAX_OUTPUT_TOKENS) },
       cwd: process.env.GITHUB_WORKSPACE || process.cwd(),
       stderr: (d) => {
         stderrChunks.push(d);
