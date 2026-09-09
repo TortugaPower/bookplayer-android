@@ -6,7 +6,7 @@
 // Same hardened harness as bookplayer-support-pipeline; model resolved at runtime instead of pinned.
 
 import { randomBytes, createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -200,7 +200,8 @@ const BASH_RULES =
   'git diff/log/show/blame/status/ls-files/rev-parse, cat, ls, head, tail, wc, grep, find, stat, file, du, pwd, ' +
   'echo. No interpreters, test runners, gh, curl, redirects (`<` and `>` alike), $-expansion, backticks, command ' +
   'or process substitution, or unquoted braces (quote them: \'a{2}\' is fine as a regex quantifier, {a,b} as an ' +
-  'expansion is not). No cd — paths are relative to the checkout.';
+  'expansion is not). A glob may not select a directory: `dir*/file` is refused, `dir/*.kt` is fine. ' +
+  'No cd — paths are relative to the checkout.';
 
 const OUTPUT_CONTRACT = `
 ## Output contract (READ-ONLY — the harness posts, you do not)
@@ -312,12 +313,22 @@ const BASH_DENY_MESSAGE = `Bash is restricted to read-only commands: ${BASH_RULE
 // reasoning about a string the shell never sees.
 const STDERR_REDIRECT = /^2>(&1|\/dev\/null)(?=\s|$)/;
 
+// Whitespace that was quoted is held as \x00 through the walk and turned back into a space when a segment is
+// split into tokens: bash removes the quotes but the word stays ONE word, and splitting `cat "p q"` on whitespace
+// produced the two harmless-looking names `p` and `q` while bash read `./p q`.
+const QUOTED_SPACE = '\x00';
+export const restoreQuotedSpaces = (tok) => tok.split(QUOTED_SPACE).join(' ');
+
 export function analyzeShell(command) {
   const cmd = String(command || '');
   const segments = [];
   let current = '';
   let quote = null;
   let unsafe = false;
+  // Whether anything (including an empty pair of quotes) has already gone into the word being built. `''2>&1` is
+  // one word, `2`, to bash — the quotes contribute nothing to the string but they do start the word, so the `2`
+  // is not a file descriptor. Tracking the string alone said the token was empty and let the fd rule fire.
+  let tokenStarted = false;
   for (let i = 0; i < cmd.length; i++) {
     const ch = cmd[i];
     if (ch === '\\' && quote !== "'") {
@@ -330,11 +341,12 @@ export function analyzeShell(command) {
         continue;
       }
       if (quote === '"' && (ch === '`' || ch === '$')) unsafe = true; // expansion happens inside double quotes
-      current += ch;
+      current += /\s/.test(ch) ? QUOTED_SPACE : ch;
       continue;
     }
     if (ch === '"' || ch === "'") {
       quote = ch;
+      tokenStarted = true; // the quotes vanish, the word does not
       continue;
     }
     // Outside quotes: redirects in BOTH directions, backticks, any `$` (parameter or command expansion), process
@@ -344,7 +356,7 @@ export function analyzeShell(command) {
     // `cat {/etc/hostname,x}` is the same shape, and bash expands braces BEFORE `~`, so `{~/.aws/credentials,x}`
     // would slip past the tilde rule too. No read-only command needs any of these: a regex quantifier or a literal
     // `<` goes inside quotes, and file arguments are passed as arguments.
-    if (ch === '2' && (current === '' || /\s$/.test(current)) && STDERR_REDIRECT.test(cmd.slice(i))) {
+    if (ch === '2' && !tokenStarted && STDERR_REDIRECT.test(cmd.slice(i))) {
       // stderr routing, not a redirect to a file: skip it whole, and drop the space that preceded it. The `2` has
       // to BEGIN a token, as it does for bash — a digit is an fd only when the token so far is all digits. Without
       // that anchor `cat secrets2>&1` was analysed as `cat secrets` while bash read `secrets2`, so a symlink
@@ -357,8 +369,10 @@ export function analyzeShell(command) {
     if (ch === '|' || ch === '&' || ch === ';' || ch === '\n') {
       segments.push(current);
       current = '';
+      tokenStarted = false;
       continue;
     }
+    tokenStarted = !/\s/.test(ch);
     current += ch;
   }
   segments.push(current);
@@ -420,6 +434,48 @@ export function isPathAllowed(rawPath, roots = READ_ROOTS, cwd = AGENT_CWD) {
   return !existsSync(abs) || within(safeRealpath(abs));
 }
 
+const GLOB_META = /[*?[]/;
+// One path segment of a glob, as bash matches it: `*` and `?` never cross a `/`.
+const globSegmentToRegExp = (pattern) => {
+  let out = '^';
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === '*') out += '[^/]*';
+    else if (ch === '?') out += '[^/]';
+    else if (ch === '[') {
+      const end = pattern.indexOf(']', i + 1);
+      if (end === -1) out += '\\[';
+      else {
+        out += pattern.slice(i, end + 1);
+        i = end;
+      }
+    } else out += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`${out}$`);
+};
+
+// bash expands globs AFTER quote removal, so a token like `lin*/o.txt` or `conf/*.txt` names files the path check
+// never sees: the literal token exists nowhere, isPathAllowed waves it through as a not-yet-existing name, and
+// bash then reads whatever it matched — including through a symlink committed in the PR head. Two rules close it:
+// a glob may not choose a DIRECTORY, and every entry the pattern really matches is confined like any other path.
+// The live escape was `grep -ran ANTHROPIC lin*`: GNU grep -r follows a symlink named on the command line, so one
+// pointing at /proc reaches the harness process's own environment, which does hold the GitHub tokens.
+function globTokenAllowed(token, roots, cwd) {
+  const slash = token.lastIndexOf('/');
+  const dir = slash === -1 ? '.' : token.slice(0, slash) || '/';
+  const pattern = token.slice(slash + 1);
+  if (GLOB_META.test(dir)) return false;
+  if (!isPathAllowed(dir, roots, cwd)) return false;
+  const re = globSegmentToRegExp(pattern);
+  let entries;
+  try {
+    entries = readdirSync(resolve(cwd, dir));
+  } catch {
+    return true; // nothing to enumerate: bash passes the literal token through and the command fails on its own
+  }
+  return entries.every((entry) => !re.test(entry) || isPathAllowed(`${dir}/${entry}`, roots, cwd));
+}
+
 // The single predicate canUseTool applies to a Bash command — tested as a unit, not as its parts.
 export function isAllowedBash(command, roots = READ_ROOTS, cwd = AGENT_CWD) {
   const cmd = String(command || '');
@@ -451,12 +507,12 @@ export function isAllowedBash(command, roots = READ_ROOTS, cwd = AGENT_CWD) {
       const first = tokens.findIndex((tok, i) => i > 0 && !tok.startsWith('-'));
       // Resolved against the same base as isPathAllowed below, or the two would disagree about which file
       // "app/x.kt" means and the exemption would be decided on a different file from the confinement check.
-      if (first !== -1 && !existsSync(resolve(cwd, stripQuotes(tokens[first])))) skip.add(first);
+      if (first !== -1 && !existsSync(resolve(cwd, stripQuotes(restoreQuotedSpaces(tokens[first]))))) skip.add(first);
     }
     return tokens
-      .map((tok, i) => (skip.has(i) ? '' : pathish(tok)))
+      .map((tok, i) => (skip.has(i) ? '' : pathish(restoreQuotedSpaces(tok))))
       .filter((tok) => tok && !tok.startsWith('-'))
-      .every((tok) => isPathAllowed(tok, roots, cwd));
+      .every((tok) => (GLOB_META.test(tok) ? globTokenAllowed(tok, roots, cwd) : isPathAllowed(tok, roots, cwd)));
   });
 }
 
@@ -821,7 +877,8 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = '', i
       cwd: process.env.GITHUB_WORKSPACE || process.cwd(),
       stderr: (d) => {
         stderrChunks.push(d);
-        process.stderr.write(`[claude] ${d}`);
+        // Redacted like its buffered twin: this stream goes straight into a public run log.
+        process.stderr.write(`[claude] ${redact(String(d))}`);
       },
     },
   });

@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, restoreQuotedSpaces, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
@@ -60,7 +60,13 @@ test('writing, executing, networking and escaping commands are denied', () => {
 });
 
 test('operators inside quotes do not split the command; output is what bash would execute', () => {
-  assert.deepEqual(analyzeShell('grep -n "a|b;c && d" f').segments, ['grep -n a|b;c && d f']); // quotes removed, one command
+  // Quoted whitespace is held as \x00 inside the walk so the word stays one word; restored, the segment is what
+  // bash would run. Splitting on whitespace without that turned `cat "p q"` into the two names `p` and `q`.
+  assert.deepEqual(analyzeShell('grep -n "a|b;c && d" f').segments.map(restoreQuotedSpaces), ['grep -n a|b;c && d f']);
+  const [cmdWord, fileWord] = analyzeShell('cat "p q"').segments[0].split(/\s+/);
+  assert.equal(cmdWord, 'cat');
+  assert.equal(restoreQuotedSpaces(fileWord), 'p q'); // ONE filename, not the two names `p` and `q`
+  assert.equal(restoreQuotedSpaces(analyzeShell('cat "p q"').segments[0]), 'cat p q');
   assert.deepEqual(analyzeShell('cat a | head -3').segments, ['cat a', 'head -3']);
   assert.deepEqual(analyzeShell('cat \\/proc\\/self\\/environ').segments, ['cat /proc/self/environ']); // escapes resolved
   assert.deepEqual(analyzeShell('cat "docs"/host/x').segments, ['cat docs/host/x']);                    // concatenation
@@ -1384,4 +1390,33 @@ test('a superseded thread stays open when its replacement never posted', async (
   assert.equal(lost.resolvedIds.size, 0); // nothing closed on a claim that did not land...
   assert.deepEqual([...lost.supersededKept], ['t-old']); // ...and the caller can say why
   assert.equal(lost.unpostable.length, 1);
+});
+
+test('the expansions bash performs after quote removal cannot smuggle a path out', () => {
+  // Each of these was verified against real bash: the analysed tokens looked harmless while bash read a file
+  // outside the root through a symlink of the kind a PR can commit.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'expand-')));
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'outside-')));
+  writeFileSync(join(outside, 'o.txt'), 'SECRET=abc');
+  mkdirSync(join(root, 'conf'), { recursive: true });
+  writeFileSync(join(root, 'conf', 'ok.txt'), 'fine');
+  writeFileSync(join(root, 'plain.kt'), 'fine');
+  symlinkSync(outside, join(root, 'lin'));                        // a symlinked directory
+  symlinkSync(join(outside, 'o.txt'), join(root, 'p q'));         // a name with a space
+  symlinkSync(join(outside, 'o.txt'), join(root, '2'));           // a name that looks like an fd
+  symlinkSync(join(outside, 'o.txt'), join(root, 'conf', 'x.txt'));
+
+  // A glob may not choose a directory, and `grep -r` following one is the escalation that mattered: a symlink to
+  // /proc reaches the harness process's own environment, which holds the GitHub tokens.
+  assert.equal(isAllowedBash('cat lin*/o.txt', [root], root), false);
+  assert.equal(isAllowedBash('grep -ran ANTHROPIC lin*', [root], root), false);
+  // A final-segment glob is fine, but every entry it matches is confined.
+  assert.equal(isAllowedBash('cat conf/*.txt', [root], root), false);
+  assert.equal(isAllowedBash('cat conf/ok.txt', [root], root), true);
+  assert.equal(isAllowedBash('wc -l *.kt', [root], root), true);
+  // Quoted whitespace keeps the word together instead of becoming two harmless-looking names.
+  assert.equal(isAllowedBash('cat "p q"', [root], root), false);
+  // `''` contributes nothing to the string but does start the word, so the `2` is a filename, not a descriptor.
+  assert.equal(isAllowedBash("cat ''2>&1", [root], root), false);
+  assert.equal(isAllowedBash('grep -rn x conf 2>&1', [root], root), true);
 });
