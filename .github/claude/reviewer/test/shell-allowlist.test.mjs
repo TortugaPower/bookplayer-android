@@ -1011,9 +1011,6 @@ test('the comment listing asks for the newest first and is bounded', async () =>
     const all = await listIssueComments(7);
     assert.equal(urls.length, 20, `stopped after ${urls.length} pages`);
     assert.equal(all.length, 2000);
-    // Newest-updated first: every caller wants one comment — this harness's summary, which it PATCHes every
-    // round — and chronological order put it on the last page of a busy PR.
-    assert.match(urls[0], /sort=updated&direction=desc/);
     assert.match(urls[19], /page=20/);
 
     // And a short page still ends it immediately.

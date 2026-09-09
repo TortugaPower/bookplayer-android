@@ -210,16 +210,17 @@ export async function fetchDiffFromFiles(prNumber, maxPages = 30) {
 // every degrade path the harness has (the job just runs to `timeout-minutes` with no comment on the PR); this
 // loop had none, and 50 sequential pages at up to 30 s each is the same failure by a slower road.
 const MAX_COMMENT_PAGES = 20;
-// Newest-updated first, because all three callers want exactly ONE comment: this harness's own summary, which it
-// PATCHes every round. Chronological order put it on the LAST page of a busy PR, so every page was fetched to
-// reach it.
+// Every caller wants exactly ONE comment: this harness's own summary. It is not fetched any more cheaply than
+// this — `sort`/`direction` are documented on the REPOSITORY-wide comments endpoint, not on this per-issue one,
+// and it ignores them (verified against the API: identical order with and without). No matter, since the summary
+// is CREATED on the first round and this order is chronological, so it is on page 1 of almost any PR.
 export async function listIssueComments(prNumber) {
   const { owner, name } = repo();
   const all = [];
   for (let page = 1; page <= MAX_COMMENT_PAGES; page++) {
     const batch = await rest(
       'GET',
-      `/repos/${owner}/${name}/issues/${prNumber}/comments?per_page=100&sort=updated&direction=desc&page=${page}`,
+      `/repos/${owner}/${name}/issues/${prNumber}/comments?per_page=100&page=${page}`,
     );
     if (!Array.isArray(batch) || batch.length === 0) break;
     all.push(...batch);
