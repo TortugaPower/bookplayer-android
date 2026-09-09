@@ -1935,6 +1935,10 @@ async function explainFailure(err) {
   return err;
 }
 
+// `state` is not optional in spirit: this call REPLACES the summary comment, and the state record lives inside
+// that comment, so passing nothing erases the harness's memory of every earlier round. Pass the round's own new
+// record, or the one the round read (unchanged), or — as `appendNoteToSummary` does — a body that already carries
+// the record it pulled out and re-appended.
 async function upsertSummary(rawBody, state = null) {
   const body = summaryBodyWithState(redact(rawBody), state);
   const existing = (await listIssueComments(PR_NUMBER)).find(
@@ -2138,6 +2142,11 @@ export async function runReview({ agent = runAgent } = {}) {
         '',
         '> ⚠️ Could not read existing review threads on this run, so inline comments were skipped to avoid duplicates; the next push will post them.',
       ].join('\n'),
+      // The record this round READ, written back unchanged. This write replaces the summary comment, and the
+      // record lives inside it: passing no state here erased the harness's memory on exactly the run that
+      // already failed to read the threads, sending the NEXT round back to marker archaeology. This round
+      // decided nothing, so the last round's record — old commit and all — is still the truth.
+      stateRecord,
     ).catch((e2) => console.warn(`Could not post the summary comment: ${e2.message}`));
     return;
   }

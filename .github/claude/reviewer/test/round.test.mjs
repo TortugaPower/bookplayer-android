@@ -322,3 +322,45 @@ test('an error thread whose body was edited is not closed by the verifier', asyn
     restore();
   }
 });
+
+test('a round that cannot read the threads keeps the record it read', async () => {
+  // The summary comment IS where the record lives, and this write replaces that comment. On the one run that
+  // already failed — a transient GraphQL error on the thread listing, the failure the retry ladder exists for —
+  // the harness was erasing its own memory, so the NEXT round fell back to reading markers out of comment bodies.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'lost-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '13', COMMIT: 'beef000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'lostrecord');
+  const realFetch = globalThis.fetch;
+  try {
+    const f = { severity: 'warn', file: 'app/Keep.kt', line: 3, comment: 'a finding recorded last round' };
+    const fp = mod.fingerprint(f);
+    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+      commit: 'aaaaaaa', findings: { [fp]: { id: 'T-keep', file: f.file, line: f.line, severity: 'warn', text: f.comment, action: 'posted', commit: 'aaaaaaa' } },
+    })}`;
+    const gh = fakeGitHub({ summaryBody: priorSummary });
+    // The thread listing fails, twice retried, as GitHub does on a bad minute.
+    const inner = gh.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      const body = init.body ? JSON.parse(init.body) : null;
+      if (String(url).endsWith('/graphql') && /reviewThreads/.test(body?.query || '')) {
+        return { ok: false, status: 502, headers: { get: () => null }, json: async () => ({ errors: [{ type: 'SERVICE_UNAVAILABLE' }] }), text: async () => 'bad gateway' };
+      }
+      return inner(url, init);
+    };
+    await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'one finding', findings: [f] }) });
+
+    const summary = gh.summaryOut();
+    assert.match(summary, /Could not read existing review threads/);
+    // The record the round READ is written back unchanged: same commit, same entry, same thread id.
+    const state = mod.decodeState(summary);
+    assert.ok(state, 'the summary must still carry a record');
+    assert.equal(state.commit, 'aaaaaaa');
+    assert.equal(state.findings[fp].id, 'T-keep');
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
