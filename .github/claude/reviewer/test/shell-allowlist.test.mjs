@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, planClosures, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -244,7 +244,7 @@ test('key-shaped strings are redacted at the post boundary', () => {
   assert.equal(redact('a data-sync-task-uuid identifier'), 'a data-sync-task-uuid identifier');
 });
 
-test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismissed, close a moved thread', async () => {
+test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismissed, close nothing', async () => {
   const fp = (file, line, severity) => reconcileFp({ file, line, severity });
   const calls = { post: [], reply: [], resolve: [], unresolve: [] };
   const io = {
@@ -277,12 +277,11 @@ test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismisse
       firstCommentBody: `ghost <!-- bp-ai-review-fp:${fp('a.kt', 1, 'warn')} -->` },
   ].map((t, i) => ({ firstCommentAuthor: i % 2 ? 'github-actions' : 'github-actions[bot]', ...t })); // both API spellings
 
-  // t-stale's finding is gone from this run and `planRound` decided the new NEW comment carries it: that named
-  // decision is the ONLY thing that can close a thread now. Absence alone leaves it for the verification pass.
-  const closedBy = new Map([['t-stale', { fp: reconcileFp(NEW), kind: 'posted' }]]);
-  const { stats, unpostable } = await reconcile(current, threads, io, { closedBy, priorState: null });
+  // t-stale's finding is gone from this run. Nothing here closes it: reconcile posts, keeps and reopens, and
+  // every close in the harness comes from the verification pass, which reads the code. t-stale goes there.
+  const { stats, unpostable } = await reconcile(current, threads, io, { priorState: null });
 
-  assert.deepEqual(stats, { posted: 1, kept: 1, reopened: 1, dismissed: 1, resolved: 1 });
+  assert.deepEqual(stats, { posted: 1, kept: 1, reopened: 1, dismissed: 1, resolved: 0 });
   // The finding on the human-resolved thread is NOT dropped: no new comment and no reopen (both would be
   // nagging), but it goes in the summary body so a maintainer can see the reviewer still considers it live.
   // This assertion used to read `0`, which pinned the silent drop.
@@ -291,8 +290,8 @@ test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismisse
   assert.match(calls.post[0].body, /new one/);
   assert.match(calls.post[0].body, new RegExp(`bp-ai-review-fp:${fp('a.kt', 1, 'warn')}`));
   assert.deepEqual(calls.unresolve, ['t-back']);
-  assert.deepEqual(calls.reply, ['t-back:reopen', 't-stale:auto']); // reopen leaves a note; marker follows a resolve
-  assert.deepEqual(calls.resolve, ['t-stale']);     // never the foreign human thread, never the dismissed one
+  assert.deepEqual(calls.reply, ['t-back:reopen']); // the reopen leaves a note; nothing else is spoken to
+  assert.deepEqual(calls.resolve, []);              // never the foreign human thread, never the dismissed one
 });
 
 test('reconcile: a human resolve after a reopen is respected (reopen note is the last comment, not the marker)', async () => {
@@ -419,21 +418,20 @@ test('only a terminal fenced result block counts as a finished answer', () => {
 });
 
 
-test('a provisional result never closes a thread this round decided to close', async () => {
+test('a provisional result posts what it has and touches no earlier thread', async () => {
   const f = { file: 'a.kt', line: 1, severity: 'warn', comment: 'the finding that carries it now' };
   const thread = { id: 't1', isResolved: false, firstCommentAuthor: 'github-actions[bot]', firstCommentBody: '<!-- bp-ai-review-fp:abc123 -->', lastCommentBody: '' };
   const calls = [];
   const io = { post: async () => calls.push('post'), reply: async () => calls.push('reply'), resolve: async () => calls.push('resolve'), unresolve: async () => calls.push('unresolve') };
   const current = new Map([[reconcileFp(f), f]]);
-  const closedBy = new Map([['t1', { fp: reconcileFp(f), kind: 'posted' }]]);
-  // `planRound` decides nothing on a provisional result, so reconcile is handed no closure — but it also stops
-  // before the close loop on its own, which is what this pins: both halves refuse, independently.
-  const provisional = await reconcile(current, [thread], io, { provisional: true, closedBy, priorState: null });
+  // A provisional answer is less complete than what the agent was about to check, so the round judges nothing:
+  // main skips the verification pass outright, and reconcile touches no unreported thread either way.
+  const provisional = await reconcile(current, [thread], io, { provisional: true, priorState: null });
   assert.equal(provisional.stats.resolved, 0);
   assert.deepEqual(calls, ['post']);
-  const normal = await reconcile(current, [thread], io, { closedBy, priorState: null });
-  assert.equal(normal.stats.resolved, 1);
-  assert.deepEqual(calls, ['post', 'post', 'resolve', 'reply']);
+  const normal = await reconcile(current, [thread], io, { priorState: null });
+  assert.equal(normal.stats.resolved, 0);
+  assert.deepEqual(calls, ['post', 'post']);
 });
 
 
@@ -1273,27 +1271,6 @@ test('an answer the parser had to close itself is provisional', () => {
   assert.equal(JSON.stringify(repaired).includes('truncation'), false); // the flag cannot reach a comment
 });
 
-test('a finding that only moved line leaves one open thread, not two', async () => {
-  // The line drifts whenever something above it is fixed, which changes the fingerprint: the fresh run posts a new
-  // thread, and before this the old one was neither re-reported nor stale-resolved, so both stayed open.
-  const moved = { file: 'a.kt', line: 7, severity: 'warn', comment: 'same issue, new line' };
-  const old = {
-    id: 't-old', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]',
-    path: 'a.kt', line: 3, comments: [],
-    firstCommentBody: `🟡 **WARN** — same issue <!-- bp-ai-review-fp:${reconcileFp({ file: 'a.kt', line: 3, severity: 'warn' })} -->`,
-  };
-  const calls = { post: [], resolve: [], reply: [] };
-  const io = {
-    post: async (f, body) => calls.post.push({ f, body }),
-    reply: async (t, body) => calls.reply.push({ t, body }),
-    resolve: async (t) => calls.resolve.push(t.id),
-    unresolve: async () => {},
-  };
-  const { stats } = await reconcile(new Map([[reconcileFp(moved), moved]]), [old], io, { priorState: null, closedBy: new Map([['t-old', { fp: reconcileFp(moved), kind: 'posted' }]]) });
-  assert.equal(stats.posted, 1); // the finding is posted where the code is now...
-  assert.deepEqual(calls.resolve, ['t-old']); // ...and the stale anchor is closed, so one thread is open
-  assert.match(calls.reply[0].body, /different line/); // and it says why, not "not reported in the latest run"
-});
 
 test('the trim warning is never left inside a collapsed block', () => {
   // The one thing that makes a summary reach GitHub's limit is the `<details>` list of findings that could not
@@ -1325,25 +1302,6 @@ test('a degrade note survives the trim of an oversized summary', () => {
 });
 
 
-test('a superseded thread is only reported resolved when the resolve worked', async () => {
-  // Without a resolve token the resolve throws and is only logged; the row must then say the thread is still open
-  // rather than claim ✅ on a thread a human can see is not closed.
-  const moved = { file: 'a.kt', line: 7, severity: 'warn', comment: 'same issue, new line' };
-  const stale = {
-    id: 't-old', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]',
-    path: 'a.kt', line: 3, comments: [],
-    firstCommentBody: `🟡 **WARN** — same issue <!-- bp-ai-review-fp:${reconcileFp({ file: 'a.kt', line: 3, severity: 'warn' })} -->`,
-  };
-  const current = new Map([[reconcileFp(moved), moved]]);
-  const ok = await reconcile(current, [stale], { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} }, { priorState: null, closedBy: new Map([['t-old', { fp: reconcileFp(moved), kind: 'posted' }]]) });
-  assert.deepEqual([...ok.resolvedIds], ['t-old']);
-  const failed = await reconcile(current, [stale], {
-    post: async () => {}, reply: async () => {}, unresolve: async () => {},
-    resolve: async () => { throw new Error('Resource not accessible by integration'); },
-  }, { priorState: null, closedBy: new Map([['t-old', { fp: reconcileFp(moved), kind: 'posted' }]]) });
-  assert.equal(failed.resolvedIds.size, 0); // ...so the caller writes "could not be resolved", not ✅
-  assert.equal(failed.stats.resolved, 0);
-});
 
 test('at the deadline a strictly finished earlier answer beats a loosely parsed buffer', () => {
   // The loose gate exists so a complete review is not thrown away, but it accepts a result-shaped block the agent
@@ -1429,46 +1387,6 @@ test('the network layer retries a read, and never a write', async () => {
   }
 });
 
-test('a thread is closed by the same finding, moved, and only once', () => {
-  const MOVED_TEXT = 'the deadline is read before the message in hand, so a finished run is relabelled error_deadline';
-  const thread = (id, path, severity, fp, text) => ({ id, path, severity, fp, text });
-  const moved = thread('t-moved', 'a.kt', 'warn', 'oldfp', MOVED_TEXT);
-  const untouched = thread('t-untouched', 'a.kt', 'warn', 'keptfp', 'a completely unrelated concern about logging');
-  const currentByFp = new Map([
-    ['keptfp', { file: 'a.kt', line: 10, severity: 'warn', comment: 'a completely unrelated concern about logging' }],
-    ['newfp', { file: 'a.kt', line: 42, severity: 'warn', comment: `${MOVED_TEXT} (still, at its new line)` }],
-  ]);
-  const existingFps = new Set(['keptfp', 'oldfp']);
-  // The one identity per thread that `planRound` computes; here it is supplied directly, so the rule is tested
-  // without going through body parsing.
-  const identityOf = (t) => ({ id: t.id, fp: t.fp, path: t.path, severity: t.severity, text: t.text });
-  const fpOf = (t) => t.fp;
-  const close = (openThreads, current, harnessThreads = []) =>
-    planClosures({ openThreads, currentByFp: current, existingFps, identityOf, harnessThreads, fpOf });
-
-  // The finding that moved is recognised by its text, and takes exactly one thread with it.
-  const [pair, ...rest] = close([moved, untouched], currentByFp);
-  assert.equal(rest.length, 0);
-  assert.equal(pair.thread.id, 't-moved');
-  // The closure names the finding that carries it, because the claim is only good if that comment is posted...
-  assert.equal(pair.fp, 'newfp');
-  // ...which is what `kind` records: a carrier that has to land, as against a thread that already exists.
-  assert.equal(pair.kind, 'posted');
-
-  // A genuinely different warn in the same file must NOT close a still-valid thread: it goes to the verifier.
-  const different = new Map([['otherfp', { file: 'a.kt', line: 42, severity: 'warn', comment: 'an entirely different problem: the artwork cache never evicts' }]]);
-  assert.deepEqual(close([moved], different), []);
-
-  // Nothing new to post, nothing closed; and severity is part of the match.
-  assert.deepEqual(close([moved], new Map([['keptfp', currentByFp.get('keptfp')]])), []);
-  const asInfo = new Map([['newfp', { ...currentByFp.get('newfp'), severity: 'info' }]]);
-  assert.deepEqual(close([moved], asInfo), []);
-
-  // The similarity measure itself: symmetric, and blind to the harness's own markup.
-  assert.ok(findingSimilarity(MOVED_TEXT, `${MOVED_TEXT} (still, at its new line)`) > 0.5);
-  assert.ok(findingSimilarity(MOVED_TEXT, 'the artwork cache never evicts') < 0.5);
-  assert.equal(findingSimilarity('', 'anything'), 0);
-});
 
 test('a 403 is retried only when it looks like a rate limit', async () => {
   const { fetchPullRequestDiff } = await import('../github.mjs');
@@ -1521,32 +1439,6 @@ test('a truncated answer keeps every finding it did write, inner fences and all'
   assert.equal(wasTruncationRepaired(complete), false);
 });
 
-test('a superseded thread stays open when its replacement never posted', async () => {
-  // A finding that MOVED is a prime candidate for a 422 (its new line may not be in the diff) or for the inline
-  // cap. Closing the old thread with "the new comment carries it" when there is no new comment loses it, and it
-  // was pulled out of the verification pass too.
-  const moved = { file: 'a.kt', line: 7, severity: 'warn', comment: 'same issue, new line' };
-  const stale = {
-    id: 't-old', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]',
-    path: 'a.kt', line: 3, comments: [],
-    firstCommentBody: `🟡 **WARN** — same issue <!-- bp-ai-review-fp:${reconcileFp({ file: 'a.kt', line: 3, severity: 'warn' })} -->`,
-  };
-  const io = (postWorks) => ({
-    post: async () => { if (!postWorks) throw new Error('422 line not in diff'); },
-    reply: async () => {}, resolve: async () => {}, unresolve: async () => {},
-  });
-  const current = new Map([[reconcileFp(moved), moved]]);
-  const by = new Map([['t-old', { fp: reconcileFp(moved), kind: 'posted' }]]);
-
-  const landed = await reconcile(current, [stale], io(true), { priorState: null, closedBy: by });
-  assert.deepEqual([...landed.resolvedIds], ['t-old']);
-  assert.equal(landed.supersededKept.size, 0);
-
-  const lost = await reconcile(current, [stale], io(false), { priorState: null, closedBy: by });
-  assert.equal(lost.resolvedIds.size, 0); // nothing closed on a claim that did not land...
-  assert.deepEqual([...lost.supersededKept], ['t-old']); // ...and the caller can say why
-  assert.equal(lost.unpostable.length, 1);
-});
 
 
 test('the options handed to the SDK are the sandbox, and say so', async () => {
@@ -2191,36 +2083,32 @@ test('the round plan is what production runs, and it holds the rules composition
   const currentByFp = new Map([[fp(kept), kept], [fp(movedNew), movedNew]]);
 
   const plan = planRound({ threads, currentByFp, provisional: false });
-  // The moved finding claims its old thread; the unreported one goes to the verifier; the re-reported one is
-  // neither (reconcile keeps it).
-  assert.deepEqual(plan.closing.map((t) => t.id), ['t-moved']);
-  assert.deepEqual(plan.closedBy.get('t-moved'), { fp: fp(movedNew), kind: 'posted' });
-  assert.deepEqual(plan.toVerify.map((t) => t.id), ['t-gone']);
+  // BOTH unreported threads go to the verifier: the one nobody mentioned, and the one whose finding moved.
+  // Deciding the second here from a resemblance score is what retired live findings, so the plan no longer
+  // decides it at all — it hands the model both threads and this push's findings for the file.
+  assert.deepEqual(plan.toVerify.map((t) => t.id).sort(), ['t-gone', 't-moved']);
   assert.deepEqual(plan.overflow, []);
-  // Eligible = everything the verify pass is responsible for, whether or not it runs. This is the invariant that
-  // stops "was not re-reported" from resolving a thread nothing judged.
-  assert.deepEqual([...plan.eligibleIds], ['t-gone']);
+  assert.equal('closing' in plan, false);
+  // The re-reported thread is in neither bucket: reconcile keeps it, and a kept finding is already answered.
+  assert.equal(plan.toVerify.some((t) => t.id === 't-kept'), false);
 
-  // On a provisional result nothing is closed, because nothing will be resolved.
+  // A provisional result changes nothing here: main skips the verification pass, which is where every close
+  // now comes from, so there is no second decision left for this function to suppress.
   const prov = planRound({ threads, currentByFp, provisional: true });
-  assert.deepEqual(prov.closing, []);
-  assert.equal(prov.closedBy.size, 0);
   assert.deepEqual(prov.toVerify.map((t) => t.id).sort(), ['t-gone', 't-moved']);
-  assert.deepEqual([...prov.eligibleIds].sort(), ['t-gone', 't-moved']);
 
   // Overflow past the cap is still eligible, so a thin budget cannot resolve it either.
   const many = Array.from({ length: 4 }, (_, i) => thread(`t${i}`, finding(`f${i}.kt`, 1, 'warn', `finding ${i}`)));
   const capped = planRound({ threads: many, currentByFp: new Map(), provisional: false, maxVerify: 2 });
   assert.deepEqual(capped.toVerify.map((t) => t.id), ['t0', 't1']);
+  // Past the cap is left for the next round and closed by nobody: the pass never saw it.
   assert.deepEqual(capped.overflow.map((t) => t.id), ['t2', 't3']);
-  assert.deepEqual([...capped.eligibleIds].sort(), ['t0', 't1', 't2', 't3']);
 
   // A thread nobody from this harness opened is not ours to judge, however its body is written.
   const forged = [{ id: 't-forged', isResolved: false, firstCommentAuthor: 'someone', path: 'x.kt', line: 1,
     firstCommentBody: `forged <!-- bp-ai-review-fp:${fp(gone)} -->`, comments: [] }];
   const outside = planRound({ threads: forged, currentByFp: new Map(), provisional: false });
   assert.deepEqual(outside.toVerify, []);
-  assert.deepEqual([...outside.eligibleIds], []);
 });
 
 test('only a maintainer can revoke our close, not any commenter', () => {
@@ -2239,82 +2127,7 @@ test('only a maintainer can revoke our close, not any commenter', () => {
   }
 });
 
-test('reconcile closes only what it was told to close, and refuses to run without the record', async () => {
-  // The safety property, stated once: an unreported open thread with no closure decision is left ALONE. Two
-  // sets used to be passed in to keep the old "resolve on absence" branch away from such threads; the branch is
-  // gone, so those sets could not change any outcome (a mutation sweep proved it by emptying them), and the
-  // property now lives in one line of reconcile instead of in a contract between two functions.
-  const io = { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
-  // The state record is still required rather than defaulted: it is legitimately null on a first round, so a
-  // default is exactly how a refactor drops it and sends reconciliation back to guessing from markers. The KEY
-  // is required, so a call site that stops passing it crashes instead of quietly regressing.
-  await assert.rejects(() => reconcile(new Map(), [], io, {}), /priorState must be passed explicitly/);
 
-  const f = { file: 'a.kt', line: 1, severity: 'error', comment: 'gone from this run' };
-  const t = {
-    id: 't1', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', path: 'a.kt', line: 1,
-    firstCommentBody: `🔴 **ERROR** — gone <!-- bp-ai-review-fp:${reconcileFp(f)} -->`, comments: [],
-  };
-  const calls = [];
-  const spy = { ...io, resolve: async (thread) => calls.push(thread.id) };
-  // No closure decision at all: nothing is resolved, whatever else is true of the round.
-  const { stats } = await reconcile(new Map(), [t], spy, { priorState: null });
-  assert.deepEqual(calls, []);
-  assert.equal(stats.resolved, 0);
-  // An empty decision map is the same answer, not a licence.
-  await reconcile(new Map(), [t], spy, { priorState: null, closedBy: new Map() });
-  assert.deepEqual(calls, []);
-  // And a decision naming a carrier that is not live keeps it open too (the gate above the close).
-  const kept = await reconcile(new Map(), [t], spy, { priorState: null, closedBy: new Map([['t1', { fp: 'nowhere', kind: 'posted' }]]) });
-  assert.deepEqual(calls, []);
-  assert.deepEqual([...kept.supersededKept], ['t1']);
-});
-
-test('a finding that oscillates between two lines does not leave two threads open forever', async () => {
-  // Push 1 posts F@3. Push 2 reports F@7: the old thread is superseded, a new one posted. Push 3 reports F@3
-  // again: the first thread reopens on its fingerprint, and the F@7 thread is now unreported, unclaimable by
-  // `pickSuperseded` (its finding's fingerprint already has a thread, so it "did not move"), and the verifier is
-  // instructed to answer `present` for exactly that shape. It stayed open forever — two threads, one issue.
-  const same = 'the deadline is read before the message in hand';
-  const f3 = { file: 'a.kt', line: 3, severity: 'warn', comment: same };
-  const f7 = { file: 'a.kt', line: 7, severity: 'warn', comment: same };
-  const thread = (id, f, commentId) => ({
-    id, isResolved: false, firstCommentId: commentId, firstCommentAuthor: 'github-actions[bot]',
-    path: f.file, line: f.line, comments: [],
-    firstCommentBody: `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${reconcileFp(f)} -->`,
-  });
-  const threads = [thread('t-3', f3, 1), thread('t-7', f7, 2)];
-  const currentByFp = new Map([[reconcileFp(f3), f3]]);
-
-  const plan = planRound({ threads, currentByFp, provisional: false });
-  assert.deepEqual(plan.closing.map((t) => t.id), ['t-7']);
-  assert.deepEqual(plan.toVerify, []); // judging it again could only produce two verdicts for one issue
-  // The carrier is the OTHER thread's finding, and `kind` says so: nothing has to be posted for this close.
-  assert.deepEqual(plan.closedBy.get('t-7'), { fp: reconcileFp(f3), kind: 'thread' });
-
-  const calls = { resolve: [], reply: [] };
-  const io = { post: async () => {}, reply: async (t, body) => calls.reply.push(body), resolve: async (t) => calls.resolve.push(t.id), unresolve: async () => {} };
-  const { stats } = await reconcile(currentByFp, threads, io, {
-    priorState: null, closedBy: plan.closedBy,
-  });
-  assert.deepEqual(calls.resolve, ['t-7']);
-  assert.equal(stats.kept, 1); // the thread carrying the finding stays
-  assert.match(calls.reply[0], /tracked on another open thread/); // and the note says why, not "reported again"
-
-  // If the thread it duplicates stops carrying the finding, the duplicate is NOT closed on a claim about a
-  // thread that is no longer there.
-  const orphaned = await reconcile(new Map(), threads, io, {
-    priorState: null, closedBy: plan.closedBy,
-  });
-  assert.equal(orphaned.resolvedIds.has('t-7'), false);
-  assert.ok(orphaned.supersededKept.has('t-7'));
-
-  // A DIFFERENT finding in the same file is not a duplicate, whatever its line.
-  const other = { file: 'a.kt', line: 9, severity: 'warn', comment: 'an entirely different problem: the artwork cache never evicts' };
-  const plan2 = planRound({ threads: [thread('t-3', f3, 1), thread('t-other', other, 3)], currentByFp, provisional: false });
-  assert.deepEqual(plan2.closing, []);
-  assert.deepEqual(plan2.toVerify.map((t) => t.id), ['t-other']);
-});
 
 test('the summary never claims convergence on a result it also disclaims', () => {
   const stats = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
@@ -2341,55 +2154,6 @@ test('a long thread does not get the same note repeated on every push', () => {
   assert.equal(answeredAlreadyForTest(whole), false);
 });
 
-test('a duplicate closes against a thread that is reopening, and several collapse onto one', async () => {
-  // The correction that mattered: at the third push the live thread is the one reconcile REOPENS, which
-  // `stats.kept` does not count — a rule written against "kept this round" missed the very sequence it was for.
-  const same = 'the deadline is read before the message in hand';
-  const at = (line) => ({ file: 'a.kt', line, severity: 'warn', comment: same });
-  const thread = (id, f, commentId, isResolved = false) => ({
-    id, isResolved, firstCommentId: commentId, firstCommentAuthor: 'github-actions[bot]', path: f.file, line: f.line,
-    firstCommentBody: `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${reconcileFp(f)} -->`,
-    comments: [], lastCommentAuthor: 'github-actions[bot]',
-    lastCommentBody: 'Not reported in the latest run — resolved automatically. <!-- bp-ai-review-auto-resolved -->',
-  });
-
-  // Push 3 of the sequence: A was auto-resolved last round and its finding is reported again, so it reopens; B is
-  // the orphan. B must close against A even though A is not open yet.
-  const A = thread('t-A', at(3), 1, true);
-  const B = thread('t-B', at(7), 2);
-  const reported = new Map([[reconcileFp(at(3)), at(3)]]);
-  const plan = planRound({ threads: [A, B], currentByFp: reported, provisional: false });
-  assert.deepEqual(plan.closing.map((t) => t.id), ['t-B']);
-  assert.equal(plan.closedBy.get('t-B').kind, 'thread');
-  assert.deepEqual(plan.toVerify, []);
-
-  const calls = { resolve: [], unresolve: [], reply: [] };
-  const io = {
-    post: async () => {}, reply: async (t, body) => calls.reply.push(body),
-    resolve: async (t) => calls.resolve.push(t.id), unresolve: async (t) => calls.unresolve.push(t.id),
-  };
-  const { stats, resolvedIds } = await reconcile(reported, [A, B], io, {
-    priorState: null, closedBy: plan.closedBy,
-  });
-  assert.deepEqual(calls.unresolve, ['t-A']); // the live finding's thread comes back...
-  assert.deepEqual(calls.resolve, ['t-B']);   // ...and the duplicate closes against it
-  assert.equal(stats.reopened, 1);
-  assert.ok(resolvedIds.has('t-B'));
-  // The note must carry a harness marker, or the close is indistinguishable from a human's and the finding is
-  // dropped rather than reopened next time it returns.
-  const dupNote = calls.reply.find((b) => b.includes('tracked on another open thread'));
-  assert.match(dupNote, /bp-ai-review-auto-resolved/);
-
-  // The third line: A and B both open and unreported, the finding now at 11. One is claimed as superseded, and
-  // the other must not leak — several duplicates may collapse onto one anchor.
-  const A2 = thread('t-A', at(3), 1);
-  const B2 = thread('t-B', at(7), 2);
-  const moved = planRound({ threads: [A2, B2], currentByFp: new Map([[reconcileFp(at(11)), at(11)]]), provisional: false });
-  // One claims the posted carrier, the other follows it as a thread carrier — one rule, two kinds, no leak.
-  assert.equal(moved.closing.length, 2);
-  assert.deepEqual([...moved.closedBy.values()].map((c) => c.kind).sort(), ['posted', 'thread']);
-  assert.deepEqual(moved.toVerify, []);
-});
 
 test('a not_applicable reply prints its evidence once, however long or messy it is', async () => {
   // The row embeds the evidence through mdCell and truncates it to 180 characters, so deciding by
@@ -2409,97 +2173,7 @@ test('a not_applicable reply prints its evidence once, however long or messy it 
   assert.equal(replies[0].includes('\\|'), false); // and no table escaping leaks into prose
 });
 
-test('a thread only follows a carrier of its own severity, and a chain follows the live finding', () => {
-  // Two properties of the one closure rule that a mutation sweep could break with the suite green: dropping
-  // severity from the match (an `error` thread closed against a live `warn`, so the error disappears without
-  // anyone judging it), and following a CLOSING thread's own stale fingerprint instead of that thread's carrier
-  // (the gate in reconcile then refuses the close, and planRound has already pulled the thread out of the
-  // verification pass — the finding is neither closed nor checked).
-  const same = 'the deadline is read before the message in hand';
-  const at = (line, severity = 'warn') => ({ file: 'a.kt', line, severity, comment: same });
-  const thread = (id, f) => ({
-    id, isResolved: false, firstCommentId: id.length, firstCommentAuthor: 'github-actions[bot]',
-    path: f.file, line: f.line, comments: [],
-    firstCommentBody: `${f.severity === 'error' ? '🔴 **ERROR**' : '🟡 **WARN**'} — ${f.comment} <!-- bp-ai-review-fp:${reconcileFp(f)} -->`,
-  });
 
-  // Same file, same words, different severity: the live warn is NOT a carrier for the stale error.
-  const liveWarn = thread('t-warn', at(3));
-  const staleError = thread('t-error', at(7, 'error'));
-  const reported = new Map([[reconcileFp(at(3)), at(3)]]);
-  const mixed = planRound({ threads: [liveWarn, staleError], currentByFp: reported, provisional: false });
-  assert.deepEqual(mixed.closing, []);
-  assert.deepEqual(mixed.toVerify.map((t) => t.id), ['t-error']); // judged against the code instead
-
-  // Same words, same severity, DIFFERENT file: still not a carrier — a finding in another file is another
-  // finding, however alike the sentences are.
-  const elsewhere = { ...thread('t-other-file', at(7)), path: 'b.kt' };
-  const across = planRound({ threads: [liveWarn, elsewhere], currentByFp: reported, provisional: false });
-  assert.deepEqual(across.closing, []);
-  assert.deepEqual(across.toVerify.map((t) => t.id), ['t-other-file']);
-
-  // A CHAIN, which is where the carrier has to be looked up rather than read off the thread. Three texts, each
-  // similar enough to its neighbour to match and no further: C matches B, B matches the live A, C does not match
-  // A. Following B's own (stale) fingerprint would name a finding this run does not report, reconcile would
-  // refuse the close, and planRound has already taken C out of the verification pass — so C would sit open
-  // forever, judged by nobody.
-  // Short tokens deliberately: the identity text is truncated to the same 160 characters the record stores, and
-  // twenty long words would be cut mid-chain, which changes what matches what.
-  const words = (prefix) => Array.from({ length: 10 }, (_, i) => `${prefix}${String(i + 1).padStart(2, '0')}`);
-  const text = (a, b) => [...words(a), ...words(b)].join(' ');
-  const step = (line, a, b) => ({ file: 'chain.kt', line, severity: 'warn', comment: text(a, b) });
-  const A = step(3, 'alp', 'mid');
-  const B = step(7, 'mid', 'kap'); // 0.5 against A
-  const C = step(11, 'kap', 'zet'); // 0.5 against B, 0 against A
-  assert.equal(findingSimilarity(A.comment, C.comment), 0); // the premise of the chain
-  const chainReported = new Map([[reconcileFp(A), A]]);
-  const chain = planRound({
-    threads: [thread('t-a', A), thread('t-b', B), thread('t-c', C)],
-    currentByFp: chainReported,
-    provisional: false,
-  });
-  assert.deepEqual(chain.closing.map((t) => t.id).sort(), ['t-b', 't-c']);
-  // Every closure names a finding THIS RUN REPORTS. That is the whole invariant: reconcile's one gate asks
-  // whether the carrier is live, so a closure naming anything else is a thread that leaks.
-  for (const [id, closure] of chain.closedBy) {
-    assert.ok(chainReported.has(closure.fp), `${id} closes against a finding this run does not report`);
-  }
-  assert.deepEqual(chain.toVerify, []);
-});
-
-test('a close this round made is reported once, and an attempted one is not reported as done', () => {
-  const t = (id, line) => ({ id, path: 'a.kt', line, originalLine: line });
-  // Both kinds of close, in the order `planRound` produces them: the one carried by a comment being posted,
-  // then the one carried by another thread.
-  const closing = [t('t-moved', 3), t('t-dup', 7)];
-  const closedBy = new Map([['t-moved', { fp: 'fp-new', kind: 'posted' }], ['t-dup', { fp: 'fp-live', kind: 'thread' }]]);
-
-  // Both resolved: two rows, both flagged, so `verifiedClosed` does not count them a second time.
-  const done = closedThreadRows({ closing, closedBy, resolvedIds: new Set(['t-moved', 't-dup']) });
-  assert.deepEqual(done.map((r) => [r.status, r.superseded]), [['resolved', true], ['resolved', true]]);
-  // The sentence a maintainer reads is the ONLY thing `kind` decides.
-  assert.match(done[0].note, /reported again at a new line/);
-  assert.match(done[1].note, /duplicate of another open thread/);
-
-  // Neither resolved, and the reason is known: the row says what actually happened, not what was intended.
-  const kept = closedThreadRows({ closing, closedBy, resolvedIds: new Set(), supersededKept: new Set(['t-moved', 't-dup']) });
-  assert.deepEqual(kept.map((r) => r.status), ['open', 'open']);
-  assert.match(kept[0].note, /could not be posted/);
-  assert.match(kept[1].note, /no longer carrying the finding/);
-
-  // Neither resolved and no reason recorded: the resolve itself failed.
-  const failed = closedThreadRows({ closing, closedBy, resolvedIds: new Set() });
-  for (const row of failed) {
-    assert.equal(row.status, 'open');
-    assert.match(row.note, /could not be resolved/);
-    assert.equal(row.superseded, true);
-  }
-
-  // The footer must count a close once: two flagged rows, `resolved: 2`, and nothing "verified".
-  const body = renderSummary({ verdict: 'pass', summary: 's', findings: [] }, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 2 }, [], { previously: done });
-  assert.equal(body.includes('verified closed'), false);
-  assert.match(body, /2 resolved/);
-});
 
 test('the harness writes down what it did, and reads back only its own record', () => {
   // Five rounds of defects came from re-deriving this from rendered comments. The record round-trips through the
@@ -2725,27 +2399,24 @@ test('the record says which thread carries which finding, and what became of it'
     ['T7', { id: 'T7', fp: 'fp7', path: 'fixed.kt', severity: 'error', text: 'a finding since fixed' }],
     ['T6', { id: 'T6', fp: undefined, path: 'unknown.kt', severity: 'info', text: 'no fingerprint' }],
   ]);
-  const closing = [{ id: 'T9', line: 4 }, { id: 'T8', line: 5 }];
-  const closedBy = new Map([['T9', { fp: 'fp-new', kind: 'posted' }], ['T8', { fp: 'fp-live', kind: 'thread' }]]);
+  // Both kinds of close the harness can make, and both come from the verification pass: a verdict that the
+  // finding is fixed / no longer applies / was accepted, and a verdict that it duplicates a finding this push
+  // reported. Each id reaches these sets only after its `io.resolve` returned.
   const closed = closedRecords({
     identities,
-    closing,
-    closedBy,
     verifiedClosedIds: new Set(['T7']),
-    resolvedIds: new Set(['T9', 'T8']),
+    duplicateClosedIds: new Set(['T8']),
   });
   const closedByFp = Object.fromEntries(closed);
-  // The two kinds are still distinguishable a round later — the next round reads these to know what it did.
-  assert.equal(closedByFp.fp9.action, 'superseded');
-  assert.equal(closedByFp.fp8.action, 'duplicate');
   assert.equal(closedByFp.fp7.action, 'resolved');
-  assert.equal(closedByFp.fp9.id, 'T9');
-  // A close whose resolve did NOT land is not recorded as closed.
-  const attempted = closedRecords({ identities, closing: [{ id: 'T9', line: 4 }], closedBy, resolvedIds: new Set() });
-  assert.deepEqual(attempted, []);
-  // And a thread with no fingerprint has nothing the next round could look up.
-  const unknown = closedRecords({ identities, closing: [{ id: 'T6', line: 1 }], closedBy: new Map([['T6', { fp: 'x', kind: 'thread' }]]), resolvedIds: new Set(['T6']) });
-  assert.deepEqual(unknown, []);
+  assert.equal(closedByFp.fp8.action, 'duplicate');
+  assert.equal(closedByFp.fp8.id, 'T8');
+  // Both are close actions a round later, so a returning finding reopens its thread instead of reading as a
+  // maintainer's decision.
+  assert.equal(HARNESS_CLOSE_ACTIONS_FOR_TEST.has(closedByFp.fp7.action), true);
+  assert.equal(HARNESS_CLOSE_ACTIONS_FOR_TEST.has(closedByFp.fp8.action), true);
+  // A thread with no fingerprint has nothing the next round could look up.
+  assert.deepEqual(closedRecords({ identities, duplicateClosedIds: new Set(['T6']) }), []);
 
   // The record carries the close even when the round also reported a full set of new findings.
   const busy = buildState({
@@ -2755,7 +2426,7 @@ test('the record says which thread carries which finding, and what became of it'
     actions: new Map(),
     closed,
   });
-  assert.equal(busy.findings.fp9.action, 'superseded');
+  assert.equal(busy.findings.fp8.action, 'duplicate');
   assert.ok(Object.keys(busy.findings).length <= 60);
 });
 
@@ -2774,9 +2445,9 @@ test('with a record, identity stops depending on what the comment happens to say
   const B = thread('t-B', at(7));
   const reported = new Map([[reconcileFp(at(3)), at(3)]]);
 
-  // Body-derived (no record): the duplicate is found, as before.
+  // Body-derived (no record): t-B is the thread this round is not answering, so it goes to the verifier.
   const withoutRecord = planRound({ threads: [A, B], currentByFp: reported, provisional: false });
-  assert.deepEqual(withoutRecord.closing.map((t) => t.id), ['t-B']);
+  assert.deepEqual(withoutRecord.toVerify.map((t) => t.id), ['t-B']);
 
   // Record-derived: same answer, and it no longer needs the fingerprint to be present in the body at all.
   const record = {
@@ -2788,20 +2459,21 @@ test('with a record, identity stops depending on what the comment happens to say
   };
   const stripped = [thread('t-A', at(3), 'someone edited this comment and removed everything'), thread('t-B', at(7), 'and this one too')];
   const withRecord = planRound({ threads: stripped, currentByFp: reported, provisional: false, priorState: record });
-  assert.deepEqual(withRecord.closing.map((t) => t.id), ['t-B']);
-  assert.deepEqual(withRecord.toVerify, []);
+  assert.deepEqual(withRecord.toVerify.map((t) => t.id), ['t-B']);
+  // And the identity handed to the verifier is the RECORD's, not the edited body's.
+  assert.equal(withRecord.identities.get('t-B').severity, 'warn');
+  assert.equal(withRecord.identities.get('t-B').text, same);
 
   // A record entry for a thread nobody from this harness opened is still ignored: authorship, not the record,
-  // decides whose threads these are. So t-A is not a carrier — this round posts the finding itself, and t-B is
-  // closed by that comment (`posted`, which must land first) rather than by the foreign thread (`thread`).
+  // decides whose threads these are — so t-A is not ours, and only t-B is judged.
   const foreign = [{ ...thread('t-A', at(3)), firstCommentAuthor: 'someone' }, B];
   const ignored = planRound({ threads: foreign, currentByFp: reported, provisional: false, priorState: record });
-  assert.deepEqual(ignored.closing.map((t) => t.id), ['t-B']);
-  assert.deepEqual(ignored.closedBy.get('t-B'), { fp: reconcileFp(at(3)), kind: 'posted' });
+  assert.deepEqual(ignored.toVerify.map((t) => t.id), ['t-B']);
+  assert.equal(ignored.identities.has('t-A'), false);
 
   // And an unreadable record is no record: the body-derived path takes over rather than the round doing nothing.
   const fallback = planRound({ threads: [A, B], currentByFp: reported, provisional: false, priorState: decodeState('<!-- bp-ai-review-state:{broken} -->') });
-  assert.deepEqual(fallback.closing.map((t) => t.id), ['t-B']);
+  assert.deepEqual(fallback.toVerify.map((t) => t.id), ['t-B']);
 });
 
 test('the record rides in the comment without being cut by its trim', () => {
@@ -2926,29 +2598,6 @@ test('the record costs the summary only what it actually takes', () => {
   assert.ok(decodeState(withSmall) !== null);
 });
 
-test('a record prefix is compared against a body prefix, not a full text', () => {
-  // A record stores 160 characters of a finding's text. Comparing that prefix against a full body text measured
-  // 0.988 similarity falling to 0.552 on a 472-character comment — the difference between recognising a moved
-  // finding and posting a second thread for it.
-  // Dice similarity of a prefix against the whole is 2a/(a+b) for a words against b, so it only falls below the
-  // 0.5 gate once the full text has more than three times the prefix's words. A wall of one repeated token does
-  // not do that, which is why the first version of this test passed with the truncation removed.
-  const long = Array.from({ length: 120 }, (_, i) => `distinctword${i}`).join(' ');
-  const at = (line) => ({ file: 'a.kt', line, severity: 'warn', comment: long });
-  const thread = (id, f, commentId) => ({
-    id, isResolved: false, firstCommentId: commentId, firstCommentAuthor: 'github-actions[bot]', path: f.file, line: f.line,
-    firstCommentBody: `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${reconcileFp(f)} -->`, comments: [],
-  });
-  // One thread has a record entry (a 160-char prefix), the other only its body: the mixed case.
-  const record = { commit: 'c', findings: { [reconcileFp(at(3))]: { id: 'T-A', file: `a.kt`, line: 3, severity: 'warn', text: long.slice(0, 160), action: 'posted', commit: 'c' } } };
-  const plan = planRound({
-    threads: [thread('T-A', at(3), 1), thread('T-B', at(7), 2)],
-    currentByFp: new Map([[reconcileFp(at(3)), at(3)]]),
-    provisional: false,
-    priorState: record,
-  });
-  assert.deepEqual(plan.closing.map((t) => t.id), ['T-B']);
-});
 
 test('a recorded close stops counting once we have spoken after it', () => {
   // Two overlapping runs make a rolled-back record reachable: A closes T and records it, B sees the finding come
@@ -3030,4 +2679,61 @@ test('a record id that no longer names a live thread of ours is not carried forw
   assert.equal(threadIdByFp([foreign], { commit: 'c', findings: { [fp]: { ...stale.findings[fp], id: 'T-foreign' } } }).get(fp), undefined);
   // And with nothing live at all, the entry simply does not survive into the next record.
   assert.equal(threadIdByFp([], stale).get(fp), undefined);
+});
+test('a finding that only moved line: the old thread is judged, not guessed', async () => {
+  // The line drifts whenever something above it is fixed, which changes the fingerprint: the fresh run posts a
+  // comment at the new line and the old thread is not re-reported. It is NOT closed here — reconcile posts,
+  // keeps and reopens, and closes nothing. The old thread goes to the verification pass, which is shown this
+  // push's findings for the file and can call it a duplicate; the harness then closes it only once the new
+  // comment has actually landed. Closing it here on a resemblance score is what retired live findings.
+  const moved = { file: 'a.kt', line: 7, severity: 'warn', comment: 'same issue, new line' };
+  const old = {
+    id: 't-old', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]',
+    path: 'a.kt', line: 3, comments: [],
+    firstCommentBody: `🟡 **WARN** — same issue <!-- bp-ai-review-fp:${reconcileFp({ file: 'a.kt', line: 3, severity: 'warn' })} -->`,
+  };
+  const calls = { post: [], resolve: [], reply: [] };
+  const io = {
+    post: async (f, body) => calls.post.push({ f, body }),
+    reply: async (t, body) => calls.reply.push({ t, body }),
+    resolve: async (t) => calls.resolve.push(t.id),
+    unresolve: async () => {},
+  };
+  const current = new Map([[reconcileFp(moved), moved]]);
+  const { stats, liveFps } = await reconcile(current, [old], io, { priorState: null });
+  assert.equal(stats.posted, 1);
+  assert.deepEqual(calls.resolve, []);
+  assert.deepEqual(calls.reply, []);
+  // The plan sends it to the verifier, and reconcile reports the fingerprint that landed, so the caller can
+  // check a duplicate verdict against something real.
+  const plan = planRound({ threads: [old], currentByFp: current, provisional: false });
+  assert.deepEqual(plan.toVerify.map((t) => t.id), ['t-old']);
+  assert.ok(liveFps.has(reconcileFp(moved)));
+});
+test('reconcile closes nothing at all, and refuses to run without the record', async () => {
+  // The safety property, stated once and in one place: this function posts, keeps and reopens. Closing a thread
+  // is a judgement about code, and the only thing in the harness that reads code is the verification pass, so
+  // every close comes from there. Two option sets and a loop over unreported threads used to live here, each
+  // guarding the "resolve on absence" branch that no longer exists.
+  const io = { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
+  // The state record is still required rather than defaulted: it is legitimately null on a first round, so a
+  // default is exactly how a refactor drops it and sends reconciliation back to guessing from markers. The KEY
+  // is required, so a call site that stops passing it crashes instead of quietly regressing.
+  await assert.rejects(() => reconcile(new Map(), [], io, {}), /priorState must be passed explicitly/);
+
+  const f = { file: 'a.kt', line: 1, severity: 'error', comment: 'gone from this run' };
+  const t = {
+    id: 't1', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', path: 'a.kt', line: 1,
+    firstCommentBody: `🔴 **ERROR** — gone <!-- bp-ai-review-fp:${reconcileFp(f)} -->`, comments: [],
+  };
+  const calls = [];
+  const spy = { ...io, resolve: async (thread) => calls.push(thread.id) };
+  const { stats, liveFps } = await reconcile(new Map(), [t], spy, { priorState: null });
+  assert.deepEqual(calls, []);
+  assert.equal(stats.resolved, 0);
+  // And it reports which findings are live after the round, so the caller can refuse a duplicate close whose
+  // replacement never landed.
+  assert.deepEqual([...liveFps], []);
+  const posted = await reconcile(new Map([[reconcileFp(f), f]]), [], spy, { priorState: null });
+  assert.deepEqual([...posted.liveFps], [reconcileFp(f)]);
 });

@@ -142,7 +142,7 @@ test('the record from the last round decides what reopens, with no fingerprint i
   }
 });
 
-test('a finding that moved: the old thread closes, the new one posts, the footer counts it once', async () => {
+test('a finding that moved: the verifier calls it a duplicate and the old thread closes after the new comment lands', async () => {
   const temp = realpathSync(mkdtempSync(join(tmpdir(), 'integ3-')));
   const { mod, restore } = await loadHarness({
     GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '9', COMMIT: '1122334455667788',
@@ -159,37 +159,95 @@ test('a finding that moved: the old thread closes, the new one posts, the footer
       commit: 'aaaaaaa',
       findings: { [oldFp]: { id: 'T-moved', file: oldF.file, line: oldF.line, severity: 'warn', text, action: 'posted', commit: 'aaaaaaa' } },
     })}`;
-    const gh = fakeGitHub({
-      summaryBody: priorSummary,
-      threads: [{
-        id: 'T-moved', isResolved: false, path: oldF.file, line: oldF.line, originalLine: oldF.line,
-        first: { nodes: [{ databaseId: 31, body: `🟡 **WARN** — ${text} <!-- bp-ai-review-fp:${oldFp} -->`, author: { login: 'github-actions[bot]' } }] },
-        comments: { nodes: [] }, last: { nodes: [] },
-      }],
-    });
+    const thread = {
+      id: 'T-moved', isResolved: false, path: oldF.file, line: oldF.line, originalLine: oldF.line,
+      first: { nodes: [{ databaseId: 31, body: `🟡 **WARN** — ${text} <!-- bp-ai-review-fp:${oldFp} -->`, author: { login: 'github-actions[bot]' } }] },
+      comments: { nodes: [] }, last: { nodes: [] },
+    };
+    const gh = fakeGitHub({ summaryBody: priorSummary, threads: [thread] });
     globalThis.fetch = gh.fetch;
-    await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'it moved', findings: [newF] }) });
+    // The verifier is shown this push's findings for the file and answers with the line it duplicates.
+    await mod.runReview({
+      agent: agentSequence(
+        { verdict: 'warn', summary: 'it moved', findings: [newF] },
+        { threads: [{ id: 1, status: 'duplicate', of: 41, evidence: 'the same leak, now reported at line 41' }] },
+      ),
+    });
 
-    // The finding is posted where the code is now, and the stale anchor is closed as superseded.
+    // The finding is posted where the code is now, and the old thread closes — but only because the new comment
+    // landed first: the close is applied after reconcile, never on the strength of an intention.
     assert.deepEqual(gh.calls.inline.map((c) => c.line), [41]);
     assert.deepEqual(gh.calls.resolved, ['T-moved']);
-    assert.match(gh.calls.replies.join('\n'), /different line/);
+    assert.match(gh.calls.replies.join('\n'), /same issue is reported on this push at line 41/);
 
     const summary = gh.summaryOut();
-    // The close is reported in the table AND counted once: a row without the flag is counted by the stale loop
-    // and again as "verified closed".
-    assert.match(summary, /reported again at a new line/);
+    // Reported in the table AND counted once: a row without the flag is counted by the closer and again as
+    // "verified closed".
+    assert.match(summary, /duplicate of the finding reported at line 41/);
     assert.match(summary, /1 resolved/);
     assert.equal(summary.includes('verified closed'), false);
-    // And the record moves with it: the new fingerprint on the thread that now carries the finding.
+    // And the record moves with it: the new fingerprint on the thread that now carries the finding, and the
+    // close recorded against the old one so a return reopens it rather than reading as a human's decision.
     const state = mod.decodeState(summary);
     assert.equal(state.findings[mod.fingerprint(newF)].action, 'posted');
-    // The CLOSE is recorded too. This assertion used to demand the opposite, which is how the record came to
-    // carry no close at all: a closed thread's finding is absent from this round's findings, so it reached the
-    // record through no other path, `harnessClosedByRecord` always returned null, and the marker archaeology the
-    // record replaced was still what ran in production.
-    assert.equal(state.findings[oldFp].action, 'superseded');
+    assert.equal(state.findings[oldFp].action, 'duplicate');
     assert.equal(state.findings[oldFp].id, 'T-moved');
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('a duplicate verdict is refused when its replacement never landed, or names a finding this push lacks', async () => {
+  // The gate the resemblance rule had, kept where the decision now lives: a thread may only be closed in favour
+  // of a comment that is really there. A post can 422 on a line outside the diff or hit the inline cap, and the
+  // model can also name a line this push never reported — `of` is model output, so it is looked up, not trusted.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'dupguard-')));
+  const env = {
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '18', COMMIT: 'aced000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  };
+  const { mod, restore } = await loadHarness(env, 'dupguard');
+  const realFetch = globalThis.fetch;
+  try {
+    const text = 'the listener is added in onStart and never removed';
+    const oldF = { severity: 'warn', file: 'app/Dup.kt', line: 5, comment: text };
+    const newF = { severity: 'warn', file: 'app/Dup.kt', line: 41, comment: `${text} (still)` };
+    const oldFp = mod.fingerprint(oldF);
+    const threadOf = () => ({
+      id: 'T-dup', isResolved: false, path: oldF.file, line: oldF.line, originalLine: oldF.line,
+      first: { nodes: [{ databaseId: 51, body: `🟡 **WARN** — ${text} <!-- bp-ai-review-fp:${oldFp} -->`, author: { login: 'github-actions[bot]' } }] },
+      comments: { nodes: [] }, last: { nodes: [] },
+    });
+
+    // (a) the replacement cannot be posted: nothing is closed, and the summary says why.
+    const lost = fakeGitHub({ threads: [threadOf()] });
+    const inner = lost.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      if (/\/pulls\/\d+\/comments$/.test(String(url)) && (init.method || 'GET') === 'POST') throw new Error('422 line not in diff');
+      return inner(url, init);
+    };
+    await mod.runReview({
+      agent: agentSequence(
+        { verdict: 'warn', summary: 'it moved', findings: [newF] },
+        { threads: [{ id: 1, status: 'duplicate', of: 41, evidence: 'same issue at 41' }] },
+      ),
+    });
+    assert.deepEqual(lost.calls.resolved, []);
+    assert.match(lost.summaryOut(), /never landed/);
+
+    // (b) the verdict names a line this push does not report: refused, and the thread is reported still open.
+    const bogus = fakeGitHub({ threads: [threadOf()] });
+    globalThis.fetch = bogus.fetch;
+    await mod.runReview({
+      agent: agentSequence(
+        { verdict: 'warn', summary: 'it moved', findings: [newF] },
+        { threads: [{ id: 1, status: 'duplicate', of: 999, evidence: 'same issue somewhere' }] },
+      ),
+    });
+    assert.deepEqual(bogus.calls.resolved, []);
+    assert.match(bogus.summaryOut(), /a finding this push does not contain/);
   } finally {
     globalThis.fetch = realFetch;
     restore();
