@@ -2425,3 +2425,17 @@ test('one place decides which finding a thread carries, and it prefers the recor
   // A record entry for a different thread does not leak onto this one.
   assert.equal(fingerprintOfThread({ id: 'T2', firstCommentBody: 'x' }, record), undefined);
 });
+
+test('a full summary and a full record still fit in one comment', () => {
+  // They did not: 60 000 for the summary plus 20 000 for the record is 80 000, and GitHub rejects at 65 536 —
+  // so a busy round would have posted nothing at all. The earlier test passed because its record was tiny.
+  const many = new Map(Array.from({ length: 60 }, (_, i) => [`fp${i}`, { file: `${'d'.repeat(60)}/f${i}.kt`, line: i, severity: 'error', comment: 'y'.repeat(400) }]));
+  const fatRecord = buildState({ commit: 'a'.repeat(40), currentByFp: many, threadIdByFp: new Map(Array.from({ length: 60 }, (_, i) => [`fp${i}`, `PRRT_kwDOA${'x'.repeat(20)}${i}`])), actions: new Map() });
+  const body = summaryBodyWithState(`${'x'.repeat(200000)}\n\n<!-- bp-ai-review-summary -->`, fatRecord);
+  assert.ok(body.length <= 65536, `a full round produced ${body.length} characters`);
+  // Both halves survive: the human summary is trimmed with its notice, and the record is still parseable.
+  assert.match(body, /trimmed to fit GitHub's comment limit/);
+  assert.ok(decodeState(body) !== null);
+  assert.equal(Object.keys(decodeState(body).findings).length > 0, true);
+  assert.match(body, /<!-- bp-ai-review-summary -->/);
+});

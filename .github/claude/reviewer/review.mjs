@@ -751,8 +751,14 @@ const STATE_VERSION = 1;
 // Bounded twice, by count and by bytes: 200 records of the longest plausible text came to 81 KB, past GitHub's
 // 65 536-character comment limit — the record would have destroyed the comment it rides in. 60 is well beyond the
 // inline cap, and the byte budget is the backstop that does not depend on my arithmetic staying right.
-const MAX_STATE_RECORDS = 60;
+// One comment carries both the summary a human reads and the record the next round reads, so their budgets are
+// derived from GitHub's single limit rather than chosen separately. They were not: 60 000 for the summary plus
+// 20 000 for the record is 80 000, and the comment would have been REJECTED — the earlier test passed only
+// because its record was a few hundred bytes.
+const GITHUB_COMMENT_LIMIT = 65_536;
 const MAX_STATE_BYTES = 20_000;
+const MAX_STATE_MARGIN = 1_000; // the trim notice, the markers, and the newline between the two halves
+const MAX_STATE_RECORDS = 60; // the inline cap plus its overflow: the record holds every CURRENT finding
 const MAX_STATE_TEXT = 160;
 
 // What we did with a finding, in the vocabulary reconcile already uses.
@@ -1738,7 +1744,8 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
 }
 
 // Say why on the PR before failing the check — the run log alone is easy to miss. Returns the error for rethrow.
-const MAX_COMMENT = 60000; // GitHub's limit is 65 536; leave room for the note and the markers
+// What the summary half may use: the whole limit, less the record's budget and a margin.
+const MAX_COMMENT = GITHUB_COMMENT_LIMIT - MAX_STATE_BYTES - MAX_STATE_MARGIN;
 
 // GitHub rejects a comment over 65 536 characters. renderSummary inlines the full text of every finding that
 // could not be attached inline, so a run with many findings can reach that — and the post would throw, the caller
