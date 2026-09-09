@@ -1416,10 +1416,13 @@ export function planRound({ threads, currentByFp, provisional, priorState = null
       // both directions.
       path: recorded ? recorded.file : t.path,
       severity: recorded ? recorded.severity : findingSeverity(t.firstCommentBody),
-      text: recorded ? recorded.text : stripHarnessMarkup(t.firstCommentBody || ''),
+      // Truncated on BOTH paths, to the same length the record stores. A record's text is a prefix, so comparing
+      // it against a full body text is the worst of both: measured 0.988 similarity falling to 0.552 on a
+      // 472-character comment, which is the difference between recognising a moved finding and not.
+      text: (recorded ? recorded.text : stripHarnessMarkup(t.firstCommentBody || '')).slice(0, MAX_STATE_TEXT),
     });
   }
-  const identityOf = (t) => identities.get(t.id) || { id: t.id, fp: undefined, path: t.path, severity: findingSeverity(t.firstCommentBody), text: stripHarnessMarkup(t.firstCommentBody || '') };
+  const identityOf = (t) => identities.get(t.id) || { id: t.id, fp: undefined, path: t.path, severity: findingSeverity(t.firstCommentBody), text: stripHarnessMarkup(t.firstCommentBody || '').slice(0, MAX_STATE_TEXT) };
   const fpOf = (t) => identityOf(t).fp;
   const existingFps = new Set(harnessThreads.map(fpOf).filter(Boolean));
   const openUnreportedAll = harnessThreads
@@ -1783,9 +1786,9 @@ const MAX_COMMENT = GITHUB_COMMENT_LIMIT - MAX_STATE_BYTES - MAX_STATE_MARGIN;
 // could not be attached inline, so a run with many findings can reach that — and the post would throw, the caller
 // would log a warning, and the PR would carry no summary at all. Trim instead, keeping the marker (the upsert
 // finds the comment by it) and a line saying what happened.
-export function boundedSummaryBody(body) {
-  if (body.length <= MAX_COMMENT) return body;
-  return `${body.slice(0, MAX_COMMENT)}\n\n> ⚠️ This summary was trimmed to fit GitHub's comment limit; the run log has the rest.\n\n${MARKER_SUMMARY}`;
+export function boundedSummaryBody(body, max = MAX_COMMENT) {
+  if (body.length <= max) return body;
+  return `${body.slice(0, max)}\n\n> ⚠️ This summary was trimmed to fit GitHub's comment limit; the run log has the rest.\n\n${MARKER_SUMMARY}`;
 }
 
 // The final comment body: the summary, trimmed to fit, with the state record appended AFTER that trim. Inside it,
@@ -1793,9 +1796,13 @@ export function boundedSummaryBody(body) {
 // the failure this record exists to end. Pure, because it lived in `upsertSummary` where no test could reach it
 // and both mutations (drop the record, trim it with the body) stayed green.
 export function summaryBodyWithState(redactedBody, state = null) {
-  const bounded = boundedSummaryBody(redactedBody);
-  if (!state) return bounded;
-  return `${bounded}\n${redact(encodeState(state))}`;
+  // The record is encoded FIRST, so the summary is bounded by what the record actually costs rather than by a
+  // fixed 20 KB reservation: a round with three findings was spending 20 KB of a human's summary on a record of a
+  // few hundred bytes, and a round with none was spending it on nothing at all.
+  const encoded = state ? redact(encodeState(state)) : '';
+  const room = GITHUB_COMMENT_LIMIT - encoded.length - MAX_STATE_MARGIN;
+  const bounded = boundedSummaryBody(redactedBody, room);
+  return encoded ? `${bounded}\n${encoded}` : bounded;
 }
 
 // Build the summary body for a degrade note: keep whatever review is already there (upsertSummary overwrites, and

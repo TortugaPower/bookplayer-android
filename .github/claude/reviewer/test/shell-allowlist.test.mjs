@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -2471,4 +2471,63 @@ test('a full summary and a full record still fit in one comment', () => {
   assert.ok(decodeState(body) !== null);
   assert.equal(Object.keys(decodeState(body).findings).length > 0, true);
   assert.match(body, /<!-- bp-ai-review-summary -->/);
+});
+
+test('a record is believed only in a comment this harness wrote', async () => {
+  // The whole forgery defence is this author filter, and removing it kept the suite green: anyone who can comment
+  // on a PR could otherwise plant a record and have the harness treat a live thread as closed, or a finding as
+  // already tracked on a thread that does not carry it.
+  const f = { file: 'a.kt', line: 1, severity: 'warn', comment: 'a finding' };
+  const blob = encodeState(buildState({ commit: 'c', currentByFp: new Map([[fingerprint(f), f]]), threadIdByFp: new Map([[fingerprint(f), 'T1']]), actions: new Map([[fingerprint(f), 'resolved']]) }));
+  const summary = `## review\n\n<!-- bp-ai-review-summary -->\n${blob}`;
+
+  assert.ok(await readPriorState([{ user: { login: 'github-actions[bot]' }, body: summary }]));
+  assert.ok(await readPriorState([{ user: { login: 'github-actions' }, body: summary }])); // both API spellings
+  // Anyone else, including the PR author and a maintainer, cannot plant one.
+  assert.equal(await readPriorState([{ user: { login: 'gianni' }, body: summary }]), null);
+  assert.equal(await readPriorState([{ user: { login: 'dependabot[bot]' }, body: summary }]), null);
+  assert.equal(await readPriorState([{ user: null, body: summary }]), null);
+  // A harness comment that is not the summary is not the record's home either.
+  assert.equal(await readPriorState([{ user: { login: 'github-actions[bot]' }, body: `an inline comment\n${blob}` }]), null);
+  assert.equal(await readPriorState([]), null);
+});
+
+test('the record costs the summary only what it actually takes', () => {
+  // The budget was a fixed 20 KB reservation, so a round with three findings spent 20 KB of a human's summary on
+  // a record of a few hundred bytes — and a round with none spent it on nothing at all.
+  const f = { file: 'a.kt', line: 1, severity: 'warn', comment: 'small' };
+  const small = buildState({ commit: 'c', currentByFp: new Map([[fingerprint(f), f]]), threadIdByFp: new Map(), actions: new Map() });
+  const long = `${'x'.repeat(200000)}\n\n<!-- bp-ai-review-summary -->`;
+  const withSmall = summaryBodyWithState(long, small);
+  const withNone = summaryBodyWithState(long);
+  assert.ok(withSmall.length <= 65536 && withNone.length <= 65536);
+  // The summary uses what is actually left, so it lands NEAR the limit rather than 20 000 short of it. Asserting
+  // only that the two are close passes just as well when both are wrong by the same reservation.
+  assert.ok(withSmall.length > 60000, `a small record left only ${withSmall.length} for the summary`);
+  assert.ok(withNone.length > 60000, `no record left only ${withNone.length} for the summary`);
+  assert.ok(decodeState(withSmall) !== null);
+});
+
+test('a record prefix is compared against a body prefix, not a full text', () => {
+  // A record stores 160 characters of a finding's text. Comparing that prefix against a full body text measured
+  // 0.988 similarity falling to 0.552 on a 472-character comment — the difference between recognising a moved
+  // finding and posting a second thread for it.
+  // Dice similarity of a prefix against the whole is 2a/(a+b) for a words against b, so it only falls below the
+  // 0.5 gate once the full text has more than three times the prefix's words. A wall of one repeated token does
+  // not do that, which is why the first version of this test passed with the truncation removed.
+  const long = Array.from({ length: 120 }, (_, i) => `distinctword${i}`).join(' ');
+  const at = (line) => ({ file: 'a.kt', line, severity: 'warn', comment: long });
+  const thread = (id, f, commentId) => ({
+    id, isResolved: false, firstCommentId: commentId, firstCommentAuthor: 'github-actions[bot]', path: f.file, line: f.line,
+    firstCommentBody: `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${reconcileFp(f)} -->`, comments: [],
+  });
+  // One thread has a record entry (a 160-char prefix), the other only its body: the mixed case.
+  const record = { commit: 'c', findings: { [reconcileFp(at(3))]: { id: 'T-A', file: `a.kt`, line: 3, severity: 'warn', text: long.slice(0, 160), action: 'posted', commit: 'c' } } };
+  const plan = planRound({
+    threads: [thread('T-A', at(3), 1), thread('T-B', at(7), 2)],
+    currentByFp: new Map([[reconcileFp(at(3)), at(3)]]),
+    provisional: false,
+    priorState: record,
+  });
+  assert.deepEqual(plan.duplicates.map((t) => t.id), ['T-B']);
 });
