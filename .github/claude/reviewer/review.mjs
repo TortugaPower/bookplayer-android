@@ -862,8 +862,8 @@ export async function readPriorState(comments) {
 }
 
 // The record this round leaves behind, built from what reconcile and the verification pass actually did.
-// The identity of a thread that is STILL OPEN and that this round did not re-report: carried into the next
-// round's record so it keeps its fingerprint even when nobody mentions it for a round. Without this the record
+// What the next round needs to remember that this round did not decide: an earlier close, for as long as its
+// thread is still resolved, and the identity of every still-open thread this round did not re-report. Without this the record
 // only ever described the findings of the round that wrote it, so one quiet round dropped a live thread out of
 // it and identity fell back to the marker in the comment body — which is exactly the thing the record exists to
 // stop depending on (a maintainer edits the body, GitHub renders it, the marker is gone, and the thread becomes
@@ -1357,11 +1357,10 @@ earlier runs, each with any human replies. Judge each one against the code as it
 ${blocks.join('\n\n')}`;
 }
 
+const SEVERITY_RE = /\*\*(ERROR|WARN|INFO)\*\*/;
 // Does this body still look like something this harness rendered? Only then is its text the finding's text: a
 // body edited past recognition says whatever the editor wanted, and the record is the only source left.
 const bodyLooksOurs = (body) => SEVERITY_RE.test(String(body || '')) || FP_REGEX.test(String(body || ''));
-
-const SEVERITY_RE = /\*\*(ERROR|WARN|INFO)\*\*/;
 export function findingSeverity(body) {
   const m = SEVERITY_RE.exec(String(body || ''));
   return m ? m[1].toLowerCase() : '';
