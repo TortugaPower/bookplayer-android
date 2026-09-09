@@ -206,19 +206,25 @@ export async function fetchDiffFromFiles(prNumber, maxPages = 30) {
 
 // ---------- Summary (issue-level) comments ----------
 
+// 20 pages = 2,000 comments. The thread listing has had a cap since an unbounded loop was found able to defeat
+// every degrade path the harness has (the job just runs to `timeout-minutes` with no comment on the PR); this
+// loop had none, and 50 sequential pages at up to 30 s each is the same failure by a slower road.
+const MAX_COMMENT_PAGES = 20;
+// Newest-updated first, because all three callers want exactly ONE comment: this harness's own summary, which it
+// PATCHes every round. Chronological order put it on the LAST page of a busy PR, so every page was fetched to
+// reach it.
 export async function listIssueComments(prNumber) {
   const { owner, name } = repo();
   const all = [];
-  let page = 1;
-  for (;;) {
+  for (let page = 1; page <= MAX_COMMENT_PAGES; page++) {
     const batch = await rest(
       'GET',
-      `/repos/${owner}/${name}/issues/${prNumber}/comments?per_page=100&page=${page}`,
+      `/repos/${owner}/${name}/issues/${prNumber}/comments?per_page=100&sort=updated&direction=desc&page=${page}`,
     );
     if (!Array.isArray(batch) || batch.length === 0) break;
     all.push(...batch);
     if (batch.length < 100) break;
-    page++;
+    if (page === MAX_COMMENT_PAGES) console.warn(`Comment listing stopped at the ${MAX_COMMENT_PAGES}-page cap`);
   }
   return all;
 }
