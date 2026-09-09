@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -2300,14 +2300,47 @@ test('the record says which thread carries which finding, and what became of it'
   const actions = actionByFp({
     currentByFp: new Map([[fingerprint(posted), posted], [fingerprint(over), over]]),
     unpostable: [over],
-    superseded: [{ id: 'T9' }],
-    duplicates: [{ id: 'T8' }],
-    resolvedIds: new Set(['T9', 'T8']),
   });
   assert.equal(actions.get(fingerprint(posted)), 'posted');
   assert.equal(actions.get(fingerprint(over)), 'unpostable'); // it exists, it just is not inline
-  assert.equal(actions.get('thread:T9'), 'superseded');
-  assert.equal(actions.get('thread:T8'), 'duplicate');
+
+  // A CLOSE is keyed by fingerprint too, through `closedRecords` — it used to be filed under `thread:<id>`,
+  // which `buildState` never read, so no record ever carried a close and the whole mechanism was inert.
+  const identities = new Map([
+    ['T9', { id: 'T9', fp: 'fp9', path: 'moved.kt', severity: 'warn', text: 'a finding that moved' }],
+    ['T8', { id: 'T8', fp: 'fp8', path: 'dup.kt', severity: 'warn', text: 'a duplicate' }],
+    ['T7', { id: 'T7', fp: 'fp7', path: 'fixed.kt', severity: 'error', text: 'a finding since fixed' }],
+    ['T6', { id: 'T6', fp: undefined, path: 'unknown.kt', severity: 'info', text: 'no fingerprint' }],
+  ]);
+  const closed = closedRecords({
+    identities,
+    superseded: [{ id: 'T9', line: 4 }],
+    duplicates: [{ id: 'T8', line: 5 }],
+    verifiedClosedIds: new Set(['T7']),
+    resolvedIds: new Set(['T9', 'T8']),
+  });
+  const closedByFp = Object.fromEntries(closed);
+  assert.equal(closedByFp.fp9.action, 'superseded');
+  assert.equal(closedByFp.fp8.action, 'duplicate');
+  assert.equal(closedByFp.fp7.action, 'resolved');
+  assert.equal(closedByFp.fp9.id, 'T9');
+  // A close whose resolve did NOT land is not recorded as closed.
+  const attempted = closedRecords({ identities, superseded: [{ id: 'T9', line: 4 }], resolvedIds: new Set() });
+  assert.deepEqual(attempted, []);
+  // And a thread with no fingerprint has nothing the next round could look up.
+  const unknown = closedRecords({ identities, duplicates: [{ id: 'T6', line: 1 }], resolvedIds: new Set(['T6']) });
+  assert.deepEqual(unknown, []);
+
+  // The record carries the close even when the round also reported a full set of new findings.
+  const busy = buildState({
+    commit: 'abc1234',
+    currentByFp: new Map(Array.from({ length: 60 }, (_, i) => [`n${i}`, { file: `f${i}.kt`, line: i, severity: 'info', comment: 'x' }])),
+    threadIdByFp: new Map(),
+    actions: new Map(),
+    closed,
+  });
+  assert.equal(busy.findings.fp9.action, 'superseded');
+  assert.ok(Object.keys(busy.findings).length <= 60);
 });
 
 test('with a record, identity stops depending on what the comment happens to say', () => {

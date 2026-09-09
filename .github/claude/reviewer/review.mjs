@@ -814,14 +814,31 @@ export function threadIdByFp(threads = [], priorState = null) {
   return map;
 }
 
-// What happened to each finding this round, in the record's vocabulary.
-export function actionByFp({ unpostable = [], currentByFp = new Map(), superseded = [], duplicates = [], resolvedIds = new Set() } = {}) {
+// What happened to each finding this round, in the record's vocabulary. Fingerprint-keyed, because that is how
+// the record is keyed and how the next round looks a thread up.
+export function actionByFp({ unpostable = [], currentByFp = new Map() } = {}) {
   const actions = new Map();
   for (const [fp] of currentByFp) actions.set(fp, 'posted');
   for (const f of unpostable) actions.set(fingerprint(f), 'unpostable');
-  for (const t of superseded) if (resolvedIds.has(t.id)) actions.set(`thread:${t.id}`, 'superseded');
-  for (const t of duplicates) if (resolvedIds.has(t.id)) actions.set(`thread:${t.id}`, 'duplicate');
   return actions;
+}
+
+// The threads this round CLOSED, as record entries. Without these the record never carries a close at all: a
+// closed thread's finding is by definition absent from `currentByFp`, so `buildState` never saw it, no record ever
+// held an action in HARNESS_CLOSE_ACTIONS, `harnessClosedByRecord` always returned null, and the marker
+// archaeology the record was built to replace was still what ran in production. The tests passed only because
+// they hand-wrote `action: 'resolved'`.
+export function closedRecords({ identities = new Map(), superseded = [], duplicates = [], verifiedClosedIds = new Set(), resolvedIds = new Set() } = {}) {
+  const entries = [];
+  const add = (thread, action) => {
+    const identity = identities.get(thread.id);
+    if (!identity?.fp) return; // no fingerprint, nothing the next round could look up
+    entries.push([identity.fp, { id: thread.id, file: identity.path, line: thread.line ?? thread.originalLine ?? 0, severity: identity.severity, text: identity.text, action }]);
+  };
+  for (const t of superseded) if (resolvedIds.has(t.id)) add(t, 'superseded');
+  for (const t of duplicates) if (resolvedIds.has(t.id)) add(t, 'duplicate');
+  for (const id of verifiedClosedIds) add({ id, line: 0 }, 'resolved');
+  return entries;
 }
 
 // The record the last round left, from this harness's own summary comment. Absent on a PR opened before this
@@ -832,12 +849,15 @@ export async function readPriorState(comments) {
 }
 
 // The record this round leaves behind, built from what reconcile and the verification pass actually did.
-export function buildState({ commit, currentByFp, threadIdByFp = new Map(), actions = new Map() }) {
+export function buildState({ commit, currentByFp, threadIdByFp = new Map(), actions = new Map(), closed = [] }) {
   const findings = {};
+  // Closes go in first, so a thread this round closed is in the record even when the round also reported many
+  // new findings and the cap trims.
+  for (const [fp, record] of closed) findings[fp] = { ...record, commit: String(commit || '').slice(0, 40) };
   // Bounded here, not only at the encoder, so nothing downstream carries an unbounded record — and ordered
   // severity-first, so a truncated one keeps the findings that matter rather than whichever came first.
   const ranked = [...currentByFp].sort(([, a], [, b]) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9));
-  for (const [fp, f] of ranked.slice(0, MAX_STATE_RECORDS)) {
+  for (const [fp, f] of ranked.slice(0, Math.max(0, MAX_STATE_RECORDS - Object.keys(findings).length))) {
     findings[fp] = {
       id: threadIdByFp.get(fp) || null,
       file: f.file,
@@ -1350,12 +1370,11 @@ export function pickSuperseded(openThreads, currentByFp, existingFps, identity =
   }
   const pairs = [];
   for (const t of openThreads) {
-    const key = `${t.path}|${findingSeverity(t.firstCommentBody)}`;
+    const mine = identity?.(t);
+    const key = `${mine?.path ?? t.path}|${mine?.severity ?? findingSeverity(t.firstCommentBody)}`;
     const pool = candidates.get(key);
     if (!pool || !pool.length) continue;
-    // The record's own text when there is one: recovering it from the rendered comment loses the markup we
-    // stripped and the severity prefix we parsed, which is what made this comparison fuzzy in the first place.
-    const text = identity?.(t)?.text ?? stripHarnessMarkup(t.firstCommentBody || '');
+    const text = mine?.text ?? stripHarnessMarkup(t.firstCommentBody || '');
     let best = -1;
     let bestScore = 0;
     pool.forEach((c, i) => {
@@ -1381,17 +1400,27 @@ export function planRound({ threads, currentByFp, provisional, priorState = null
   // The fingerprint a thread carries, and the finding it was: from the record when there is one, from the comment
   // body when there is not. The record is the reason this no longer has to parse its own rendered output — and it
   // knows the finding's text and severity exactly, rather than recovering them from an emoji prefix.
-  const byThreadId = new Map();
-  for (const [fp, record] of Object.entries(priorState?.findings || {})) if (record?.id) byThreadId.set(record.id, { fp, record });
-  const fpOf = (t) => fingerprintOfThread(t, priorState);
-  // The finding a thread carries. The record knows it exactly; the fallback recovers it from the rendered comment,
-  // which is lossy in both directions — severity comes back from an emoji prefix and the text from markdown with
-  // our own markup stripped out.
-  const identityOf = (t) => {
-    const known = byThreadId.get(t.id)?.record;
-    if (known) return { path: known.file, severity: known.severity, text: known.text };
-    return { path: t.path, severity: findingSeverity(t.firstCommentBody), text: stripHarnessMarkup(t.firstCommentBody || '') };
-  };
+  // ONE identity per harness thread, computed once and read by everything: the fingerprint, the file, the
+  // severity and the text of the finding it carries. Four call sites derived severity and text separately before —
+  // `planRound`, `pickSuperseded`'s pool key, `buildVerifyPrompt` and `applyVerification` — and they disagreed
+  // whenever a comment body had been edited, which is the premise the record exists for. Measured: an `error`
+  // thread whose `**ERROR**` prefix was gone got closed by a `not_applicable` verdict, silently disabling the
+  // guard that says an error closes only on a fix.
+  const identities = new Map();
+  for (const t of harnessThreads) {
+    const recorded = Object.values(priorState?.findings || {}).find((r) => r?.id === t.id);
+    identities.set(t.id, {
+      id: t.id,
+      fp: fingerprintOfThread(t, priorState),
+      // The record knows these exactly; the fallback recovers them from the rendered comment, which is lossy in
+      // both directions.
+      path: recorded ? recorded.file : t.path,
+      severity: recorded ? recorded.severity : findingSeverity(t.firstCommentBody),
+      text: recorded ? recorded.text : stripHarnessMarkup(t.firstCommentBody || ''),
+    });
+  }
+  const identityOf = (t) => identities.get(t.id) || { id: t.id, fp: undefined, path: t.path, severity: findingSeverity(t.firstCommentBody), text: stripHarnessMarkup(t.firstCommentBody || '') };
+  const fpOf = (t) => identityOf(t).fp;
   const existingFps = new Set(harnessThreads.map(fpOf).filter(Boolean));
   const openUnreportedAll = harnessThreads
     .filter((t) => !t.isResolved)
@@ -1447,6 +1476,7 @@ export function planRound({ threads, currentByFp, provisional, priorState = null
   const toVerify = openUnreported.slice(0, maxVerify);
   const overflow = openUnreported.slice(maxVerify); // left for the next run, never resolved unverified
   return {
+    identities,
     existingFps,
     superseded,
     supersededBy,
@@ -1542,6 +1572,7 @@ export function harnessClosed(t, markers = HARNESS_RESOLVED_MARKERS, priorState 
 
 export async function applyVerification(verdicts, entries, io, { commit = '', prAuthor = '', handledIds = new Set() } = {}) {
   const rows = [];
+  const closedIds = new Set(); // what this pass actually resolved, so the record can carry the close
   const stats = { verifiedFixed: 0, stillOpen: 0, closedByHuman: 0, dropped: 0 };
   for (const { id, thread: t } of entries) {
     // Recorded before anything can throw: a thread this pass touched must not also be judged by the "was not
@@ -1589,6 +1620,7 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
         const reply = noteQuotesEvidence || !evidence ? `✅ ${note}` : `✅ ${note}: ${evidence}`;
         await io.reply(t, redact(`${reply}\n\n${marker}`)).catch((e) => console.warn(`verified-resolve note failed — ${e.message}`));
         rows.push({ label, status: 'resolved', note });
+        closedIds.add(t.id);
         if (status === 'fixed') stats.verifiedFixed++;
         else if (status === 'accepted') stats.closedByHuman++;
         else stats.dropped++;
@@ -1609,7 +1641,7 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
     rows.push({ label, status: 'open', note: status === 'insufficient' ? 'answered, concern stands' : 'still open' });
     stats.stillOpen++;
   }
-  return { rows, stats };
+  return { rows, stats, closedIds };
 }
 
 // Reconcile the current findings against the PR's existing review threads. Pure apart from `io`, so the
@@ -2027,6 +2059,7 @@ export async function runReview({ agent = runAgent } = {}) {
   // fresh run did not re-report (a re-report is already an answer). Skipped on a provisional result or a thin budget.
   let previously = [];
   let verified = false;
+  let verifiedClosedIds = new Set();
   const handledIds = new Set(); // filled in by applyVerification, so a throw mid-pass does not lose what it did
   // A finding whose line drifted (the usual outcome of fixing something above it) gets a NEW fingerprint, so the
   // fresh run posts a new thread while the old one is neither re-reported nor stale-resolved — two open threads for
@@ -2039,7 +2072,7 @@ export async function runReview({ agent = runAgent } = {}) {
   // unverified, with a note claiming it moved when it did not.
   // Harness-authored threads only, like openUnreportedAll below and reconcile's own map: the marker is a public
   // string, so a comment from anyone else carrying one must not decide which findings count as new.
-  const { superseded, supersededBy, duplicates, duplicateOf, toVerify, overflow, eligibleIds } = planRound({ threads, currentByFp, provisional, priorState: stateRecord });
+  const { identities, superseded, supersededBy, duplicates, duplicateOf, toVerify, overflow, eligibleIds } = planRound({ threads, currentByFp, provisional, priorState: stateRecord });
   const verifySlice = verifyBudget(startedAt);
   if (toVerify.length && (provisional || verifySlice <= 60_000)) {
     // Say why in the log: silently falling back to "was not re-reported" is how this pass came to look like it
@@ -2064,6 +2097,7 @@ export async function runReview({ agent = runAgent } = {}) {
       const parsedThreads = parseVerifyResult(run.finalText || run.lastAnswer || '');
       if (!parsedThreads) throw new Error('no parseable {threads:[...]} in the verifier output');
       const applied = await applyVerification(verdictsById(parsedThreads), numbered, io, { commit: COMMIT, prAuthor: pr.author, handledIds });
+      verifiedClosedIds = applied.closedIds;
       previously = applied.rows.concat(
         overflow.map((t) => ({ label: `\`${mdPath(t.path)}:${threadAnchor(t).line ?? '?'}\``, status: 'open', note: 'not checked this round' })),
       );
@@ -2113,7 +2147,8 @@ export async function runReview({ agent = runAgent } = {}) {
     commit: COMMIT,
     currentByFp,
     threadIdByFp: threadIdByFp(threads, stateRecord),
-    actions: actionByFp({ stats, unpostable, currentByFp, superseded, duplicates, resolvedIds }),
+    actions: actionByFp({ unpostable, currentByFp }),
+    closed: closedRecords({ identities, superseded, duplicates, verifiedClosedIds, resolvedIds }),
   });
   await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause, previously, priorState }), roundState).catch((e) =>
     console.warn(`Could not post the summary comment: ${e.message}`),

@@ -175,7 +175,12 @@ test('a finding that moved: the old thread closes, the new one posts, the footer
     // And the record moves with it: the new fingerprint on the thread that now carries the finding.
     const state = mod.decodeState(summary);
     assert.equal(state.findings[mod.fingerprint(newF)].action, 'posted');
-    assert.equal(state.findings[oldFp], undefined);
+    // The CLOSE is recorded too. This assertion used to demand the opposite, which is how the record came to
+    // carry no close at all: a closed thread's finding is absent from this round's findings, so it reached the
+    // record through no other path, `harnessClosedByRecord` always returned null, and the marker archaeology the
+    // record replaced was still what ran in production.
+    assert.equal(state.findings[oldFp].action, 'superseded');
+    assert.equal(state.findings[oldFp].id, 'T-moved');
   } finally {
     globalThis.fetch = realFetch;
     restore();
