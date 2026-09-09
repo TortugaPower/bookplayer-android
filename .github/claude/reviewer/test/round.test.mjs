@@ -992,8 +992,10 @@ test('DRY_RUN writes nothing at all, and the diff on disk is the whole diff', as
       return gh.fetch(url, init);
     };
     let seenDiffPath = '';
+    let seenPrompt = '';
     await mod.runReview({
       agent: async (prompt) => {
+        seenPrompt = prompt;
         seenDiffPath = (/([^\s`'"]*pr-\d+\.diff)/.exec(prompt) || [])[1] || '';
         return { finalText: '```json\n' + JSON.stringify({ verdict: 'warn', summary: 'dry', findings: [{ severity: 'warn', file: 'x', line: 1, comment: 'c' }] }) + '\n```', lastAnswer: '', turns: 1, resultSubtype: 'success' };
       },
@@ -1012,6 +1014,10 @@ test('DRY_RUN writes nothing at all, and the diff on disk is the whole diff', as
     // cannot tell "the whole diff" from "the first kilobyte of it".
     assert.equal(readFileSync(seenDiffPath, 'utf8'), gh.diffBody);
     assert.ok(gh.diffBody.length > 4000, `the fixture diff is only ${gh.diffBody.length} bytes`);
+    // And the size the prompt quotes is the size of THAT file, measured by the round rather than assumed: the
+    // agent budgets its reads against these numbers, so a stale or invented figure is worse than none.
+    assert.match(seenPrompt, new RegExp(`${gh.diffBody.length} bytes`));
+    assert.match(seenPrompt, new RegExp(`${gh.diffBody.split('\n').length} lines`));
   } finally {
     globalThis.fetch = realFetch;
     restore();

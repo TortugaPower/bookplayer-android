@@ -508,6 +508,9 @@ test('the PR description and title reach the prompt as data', () => {
   assert.match(big, /493000 bytes/);
   assert.match(big, /12000 lines/);
   assert.match(big, /offset.*limit|limit.*offset/s);
+  // The limit itself, not just "use offset": what cost a turn on the real PR was the agent not knowing that a
+  // file this size is REFUSED outright rather than returned in part.
+  assert.match(big, /256 ?KB/);
 });
 
 test('a result that omits findings is accepted and normalised (seen live: a complete pass was discarded)', () => {
