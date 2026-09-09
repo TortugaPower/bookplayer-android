@@ -832,6 +832,9 @@ test('the verifier is shown this push\'s findings for the thread\'s own file, an
     ['fp2', { file: 'app/B.kt', line: 3, severity: 'error', comment: 'a finding in another file entirely' }],
   ]);
   const prompt = buildVerifyPrompt([{ id: 1, thread: t, identity }], 'abcdef1234567890', 'gianni', current);
+  // The commit the code has moved to. It is the premise of the whole pass — "judge this against the code as it
+  // is NOW" — and the only thing in the prompt that says the finding is being re-examined rather than reported.
+  assert.match(prompt, /moved on to commit `abcdef12`/);
   assert.match(prompt, /<reported line="41" severity="warn">/);
   assert.equal(prompt.includes('another file entirely'), false);
   // Model text in a prompt is data: the tags a finding quotes cannot open an element of their own.
@@ -1844,7 +1847,12 @@ test('a review thread is mapped from the selection that answers each question', 
     async (_url, init) => {
       queries.push(JSON.parse(init.body).query);
       page++;
-      const nodes = page === 1 ? [node()] : [node({ id: 't2', isResolved: true, line: null })];
+      const nodes = page === 1
+        ? [node()]
+        : [node({
+            id: 't2', isResolved: true, line: null,
+            first: { nodes: [{ databaseId: 21, body: 'a human opened this thread', author: { login: 'gianni' } }] },
+          })];
       return {
         ok: true, status: 200, headers: { get: () => null },
         json: async () => ({ data: { repository: { pullRequest: { reviewThreads: {
@@ -1869,6 +1877,10 @@ test('a review thread is mapped from the selection that answers each question', 
   assert.match(t.firstCommentBody, /bp-ai-review-fp:abc123/);
   assert.equal(t.firstCommentId, 11);
   assert.equal(t.firstCommentAuthor, 'github-actions[bot]');
+  // And a HUMAN's thread maps to that human. Everything downstream keys "is this ours?" on this field — the
+  // markers are public strings anyone can paste — so hardcoding it would put a maintainer's own review threads
+  // into the harness's hands: judged by the verifier, closed, and their fingerprints trusted.
+  assert.equal(threads[1].firstCommentAuthor, 'gianni');
   // The newest comment comes from ITS own selection, with the author — a marker only counts as ours if we wrote it.
   assert.equal(t.lastCommentBody, 'the newest comment');
   assert.equal(t.lastCommentAuthor, 'gianni');
