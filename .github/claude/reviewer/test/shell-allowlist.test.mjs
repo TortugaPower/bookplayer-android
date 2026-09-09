@@ -2273,6 +2273,22 @@ test('a flag must be one this review needs, spelled in full', () => {
   }
 });
 
+test('severity is part of a finding\'s identity', () => {
+  // The fingerprint is `sha1(file|line|severity)`. Drop severity from it and a `warn` and an `error` on the
+  // same line become one finding: whichever is reported second is merged into the other's comment and its
+  // severity disappears — including the escalation from warn to error, which is the one change a maintainer
+  // most needs to see. Nothing pinned the severity term.
+  const at = (severity) => ({ file: 'app/A.kt', line: 12, severity, comment: 'the same line, judged differently' });
+  assert.notEqual(fingerprint(at('warn')), fingerprint(at('error')));
+  assert.notEqual(fingerprint(at('info')), fingerprint(at('warn')));
+  // The other two terms as well, so the whole key is pinned rather than one third of it.
+  assert.notEqual(fingerprint(at('warn')), fingerprint({ ...at('warn'), line: 13 }));
+  assert.notEqual(fingerprint(at('warn')), fingerprint({ ...at('warn'), file: 'app/B.kt' }));
+  // And the comment text is NOT part of it: a finding reworded between pushes is the same finding, which is
+  // what stops a reworded comment from posting a second thread.
+  assert.equal(fingerprint(at('warn')), fingerprint({ ...at('warn'), comment: 'entirely different words' }));
+});
+
 test('a second thread carrying the same fingerprint is judged, not ignored forever', () => {
   // reconcile keeps the FIRST thread per fingerprint, so a second one carrying the same finding was in no
   // bucket at all: never kept, never closed, never verified, never recorded — invisible for as long as its

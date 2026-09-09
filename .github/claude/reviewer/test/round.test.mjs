@@ -925,3 +925,44 @@ test('the round arms the clocks and the caps it computes', async () => {
     restore();
   }
 });
+
+test('a thin verification slice means the pass is not started at all', async () => {
+  // Under a minute of budget the pass is skipped rather than started. Started anyway, it can still return a
+  // partial verdict list through the deadline salvage — and the pass is now the only thing that closes a
+  // thread, so a rushed judgement is a close nobody would defend. The summary says the threads went unjudged.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'thin-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '27', COMMIT: 'th1n000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+    // The job budget is what the verify slice is carved out of: 61 seconds leaves the review its 60-second
+    // floor and the verification pass almost nothing.
+    REVIEW_JOB_BUDGET_MS: String(61_000), REVIEW_VERIFY_BUDGET_MS: String(50_000),
+  }, 'thin');
+  const realFetch = globalThis.fetch;
+  try {
+    const f = { severity: 'warn', file: 'app/Thin.kt', line: 3, comment: 'a finding from an earlier push' };
+    const fp = mod.fingerprint(f);
+    const gh = fakeGitHub({
+      threads: [{
+        id: 'T-thin', isResolved: false, path: f.file, line: f.line, originalLine: f.line,
+        first: { nodes: [{ databaseId: 71, body: `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${fp} -->`, author: { login: 'github-actions[bot]' } }] },
+        comments: { nodes: [] }, last: { nodes: [] },
+      }],
+    });
+    globalThis.fetch = gh.fetch;
+    let calls = 0;
+    await mod.runReview({
+      agent: async () => {
+        calls++;
+        return { finalText: '```json\n' + JSON.stringify({ verdict: 'pass', summary: 'nothing new', findings: [] }) + '\n```', lastAnswer: '', turns: 1, resultSubtype: 'success' };
+      },
+    });
+    assert.equal(calls, 1, 'the verification pass was started on a slice it cannot finish in');
+    assert.deepEqual(gh.calls.resolved, []);
+    assert.match(gh.summaryOut(), /not checked this round/);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
