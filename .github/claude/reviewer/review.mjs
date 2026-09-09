@@ -782,10 +782,16 @@ export function decodeState(body) {
 
 // Which thread carries which finding, from the threads as fetched — the one place a fingerprint is still read out
 // of a comment body, and only to seed the record that replaces doing so.
-export function threadIdByFp(threads = []) {
+export function threadIdByFp(threads = [], priorState = null) {
   const map = new Map();
-  for (const t of threads) {
-    if (!isHarnessComment(t.firstCommentAuthor)) continue;
+  const ours = threads.filter((t) => isHarnessComment(t.firstCommentAuthor));
+  const ids = new Set(ours.map((t) => t.id));
+  // What the last record said, for as long as that thread still exists: a body can be edited, and an edited body
+  // used to lose the thread — the next record then carried `id: null` and the round after it was blind again.
+  for (const [fp, record] of Object.entries(priorState?.findings || {})) {
+    if (record?.id && ids.has(record.id)) map.set(fp, record.id);
+  }
+  for (const t of ours) {
     const fp = (FP_REGEX.exec(t.firstCommentBody || '') || [])[1];
     if (fp && !map.has(fp)) map.set(fp, t.id);
   }
@@ -1606,11 +1612,20 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
   const verifiedIds = new Set([...handledIds, ...eligibleIds]);
   // Errors first: with MAX_INLINE in play, the findings a human most needs in context must get the slots.
   currentByFp = new Map([...currentByFp].sort(([, a], [, b]) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]));
+  // Which thread carries which finding: from the record when there is one, from the comment body when there is
+  // not. Only threads we authored count either way — a missing author (a deleted account) is not ours. An
+  // end-to-end round caught this still parsing bodies after `planRound` had moved: a thread whose body had been
+  // edited was invisible here, so a returning finding was posted as new instead of reopening its own thread.
   const existingByFp = new Map();
-  for (const t of threads) {
-    if (!isHarnessComment(t.firstCommentAuthor)) continue; // only threads we authored; a missing author (deleted account) is not ours
+  const ours = threads.filter((t) => isHarnessComment(t.firstCommentAuthor));
+  const byId = new Map(ours.map((t) => [t.id, t]));
+  for (const [fp, record] of Object.entries(priorState?.findings || {})) {
+    const t = record?.id ? byId.get(record.id) : null;
+    if (t) existingByFp.set(fp, t);
+  }
+  for (const t of ours) {
     const m = (t.firstCommentBody || '').match(FP_REGEX);
-    if (m) existingByFp.set(m[1], t);
+    if (m && !existingByFp.has(m[1])) existingByFp.set(m[1], t);
   }
 
   const stats = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
@@ -1806,7 +1821,11 @@ export const reviewBudget = (startedAt, now = Date.now()) =>
 export const verifyBudget = (startedAt, now = Date.now()) =>
   Math.min(VERIFY_BUDGET_MS, JOB_BUDGET_MS - (now - startedAt) - 30_000);
 
-async function main() {
+// `main()` with one seam: the model call. Everything else — the GitHub client, the diff on disk, the budgets —
+// stays real, so a test can drive the whole composition through a stubbed `fetch` and only fake the agent. Three
+// separate mutations survived a green suite purely because they lived in these call sites and nothing could reach
+// them; guarding each one was mitigation, this is the coverage.
+export async function runReview({ agent = runAgent } = {}) {
   // Before the --setup-failed branch too: NaN would otherwise reach listIssueComments(NaN), whose failure
   // appendNoteToSummary swallows — leaving exactly the silent red check that mode exists to prevent.
   if (!Number.isInteger(PR_NUMBER) || PR_NUMBER < 1) throw new Error(`PR_NUMBER must be a positive integer, got ${JSON.stringify(process.env.PR_NUMBER)}`);
@@ -1839,7 +1858,7 @@ async function main() {
     // The time that is left, not the whole budget: fetching the PR, the diff (up to 4x the API timeout, retried)
     // and writing it to disk all happen first, and a deadline measured from here could outlast the job's own
     // timeout — a cancelled job is the half-reconciled, comment-less outcome the deadline exists to prevent.
-    agentRun = await runAgent(buildUserPrompt(pr, diffPath), reviewBudget(startedAt));
+    agentRun = await agent(buildUserPrompt(pr, diffPath), reviewBudget(startedAt));
     if (shouldHardFail(agentRun)) {
       throw new Error(`agent ended with ${agentRun.resultSubtype} and no output`);
     }
@@ -1854,7 +1873,7 @@ async function main() {
     console.warn(`Run with ${MODEL} failed (${msg}); retrying once with ${retryModel}`);
     MODEL = retryModel;
     try {
-      agentRun = await runAgent(buildUserPrompt(pr, diffPath), reviewBudget(startedAt));
+      agentRun = await agent(buildUserPrompt(pr, diffPath), reviewBudget(startedAt));
       // The same gate as the first attempt: a retry that ends with an unexpected subtype and no output is a
       // failure, not a degrade.
       if (shouldHardFail(agentRun)) throw new Error(`agent ended with ${agentRun.resultSubtype} and no output`);
@@ -2025,7 +2044,7 @@ async function main() {
       // recognise one — otherwise a complete verdict list arriving near the bell would be discarded and these
       // threads would fall back to the fingerprint heuristic, unverified.
       const verifyFinished = (t) => parseVerifyResult(t) !== null;
-      const run = await runAgent(buildVerifyPrompt(numbered, COMMIT, pr.author), verifySlice, VERIFY_SYSTEM_PROMPT, verifyFinished, verifyFinished);
+      const run = await agent(buildVerifyPrompt(numbered, COMMIT, pr.author), verifySlice, VERIFY_SYSTEM_PROMPT, verifyFinished, verifyFinished);
       // `verifyFinished` gates what runAgent remembers, so lastAnswer here is a verdict list, not a review
       // result — usable when the deadline landed after a complete list but before the run ended.
       const parsedThreads = parseVerifyResult(run.finalText || run.lastAnswer || '');
@@ -2079,7 +2098,7 @@ async function main() {
   const roundState = buildState({
     commit: COMMIT,
     currentByFp,
-    threadIdByFp: threadIdByFp(threads),
+    threadIdByFp: threadIdByFp(threads, stateRecord),
     actions: actionByFp({ stats, unpostable, currentByFp, superseded, duplicates, resolvedIds }),
   });
   await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause, previously, priorState }), roundState).catch((e) =>
@@ -2099,7 +2118,7 @@ async function main() {
 // module's real path would silently evaluate false when any component is a symlink, and the step would then
 // exit 0 with no review at all.
 const invokedDirectly = safeRealpath(resolve(process.argv[1] ?? '')) === safeRealpath(fileURLToPath(import.meta.url));
-if (invokedDirectly) main().catch(async (err) => {
+if (invokedDirectly) runReview().catch(async (err) => {
   // Say so on the PR before failing, whatever went wrong and wherever it happened — the setup calls before the
   // agent runs (the PR fetch, the diff fetch, writing it to disk) are outside main()'s own degrade paths, and a
   // red check with no comment is the invisible failure this harness exists to avoid. upsertSummary is an upsert,
