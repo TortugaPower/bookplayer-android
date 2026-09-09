@@ -802,6 +802,13 @@ export function actionByFp({ unpostable = [], currentByFp = new Map(), supersede
   return actions;
 }
 
+// The record the last round left, from this harness's own summary comment. Absent on a PR opened before this
+// landed, and on the first round of any PR, so every consumer treats it as advisory.
+export async function readPriorState(comments) {
+  const summary = (comments || []).find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
+  return decodeState(summary?.body || '');
+}
+
 // The record this round leaves behind, built from what reconcile and the verification pass actually did.
 export function buildState({ commit, currentByFp, threadIdByFp = new Map(), actions = new Map() }) {
   const findings = {};
@@ -1311,7 +1318,7 @@ export function findingSimilarity(a, b) {
 
 // Returns `{ thread, fp }` pairs, naming the finding that supersedes each thread: the claim is only good if that
 // finding is actually posted, and reconcile is where that is known.
-export function pickSuperseded(openThreads, currentByFp, existingFps) {
+export function pickSuperseded(openThreads, currentByFp, existingFps, identity = null) {
   const candidates = new Map(); // file|severity -> [{ fp, finding }] this run will post there
   for (const [fp, f] of currentByFp) {
     if (existingFps.has(fp)) continue;
@@ -1324,7 +1331,9 @@ export function pickSuperseded(openThreads, currentByFp, existingFps) {
     const key = `${t.path}|${findingSeverity(t.firstCommentBody)}`;
     const pool = candidates.get(key);
     if (!pool || !pool.length) continue;
-    const text = stripHarnessMarkup(t.firstCommentBody || '');
+    // The record's own text when there is one: recovering it from the rendered comment loses the markup we
+    // stripped and the severity prefix we parsed, which is what made this comparison fuzzy in the first place.
+    const text = identity?.(t)?.text ?? stripHarnessMarkup(t.firstCommentBody || '');
     let best = -1;
     let bestScore = 0;
     pool.forEach((c, i) => {
@@ -1345,19 +1354,29 @@ export function pickSuperseded(openThreads, currentByFp, existingFps) {
 // main() is not reachable from a test: a mutation sweep showed `verifiedIds` could be narrowed to `handledIds`
 // and the superseded set flipped on or off for a provisional result, both with the whole suite green — and both
 // reintroduce bugs this branch fixed. Composition is where those live, so composition has to be assertable.
-export function planRound({ threads, currentByFp, provisional, maxVerify = MAX_VERIFY_THREADS }) {
+export function planRound({ threads, currentByFp, provisional, priorState = null, maxVerify = MAX_VERIFY_THREADS }) {
   const harnessThreads = threads.filter((t) => isHarnessComment(t.firstCommentAuthor));
-  const existingFps = new Set(
-    harnessThreads.map((t) => (FP_REGEX.exec(t.firstCommentBody || '') || [])[1]).filter(Boolean),
-  );
+  // The fingerprint a thread carries, and the finding it was: from the record when there is one, from the comment
+  // body when there is not. The record is the reason this no longer has to parse its own rendered output — and it
+  // knows the finding's text and severity exactly, rather than recovering them from an emoji prefix.
+  const recorded = new Map(Object.entries(priorState?.findings || {}));
+  const byThreadId = new Map();
+  for (const [fp, record] of recorded) if (record?.id) byThreadId.set(record.id, { fp, record });
+  const fpOf = (t) => byThreadId.get(t.id)?.fp || (FP_REGEX.exec(t.firstCommentBody || '') || [])[1];
+  const identityOf = (t) => {
+    const known = byThreadId.get(t.id)?.record;
+    if (known) return { path: known.file, severity: known.severity, text: known.text };
+    return { path: t.path, severity: findingSeverity(t.firstCommentBody), text: stripHarnessMarkup(t.firstCommentBody || '') };
+  };
+  const existingFps = new Set(harnessThreads.map(fpOf).filter(Boolean));
   const openUnreportedAll = harnessThreads
     .filter((t) => !t.isResolved)
-    .map((t) => ({ t, fp: (FP_REGEX.exec(t.firstCommentBody || '') || [])[1] }))
+    .map((t) => ({ t, fp: fpOf(t) }))
     .filter(({ fp }) => fp && !currentByFp.has(fp))
     .map(({ t }) => t);
   // Never on a provisional result: reconcile resolves nothing then, so calling a thread superseded would be a
   // claim about a resolve that was never attempted.
-  const supersededPairs = provisional ? [] : pickSuperseded(openUnreportedAll, currentByFp, existingFps);
+  const supersededPairs = provisional ? [] : pickSuperseded(openUnreportedAll, currentByFp, existingFps, identityOf);
   const supersededBy = new Map(supersededPairs.map(({ thread, fp }) => [thread.id, fp]));
   const superseded = supersededPairs.map(({ thread }) => thread);
   // Duplicates of a thread this run keeps: same file, same severity, matching text, and the finding they carry is
@@ -1367,17 +1386,21 @@ export function planRound({ threads, currentByFp, provisional, maxVerify = MAX_V
   // be reopened on its fingerprint. Requiring it to be open missed the very sequence this rule exists for: at the
   // third push the live thread is the one reconcile reopens, which `stats.kept` does not count.
   const anchorThreads = harnessThreads.filter((t) => {
-    const fp = (FP_REGEX.exec(t.firstCommentBody || '') || [])[1];
+    const fp = fpOf(t);
     return fp && currentByFp.has(fp);
   });
-  const duplicateTwin = (t, anchors) =>
-    anchors.find(
-      (a) =>
-        a.id !== t.id &&
-        a.path === t.path &&
-        findingSeverity(a.firstCommentBody) === findingSeverity(t.firstCommentBody) &&
-        findingSimilarity(stripHarnessMarkup(a.firstCommentBody || ''), stripHarnessMarkup(t.firstCommentBody || '')) >= SUPERSEDE_SIMILARITY,
-    );
+  const duplicateTwin = (t, anchors) => {
+    const mine = identityOf(t);
+    return anchors.find((a) => {
+      if (a.id === t.id) return false;
+      const theirs = identityOf(a);
+      return (
+        theirs.path === mine.path &&
+        theirs.severity === mine.severity &&
+        findingSimilarity(theirs.text, mine.text) >= SUPERSEDE_SIMILARITY
+      );
+    });
+  };
   // A thread being superseded this round is an anchor too: when a finding moves to a THIRD line, one old thread is
   // claimed as superseded and the other would otherwise match nothing and leak. And several duplicates may
   // collapse onto one anchor — unlike a supersede claim, there is no scarcity here, because they are all
@@ -1389,7 +1412,7 @@ export function planRound({ threads, currentByFp, provisional, maxVerify = MAX_V
         .map((t) => {
           const twin = duplicateTwin(t, anchorThreads) || duplicateTwin(t, superseded);
           if (!twin) return null;
-          const twinFp = (FP_REGEX.exec(twin.firstCommentBody || '') || [])[1];
+          const twinFp = fpOf(twin);
           // A superseded twin is closing too, so the live finding is the one that claimed it.
           return { thread: t, fp: supersededBy.get(twin.id) || twinFp };
         })
@@ -1677,6 +1700,16 @@ export function boundedSummaryBody(body) {
   return `${body.slice(0, MAX_COMMENT)}\n\n> ⚠️ This summary was trimmed to fit GitHub's comment limit; the run log has the rest.\n\n${MARKER_SUMMARY}`;
 }
 
+// The final comment body: the summary, trimmed to fit, with the state record appended AFTER that trim. Inside it,
+// a long summary would cut the record in half and the next round would fall back to guessing — which is exactly
+// the failure this record exists to end. Pure, because it lived in `upsertSummary` where no test could reach it
+// and both mutations (drop the record, trim it with the body) stayed green.
+export function summaryBodyWithState(redactedBody, state = null) {
+  const bounded = boundedSummaryBody(redactedBody);
+  if (!state) return bounded;
+  return `${bounded}\n${redact(encodeState(state))}`;
+}
+
 // Build the summary body for a degrade note: keep whatever review is already there (upsertSummary overwrites, and
 // a transient fatal must not replace a complete review a human may be reading) and REPLACE a previous note of the
 // same kind rather than stacking one. Pure, so the replace rule is unit-tested.
@@ -1721,10 +1754,7 @@ async function explainFailure(err) {
 }
 
 async function upsertSummary(rawBody, state = null) {
-  const redacted = redact(rawBody);
-  // The record is appended AFTER the trim, so a long summary cannot cut it in half — and it is redacted with the
-  // body, since a finding's text travels in it.
-  const body = state ? `${boundedSummaryBody(redacted)}\n${redact(encodeState(state))}` : boundedSummaryBody(redacted);
+  const body = summaryBodyWithState(redact(rawBody), state);
   const existing = (await listIssueComments(PR_NUMBER)).find(
     (c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY),
   );
@@ -1900,6 +1930,17 @@ async function main() {
   // Prior threads we created (identified by the fp marker on their first comment).
   // Fail closed: without the thread list we can't de-duplicate, and re-posting every finding would
   // spam the PR. Post the summary alone and let the next run reconcile.
+  // The record the last round left. One extra read, retried and inside the network budget, and it replaces
+  // guessing our own history from these comments.
+  let stateRecord = null;
+  try {
+    stateRecord = await readPriorState(await listIssueComments(PR_NUMBER));
+    if (stateRecord) console.log(`Prior state: ${Object.keys(stateRecord.findings).length} finding(s) recorded at ${stateRecord.commit.slice(0, 8) || 'an unknown commit'}`);
+    else console.log('No prior state record on this PR; falling back to the comment markers');
+  } catch (e) {
+    console.warn(`Could not read the prior state record (${e.message}); falling back to the comment markers`);
+  }
+
   let threads;
   try {
     threads = await listReviewThreads(PR_NUMBER);
@@ -1938,7 +1979,7 @@ async function main() {
   // unverified, with a note claiming it moved when it did not.
   // Harness-authored threads only, like openUnreportedAll below and reconcile's own map: the marker is a public
   // string, so a comment from anyone else carrying one must not decide which findings count as new.
-  const { superseded, supersededBy, duplicates, duplicateOf, toVerify, overflow, eligibleIds } = planRound({ threads, currentByFp, provisional });
+  const { superseded, supersededBy, duplicates, duplicateOf, toVerify, overflow, eligibleIds } = planRound({ threads, currentByFp, provisional, priorState: stateRecord });
   const verifySlice = verifyBudget(startedAt);
   if (toVerify.length && (provisional || verifySlice <= 60_000)) {
     // Say why in the log: silently falling back to "was not re-reported" is how this pass came to look like it

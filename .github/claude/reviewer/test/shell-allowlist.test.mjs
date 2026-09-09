@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { encodeState, decodeState, buildState, threadIdByFp, actionByFp, closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -2305,4 +2305,71 @@ test('the record says which thread carries which finding, and what became of it'
   assert.equal(actions.get(fingerprint(over)), 'unpostable'); // it exists, it just is not inline
   assert.equal(actions.get('thread:T9'), 'superseded');
   assert.equal(actions.get('thread:T8'), 'duplicate');
+});
+
+test('with a record, identity stops depending on what the comment happens to say', () => {
+  // The record knows the finding a thread carries — its file, severity and exact text. Without it, all three had
+  // to be recovered from the rendered comment: severity from an emoji prefix, text from markdown with the markers
+  // stripped. Both paths must agree, and the record must win when a body has been edited.
+  const same = 'the deadline is read before the message in hand';
+  const at = (line) => ({ file: 'a.kt', line, severity: 'warn', comment: same });
+  const thread = (id, f, body) => ({
+    id, isResolved: false, firstCommentId: id.length, firstCommentAuthor: 'github-actions[bot]', path: f.file, line: f.line,
+    firstCommentBody: body ?? `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${reconcileFp(f)} -->`, comments: [],
+  });
+
+  const A = thread('t-A', at(3));
+  const B = thread('t-B', at(7));
+  const reported = new Map([[reconcileFp(at(3)), at(3)]]);
+
+  // Body-derived (no record): the duplicate is found, as before.
+  const withoutRecord = planRound({ threads: [A, B], currentByFp: reported, provisional: false });
+  assert.deepEqual(withoutRecord.duplicates.map((t) => t.id), ['t-B']);
+
+  // Record-derived: same answer, and it no longer needs the fingerprint to be present in the body at all.
+  const record = {
+    commit: 'abc1234',
+    findings: {
+      [reconcileFp(at(3))]: { id: 't-A', file: 'a.kt', line: 3, severity: 'warn', text: same, action: 'posted', commit: 'abc1234' },
+      [reconcileFp(at(7))]: { id: 't-B', file: 'a.kt', line: 7, severity: 'warn', text: same, action: 'posted', commit: 'abc1234' },
+    },
+  };
+  const stripped = [thread('t-A', at(3), 'someone edited this comment and removed everything'), thread('t-B', at(7), 'and this one too')];
+  const withRecord = planRound({ threads: stripped, currentByFp: reported, provisional: false, priorState: record });
+  assert.deepEqual(withRecord.duplicates.map((t) => t.id), ['t-B']);
+  assert.deepEqual(withRecord.toVerify, []);
+
+  // A record entry for a thread nobody from this harness opened is still ignored: authorship, not the record,
+  // decides whose threads these are.
+  const foreign = [{ ...thread('t-A', at(3)), firstCommentAuthor: 'someone' }, B];
+  const ignored = planRound({ threads: foreign, currentByFp: reported, provisional: false, priorState: record });
+  assert.equal(ignored.duplicates.length, 0);
+
+  // And an unreadable record is no record: the body-derived path takes over rather than the round doing nothing.
+  const fallback = planRound({ threads: [A, B], currentByFp: reported, provisional: false, priorState: decodeState('<!-- bp-ai-review-state:{broken} -->') });
+  assert.deepEqual(fallback.duplicates.map((t) => t.id), ['t-B']);
+});
+
+test('the record rides in the comment without being cut by its trim', () => {
+  const f = { file: 'a.kt', line: 3, severity: 'warn', comment: 'a finding worth remembering' };
+  const state = buildState({ commit: 'abc1234', currentByFp: new Map([[fingerprint(f), f]]), threadIdByFp: new Map([[fingerprint(f), 'T1']]), actions: new Map([[fingerprint(f), 'kept']]) });
+
+  // No record: just the bounded summary, unchanged.
+  const plain = summaryBodyWithState('a short summary\n\n<!-- bp-ai-review-summary -->');
+  assert.equal(decodeState(plain), null);
+  assert.match(plain, /a short summary/);
+
+  // With one: the summary is still there, and so is the record.
+  const withState = summaryBodyWithState('a short summary\n\n<!-- bp-ai-review-summary -->', state);
+  assert.match(withState, /a short summary/);
+  assert.equal(decodeState(withState).findings[fingerprint(f)].id, 'T1');
+
+  // A summary far past the limit: trimmed, under GitHub's ceiling, and the record STILL readable — appended
+  // inside the trim it would have been cut in half and the next round would fall back to guessing.
+  const huge = summaryBodyWithState(`${'x'.repeat(120000)}\n\n<!-- bp-ai-review-summary -->`, state);
+  assert.ok(huge.length < 65536, `body was ${huge.length}`);
+  assert.match(huge, /trimmed to fit GitHub's comment limit/);
+  assert.equal(decodeState(huge).findings[fingerprint(f)].id, 'T1');
+  // ...and the marker the upsert finds the comment by survives too.
+  assert.match(huge, /<!-- bp-ai-review-summary -->/);
 });
