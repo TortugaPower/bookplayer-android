@@ -296,7 +296,11 @@ const BASH_ALLOW = [
 // Flags that let an otherwise read-only command write a file, or make a recursive walk follow symlinks (the
 // realpath check covers named paths, not the traversal grep -R / find -L would do through a link). Scoped per
 // command so e.g. `git blame -L 10,20` (a line range) stays allowed, and matched inside short-flag clusters (-Rn).
-const DENY_FLAGS_ANY = /(^|\s)--output(=|\s)/;
+// `--output` writes. The `files0-from`/`files-from` family is worse in a subtler way: the flag's own argument is
+// an in-root file, which passes every check, and the program then opens whatever paths that file's CONTENTS name.
+// Verified: a committed list containing `/etc/passwd` made `file -f list.txt` report on /etc/passwd from inside
+// the checkout. Confinement cannot follow indirection, so the flags are refused instead.
+const DENY_FLAGS_ANY = /(^|\s)(--output(=|\s)|--files0?-from(=|\s)|-files0-from(\s|$))/;
 const DENY_FLAGS_BY_COMMAND = {
   grep: /(^|\s)(-[A-Za-z]*R[A-Za-z]*|--dereference-recursive)(\s|$)/,
   find: /(^|\s)(-L|-H|-follow|-(exec|execdir|ok|okdir|delete|fprint0?|fprintf|fls))(\s|$)/,
@@ -307,6 +311,8 @@ const DENY_FLAGS_BY_COMMAND = {
   // Not a read escape but a budget one: `tail -f` never returns, so the agent sits on it until the deadline and
   // the round degrades to the incomplete note having found nothing. Nothing in a review needs to follow a file.
   tail: /(^|\s)(-[A-Za-z]*[fF][A-Za-z]*|--follow(=\S*)?|--retry)(\s|$)/,
+  // `file -f LIST` is the same indirection as --files-from, spelled shorter.
+  file: /(^|\s)(-[A-Za-z]*f[A-Za-z]*|--files-from(=|\s))(\s|$)/,
 };
 function hasDeniedFlag(segment) {
   const command = segment.split(/\s+/)[0];
@@ -354,6 +360,13 @@ const PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
 // One word: no quote, backslash, glob metacharacter, `$`, backtick, brace, operator, `#`, `!` or space. `~` is
 // legal only after the first character, because bash expands a word-initial `~` and leaves `HEAD~2` alone.
 const SAFE_WORD = /^[A-Za-z0-9._/@=+:,%^-][A-Za-z0-9._/@=+:,%^~-]*$/;
+// ...and not in the one mid-word position bash still expands: inside an ASSIGNMENT-SHAPED word, immediately
+// after the `=`, or after any later `:`. So `a=~/x` and `a=b:~/x` become `a=/home/runner/x`, while `a:~x`,
+// `9=~/x`, `a-b=~/x` and `HEAD~2:file` are all literal — measured against bash, not assumed. A fuzz of 3,475
+// accepted commands against real argv found exactly this stage and nothing else. FORBIDDEN_PATH already denied
+// these, but the rewrite rests on "the words here ARE the argv", and that invariant should hold on its own rather
+// than depend on a rule in a different concern two functions away.
+const ASSIGNMENT_TILDE = /^[A-Za-z_][A-Za-z0-9_]*=(?:[^:]*:)*~/;
 
 // The argv bash would build, or unsafe. `segments` is kept for callers that match a whole command line; there is
 // at most one, because every operator is refused.
@@ -365,7 +378,7 @@ export function analyzeShell(command) {
   const cmd = String(command ?? '').replace(/^[ \t\n]+|[ \t\n]+$/g, '');
   if (!PRINTABLE_ASCII.test(cmd)) return { words: [], segments: [], unsafe: true };
   const words = cmd.split(' ').filter(Boolean);
-  if (!words.length || !words.every((w) => SAFE_WORD.test(w))) return { words: [], segments: [], unsafe: true };
+  if (!words.length || !words.every((w) => SAFE_WORD.test(w) && !ASSIGNMENT_TILDE.test(w))) return { words: [], segments: [], unsafe: true };
   return { words, segments: [words.join(' ')], unsafe: false };
 }
 
@@ -454,7 +467,11 @@ export function isAllowedBash(command, roots = READ_ROOTS, cwd = AGENT_CWD) {
   // Every word that could name a path. The program name is not one, and a bare flag is not either.
   return words.every((word, i) => {
     if (i === 0 || skip.has(i)) return true;
+    // `-` means stdin, and a flag whose value is empty (`-f=`) hides the path the program will actually open from
+    // `pathish`. Neither is legitimate in a review, and a command reading stdin can block until the deadline.
+    if (word === '-' || /=$/.test(word)) return false;
     const tok = pathish(word);
+    if (tok === '-') return false;
     if (!tok || tok.startsWith('-')) return true;
     return isPathAllowed(tok, roots, cwd);
   });

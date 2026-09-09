@@ -1753,3 +1753,42 @@ test('surrounding whitespace is trimmed, an interior newline is not', () => {
   assert.equal(isAllowedBash('   '), false);
   assert.equal(isAllowedBash('\n'), false);
 });
+
+test('the words-are-argv invariant holds without help from the deny lists', () => {
+  // A fuzz of 3,475 grammar-accepted commands against the argv real bash builds found exactly two mismatches,
+  // both tilde expansion mid-word: bash expands `~` after the `=` of an identifier-shaped word and after a later
+  // `:` in one. FORBIDDEN_PATH already denied these, but the invariant the rewrite rests on should not depend on a
+  // rule in a different concern.
+  for (const cmd of ['echo a9a=~', 'echo A=~:_', 'cat a=~/x', 'cat a=b:~/x', 'grep -rn x a=b:~/y']) {
+    assert.equal(analyzeShell(cmd).unsafe, true, `should be unsafe: ${cmd}`);
+  }
+  // Narrow on purpose: every other predecessor character leaves `~` literal, and forbidding `~` in any word
+  // containing `=` or `:` would reject this, which is in the ALLOWED corpus.
+  assert.equal(analyzeShell('git show HEAD~2:settings.gradle.kts').unsafe, false);
+  for (const cmd of ['cat a:~x', 'cat a,~x', 'cat a/~x', 'cat a-~x', 'cat a.~x', 'cat x~1.kt']) {
+    assert.equal(analyzeShell(cmd).unsafe, false, `should stay accepted: ${cmd}`);
+  }
+});
+
+test('a program may not take its filenames from a file, or from stdin', () => {
+  // Confinement cannot follow indirection: the flag's own argument is an in-root file that passes every check, and
+  // the program then opens whatever paths that file's CONTENTS name. Verified with the real `file -f`: a committed
+  // list containing /etc/passwd made it report on /etc/passwd from inside the checkout.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'indirect-')));
+  writeFileSync(join(root, 'list.txt'), '/etc/passwd\n');
+  writeFileSync(join(root, 'patterns.txt'), 'TODO\n');
+  writeFileSync(join(root, 'real.kt'), 'fine');
+  for (const cmd of ['file -f list.txt', 'file --files-from=list.txt', 'wc --files0-from=list.txt',
+    'du --files0-from=list.txt', 'find . -files0-from list.txt']) {
+    assert.equal(isAllowedBash(cmd, [root], root), false, `should refuse: ${cmd}`);
+  }
+  // `-` is stdin, not a path: `pathish` skipped it, and a command waiting on stdin can block until the deadline.
+  for (const cmd of ['cat -', 'grep -f - real.kt', 'wc --files0-from=-', 'file -f -', 'find . -newer -']) {
+    assert.equal(isAllowedBash(cmd, [root], root), false, `should refuse: ${cmd}`);
+  }
+  // A flag with an empty value hides the path the program will really open from `pathish`.
+  assert.equal(isAllowedBash('grep -f= real.kt', [root], root), false);
+  // grep's -f reads PATTERNS, not filenames, so it stays allowed for an in-root file.
+  assert.equal(isAllowedBash('grep -f patterns.txt real.kt', [root], root), true);
+  assert.equal(isAllowedBash('file real.kt', [root], root), true);
+});
