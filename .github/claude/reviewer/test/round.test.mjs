@@ -364,3 +364,67 @@ test('a round that cannot read the threads keeps the record it read', async () =
     restore();
   }
 });
+
+test('a close whose note never posted is still ours two rounds later', async () => {
+  // The nastiest shape the record has to survive. Round A resolves a thread (the verification pass judged it
+  // fixed) but the REPLY that carries the marker fails — a resolve can succeed while its note does not. Round B
+  // reports nothing. Round C sees the finding again. The close was remembered for exactly one round, so by round
+  // C nothing knew the harness had closed it, the unmarked resolve read as a maintainer's own decision, and the
+  // finding was filed as "dismissed" — invisible, forever, on every later push.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'unmarked-')));
+  const env = {
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '14', COMMIT: 'cafe000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  };
+  const { mod, restore } = await loadHarness(env, 'unmarked');
+  const realFetch = globalThis.fetch;
+  try {
+    const f = { severity: 'warn', file: 'app/Unmarked.kt', line: 6, comment: 'a finding that gets fixed, then comes back' };
+    const fp = mod.fingerprint(f);
+    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+      commit: 'aaaaaaa', findings: { [fp]: { id: 'T-un', file: f.file, line: f.line, severity: 'warn', text: f.comment, action: 'posted', commit: 'aaaaaaa' } },
+    })}`;
+    // The thread as it looks after an unmarked close: resolved, and the only comment on it is the original —
+    // no "verified fixed" note, because that reply failed.
+    const thread = {
+      id: 'T-un', isResolved: true, path: f.file, line: f.line, originalLine: f.line,
+      first: { nodes: [{ databaseId: 61, body: `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${fp} -->`, author: { login: 'github-actions[bot]' } }] },
+      comments: { nodes: [] }, last: { nodes: [] },
+    };
+
+    // ---- Round A: the verifier says fixed; the resolve lands, the note does not.
+    const a = fakeGitHub({ summaryBody: priorSummary, threads: [{ ...thread, isResolved: false }] });
+    const innerA = a.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      if (/\/replies$/.test(String(url))) throw new Error('502 while posting the note');
+      return innerA(url, init);
+    };
+    await mod.runReview({
+      agent: agentSequence(
+        { verdict: 'pass', summary: 'nothing new', findings: [] },
+        { threads: [{ id: 1, status: 'fixed', evidence: 'the listener is removed in onCleared' }] },
+      ),
+    });
+    assert.deepEqual(a.calls.resolved, ['T-un'], 'round A resolves it');
+    const summaryA = a.summaryOut();
+    assert.equal(mod.decodeState(summaryA).findings[fp].action, 'resolved');
+
+    // ---- Round B: a quiet round. The close must still be in the record afterwards.
+    const b = fakeGitHub({ summaryBody: summaryA, threads: [thread] });
+    globalThis.fetch = b.fetch;
+    await mod.runReview({ agent: agentReturning({ verdict: 'pass', summary: 'still nothing', findings: [] }) });
+    const summaryB = b.summaryOut();
+    assert.equal(mod.decodeState(summaryB).findings[fp]?.action, 'resolved', 'the close survives a quiet round');
+
+    // ---- Round C: the finding is back. It reopens on OUR record, with no marker anywhere.
+    const c = fakeGitHub({ summaryBody: summaryB, threads: [thread] });
+    globalThis.fetch = c.fetch;
+    await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'it is back', findings: [f] }) });
+    assert.deepEqual(c.calls.unresolved, ['T-un'], 'the thread reopens instead of being read as a human decision');
+    assert.deepEqual(c.calls.inline, [], 'and nothing is posted twice');
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});

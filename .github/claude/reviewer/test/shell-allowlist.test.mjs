@@ -2511,10 +2511,28 @@ test('an open thread nobody re-reported keeps its identity, and cannot masquerad
   ];
   const currentByFp = new Map([['fp-live', { file: 'b.kt', line: 4, severity: 'warn', comment: 'reported again this round' }]]);
   const closed = [['fp-closing', { id: 'T-closing', file: 'd.kt', line: 6, severity: 'warn', text: 'closed by this round', action: 'superseded' }]];
-  const carried = carriedRecords({ identities, threads, currentByFp, closed, commit: 'abc1234' });
+  // A close this harness made in an EARLIER round, whose thread is still there and still resolved: remembered,
+  // unchanged. `closed` only holds the closes made THIS round, so without this a close was forgotten after one
+  // quiet round — and then, if the note that carries the marker had failed to post, the thread read as a
+  // maintainer's own decision and the finding was dismissed for good the next time it came back.
+  const priorState = {
+    commit: 'aaaaaaa',
+    findings: {
+      'fp-done': { id: 'T-done', file: 'c.kt', line: 5, severity: 'warn', text: 'resolved last round', action: 'resolved', commit: 'aaaaaaa', at: '2026-01-01T00:00:00Z' },
+      'fp-open': { id: 'T-open', file: 'a.kt', line: 3, severity: 'warn', text: 'still open, not re-reported', action: 'posted', commit: 'aaaaaaa' },
+    },
+  };
+  const carried = carriedRecords({ identities, threads, currentByFp, closed, priorState, commit: 'abc1234' });
   const byFp = Object.fromEntries(carried);
-  // Only the open, unreported, unclosed thread.
-  assert.deepEqual(Object.keys(byFp), ['fp-open']);
+  // The remembered close FIRST (a lost close drops a finding; a lost identity only posts a second comment), then
+  // the open, unreported, unclosed thread.
+  assert.deepEqual(carried.map(([fp]) => fp), ['fp-done', 'fp-open']);
+  assert.deepEqual(byFp['fp-done'], priorState.findings['fp-done']); // unchanged, `at` included
+  // A thread that reopened is no longer remembered as CLOSED — it is remembered as the open work it now is.
+  const reopened = carriedRecords({ identities, threads: threads.map((t) => ({ ...t, isResolved: false })), currentByFp, closed, priorState, commit: 'abc1234' });
+  assert.equal(reopened.find(([fp]) => fp === 'fp-done')?.[1].action, 'open');
+  // And a thread that is gone from the PR entirely is not remembered at all.
+  assert.equal(carriedRecords({ identities: new Map(), threads: [], currentByFp, closed, priorState }).length, 0);
   assert.equal(byFp['fp-open'].id, 'T-open');
   assert.equal(byFp['fp-open'].line, 3);
   // And it may never read as a close: `harnessClosedByRecord` would then claim we closed a thread that is open,

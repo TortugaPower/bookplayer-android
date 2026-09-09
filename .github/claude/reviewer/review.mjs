@@ -868,14 +868,28 @@ export async function readPriorState(comments) {
 // it and identity fell back to the marker in the comment body — which is exactly the thing the record exists to
 // stop depending on (a maintainer edits the body, GitHub renders it, the marker is gone, and the thread becomes
 // unrecognisable). Found by chaining three real rounds together instead of hand-writing round N's record.
-export function carriedRecords({ identities = new Map(), threads = [], currentByFp = new Map(), closed = [], commit = '' } = {}) {
+export function carriedRecords({ identities = new Map(), threads = [], currentByFp = new Map(), closed = [], priorState = null, commit = '' } = {}) {
   const closedFps = new Set(closed.map(([fp]) => fp));
   const byId = new Map(threads.map((t) => [t.id, t]));
+  // FIRST: closes this harness made in an EARLIER round, for as long as the thread is still there and still
+  // resolved. `closed` only holds the closes made THIS round, so a close was remembered for exactly one round —
+  // and then `harnessClosedByRecord` had nothing, falling back to the marker in the reply we posted. When that
+  // reply had failed (a resolve works, its note does not), the thread read as a maintainer's own decision and the
+  // finding was dismissed for good the next time it returned. These come before the open-thread identities
+  // below: a lost close silently drops a finding, where a lost identity only posts a second comment.
   const out = [];
+  for (const [fp, record] of Object.entries(priorState?.findings || {})) {
+    if (!record?.id || !HARNESS_CLOSE_ACTIONS.has(record.action)) continue;
+    if (currentByFp.has(fp) || closedFps.has(fp)) continue; // reported again, or closed again this round
+    const t = byId.get(record.id);
+    if (!t || !t.isResolved) continue; // gone, or open again: nothing to remember
+    out.push([fp, record]); // unchanged, `at` included — that is when we closed it
+  }
+  // THEN: the identity of every thread that is still open and that this round did not re-report.
   for (const [id, identity] of identities) {
     const t = byId.get(id);
-    // Resolved threads need no entry: a closed thread's fingerprint only matters if we closed it, and that is
-    // what `closed` records. An open one is the harness's outstanding work.
+    // Resolved threads are handled above: a closed thread's fingerprint only matters if we closed it. An open
+    // one is the harness's outstanding work.
     if (!t || t.isResolved) continue;
     if (!identity.fp || currentByFp.has(identity.fp) || closedFps.has(identity.fp)) continue;
     out.push([identity.fp, {
@@ -2253,7 +2267,7 @@ export async function runReview({ agent = runAgent } = {}) {
     threadIdByFp: threadIdByFp(threads, stateRecord),
     actions: actionByFp({ unpostable, currentByFp }),
     closed,
-    carried: carriedRecords({ identities, threads, currentByFp, closed, commit: COMMIT }),
+    carried: carriedRecords({ identities, threads, currentByFp, closed, priorState: stateRecord, commit: COMMIT }),
   });
   await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause, previously, priorState }), roundState).catch((e) =>
     console.warn(`Could not post the summary comment: ${e.message}`),
