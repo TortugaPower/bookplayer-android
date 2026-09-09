@@ -2463,6 +2463,67 @@ test('the harness writes down what it did, and reads back only its own record', 
   assert.ok(decodeState(encodeState(wide)) !== null); // still parseable after the trim
 });
 
+test('over many rounds the record stays bounded, unique and truthful', () => {
+  // The record is the harness's memory, and memory is where a leak hides: every round adds entries, and the
+  // question is whether anything ever drops out. Twelve rounds on a PR that keeps accumulating threads — two new
+  // findings most rounds, none every third, one thread closed by the verification pass each round.
+  let prior = null;
+  const threads = [];
+  let nextId = 1;
+  let closesSeen = 0;
+  for (let round = 1; round <= 12; round++) {
+    const findings = round % 3 === 0 ? [] : [
+      { file: `app/F${round}.kt`, line: 10, severity: 'warn', comment: `finding ${round}a `.repeat(20) },
+      { file: `app/F${round}.kt`, line: 20, severity: 'error', comment: `finding ${round}b `.repeat(20) },
+    ];
+    const currentByFp = new Map(findings.map((f) => [fingerprint(f), f]));
+    for (const [fp, f] of currentByFp) {
+      threads.push({
+        id: `T${nextId++}`, isResolved: false, path: f.file, line: f.line, originalLine: f.line,
+        firstCommentAuthor: 'github-actions[bot]', comments: [],
+        firstCommentBody: `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${fp} -->`,
+      });
+    }
+    const plan = planRound({ threads, currentByFp, provisional: false, priorState: prior });
+    // Only a thread this round did NOT re-report can reach the verification pass, which is what `toVerify` is.
+    const victim = plan.toVerify[0];
+    const closed = victim ? closedRecords({ identities: plan.identities, verifiedClosedIds: new Set([victim.id]), resolvedIds: new Set() }) : [];
+    if (victim) { victim.isResolved = true; closesSeen++; }
+    const state = buildState({
+      commit: `commit${round}`,
+      currentByFp,
+      threadIdByFp: threadIdByFp(threads, prior),
+      actions: actionByFp({ currentByFp, unpostable: [] }),
+      closed,
+      carried: carriedRecords({ identities: plan.identities, threads, currentByFp, closed, priorState: prior, commit: `commit${round}` }),
+    });
+    const decoded = decodeState(encodeState(state));
+    assert.ok(decoded, `round ${round} produced an unreadable record`);
+    // Bounded on both axes, always.
+    assert.ok(encodeState(state).length <= 20000, `round ${round}: ${encodeState(state).length} bytes`);
+    assert.ok(Object.keys(decoded.findings).length <= 60, `round ${round}: ${Object.keys(decoded.findings).length} entries`);
+    // One entry per thread at most: a fingerprint recorded twice under two ids would make identity ambiguous.
+    const ids = Object.values(decoded.findings).map((f) => f.id).filter(Boolean);
+    assert.equal(new Set(ids).size, ids.length, `round ${round} recorded a thread twice`);
+    // Every close this run has made is still remembered, because every closed thread is still on the PR.
+    const remembered = Object.values(decoded.findings).filter((f) => HARNESS_CLOSE_ACTIONS_FOR_TEST.has(f.action)).length;
+    assert.equal(remembered, closesSeen, `round ${round} remembers ${remembered} of ${closesSeen} closes`);
+    prior = decoded;
+  }
+  // And the memory is per-THREAD, not per-round: after twelve rounds there is exactly one entry for each
+  // thread on the PR — the open ones by identity, the closed ones by the close that closed them — and nothing
+  // for the rounds themselves.
+  assert.equal(threads.length, 16);
+  assert.equal(Object.keys(prior.findings).length, threads.length);
+
+  // The encoder's own entry cap, independent of the byte cap: a state handed to it directly (a future caller,
+  // a hand-built one) is still bounded, and by count as well as by size. Eighty tiny entries stay far inside
+  // 20 KB, so only the count bound can hold here.
+  const many = { commit: 'c', findings: Object.fromEntries(Array.from({ length: 80 }, (_, i) => [`fp${i}`, { id: `T${i}`, file: 'a.kt', line: i, severity: 'info', text: 'x', action: 'posted', commit: 'c' }])) };
+  const capped = decodeState(encodeState(many));
+  assert.equal(Object.keys(capped.findings).length, 60);
+});
+
 test('model text cannot forge a state record', () => {
   // The record is read from THIS harness's own summary comment, and everything the model writes goes into that
   // comment: the summary prose, every finding's text in the "not visible inline" list. `decodeState` takes the
