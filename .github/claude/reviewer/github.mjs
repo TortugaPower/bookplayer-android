@@ -28,13 +28,22 @@ function headers(tok) {
 }
 
 // A stalled GitHub call should fail into the harness's degrade paths, not sit until the job timeout.
-const API_TIMEOUT_MS = 30_000;
+export const API_TIMEOUT_MS = 30_000;
 
 // Retried only for reads, and only for the failures that pass on their own: a 5xx, a secondary-rate-limit 403,
 // a 429, or a timeout. One transient 502 from the thread listing otherwise costs every inline comment on that push
 // (the harness skips them rather than risk duplicates), and one on the diff costs the whole run. Writes are never
 // retried: a repeated POST would post a second comment.
-const RETRY_TRIES = 3;
+export const RETRY_TRIES = 3;
+// The wall clock this file may not run past. `review.mjs` sets it from the same budget its own deadlines come
+// from: without it, a retry ladder is bounded only by attempts x timeout, and nested inside the GraphQL transient
+// loop that was 9 HTTP calls of up to 30 s each — 4.6 minutes for one page of threads, spent before the review
+// even starts and unaccounted for by any budget.
+let networkDeadline = Infinity;
+export const setNetworkDeadline = (epochMs) => {
+  networkDeadline = epochMs;
+};
+const outOfTime = () => Date.now() >= networkDeadline;
 // 406 is deliberate (the diff is too large to render), and a bare 403 is usually "not permitted", which will not
 // pass however often it is tried. The secondary rate limit also answers 403, and says so in its headers.
 // Only the SECONDARY limit, which clears on this timescale and says so with Retry-After. The primary hourly limit
@@ -50,13 +59,18 @@ const retryableError = (e) =>
   e?.name === 'AbortError' ||
   e?.code === 'ECONNRESET' ||
   (e instanceof TypeError && (e.cause !== undefined || /fetch failed|network/i.test(e.message || '')));
-const backoffMs = (attempt) => 500 * 2 ** attempt + Math.floor(Math.random() * 250);
+export const backoffMs = (attempt) => 500 * 2 ** attempt + Math.floor(Math.random() * 250);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function fetchRead(url, options, label) {
   let lastError;
   for (let attempt = 0; attempt < RETRY_TRIES; attempt++) {
-    if (attempt) await sleep(backoffMs(attempt - 1));
+    if (attempt) {
+      // Never spend the run's remaining time on a retry: the caller's degrade paths are more useful than one more
+      // attempt, and this is the file that used to be able to eat the whole budget.
+      if (outOfTime()) throw lastError || new Error(`${label}: out of time for a retry`);
+      await sleep(backoffMs(attempt - 1));
+    }
     try {
       const res = await fetch(url, options());
       if (!res.ok && isRetryableResponse(res) && attempt < RETRY_TRIES - 1) {
@@ -106,15 +120,20 @@ async function graphql(queryStr, variables, tok, { retry = false, label = 'GitHu
     signal: AbortSignal.timeout(API_TIMEOUT_MS),
   });
   for (let attempt = 0; ; attempt++) {
-    const res = retry ? await fetchRead(GQL, options, label) : await fetch(GQL, options());
+    // Plain fetch, not fetchRead: this loop IS the retry for the read query, and nesting the two multiplied
+    // 3 attempts into 9 (and 90 s of timeouts into 270 s).
+    const res = await fetch(GQL, options());
     const json = await res.json().catch(() => ({}));
     if (res.ok && !json.errors) return json.data;
     const transient =
       retry &&
       attempt < RETRY_TRIES - 1 &&
-      Array.isArray(json.errors) &&
-      json.errors.some((e) => TRANSIENT_GQL_ERROR.test(`${e?.type || ''} ${e?.message || ''}`));
+      !outOfTime() &&
+      (isRetryableResponse(res) ||
+        (Array.isArray(json.errors) &&
+          json.errors.some((e) => TRANSIENT_GQL_ERROR.test(`${e?.type || ''} ${e?.message || ''}`))));
     if (!transient) throw new Error(`${label} -> ${res.status}: ${JSON.stringify(json.errors || json)}`);
+    // A 5xx reaches here too, since this loop replaced the nested ladder for the read query.
     console.warn(`${label} -> transient GraphQL error; retrying (${attempt + 1}/${RETRY_TRIES - 1})`);
     await sleep(backoffMs(attempt));
   }
@@ -231,11 +250,12 @@ export async function postInlineComment({ prNumber, commitId, path, line, body }
 
 // Every review thread on the PR: identity, resolution state, where it is anchored, and its full comment list
 // (author login + association, so the harness can tell a maintainer's reply from anyone else's).
+const MAX_THREAD_PAGES = 100;
 export async function listReviewThreads(prNumber) {
   const { owner, name } = repo();
   const threads = [];
   let cursor = null;
-  for (;;) {
+  for (let page = 1; ; page++) {
     const data = await graphql(
       `query($owner:String!,$name:String!,$number:Int!,$cursor:String){
         repository(owner:$owner,name:$name){
@@ -283,7 +303,7 @@ export async function listReviewThreads(prNumber) {
         comments,
         // From the `first` selection: on a thread past 30 comments, comments[0] is no longer the opening one,
         // and the fingerprint marker lives in the opening comment.
-        firstCommentId: node.first?.nodes?.[0]?.databaseId ?? null,
+        firstCommentId: node.first?.nodes?.[0]?.databaseId ?? null, // `??`, not `||`: 0 is a valid id
         firstCommentBody: node.first?.nodes?.[0]?.body || '',
         firstCommentAuthor: node.first?.nodes?.[0]?.author?.login || '',
         // From its own selection, not the capped list: a thread with >30 comments would otherwise report the 30th.
@@ -294,7 +314,10 @@ export async function listReviewThreads(prNumber) {
         lastCommentAt: node.last?.nodes?.[0]?.createdAt || '',
       });
     }
-    if (!conn.pageInfo.hasNextPage) break;
+    // A null cursor with hasNextPage true would re-request the FIRST page forever: verified by probe, and an
+    // infinite loop here defeats every degrade path the harness has — the job just runs to timeout-minutes with no
+    // comment. The page cap is the second backstop; 100 pages is 10,000 threads.
+    if (!conn.pageInfo.hasNextPage || !conn.pageInfo.endCursor || page >= MAX_THREAD_PAGES) break;
     cursor = conn.pageInfo.endCursor;
   }
   return threads;

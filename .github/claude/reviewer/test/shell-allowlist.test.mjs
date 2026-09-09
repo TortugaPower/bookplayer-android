@@ -1835,3 +1835,115 @@ test('the read roots are the checkout and the diff FILE, not its directory', () 
   // harness happens to run. In CI these two differ (the tests run from .github/claude/reviewer), so this pins it.
   assert.equal(AGENT_CWD, process.env.GITHUB_WORKSPACE || process.cwd());
 });
+
+test('the tilde rule matches bash on every assignment shape, not just the two we hit', () => {
+  // Each expectation below was measured with `HOME=/H bash -c \"printf '%s' <word>\"`. Bash expands `~` after the
+  // `=` of an identifier-shaped word and after any later `:` — but a SECOND `=` before the `~` suppresses it, and
+  // so does a `:` before the `=`. The rule is pinned against the shell's answers rather than against itself.
+  const expands = ['a=~', 'a=~/x', 'a=b:~/x', 'a=b:c:~/x', '_=~/x', 'A9=~/x', 'a=:~/x'];
+  const literal = ['a==~/x', 'a=b=~/x', 'a=b:c=~/x', 'a:b=~/x', 'a:~x', '9=~/x', 'a-b=~/x', 'HEAD~2:f'];
+  for (const word of expands) assert.equal(analyzeShell(`cat ${word}`).unsafe, true, `bash expands, gate must refuse: ${word}`);
+  for (const word of literal) assert.equal(analyzeShell(`cat ${word}`).unsafe, false, `bash leaves literal, gate must accept: ${word}`);
+});
+
+test('the thread listing terminates, whatever the cursor says', async () => {
+  const { listReviewThreads } = await import('../github.mjs');
+  // A null endCursor with hasNextPage true re-requested the FIRST page forever. An infinite loop here defeats
+  // every degrade path: the job runs to timeout-minutes with no comment at all.
+  let calls = 0;
+  const page = (hasNextPage, endCursor) => ({
+    ok: true, status: 200, headers: { get: () => null },
+    json: async () => ({ data: { repository: { pullRequest: { reviewThreads: { nodes: [], pageInfo: { hasNextPage, endCursor } } } } } }),
+  });
+  await withStubbedFetch(async () => { calls++; return page(true, null); }, async () => {
+    assert.deepEqual(await listReviewThreads(1), []);
+  });
+  assert.equal(calls, 1);
+  // A real cursor still pages, and the page cap is the backstop if a cursor ever repeats.
+  calls = 0;
+  await withStubbedFetch(async () => { calls++; return page(true, `CUR${calls}`); }, async () => {
+    await listReviewThreads(1);
+  });
+  assert.equal(calls, 100); // MAX_THREAD_PAGES, not forever
+});
+
+test('the retry ladders do not multiply, and stop when the run is out of time', async () => {
+  const { listReviewThreads, setNetworkDeadline, RETRY_TRIES, backoffMs, API_TIMEOUT_MS } = await import('../github.mjs');
+  // Nesting fetchRead inside the GraphQL transient loop turned 3 attempts into 9 — 4.6 minutes of timeouts for
+  // one page of threads, spent before the review starts and unaccounted for by any budget.
+  let calls = 0;
+  const transient = { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ errors: [{ type: 'RATE_LIMITED' }] }) };
+  setNetworkDeadline(Infinity);
+  await withStubbedFetch(async () => { calls++; return transient; }, async () => {
+    await assert.rejects(() => listReviewThreads(1), /RATE_LIMITED/);
+  });
+  assert.equal(calls, RETRY_TRIES); // 3, not 9
+
+  // A retryable STATUS is where the nesting showed: fetchRead would retry the 502 three times inside each of the
+  // outer loop's three attempts. 3, not 9.
+  const { fetchPullRequestDiff } = await import('../github.mjs');
+  const bad = { ok: false, status: 502, headers: { get: () => null }, text: async () => 'bad gateway', json: async () => ({}) };
+  calls = 0;
+  await withStubbedFetch(async () => { calls++; return bad; }, async () => {
+    await assert.rejects(() => listReviewThreads(1), /502/);
+  });
+  assert.equal(calls, RETRY_TRIES);
+
+  // And a deadline already past stops each ladder rather than spending the run's remaining time on it — checked
+  // on the REST path too, which is where fetchRead's own guard lives.
+  calls = 0;
+  setNetworkDeadline(Date.now() - 1);
+  await withStubbedFetch(async () => { calls++; return bad; }, async () => {
+    await assert.rejects(() => fetchPullRequestDiff(1), /502|out of time/);
+  });
+  assert.equal(calls, 1);
+  calls = 0;
+  await withStubbedFetch(async () => { calls++; return transient; }, async () => {
+    await assert.rejects(() => listReviewThreads(1), /RATE_LIMITED|out of time/);
+  });
+  assert.equal(calls, 1);
+  setNetworkDeadline(Infinity);
+
+  // The knobs themselves: a backoff that never waits, or one that waits a minute, are both wrong.
+  assert.ok(backoffMs(0) >= 500 && backoffMs(0) < 1000);
+  assert.ok(backoffMs(1) >= 1000 && backoffMs(1) < 2000);
+  assert.equal(API_TIMEOUT_MS, 30_000);
+});
+
+test('the resolve token is used for the mutations, and only for those', async () => {
+  const { resolveReviewThread, unresolveReviewThread, listReviewThreads } = await import('../github.mjs');
+  // Zero tests touched either mutation: swapping REVIEW_RESOLVE_TOKEN for GITHUB_TOKEN would 403 on every push
+  // forever with a green suite, and resolution is how a finding ever closes.
+  const prevResolve = process.env.REVIEW_RESOLVE_TOKEN;
+  process.env.REVIEW_RESOLVE_TOKEN = 'resolve-pat';
+  const seen = [];
+  const ok = { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ data: { resolveReviewThread: {}, unresolveReviewThread: {} } }) };
+  try {
+    await withStubbedFetch(async (_url, init) => { seen.push(init.headers.Authorization); return ok; }, async () => {
+      await resolveReviewThread('T1');
+      await unresolveReviewThread('T1');
+      await listReviewThreads(1).catch(() => {});
+    });
+    assert.equal(seen[0], 'Bearer resolve-pat');
+    assert.equal(seen[1], 'Bearer resolve-pat');
+    assert.equal(seen[2], 'Bearer x'); // the read query uses GITHUB_TOKEN, never the PAT
+  } finally {
+    if (prevResolve === undefined) delete process.env.REVIEW_RESOLVE_TOKEN; else process.env.REVIEW_RESOLVE_TOKEN = prevResolve;
+  }
+});
+
+test('a comment id of zero is an id, not a missing value', async () => {
+  const { listReviewThreads } = await import('../github.mjs');
+  const threads = await withStubbedFetch(
+    async () => ({
+      ok: true, status: 200, headers: { get: () => null },
+      json: async () => ({ data: { repository: { pullRequest: { reviewThreads: {
+        nodes: [{ id: 't0', isResolved: false, path: 'a', line: 1, originalLine: 1,
+          first: { nodes: [{ databaseId: 0, body: 'x', author: { login: 'github-actions[bot]' } }] },
+          comments: { nodes: [] }, last: { nodes: [] } }],
+        pageInfo: { hasNextPage: false, endCursor: null } } } } } }),
+    }),
+    () => listReviewThreads(1),
+  );
+  assert.equal(threads[0].firstCommentId, 0); // `|| null` here would silently stop every reply and resolve
+});

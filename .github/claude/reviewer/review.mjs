@@ -24,6 +24,7 @@ import {
   replyToReviewComment,
   resolveReviewThread,
   unresolveReviewThread,
+  setNetworkDeadline,
 } from './github.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1464,6 +1465,9 @@ async function main() {
   requireEnv('COMMIT');
   const diffPath = DIFF_PATH;
   const startedAt = Date.now();
+  // The GitHub client may not retry past the run's own budget: its ladders are otherwise bounded only by attempts
+  // times timeout, which is time the review and verification passes have already been promised.
+  setNetworkDeadline(startedAt + JOB_BUDGET_MS);
   MODEL = await resolveModel();
   console.log(`Reviewing PR #${PR_NUMBER} (base ${BASE}, head ${COMMIT.slice(0, 8)}) with ${MODEL}`);
 
