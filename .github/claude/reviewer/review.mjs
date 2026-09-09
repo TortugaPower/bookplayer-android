@@ -1314,6 +1314,9 @@ const MAX_VERIFY_CHARS = 1200; // per finding, and per reply
 const VERIFY_BUDGET_MS = num(process.env.REVIEW_VERIFY_BUDGET_MS, 5 * 60 * 1000);
 const MAINTAINER_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const VERIFY_STATUSES = new Set(['fixed', 'present', 'not_applicable', 'accepted', 'insufficient', 'duplicate']);
+// Exported for the test that pins the default: anything not in this set is treated as `present`, so a
+// verdict the harness does not understand leaves the thread open rather than closing it.
+export const VERIFY_STATUSES_FOR_TEST = VERIFY_STATUSES;
 
 export const VERIFY_SYSTEM_PROMPT = `You check whether previously reported review findings still apply to the code as it
 stands now. You are NOT reviewing the pull request and must not look for new issues.

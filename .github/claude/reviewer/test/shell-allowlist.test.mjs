@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { VERIFY_STATUSES_FOR_TEST, carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -760,6 +760,42 @@ test('what the verifier is shown: the fuller text, always bounded, and never the
   const identity = planRound({ threads: [t], currentByFp: new Map(), provisional: false, priorState: blank }).identities.get('T-p');
   assert.equal(identity.severity, '');
   assert.match(buildVerifyPrompt([{ id: 1, thread: t, identity }], 'abcdef1234'), /severity="error"/);
+});
+
+test('the verifier is shown this push\'s findings for the thread\'s own file, and nothing else', () => {
+  // A `duplicate` verdict has to name a finding, so the prompt carries the ones this push reports for that
+  // file. Only that file: offering the model findings from elsewhere invites a cross-file duplicate verdict,
+  // which the harness would then refuse (the lookup is per file) — a wasted verdict and a thread left open
+  // with a confusing reason.
+  const t = {
+    id: 'T1', path: 'app/A.kt', line: 12, originalLine: 12, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]',
+    firstCommentBody: '🟡 **WARN** — the listener is never removed <!-- bp-ai-review-fp:abc -->', comments: [],
+  };
+  const identity = { id: 'T1', fp: 'abc', path: 'app/A.kt', severity: 'warn', text: 'the listener is never removed', promptText: 'the listener is never removed' };
+  const current = new Map([
+    ['fp1', { file: 'app/A.kt', line: 41, severity: 'warn', comment: 'the listener is never removed (still) <script>evil</script>' }],
+    ['fp2', { file: 'app/B.kt', line: 3, severity: 'error', comment: 'a finding in another file entirely' }],
+  ]);
+  const prompt = buildVerifyPrompt([{ id: 1, thread: t, identity }], 'abcdef1234567890', 'gianni', current);
+  assert.match(prompt, /<reported line="41" severity="warn">/);
+  assert.equal(prompt.includes('another file entirely'), false);
+  // Model text in a prompt is data: the tags a finding quotes cannot open an element of their own.
+  assert.equal(prompt.includes('<script>'), false);
+  assert.match(prompt, /&lt;script>evil/);
+  // And with no findings for that file there is no empty block to reason about.
+  assert.equal(buildVerifyPrompt([{ id: 1, thread: t, identity }], 'abcdef1234567890', 'gianni', new Map()).includes('reported_this_push'), false);
+});
+
+test('a verdict list that omits a thread leaves that thread open', () => {
+  // The model is told to answer for every id it is given. When it does not, the missing answer must read as
+  // "still there", never as permission to close: `present` is the default for anything unrecognised.
+  const one = verdictsById([{ id: 2, status: 'fixed', evidence: 'x' }]);
+  assert.equal(one.has(1), false);
+  assert.equal(one.get(2).status, 'fixed');
+  // A status the harness does not know is not a status.
+  const bogus = verdictsById([{ id: 1, status: 'looks-fine-to-me', evidence: 'x' }]);
+  assert.equal(bogus.get(1).status, 'looks-fine-to-me'); // carried verbatim...
+  assert.equal(VERIFY_STATUSES_FOR_TEST.has(bogus.get(1).status), false); // ...and rejected downstream
 });
 
 test('an edited comment body cannot turn off the error guard or rewrite the finding', async () => {

@@ -248,6 +248,20 @@ test('a duplicate verdict is refused when its replacement never landed, or names
     });
     assert.deepEqual(bogus.calls.resolved, []);
     assert.match(bogus.summaryOut(), /a finding this push does not contain/);
+
+    // (c) the line exists this push, but in ANOTHER FILE: also refused. The prompt only offers same-file
+    // findings, so this is the model misreading its own list — and closing a thread in favour of a finding
+    // somewhere else entirely is the same class of wrong close the resemblance rule used to make.
+    const elsewhere = fakeGitHub({ threads: [threadOf()] });
+    globalThis.fetch = elsewhere.fetch;
+    await mod.runReview({
+      agent: agentSequence(
+        { verdict: 'warn', summary: 'two files', findings: [{ severity: 'warn', file: 'app/Other.kt', line: 41, comment: 'a finding in another file at the same line' }] },
+        { threads: [{ id: 1, status: 'duplicate', of: 41, evidence: 'line 41 somewhere' }] },
+      ),
+    });
+    assert.deepEqual(elsewhere.calls.resolved, []);
+    assert.match(elsewhere.summaryOut(), /a finding this push does not contain/);
   } finally {
     globalThis.fetch = realFetch;
     restore();
