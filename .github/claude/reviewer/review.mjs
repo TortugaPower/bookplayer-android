@@ -204,11 +204,13 @@ function severityEmoji(s) {
 // `git rev-parse`, and never mentioned `<`, braces or `cd` — and every mismatch costs a turn on a denial whose
 // message is the agent's first sight of the real rule.
 const BASH_RULES =
-  'git diff/log/show/blame/status/ls-files/rev-parse, cat, ls, head, tail, wc, grep, find, stat, file, du, pwd, ' +
-  'echo. No interpreters, test runners, gh, curl, redirects (`<` and `>` alike), $-expansion, backticks, command ' +
-  'or process substitution, or unquoted braces (quote them: \'a{2}\' is fine as a regex quantifier, {a,b} as an ' +
-  'expansion is not). A glob may not select a directory: `dir*/file` is refused, `dir/*.kt` is fine. ' +
-  'No cd — paths are relative to the checkout.';
+  'ONE simple command of plain words separated by spaces: git diff/log/show/blame/status/ls-files/rev-parse, cat, ' +
+  'ls, head, tail, wc, grep, find, stat, file, du, pwd, echo. No quotes, no backslashes, no globs (`*?[`), no ' +
+  '`$`/backticks/braces, no redirection or pipes, no `;`/`&&`, no `~` starting a word, no `cd`, and printable ' +
+  'ASCII only. This is a grammar, not a filter: anything else is refused without interpretation, because a ' +
+  'permission gate cannot reliably predict what bash would expand a cleverer command into. For a pattern with ' +
+  'spaces or a glob, use the Grep and Glob tools — they take the pattern as data and are allowed. Paths are ' +
+  'relative to the checkout.';
 
 const OUTPUT_CONTRACT = `
 ## Output contract (READ-ONLY — the harness posts, you do not)
@@ -306,109 +308,56 @@ function hasDeniedFlag(segment) {
   const scoped = DENY_FLAGS_BY_COMMAND[command];
   return DENY_FLAGS_ANY.test(segment) || Boolean(scoped && scoped.test(segment));
 }
-const BASH_DENY_MESSAGE = `Bash is restricted to read-only commands: ${BASH_RULES} Use Read/Grep/Glob for files.`;
+const BASH_DENY_MESSAGE = `Bash is restricted to a read-only grammar: ${BASH_RULES}`;
 export const BASH_DENY_MESSAGE_FOR_TEST = BASH_DENY_MESSAGE; // the agent's first sight of the rules, asserted alongside the prompts
 
-// Walk the command once, tracking quotes, and produce what bash would actually execute: simple commands split
-// at | || && ; & and newlines outside quotes, with quote characters removed and backslash escapes resolved
-// (`cat \/proc\/self\/environ` and `cat "docs"/host/x` normalise to the paths the shell sees). Constructs that
-// would write or expand are flagged: redirects and process substitution outside quotes, and any `$` or backtick
-// outside single quotes. A backslash-escaped `$` is literal and therefore not flagged.
-// `2>/dev/null` and `2>&1` only route stderr, so they are not the redirects the walk refuses. They are recognised
-// INSIDE the walk, outside quotes only: stripping them up front also stripped them from inside a quoted argument
-// (`grep "log 2>/dev/null here" f`), which left the analysed string no longer matching the command bash would run.
-// No bypass came of that — removal only ever deletes text — but the two must agree, or a later change here is
-// reasoning about a string the shell never sees.
-const STDERR_REDIRECT = /^2>(&1|\/dev\/null)(?=\s|$)/;
+// ---------------------------------------------------------------------------------------------------------------
+// Why this is a grammar and not a shell emulator.
+//
+// The first version of this code tried to work out what bash would execute: it tracked quotes, resolved escapes,
+// held quoted whitespace as placeholders, reasoned about globs and split words itself. Three review rounds found
+// ten separate escapes in it, and every one had the same shape — the analysis and the shell disagreed about one of
+// bash's expansion stages, and the disagreement always favoured whoever wrote the command:
+//
+//   cat lin*/o.txt   pathname expansion chose a symlinked directory the check never saw
+//   cat "p q"        quote removal turned one filename into two harmless-looking names
+//   cat ''2>&1       an empty pair of quotes started a word, so the `2` was read as a file descriptor
+//   cat p\ q         the backslash branch did neither of the things the quote branch had just been fixed to do
+//   cat a<TAB>b      all quoted whitespace collapsed to one placeholder, so a different file was checked
+//   cat a<CR>b       word splitting used JavaScript's \s where bash uses IFS
+//   cat z<CR>        the trailing trim used JavaScript's whitespace, one line below the split that was just fixed
+//   cat f<SOH>ile    a raw control character forged a whitespace placeholder
+//   cat \'q          a quote that was part of the filename was stripped from it
+//   cat cls/[]a]     bash bracket classes are not JavaScript character classes
+//
+// Bash performs brace, tilde, parameter, command-substitution, arithmetic, word-splitting and pathname expansion,
+// then quote removal, with IFS and locale-dependent collation in the middle. Re-implementing that correctly is not
+// a realistic goal for a permission gate, and each fix only moved the divergence one stage along.
+//
+// So this gate no longer asks what bash would do. It accepts ONLY commands where the answer is trivial: one simple
+// command, plain words separated by spaces, built from characters that cannot trigger any expansion or quote
+// removal at all. For such a command the words below ARE the argv the program receives, by construction — there is
+// no stage left to disagree about. Everything else is refused without analysis, which is also why this file no
+// longer needs to know what `2>&1`, `~`, `{a,b}` or `[[:alpha:]]` mean.
+//
+// The agent loses quoted patterns and globs from Bash. It has the Grep and Glob tools for both — structured input,
+// through this same gate — and BASH_RULES tells it so.
+// ---------------------------------------------------------------------------------------------------------------
 
-// Word splitting follows bash's default IFS — space, tab and newline — and NOTHING else. JavaScript's `\s` is
-// wider (CR, vertical tab, form feed, Unicode spaces), and splitting on it diverged from the shell in the
-// dangerous direction: `cat a<CR>b` split into the two harmless names `a` and `b`, both non-existent, while bash
-// kept the word whole and opened the file literally named `a<CR>b`. Verified against /bin/bash.
-const IFS_WS = /[ \t\n]/;
-const IFS_SPLIT = /[ \t\n]+/;
-// Whitespace bash would NOT split on — quoted or backslash-escaped — is held as a placeholder through the walk
-// and restored when a segment is split into tokens: bash removes the quoting but the word stays ONE word, and
-// splitting `cat "p q"` (or `cat p\\ q`) produced the two names `p` and `q` while bash read `./p q`. Each kind
-// gets its own placeholder, because a quoted TAB is a different filename from a quoted space and the path check
-// has to ask about the file bash will actually open.
-const WS_PLACEHOLDER = { ' ': '\x00', '\t': '\x01', '\n': '\x02' };
-const PLACEHOLDER_WS = Object.fromEntries(Object.entries(WS_PLACEHOLDER).map(([ws, ph]) => [ph, ws]));
-const holdWhitespace = (ch) => WS_PLACEHOLDER[ch] || ch;
-export const restoreQuotedSpaces = (tok) => String(tok).replace(/[\x00-\x02]/g, (ph) => PLACEHOLDER_WS[ph] ?? ph);
+// Printable ASCII only: a control character, a tab or a non-ASCII byte is refused rather than reasoned about.
+const PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
+// One word: no quote, backslash, glob metacharacter, `$`, backtick, brace, operator, `#`, `!` or space. `~` is
+// legal only after the first character, because bash expands a word-initial `~` and leaves `HEAD~2` alone.
+const SAFE_WORD = /^[A-Za-z0-9._/@=+:,%^-][A-Za-z0-9._/@=+:,%^~-]*$/;
 
+// The argv bash would build, or unsafe. `segments` is kept for callers that match a whole command line; there is
+// at most one, because every operator is refused.
 export function analyzeShell(command) {
-  const cmd = String(command || '');
-  const segments = [];
-  let current = '';
-  let quote = null;
-  let unsafe = false;
-  // Whether anything (including an empty pair of quotes) has already gone into the word being built. `''2>&1` is
-  // one word, `2`, to bash — the quotes contribute nothing to the string but they do start the word, so the `2`
-  // is not a file descriptor. Tracking the string alone said the token was empty and let the fd rule fire.
-  let tokenStarted = false;
-  for (let i = 0; i < cmd.length; i++) {
-    const ch = cmd[i];
-    if (ch === '\\' && quote !== "'") {
-      // bash drops the backslash and keeps the next character literally — including a space, which then does NOT
-      // split the word. The quote branch was fixed for that and this one was not, so `cat p\\ q` still arrived as
-      // two names and `cat \\ 2>&1` left the `2` looking like a descriptor at a word start.
-      const next = cmd[++i] ?? '';
-      current += holdWhitespace(next);
-      tokenStarted = true;
-      continue;
-    }
-    if (quote) {
-      if (ch === quote) {
-        quote = null;
-        continue;
-      }
-      if (quote === '"' && (ch === '`' || ch === '$')) unsafe = true; // expansion happens inside double quotes
-      if (ch >= '\x00' && ch <= '\x02') unsafe = true; // see below: a raw placeholder character is forgery
-      current += holdWhitespace(ch);
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      tokenStarted = true; // the quotes vanish, the word does not
-      continue;
-    }
-    // Outside quotes: redirects in BOTH directions, backticks, any `$` (parameter or command expansion), process
-    // substitution, and brace expansion. Every one of them reaches the path check as something other than a path:
-    // `cat </etc/passwd` arrives as the single token `</etc/passwd`, which is not absolute and resolves to a
-    // workspace-relative name that does not exist, so the confinement check passed it and bash read the file.
-    // `cat {/etc/hostname,x}` is the same shape, and bash expands braces BEFORE `~`, so `{~/.aws/credentials,x}`
-    // would slip past the tilde rule too. No read-only command needs any of these: a regex quantifier or a literal
-    // `<` goes inside quotes, and file arguments are passed as arguments.
-    if (ch === '2' && !tokenStarted && STDERR_REDIRECT.test(cmd.slice(i))) {
-      // stderr routing, not a redirect to a file: skip it whole, and drop the space that preceded it. The `2` has
-      // to BEGIN a token, as it does for bash — a digit is an fd only when the token so far is all digits. Without
-      // that anchor `cat secrets2>&1` was analysed as `cat secrets` while bash read `secrets2`, so a symlink
-      // committed under that name pointed anywhere it liked and the realpath check never saw it.
-      i += STDERR_REDIRECT.exec(cmd.slice(i))[0].length - 1;
-      current = current.replace(/[ \t\n]+$/, '');
-      continue;
-    }
-    // A raw control character in the command is indistinguishable from a placeholder once the walk has run —
-    // `\x01` in a filename read as a held TAB, so the path check asked about a file that does not exist while
-    // bash opened the real one. No read-only review command needs one, so the whole command is refused.
-    if (ch >= '\x00' && ch <= '\x02') unsafe = true;
-    if (ch === '`' || ch === '>' || ch === '<' || ch === '$' || ch === '{' || ch === '}') unsafe = true;
-    if (ch === '|' || ch === '&' || ch === ';' || ch === '\n') {
-      segments.push(current);
-      current = '';
-      tokenStarted = false;
-      continue;
-    }
-    tokenStarted = !IFS_WS.test(ch);
-    current += ch;
-  }
-  segments.push(current);
-  if (quote) unsafe = true; // unbalanced quote: don't guess
-  // Trimmed on the IFS set, like the split and the fd rule: `String.trim()` also removes CR, VT, FF and NBSP,
-  // which bash keeps inside the word, so a TRAILING one was dropped and `cat z<CR>` was checked as `cat z` while
-  // bash opened `z<CR>` — a symlink under that name reads anything, including /proc/self/environ.
-  return { segments: segments.map((seg) => seg.replace(/^[ \t\n]+|[ \t\n]+$/g, '')).filter(Boolean), unsafe };
+  const cmd = String(command ?? '');
+  if (!PRINTABLE_ASCII.test(cmd)) return { words: [], segments: [], unsafe: true };
+  const words = cmd.split(' ').filter(Boolean);
+  if (!words.length || !words.every((w) => SAFE_WORD.test(w))) return { words: [], segments: [], unsafe: true };
+  return { words, segments: [words.join(' ')], unsafe: false };
 }
 
 export function isReadOnlyShell(command) {
@@ -467,110 +416,36 @@ export function isPathAllowed(rawPath, roots = READ_ROOTS, cwd = AGENT_CWD) {
   return !existsSync(abs) || within(safeRealpath(abs));
 }
 
-const GLOB_META = /[*?[]/;
-// One path segment of a glob, as bash matches it: `*` and `?` never cross a `/`.
-const globSegmentToRegExp = (pattern) => {
-  let out = '^';
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i];
-    if (ch === '*') out += '[^/]*';
-    else if (ch === '?') out += '[^/]';
-    else if (ch === '[') {
-      const end = pattern.indexOf(']', i + 1);
-      if (end === -1) out += '\\[';
-      else {
-        // `[!abc]` is bash's negated class; RegExp spells it `[^abc]` and would otherwise read `!` as a literal
-        // member — so `cat [!z]` was checked against a different set of files than bash would open.
-        const cls = pattern.slice(i, end + 1);
-        out += cls.startsWith('[!') ? `[^${cls.slice(2)}` : cls;
-        i = end;
-      }
-    } else out += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-  return new RegExp(`${out}$`);
+// A value attached to a flag is still a path: `--file=/p` and `-f/p` both name one.
+const pathish = (tok) => {
+  if (!tok.startsWith('-')) return tok;
+  const eq = tok.indexOf('=');
+  if (eq !== -1) return tok.slice(eq + 1);
+  const slash = tok.indexOf('/');
+  return slash !== -1 ? tok.slice(slash) : tok;
 };
-
-// bash expands globs AFTER quote removal, so a token like `lin*/o.txt` or `conf/*.txt` names files the path check
-// never sees: the literal token exists nowhere, isPathAllowed waves it through as a not-yet-existing name, and
-// bash then reads whatever it matched — including through a symlink committed in the PR head. Two rules close it:
-// a glob may not choose a DIRECTORY, and every entry the pattern really matches is confined like any other path.
-// The live escape was `grep -ran ANTHROPIC lin*`: GNU grep -r follows a symlink named on the command line, so one
-// pointing at /proc reaches the harness process's own environment, which does hold the GitHub tokens.
-function globTokenAllowed(token, roots, cwd) {
-  const slash = token.lastIndexOf('/');
-  const dir = slash === -1 ? '.' : token.slice(0, slash) || '/';
-  const pattern = token.slice(slash + 1);
-  if (GLOB_META.test(dir)) return false;
-  if (!isPathAllowed(dir, roots, cwd)) return false;
-  // When a pattern matches nothing, bash passes the LITERAL token to the command — so a file really named
-  // `sec[r]et` is opened, and it must be confined like any other path. Checking only the matches missed that.
-  if (!isPathAllowed(token, roots, cwd)) return false;
-  let entries;
-  try {
-    entries = readdirSync(resolve(cwd, dir));
-  } catch {
-    return true; // an unreadable directory expands to nothing, and the literal token was just checked
-  }
-  // A bracket class is not worth re-implementing: bash has `[]a]`, `[[:alpha:]]`, collating classes and its own
-  // escaping rules, and translating them wrongly is worse than not translating them — `[]a]` became an empty
-  // JavaScript class that matched nothing, so `cat cls/[]a]` was allowed while bash opened `cls/a`. When a class
-  // is present, every entry in the directory has to be readable, whatever the class selects.
-  let matches;
-  if (pattern.includes('[')) matches = entries;
-  else {
-    let re;
-    try {
-      re = globSegmentToRegExp(pattern);
-    } catch {
-      return false; // an untranslatable pattern is refused rather than thrown out of the permission gate
-    }
-    matches = entries.filter((entry) => re.test(entry));
-  }
-  // The deny lists apply to what a glob SELECTS, not just to what the command names: `cat *.properties` would
-  // otherwise read local.properties, which naming outright is refused.
-  return matches.every((entry) => {
-    const path = `${dir}/${entry}`;
-    return !FORBIDDEN_PATH.test(path) && !REPO_SECRET_PATH.test(path) && isPathAllowed(path, roots, cwd);
-  });
-}
 
 // The single predicate canUseTool applies to a Bash command — tested as a unit, not as its parts.
 export function isAllowedBash(command, roots = READ_ROOTS, cwd = AGENT_CWD) {
-  const cmd = String(command || '');
-  if (!isReadOnlyShell(cmd)) return false;
-  // From here on, look only at the normalised segments — the strings bash would execute — never the raw text.
-  const { segments } = analyzeShell(cmd);
-  if (segments.some((segment) => FORBIDDEN_PATH.test(segment) || REPO_SECRET_PATH.test(segment))) return false;
-  // Every token that could name a path is checked — including a value attached to a flag, whether written
-  // `--file=/p` or `-f/p`. Bare flags are skipped; everything else goes through isPathAllowed, which resolves
-  // symlinks for names that exist, so a relative path through a committed symlink is confined like an absolute one.
-  const pathish = (tok) => {
-    if (!tok.startsWith('-')) return tok;
-    const eq = tok.indexOf('=');
-    if (eq !== -1) return tok.slice(eq + 1);
-    const slash = tok.indexOf('/');
-    return slash !== -1 ? tok.slice(slash) : tok; // `-f/etc/passwd` -> `/etc/passwd`
-  };
-  return segments.every((segment) => {
-    const tokens = segment.split(IFS_SPLIT);
-    // grep's first non-flag argument is the PATTERN, not a path: searching for a route literal like
-    // "/auth/openid" must not read as an absolute path outside the read roots. FORBIDDEN_PATH still applies to
-    // the whole segment, and `-e PATTERN` is skipped the same way.
-    const skip = new Set();
-    if (tokens[0] === 'grep') {
-      // grep's first positional is usually the PATTERN, and a pattern that reads like a path ("/auth/openid",
-      // "/v1/library") must not be rejected as one. It is exempt only when nothing exists at that path, which is
-      // what makes the exemption safe: an existing file is always checked, whether it is really the pattern or a
-      // file pushed into first place by an attached `-eFOO`, and a path that does not exist can leak nothing.
-      const first = tokens.findIndex((tok, i) => i > 0 && !tok.startsWith('-'));
-      // Resolved against the same base as isPathAllowed below, or the two would disagree about which file
-      // "app/x.kt" means and the exemption would be decided on a different file from the confinement check.
-      if (first !== -1 && !existsSync(resolve(cwd, restoreQuotedSpaces(tokens[first])))) skip.add(first);
-    }
-    return tokens
-      .map((tok, i) => (skip.has(i) ? '' : pathish(restoreQuotedSpaces(tok))))
-      .filter((tok) => tok && !tok.startsWith('-'))
-      .every((tok) => (GLOB_META.test(tok) ? globTokenAllowed(tok, roots, cwd) : isPathAllowed(tok, roots, cwd)));
+  const { words, unsafe } = analyzeShell(command);
+  if (unsafe) return false;
+  const line = words.join(' ');
+  if (!BASH_ALLOW.some((re) => re.test(line)) || hasDeniedFlag(line)) return false;
+  if (FORBIDDEN_PATH.test(line) || REPO_SECRET_PATH.test(line)) return false;
+  // grep's first positional is the PATTERN, not a path: a route literal like `/v1/library` must not be refused as
+  // an absolute path outside the roots. Exempt only when nothing exists at that path, which is what makes the
+  // exemption safe — an existing file is always checked, and a path that does not exist can leak nothing.
+  const skip = new Set();
+  if (words[0] === 'grep') {
+    const first = words.findIndex((w, i) => i > 0 && !w.startsWith('-'));
+    if (first !== -1 && !existsSync(resolve(cwd, words[first]))) skip.add(first);
+  }
+  // Every word that could name a path. The program name is not one, and a bare flag is not either.
+  return words.every((word, i) => {
+    if (i === 0 || skip.has(i)) return true;
+    const tok = pathish(word);
+    if (!tok || tok.startsWith('-')) return true;
+    return isPathAllowed(tok, roots, cwd);
   });
 }
 

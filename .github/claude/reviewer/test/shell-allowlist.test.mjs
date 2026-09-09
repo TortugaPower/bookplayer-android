@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, restoreQuotedSpaces, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -14,15 +14,27 @@ import { join } from 'node:path';
 const reconcileFp = fingerprint;
 
 const ALLOWED = [
-  'git diff HEAD~1 -- LibraryViewModel.kt', 'git log --oneline -5', 'git show HEAD:LibraryViewModel.kt', 'git blame -L 10,20 LibraryViewModel.kt',
-  'git status', 'git ls-files services', 'git log --format=\'%h %s\'', 'git show HEAD~2:LibraryViewModel.kt', 'git diff HEAD~3..HEAD -- tests',
-  'git -C . ls-files | grep -c node_modules', 'git -C . log --oneline -3',
-  'find . -maxdepth 3 -type d -name "sdk" 2>/dev/null | head', 'ls nonexistent 2>&1',
-  'cat LibraryViewModel.kt', 'cat LibraryViewModel.kt | head -50', 'ls -la .github/claude', 'head -n 40 core/src/main/java/com/tortugapower/audiobookplayer/PlaybackManager.kt',
-  'tail -20 app/src/test/java/LibraryViewModelTest.kt', 'wc -l app/src/test/java/*.kt', 'stat LibraryViewModel.kt', 'file app/build/outputs/apk/release/app-release.apk', 'du -sh .', 'pwd',
-  'grep -rn "MediaSession" --include=*.kt .', 'grep -n "1024\\|MediaSession\\|trace" .github/claude/review-guide.md',
-  'grep -rn "->" core/src/', "grep -rn '>' LibraryViewModel.kt", "grep -n '$(' gradlew", "grep -n 'foo$' LibraryViewModel.kt", 'grep -c fun LibraryViewModel.kt && wc -l LibraryViewModel.kt',
-  'find . -name "*.kt" -not -path "./build/*"',
+  'git diff HEAD~1 -- LibraryViewModel.kt', 'git log --oneline -5', 'git show HEAD:LibraryViewModel.kt',
+  'git blame -L 10,20 LibraryViewModel.kt', 'git status', 'git ls-files core', 'git log --format=%h',
+  'git show HEAD~2:LibraryViewModel.kt', 'git diff HEAD~3..HEAD -- tests', 'git -C . ls-files',
+  'git -C . log --oneline -3', 'git rev-parse HEAD',
+  'cat LibraryViewModel.kt', 'ls -la .github/claude', 'head -n 40 core/src/main/java/com/tortugapower/audiobookplayer/PlaybackManager.kt',
+  'tail -20 app/src/test/java/LibraryViewModelTest.kt', 'wc -l LibraryViewModel.kt', 'stat LibraryViewModel.kt',
+  'file app/build/outputs/apk/release/app-release.apk', 'du -sh .', 'pwd', 'echo ok',
+  'grep -rn MediaSession core/src', 'grep -c fun LibraryViewModel.kt', 'grep -n -F foo LibraryViewModel.kt',
+  'find . -name AndroidManifest.xml', 'find . -maxdepth 3 -type d -name sdk',
+];
+
+// Accepted by the old emulator, refused by the grammar on purpose. Each needs a shell feature whose expansion the
+// gate would have to predict; the reviewer has Read/Grep/Glob for all of them, and BASH_RULES says so.
+const REFUSED_BY_GRAMMAR = [
+  'cat LibraryViewModel.kt | head -50',
+  'grep -rn "MediaSession" --include=*.kt .',
+  'find . -maxdepth 3 -type d -name "sdk" 2>/dev/null | head',
+  'ls nonexistent 2>&1',
+  'wc -l app/src/test/java/*.kt',
+  'grep -c fun LibraryViewModel.kt && wc -l LibraryViewModel.kt',
+  'grep -n "1024\\|MediaSession\\|trace" .github/claude/review-guide.md',
 ];
 
 const DENIED = [
@@ -47,6 +59,15 @@ test('read-only commands are allowed', () => {
   for (const cmd of ALLOWED) assert.equal(isReadOnlyShell(cmd), true, `should allow: ${cmd}`);
 });
 
+test('the shell features the grammar gives up are refused, not half-understood', () => {
+  // The trade is deliberate: predicting what bash expands these into is what produced ten escapes. Every one has
+  // a structured equivalent through Read, Grep or Glob.
+  for (const cmd of REFUSED_BY_GRAMMAR) {
+    assert.equal(isAllowedBash(cmd), false, `should refuse: ${cmd}`);
+    assert.equal(analyzeShell(cmd).unsafe, true, `should be unsafe: ${cmd}`);
+  }
+});
+
 test('the combined Bash predicate canUseTool applies allows the same commands', () => {
   // isReadOnlyShell and FORBIDDEN_PATH are applied together in production; a `~` in HEAD~1 must not trip it.
   for (const cmd of ALLOWED) assert.equal(isAllowedBash(cmd), true, `should allow: ${cmd}`);
@@ -61,19 +82,26 @@ test('writing, executing, networking and escaping commands are denied', () => {
   for (const cmd of DENIED) assert.equal(isReadOnlyShell(cmd), false, `should deny: ${cmd}`);
 });
 
-test('operators inside quotes do not split the command; output is what bash would execute', () => {
-  // Quoted whitespace is held as \x00 inside the walk so the word stays one word; restored, the segment is what
-  // bash would run. Splitting on whitespace without that turned `cat "p q"` into the two names `p` and `q`.
-  assert.deepEqual(analyzeShell('grep -n "a|b;c && d" f').segments.map(restoreQuotedSpaces), ['grep -n a|b;c && d f']);
-  const [cmdWord, fileWord] = analyzeShell('cat "p q"').segments[0].split(/\s+/);
-  assert.equal(cmdWord, 'cat');
-  assert.equal(restoreQuotedSpaces(fileWord), 'p q'); // ONE filename, not the two names `p` and `q`
-  assert.equal(restoreQuotedSpaces(analyzeShell('cat "p q"').segments[0]), 'cat p q');
-  assert.deepEqual(analyzeShell('cat a | head -3').segments, ['cat a', 'head -3']);
-  assert.deepEqual(analyzeShell('cat \\/proc\\/self\\/environ').segments, ['cat /proc/self/environ']); // escapes resolved
-  assert.deepEqual(analyzeShell('cat "docs"/host/x').segments, ['cat docs/host/x']);                    // concatenation
-  assert.equal(analyzeShell('echo \\$HOME').unsafe, false);  // escaped $ is literal
-  assert.equal(analyzeShell('echo "$HOME"').unsafe, true);
+test('the grammar accepts one simple command of plain words, and refuses everything else', () => {
+  // No emulation: for a command built only of these characters, the words below ARE the argv, so there is no
+  // expansion stage left for the analysis and the shell to disagree about.
+  assert.deepEqual(analyzeShell('git diff HEAD~1 -- app').words, ['git', 'diff', 'HEAD~1', '--', 'app']);
+  assert.deepEqual(analyzeShell('cat  a.kt   b.kt').words, ['cat', 'a.kt', 'b.kt']); // runs of spaces are one separator
+  assert.equal(analyzeShell('git show HEAD~2:settings.gradle.kts').unsafe, false); // `~` mid-word is literal to bash
+  // Each of these is a whole class of escape this file used to reason about, and now simply refuses.
+  for (const cmd of ['cat "p q"', "cat 'q", 'cat p\\ q', 'cat a*b', 'cat cls/[]a]', 'cat {a,b}', 'cat ~/.aws/credentials',
+    'echo $HOME', 'cat `ls`', 'cat a>b', 'cat a<b', 'ls | head -3', 'ls; ls', 'ls && ls', 'cat a#b', 'cat a!b',
+    'cat a\tb', 'cat a\rb', 'cat f\u0001ile', 'cat café.txt', 'cat x 2>&1']) {
+    assert.equal(analyzeShell(cmd).unsafe, true, `should be unsafe: ${cmd}`);
+    assert.equal(isAllowedBash(cmd), false, `should be denied: ${cmd}`);
+  }
+  assert.equal(analyzeShell('').unsafe, true);
+  // `cd /etc` is plain words, so the grammar accepts the SHAPE and the program allowlist refuses the command —
+  // two separate gates, and the denial message names the right one.
+  assert.equal(analyzeShell('cd /etc').unsafe, false);
+  assert.equal(isAllowedBash('cd /etc'), false);
+  assert.equal(isAllowedBash('rm -rf .'), false);
+  assert.equal(isAllowedBash('node -e x'), false);
 });
 
 test('backslash escapes and partial quoting cannot hide a path from the checks', () => {
@@ -82,7 +110,7 @@ test('backslash escapes and partial quoting cannot hide a path from the checks',
     'c\\at /etc/passwd', 'cat "/pro"c/self/environ', 'cat /home/runner/work/repo/repo/../../.npmrc', "cat '/etc'/passwd"]) {
     assert.equal(isAllowedBash(cmd, roots, roots[0]), false, `should deny: ${cmd}`);
   }
-  assert.equal(isAllowedBash('cat \\/home\\/runner\\/work\\/repo\\/repo\\/LibraryViewModel.kt', roots, roots[0]), true);
+  assert.equal(isAllowedBash('cat /home/runner/work/repo/repo/LibraryViewModel.kt', roots, roots[0]), true);
 });
 
 test('credential locations are forbidden for Read and Bash', () => {
@@ -92,7 +120,7 @@ test('credential locations are forbidden for Read and Bash', () => {
     assert.equal(FORBIDDEN_PATH.test(p), true, `should forbid: ${p}`);
   }
   for (const p of ['LibraryViewModel.kt', 'core/src/main/java/com/tortugapower/audiobookplayer/PlaybackManager.kt', '.github/workflows/claude-review.yml', 'app/src/test/resources/library.json',
-    '.gitignore', 'environment.md', 'app.config.js', 'app/src/main/java/SshClient.kt', 'docs/environment.md', 'grep -rn "BuildConfig" .',
+    '.gitignore', 'environment.md', 'app.config.js', 'app/src/main/java/SshClient.kt', 'docs/environment.md', 'grep -rn BuildConfig .',
     'git diff HEAD~1 -- LibraryViewModel.kt', 'git show HEAD~2:LibraryViewModel.kt']) {
     assert.equal(FORBIDDEN_PATH.test(p), false, `should permit: ${p}`);
   }
@@ -124,7 +152,7 @@ test('absolute paths are confined to the checkout and runner temp; .. is refused
   // itself a read root. Left to the default, this case would pass or fail depending on whether a fixture name
   // happens to exist in the directory the tests were started from.
   for (const p of ['LibraryViewModel.kt', 'core/src/main/java/x.kt', './tests', '/home/runner/work/repo/repo/LibraryViewModel.kt', '/home/runner/work/_temp/pr-1.diff',
-    '/home/runner/work/repo/repo', '"/home/runner/work/repo/repo/.github"', '**/*.kt', 'app/src/test/**/*.kt']) {
+    '/home/runner/work/repo/repo', '/home/runner/work/repo/repo/.github', '**/*.kt', 'app/src/test/**/*.kt']) {
     assert.equal(isPathAllowed(p, roots, roots[0]), true, `should allow: ${p}`);
   }
   for (const p of ['/home/runner', '/home/runner/work', '/home/runner/work/repo', '/etc/passwd', '/', '../../.npmrc', 'app/../../x',
@@ -138,8 +166,8 @@ test('absolute paths are confined to the checkout and runner temp; .. is refused
     'find / -maxdepth 3 -type d -name "sdk" 2>/dev/null | head', 'ls /nonexistent 2>&1']) {
     assert.equal(isAllowedBash(cmd, roots, roots[0]), false, `should deny: ${cmd}`);
   }
-  for (const cmd of ['grep -rn "MediaSession" /home/runner/work/repo/repo/services', 'grep -n "^diff --git" /home/runner/work/_temp/pr-1.diff | head -60',
-    'grep -rn "MediaSession" core/src/', 'find . -name "*.kt"', 'cat LibraryViewModel.kt']) {
+  for (const cmd of ['grep -rn MediaSession /home/runner/work/repo/repo/core/src', 'grep -n -F diff /home/runner/work/_temp/pr-1.diff',
+    'grep -rn MediaSession core/src/', 'find . -name AndroidManifest.xml', 'cat LibraryViewModel.kt']) {
     assert.equal(isAllowedBash(cmd, roots, roots[0]), true, `should allow: ${cmd}`);
   }
 });
@@ -188,11 +216,11 @@ test('a symlink committed inside the checkout cannot lead reads outside the root
   assert.equal(isPathAllowed('docs/host/id_ed25519', roots, root), false);
   assert.equal(isPathAllowed(`${root}/docs/host/id_ed25519`, roots, root), false);
   assert.equal(isPathAllowed('docs/does-not-exist-yet.md', roots, root), true);
-  assert.equal(isAllowedBash('grep -rn "BEGIN OPENSSH" docs/host/', roots, root), false);
+  assert.equal(isAllowedBash('grep -rn BEGIN docs/host', roots, root), false);
   assert.equal(isAllowedBash('cat docs/host/id_ed25519', roots, root), false);
-  assert.equal(isAllowedBash('cat "docs"/host/id_ed25519', roots, root), false);
+  assert.equal(isAllowedBash('cat docs/host/id_ed25519', roots, root), false);
   assert.equal(isAllowedBash('cat docs/ho\\st/id_ed25519', roots, root), false);
-  assert.equal(isAllowedBash('grep -rn "x" docs/', roots, root), true);   // the dir itself is fine; the walk is grep's
+  assert.equal(isAllowedBash('grep -rn x docs', roots, root), true);   // the dir itself is fine; the walk is grep's
   assert.equal(isAllowedBash('cat docs/real.md', roots, root), true);
 });
 
@@ -742,7 +770,7 @@ test('a path attached to a short flag is confined too', () => {
   assert.equal(isAllowedBash(`grep -f${outside} .`), false);
   assert.equal(isAllowedBash(`grep --file=${outside} .`), false);
   // ...and ordinary flags still work.
-  assert.equal(isAllowedBash('grep -rn "PlaybackManager" core/src'), true);
+  assert.equal(isAllowedBash('grep -rn PlaybackManager core/src'), true);
   assert.equal(isAllowedBash('git blame -L 10,20 LibraryViewModel.kt'), true);
 });
 
@@ -758,9 +786,9 @@ test('a finished answer that lands just before the deadline is not thrown away',
 
 test("a grep pattern is not treated as a path, but an existing file always is", () => {
   // Searching for a route or URL literal is routine on this repo and must not read as an absolute path.
-  assert.equal(isAllowedBash('grep -rn "/auth/openid" core/src'), true);
+  assert.equal(isAllowedBash('grep -rn /auth/openid core/src'), true);
   assert.equal(isAllowedBash('grep -rn /api/items/batch/get app/src'), true);
-  assert.equal(isAllowedBash('grep -e "/v1/library" -rn core/src'), true);
+  assert.equal(isAllowedBash('grep -e /v1/library -rn core/src'), true);
   // ...but anything that exists is checked, including a file an attached pattern pushes into first place —
   // `grep -eFOO /etc/passwd` has no separate pattern token, so the first positional is the file itself.
   assert.equal(isAllowedBash('grep -eFOO /etc/passwd'), false);
@@ -781,12 +809,12 @@ test('no allowlisted command may follow symlinks while walking', () => {
   assert.equal(isAllowedBash('ls -LR docs'), false);
   assert.equal(isAllowedBash('grep -R x .'), false);
   assert.equal(isAllowedBash('grep --dereference-recursive x .'), false);
-  assert.equal(isAllowedBash('find . -L -name "*.kt"'), false);
+  assert.equal(isAllowedBash('find . -L -name AndroidManifest.xml'), false);
   // ...and the ordinary forms still work.
   assert.equal(isAllowedBash('du -sh .'), true);
   assert.equal(isAllowedBash('ls -la app/src'), true);
-  assert.equal(isAllowedBash('grep -rn "PlaybackManager" core/src'), true);
-  assert.equal(isAllowedBash('find . -name "*.kt"'), true);
+  assert.equal(isAllowedBash('grep -rn PlaybackManager core/src'), true);
+  assert.equal(isAllowedBash('find . -name AndroidManifest.xml'), true);
 });
 
 
@@ -833,29 +861,6 @@ test('a long thread still resolves to its opening comment', () => {
 });
 
 
-test('brace expansion cannot smuggle a path past the read roots', () => {
-  // Verified live on PR #114 before this fix: the whole token exists nowhere, so isPathAllowed waved it through
-  // and bash expanded it afterwards. Braces also expand BEFORE `~`, evading the tilde rule.
-  assert.equal(isAllowedBash('cat {/etc/hostname,/etc/hostname}'), false);
-  assert.equal(isAllowedBash('cat {~/.aws/credentials,x}'), false);
-  assert.equal(isAllowedBash('head {../outside,.}/f'), false);
-  // Credential directories a home-relative read would target are named outright too.
-  assert.ok(FORBIDDEN_PATH.test('cat .aws/credentials'));
-  assert.ok(FORBIDDEN_PATH.test('cat .gnupg/secring.gpg'));
-  assert.ok(FORBIDDEN_PATH.test('cat .gradle/gradle.properties'));
-  // ...but a template of one is not the thing itself, while a real per-environment file still is.
-  assert.equal(FORBIDDEN_PATH.test('cat .env.example'), false);
-  assert.equal(FORBIDDEN_PATH.test('cat config/.env.template'), false);
-  assert.ok(FORBIDDEN_PATH.test('cat .env.local'));
-  assert.ok(FORBIDDEN_PATH.test('cat .env'));
-  // local.properties.example is committed here and describes the keys, which is exactly what a reviewer should read.
-  assert.equal(isAllowedBash('cat local.properties.example'), true);
-  assert.equal(isAllowedBash('cat local.properties'), false);
-  assert.equal(isAllowedBash('cat keystore.properties'), false);
-  // Quoted braces are literal to bash, so a regex quantifier still works.
-  assert.equal(isAllowedBash('grep -rn "a{2}" core/src'), true);
-  assert.equal(isAllowedBash("grep -rn 'id{3,4}' app/src"), true);
-});
 
 
 test('the PR author cannot accept their own finding', async () => {
@@ -1016,15 +1021,6 @@ test('a finished run is never relabelled by the bell, and a parseable answer is 
   assert.equal(extractJson(looseAnswer).verdict, 'pass'); // ...but perfectly readable, so it is not discarded
 });
 
-test('the grep exemption resolves against the same base as the confinement check', () => {
-  // Both look at the same file now: previously existsSync used the process cwd while isPathAllowed honoured the
-  // injected one, so the unit tests passed for a reason the runtime did not share.
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'grepbase-')));
-  mkdirSync(join(root, 'core'), { recursive: true });
-  writeFileSync(join(root, 'core', 'Player.kt'), 'class Player');
-  assert.equal(isAllowedBash('grep -rn "MediaSession" core/Player.kt', [root], root), true);
-  assert.equal(isAllowedBash('grep -rn "/auth/openid" core', [root], root), true);
-});
 
 
 test("the SDK's own Bash fields are accepted, and the ones that change how it runs are neutralised", async () => {
@@ -1067,16 +1063,6 @@ test('a re-reported finding still surfaces when the reopen fails', async () => {
   assert.ok(renderSummary({ verdict: 'warn', summary: 's', findings: [f] }, stats, unpostable).includes('came back'));
 });
 
-test('stdin redirection cannot smuggle a path past the confinement check', () => {
-  // `cat </etc/passwd` arrives as one token that is not absolute and resolves to a workspace-relative name that
-  // does not exist, so the path check passed it while bash read the real file. Both spacings, and `<<`/`<()` too.
-  for (const cmd of ['cat </etc/passwd', 'cat < /etc/passwd', 'cat <~/.aws/credentials', 'grep -rn x <$HOME/.netrc',
-    'cat <<< /etc/passwd', 'cat <(ls /etc)', 'wc -l <../../.npmrc']) {
-    assert.equal(isAllowedBash(cmd), false, `should deny: ${cmd}`);
-  }
-  // A literal `<` still works where it belongs: inside quotes.
-  assert.equal(isAllowedBash('grep -rn "a < b" services'), true);
-});
 
 test('a degrade note replaces the previous one instead of stacking', () => {
   const HEADING = '## ⚠️ Claude PR Review — incomplete';
@@ -1156,25 +1142,6 @@ test('a degrade note survives the trim of an oversized summary', () => {
   assert.ok(body.trimEnd().endsWith('<!-- bp-ai-review-summary -->')); // and the upsert can still find the comment
 });
 
-test('stderr routing is recognised where bash would see it, and nowhere else', () => {
-  // Allowed: routing stderr is not a redirect to a file.
-  assert.equal(isAllowedBash('grep -rn foo . 2>/dev/null'), true);
-  assert.equal(isAllowedBash('git log --oneline -5 2>&1'), true);
-  // A quoted occurrence is part of the argument, not a redirect: the analysed segment must still contain it, or the
-  // string the checks run against is not the command bash would run.
-  const { segments } = analyzeShell('grep -rn "log 2>/dev/null here" src');
-  assert.ok(segments[0].includes('2>/dev/null'));
-  assert.equal(isAllowedBash('grep -rn "log 2>/dev/null here" src'), true);
-  // And a real redirect is still refused, whichever way it points.
-  assert.equal(isAllowedBash('grep -rn foo . > out.txt'), false);
-  assert.equal(isAllowedBash('grep -rn foo . 2>out.txt'), false);
-  // The `2` has to BEGIN a token, as it does for bash: a digit is an fd only when the token so far is all digits.
-  // Unanchored, `cat secrets2>&1` was analysed as `cat secrets` while bash read `secrets2` — so a symlink
-  // committed under that name escaped the realpath check entirely.
-  assert.equal(isAllowedBash('cat secrets2>&1'), false);
-  assert.equal(isAllowedBash('cat file2>/dev/null'), false);
-  assert.ok(analyzeShell('cat secrets2>&1').segments.some((seg) => seg.includes('secrets2')));
-});
 
 test('a superseded thread is only reported resolved when the resolve worked', async () => {
   // Without a resolve token the resolve throws and is only logged; the row must then say the thread is still open
@@ -1394,34 +1361,6 @@ test('a superseded thread stays open when its replacement never posted', async (
   assert.equal(lost.unpostable.length, 1);
 });
 
-test('the expansions bash performs after quote removal cannot smuggle a path out', () => {
-  // Each of these was verified against real bash: the analysed tokens looked harmless while bash read a file
-  // outside the root through a symlink of the kind a PR can commit.
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'expand-')));
-  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'outside-')));
-  writeFileSync(join(outside, 'o.txt'), 'SECRET=abc');
-  mkdirSync(join(root, 'conf'), { recursive: true });
-  writeFileSync(join(root, 'conf', 'ok.txt'), 'fine');
-  writeFileSync(join(root, 'plain.kt'), 'fine');
-  symlinkSync(outside, join(root, 'lin'));                        // a symlinked directory
-  symlinkSync(join(outside, 'o.txt'), join(root, 'p q'));         // a name with a space
-  symlinkSync(join(outside, 'o.txt'), join(root, '2'));           // a name that looks like an fd
-  symlinkSync(join(outside, 'o.txt'), join(root, 'conf', 'x.txt'));
-
-  // A glob may not choose a directory, and `grep -r` following one is the escalation that mattered: a symlink to
-  // /proc reaches the harness process's own environment, which holds the GitHub tokens.
-  assert.equal(isAllowedBash('cat lin*/o.txt', [root], root), false);
-  assert.equal(isAllowedBash('grep -ran ANTHROPIC lin*', [root], root), false);
-  // A final-segment glob is fine, but every entry it matches is confined.
-  assert.equal(isAllowedBash('cat conf/*.txt', [root], root), false);
-  assert.equal(isAllowedBash('cat conf/ok.txt', [root], root), true);
-  assert.equal(isAllowedBash('wc -l *.kt', [root], root), true);
-  // Quoted whitespace keeps the word together instead of becoming two harmless-looking names.
-  assert.equal(isAllowedBash('cat "p q"', [root], root), false);
-  // `''` contributes nothing to the string but does start the word, so the `2` is a filename, not a descriptor.
-  assert.equal(isAllowedBash("cat ''2>&1", [root], root), false);
-  assert.equal(isAllowedBash('grep -rn x conf 2>&1', [root], root), true);
-});
 
 test('the options handed to the SDK are the sandbox, and say so', async () => {
   const q = agentQuery({ userPrompt: 'review this', systemPrompt: 'be a reviewer', abort: new AbortController(), env: { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'k' } });
@@ -1633,45 +1572,6 @@ test('the summary counts a superseded close once, and escapes evidence for the t
   assert.ok(!applied[0].note.includes('\n'));
 });
 
-test('bash expansions after quote removal, round two', () => {
-  // Round one closed globs, quoted spaces and the empty-quote word start. These four are the same class, found by
-  // re-reviewing that fix, and each was verified against real bash reading a symlink outside the root.
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'esc2-')));
-  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'esc2out-')));
-  const secret = join(outside, 'o.txt');
-  writeFileSync(secret, 'SECRET=abc');
-  symlinkSync(secret, join(root, 'p q'));
-  symlinkSync(secret, join(root, ' 2'));
-  symlinkSync(secret, join(root, 'a\tb'));
-  symlinkSync(secret, join(root, 'sec[r]et'));
-  symlinkSync(secret, join(root, 'y'));
-  writeFileSync(join(root, 'plain.kt'), 'fine');
-
-  // A backslash escapes whitespace exactly as quotes do — the branch that handles it did neither.
-  assert.equal(isAllowedBash('cat p\\ q', [root], root), false);
-  assert.equal(isAllowedBash('cat \\ 2>&1', [root], root), false);
-  // A quoted TAB is a different filename from a quoted space, so it must be checked as one.
-  assert.equal(isAllowedBash('cat "a\tb"', [root], root), false);
-  assert.equal(restoreQuotedSpaces(analyzeShell('cat "a\tb"').segments[0]), 'cat a\tb');
-  // `[!z]` is bash's negated class; read as a literal class it matched a different set of files.
-  assert.equal(isAllowedBash('cat [!z]', [root], root), false);
-  // A pattern that matches nothing is passed through literally by bash, so the literal is a path too.
-  assert.equal(isAllowedBash('cat sec[r]et', [root], root), false);
-  // Word splitting follows bash's default IFS — space, tab, newline — and nothing else. JavaScript's `\s` also
-  // matches CR, vertical tab and form feed, which bash keeps INSIDE the word: `cat a<CR>b` split into the two
-  // non-existent names `a` and `b` and was allowed, while bash opened the file literally named `a<CR>b`.
-  // Verified against /bin/bash for all three.
-  symlinkSync(secret, join(root, 'a\rb'));
-  symlinkSync(secret, join(root, 'a\vb'));
-  symlinkSync(secret, join(root, 'a\fb'));
-  assert.equal(isAllowedBash('cat a\rb', [root], root), false);
-  assert.equal(isAllowedBash('cat a\vb', [root], root), false);
-  assert.equal(isAllowedBash('cat a\fb', [root], root), false);
-
-  // ...and ordinary work is untouched.
-  assert.equal(isAllowedBash('cat plain.kt', [root], root), true);
-  assert.equal(isAllowedBash('wc -l *.kt', [root], root), true);
-});
 
 test('what the verifier posts and what the table says agree, and never overstate', async () => {
   const thread = (over = {}) => ({
@@ -1705,53 +1605,65 @@ test('both system prompts state the same shell rules, from the same constant', (
   // on the prompts themselves, not by counting interpolations in the source.
   const review = buildSystemPrompt();
   for (const prompt of [review, VERIFY_SYSTEM_PROMPT]) {
+    assert.match(prompt, /ONE simple command of plain words/);
     assert.match(prompt, /git diff\/log\/show\/blame\/status/);
-    assert.match(prompt, /No interpreters, test runners, gh, curl/);
-    assert.match(prompt, /A glob may not select a directory/);
-    assert.match(prompt, /No cd — paths are relative to the checkout/);
+    assert.match(prompt, /No quotes, no backslashes, no globs/);
+    assert.match(prompt, /use the Grep and Glob tools/);
   }
   // The reviewer is told where the code is; the verifier needs that too, since it opens the files a finding names.
   assert.match(VERIFY_SYSTEM_PROMPT, /checked out in the current working directory/);
   // And the denial the agent sees on a refusal says the same thing.
   assert.match(BASH_DENY_MESSAGE_FOR_TEST, /git diff\/log\/show\/blame\/status/);
-  assert.match(BASH_DENY_MESSAGE_FOR_TEST, /A glob may not select a directory/);
+  assert.match(BASH_DENY_MESSAGE_FOR_TEST, /use the Grep and Glob tools/);
 });
 
-test('bash expansions after quote removal, round three', () => {
-  // Round three of re-reviewing this walk. Every case below was verified against /bin/bash opening a symlink
-  // outside the root, with the crafted filenames accepted by a real `git add`.
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'esc3-')));
-  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'esc3out-')));
+test('every escape the emulator ever allowed is refused by the grammar', () => {
+  // The historical corpus, kept as the regression test for the rewrite: each of these was ALLOWED by some version
+  // of the shell emulator this gate used to be, and each was verified against /bin/bash reading a file outside the
+  // read roots. The grammar refuses all of them for the same reason — they need a shell feature it does not
+  // accept — which is the point of the rewrite: one rule instead of ten fixes.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'corpus-')));
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'corpusout-')));
   const secret = join(outside, 'o.txt');
   writeFileSync(secret, 'SECRET=abc');
   mkdirSync(join(root, 'cls'), { recursive: true });
-  mkdirSync(join(root, '.git'), { recursive: true });
-  writeFileSync(join(root, '.git', 'config'), '[remote]');
-  writeFileSync(join(root, 'local.properties'), 'SENTRY_DSN=x');
   writeFileSync(join(root, 'plain.kt'), 'fine');
-  symlinkSync(secret, join(root, 'z\r'));
-  symlinkSync(secret, join(root, 'f\u0001ile'));
-  symlinkSync(secret, join(root, "'q"));
+  writeFileSync(join(root, 'local.properties'), 'SENTRY_DSN=x');
+  symlinkSync(outside, join(root, 'lin'));
+  for (const name of ['p q', ' 2', 'a\tb', 'a\rb', 'z\r', 'f\u0001ile', "'q", 'sec[r]et', 'y']) symlinkSync(secret, join(root, name));
   symlinkSync(secret, join(root, 'cls', 'a'));
 
-  // `String.trim()` also strips CR/VT/FF/NBSP, which bash keeps in the word: a TRAILING one was dropped, so
-  // `cat z<CR>` was checked as `cat z`. A symlink under that name reads anything — /proc/self/environ included,
-  // which carries the API key `agentEnv` deliberately keeps.
-  assert.equal(isAllowedBash('cat z\r', [root], root), false);
-  // A raw control character in the command is indistinguishable from a whitespace placeholder after the walk.
-  assert.equal(isAllowedBash('cat f\u0001ile', [root], root), false);
-  // The walk already removed the shell's quoting, so a remaining quote is part of the FILENAME.
-  assert.equal(isAllowedBash("cat \\'q", [root], root), false);
-  // bash's bracket classes are not JavaScript's: `[]a]` is a class containing `]` and `a`, not an empty one.
-  assert.equal(isAllowedBash('cat cls/[]a]', [root], root), false);
-  assert.equal(isAllowedBash('cat cls/[[:alpha:]]', [root], root), false);
-  assert.equal(isAllowedBash('cat cls/*', [root], root), false);
-  // The deny lists apply to what a glob SELECTS, not only to what the command names.
-  assert.equal(isAllowedBash('cat *.properties', [root], root), false);
-  assert.equal(isAllowedBash('cat .g*/config', [root], root), false);
-  // ...and ordinary work is untouched. `grep -r` follows only symlinks named on the command line, and `-R` is
-  // denied, so a recursive grep over a directory holding one stays allowed.
+  const historical = [
+    'cat lin*/o.txt',              // pathname expansion chose a symlinked directory
+    'grep -ran ANTHROPIC lin*',    // ...and grep -r follows a command-line symlink, reaching /proc
+    'cat conf/*.txt',              // a final-segment glob matching a symlinked file
+    'cat *.properties',            // a glob selecting a file the deny list refuses by name
+    'cat cls/*',                   // a glob over a directory holding an outside symlink
+    'cat "p q"',                   // quote removal split one filename into two harmless names
+    "cat ''2>&1",                  // an empty pair of quotes started a word, so `2` read as a descriptor
+    'cat p\\ q',                   // the backslash branch held no whitespace and started no word
+    'cat \\ 2>&1',
+    'cat "a\tb"',                  // all quoted whitespace collapsed to one placeholder
+    'cat a\rb',                    // word splitting used JavaScript's \s, not IFS
+    'cat z\r',                     // the trailing trim used JavaScript's whitespace
+    'cat f\u0001ile',              // a raw control character forged a placeholder
+    "cat \\'q",                    // a quote that was part of the filename was stripped from it
+    'cat cls/[]a]',                // bash bracket classes are not JavaScript classes
+    'cat cls/[[:alpha:]]',
+    'cat secrets2>&1',             // a digit mid-word read as a file descriptor
+    'cat </etc/passwd',            // stdin redirection arrived as one token that existed nowhere
+    'cat {/etc/hostname,x}',       // brace expansion, which bash performs before `~`
+    'cat {~/.aws/credentials,x}',
+    'head {../outside,.}/f',
+  ];
+  for (const cmd of historical) {
+    assert.equal(isAllowedBash(cmd, [root], root), false, `should refuse: ${cmd}`);
+  }
+  // A symlink named outright is still confined by realpath — that check did not change and still carries its own
+  // weight, since a plain word can name one.
+  assert.equal(isAllowedBash('cat lin/o.txt', [root], root), false);
+  assert.equal(isAllowedBash('cat y', [root], root), false);
+  // ...and the reviewer's ordinary work is unaffected.
   assert.equal(isAllowedBash('cat plain.kt', [root], root), true);
-  assert.equal(isAllowedBash('wc -l *.kt', [root], root), true);
   assert.equal(isAllowedBash('grep -rn x cls', [root], root), true);
 });
