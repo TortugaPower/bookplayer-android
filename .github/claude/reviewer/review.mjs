@@ -1476,7 +1476,29 @@ function answeredAlready(t) {
 // True when this harness wrote one of `markers` on the thread and no maintainer has spoken since. Both halves
 // matter: the markers are public strings that anyone can paste, so only a comment the harness authored counts,
 // and a maintainer's word after ours is a decision to respect rather than something to reopen or talk over.
-export function harnessClosed(t, markers = HARNESS_RESOLVED_MARKERS) {
+// Our own action comes from the record; only the external half — has a maintainer spoken since — still needs the
+// comments. That is the split the whole record exists for: marker archaeology over a window that silently
+// truncates was deciding a question we already knew the answer to.
+const HARNESS_CLOSE_ACTIONS = new Set(['resolved', 'superseded', 'duplicate']);
+export function harnessClosedByRecord(t, priorState) {
+  const record = Object.values(priorState?.findings || {}).find((r) => r?.id === t.id);
+  if (!record || !HARNESS_CLOSE_ACTIONS.has(record.action)) return null; // no record of us closing it: fall back
+  const comments = Array.isArray(t.comments) ? t.comments : [];
+  // A maintainer's word after ours is a decision to respect, whatever our record says we did. Their timestamp is
+  // compared against the record's commit-time proxy: the newest harness comment we can see.
+  const oursAt = comments.filter((c) => isHarnessComment(c.author)).map((c) => c.createdAt || '').sort().pop() || '';
+  const maintainerAt = comments
+    .filter((c) => !isHarnessComment(c.author) && MAINTAINER_ASSOCIATIONS.has(c.association))
+    .map((c) => c.createdAt || '')
+    .sort()
+    .pop();
+  if (maintainerAt && oursAt && maintainerAt > oursAt) return false;
+  return true;
+}
+
+export function harnessClosed(t, markers = HARNESS_RESOLVED_MARKERS, priorState = null) {
+  const recorded = harnessClosedByRecord(t, priorState);
+  if (recorded !== null) return recorded;
   const carries = (body) => markers.some((m) => String(body || '').includes(m));
   const comments = Array.isArray(t.comments) ? t.comments : [];
   if (!comments.length) return isHarnessComment(t.lastCommentAuthor) && carries(t.lastCommentBody);
@@ -1570,7 +1592,12 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
 // four outcomes — post new, keep open, reopen auto-resolved, leave human-dismissed, resolve stale — are unit-tested.
 const SEVERITY_RANK = { error: 0, warn: 1, info: 2 };
 
-export async function reconcile(currentByFp, threads, io, { provisional = false, eligibleIds, handledIds = [], supersededBy = null, duplicateOf = null } = {}) {
+export async function reconcile(currentByFp, threads, io, options = {}) {
+  const { provisional = false, eligibleIds, handledIds = [], supersededBy = null, duplicateOf = null, priorState } = options;
+  // `priorState` is legitimately null on a first round, so it cannot be defaulted — a default is exactly how a
+  // refactor drops it silently and sends reconciliation back to marker archaeology. The KEY is required instead:
+  // absent means someone stopped passing it, which is a crash the harness reports rather than a quiet regression.
+  if (!('priorState' in options)) throw new Error('reconcile: priorState must be passed explicitly (null on a first round)');
   // Required, not defaulted: this set is what stops "was not re-reported" from resolving a thread the verification
   // pass was responsible for but never judged. Omitting it at the call site used to be a silent security
   // regression that no test could reach, since main() is not importable; now it is a crash the harness reports on
@@ -1598,7 +1625,7 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
       if (!existing.isResolved) {
         stats.kept++;
         liveFps.add(fp);
-      } else if (harnessClosed(existing)) {
+      } else if (harnessClosed(existing, HARNESS_RESOLVED_MARKERS, priorState)) {
         // We closed it (not re-reported, or verified fixed) and it is back: reopen it.
         try {
           await io.unresolve(existing);
@@ -2038,6 +2065,7 @@ async function main() {
     eligibleIds,
     handledIds,
     duplicateOf,
+    priorState: stateRecord,
     supersededBy,
   });
 
