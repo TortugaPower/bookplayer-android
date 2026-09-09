@@ -422,14 +422,14 @@ const safeRealpath = (p) => {
 // The diff file is the only thing outside the checkout the agent needs; the root is that file, not the temp dir.
 // The directory is realpath'd (it exists; the file does not yet), so the root and the later resolution of the
 // written file agree even where the temp path has a symlinked component, e.g. macOS /var -> /private/var.
-const DIFF_PATH = join(safeRealpath(process.env.RUNNER_TEMP || tmpdir()), `pr-${PR_NUMBER}.diff`);
+export const DIFF_PATH = join(safeRealpath(process.env.RUNNER_TEMP || tmpdir()), `pr-${PR_NUMBER}.diff`);
 const READ_ROOTS = [process.env.GITHUB_WORKSPACE || process.cwd(), DIFF_PATH].map(safeRealpath);
 // No quote handling here: the grammar refuses quote characters outright, so a path reaching this function is
 // already the literal name the program will open.
 // The base a relative token is resolved against. It is the checkout, stated explicitly rather than inherited from
 // wherever the harness happens to run, and the agent's shell cannot drift away from it: `cd` (and `pushd`) are not
 // on BASH_ALLOW, so every `cd …` segment is refused, and `git -C <path>` still has that path confined below.
-const AGENT_CWD = process.env.GITHUB_WORKSPACE || process.cwd();
+export const AGENT_CWD = process.env.GITHUB_WORKSPACE || process.cwd();
 export function isPathAllowed(rawPath, roots = READ_ROOTS, cwd = AGENT_CWD) {
   const p = String(rawPath || '');
   if (p.split('/').includes('..')) return false;

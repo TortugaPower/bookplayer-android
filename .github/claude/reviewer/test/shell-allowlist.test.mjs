@@ -3,12 +3,12 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 // The real one, imported: re-implementing it here meant a change to the shape (base64, a different
 // length) left every dedup test green while FP_REGEX `[a-f0-9]+` stopped matching and dedup silently died.
 const reconcileFp = fingerprint;
@@ -1621,6 +1621,10 @@ test('both system prompts state the same shell rules, from the same constant', (
     assert.match(prompt, /git diff\/log\/show\/blame\/status/);
     assert.match(prompt, /No quotes, no backslashes, no globs/);
     assert.match(prompt, /use the Grep and Glob tools/);
+    // The flag denials are enforced too, so the rules have to mention them — otherwise a `grep -Rn` refusal
+    // carries a message the command already satisfies.
+    assert.match(prompt, /Flags that make a walk follow symlinks are refused/);
+    assert.match(prompt, /never returns \(tail -f\)/);
   }
   // The reviewer is told where the code is; the verifier needs that too, since it opens the files a finding names.
   assert.match(VERIFY_SYSTEM_PROMPT, /checked out in the current working directory/);
@@ -1791,4 +1795,43 @@ test('a program may not take its filenames from a file, or from stdin', () => {
   // grep's -f reads PATTERNS, not filenames, so it stays allowed for an in-root file.
   assert.equal(isAllowedBash('grep -f patterns.txt real.kt', [root], root), true);
   assert.equal(isAllowedBash('file real.kt', [root], root), true);
+});
+
+test('the read-tool branch applies both deny lists, to every path field it accepts', async () => {
+  // A mutation sweep found this branch unpinned: dropping FORBIDDEN_PATH from it, dropping `glob` from Grep's
+  // field list, or checking only the FIRST present field all left the suite green — and Read is an easier way to
+  // fetch a file than Bash.
+  const deny = async (tool, input) => (await canUseToolForTest(tool, input)).behavior;
+  for (const p of ['/proc/self/environ', '.aws/credentials', '.ssh/id_ed25519', '.git/config', '.env', '~/x']) {
+    assert.equal(await deny('Read', { file_path: p }), 'deny', `Read should refuse: ${p}`);
+    assert.equal(await deny('Grep', { pattern: 'x', path: p }), 'deny', `Grep should refuse: ${p}`);
+  }
+  // EVERY path-like field, not just the first one present: a benign `path` must not launder a hostile `glob`.
+  assert.equal(await deny('Grep', { pattern: 'x', path: '.', glob: '../../.npmrc' }), 'deny');
+  assert.equal(await deny('Grep', { pattern: 'x', path: '.', glob: '/etc/*' }), 'deny');
+  assert.equal(await deny('Glob', { pattern: '.aws/**' }), 'deny');
+  // Grep's `pattern` is a regex searched WITHIN `path`, so it is not a path and must not be treated as one.
+  assert.equal(await deny('Grep', { pattern: '/v1/library', path: '.' }), 'allow');
+});
+
+test('the program allowlist is anchored at a word boundary', () => {
+  // Without the trailing `(\s|$)` the regexes match a prefix, so a program whose name merely STARTS with an
+  // allowed one gets in.
+  for (const cmd of ['catx a.kt', 'lsof', 'grepx a.kt', 'findx .', 'ducks .', 'statx a.kt',
+    'git diffx', 'git logs', 'git showcase', 'git statusx']) {
+    assert.equal(isAllowedBash(cmd), false, `should refuse: ${cmd}`);
+  }
+  assert.equal(isAllowedBash('cat a.kt'), true);
+  assert.equal(isAllowedBash('git diff'), true);
+});
+
+test('the read roots are the checkout and the diff FILE, not its directory', () => {
+  // The agent must be able to read the diff the harness wrote it...
+  assert.equal(isPathAllowed(DIFF_PATH), true);
+  // ...and nothing else in the runner temp directory, which holds other jobs' files.
+  assert.equal(isPathAllowed(join(dirname(DIFF_PATH), 'other-job-secret.txt')), false);
+  assert.equal(isPathAllowed(dirname(DIFF_PATH)), false);
+  // Relative paths resolve against the checkout, stated explicitly rather than inherited from wherever the
+  // harness happens to run. In CI these two differ (the tests run from .github/claude/reviewer), so this pins it.
+  assert.equal(AGENT_CWD, process.env.GITHUB_WORKSPACE || process.cwd());
 });
