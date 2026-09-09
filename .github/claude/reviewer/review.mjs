@@ -316,15 +316,21 @@ const BASH_DENY_MESSAGE = `Bash is restricted to read-only commands: ${BASH_RULE
 // reasoning about a string the shell never sees.
 const STDERR_REDIRECT = /^2>(&1|\/dev\/null)(?=\s|$)/;
 
+// Word splitting follows bash's default IFS — space, tab and newline — and NOTHING else. JavaScript's `\s` is
+// wider (CR, vertical tab, form feed, Unicode spaces), and splitting on it diverged from the shell in the
+// dangerous direction: `cat a<CR>b` split into the two harmless names `a` and `b`, both non-existent, while bash
+// kept the word whole and opened the file literally named `a<CR>b`. Verified against /bin/bash.
+const IFS_WS = /[ \t\n]/;
+const IFS_SPLIT = /[ \t\n]+/;
 // Whitespace bash would NOT split on — quoted or backslash-escaped — is held as a placeholder through the walk
 // and restored when a segment is split into tokens: bash removes the quoting but the word stays ONE word, and
-// splitting `cat "p q"` (or `cat p\\ q`) on whitespace produced the two harmless-looking names `p` and `q` while
-// bash read `./p q`. Each kind gets its own placeholder, because a quoted TAB is a different filename from a
-// quoted space and the path check has to ask about the file bash will actually open.
-const WS_PLACEHOLDER = { ' ': '\x00', '\t': '\x01', '\n': '\x02', '\r': '\x03', '\v': '\x04', '\f': '\x05' };
+// splitting `cat "p q"` (or `cat p\\ q`) produced the two names `p` and `q` while bash read `./p q`. Each kind
+// gets its own placeholder, because a quoted TAB is a different filename from a quoted space and the path check
+// has to ask about the file bash will actually open.
+const WS_PLACEHOLDER = { ' ': '\x00', '\t': '\x01', '\n': '\x02' };
 const PLACEHOLDER_WS = Object.fromEntries(Object.entries(WS_PLACEHOLDER).map(([ws, ph]) => [ph, ws]));
 const holdWhitespace = (ch) => WS_PLACEHOLDER[ch] || ch;
-export const restoreQuotedSpaces = (tok) => String(tok).replace(/[\x00-\x05]/g, (ph) => PLACEHOLDER_WS[ph] ?? ph);
+export const restoreQuotedSpaces = (tok) => String(tok).replace(/[\x00-\x02]/g, (ph) => PLACEHOLDER_WS[ph] ?? ph);
 
 export function analyzeShell(command) {
   const cmd = String(command || '');
@@ -374,7 +380,7 @@ export function analyzeShell(command) {
       // that anchor `cat secrets2>&1` was analysed as `cat secrets` while bash read `secrets2`, so a symlink
       // committed under that name pointed anywhere it liked and the realpath check never saw it.
       i += STDERR_REDIRECT.exec(cmd.slice(i))[0].length - 1;
-      current = current.replace(/\s+$/, '');
+      current = current.replace(/[ \t\n]+$/, '');
       continue;
     }
     if (ch === '`' || ch === '>' || ch === '<' || ch === '$' || ch === '{' || ch === '}') unsafe = true;
@@ -384,7 +390,7 @@ export function analyzeShell(command) {
       tokenStarted = false;
       continue;
     }
-    tokenStarted = !/\s/.test(ch);
+    tokenStarted = !IFS_WS.test(ch);
     current += ch;
   }
   segments.push(current);
@@ -512,7 +518,7 @@ export function isAllowedBash(command, roots = READ_ROOTS, cwd = AGENT_CWD) {
     return slash !== -1 ? tok.slice(slash) : tok; // `-f/etc/passwd` -> `/etc/passwd`
   };
   return segments.every((segment) => {
-    const tokens = segment.split(/\s+/);
+    const tokens = segment.split(IFS_SPLIT);
     // grep's first non-flag argument is the PATTERN, not a path: searching for a route literal like
     // "/auth/openid" must not read as an absolute path outside the read roots. FORBIDDEN_PATH still applies to
     // the whole segment, and `-e PATTERN` is skipped the same way.

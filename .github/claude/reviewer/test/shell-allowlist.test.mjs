@@ -1657,6 +1657,17 @@ test('bash expansions after quote removal, round two', () => {
   assert.equal(isAllowedBash('cat [!z]', [root], root), false);
   // A pattern that matches nothing is passed through literally by bash, so the literal is a path too.
   assert.equal(isAllowedBash('cat sec[r]et', [root], root), false);
+  // Word splitting follows bash's default IFS — space, tab, newline — and nothing else. JavaScript's `\s` also
+  // matches CR, vertical tab and form feed, which bash keeps INSIDE the word: `cat a<CR>b` split into the two
+  // non-existent names `a` and `b` and was allowed, while bash opened the file literally named `a<CR>b`.
+  // Verified against /bin/bash for all three.
+  symlinkSync(secret, join(root, 'a\rb'));
+  symlinkSync(secret, join(root, 'a\vb'));
+  symlinkSync(secret, join(root, 'a\fb'));
+  assert.equal(isAllowedBash('cat a\rb', [root], root), false);
+  assert.equal(isAllowedBash('cat a\vb', [root], root), false);
+  assert.equal(isAllowedBash('cat a\fb', [root], root), false);
+
   // ...and ordinary work is untouched.
   assert.equal(isAllowedBash('cat plain.kt', [root], root), true);
   assert.equal(isAllowedBash('wc -l *.kt', [root], root), true);
