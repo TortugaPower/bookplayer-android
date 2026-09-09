@@ -798,3 +798,61 @@ test('a secret with no recognisable shape is still redacted, because the harness
     restore();
   }
 });
+
+test('a provisional round never lets the verifier judge, and a stale entry drops out when the read worked', async () => {
+  // Two guards that only main() applies, one on each side of the record.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'guards-')));
+  const env = {
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '24', COMMIT: 'ba5e000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  };
+  const { mod, restore } = await loadHarness(env, 'guards');
+  const realFetch = globalThis.fetch;
+  try {
+    const old = { severity: 'error', file: 'app/Old.kt', line: 7, comment: 'an error from an earlier push' };
+    const oldFp = mod.fingerprint(old);
+    const thread = {
+      id: 'T-old', isResolved: false, path: old.file, line: old.line, originalLine: old.line,
+      first: { nodes: [{ databaseId: 61, body: `🔴 **ERROR** — ${old.comment} <!-- bp-ai-review-fp:${oldFp} -->`, author: { login: 'github-actions[bot]' } }] },
+      comments: { nodes: [] }, last: { nodes: [] },
+    };
+
+    // (a) A provisional answer — the clock ran out — is less complete than what the agent was about to check.
+    // The verification pass must not run on it at all: a partial finding list could have the verifier close a
+    // thread as fixed, or as a duplicate of a finding that only happens to be in the truncated list.
+    const prov = fakeGitHub({ threads: [thread] });
+    globalThis.fetch = prov.fetch;
+    let verifyCalls = 0;
+    await mod.runReview({
+      agent: async (prompt) => {
+        const isVerify = prompt.includes('Below are findings reported on it by');
+        if (isVerify) verifyCalls++;
+        return { finalText: '```json\n' + JSON.stringify(isVerify ? { threads: [{ id: 1, status: 'fixed', evidence: 'x' }] } : { verdict: 'pass', summary: 'partial', findings: [] }) + '\n```', lastAnswer: '', turns: 3, resultSubtype: 'error_deadline' };
+      },
+    });
+    assert.equal(verifyCalls, 0, 'the verifier ran on a provisional round');
+    assert.deepEqual(prov.calls.resolved, []);
+    assert.match(prov.summaryOut(), /not checked this round/);
+
+    // (b) With the record READ successfully, an entry whose thread is gone from the PR drops out. Merging into
+    // the old record unconditionally (rather than only when the read failed) would keep it for ever, and the
+    // record's cap would eventually spend itself on threads that no longer exist.
+    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+      commit: 'aaaaaaa',
+      findings: {
+        [oldFp]: { id: 'T-old', file: old.file, line: old.line, severity: 'error', text: old.comment, action: 'posted', commit: 'aaaaaaa' },
+        deleted: { id: 'T-gone', file: 'app/Deleted.kt', line: 1, severity: 'warn', text: 'its thread was deleted', action: 'open', commit: 'aaaaaaa' },
+      },
+    })}`;
+    const clean = fakeGitHub({ summaryBody: priorSummary, threads: [thread] });
+    globalThis.fetch = clean.fetch;
+    await mod.runReview({ agent: agentReturning({ verdict: 'fail', summary: 'still here', findings: [old] }) });
+    const after = mod.decodeState(clean.summaryOut());
+    assert.equal(after.findings[oldFp].id, 'T-old');
+    assert.equal(after.findings.deleted, undefined, 'an entry for a thread that no longer exists was kept');
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
