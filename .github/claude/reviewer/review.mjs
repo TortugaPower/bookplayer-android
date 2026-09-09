@@ -751,12 +751,13 @@ const STATE_VERSION = 1;
 // because its record was a few hundred bytes.
 const GITHUB_COMMENT_LIMIT = 65_536;
 const MAX_STATE_BYTES = 20_000;
-const MAX_STATE_MARGIN = 1_000; // the trim notice, the markers, and the newline between the two halves
-const MAX_STATE_RECORDS = 60; // the inline cap plus its overflow: the record holds every CURRENT finding
+const MAX_STATE_MARGIN = 1_000; // the summary's own trim notice, the markers, and the newline between the halves
+// A count cap and a byte cap, and on real data the BYTES bind first: 60 entries with real file paths and real
+// GraphQL node ids measure ~20 KB, so the effective ceiling is nearer 48 entries. Both are enforced, and a trim
+// says so in the log — it used to be silent, and what it drops is the tail: the carried entries, which is the
+// part nothing else can reconstruct.
+const MAX_STATE_RECORDS = 60;
 const MAX_STATE_TEXT = 160;
-
-// What we did with a finding, in the vocabulary reconcile already uses.
-export const STATE_ACTIONS = ['posted', 'kept', 'reopened', 'resolved', 'superseded', 'duplicate', 'dismissed', 'unpostable'];
 
 export function encodeState(state) {
   let records = Object.entries(state.findings || {}).slice(0, MAX_STATE_RECORDS);
@@ -764,13 +765,27 @@ export function encodeState(state) {
     const payload = { v: STATE_VERSION, commit: state.commit || '', findings: Object.fromEntries(entries) };
     // The blob is data, not prose. JSON.stringify escapes nothing that would close an HTML comment early, but a
     // finding's own text can contain `-->`, so that one sequence is neutralised and restored on read.
-    return `${STATE_MARKER}${JSON.stringify(payload).replace(/--+>/g, '--&gt;')} -->`;
+    // `-->` would close the HTML comment early, so it is escaped — and ONLY that sequence, one character at a
+    // time, so the decoder can put back exactly what was taken. `/--+>/ -> '--&gt;'` was not symmetric: it ate
+    // the extra dashes of `--->`, and it also rewrote a literal `--&gt;` a maintainer had typed. That text
+    // feeds nothing but a human's eyes now, but a record that does not round-trip is a record that lies.
+    return `${STATE_MARKER}${JSON.stringify(payload).split('-->').join('--\\u003e')} -->`;
   };
   // Records are already severity-first, so dropping from the end drops the least consequential.
   let encoded = wrap(records);
+  const before = records.length;
   while (encoded.length > MAX_STATE_BYTES && records.length) {
     records = records.slice(0, -1);
     encoded = wrap(records);
+  }
+  const dropped = Object.keys(state.findings || {}).length - records.length;
+  // Said out loud, because the entries this drops are the ones the next round cannot rebuild: a carried
+  // identity or a remembered close simply stops existing, and nothing else in the run mentions it.
+  if (dropped > 0) {
+    console.warn(
+      `State record trimmed: ${records.length} of ${Object.keys(state.findings || {}).length} entries kept ` +
+        `(${before - records.length} dropped for the ${MAX_STATE_BYTES}-byte budget, the rest for the ${MAX_STATE_RECORDS}-entry cap)`,
+    );
   }
   return encoded;
 }
@@ -782,7 +797,7 @@ export function decodeState(body) {
   const end = text.indexOf(' -->', start + STATE_MARKER.length);
   if (end === -1) return null;
   try {
-    const parsed = JSON.parse(text.slice(start + STATE_MARKER.length, end).replace(/--&gt;/g, '-->'));
+    const parsed = JSON.parse(text.slice(start + STATE_MARKER.length, end));
     if (parsed?.v !== STATE_VERSION || !parsed.findings || typeof parsed.findings !== 'object') return null;
     return { commit: String(parsed.commit || ''), findings: parsed.findings };
   } catch {
@@ -1768,22 +1783,55 @@ export function boundedSummaryBody(body, max = MAX_COMMENT) {
   // limit is the `<details>` list of findings that could not go inline — so the cut lands INSIDE that element,
   // and everything appended after it (the warning saying the summary was trimmed) renders inside a collapsed
   // block, which is to say invisibly. Reproduced in the suite on a 110 KB body of 900 unpostable findings.
-  const raw = body.slice(0, max);
-  const cut = raw.slice(0, Math.max(raw.lastIndexOf('\n'), 0)) || raw;
-  const open = (cut.match(/<details>/g) || []).length - (cut.match(/<\/details>/g) || []).length;
-  const balanced = open > 0 ? `${cut}\n${'</details>\n'.repeat(open)}` : cut;
-  return `${balanced}\n\n> ⚠️ This summary was trimmed to fit GitHub's comment limit; the run log has the rest.\n\n${MARKER_SUMMARY}`;
+  // The repair and the notice are part of what has to FIT: appending them after cutting at `max` returned more
+  // than `max`, without bound — 11 characters per unbalanced tag, and model-authored text can hold hundreds.
+  // Measured: max=5000 returning 5217, and end to end a 72 443-character comment that GitHub rejects outright,
+  // so the round writes neither a summary nor a record. So the cut is made, the repair measured, and the cut
+  // made again with room for it.
+  const cutTo = (limit) => {
+    const raw = body.slice(0, Math.max(0, limit));
+    return raw.slice(0, Math.max(raw.lastIndexOf('\n'), 0)) || raw;
+  };
+  const closersFor = (text) => {
+    const open = (text.match(/<details>/g) || []).length - (text.match(/<\/details>/g) || []).length;
+    return open > 0 ? '</details>\n'.repeat(open) : '';
+  };
+  const tail = `\n\n> ⚠️ This summary was trimmed to fit GitHub's comment limit; the run log has the rest.\n\n${MARKER_SUMMARY}`;
+  let cut = cutTo(max - tail.length);
+  // One correction is enough in principle (fewer characters cannot open more tags), but the loop is cheap and
+  // makes the bound a fact rather than an argument: it stops when the whole thing fits.
+  for (let i = 0; i < 8; i++) {
+    const closers = closersFor(cut);
+    if (cut.length + closers.length + tail.length <= max) return `${cut}\n${closers}${tail}`.replace(/\n\n\n+/g, '\n\n');
+    cut = cutTo(max - tail.length - closers.length - 1);
+  }
+  return `${cut}${tail}`.slice(0, max);
 }
 
 // The final comment body: the summary, trimmed to fit, with the state record appended AFTER that trim. Inside it,
 // a long summary would cut the record in half and the next round would fall back to guessing — which is exactly
 // the failure this record exists to end. Pure, because it lived in `upsertSummary` where no test could reach it
 // and both mutations (drop the record, trim it with the body) stayed green.
+// Redaction applied to a record ENTRY at a time, so no pattern can span two of them. `redact` is otherwise
+// unchanged; this only decides what it is pointed at.
+function redactState(state) {
+  const out = {};
+  for (const [fp, r] of Object.entries(state?.findings || {})) {
+    out[fp] = { ...r, file: redact(String(r.file ?? '')), text: redact(String(r.text ?? '')) };
+  }
+  return { commit: redact(String(state?.commit ?? '')), findings: out };
+}
+
 export function summaryBodyWithState(redactedBody, state = null) {
   // The record is encoded FIRST, so the summary is bounded by what the record actually costs rather than by a
   // fixed 20 KB reservation: a round with three findings was spending 20 KB of a human's summary on a record of a
   // few hundred bytes, and a round with none was spending it on nothing at all.
-  const encoded = state ? redact(encodeState(state)) : '';
+  // Redacted per FIELD, before the blob is assembled. Every pattern in `redact` is bounded except the private
+  // key block, whose `[\s\S]*?` will happily start in one entry's text and end in another's — deleting every
+  // entry between them and splicing the survivors' fields together. Measured: three findings in, two out, one
+  // thread id destroyed, and a different arrangement makes the JSON unparseable, which is total loss of the
+  // record. A field can no longer reach across its neighbours.
+  const encoded = state ? encodeState(redactState(state)) : '';
   const room = GITHUB_COMMENT_LIMIT - encoded.length - MAX_STATE_MARGIN;
   const bounded = boundedSummaryBody(redactedBody, room);
   return encoded ? `${bounded}\n${encoded}` : bounded;
@@ -1842,11 +1890,33 @@ async function explainFailure(err) {
 // that comment, so passing nothing erases the harness's memory of every earlier round. Pass the round's own new
 // record, or the one the round read (unchanged), or — as `appendNoteToSummary` does — a body that already carries
 // the record it pulled out and re-appended.
-async function upsertSummary(rawBody, state = null) {
-  const body = summaryBodyWithState(redact(rawBody), state);
+async function upsertSummary(rawBody, state = null, { mergeExistingRecord = false } = {}) {
   const existing = (await listIssueComments(PR_NUMBER)).find(
     (c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY),
   );
+  // `mergeExistingRecord` is set when this round could not READ the record: this write would otherwise replace
+  // the comment it lives in with a record built from nothing. The comment is in hand here (the upsert has to
+  // find it anyway), so what it still holds is merged UNDER this round's entries — this round wins per
+  // fingerprint, and everything it never learned about survives instead of being deleted.
+  const carried = mergeExistingRecord ? decodeState(existing?.body || '') : null;
+  const merged = carried
+    ? {
+        commit: state?.commit || carried.commit,
+        findings: Object.fromEntries(
+          [...new Set([...Object.keys(carried.findings), ...Object.keys(state?.findings || {})])].map((fp) => {
+            const before = carried.findings[fp];
+            const now = state?.findings?.[fp];
+            if (!now) return [fp, before];
+            // Per field, not per entry: this round could not read the record, so an entry it rebuilt from the
+            // comment bodies alone may hold `id: null` for a thread whose body a maintainer has edited. A
+            // thread id we knew is knowledge; a null is the absence of it, and must not overwrite the other.
+            return [fp, { ...before, ...now, id: now.id || before?.id || null }];
+          }),
+        ),
+      }
+    : state;
+  if (carried) console.warn(`Merging this round's record into the ${Object.keys(carried.findings).length} entry/entries already in the summary`);
+  const body = summaryBodyWithState(redact(rawBody), merged);
   if (existing) return updateIssueComment(existing.id, body);
   return postIssueComment(PR_NUMBER, body);
 }
@@ -2026,12 +2096,18 @@ export async function runReview({ agent = runAgent } = {}) {
   // The record the last round left. One extra read, retried and inside the network budget, and it replaces
   // guessing our own history from these comments.
   let stateRecord = null;
+  // "The read failed" and "there is no record" are different facts, and treating them alike destroyed the
+  // record: a round that could not READ it still wrote a fresh one over the top, so one transient 500 cost every
+  // close the harness remembered and every thread identity a maintainer's edit had erased from the bodies. The
+  // failure is carried to the write instead, where the record that IS in the comment can be kept.
+  let recordReadFailed = false;
   try {
     stateRecord = await readPriorState(await listIssueComments(PR_NUMBER));
     if (stateRecord) console.log(`Prior state: ${Object.keys(stateRecord.findings).length} finding(s) recorded at ${stateRecord.commit.slice(0, 8) || 'an unknown commit'}`);
     else console.log('No prior state record on this PR; falling back to the comment markers');
   } catch (e) {
-    console.warn(`Could not read the prior state record (${e.message}); falling back to the comment markers`);
+    recordReadFailed = true;
+    console.warn(`Could not read the prior state record (${e.message}); falling back to the comment markers, and this round will merge into whatever record the summary still holds`);
   }
 
   let threads;
@@ -2167,9 +2243,9 @@ export async function runReview({ agent = runAgent } = {}) {
     closed,
     carried: carriedRecords({ identities, threads, currentByFp, closed, priorState: stateRecord, commit: COMMIT }),
   });
-  await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause, previously, priorState }), roundState).catch((e) =>
-    console.warn(`Could not post the summary comment: ${e.message}`),
-  );
+  await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause, previously, priorState }), roundState, {
+    mergeExistingRecord: recordReadFailed,
+  }).catch((e) => console.warn(`Could not post the summary comment: ${e.message}`));
   console.log(
     `Reconcile: ${stats.posted} new, ${stats.kept} kept, ${stats.reopened} reopened, ${stats.dismissed} dismissed, ${stats.resolved} resolved, ${unpostable.length} unpostable`,
   );

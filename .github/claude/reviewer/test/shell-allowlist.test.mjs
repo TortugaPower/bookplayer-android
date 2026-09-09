@@ -1272,6 +1272,23 @@ test('an answer the parser had to close itself is provisional', () => {
 });
 
 
+test('the trim never returns more than it was given room for', () => {
+  // The repair that closes an unbalanced `<details>` used to be appended AFTER the cut, so the result exceeded
+  // `max` by 11 characters per stray tag — unbounded, since the text it counts is model-authored. Measured: a
+  // 72 443-character comment that GitHub rejects outright, so the round wrote neither summary nor record.
+  const line = '<details><summary>a finding that could not go inline</summary>';
+  const body = `## ✅ Claude PR Review\n\n${Array.from({ length: 1200 }, () => line).join('\n')}\n\n<!-- bp-ai-review-summary -->`;
+  for (const max of [900, 5000, 20000, 44536]) {
+    const out = boundedSummaryBody(body, max);
+    assert.ok(out.length <= max, `max=${max} returned ${out.length}`);
+    assert.match(out, /was trimmed to fit/);
+    assert.ok(out.trimEnd().endsWith('<!-- bp-ai-review-summary -->'));
+  }
+  // And end to end with the record appended, the whole comment fits GitHub's limit.
+  const state = { commit: 'c', findings: Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`fp${i}`, { id: `T${i}`, file: 'a.kt', line: i, severity: 'warn', text: 'y'.repeat(160), action: 'posted', commit: 'c' }])) };
+  assert.ok(summaryBodyWithState(body, state).length <= 65536);
+});
+
 test('the trim warning is never left inside a collapsed block', () => {
   // The one thing that makes a summary reach GitHub's limit is the `<details>` list of findings that could not
   // go inline — so the cut lands inside that element, and anything appended after it (the warning that says the
@@ -2216,6 +2233,50 @@ test('the harness writes down what it did, and reads back only its own record', 
   const wide = buildState({ commit: 'c', currentByFp: new Map(Array.from({ length: 60 }, (_, i) => [`g${i}`, { file: 'x'.repeat(200), line: i, severity: 'error', comment: 'y'.repeat(400) }])), threadIdByFp: new Map(), actions: new Map() });
   assert.ok(encodeState(wide).length <= 20_000);
   assert.ok(decodeState(encodeState(wide)) !== null); // still parseable after the trim
+});
+
+test('the record redacts and escapes per entry, and says when it drops one', () => {
+  // Three properties of the blob, each of which was broken and each of which loses data silently.
+  const key = '-----BEGIN PRIVATE KEY-----';
+  const state = {
+    commit: 'abc1234',
+    findings: {
+      aaa: { id: 'T1', file: 'a.kt', line: 1, severity: 'warn', text: `the service account key is committed: ${key}`, action: 'posted', commit: 'abc1234' },
+      bbb: { id: 'T2', file: 'b.kt', line: 2, severity: 'warn', text: 'an ordinary finding in between', action: 'posted', commit: 'abc1234' },
+      ccc: { id: 'T3', file: 'c.kt', line: 3, severity: 'warn', text: '-----END PRIVATE KEY----- is the footer of it', action: 'posted', commit: 'abc1234' },
+    },
+  };
+  // 1. Redaction is per FIELD. `redact`'s private-key pattern is the one unbounded one it has, and run over the
+  // assembled blob its `[\s\S]*?` starts in the first entry's text and ends in the third's — deleting the entry
+  // between them and splicing the survivors' fields together. Measured: three findings in, two out.
+  const written = summaryBodyWithState('## summary\n\nbody', state);
+  const back = decodeState(written);
+  assert.equal(Object.keys(back.findings).length, 3);
+  assert.equal(back.findings.bbb.text, 'an ordinary finding in between');
+
+  // 2. The escape of `-->` round-trips exactly: it may not eat a dash from `--->`, and it may not invent one
+  // where a maintainer wrote the entity themselves. A record that does not round-trip is a record that lies.
+  const tricky = { commit: 'c', findings: { d: { id: 'T4', file: 'd.kt', line: 1, severity: 'info', text: 'like this: a ---> b, and a literal --&gt; too', action: 'posted', commit: 'c' } } };
+  assert.equal(decodeState(encodeState(tricky)).findings.d.text, 'like this: a ---> b, and a literal --&gt; too');
+  // And the marker itself still cannot be closed early by a finding's own text.
+  const closer = { commit: 'c', findings: { e: { id: 'T5', file: 'e.kt', line: 1, severity: 'info', text: 'ends a comment --> right here', action: 'posted', commit: 'c' } } };
+  const enc = encodeState(closer);
+  assert.equal(enc.indexOf(' -->'), enc.length - 4);
+  assert.equal(decodeState(enc).findings.e.text, 'ends a comment --> right here');
+
+  // 3. A trim is announced. What it drops is the tail — the carried entries — which is exactly the part nothing
+  // else in the run can reconstruct, and it used to happen in silence.
+  const warnings = [];
+  const realWarn = console.warn;
+  console.warn = (m) => warnings.push(String(m));
+  try {
+    const fat = { commit: 'c', findings: Object.fromEntries(Array.from({ length: 80 }, (_, i) => [`fp${i}`, { id: `T${i}`, file: `app/src/main/java/com/tortugapower/audiobookplayer/ui/screens/library/LibraryScreen${i}.kt`, line: i, severity: 'warn', text: 'x'.repeat(160), action: 'posted', commit: 'c' }])) };
+    const trimmed = decodeState(encodeState(fat));
+    assert.ok(Object.keys(trimmed.findings).length < 80);
+    assert.match(warnings.join('\n'), /State record trimmed: \d+ of 80 entries kept/);
+  } finally {
+    console.warn = realWarn;
+  }
 });
 
 test('over many rounds the record stays bounded, unique and truthful', () => {

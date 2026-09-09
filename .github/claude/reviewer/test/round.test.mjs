@@ -596,3 +596,63 @@ test('a malformed finding is dropped, and two findings on one line become one co
     restore();
   }
 });
+
+test('a round that could not READ the record does not overwrite it', async () => {
+  // "The read failed" and "there is no record" are different facts. Treating them alike destroyed the record:
+  // the round built a fresh one from nothing and PATCHed it over the real one, so one transient 500 cost every
+  // close the harness remembered and every thread identity a maintainer's edit had erased from the bodies.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'readfail-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '19', COMMIT: 'f00d000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'readfail');
+  const realFetch = globalThis.fetch;
+  try {
+    const live = { severity: 'warn', file: 'app/Live.kt', line: 4, comment: 'a finding this round reports again' };
+    const fp = mod.fingerprint(live);
+    const prior = {
+      commit: 'aaaaaaa',
+      findings: {
+        [fp]: { id: 'T-live', file: live.file, line: live.line, severity: 'warn', text: live.comment, action: 'posted', commit: 'aaaaaaa' },
+        ffff: { id: 'T-open', file: 'app/Open.kt', line: 9, severity: 'warn', text: 'still open, nobody mentioned it', action: 'open', commit: 'aaaaaaa' },
+        eeee: { id: 'T-closed', file: 'app/Closed.kt', line: 2, severity: 'warn', text: 'closed last round', action: 'resolved', commit: 'aaaaaaa', at: '2026-01-01T00:00:00Z' },
+      },
+    };
+    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState(prior)}`;
+    const gh = fakeGitHub({
+      summaryBody: priorSummary,
+      // The thread is ours and still open, but a maintainer edited the body, so the fingerprint marker is gone:
+      // only the record can identify it, which is exactly what this round could not read.
+      threads: [{
+        id: 'T-live', isResolved: false, path: live.file, line: live.line, originalLine: live.line,
+        first: { nodes: [{ databaseId: 81, body: 'edited while triaging', author: { login: 'github-actions[bot]' } }] },
+        comments: { nodes: [] }, last: { nodes: [] },
+      }],
+    });
+    const inner = gh.fetch;
+    // The FIRST comments read (the record read) 500s through its retry ladder; the one inside upsertSummary works.
+    let reads = 0;
+    globalThis.fetch = async (url, init = {}) => {
+      const isCommentsRead = /\/issues\/\d+\/comments/.test(String(url)) && (init.method || 'GET') === 'GET';
+      if (isCommentsRead && reads++ < 3) return { ok: false, status: 500, headers: { get: () => null }, json: async () => ({}), text: async () => 'boom' };
+      return inner(url, init);
+    };
+    await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'still here', findings: [live] }) });
+
+    const after = mod.decodeState(gh.summaryOut());
+    assert.ok(after, 'the summary must still carry a record');
+    // Everything this round could not learn about survives...
+    assert.equal(after.findings.eeee?.action, 'resolved', 'the remembered close was destroyed');
+    assert.equal(after.findings.ffff?.id, 'T-open', 'the carried identity was destroyed');
+    // ...and a thread id the record knew is not overwritten by the `null` this blind round produced.
+    assert.equal(after.findings[fp].id, 'T-live');
+    // The merge is UNDER this round, not over it: what this round learned wins, entry by entry, so the record
+    // still describes the commit that was reviewed rather than reverting to the older one.
+    assert.equal(after.commit, 'f00d000000000001');
+    assert.equal(after.findings[fp].commit, 'f00d000000000001');
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
