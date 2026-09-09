@@ -48,6 +48,15 @@ function fakeGitHub({ summaryBody = null, threads = [] } = {}) {
 }
 
 const agentReturning = (result) => async () => ({ finalText: '```json\n' + JSON.stringify(result) + '\n```', lastAnswer: '', turns: 3, resultSubtype: 'success' });
+// The review pass and the verification pass are two calls to the same agent seam, and they want different
+// answers: this hands them out in order (the last one repeats, so a round that only reviews still works).
+const agentSequence = (...results) => {
+  let i = 0;
+  return async () => {
+    const result = results[Math.min(i++, results.length - 1)];
+    return { finalText: '```json\n' + JSON.stringify(result) + '\n```', lastAnswer: '', turns: 3, resultSubtype: 'success' };
+  };
+};
 
 test('a whole round: findings posted, the record written, an unjudged thread left alone', async () => {
   const temp = realpathSync(mkdtempSync(join(tmpdir(), 'integ-')));
@@ -262,6 +271,52 @@ test('three rounds in a row: the record the harness wrote is the record it reads
     await mod.runReview({ agent: answer });
     assert.deepEqual(r4.calls.inline, [], 'the thread is recognised from the record alone, so nothing is posted twice');
     assert.match(r4.summaryOut(), /1 carried over/);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('an error thread whose body was edited is not closed by the verifier', async () => {
+  // The severity that decides whether `not_applicable` may close a thread has to come from the record, because
+  // the body it used to come from is editable. This is the composition half of that: `main` has to hand the
+  // verification pass the identity `planRound` computed, and no unit test can see whether it does.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'guard-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '12', COMMIT: 'abc1230000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'guard');
+  const realFetch = globalThis.fetch;
+  try {
+    const err = { severity: 'error', file: 'app/Guard.kt', line: 12, comment: 'the audio session is never deactivated' };
+    const fp = mod.fingerprint(err);
+    const priorSummary = `## 🔴 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+      commit: 'aaaaaaa', findings: { [fp]: { id: 'T-err', file: err.file, line: err.line, severity: 'error', text: err.comment, action: 'posted', commit: 'aaaaaaa' } },
+    })}`;
+    const gh = fakeGitHub({
+      summaryBody: priorSummary,
+      threads: [{
+        id: 'T-err', isResolved: false, path: err.file, line: err.line, originalLine: err.line,
+        // Edited: no severity prefix, no fingerprint marker. Only the record knows what this thread is.
+        first: { nodes: [{ databaseId: 41, body: 'I trimmed this while triaging', author: { login: 'github-actions[bot]' } }] },
+        comments: { nodes: [] }, last: { nodes: [] },
+      }],
+    });
+    globalThis.fetch = gh.fetch;
+    await mod.runReview({
+      agent: agentSequence(
+        { verdict: 'pass', summary: 'nothing new', findings: [] },
+        { threads: [{ id: 1, status: 'not_applicable', evidence: 'the premise no longer holds' }] },
+      ),
+    });
+
+    // The verifier said "no longer applies"; on an `error` that is not enough, and the thread stays open.
+    assert.deepEqual(gh.calls.resolved, []);
+    const summary = gh.summaryOut();
+    assert.match(summary, /an error closes only on a fix/);
+    // The verifier was told what the finding IS, not what the edited body says.
+    assert.equal(summary.includes('trimmed this while triaging'), false);
   } finally {
     globalThis.fetch = realFetch;
     restore();

@@ -1311,7 +1311,7 @@ Include every id you were given, exactly once.`;
 
 // Threads are PR-author-influenced text: bounded and tag-escaped, exactly like the diff.
 export function buildVerifyPrompt(entries, headSha, prAuthor = '') {
-  const blocks = entries.map(({ id, thread: t }) => {
+  const blocks = entries.map(({ id, thread: t, identity = null }) => {
     // The PR author's replies are shown too, with their own role. Hiding them (the accept gate must exclude the
     // author, who is usually OWNER on a same-repo PR) meant that on a solo repo the verifier saw every thread as
     // having no replies at all, so an explanation like "the value only exists in SSM" could never be taken into
@@ -1328,8 +1328,11 @@ export function buildVerifyPrompt(entries, headSha, prAuthor = '') {
         ? `line="${anchor.line}" anchor="stale: from the commit the finding was raised on — the code may have moved"`
         : `line="${anchor.line}"`;
     return [
-      `<finding id="${id}" severity="${escapeAttr(findingSeverity(t.firstCommentBody))}" file="${escapeAttr(t.path)}" ${lineAttr}>`,
-      escapePrText(stripHarnessMarkup(t.firstCommentBody || '').slice(0, MAX_VERIFY_CHARS)),
+      // Severity and text from the thread's ONE identity, which knows them from the record; the body is the
+      // fallback for a PR opened before the record existed. Reading them here instead was how an edited body
+      // sent the verifier a severity-less finding whose text was the editor's prose.
+      `<finding id="${id}" severity="${escapeAttr(identity?.severity ?? findingSeverity(t.firstCommentBody))}" file="${escapeAttr(identity?.path ?? t.path)}" ${lineAttr}>`,
+      escapePrText(identity?.promptText ?? stripHarnessMarkup(t.firstCommentBody || '').slice(0, MAX_VERIFY_CHARS)),
       replies ? `\n${replies}` : '',
       '</finding>',
     ].join('\n');
@@ -1339,6 +1342,10 @@ earlier runs, each with any human replies. Judge each one against the code as it
 
 ${blocks.join('\n\n')}`;
 }
+
+// Does this body still look like something this harness rendered? Only then is its text the finding's text: a
+// body edited past recognition says whatever the editor wanted, and the record is the only source left.
+const bodyLooksOurs = (body) => SEVERITY_RE.test(String(body || '')) || FP_REGEX.test(String(body || ''));
 
 const SEVERITY_RE = /\*\*(ERROR|WARN|INFO)\*\*/;
 export function findingSeverity(body) {
@@ -1494,12 +1501,12 @@ export function planRound({ threads, currentByFp, provisional, priorState = null
   // The fingerprint a thread carries, and the finding it was: from the record when there is one, from the comment
   // body when there is not. The record is the reason this no longer has to parse its own rendered output — and it
   // knows the finding's text and severity exactly, rather than recovering them from an emoji prefix.
-  // ONE identity per harness thread, computed once and read by everything: the fingerprint, the file, the
-  // severity and the text of the finding it carries. Four call sites derived severity and text separately before —
-  // `planRound`, `pickSuperseded`'s pool key, `buildVerifyPrompt` and `applyVerification` — and they disagreed
-  // whenever a comment body had been edited, which is the premise the record exists for. Measured: an `error`
-  // thread whose `**ERROR**` prefix was gone got closed by a `not_applicable` verdict, silently disabling the
-  // guard that says an error closes only on a fix.
+  // ONE identity per harness thread, computed once and read by everything that decides anything about it: the
+  // closure rule, the verification prompt and the verdict gate all take it from here. Each of those derived
+  // severity and text from the rendered comment on its own before, and they disagreed the moment a body was
+  // edited — which is the premise the record exists for. Measured: an `error` thread whose `**ERROR**` prefix
+  // was gone read as severity-less, so a `not_applicable` verdict closed it, silently disabling the guard that
+  // says an error closes only on a fix.
   const identities = new Map();
   for (const t of harnessThreads) {
     const recorded = Object.values(priorState?.findings || {}).find((r) => r?.id === t.id);
@@ -1514,9 +1521,17 @@ export function planRound({ threads, currentByFp, provisional, priorState = null
       // it against a full body text is the worst of both: measured 0.988 similarity falling to 0.552 on a
       // 472-character comment, which is the difference between recognising a moved finding and not.
       text: (recorded ? recorded.text : stripHarnessMarkup(t.firstCommentBody || '')).slice(0, MAX_STATE_TEXT),
+      // What the verification pass shows the model, which wants as much of the finding as it can get rather than
+      // the 160-character prefix the matcher compares. The BODY is the fuller text and is preferred while it
+      // still looks like ours (a severity prefix or a fingerprint marker); once it has been edited past
+      // recognition, the record's prefix is the only true text there is.
+      promptText: (bodyLooksOurs(t.firstCommentBody) || !recorded
+        ? stripHarnessMarkup(t.firstCommentBody || '')
+        : recorded.text
+      ).slice(0, MAX_VERIFY_CHARS),
     });
   }
-  const identityOf = (t) => identities.get(t.id) || { id: t.id, fp: undefined, path: t.path, severity: findingSeverity(t.firstCommentBody), text: stripHarnessMarkup(t.firstCommentBody || '').slice(0, MAX_STATE_TEXT) };
+  const identityOf = (t) => identities.get(t.id) || { id: t.id, fp: undefined, path: t.path, severity: findingSeverity(t.firstCommentBody), text: stripHarnessMarkup(t.firstCommentBody || '').slice(0, MAX_STATE_TEXT), promptText: stripHarnessMarkup(t.firstCommentBody || '').slice(0, MAX_VERIFY_CHARS) };
   const fpOf = (t) => identityOf(t).fp;
   const existingFps = new Set(harnessThreads.map(fpOf).filter(Boolean));
   const openUnreportedAll = harnessThreads
@@ -1639,7 +1654,7 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
   const rows = [];
   const closedIds = new Set(); // what this pass actually resolved, so the record can carry the close
   const stats = { verifiedFixed: 0, stillOpen: 0, closedByHuman: 0, dropped: 0 };
-  for (const { id, thread: t } of entries) {
+  for (const { id, thread: t, identity = null } of entries) {
     // Recorded before anything can throw: a thread this pass touched must not also be judged by the "was not
     // re-reported" loop, which would reply a second time on top of whatever this pass already said.
     handledIds.add(t.id);
@@ -1647,7 +1662,9 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
     const status = VERIFY_STATUSES.has(v.status) ? v.status : 'present';
     const evidence = neutralizeMarkup(String(v.evidence || '').slice(0, 400));
     const anchor = threadAnchor(t);
-    const severity = findingSeverity(t.firstCommentBody);
+    // From the identity, not the body: this severity decides whether `not_applicable` may close the thread, and
+    // an edited body reads as severity-less — which turns the "an error closes only on a fix" guard off silently.
+    const severity = identity?.severity ?? findingSeverity(t.firstCommentBody);
     const label = `\`${mdPath(t.path)}:${anchor.line ?? '?'}\`${severity ? ` (${severity})` : ''}${anchor.stale ? ' ⚠︎ moved' : ''}`;
     const hasMaintainerReply = (Array.isArray(t.comments) ? t.comments : []).some((c) => isMaintainerReply(c, prAuthor));
     if (status === 'accepted' && !hasMaintainerReply) {
@@ -2163,7 +2180,7 @@ export async function runReview({ agent = runAgent } = {}) {
   if (!provisional && toVerify.length && verifySlice > 60_000) {
     console.log(`Verifying ${toVerify.length} open finding(s) from earlier runs against ${COMMIT.slice(0, 8)}`);
     try {
-      const numbered = toVerify.map((t, i) => ({ id: i + 1, thread: t }));
+      const numbered = toVerify.map((t, i) => ({ id: i + 1, thread: t, identity: identities.get(t.id) }));
       // A finished verifier answer has a different shape from a review's, so the deadline path is told how to
       // recognise one — otherwise a complete verdict list arriving near the bell would be discarded and these
       // threads would fall back to the fingerprint heuristic, unverified.
