@@ -148,7 +148,7 @@ const BASE = process.env.BASE_REF || 'main';
 
 // Fingerprint identifies "the same issue at the same spot" across runs.
 // Intentionally EXCLUDES the comment text so a re-wording doesn't create a duplicate.
-function fingerprint(f) {
+export function fingerprint(f) {
   return createHash('sha1').update(`${f.file}|${f.line}|${f.severity}`).digest('hex').slice(0, 12);
 }
 
@@ -828,6 +828,41 @@ export function agentEnv(source = process.env) {
   return env;
 }
 
+// The options handed to the SDK ARE the sandbox: the allowlist below defends predicates that any one of these
+// lines can disconnect. `allowedTools: ['Bash']` pre-approves the shell, dropping `settingSources: []` lets a
+// `.claude/settings.json` in the PR head add hooks that run before canUseTool, and `env: process.env` hands the
+// agent every credential in the job. Built here, as a pure value, so the tests can assert on them — a mutation
+// test showed all three surviving a green suite.
+export function agentQuery({ userPrompt, systemPrompt, abort, onStderr = () => {}, env = agentEnv() } = {}) {
+  return {
+    prompt: userPrompt,
+    options: {
+      model: MODEL,
+      systemPrompt,
+      // The base tool set is exactly these four (native builds otherwise omit Grep/Glob and expect Bash
+      // find/grep). Nothing is pre-approved: every permission check goes through canUseTool so FORBIDDEN_PATH
+      // is consulted for reads outside the checkout too.
+      tools: ['Read', 'Grep', 'Glob', 'Bash'],
+      allowedTools: [],
+      // SDK isolation mode: ignore every on-disk settings file. Otherwise a `.claude/settings.json` in the
+      // PR head (or on the runner) could add permission rules or hooks that run before canUseTool.
+      settingSources: [],
+      permissionMode: 'default',
+      canUseTool,
+      maxTurns: MAX_TURNS,
+      abortController: abort,
+      // Set after agentEnv(), which strips anything matching /TOKEN/ — including this one.
+      env: { ...env, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(MAX_OUTPUT_TOKENS) },
+      cwd: AGENT_CWD,
+      stderr: (d) => {
+        onStderr(d);
+        // Redacted like its buffered twin: this stream goes straight into a public run log.
+        process.stderr.write(`[claude] ${redact(String(d))}`);
+      },
+    },
+  };
+}
+
 // Two different questions, so two predicates. `isFinished` decides whether a segment a tool call discarded was a
 // finished answer, and must stay strict (a result block quoted from the diff must not qualify). `isSalvageable`
 // decides whether the text in hand at the deadline is worth keeping, and should be as tolerant as the parser that
@@ -855,33 +890,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = '', i
   // Out-of-band bound: fires even if the subprocess stalls without emitting a message.
   const abort = new AbortController();
   const deadlineTimer = setTimeout(() => abort.abort(new Error('review deadline reached')), budgetMs);
-  const iterator = query({
-    prompt: userPrompt,
-    options: {
-      model: MODEL,
-      systemPrompt: system,
-      // The base tool set is exactly these four (native builds otherwise omit Grep/Glob and expect Bash
-      // find/grep). Nothing is pre-approved: every permission check goes through canUseTool so FORBIDDEN_PATH
-      // is consulted for reads outside the checkout too.
-      tools: ['Read', 'Grep', 'Glob', 'Bash'],
-      allowedTools: [],
-      // SDK isolation mode: ignore every on-disk settings file. Otherwise a `.claude/settings.json` in the
-      // PR head (or on the runner) could add permission rules or hooks that run before canUseTool.
-      settingSources: [],
-      permissionMode: 'default',
-      canUseTool,
-      maxTurns: MAX_TURNS,
-      abortController: abort,
-      // Set after agentEnv(), which strips anything matching /TOKEN/ — including this one.
-      env: { ...agentEnv(), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(MAX_OUTPUT_TOKENS) },
-      cwd: process.env.GITHUB_WORKSPACE || process.cwd(),
-      stderr: (d) => {
-        stderrChunks.push(d);
-        // Redacted like its buffered twin: this stream goes straight into a public run log.
-        process.stderr.write(`[claude] ${redact(String(d))}`);
-      },
-    },
-  });
+  const iterator = query(agentQuery({ userPrompt, systemPrompt: system, abort, onStderr: (d) => stderrChunks.push(d) }));
   try {
     for await (const msg of iterator) {
       // The message in hand is processed BEFORE the clock is read: an answer that lands in the same iteration as

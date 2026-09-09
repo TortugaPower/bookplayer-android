@@ -3,13 +3,15 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, restoreQuotedSpaces, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { fingerprint, agentQuery, canUseToolForTest, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, restoreQuotedSpaces, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-const reconcileFp = (f) => createHash('sha1').update(`${f.file}|${f.line}|${f.severity}`).digest('hex').slice(0, 12);
+// The real one, imported: re-implementing it here meant a change to the shape (base64, a different
+// length) left every dedup test green while FP_REGEX `[a-f0-9]+` stopped matching and dedup silently died.
+const reconcileFp = fingerprint;
 
 const ALLOWED = [
   'git diff HEAD~1 -- LibraryViewModel.kt', 'git log --oneline -5', 'git show HEAD:LibraryViewModel.kt', 'git blame -L 10,20 LibraryViewModel.kt',
@@ -1419,4 +1421,61 @@ test('the expansions bash performs after quote removal cannot smuggle a path out
   // `''` contributes nothing to the string but does start the word, so the `2` is a filename, not a descriptor.
   assert.equal(isAllowedBash("cat ''2>&1", [root], root), false);
   assert.equal(isAllowedBash('grep -rn x conf 2>&1', [root], root), true);
+});
+
+test('the options handed to the SDK are the sandbox, and say so', () => {
+  const q = agentQuery({ userPrompt: 'review this', systemPrompt: 'be a reviewer', abort: new AbortController(), env: { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'k' } });
+  const o = q.options;
+  assert.equal(q.prompt, 'review this');
+  // Nothing pre-approved: every call goes through the permission gate.
+  assert.deepEqual(o.allowedTools, []);
+  assert.equal(typeof o.canUseTool, 'function');
+  assert.equal(o.permissionMode, 'default');
+  // No on-disk settings: a `.claude/settings.json` in the PR head must not add hooks that run before the gate.
+  assert.deepEqual(o.settingSources, []);
+  // Exactly the four read tools; Bash is present but gated.
+  assert.deepEqual(o.tools.sort(), ['Bash', 'Glob', 'Grep', 'Read']);
+  // The environment is the filtered one, plus the output cap — never the job's own.
+  assert.deepEqual(Object.keys(o.env).sort(), ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_MAX_OUTPUT_TOKENS', 'PATH']);
+  assert.equal(o.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS, String(32000));
+  assert.ok(o.abortController instanceof AbortController);
+});
+
+test('the permission gate denies reads outside the roots, and denies by default', async () => {
+  // The Bash branch is well covered; these are the other two, both of which survived a mutation with the suite
+  // green: `if (false)` on the path check, dropping `pattern` from Glob's field list, and turning the final
+  // deny into an allow.
+  const deny = async (tool, input) => (await canUseToolForTest(tool, input)).behavior;
+  assert.equal(await deny('Read', { file_path: '/etc/passwd' }), 'deny');
+  assert.equal(await deny('Read', { file_path: '../../.npmrc' }), 'deny');
+  assert.equal(await deny('Grep', { pattern: 'SECRET', path: '/home/runner/.aws' }), 'deny');
+  assert.equal(await deny('Glob', { pattern: '/etc/*' }), 'deny');
+  assert.equal(await deny('Glob', { pattern: '../*.kt' }), 'deny');
+  // A tool nobody listed is refused rather than quietly allowed.
+  assert.equal(await deny('Write', { file_path: 'x.kt', content: 'x' }), 'deny');
+  assert.equal(await deny('WebFetch', { url: 'https://example.com' }), 'deny');
+  // ...and an ordinary in-repo read still works.
+  assert.equal(await deny('Read', { file_path: 'CLAUDE.md' }), 'allow');
+});
+
+test('writes are never retried, however transient the failure looks', async () => {
+  const { postIssueComment } = await import('../github.mjs');
+  const realFetch = globalThis.fetch;
+  const prevRepo = process.env.GITHUB_REPOSITORY;
+  const prevToken = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_REPOSITORY = 'TortugaPower/repo';
+  process.env.GITHUB_TOKEN = 'x';
+  try {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return { ok: false, status: 502, headers: { get: () => null }, text: async () => 'bad gateway', json: async () => ({}) };
+    };
+    await assert.rejects(() => postIssueComment(1, 'hello'), /502/);
+    assert.equal(calls, 1); // a retried POST would post the comment twice
+  } finally {
+    globalThis.fetch = realFetch;
+    if (prevRepo === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = prevRepo;
+    if (prevToken === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = prevToken;
+  }
 });
