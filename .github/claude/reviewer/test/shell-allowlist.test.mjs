@@ -1623,8 +1623,9 @@ test('both system prompts state the same shell rules, from the same constant', (
     assert.match(prompt, /use the Grep and Glob tools/);
     // The flag denials are enforced too, so the rules have to mention them — otherwise a `grep -Rn` refusal
     // carries a message the command already satisfies.
-    assert.match(prompt, /Flags that make a walk follow symlinks are refused/);
+    assert.match(prompt, /Flags are allowlisted per command, spelled in full/);
     assert.match(prompt, /never returns \(tail -f\)/);
+    assert.match(prompt, /takes its filenames from a file/);
   }
   // The reviewer is told where the code is; the verifier needs that too, since it opens the files a finding names.
   assert.match(VERIFY_SYSTEM_PROMPT, /checked out in the current working directory/);
@@ -1946,4 +1947,34 @@ test('a comment id of zero is an id, not a missing value', async () => {
     () => listReviewThreads(1),
   );
   assert.equal(threads[0].firstCommentId, 0); // `|| null` here would silently stop every reply and resolve
+});
+
+test('a flag must be one this review needs, spelled in full', () => {
+  // getopt_long accepts any unambiguous PREFIX, so denying `--files-from` never denied `--f`. Verified against the
+  // real binary: `file --f=list.txt` performed the indirection escape the deny list was written to stop. Denying
+  // spellings loses to a parser that expands abbreviations, so the flags a review needs are enumerated instead.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'flags-')));
+  writeFileSync(join(root, 'list.txt'), '/etc/passwd\n');
+  writeFileSync(join(root, 'patterns.txt'), 'TODO\n');
+  writeFileSync(join(root, 'real.kt'), 'fine');
+
+  // Every abbreviation of an indirection or never-returns flag.
+  for (const cmd of ['file --f=list.txt', 'file --fi=list.txt', 'file --files=list.txt', 'file -f list.txt',
+    'file -f=list.txt', 'file -f-', 'wc --file=list.txt', 'wc --files0-from=list.txt', 'du --files=list.txt',
+    'tail --f real.kt', 'tail --fo real.kt', 'tail --follow real.kt', 'tail -f real.kt',
+    'grep --dere x .', 'grep --derefer x .', 'grep -R x .', 'ls --dere .', 'du --dere .']) {
+    assert.equal(isAllowedBash(cmd, [root], root), false, `should refuse: ${cmd}`);
+  }
+  // An invented flag is refused even when it is harmless, because the list is what a review needs.
+  for (const cmd of ['ls --author .', 'cat --show-all real.kt', 'grep --binary-files=text x .', 'git log --pretty=oneline']) {
+    assert.equal(isAllowedBash(cmd, [root], root), false, `should refuse: ${cmd}`);
+  }
+  // ...and everything the reviewer actually uses still works, including grep's pattern FILE, which holds
+  // patterns rather than filenames.
+  for (const cmd of ['grep -f patterns.txt real.kt', 'grep -rn TODO .', 'grep -A5 -B5 TODO .', 'grep --include=x -rn y .',
+    'git log --oneline -5', 'git log --format=%h', 'git blame -L 10,20 real.kt', 'git diff --stat', 'git log -p -3',
+    'ls -la .', 'ls -R .', 'head -n 40 real.kt', 'tail -n 20 real.kt', 'tail -20 real.kt', 'wc -l real.kt',
+    'du -sh .', 'stat real.kt', 'file real.kt', 'find . -maxdepth 3 -type d -name sdk', 'pwd', 'echo ok']) {
+    assert.equal(isAllowedBash(cmd, [root], root), true, `should allow: ${cmd}`);
+  }
 });

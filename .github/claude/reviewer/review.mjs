@@ -210,8 +210,10 @@ const BASH_RULES =
   '`$`/backticks/braces, no redirection or pipes, no `;`/`&&`, no `~` starting a word, no `cd`, and printable ' +
   'ASCII only. This is a grammar, not a filter: anything else is refused without interpretation, because a ' +
   'permission gate cannot reliably predict what bash would expand a cleverer command into. Flags that make a ' +
-  'walk follow symlinks are refused too (grep -R, find -L/-H, ls/du dereference forms), as is anything that ' +
-  'never returns (tail -f). For a pattern with ' +
+  'Flags are allowlisted per command, spelled in full: the ones a review needs are accepted and every other ' +
+  'flag is refused, including abbreviations, anything that makes a walk follow symlinks (grep -R, find -L), ' +
+  'anything that never returns (tail -f), and anything that takes its filenames from a file (--files0-from, ' +
+  'file -f). For a pattern with ' +
   'spaces or a glob, use the Grep and Glob tools — they take the pattern as data and are allowed. Paths are ' +
   'relative to the checkout.';
 
@@ -367,7 +369,7 @@ const SAFE_WORD = /^[A-Za-z0-9._/@=+:,%^-][A-Za-z0-9._/@=+:,%^~-]*$/;
 // accepted commands against real argv found exactly this stage and nothing else. FORBIDDEN_PATH already denied
 // these, but the rewrite rests on "the words here ARE the argv", and that invariant should hold on its own rather
 // than depend on a rule in a different concern two functions away.
-const ASSIGNMENT_TILDE = /^[A-Za-z_][A-Za-z0-9_]*=(?:[^:]*:)*~/;
+const ASSIGNMENT_TILDE = /^[A-Za-z_][A-Za-z0-9_]*\+?=(?:[^:]*:)*~/;
 
 // The argv bash would build, or unsafe. `segments` is kept for callers that match a whole command line; there is
 // at most one, because every operator is refused.
@@ -383,13 +385,68 @@ export function analyzeShell(command) {
   return { words, segments: [words.join(' ')], unsafe: false };
 }
 
+// getopt_long accepts any unambiguous PREFIX of a long option, so denying `--files-from` never denied
+// `--files`, `--file` or `--f` — and `file --f=list.txt` performed the exact indirection escape the deny list was
+// written to stop, verified against the real binary. Enumerating forbidden spellings loses to a parser that
+// expands abbreviations, the same way emulating bash lost to bash. So this enumerates the flags a review actually
+// needs, matched exactly, and refuses every other one. The deny-flag regexes stay as a second layer for the
+// spellings they do catch.
+const ALLOWED_LONG_FLAGS = new Set([
+  '--', '--oneline', '--format', '--stat', '--numstat', '--name-only', '--name-status', '--no-color', '--color',
+  '--include', '--exclude', '--porcelain', '--no-index', '--summarize', '--human-readable', '--count',
+  '--line-number', '--recursive', '--files-with-matches', '--fixed-strings', '--extended-regexp',
+  '--ignore-case', '--word-regexp', '--max-count', '--after-context', '--before-context', '--context',
+]);
+// Short letters, per command. Notice what is absent: `f`/`F` for tail (never returns), `f` for file
+// (indirection), `L`/`H` where a walk could follow a symlink, `d` for grep (`-d recurse`).
+const ALLOWED_SHORT_FLAGS = {
+  git: 'pnLC',
+  cat: 'nbs',
+  ls: 'lahtr1dSR',
+  head: 'ncq',
+  tail: 'ncq',
+  wc: 'lwcmL',
+  // `f` is grep's pattern FILE, which holds patterns rather than filenames, so it is not the indirection the
+  // `file`/`wc`/`du` variants are. Its long spelling stays out of ALLOWED_LONG_FLAGS on purpose: `--file` is an
+  // unambiguous prefix of wc's `--files0-from`, so allowing it there would reopen exactly that hole.
+  grep: 'rnicleEFfwovABChHqsam',
+  find: '',
+  stat: 'c',
+  file: 'bihL',
+  du: 'shac',
+  pwd: '',
+  echo: 'n',
+};
+// find does not use getopt_long: its predicates are exact words, so they are listed as words.
+const FIND_PREDICATES = new Set([
+  '-name', '-iname', '-type', '-maxdepth', '-mindepth', '-path', '-ipath', '-not', '-o', '-a', '-and', '-or',
+  '-print', '-newer', '-size', '-empty', '-regex', '-prune', '-quit', '-follow-never',
+]);
+
+// Every flag in the command must be one this review needs. Values attached to a flag are not flags.
+export function flagsAllowed(words) {
+  const command = words[0];
+  const shorts = ALLOWED_SHORT_FLAGS[command];
+  if (shorts === undefined) return false;
+  return words.slice(1).every((word) => {
+    if (!word.startsWith('-')) return true;
+    if (word.startsWith('--')) return ALLOWED_LONG_FLAGS.has(word.split('=')[0]);
+    if (/^-\d+$/.test(word)) return true; // `-5`, `-20`: a count, not a flag cluster
+    if (command === 'find') return FIND_PREDICATES.has(word);
+    // A short cluster, up to its attached value: `-n40` is `n`, `-L10,20` is `L`, `-f/etc/passwd` is `f`.
+    const cluster = word.slice(1).replace(/[0-9,.:=/-].*$/, '');
+    return cluster.length > 0 && [...cluster].every((ch) => shorts.includes(ch));
+  });
+}
+
 // The program allowlist and the flag denials, as one predicate. `isAllowedBash` calls it rather than repeating
 // the two checks: they were briefly inlined there, which left this function reachable only from the tests — so the
 // ALLOWED/DENIED corpora were asserting against a copy production did not run.
 export function isReadOnlyShell(command) {
   const { segments, unsafe } = analyzeShell(command);
   if (unsafe || segments.length === 0) return false;
-  return segments.every((s) => BASH_ALLOW.some((re) => re.test(s)) && !hasDeniedFlag(s));
+  const { words } = analyzeShell(command);
+  return segments.every((s) => BASH_ALLOW.some((re) => re.test(s)) && !hasDeniedFlag(s)) && flagsAllowed(words);
 }
 
 // Locations that expose credentials even to a read-only agent: process environments, the git credential
