@@ -6,7 +6,7 @@
 // Same hardened harness as bookplayer-support-pipeline; model resolved at runtime instead of pinned.
 
 import { randomBytes, createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -302,6 +302,9 @@ const DENY_FLAGS_BY_COMMAND = {
   // paths a command is *given*, not the ones a walk discovers through a symlink committed in the checkout.
   ls: /(^|\s)(-[A-Za-z]*L[A-Za-z]*|--dereference(-command-line(-symlink-to-dir)?)?)(\s|$)/,
   du: /(^|\s)(-[A-Za-z]*[LH][A-Za-z]*|--dereference(-args)?)(\s|$)/,
+  // Not a read escape but a budget one: `tail -f` never returns, so the agent sits on it until the deadline and
+  // the round degrades to the incomplete note having found nothing. Nothing in a review needs to follow a file.
+  tail: /(^|\s)(-[A-Za-z]*[fF][A-Za-z]*|--follow(=\S*)?|--retry)(\s|$)/,
 };
 function hasDeniedFlag(segment) {
   const command = segment.split(/\s+/)[0];
@@ -399,9 +402,8 @@ const safeRealpath = (p) => {
 // written file agree even where the temp path has a symlinked component, e.g. macOS /var -> /private/var.
 const DIFF_PATH = join(safeRealpath(process.env.RUNNER_TEMP || tmpdir()), `pr-${PR_NUMBER}.diff`);
 const READ_ROOTS = [process.env.GITHUB_WORKSPACE || process.cwd(), DIFF_PATH].map(safeRealpath);
-// No stripQuotes: `analyzeShell` has already removed the shell's quoting, so a remaining `'` or `"` is part of
-// the FILENAME. Stripping it asked the check about a different file than bash opens — `cat \\'q` was checked as
-// `q` (which does not exist) while bash read `'q`.
+// No quote handling here: the grammar refuses quote characters outright, so a path reaching this function is
+// already the literal name the program will open.
 // The base a relative token is resolved against. It is the checkout, stated explicitly rather than inherited from
 // wherever the harness happens to run, and the agent's shell cannot drift away from it: `cd` (and `pushd`) are not
 // on BASH_ALLOW, so every `cd …` segment is refused, and `git -C <path>` still has that path confined below.

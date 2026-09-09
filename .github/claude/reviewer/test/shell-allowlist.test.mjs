@@ -800,6 +800,17 @@ test("a grep pattern is not treated as a path, but an existing file always is", 
 });
 
 
+test('a command that never returns is refused, not just an unsafe one', () => {
+  // `tail -f` is plain words and an allowlisted program, so the grammar and the allowlist both accept it — and it
+  // never returns, so the agent sits on it until the 12-minute deadline and the round degrades having found
+  // nothing. A budget escape rather than a read escape, but it costs the whole review.
+  assert.equal(isAllowedBash('tail -f app/build.gradle.kts'), false);
+  assert.equal(isAllowedBash('tail -F app/build.gradle.kts'), false);
+  assert.equal(isAllowedBash('tail --follow=name app/build.gradle.kts'), false);
+  assert.equal(isAllowedBash('tail --retry -f app/build.gradle.kts'), false);
+  assert.equal(isAllowedBash('tail -n 20 app/build.gradle.kts'), true); // the ordinary form still works
+});
+
 test('no allowlisted command may follow symlinks while walking', () => {
   // `realpath` confines the paths a command is given; these flags make the walk itself leave the read roots.
   assert.equal(isAllowedBash('du -L docs'), false);
