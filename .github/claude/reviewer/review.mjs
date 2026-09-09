@@ -1877,7 +1877,7 @@ export function boundedSummaryBody(body, max = MAX_COMMENT) {
   // Cut at a line boundary, then close whatever the cut left open. The one thing that makes a body reach this
   // limit is the `<details>` list of findings that could not go inline — so the cut lands INSIDE that element,
   // and everything appended after it (the warning saying the summary was trimmed) renders inside a collapsed
-  // block, which is to say invisibly. Measured on a body of 300 unpostable findings.
+  // block, which is to say invisibly. Reproduced in the suite on a 110 KB body of 900 unpostable findings.
   const raw = body.slice(0, max);
   const cut = raw.slice(0, Math.max(raw.lastIndexOf('\n'), 0)) || raw;
   const open = (cut.match(/<details>/g) || []).length - (cut.match(/<\/details>/g) || []).length;
