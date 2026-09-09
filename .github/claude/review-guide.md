@@ -15,7 +15,7 @@ layout, and conventions before judging anything.
 4. **Module boundaries:** the codebase is split into `:core` (shared Compose-free, playback-capable library —
    Media3 lives here) and `:app` (phone) + `:wear`. See "Module conventions" in `CLAUDE.md` — check the flags
    in the module section below.
-4. Comment **only on lines changed by this PR**, in changed files. Skip everything in "what to skip".
+5. Comment **only on lines changed by this PR**, in changed files. Skip everything in "what to skip".
 
 ## What to skip
 
@@ -84,9 +84,13 @@ layout, and conventions before judging anything.
 
 ## Reporting findings
 
-Your findings are consumed by an automated harness (it posts the comments, de-duplicates them across
-pushes, and resolves stale ones) — **do not post comments or create reviews yourself.** The exact JSON
-shape to emit is defined by the output contract in your system prompt.
+Your findings are consumed by an automated harness — **do not post comments or create reviews yourself.**
+It posts each finding as an inline comment, recognises a finding you reported on an earlier push and leaves
+that comment alone, and closes an earlier comment only when a second pass has judged it against the current
+code or when a finding you report now takes it over. A finding whose line the API will not accept as an
+inline anchor, and any finding past the inline cap, is listed in the summary comment rather than lost — but a
+finding with no usable line number at all is dropped, so tie every finding to a line this PR changed. The
+exact JSON shape to emit is defined by the output contract in your system prompt.
 
 - Report each issue with its severity, file, the **changed line** it applies to, and a concrete fix.
   Tie every finding to a line the PR actually changed.
