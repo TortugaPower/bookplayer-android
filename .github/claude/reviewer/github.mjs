@@ -49,6 +49,9 @@ export const setNetworkDeadline = (epochMs) => {
   networkDeadline = epochMs;
 };
 const outOfTime = () => Date.now() >= networkDeadline;
+// For the test that pins main() SETTING it: the budget functions are pure and pinned, the call that arms
+// them was not, and an unarmed ladder is retries outside every budget the run has.
+export const networkDeadlineForTest = () => networkDeadline;
 // 406 is deliberate (the diff is too large to render), and a bare 403 is usually "not permitted", which will not
 // pass however often it is tried. The secondary rate limit also answers 403, and says so in its headers.
 // Only the SECONDARY limit, which clears on this timescale and says so with Retry-After. The primary hourly limit

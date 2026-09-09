@@ -271,7 +271,7 @@ export const buildSystemPrompt = () =>
 
 const MAX_PR_BODY = 4000;
 
-function buildUserPrompt(pr, diffPath) {
+export function buildUserPrompt(pr, diffPath) {
   const rawBody = pr.body.length > MAX_PR_BODY ? `${pr.body.slice(0, MAX_PR_BODY)}\n[...truncated]` : pr.body;
   const body = escapePrText(rawBody);
   const title = escapePrText(pr.title);
@@ -1104,6 +1104,11 @@ export function agentEnv(source = process.env) {
 // `.claude/settings.json` in the PR head add hooks that run before canUseTool, and `env: process.env` hands the
 // agent every credential in the job. Built here, as a pure value, so the tests can assert on them — a mutation
 // test showed all three surviving a green suite.
+// Exported for the test that pins these two as REACHING the SDK: the resolved model and the turn cap are both
+// computed carefully and were both droppable from the options with the whole suite green.
+export const MODEL_FOR_TEST = () => MODEL;
+export const MAX_TURNS_FOR_TEST = MAX_TURNS;
+
 export function agentQuery({ userPrompt, systemPrompt, abort, onStderr = () => {}, env = agentEnv() } = {}) {
   return {
     prompt: userPrompt,

@@ -856,3 +856,72 @@ test('a provisional round never lets the verifier judge, and a stale entry drops
     restore();
   }
 });
+
+test('the round arms the clocks and the caps it computes', async () => {
+  // The budget functions are pure and pinned; the CALL SITES that arm them were not, and each hands back an
+  // unbounded clock: GitHub's retry ladders outside every budget the run has, an agent with no turn cap, or a
+  // review that outlasts `timeout-minutes` and is cancelled mid-reconcile.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'clocks-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '25', COMMIT: 'c10c000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(), REVIEW_MODEL: 'claude-opus-5-test', REVIEW_MAX_TURNS: '7',
+  }, 'clocks');
+  // No cache-buster: `review.mjs` imports './github.mjs' by plain specifier, so every cache-busted copy of the
+  // harness shares ONE client instance — which is the instance whose clock we are checking.
+  const { networkDeadlineForTest } = await import('../github.mjs');
+  const realFetch = globalThis.fetch;
+  try {
+    const gh = fakeGitHub();
+    globalThis.fetch = gh.fetch;
+    const budgets = [];
+    const startedAt = Date.now();
+    await mod.runReview({
+      agent: async (prompt, budgetMs) => {
+        budgets.push(budgetMs);
+        return { finalText: '```json\n' + JSON.stringify({ verdict: 'pass', summary: 'fine', findings: [] }) + '\n```', lastAnswer: '', turns: 1, resultSubtype: 'success' };
+      },
+    });
+    // The review pass is given a budget derived from the job's, not the raw deadline: it has to leave the
+    // verification slice behind, or the two passes together outlast the job.
+    assert.equal(budgets.length, 1);
+    assert.ok(budgets[0] <= 12 * 60_000, `review budget was ${budgets[0]}`);
+    assert.ok(budgets[0] <= 18 * 60_000 - 5 * 60_000, `review budget did not reserve the verify slice: ${budgets[0]}`);
+    // And the GitHub client's own wall clock is armed from the same budget, so a retry ladder cannot run past
+    // the end of the job.
+
+    // The resolved model and the turn cap reach the SDK options. Dropping either leaves the SDK to pick its own
+    // default while `resolveModel`, `REVIEW_MODEL` and the model-unavailable retry become decoration — and the
+    // footer still names the model that did not run.
+    const q = mod.agentQuery({ userPrompt: 'p', systemPrompt: 's', abort: new AbortController(), env: { PATH: '/usr/bin' } });
+    assert.equal(q.options.model, 'claude-opus-5-test');
+    assert.equal(q.options.maxTurns, 7);
+
+    // A SMALL job budget must shrink the review's own: the deadline is a ceiling, not the budget. A call site
+    // that hands the agent `DEADLINE_MS` directly passes every assertion above and still lets the review run
+    // twice as long as the job it lives in.
+    const tight = await loadHarness({
+      GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '26', COMMIT: 'c10c000000000002',
+      BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+      GITHUB_WORKSPACE: process.cwd(), REVIEW_JOB_BUDGET_MS: String(7 * 60_000),
+    }, 'clockstight');
+    const tightGh = fakeGitHub();
+    globalThis.fetch = tightGh.fetch;
+    const tightBudgets = [];
+    await tight.mod.runReview({
+      agent: async (prompt, budgetMs) => {
+        tightBudgets.push(budgetMs);
+        return { finalText: '```json\n' + JSON.stringify({ verdict: 'pass', summary: 'fine', findings: [] }) + '\n```', lastAnswer: '', turns: 1, resultSubtype: 'success' };
+      },
+    });
+    tight.restore();
+    assert.ok(tightBudgets[0] <= 2 * 60_000, `a 7-minute job gave the review ${Math.round(tightBudgets[0] / 1000)}s`);
+
+    const deadline = networkDeadlineForTest();
+    assert.ok(Number.isFinite(deadline), 'the network deadline was never armed');
+    assert.ok(deadline >= startedAt && deadline <= startedAt + 19 * 60_000, `deadline ${deadline - startedAt}ms after the start`);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
