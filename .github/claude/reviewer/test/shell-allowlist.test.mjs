@@ -501,6 +501,13 @@ test('the PR description and title reach the prompt as data', () => {
   // The text is still THERE — a maintainer's description is useful context, it just cannot be markup.
   assert.match(prompt, /Real description/);
   assert.match(prompt, /\/tmp\/pr-1\.diff/);
+  // And the agent is told how big the diff is and how to page it. The Read tool refuses a file over ~256 KB
+  // outright; without this the agent discovers that by trial, which costs a turn on exactly the large PRs
+  // where the deadline is tightest. (Found by the harness reviewing its own PR: a 493 KB diff.)
+  const big = buildUserPrompt({ title: 't', body: 'b', author: 'a' }, '/tmp/pr-1.diff', 493_000, 12_000);
+  assert.match(big, /493000 bytes/);
+  assert.match(big, /12000 lines/);
+  assert.match(big, /offset.*limit|limit.*offset/s);
 });
 
 test('a result that omits findings is accepted and normalised (seen live: a complete pass was discarded)', () => {
@@ -881,6 +888,60 @@ test('an edited comment body cannot turn off the error guard or rewrite the find
   assert.match(fallback, /the audio session is never deactivated/);
 });
 
+test('a complete review is never reported as a run that did not happen', () => {
+  // `shouldHardFail` decides between "the round degraded, here is what it found" and a red check saying the
+  // reviewer did not run. Any subtype the SDK adds that is not in the degradable list would turn a run that
+  // produced a COMPLETE review into the second — the loudest possible way to report a success.
+  assert.equal(shouldHardFail({ finalText: '```json\n{"verdict":"pass","summary":"s","findings":[]}\n```', resultSubtype: 'error_something_new' }), false);
+  assert.equal(shouldHardFail({ finalText: 'anything at all', resultSubtype: 'success' }), false);
+  // Nothing produced and an unknown failure: that is a real failure.
+  assert.equal(shouldHardFail({ finalText: '', resultSubtype: 'error_something_new' }), true);
+  // The two expected outcomes on a large PR degrade instead, with or without a remembered answer.
+  assert.equal(shouldHardFail({ finalText: '', lastAnswer: 'x', resultSubtype: 'error_max_turns' }), false);
+  assert.equal(shouldHardFail({ finalText: '', resultSubtype: 'error_deadline' }), false);
+});
+
+test('a close carries the moment it was made', () => {
+  // `harnessClosedByRecord` compares that stamp against the thread's comments to spot a record rolled back by
+  // an overlapping run. Without it the guard is inert, and a stale record unresolves a maintainer's silent
+  // resolve on every push.
+  const identities = new Map([['T1', { id: 'T1', fp: 'fp1', path: 'a.kt', severity: 'warn', text: 'x' }]]);
+  const [[, record]] = closedRecords({ identities, verifiedClosedIds: new Set(['T1']) });
+  assert.match(record.at, /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/);
+  // And the guard reads it: a harness comment newer than the stamp means the close is no longer our last word.
+  const thread = { id: 'T1', comments: [{ author: 'github-actions[bot]', association: 'NONE', body: 'reopened', createdAt: '2099-01-01T00:00:00Z' }] };
+  assert.equal(harnessClosedByRecord(thread, { commit: 'c', findings: { fp1: record } }), null);
+  assert.equal(harnessClosedByRecord({ id: 'T1', comments: [] }, { commit: 'c', findings: { fp1: record } }), true);
+});
+
+test('the summary never claims convergence over a list of new findings', () => {
+  // "Converged: nothing new this round, and every earlier finding is settled" printed directly above this
+  // round's findings is the harness contradicting itself in the one line a maintainer skims.
+  const settledRows = [{ label: '`a.kt:1`', status: 'resolved', note: 'verified fixed' }];
+  const zero = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
+  const clean = renderSummary({ verdict: 'pass', summary: 's', findings: [] }, zero, [], { previously: settledRows });
+  assert.match(clean, /Converged/);
+  const busy = renderSummary(
+    { verdict: 'warn', summary: 's', findings: [{ severity: 'warn', file: 'b.kt', line: 2, comment: 'a new one' }] },
+    zero, [], { previously: settledRows },
+  );
+  assert.equal(busy.includes('Converged'), false);
+});
+
+test('the verifier answer is read strictly, and its own salvage gate knows the shape', () => {
+  // Two different strictnesses, both load-bearing. The verdict list must be the model's FINAL fenced block:
+  // this repo's own tests and prompts contain `{"threads":[…]}` literals, and repo content is quoted into the
+  // verifier's context, so a loose parse adopts someone else's JSON as a verdict.
+  const block = '```json\n{"threads": [{"id": 1, "status": "fixed", "evidence": "x"}]}\n```';
+  assert.equal(parseVerifyResult(`Checked.\n\n${block}`).length, 1);
+  assert.equal(parseVerifyResult(`The fixture is ${block}\n\nnow let me look at the code.`), null);
+  assert.equal(parseVerifyResult(`{"threads":[{"id":1,"status":"fixed"}]}`), null); // unfenced: not an answer
+  // And the REVIEW shape is not a verdict list, which is what stops the verify pass's deadline salvage from
+  // keeping a review answer (and the review's salvage from keeping a verdict list).
+  assert.equal(parseVerifyResult('```json\n{"verdict":"pass","summary":"s","findings":[]}\n```'), null);
+  assert.equal(isTerminalResult(block), false);
+});
+
 test('the verifier answers each thread once, and its own words cannot forge a marker', async () => {
   // Everything a verdict carries is model output that the HARNESS then posts, so the same rules as a finding
   // apply to it. Four properties, each of which a mutation could remove with the suite green.
@@ -1220,6 +1281,45 @@ test('a hostile filename cannot break the summary table', async () => {
 
 // ---- the summary comment is found without walking the whole PR ---------------------------------------------
 
+test('the page loops stop when the run is out of time', async () => {
+  // The retry ladders honour the network deadline; the PAGE loops did not. 100 thread pages at 30 s each is
+  // 50 minutes and 20 comment pages is 10 — both past the workflow's own timeout, which ends the job with
+  // comments posted and no summary and no record. A partial list degrades through the callers instead.
+  const { listIssueComments, listReviewThreads, setNetworkDeadline } = await import('../github.mjs');
+  const prevRepo = process.env.GITHUB_REPOSITORY;
+  const prevToken = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_REPOSITORY = 'TortugaPower/repo';
+  process.env.GITHUB_TOKEN = 'tok';
+  try {
+    setNetworkDeadline(Date.now() - 1); // the job is already over
+    let commentPages = 0;
+    const comments = await withStubbedFetch(async () => {
+      commentPages++;
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => Array.from({ length: 100 }, (_, i) => ({ id: i })) };
+    }, () => listIssueComments(1));
+    assert.equal(commentPages, 1, `kept paging comments past the deadline (${commentPages} pages)`);
+    assert.equal(comments.length, 100); // what it did read is returned, not thrown away
+
+    let threadPages = 0;
+    const threads = await withStubbedFetch(async () => {
+      threadPages++;
+      return {
+        ok: true, status: 200, headers: { get: () => null },
+        json: async () => ({ data: { repository: { pullRequest: { reviewThreads: {
+          nodes: [{ id: `T${threadPages}`, isResolved: false, path: 'a.kt', line: 1, originalLine: 1, first: { nodes: [] }, comments: { nodes: [] }, last: { nodes: [] } }],
+          pageInfo: { hasNextPage: true, endCursor: `CUR${threadPages}` },
+        } } } } }),
+      };
+    }, () => listReviewThreads(1));
+    assert.equal(threadPages, 1, `kept paging threads past the deadline (${threadPages} pages)`);
+    assert.equal(threads.length, 1);
+  } finally {
+    setNetworkDeadline(Infinity);
+    if (prevRepo === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = prevRepo;
+    if (prevToken === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = prevToken;
+  }
+});
+
 test('the comment listing asks for the newest first and is bounded', async () => {
   const { listIssueComments } = await import('../github.mjs');
   const realFetch = globalThis.fetch;
@@ -1484,6 +1584,12 @@ test('a degrade note survives the trim of an oversized summary', () => {
   const huge = `## ✅ Claude PR Review — \`PASS\`\n\n${'x'.repeat(120000)}\n\n<!-- bp-ai-review-summary -->`;
   const body = summaryWithNote(huge, 'ran out of time', HEADING);
   assert.ok(body.length <= 65536, `body was ${body.length}`);
+  // Including the separators it adds itself: reserving only body + record + marker + margin returned ~11
+  // characters more than `summaryBodyWithState` then allows, and its trim takes the record's ` -->` with it.
+  const state = { commit: 'c', findings: { fp: { id: 'T1', file: 'a.kt', line: 1, severity: 'warn', text: 'x', action: 'posted', commit: 'c' } } };
+  const withRecord = summaryWithNote(summaryBodyWithState('#'.repeat(70000), state), 'ran out of time', HEADING);
+  assert.ok(withRecord.length <= 65536 - 1000, `body+record was ${withRecord.length}`);
+  assert.ok(decodeState(summaryBodyWithState(withRecord, null)), 'the record did not survive its own re-bounding');
   assert.ok(body.includes('ran out of time')); // the note is the point of the comment; it may not be what is cut
   assert.ok(body.trimEnd().endsWith('<!-- bp-ai-review-summary -->')); // and the upsert can still find the comment
 });
@@ -1773,6 +1879,88 @@ test('a review thread is mapped from the selection that answers each question', 
   // `line` is null exactly when the thread is outdated; originalLine then points at the stale anchor.
   assert.equal(threads[1].line, null);
   assert.equal(threads[1].originalLine, 7);
+});
+
+test('what the read ladder retries, what it refuses to retry, and that it waits', async () => {
+  // Each of these could be changed with the whole suite green, and each turns one bad answer from GitHub into
+  // a round that posts nothing: the harness skips inline comments rather than risk duplicates when it cannot
+  // read the threads.
+  const { listIssueComments, backoffMs } = await import('../github.mjs');
+  const prevRepo = process.env.GITHUB_REPOSITORY;
+  const prevToken = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_REPOSITORY = 'TortugaPower/repo';
+  process.env.GITHUB_TOKEN = 'tok';
+  const answer = (status, headers = {}) => ({ ok: false, status, headers: { get: (h) => headers[h.toLowerCase()] ?? null }, json: async () => ({}), text: async () => 'nope' });
+  const okPage = { ok: true, status: 200, headers: { get: () => null }, json: async () => [] };
+  try {
+    // A bare 500 and a 429 are both retried: `>= 500` and the 429 term are separate decisions.
+    for (const status of [500, 502, 429]) {
+      let calls = 0;
+      const out = await withStubbedFetch(async () => (++calls === 1 ? answer(status) : okPage), () => listIssueComments(1));
+      assert.equal(calls, 2, `a ${status} was not retried`);
+      assert.deepEqual(out, []);
+    }
+    // A 403 is retried ONLY when it looks like the secondary rate limit, which says so with Retry-After. The
+    // primary limit resets up to an hour out, so retrying it three times half a second apart just fails later.
+    let plain = 0;
+    await assert.rejects(() => withStubbedFetch(async () => { plain++; return answer(403, { 'x-ratelimit-remaining': '0' }); }, () => listIssueComments(1)));
+    assert.equal(plain, 1, 'a plain 403 was retried');
+    let secondary = 0;
+    await withStubbedFetch(async () => (++secondary === 1 ? answer(403, { 'retry-after': '1' }) : okPage), () => listIssueComments(1));
+    assert.equal(secondary, 2, 'a secondary rate limit was not retried');
+    // A 404 is an answer, not a hiccup.
+    let missing = 0;
+    await assert.rejects(() => withStubbedFetch(async () => { missing++; return answer(404); }, () => listIssueComments(1)));
+    assert.equal(missing, 1);
+
+    // A programming TypeError is not a network fault: retrying it three times hides the real cause behind a
+    // "network" story. undici marks the real thing with `cause`.
+    let bug = 0;
+    await assert.rejects(() => withStubbedFetch(async () => { bug++; throw new TypeError('opts.headers is not iterable'); }, () => listIssueComments(1)), /not iterable/);
+    assert.equal(bug, 1, 'a programming error was retried as if it were the network');
+    let net = 0;
+    await withStubbedFetch(async () => {
+      if (++net === 1) { const e = new TypeError('fetch failed'); e.cause = new Error('ECONNRESET'); throw e; }
+      return okPage;
+    }, () => listIssueComments(1));
+    assert.equal(net, 2, 'a real network failure was not retried');
+
+    // And the ladder WAITS. Answering a rate limit as fast as the machine can is the worst possible response
+    // to it; `backoffMs` growing from zero is what makes the retry worth having.
+    assert.ok(backoffMs(0) >= 500, `first backoff was ${backoffMs(0)}ms`);
+    assert.ok(backoffMs(1) > backoffMs(0) - 250, 'the backoff does not grow');
+    const started = Date.now();
+    let slow = 0;
+    await withStubbedFetch(async () => (++slow === 1 ? answer(500) : okPage), () => listIssueComments(1));
+    assert.ok(Date.now() - started >= 400, `the ladder retried after ${Date.now() - started}ms`);
+  } finally {
+    if (prevRepo === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = prevRepo;
+    if (prevToken === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = prevToken;
+  }
+});
+
+test('a mutation is never retried, however transient the error looks', async () => {
+  // Resolving a thread is a POST like every GraphQL call, so "is this a read?" cannot be inferred from the
+  // method: the read query opts in. A retried resolve is a second mutation on the same thread.
+  const { resolveReviewThread } = await import('../github.mjs');
+  const prevRepo = process.env.GITHUB_REPOSITORY;
+  const prevToken = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_REPOSITORY = 'TortugaPower/repo';
+  process.env.GITHUB_TOKEN = 'tok';
+  try {
+    let calls = 0;
+    await assert.rejects(
+      () => withStubbedFetch(async () => {
+        calls++;
+        return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ errors: [{ type: 'SERVICE_UNAVAILABLE', message: 'try again' }] }) };
+      }, () => resolveReviewThread('T1')),
+      /SERVICE_UNAVAILABLE/,
+    );
+    assert.equal(calls, 1, 'the resolve mutation was retried');
+  } finally {
+    if (prevRepo === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = prevRepo;
+    if (prevToken === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = prevToken;
+  }
 });
 
 test('a 406 falls back to the per-file diff, and a transient GraphQL error is retried', async () => {
@@ -2530,7 +2718,7 @@ test('over many rounds the record stays bounded, unique and truthful', () => {
     const plan = planRound({ threads, currentByFp, provisional: false, priorState: prior });
     // Only a thread this round did NOT re-report can reach the verification pass, which is what `toVerify` is.
     const victim = plan.toVerify[0];
-    const closed = victim ? closedRecords({ identities: plan.identities, verifiedClosedIds: new Set([victim.id]), resolvedIds: new Set() }) : [];
+    const closed = victim ? closedRecords({ identities: plan.identities, verifiedClosedIds: new Set([victim.id]) }) : [];
     if (victim) { victim.isResolved = true; closesSeen++; }
     const state = buildState({
       commit: `commit${round}`,

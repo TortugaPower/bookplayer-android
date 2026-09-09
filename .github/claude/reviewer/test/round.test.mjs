@@ -22,6 +22,9 @@ async function loadHarness(env, tag) {
 
 // A GitHub the harness can talk to: records every write, serves the PR, the diff, the comments and the threads.
 function fakeGitHub({ summaryBody = null, threads = [] } = {}) {
+  // Big enough that a truncated write is visible: the harness hands the agent a FILE, and nothing else in the
+  // suite compares what lands on disk with what GitHub returned.
+  const diffBody = `diff --git a/x b/x\n@@ -1 +1 @@\n+x\n${Array.from({ length: 200 }, (_, i) => `+line ${i} of a diff long enough to notice losing`).join('\n')}\n`;
   const calls = { inline: [], issueComments: [], patched: [], replies: [], resolved: [], unresolved: [], graphql: [] };
   const summary = summaryBody === null ? [] : [{ id: 99, user: { login: 'github-actions[bot]' }, body: summaryBody }];
   const fetch = async (url, init = {}) => {
@@ -35,7 +38,7 @@ function fakeGitHub({ summaryBody = null, threads = [] } = {}) {
       if (/unresolveReviewThread/.test(body.query)) { calls.unresolved.push(body.variables.threadId); return ok({ data: { unresolveReviewThread: {} } }); }
       return ok({ data: { repository: { pullRequest: { reviewThreads: { nodes: threads, pageInfo: { hasNextPage: false, endCursor: null } } } } } });
     }
-    if (/\/pulls\/\d+$/.test(u) && (init.headers?.Accept || '').includes('diff')) return ok('diff --git a/x b/x\n@@ -1 +1 @@\n+x\n');
+    if (/\/pulls\/\d+$/.test(u) && (init.headers?.Accept || '').includes('diff')) return ok(diffBody);
     if (/\/pulls\/\d+$/.test(u)) return ok({ title: 'a PR', body: 'a description', user: { login: 'gianni' } });
     if (/\/issues\/\d+\/comments/.test(u) && method === 'GET') return ok(summary);
     if (/\/issues\/\d+\/comments/.test(u) && method === 'POST') { calls.issueComments.push(body.body); return ok({ id: 100 }); }
@@ -44,7 +47,7 @@ function fakeGitHub({ summaryBody = null, threads = [] } = {}) {
     if (/\/pulls\/\d+\/comments/.test(u) && method === 'POST') { calls.inline.push({ path: body.path, line: body.line, body: body.body, commit_id: body.commit_id, side: body.side }); return ok({ id: 102 }); }
     throw new Error(`unstubbed ${method} ${u}`);
   };
-  return { calls, fetch, summaryOut: () => calls.patched[calls.patched.length - 1] ?? calls.issueComments[calls.issueComments.length - 1] };
+  return { calls, fetch, diffBody, summaryOut: () => calls.patched[calls.patched.length - 1] ?? calls.issueComments[calls.issueComments.length - 1] };
 }
 
 const agentReturning = (result) => async () => ({ finalText: '```json\n' + JSON.stringify(result) + '\n```', lastAnswer: '', turns: 3, resultSubtype: 'success' });
@@ -961,6 +964,73 @@ test('a thin verification slice means the pass is not started at all', async () 
     assert.equal(calls, 1, 'the verification pass was started on a slice it cannot finish in');
     assert.deepEqual(gh.calls.resolved, []);
     assert.match(gh.summaryOut(), /not checked this round/);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('DRY_RUN writes nothing at all, and the diff on disk is the whole diff', async () => {
+  // The README tells a maintainer to run the harness locally against a real PR with DRY_RUN=1. If that flag
+  // stops being read, the "safe" local run posts comments and resolves threads on a live PR. And the diff the
+  // agent reads is a FILE: nothing asserted that what lands on disk is what GitHub returned, so the agent could
+  // be reviewing the first kilobyte of the PR with the whole suite green.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'dry-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '28', COMMIT: 'd0d0000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: '1',
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'dryrun');
+  const realFetch = globalThis.fetch;
+  try {
+    const gh = fakeGitHub();
+    const writes = [];
+    globalThis.fetch = async (url, init = {}) => {
+      const method = init.method || 'GET';
+      const body = init.body ? String(init.body) : '';
+      if (method !== 'GET' || /resolveReviewThread|unresolveReviewThread/.test(body)) writes.push(`${method} ${String(url)}`);
+      return gh.fetch(url, init);
+    };
+    let seenDiffPath = '';
+    await mod.runReview({
+      agent: async (prompt) => {
+        seenDiffPath = (/([^\s`'"]*pr-\d+\.diff)/.exec(prompt) || [])[1] || '';
+        return { finalText: '```json\n' + JSON.stringify({ verdict: 'warn', summary: 'dry', findings: [{ severity: 'warn', file: 'x', line: 1, comment: 'c' }] }) + '\n```', lastAnswer: '', turns: 1, resultSubtype: 'success' };
+      },
+    });
+    // The GraphQL read of the threads is a POST, so "no writes" is checked by what it would have MUTATED.
+    assert.deepEqual(writes.filter((w) => !/graphql$/.test(w)), [], `a dry run wrote: ${writes.join(', ')}`);
+    assert.deepEqual(gh.calls.inline, []);
+    assert.deepEqual(gh.calls.issueComments, []);
+    assert.deepEqual(gh.calls.patched, []);
+    assert.deepEqual(gh.calls.resolved, []);
+
+    // The diff handed to the agent is the whole diff GitHub returned, byte for byte.
+    const { readFileSync } = await import('node:fs');
+    assert.ok(seenDiffPath, 'the prompt named no diff file');
+    // The stub diff is deliberately larger than any plausible truncation: a fixture of a few dozen bytes
+    // cannot tell "the whole diff" from "the first kilobyte of it".
+    assert.equal(readFileSync(seenDiffPath, 'utf8'), gh.diffBody);
+    assert.ok(gh.diffBody.length > 4000, `the fixture diff is only ${gh.diffBody.length} bytes`);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('a malformed PR number is refused before anything is attempted', async () => {
+  // `listIssueComments(NaN)` fails, and the note path swallows that failure — a red check with nothing on the
+  // PR, which is the invisible failure the whole degrade design exists to prevent.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'prnum-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: 'not-a-number', COMMIT: 'ba11000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'prnum');
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => { throw new Error('nothing should be fetched'); };
+    await assert.rejects(() => mod.runReview({ agent: async () => { throw new Error('the agent should never run'); } }), /PR_NUMBER must be a positive integer/);
   } finally {
     globalThis.fetch = realFetch;
     restore();

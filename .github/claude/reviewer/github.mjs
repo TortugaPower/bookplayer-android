@@ -207,7 +207,7 @@ export async function fetchDiffFromFiles(prNumber, maxPages = 30) {
     // so the probe came back empty every time and this marker could never appear. Say it in the diff itself, not
     // only the log: the diff is what the agent reads.
     console.warn(`Diff rebuilt from files stopped at the ${maxPages}-page cap`);
-    parts.push(`[diff truncated: ${maxPages * 100} files listed, which is all GitHub serves from this endpoint — anything beyond that is not shown]`);
+    parts.push(`[diff truncated: ${maxPages * PER_PAGE} files listed, which is all GitHub serves from this endpoint — anything beyond that is not shown]`);
   }
   return `${parts.join('\n')}\n`;
 }
@@ -233,6 +233,10 @@ export async function listIssueComments(prNumber) {
     if (!Array.isArray(batch) || batch.length === 0) break;
     all.push(...batch);
     if (batch.length < PER_PAGE) break;
+    // The same clock the retry ladders use. Paging is the other way this file can run past the end of the job:
+    // 20 pages x 30 s is 10 minutes, and a partial list degrades through the callers' existing paths, where a
+    // cancelled job leaves comments with no summary and no record.
+    if (outOfTime()) { console.warn('Comment listing stopped: out of time'); break; }
     if (page === MAX_COMMENT_PAGES) console.warn(`Comment listing stopped at the ${MAX_COMMENT_PAGES}-page cap`);
   }
   return all;
@@ -333,6 +337,9 @@ export async function listReviewThreads(prNumber) {
     // infinite loop here defeats every degrade path the harness has — the job just runs to timeout-minutes with no
     // comment. The page cap is the second backstop; 100 pages is 10,000 threads.
     if (!conn.pageInfo.hasNextPage || !conn.pageInfo.endCursor || page >= MAX_THREAD_PAGES) break;
+    // 100 pages x 30 s is 50 minutes — twice the whole job — so the page loop honours the network deadline too,
+    // not only the retry ladder inside each call.
+    if (outOfTime()) { console.warn('Thread listing stopped: out of time'); break; }
     cursor = conn.pageInfo.endCursor;
   }
   return threads;
