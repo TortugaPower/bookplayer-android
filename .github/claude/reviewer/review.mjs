@@ -61,11 +61,9 @@ const DUPLICATE_NOTE =
 const SUPERSEDED_NOTE =
   'Reported again at a different line on the newest commit; the new comment carries it. ' +
   `<!-- bp-ai-review-auto-resolved -->`;
-// Kept because threads resolved by earlier versions of this harness carry the marker and must still be
-// recognised (HARNESS_RESOLVED_MARKERS, so a re-report reopens them). Nothing writes it any more: a thread that
-// simply went unreported is now left for the verification pass to judge rather than closed on silence, so the
-// only thread the stale loop can close is one superseded by a finding that moved.
-const AUTO_RESOLVED_NOTE = `Not reported in the latest run — resolved automatically. ${MARKER_AUTO_RESOLVED}`;
+// (The note earlier versions posted when a finding simply went unreported is gone; only its MARKER_AUTO_RESOLVED
+// survives, in HARNESS_RESOLVED_MARKERS, so threads those versions closed are still recognised as ours and
+// reopen on a re-report. Nothing closes a thread on silence any more.)
 // Posted when we reopen, so the auto-resolve marker is no longer the last comment: if a human then resolves
 // the thread themselves, that decision is respected on later runs.
 const REOPENED_NOTE = 'Reported again in the latest run — reopened. <!-- bp-ai-review-reopened -->';
@@ -828,7 +826,7 @@ export function actionByFp({ unpostable = [], currentByFp = new Map() } = {}) {
 // held an action in HARNESS_CLOSE_ACTIONS, `harnessClosedByRecord` always returned null, and the marker
 // archaeology the record was built to replace was still what ran in production. The tests passed only because
 // they hand-wrote `action: 'resolved'`.
-export function closedRecords({ identities = new Map(), superseded = [], duplicates = [], verifiedClosedIds = new Set(), resolvedIds = new Set() } = {}) {
+export function closedRecords({ identities = new Map(), closing = [], closedBy = new Map(), verifiedClosedIds = new Set(), resolvedIds = new Set() } = {}) {
   const entries = [];
   const add = (thread, action) => {
     const identity = identities.get(thread.id);
@@ -851,8 +849,7 @@ export function closedRecords({ identities = new Map(), superseded = [], duplica
       },
     ]);
   };
-  for (const t of superseded) if (resolvedIds.has(t.id)) add(t, 'superseded');
-  for (const t of duplicates) if (resolvedIds.has(t.id)) add(t, 'duplicate');
+  for (const t of closing) if (resolvedIds.has(t.id)) add(t, closedBy.get(t.id)?.kind === 'posted' ? 'superseded' : 'duplicate');
   for (const id of verifiedClosedIds) add({ id, line: 0 }, 'resolved');
   return entries;
 }
@@ -1163,8 +1160,9 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
     ['error', 'warn', 'info'].filter((s) => counts[s]).map((s) => `${counts[s]} ${s}`).join(' · ') ||
     'no findings';
   // Closed by the verification pass: reconcile's own `resolved` counter does not see these.
-  // Superseded rows are excluded: reconcile already counted those threads in `stats.resolved`, and nothing
-  // verified them — counting them here reported one closure twice, once as "verified".
+  // Rows this round closed itself are excluded (the `superseded` flag marks them, whichever kind of carrier they
+  // followed): reconcile already counted those threads in `stats.resolved`, and nothing verified them — counting
+  // them here reported one closure twice, once as "verified".
   const verifiedClosed = previously.filter((r) => r.status === 'resolved' && !r.superseded).length;
 
   const lines = [
@@ -1227,7 +1225,7 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
 
   lines.push(
     '',
-    `<sub>Model \`${MODEL}\`${RUN_URL ? ` · [run log](${RUN_URL})` : ''} · ${stats.posted} new · ${stats.kept} carried over${verifiedClosed ? ` · ${verifiedClosed} verified closed` : ''}${stats.reopened ? ` · ${stats.reopened} reopened` : ''}${stats.dismissed ? ` · ${stats.dismissed} on threads resolved outside this harness` : ''} · ${stats.resolved} resolved · advisory (a human should still review). Findings are de-duplicated across pushes; an earlier one closes when the verification pass judges it fixed or no longer applicable.</sub>`,
+    `<sub>Model \`${MODEL}\`${RUN_URL ? ` · [run log](${RUN_URL})` : ''} · ${stats.posted} new · ${stats.kept} carried over${verifiedClosed ? ` · ${verifiedClosed} verified closed` : ''}${stats.reopened ? ` · ${stats.reopened} reopened` : ''}${stats.dismissed ? ` · ${stats.dismissed} on threads resolved outside this harness` : ''} · ${stats.resolved} resolved · advisory (a human should still review). Findings are de-duplicated across pushes; an earlier one closes when the verification pass judges it fixed or no longer applicable, or when another finding this run reports takes it over.</sub>`,
     '',
     MARKER_SUMMARY,
   );
@@ -1350,11 +1348,10 @@ function isMaintainerReply(c, prAuthor = '') {
 // whose fingerprint already has a thread did not move), and each may supersede at most one old thread. Matching
 // against every current finding instead closed an untouched thread whenever any same-severity finding existed for
 // that file — a still-valid finding retired unverified, under a note claiming it had moved.
-// Same file and severity is not identity: a run that reports a NEW warn in Foo while an older, still-valid warn in
-// Foo simply went unmentioned would otherwise close the old one under a note saying it had moved. The texts have to
-// look like the same finding as well, which is cheap to judge — a finding that moved is usually re-reported in
-// nearly the same words — and anything below the bar goes to the verification pass instead, which judges it
-// against the code.
+// Same file and severity is not identity: a run that reports a NEW warn in Foo while an older, still-valid warn
+// in Foo went unmentioned must not close the old one under a note saying it moved. The texts have to look like the
+// same finding as well, which is cheap to judge — a finding that moved is usually re-reported in nearly the same
+// words — and anything below the bar goes to the verification pass instead, which judges it against the code.
 const SUPERSEDE_SIMILARITY = 0.5;
 const contentWords = (text) =>
   new Set(
@@ -1374,37 +1371,80 @@ export function findingSimilarity(a, b) {
   return (2 * shared) / (A.size + B.size); // Dice: symmetric, and forgiving of one side being longer
 }
 
-// Returns `{ thread, fp }` pairs, naming the finding that supersedes each thread: the claim is only good if that
-// finding is actually posted, and reconcile is where that is known.
-export function pickSuperseded(openThreads, currentByFp, existingFps, identity = null) {
-  const candidates = new Map(); // file|severity -> [{ fp, finding }] this run will post there
+// ONE rule for closing a thread this round did not re-report: its finding is now carried by something else that
+// will still be live when the round ends. That carrier is either a finding this run POSTS, or another harness
+// thread that carries a finding this run reports. Those were two rules — "superseded" and "duplicate" — with two
+// scans, two gates and two anchor sets, and the difference between them was never in the decision, only in the
+// sentence a maintainer reads. Their gates are provably the same set: a posted carrier is live because it was
+// posted, a thread carrier is live because it is kept or reopened — one question, asked once.
+//
+// Matching is file, severity and text similarity, from the round's single identity per thread.
+//
+// Scarcity differs by carrier and that is not a special case but the rule's own arithmetic: a POSTED finding is
+// one comment, so it can stand in for at most one old thread; an open THREAD is a place a finding lives, so any
+// number of duplicates may point at it.
+export function planClosures({ openThreads, currentByFp, existingFps, identityOf, harnessThreads = [], fpOf = () => undefined }) {
+  const matches = (a, b) =>
+    a.path === b.path && a.severity === b.severity && findingSimilarity(a.text, b.text) >= SUPERSEDE_SIMILARITY;
+
+  // Carriers that will be posted: a finding this run reports that has no thread yet. Scarce.
+  const postable = new Map(); // file|severity -> [{ fp, identity }]
   for (const [fp, f] of currentByFp) {
     if (existingFps.has(fp)) continue;
     const key = `${f.file}|${f.severity}`;
-    if (!candidates.has(key)) candidates.set(key, []);
-    candidates.get(key).push({ fp, finding: f });
+    if (!postable.has(key)) postable.set(key, []);
+    postable.get(key).push({ fp, identity: { path: f.file, severity: f.severity, text: String(f.comment || '').slice(0, MAX_STATE_TEXT) } });
   }
-  const pairs = [];
+
+  const closures = [];
+  // threadId -> the fingerprint that carries it after this round. Filled for every closure, so a thread that
+  // follows a CLOSING thread follows that thread's carrier rather than the stale fingerprint it holds itself:
+  // reading the carrier's own `fp` there named a finding this run does not report, which the gate in reconcile
+  // then refuses, leaving the thread open and out of the verification pass — a silent leak.
+  const carrierFp = new Map();
   for (const t of openThreads) {
-    const mine = identity?.(t);
-    const key = `${mine?.path ?? t.path}|${mine?.severity ?? findingSeverity(t.firstCommentBody)}`;
-    const pool = candidates.get(key);
-    if (!pool || !pool.length) continue;
-    const text = mine?.text ?? stripHarnessMarkup(t.firstCommentBody || '');
+    const mine = identityOf(t);
+    const pool = postable.get(`${mine.path}|${mine.severity}`) || [];
     let best = -1;
     let bestScore = 0;
     pool.forEach((c, i) => {
-      const score = findingSimilarity(text, c.finding.comment);
+      const score = findingSimilarity(mine.text, c.identity.text);
       if (score > bestScore) {
         bestScore = score;
         best = i;
       }
     });
-    if (best === -1 || bestScore < SUPERSEDE_SIMILARITY) continue;
-    pairs.push({ thread: t, fp: pool[best].fp });
-    pool.splice(best, 1); // claimed: one new finding can supersede at most one old thread
+    if (best !== -1 && bestScore >= SUPERSEDE_SIMILARITY) {
+      const [claimedCarrier] = pool.splice(best, 1); // consumed: one comment, one thread
+      closures.push({ thread: t, fp: claimedCarrier.fp, kind: 'posted' });
+      carrierFp.set(t.id, claimedCarrier.fp);
+    }
   }
-  return pairs;
+
+  // Carriers that are threads: one this run reports on (kept or reopened), or one closed just above, whose own
+  // carrier this thread then follows. Not scarce.
+  const threadCarriers = harnessThreads.filter((t) => {
+    const fp = fpOf(t);
+    return fp && currentByFp.has(fp);
+  });
+  const alreadyClosing = new Set(closures.map((c) => c.thread.id));
+  for (const t of openThreads) {
+    if (alreadyClosing.has(t.id)) continue;
+    const mine = identityOf(t);
+    // No self-check is needed on either side: a thread carrier's finding IS reported this run and an
+    // `openThreads` entry's is not, so the two sets are disjoint, and a thread is never examined again after
+    // its own closure is pushed.
+    const carrier =
+      threadCarriers.find((a) => matches(identityOf(a), mine)) ||
+      closures.map((c) => c.thread).find((a) => matches(identityOf(a), mine));
+    if (!carrier) continue;
+    // Always a finding this run reports: a thread carrier's own fingerprint by construction, and a closing
+    // thread's carrier through the map.
+    const fp = carrierFp.get(carrier.id) ?? fpOf(carrier);
+    closures.push({ thread: t, fp, kind: 'thread' });
+    carrierFp.set(t.id, fp);
+  }
+  return closures;
 }
 
 // What this round does with the threads already on the PR, as a pure decision. Lifted out of main() because
@@ -1448,59 +1488,20 @@ export function planRound({ threads, currentByFp, provisional, priorState = null
     .map(({ t }) => t);
   // Never on a provisional result: reconcile resolves nothing then, so calling a thread superseded would be a
   // claim about a resolve that was never attempted.
-  const supersededPairs = provisional ? [] : pickSuperseded(openUnreportedAll, currentByFp, existingFps, identityOf);
-  const supersededBy = new Map(supersededPairs.map(({ thread, fp }) => [thread.id, fp]));
-  const superseded = supersededPairs.map(({ thread }) => thread);
-  // Duplicates of a thread this run keeps: same file, same severity, matching text, and the finding they carry is
-  // not in this run because the OTHER thread carries it. Judging them again can only produce two verdicts for one
-  // issue, so they never reach the verifier.
-  // The anchor for a duplicate is any thread carrying a finding THIS RUN REPORTS — open, or resolved and about to
-  // be reopened on its fingerprint. Requiring it to be open missed the very sequence this rule exists for: at the
-  // third push the live thread is the one reconcile reopens, which `stats.kept` does not count.
-  const anchorThreads = harnessThreads.filter((t) => {
-    const fp = fpOf(t);
-    return fp && currentByFp.has(fp);
-  });
-  const duplicateTwin = (t, anchors) => {
-    const mine = identityOf(t);
-    return anchors.find((a) => {
-      if (a.id === t.id) return false;
-      const theirs = identityOf(a);
-      return (
-        theirs.path === mine.path &&
-        theirs.severity === mine.severity &&
-        findingSimilarity(theirs.text, mine.text) >= SUPERSEDE_SIMILARITY
-      );
-    });
-  };
-  // A thread being superseded this round is an anchor too: when a finding moves to a THIRD line, one old thread is
-  // claimed as superseded and the other would otherwise match nothing and leak. And several duplicates may
-  // collapse onto one anchor — unlike a supersede claim, there is no scarcity here, because they are all
-  // duplicates of the same live finding.
-  const duplicatePairs = provisional
+  // One rule, one scan: see planClosures. `kind` decides only which sentence a maintainer reads.
+  const closures = provisional
     ? []
-    : openUnreportedAll
-        .filter((t) => !supersededBy.has(t.id))
-        .map((t) => {
-          const twin = duplicateTwin(t, anchorThreads) || duplicateTwin(t, superseded);
-          if (!twin) return null;
-          const twinFp = fpOf(twin);
-          // A superseded twin is closing too, so the live finding is the one that claimed it.
-          return { thread: t, fp: supersededBy.get(twin.id) || twinFp };
-        })
-        .filter(Boolean);
-  const duplicateOf = new Map(duplicatePairs.map(({ thread, fp }) => [thread.id, fp]));
-  const duplicates = duplicatePairs.map(({ thread }) => thread);
-  const openUnreported = openUnreportedAll.filter((t) => !supersededBy.has(t.id) && !duplicateOf.has(t.id));
+    : planClosures({ openThreads: openUnreportedAll, currentByFp, existingFps, identityOf, harnessThreads, fpOf });
+  const closedBy = new Map(closures.map((c) => [c.thread.id, { fp: c.fp, kind: c.kind }]));
+  const closing = closures.map((c) => c.thread);
+  const openUnreported = openUnreportedAll.filter((t) => !closedBy.has(t.id));
   const toVerify = openUnreported.slice(0, maxVerify);
   const overflow = openUnreported.slice(maxVerify); // left for the next run, never resolved unverified
   return {
     identities,
     existingFps,
-    superseded,
-    supersededBy,
-    duplicates,
-    duplicateOf,
+    closing,
+    closedBy,
     toVerify,
     overflow,
     // Every thread the verification pass is responsible for, whether or not it gets to run: "was not re-reported"
@@ -1514,20 +1515,18 @@ export function planRound({ threads, currentByFp, provisional, priorState = null
 // the flag on them is load-bearing: `renderSummary` counts every unflagged `resolved` row as "verified closed"
 // while the stale loop also counts it in `resolved`, so an unflagged row reports one close twice. Built in main()
 // before, where no test could reach it and that mutation stayed green.
-export function closedThreadRows({ superseded = [], duplicates = [], resolvedIds = new Set(), supersededKept = new Set() }) {
+export function closedThreadRows({ closing = [], closedBy = new Map(), resolvedIds = new Set(), supersededKept = new Set() }) {
   const row = (t, resolvedNote, keptNote) => {
     const label = `\`${mdPath(t.path)}:${threadAnchor(t).line ?? '?'}\``;
     if (resolvedIds.has(t.id)) return { label, status: 'resolved', note: resolvedNote, superseded: true };
     return { label, status: 'open', note: supersededKept.has(t.id) ? keptNote : `${resolvedNote} (this thread could not be resolved)`, superseded: true };
   };
-  return [
-    ...duplicates.map((t) =>
-      row(t, 'duplicate of another open thread', 'duplicate of another open thread, but the thread it duplicates is no longer carrying the finding — left open'),
-    ),
-    ...superseded.map((t) =>
-      row(t, 'reported again at a new line', 'reported again at a new line, but that comment could not be posted — kept open'),
-    ),
-  ];
+  return closing.map((t) => {
+    const kind = closedBy.get(t.id)?.kind;
+    return kind === 'posted'
+      ? row(t, 'reported again at a new line', 'reported again at a new line, but that comment could not be posted — kept open')
+      : row(t, 'duplicate of another open thread', 'duplicate of another open thread, but the thread it duplicates is no longer carrying the finding — left open');
+  });
 }
 
 // Decide what to do with each verified thread. Pure apart from `io`, so the trust rules are unit-tested:
@@ -1674,7 +1673,7 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
 const SEVERITY_RANK = { error: 0, warn: 1, info: 2 };
 
 export async function reconcile(currentByFp, threads, io, options = {}) {
-  const { provisional = false, eligibleIds, handledIds = [], supersededBy = null, duplicateOf = null, priorState } = options;
+  const { provisional = false, eligibleIds, handledIds = [], closedBy = null, priorState } = options;
   // `priorState` is legitimately null on a first round, so it cannot be defaulted — a default is exactly how a
   // refactor drops it silently and sends reconciliation back to marker archaeology. The KEY is required instead:
   // absent means someone stopped passing it, which is a crash the harness reports rather than a quiet regression.
@@ -1701,7 +1700,6 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
   const stats = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
   const unpostable = [];
   const resolvedIds = new Set(); // what was actually resolved, for a caller that reports it to a human
-  const postedFps = new Set(); // which findings actually landed inline, so a supersede claim can be checked
   const liveFps = new Set(); // findings a thread still carries after this round — kept, reopened, or just posted
   const supersededKept = new Set(); // superseded threads left open because their replacement never posted
   for (const [fp, f] of currentByFp) {
@@ -1746,7 +1744,6 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
     try {
       await io.post(f, body);
       stats.posted++;
-      postedFps.add(fp);
       liveFps.add(fp);
     } catch (e) {
       console.warn(`inline post failed ${f.file}:${f.line} — ${e.message}`);
@@ -1763,26 +1760,24 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
   }
   for (const [fp, t] of existingByFp) {
     if (currentByFp.has(fp) || t.isResolved) continue;
-    // A thread is only superseded if the finding that supersedes it actually landed. A finding that MOVED is a
-    // prime candidate for a 422 (its new line may not be in the diff) or for the inline cap, and closing the old
-    // thread with "the new comment carries it" when there is no new comment loses the finding outright — the more
-    // so because a superseded thread was pulled out of the verification pass as well.
-    // A duplicate closes against a finding this run KEPT on another thread; nothing is posted for it, so the
-    // "did the replacement land" gate asks a different question: is that other thread still open and carrying it.
-    const duplicateFp = duplicateOf?.get(t.id);
-    if (duplicateFp && !liveFps.has(duplicateFp)) {
-      console.warn(`duplicate thread kept open (fp:${fp}): the thread it duplicates is no longer carrying the finding`);
+    // This round closes a thread only on a decision it can name: `closedBy` says which finding carries it now.
+    // Every other unreported thread belongs to the verification pass, which judges it against the current code —
+    // `eligibleIds` covers the ones the pass owned but never reached. "Was not re-reported" is the weakest
+    // signal there is and closes nothing on its own; that used to be a third branch here (AUTO_RESOLVED_NOTE)
+    // reachable only by a composition bug, and it resolved threads on silence when one happened.
+    const closure = closedBy?.get(t.id);
+    if (!closure) {
+      if (!verifiedIds.has(t.id)) console.warn(`thread left open (fp:${fp}): nothing decided it, and the verification pass does not own it`);
+      continue;
+    }
+    // ONE gate for both kinds of close: is the carrier live after this round? A posted carrier is live because
+    // it landed; a thread carrier is live because it is kept or reopened. The set of findings that just posted
+    // is a subset of the live ones, which is why these were the same question asked twice, under two names.
+    if (!liveFps.has(closure.fp)) {
+      console.warn(`thread kept open (fp:${fp}): the finding that would carry it is not live after this round`);
       supersededKept.add(t.id);
       continue;
     }
-    const supersedingFp = supersededBy?.get(t.id);
-    if (supersedingFp && !postedFps.has(supersedingFp)) {
-      console.warn(`superseded thread kept open (fp:${fp}): its replacement was not posted`);
-      supersededKept.add(t.id);
-      continue;
-    }
-    // The verification pass judged this one against the current code; that beats "was not re-reported".
-    if (verifiedIds && verifiedIds.has(t.id)) continue;
     try {
       await io.resolve(t);
       stats.resolved++;
@@ -1790,8 +1785,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
       // Marker only after a successful resolve — otherwise a run without a resolve token would add a
       // "resolved automatically" reply on every push while the thread stays open. The note says which of the two
       // reasons it was: gone from the run, or moved and re-posted at its new line.
-      // Only a superseded thread reaches this loop; see AUTO_RESOLVED_NOTE for why the other branch is dead.
-      const note = duplicateOf?.has(t.id) ? DUPLICATE_NOTE : supersededBy?.has(t.id) ? SUPERSEDED_NOTE : AUTO_RESOLVED_NOTE;
+      const note = closure.kind === 'posted' ? SUPERSEDED_NOTE : DUPLICATE_NOTE;
       await io.reply(t, note).catch((e) => console.warn(`auto-resolve note failed (fp:${fp}) — ${e.message}`));
     } catch (e) {
       console.warn(`resolve failed (fp:${fp}) — ${e.message}`);
@@ -1800,7 +1794,6 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
   return { stats, unpostable, resolvedIds, supersededKept };
 }
 
-// Say why on the PR before failing the check — the run log alone is easy to miss. Returns the error for rethrow.
 // What the summary half may use: the whole limit, less the record's budget and a margin.
 const MAX_COMMENT = GITHUB_COMMENT_LIMIT - MAX_STATE_BYTES - MAX_STATE_MARGIN;
 
@@ -1810,7 +1803,15 @@ const MAX_COMMENT = GITHUB_COMMENT_LIMIT - MAX_STATE_BYTES - MAX_STATE_MARGIN;
 // finds the comment by it) and a line saying what happened.
 export function boundedSummaryBody(body, max = MAX_COMMENT) {
   if (body.length <= max) return body;
-  return `${body.slice(0, max)}\n\n> ⚠️ This summary was trimmed to fit GitHub's comment limit; the run log has the rest.\n\n${MARKER_SUMMARY}`;
+  // Cut at a line boundary, then close whatever the cut left open. The one thing that makes a body reach this
+  // limit is the `<details>` list of findings that could not go inline — so the cut lands INSIDE that element,
+  // and everything appended after it (the warning saying the summary was trimmed) renders inside a collapsed
+  // block, which is to say invisibly. Measured on a body of 300 unpostable findings.
+  const raw = body.slice(0, max);
+  const cut = raw.slice(0, Math.max(raw.lastIndexOf('\n'), 0)) || raw;
+  const open = (cut.match(/<details>/g) || []).length - (cut.match(/<\/details>/g) || []).length;
+  const balanced = open > 0 ? `${cut}\n${'</details>\n'.repeat(open)}` : cut;
+  return `${balanced}\n\n> ⚠️ This summary was trimmed to fit GitHub's comment limit; the run log has the rest.\n\n${MARKER_SUMMARY}`;
 }
 
 // The final comment body: the summary, trimmed to fit, with the state record appended AFTER that trim. Inside it,
@@ -1865,6 +1866,7 @@ async function appendNoteToSummary(note, heading) {
   }
 }
 
+// Say why on the PR before failing the check — the run log alone is easy to miss. Returns the error for rethrow.
 async function explainFailure(err) {
   if (DRY_RUN) return err;
   // Bounded: rest()/graphql() embed the whole upstream response in their message, and this note is appended to
@@ -2106,7 +2108,7 @@ export async function runReview({ agent = runAgent } = {}) {
   // unverified, with a note claiming it moved when it did not.
   // Harness-authored threads only, like openUnreportedAll below and reconcile's own map: the marker is a public
   // string, so a comment from anyone else carrying one must not decide which findings count as new.
-  const { identities, superseded, supersededBy, duplicates, duplicateOf, toVerify, overflow, eligibleIds } = planRound({ threads, currentByFp, provisional, priorState: stateRecord });
+  const { identities, closing, closedBy, toVerify, overflow, eligibleIds } = planRound({ threads, currentByFp, provisional, priorState: stateRecord });
   const verifySlice = verifyBudget(startedAt);
   if (toVerify.length && (provisional || verifySlice <= 60_000)) {
     // Say why in the log: silently falling back to "was not re-reported" is how this pass came to look like it
@@ -2143,7 +2145,7 @@ export async function runReview({ agent = runAgent } = {}) {
     }
   }
 
-  if (superseded.length) console.log(`${superseded.length} earlier thread(s) re-reported at a new line; resolving them as superseded`);
+  if (closing.length) console.log(`${closing.length} earlier thread(s) whose finding is now carried elsewhere; closing them`);
   if (toVerify.length && !verified) {
     // The pass was skipped or failed, and nothing else closes a thread now, so the summary has to show these as
     // unjudged instead of rendering no table at all and leaving a maintainer to assume they were dealt with.
@@ -2165,14 +2167,13 @@ export async function runReview({ agent = runAgent } = {}) {
     // behind it. A thread left unjudged now stays open for the next round, which is what the summary already says.
     eligibleIds,
     handledIds,
-    duplicateOf,
+    closedBy,
     priorState: stateRecord,
-    supersededBy,
   });
 
   // Written from what reconcile actually resolved, never from what it was asked to: without a resolve token the
   // resolve throws and is only logged, and every other row in this table is written after a successful one.
-  previously = previously.concat(closedThreadRows({ superseded, duplicates, resolvedIds, supersededKept }));
+  previously = previously.concat(closedThreadRows({ closing, closedBy, resolvedIds, supersededKept }));
 
   // The review itself succeeded by this point; a flaky comments API must not turn the check red.
   const priorState = verified ? 'verified' : toVerify.length === 0 ? 'none-open' : 'unknown';
@@ -2182,7 +2183,7 @@ export async function runReview({ agent = runAgent } = {}) {
     currentByFp,
     threadIdByFp: threadIdByFp(threads, stateRecord),
     actions: actionByFp({ unpostable, currentByFp }),
-    closed: closedRecords({ identities, superseded, duplicates, verifiedClosedIds, resolvedIds }),
+    closed: closedRecords({ identities, closing, closedBy, verifiedClosedIds, resolvedIds }),
   });
   await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause, previously, priorState }), roundState).catch((e) =>
     console.warn(`Could not post the summary comment: ${e.message}`),
