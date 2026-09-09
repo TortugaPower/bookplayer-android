@@ -1152,7 +1152,7 @@ test('a degrade note survives the trim of an oversized summary', () => {
   const HEADING = '## ⚠️ Claude PR Review — incomplete';
   const huge = `## ✅ Claude PR Review — \`PASS\`\n\n${'x'.repeat(120000)}\n\n<!-- bp-ai-review-summary -->`;
   const body = summaryWithNote(huge, 'ran out of time', HEADING);
-  assert.ok(body.length <= 60000, `body was ${body.length}`);
+  assert.ok(body.length <= 65536, `body was ${body.length}`);
   assert.ok(body.includes('ran out of time')); // the note is the point of the comment; it may not be what is cut
   assert.ok(body.trimEnd().endsWith('<!-- bp-ai-review-summary -->')); // and the upsert can still find the comment
 });
@@ -2530,4 +2530,86 @@ test('a record prefix is compared against a body prefix, not a full text', () =>
     priorState: record,
   });
   assert.deepEqual(plan.duplicates.map((t) => t.id), ['T-B']);
+});
+
+test('a recorded close stops counting once we have spoken after it', () => {
+  // Two overlapping runs make a rolled-back record reachable: A closes T and records it, B sees the finding come
+  // back and reopens T, then A's summary write lands after B's and the record asserts the close again. If a
+  // maintainer then resolves T silently, believing the record would unresolve their decision on every push.
+  const record = (at) => ({ commit: 'c', findings: { fp1: { id: 'T1', file: 'a.kt', line: 1, severity: 'warn', text: 'x', action: 'superseded', commit: 'c', at } } });
+  const thread = (comments) => ({ id: 'T1', path: 'a.kt', line: 1, firstCommentId: 1, firstCommentBody: 'x', comments });
+  const closedAt = '2026-03-01T00:00:00Z';
+  const ourClose = { author: 'github-actions[bot]', body: 'resolved automatically', association: 'NONE', createdAt: closedAt };
+  const ourReopen = { author: 'github-actions[bot]', body: 'reported again', association: 'NONE', createdAt: '2026-03-02T00:00:00Z' };
+
+  // Nothing since the close: ours to reopen.
+  assert.equal(harnessClosedByRecord(thread([ourClose]), record(closedAt)), true);
+  // We spoke after it — a reopen note — so the recorded close is not our last word, and the marker path decides.
+  assert.equal(harnessClosedByRecord(thread([ourClose, ourReopen]), record(closedAt)), null);
+  // A record without a stamp behaves as before, so an entry written by an older version still works.
+  assert.equal(harnessClosedByRecord(thread([ourClose, ourReopen]), record(undefined)), true);
+});
+
+test('a record is carried through a rewritten summary and a degrade note', () => {
+  // A failed round rewrites this comment. Erasing the record there would send the NEXT round back to guessing,
+  // which is the same failure the record exists to end, arriving by a different door.
+  const f = { file: 'a.kt', line: 1, severity: 'warn', comment: 'a finding' };
+  const state = buildState({ commit: 'abc1234', currentByFp: new Map([[fingerprint(f), f]]), threadIdByFp: new Map([[fingerprint(f), 'T1']]), actions: new Map([[fingerprint(f), 'posted']]) });
+  const review = summaryBodyWithState(`## ✅ Claude PR Review\n\nthe review a human is reading\n\n<!-- bp-ai-review-summary -->`, state);
+  assert.ok(decodeState(review) !== null);
+
+  const noted = summaryWithNote(review, 'ran out of time', '## ⚠️ incomplete');
+  assert.match(noted, /the review a human is reading/);
+  assert.match(noted, /ran out of time/);
+  assert.equal(decodeState(noted).findings[fingerprint(f)].id, 'T1'); // the record survived the rewrite
+  assert.equal(noted.split('bp-ai-review-state').length - 1, 1); // and was not duplicated
+
+  // Twice over, and on an oversized body, it still fits and still parses.
+  const twice = summaryWithNote(noted, 'failed before producing a result', '## ⚠️ did not run');
+  assert.ok(decodeState(twice) !== null);
+  const huge = summaryWithNote(summaryBodyWithState(`${'x'.repeat(200000)}\n\n<!-- bp-ai-review-summary -->`, state), 'ran out of time', '## ⚠️ incomplete');
+  assert.ok(huge.length <= 65536, `body was ${huge.length}`);
+  assert.ok(decodeState(huge) !== null);
+});
+
+test('the record cannot turn a human decision into one of ours, or carry a dead thread forward', () => {
+  // Two mutations that kept the suite green. First: widening HARNESS_CLOSE_ACTIONS to include 'posted' makes
+  // every recorded thread read as "we closed it", so a thread a HUMAN resolved gets unresolved on the next
+  // re-report and `dismissed` never fires again. The tests that exercise the human-resolve rule all passed
+  // priorState: null, so nothing saw it.
+  const f = { file: 'a.kt', line: 1, severity: 'warn', comment: 'a finding a human dismissed' };
+  const fp = reconcileFp(f);
+  const humanResolved = {
+    id: 'T-human', isResolved: true, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', path: f.file, line: 1,
+    firstCommentBody: `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${fp} -->`,
+    comments: [{ id: 1, author: 'github-actions[bot]', body: 'the finding', association: 'NONE', createdAt: '2026-01-01T00:00:00Z' }],
+    lastCommentAuthor: 'gianni', lastCommentBody: 'works as intended, closing',
+  };
+  // The record says we POSTED it — not that we closed it — so the harness must not claim the close.
+  const posted = { commit: 'c', findings: { [fp]: { id: 'T-human', file: f.file, line: 1, severity: 'warn', text: f.comment, action: 'posted', commit: 'c' } } };
+  assert.equal(harnessClosedByRecord(humanResolved, posted), null);
+  assert.equal(harnessClosed(humanResolved, undefined, posted), false); // so the human's decision stands
+
+  const io = { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
+  return reconcile(new Map([[fp, f]]), [humanResolved], io, { priorState: posted, eligibleIds: new Set() }).then(({ stats }) => {
+    assert.equal(stats.dismissed, 1);
+    assert.equal(stats.reopened, 0);
+  });
+});
+
+test('a record id that no longer names a live thread of ours is not carried forward', () => {
+  // Dropping the `ids.has(record.id)` check writes a dead or foreign id into every later record instead of
+  // self-healing to the live thread.
+  const f = { file: 'a.kt', line: 1, severity: 'warn', comment: 'a finding' };
+  const fp = reconcileFp(f);
+  const live = { id: 'T-live', firstCommentAuthor: 'github-actions[bot]', firstCommentBody: `x <!-- bp-ai-review-fp:${fp} -->` };
+  const foreign = { id: 'T-foreign', firstCommentAuthor: 'someone', firstCommentBody: `x <!-- bp-ai-review-fp:${fp} -->` };
+  const stale = { commit: 'c', findings: { [fp]: { id: 'T-deleted', file: f.file, line: 1, severity: 'warn', text: f.comment, action: 'posted', commit: 'c' } } };
+
+  // The recorded thread is gone: the map heals to the live one rather than carrying the dead id forward.
+  assert.equal(threadIdByFp([live], stale).get(fp), 'T-live');
+  // The recorded thread exists but is not ours: still not carried.
+  assert.equal(threadIdByFp([foreign], { commit: 'c', findings: { [fp]: { ...stale.findings[fp], id: 'T-foreign' } } }).get(fp), undefined);
+  // And with nothing live at all, the entry simply does not survive into the next record.
+  assert.equal(threadIdByFp([], stale).get(fp), undefined);
 });

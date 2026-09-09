@@ -833,7 +833,23 @@ export function closedRecords({ identities = new Map(), superseded = [], duplica
   const add = (thread, action) => {
     const identity = identities.get(thread.id);
     if (!identity?.fp) return; // no fingerprint, nothing the next round could look up
-    entries.push([identity.fp, { id: thread.id, file: identity.path, line: thread.line ?? thread.originalLine ?? 0, severity: identity.severity, text: identity.text, action }]);
+    entries.push([
+      identity.fp,
+      {
+        id: thread.id,
+        file: identity.path,
+        line: thread.line ?? thread.originalLine ?? 0,
+        severity: identity.severity,
+        // Bounded here as well as in `identities`: this function had no bound of its own, so it inherited whatever
+        // the identity happened to hold — 25 closes at ~2 KB each once crowded every current finding out of the
+        // record. A bound that exists by coupling is not a bound.
+        text: String(identity.text || '').slice(0, MAX_STATE_TEXT),
+        action,
+        // When we closed it. A record can be rolled back by an overlapping run's later write, so a close that is
+        // no longer our last word on the thread must stop counting — see harnessClosedByRecord.
+        at: new Date().toISOString(),
+      },
+    ]);
   };
   for (const t of superseded) if (resolvedIds.has(t.id)) add(t, 'superseded');
   for (const t of duplicates) if (resolvedIds.has(t.id)) add(t, 'duplicate');
@@ -1541,6 +1557,12 @@ export function harnessClosedByRecord(t, priorState) {
   const record = Object.values(priorState?.findings || {}).find((r) => r?.id === t.id);
   if (!record || !HARNESS_CLOSE_ACTIONS.has(record.action)) return null; // no record of us closing it: fall back
   const comments = Array.isArray(t.comments) ? t.comments : [];
+  // A recorded close that we have spoken after is not our last word on the thread. Two overlapping runs make this
+  // reachable: A closes T and records it, B sees the finding return and reopens T, then A's summary write lands
+  // after B's and the record asserts the close again. If a maintainer then resolves T silently, believing the
+  // record would unresolve their decision on every push. Comparing against the stamp costs nothing and needs no
+  // knowledge of run order — GitHub honours no conditional write on a comment PATCH, so ordering is not available.
+  if (record.at && comments.some((c) => isHarnessComment(c.author) && (c.createdAt || '') > record.at)) return null;
   // A maintainer's word after ours is a decision to respect, whatever our record says we did. Their timestamp is
   // compared against the record's commit-time proxy: the newest harness comment we can see.
   const oursAt = comments.filter((c) => isHarnessComment(c.author)).map((c) => c.createdAt || '').sort().pop() || '';
@@ -1809,21 +1831,26 @@ export function summaryBodyWithState(redactedBody, state = null) {
 // a transient fatal must not replace a complete review a human may be reading) and REPLACE a previous note of the
 // same kind rather than stacking one. Pure, so the replace rule is unit-tested.
 export function summaryWithNote(previousBody, note, heading) {
+  // The record rides in this comment, and a degrade note rewrites the comment. Pull it out first and re-append it
+  // after the trim, or a failed round would erase the record and send the NEXT round back to guessing — which is
+  // the same failure the record exists to end, arriving by a different door.
+  const carriedRecord = (String(previousBody || '').match(/<!-- bp-ai-review-state:[\s\S]*? -->/) || [])[0] || '';
   // The marker leads the note, so splitting on it drops the previous note entirely. With the marker trailing it,
   // the split kept all of the note's text and dropped only the marker, so a paragraph accumulated on every failing
   // push — and twice per run, since main() explains a fatal and the top-level handler explains the same one again.
   const kept = String(previousBody || '')
     .split(MARKER_FAILURE_NOTE)[0]
     .replace(MARKER_SUMMARY, '')
+    .replace(carriedRecord, '')
     .replace(/\n*---\s*$/, '')
     .trimEnd();
   const body = `${MARKER_FAILURE_NOTE}\n\n${note}`;
-  if (!kept) return [heading, '', body, '', MARKER_SUMMARY].join('\n');
+  if (!kept) return [heading, '', body, '', MARKER_SUMMARY, carriedRecord].filter(Boolean).join('\n');
   // Room is reserved for the note and the markers before the old review is trimmed. Trimming the whole thing
   // afterwards would cut from the end, which is where the note lives: the run would then look like a stale review
   // with a "trimmed" line and no explanation at all — the invisible failure this function exists to prevent.
-  const room = Math.max(0, MAX_COMMENT - body.length - MARKER_SUMMARY.length - 16);
-  return `${kept.slice(0, room)}\n\n---\n\n${body}\n\n${MARKER_SUMMARY}`;
+  const room = Math.max(0, GITHUB_COMMENT_LIMIT - body.length - carriedRecord.length - MARKER_SUMMARY.length - MAX_STATE_MARGIN);
+  return [`${kept.slice(0, room)}\n\n---\n\n${body}\n\n${MARKER_SUMMARY}`, carriedRecord].filter(Boolean).join('\n');
 }
 
 // Both degrade routes use this: the deadline route is the likely one on a large PR.
