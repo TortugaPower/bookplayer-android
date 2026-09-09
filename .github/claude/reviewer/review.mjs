@@ -862,7 +862,37 @@ export async function readPriorState(comments) {
 }
 
 // The record this round leaves behind, built from what reconcile and the verification pass actually did.
-export function buildState({ commit, currentByFp, threadIdByFp = new Map(), actions = new Map(), closed = [] }) {
+// The identity of a thread that is STILL OPEN and that this round did not re-report: carried into the next
+// round's record so it keeps its fingerprint even when nobody mentions it for a round. Without this the record
+// only ever described the findings of the round that wrote it, so one quiet round dropped a live thread out of
+// it and identity fell back to the marker in the comment body — which is exactly the thing the record exists to
+// stop depending on (a maintainer edits the body, GitHub renders it, the marker is gone, and the thread becomes
+// unrecognisable). Found by chaining three real rounds together instead of hand-writing round N's record.
+export function carriedRecords({ identities = new Map(), threads = [], currentByFp = new Map(), closed = [], commit = '' } = {}) {
+  const closedFps = new Set(closed.map(([fp]) => fp));
+  const byId = new Map(threads.map((t) => [t.id, t]));
+  const out = [];
+  for (const [id, identity] of identities) {
+    const t = byId.get(id);
+    // Resolved threads need no entry: a closed thread's fingerprint only matters if we closed it, and that is
+    // what `closed` records. An open one is the harness's outstanding work.
+    if (!t || t.isResolved) continue;
+    if (!identity.fp || currentByFp.has(identity.fp) || closedFps.has(identity.fp)) continue;
+    out.push([identity.fp, {
+      id,
+      file: identity.path,
+      line: threadAnchor(t).line ?? t.line ?? null,
+      severity: identity.severity,
+      text: String(identity.text || '').slice(0, MAX_STATE_TEXT),
+      // Never a close action: `harnessClosedByRecord` must not read this as "we closed it", because we did not.
+      action: 'open',
+      commit: String(commit || '').slice(0, 40),
+    }]);
+  }
+  return out;
+}
+
+export function buildState({ commit, currentByFp, threadIdByFp = new Map(), actions = new Map(), closed = [], carried = [] }) {
   const findings = {};
   // Closes go in first, so a thread this round closed is in the record even when the round also reported many
   // new findings and the cap trims.
@@ -880,6 +910,14 @@ export function buildState({ commit, currentByFp, threadIdByFp = new Map(), acti
       action: actions.get(fp) || 'posted',
       commit: String(commit || '').slice(0, 40),
     };
+  }
+  // Then the open threads nobody mentioned this round, last: a close is knowledge nothing else holds, and a
+  // finding this round reported is the round's own subject, but a carried entry only keeps an identity that the
+  // comment body can still supply as a fallback. Under the same cap, so a record cannot grow without bound as a
+  // long-lived PR accumulates threads.
+  for (const [fp, record] of carried) {
+    if (Object.keys(findings).length >= MAX_STATE_RECORDS) break;
+    if (!findings[fp]) findings[fp] = { ...record, commit: String(commit || '').slice(0, 40) };
   }
   return { commit: String(commit || '').slice(0, 40), findings };
 }
@@ -1552,6 +1590,9 @@ function answeredAlready(t) {
 // comments. That is the split the whole record exists for: marker archaeology over a window that silently
 // truncates was deciding a question we already knew the answer to.
 const HARNESS_CLOSE_ACTIONS = new Set(['resolved', 'superseded', 'duplicate']);
+// Exported for the test that pins the carried-entry action OUT of this set: an entry that read as a close
+// would have the next round reopening a thread that was never closed.
+export const HARNESS_CLOSE_ACTIONS_FOR_TEST = HARNESS_CLOSE_ACTIONS;
 export function harnessClosedByRecord(t, priorState) {
   const record = Object.values(priorState?.findings || {}).find((r) => r?.id === t.id);
   if (!record || !HARNESS_CLOSE_ACTIONS.has(record.action)) return null; // no record of us closing it: fall back
@@ -2178,12 +2219,14 @@ export async function runReview({ agent = runAgent } = {}) {
   // The review itself succeeded by this point; a flaky comments API must not turn the check red.
   const priorState = verified ? 'verified' : toVerify.length === 0 ? 'none-open' : 'unknown';
   // What this round did, written down for the next one rather than left to be re-derived from these comments.
+  const closed = closedRecords({ identities, closing, closedBy, verifiedClosedIds, resolvedIds });
   const roundState = buildState({
     commit: COMMIT,
     currentByFp,
     threadIdByFp: threadIdByFp(threads, stateRecord),
     actions: actionByFp({ unpostable, currentByFp }),
-    closed: closedRecords({ identities, closing, closedBy, verifiedClosedIds, resolvedIds }),
+    closed,
+    carried: carriedRecords({ identities, threads, currentByFp, closed, commit: COMMIT }),
   });
   await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause, previously, priorState }), roundState).catch((e) =>
     console.warn(`Could not post the summary comment: ${e.message}`),

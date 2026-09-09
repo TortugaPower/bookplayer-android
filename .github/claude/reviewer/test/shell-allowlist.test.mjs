@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, planClosures, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, planClosures, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -2384,6 +2384,49 @@ test('the harness writes down what it did, and reads back only its own record', 
   const wide = buildState({ commit: 'c', currentByFp: new Map(Array.from({ length: 60 }, (_, i) => [`g${i}`, { file: 'x'.repeat(200), line: i, severity: 'error', comment: 'y'.repeat(400) }])), threadIdByFp: new Map(), actions: new Map() });
   assert.ok(encodeState(wide).length <= 20_000);
   assert.ok(decodeState(encodeState(wide)) !== null); // still parseable after the trim
+});
+
+test('an open thread nobody re-reported keeps its identity, and cannot masquerade as a close', () => {
+  // The record used to describe only the findings of the round that wrote it, so one quiet round dropped a live
+  // thread out of it and identity fell back to the fingerprint marker in the comment body — the one thing the
+  // record exists so as not to depend on. What is carried, and what must NOT be:
+  const identities = new Map([
+    ['T-open', { id: 'T-open', fp: 'fp-open', path: 'a.kt', severity: 'warn', text: 'still open, not re-reported' }],
+    ['T-live', { id: 'T-live', fp: 'fp-live', path: 'b.kt', severity: 'warn', text: 'reported again this round' }],
+    ['T-done', { id: 'T-done', fp: 'fp-done', path: 'c.kt', severity: 'warn', text: 'resolved last round' }],
+    ['T-closing', { id: 'T-closing', fp: 'fp-closing', path: 'd.kt', severity: 'warn', text: 'closed by this round' }],
+  ]);
+  const threads = [
+    { id: 'T-open', isResolved: false, path: 'a.kt', line: 3, originalLine: 3 },
+    { id: 'T-live', isResolved: false, path: 'b.kt', line: 4, originalLine: 4 },
+    { id: 'T-done', isResolved: true, path: 'c.kt', line: 5, originalLine: 5 },
+    { id: 'T-closing', isResolved: false, path: 'd.kt', line: 6, originalLine: 6 },
+  ];
+  const currentByFp = new Map([['fp-live', { file: 'b.kt', line: 4, severity: 'warn', comment: 'reported again this round' }]]);
+  const closed = [['fp-closing', { id: 'T-closing', file: 'd.kt', line: 6, severity: 'warn', text: 'closed by this round', action: 'superseded' }]];
+  const carried = carriedRecords({ identities, threads, currentByFp, closed, commit: 'abc1234' });
+  const byFp = Object.fromEntries(carried);
+  // Only the open, unreported, unclosed thread.
+  assert.deepEqual(Object.keys(byFp), ['fp-open']);
+  assert.equal(byFp['fp-open'].id, 'T-open');
+  assert.equal(byFp['fp-open'].line, 3);
+  // And it may never read as a close: `harnessClosedByRecord` would then claim we closed a thread that is open,
+  // so a returning finding would be "reopened" — a GraphQL error on an open thread, and the finding falls out of
+  // the inline set into the summary body.
+  assert.equal(HARNESS_CLOSE_ACTIONS_FOR_TEST.has(byFp['fp-open'].action), false);
+  assert.equal(harnessClosedByRecord({ id: 'T-open', comments: [] }, { commit: 'abc1234', findings: byFp }), null);
+
+  // A close outranks a carried entry for the same fingerprint (the close is knowledge nothing else holds), and
+  // carried entries are inside the same cap, or a long-lived PR grows the record without bound.
+  const many = new Map(Array.from({ length: 58 }, (_, i) => [`cur${i}`, { file: `f${i}.kt`, line: i, severity: 'info', comment: 'x' }]));
+  const state = buildState({
+    commit: 'abc1234',
+    currentByFp: many,
+    closed,
+    carried: [['fp-closing', { id: 'T-closing', file: 'd.kt', line: 6, severity: 'warn', text: 'x', action: 'open' }], ...Array.from({ length: 20 }, (_, i) => [`car${i}`, { id: `T${i}`, file: 'e.kt', line: i, severity: 'warn', text: 'x', action: 'open' }])],
+  });
+  assert.equal(state.findings['fp-closing'].action, 'superseded');
+  assert.ok(Object.keys(state.findings).length <= 60, `record held ${Object.keys(state.findings).length} entries`);
 });
 
 test('the record says which thread carries which finding, and what became of it', () => {

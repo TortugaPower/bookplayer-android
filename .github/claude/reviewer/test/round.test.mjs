@@ -186,3 +186,84 @@ test('a finding that moved: the old thread closes, the new one posts, the footer
     restore();
   }
 });
+
+test('three rounds in a row: the record the harness wrote is the record it reads', async () => {
+  // Every other end-to-end test feeds the harness a prior summary written BY HAND. That pins the shape a test
+  // author believes in, not the shape the harness produces: an encode/decode drift, a budget that truncates, a
+  // field renamed on one side only, all survive it. Here round N's real output is round N+1's real input, and the
+  // threads are the ones round N actually posted.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'chain-')));
+  const env = {
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '11', COMMIT: 'c0ffee0000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  };
+  const { mod, restore } = await loadHarness(env, 'chain');
+  const realFetch = globalThis.fetch;
+  try {
+    const f = { severity: 'error', file: 'app/Chain.kt', line: 8, comment: 'a finding that lives across three rounds' };
+    const fp = mod.fingerprint(f);
+    const answer = agentReturning({ verdict: 'fail', summary: 'one error', findings: [f] });
+
+    // ---- Round 1: nothing exists yet.
+    const r1 = fakeGitHub();
+    globalThis.fetch = r1.fetch;
+    await mod.runReview({ agent: answer });
+    assert.equal(r1.calls.inline.length, 1, 'round 1 posts the finding');
+    const summary1 = r1.summaryOut();
+    const state1 = mod.decodeState(summary1);
+    assert.equal(state1.findings[fp].action, 'posted');
+
+    // The thread round 1 created, as GitHub would return it next time — including the body it actually wrote.
+    const posted = r1.calls.inline[0];
+    const thread = (isResolved, extraComments = []) => ({
+      id: 'T-chain', isResolved, path: posted.path, line: posted.line, originalLine: posted.line,
+      first: { nodes: [{ databaseId: 500, body: posted.body, author: { login: 'github-actions[bot]' } }] },
+      comments: { nodes: extraComments }, last: { nodes: extraComments.slice(-1) },
+    });
+
+    // ---- Round 2: the same finding, on the summary and thread round 1 left behind.
+    const r2 = fakeGitHub({ summaryBody: summary1, threads: [thread(false)] });
+    globalThis.fetch = r2.fetch;
+    await mod.runReview({ agent: answer });
+    assert.deepEqual(r2.calls.inline, [], 'round 2 must not post a second comment for the same finding');
+    assert.deepEqual(r2.calls.resolved, []);
+    assert.deepEqual(r2.calls.unresolved, []);
+    const summary2 = r2.summaryOut();
+    const state2 = mod.decodeState(summary2);
+    // Recognised, and the record still names the thread that carries it — this is the fact rounds 3+ depend on.
+    assert.equal(state2.findings[fp].id, 'T-chain');
+    assert.match(summary2, /1 carried over/);
+
+    // ---- Round 3: the finding is gone from the run. It is NOT closed on that silence: the verification pass
+    // owns it, and the fake agent's answer does not parse as a verdict list, so the pass degrades and nothing
+    // is resolved.
+    const r3 = fakeGitHub({ summaryBody: summary2, threads: [thread(false)] });
+    globalThis.fetch = r3.fetch;
+    await mod.runReview({ agent: agentReturning({ verdict: 'pass', summary: 'nothing new', findings: [] }) });
+    assert.deepEqual(r3.calls.resolved, [], 'absence never closes a thread');
+    const summary3 = r3.summaryOut();
+    assert.match(summary3, /not checked this round/);
+    // The record is still there after a round that reported nothing, and it still knows the thread.
+    const state3 = mod.decodeState(summary3);
+    assert.ok(state3, 'a round with no findings still leaves a record');
+    assert.equal(state3.findings[fp]?.id, 'T-chain', 'the open thread survives a round that did not re-report it');
+
+    // ---- Round 4: the finding is back, and a maintainer has EDITED the comment body, so the fingerprint marker
+    // the fallback relies on is gone. Only the record — carried through the quiet round 3 — can still say which
+    // thread this is. Without the carry-forward the harness posts a second comment for the same finding.
+    const edited = {
+      id: 'T-chain', isResolved: false, path: posted.path, line: posted.line, originalLine: posted.line,
+      first: { nodes: [{ databaseId: 500, body: 'I rewrote this comment while triaging', author: { login: 'github-actions[bot]' } }] },
+      comments: { nodes: [] }, last: { nodes: [] },
+    };
+    const r4 = fakeGitHub({ summaryBody: summary3, threads: [edited] });
+    globalThis.fetch = r4.fetch;
+    await mod.runReview({ agent: answer });
+    assert.deepEqual(r4.calls.inline, [], 'the thread is recognised from the record alone, so nothing is posted twice');
+    assert.match(r4.summaryOut(), /1 carried over/);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
