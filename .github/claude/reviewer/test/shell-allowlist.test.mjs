@@ -1133,7 +1133,7 @@ test('a finding that only moved line leaves one open thread, not two', async () 
     resolve: async (t) => calls.resolve.push(t.id),
     unresolve: async () => {},
   };
-  const { stats } = await reconcile(new Map([[reconcileFp(moved), moved]]), [old], io, { supersededIds: new Set(['t-old']) });
+  const { stats } = await reconcile(new Map([[reconcileFp(moved), moved]]), [old], io, { supersededBy: new Map([['t-old', reconcileFp(moved)]]) });
   assert.equal(stats.posted, 1); // the finding is posted where the code is now...
   assert.deepEqual(calls.resolve, ['t-old']); // ...and the stale anchor is closed, so one thread is open
   assert.match(calls.reply[0].body, /different line/); // and it says why, not "not reported in the latest run"
@@ -1178,12 +1178,12 @@ test('a superseded thread is only reported resolved when the resolve worked', as
     firstCommentBody: `🟡 **WARN** — same issue <!-- bp-ai-review-fp:${reconcileFp({ file: 'a.kt', line: 3, severity: 'warn' })} -->`,
   };
   const current = new Map([[reconcileFp(moved), moved]]);
-  const ok = await reconcile(current, [stale], { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} }, { supersededIds: new Set(['t-old']) });
+  const ok = await reconcile(current, [stale], { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} }, { supersededBy: new Map([['t-old', reconcileFp(moved)]]) });
   assert.deepEqual([...ok.resolvedIds], ['t-old']);
   const failed = await reconcile(current, [stale], {
     post: async () => {}, reply: async () => {}, unresolve: async () => {},
     resolve: async () => { throw new Error('Resource not accessible by integration'); },
-  }, { supersededIds: new Set(['t-old']) });
+  }, { supersededBy: new Map([['t-old', reconcileFp(moved)]]) });
   assert.equal(failed.resolvedIds.size, 0); // ...so the caller writes "could not be resolved", not ✅
   assert.equal(failed.stats.resolved, 0);
 });
@@ -1287,11 +1287,15 @@ test('a thread is superseded only by the same finding, moved, and only once', ()
   const existingFps = new Set(['keptfp', 'oldfp']);
 
   // The finding that moved is recognised by its text, and takes exactly one thread with it.
-  assert.deepEqual(pickSuperseded([moved, untouched], currentByFp, existingFps).map((t) => t.id), ['t-moved']);
+  assert.deepEqual(pickSuperseded([moved, untouched], currentByFp, existingFps).map(({ thread }) => thread.id), ['t-moved']);
 
   // A genuinely different warn in the same file must NOT close a still-valid thread: it goes to the verifier.
   const different = new Map([['otherfp', { file: 'a.kt', line: 42, severity: 'warn', comment: 'an entirely different problem: the artwork cache never evicts' }]]);
   assert.deepEqual(pickSuperseded([moved], different, existingFps), []);
+  // The pair names the finding that supersedes, because the claim is only good if that comment is posted.
+  const [pair] = pickSuperseded([moved], new Map([['newfp', currentByFp.get('newfp')]]), existingFps);
+  assert.equal(pair.thread.id, 't-moved');
+  assert.equal(pair.fp, 'newfp');
 
   // Nothing new to post, nothing superseded; and severity is part of the match.
   assert.deepEqual(pickSuperseded([moved], new Map([['keptfp', currentByFp.get('keptfp')]]), existingFps), []);
@@ -1335,4 +1339,49 @@ test('a 403 is retried only when it looks like a rate limit', async () => {
     if (prevRepo === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = prevRepo;
     if (prevToken === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = prevToken;
   }
+});
+
+test('a truncated answer keeps every finding it did write, inner fences and all', () => {
+  // The rubric asks for concrete fixes, so a ```suggestion inside a comment is routine. Candidates run
+  // fenced-blocks-first with the whole message last, so keeping the FIRST repaired candidate preferred the
+  // fragment a mis-paired fence produces — holding only the findings written before that snippet.
+  const finding = (file, withFence) => ({
+    severity: 'warn', file, line: 1,
+    comment: withFence ? 'problem. Fix:\n\n```suggestion\nx = 1;\n```\n' : 'problem, no fence',
+  });
+  const whole = JSON.stringify({ verdict: 'warn', summary: 'three', findings: [finding('a.kt', true), finding('b.kt', false), finding('c.kt', false)] });
+  const cut = extractJson(`Here it is.\n\n\`\`\`json\n${whole.slice(0, whole.length - 12)}`);
+  assert.deepEqual(cut.findings.map((f) => f.file), ['a.kt', 'b.kt', 'c.kt']);
+  assert.equal(wasTruncationRepaired(cut), true); // still flagged: the answer really was cut
+  // A complete answer with the same inner fence parses whole and is not flagged.
+  const complete = extractJson(`Review.\n\n\`\`\`json\n${whole}\n\`\`\``);
+  assert.equal(complete.findings.length, 3);
+  assert.equal(wasTruncationRepaired(complete), false);
+});
+
+test('a superseded thread stays open when its replacement never posted', async () => {
+  // A finding that MOVED is a prime candidate for a 422 (its new line may not be in the diff) or for the inline
+  // cap. Closing the old thread with "the new comment carries it" when there is no new comment loses it, and it
+  // was pulled out of the verification pass too.
+  const moved = { file: 'a.kt', line: 7, severity: 'warn', comment: 'same issue, new line' };
+  const stale = {
+    id: 't-old', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]',
+    path: 'a.kt', line: 3, comments: [],
+    firstCommentBody: `🟡 **WARN** — same issue <!-- bp-ai-review-fp:${reconcileFp({ file: 'a.kt', line: 3, severity: 'warn' })} -->`,
+  };
+  const io = (postWorks) => ({
+    post: async () => { if (!postWorks) throw new Error('422 line not in diff'); },
+    reply: async () => {}, resolve: async () => {}, unresolve: async () => {},
+  });
+  const current = new Map([[reconcileFp(moved), moved]]);
+  const by = new Map([['t-old', reconcileFp(moved)]]);
+
+  const landed = await reconcile(current, [stale], io(true), { supersededBy: by });
+  assert.deepEqual([...landed.resolvedIds], ['t-old']);
+  assert.equal(landed.supersededKept.size, 0);
+
+  const lost = await reconcile(current, [stale], io(false), { supersededBy: by });
+  assert.equal(lost.resolvedIds.size, 0); // nothing closed on a claim that did not land...
+  assert.deepEqual([...lost.supersededKept], ['t-old']); // ...and the caller can say why
+  assert.equal(lost.unpostable.length, 1);
 });

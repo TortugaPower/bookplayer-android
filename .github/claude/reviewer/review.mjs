@@ -77,10 +77,16 @@ const MAX_OUTPUT_TOKENS = num(process.env.REVIEW_MAX_OUTPUT_TOKENS, 32_000);
 // Wall-clock bound for the agent, under the job's timeout-minutes: hitting it degrades to the "incomplete"
 // note instead of a cancelled job that may have half-reconciled the PR.
 const DEADLINE_MS = num(process.env.REVIEW_DEADLINE_MS, 14 * 60 * 1000);
-// The whole run's budget, comfortably under the workflow's timeout-minutes. The review and the verification pass
-// are both measured against THIS, not against each other: taking the verify slice out of the review's own
-// deadline meant a review that used its full 14 minutes left a negative verify budget, so the second pass was
-// silently skipped on exactly the large PRs it was added for, falling back to "was not re-reported".
+// The budget for the two model passes, measured from the start of main(). The review and the verification pass
+// are both bounded by THIS, not by each other: taking the verify slice out of the review's own deadline meant a
+// review that used its full 14 minutes left a negative verify budget, so the second pass was silently skipped on
+// exactly the large PRs it was added for, falling back to "was not re-reported".
+//
+// It has to leave room inside the workflow's timeout-minutes for what this clock does NOT cover: the ~1 min of
+// checkout, install and harness tests before node starts, and the reconcile phase afterwards, which posts up to
+// MAX_INLINE comments plus a resolve and a reply per stale thread, each with its own timeout. Being cancelled
+// mid-reconcile is the half-finished state the deadline exists to prevent, so the sum stays well under it:
+// 13 (review) + 5 (verify) + ~1 setup + ~4 reconcile headroom = 23 < timeout-minutes 25.
 const JOB_BUDGET_MS = num(process.env.REVIEW_JOB_BUDGET_MS, 18 * 60 * 1000);
 // Failure dump of the agent's answer in the run log (head + tail). Extraction failures are visible in the first and
 // last couple of KB; the full 20 KB is available with ACTIONS_STEP_DEBUG, since the log of a public repo is public
@@ -179,6 +185,8 @@ const neutralizeMarkup = (s) => String(s).replace(/<!--/g, '&lt;!--');
 // A path is PR-author text and these labels are rendered inside a Markdown table in our own comment: a backtick
 // or a pipe in a filename would break the table, and `<!--` would smuggle a comment into it.
 const mdPath = (p) => neutralizeMarkup(String(p).replace(/[`|]/g, ''));
+// Model-authored prose in a table cell: a `|` would end the column and a newline the row.
+const mdCell = (t) => neutralizeMarkup(String(t).replace(/\s+/g, ' ').replace(/\|/g, '\\|'));
 
 function severityEmoji(s) {
   return s === 'error' ? '🔴' : s === 'warn' ? '🟡' : '🔵';
@@ -515,7 +523,12 @@ export function extractJson(text) {
     const found = findResultObject(candidate);
     if (!found) continue;
     if (!wasTruncationRepaired(found)) return normaliseResult(found);
-    repaired = repaired || found;
+    // Among repaired candidates, keep the richest rather than the first. Candidates run fenced-blocks-first and
+    // the whole message is last, so "first wins" systematically preferred the fragment a mis-paired fence
+    // produces — which holds only the findings written before the ```suggestion inside a comment. Verified: a
+    // truncated 3-finding answer came back with 1.
+    const better = (a, b) => (a?.findings?.length || 0) >= (b?.findings?.length || 0) ? a : b;
+    repaired = repaired ? better(repaired, found) : found;
   }
   if (repaired) return markRepaired(normaliseResult(repaired));
   throw new Error('No parseable JSON object with verdict/summary/findings in agent output');
@@ -853,7 +866,11 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = '', i
   } catch (err) {
     if (abort.signal.aborted) {
       console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns (agent aborted)`);
-      return { finalText: isSalvageable(finalText) ? finalText : '', lastAnswer, turns, resultSubtype: 'error_deadline' };
+      // The same order of preference as the in-loop branch: this path fires while the agent is mid-generation,
+      // so the buffer is often a partial rewrite of an answer it had already finished. Keeping that partial and
+      // blaming truncation loses every finding the earlier answer had.
+      const keep = isFinished(finalText) || (!lastAnswer && isSalvageable(finalText));
+      return { finalText: keep ? finalText : '', lastAnswer, turns, resultSubtype: 'error_deadline' };
     }
     err.capturedStderr = stderrChunks.join('');
     throw err;
@@ -873,7 +890,9 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
     ['error', 'warn', 'info'].filter((s) => counts[s]).map((s) => `${counts[s]} ${s}`).join(' · ') ||
     'no findings';
   // Closed by the verification pass: reconcile's own `resolved` counter does not see these.
-  const verifiedClosed = previously.filter((r) => r.status === 'resolved').length;
+  // Superseded rows are excluded: reconcile already counted those threads in `stats.resolved`, and nothing
+  // verified them — counting them here reported one closure twice, once as "verified".
+  const verifiedClosed = previously.filter((r) => r.status === 'resolved' && !r.superseded).length;
 
   const lines = [
     `## ${emoji} Claude PR Review — \`${result.verdict.toUpperCase()}\``,
@@ -1078,32 +1097,36 @@ export function findingSimilarity(a, b) {
   return (2 * shared) / (A.size + B.size); // Dice: symmetric, and forgiving of one side being longer
 }
 
+// Returns `{ thread, fp }` pairs, naming the finding that supersedes each thread: the claim is only good if that
+// finding is actually posted, and reconcile is where that is known.
 export function pickSuperseded(openThreads, currentByFp, existingFps) {
-  const candidates = new Map(); // file|severity -> findings this run will post there
+  const candidates = new Map(); // file|severity -> [{ fp, finding }] this run will post there
   for (const [fp, f] of currentByFp) {
     if (existingFps.has(fp)) continue;
     const key = `${f.file}|${f.severity}`;
     if (!candidates.has(key)) candidates.set(key, []);
-    candidates.get(key).push(f);
+    candidates.get(key).push({ fp, finding: f });
   }
-  return openThreads.filter((t) => {
+  const pairs = [];
+  for (const t of openThreads) {
     const key = `${t.path}|${findingSeverity(t.firstCommentBody)}`;
     const pool = candidates.get(key);
-    if (!pool || !pool.length) return false;
+    if (!pool || !pool.length) continue;
     const text = stripHarnessMarkup(t.firstCommentBody || '');
     let best = -1;
     let bestScore = 0;
-    pool.forEach((f, i) => {
-      const score = findingSimilarity(text, f.comment);
+    pool.forEach((c, i) => {
+      const score = findingSimilarity(text, c.finding.comment);
       if (score > bestScore) {
         bestScore = score;
         best = i;
       }
     });
-    if (best === -1 || bestScore < SUPERSEDE_SIMILARITY) return false;
+    if (best === -1 || bestScore < SUPERSEDE_SIMILARITY) continue;
+    pairs.push({ thread: t, fp: pool[best].fp });
     pool.splice(best, 1); // claimed: one new finding can supersede at most one old thread
-    return true;
-  });
+  }
+  return pairs;
 }
 
 // Decide what to do with each verified thread. Pure apart from `io`, so the trust rules are unit-tested:
@@ -1168,7 +1191,7 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
         status === 'fixed' ? `verified fixed${commit ? ` in \`${commit.slice(0, 7)}\`` : ''}`
           // `not_applicable` is the one close that rests on neither a code change nor a human, so the summary
           // table carries the model's own reason rather than making a maintainer open the thread to find it.
-          : status === 'not_applicable' ? `no longer applies — ${evidence.replace(/\s+/g, ' ').slice(0, 180)}`
+          : status === 'not_applicable' ? `no longer applies — ${mdCell(evidence).slice(0, 180)}`
             : 'closed by a maintainer';
       try {
         // Resolve first: without REVIEW_RESOLVE_TOKEN the resolve fails, and a "verified fixed" reply on a thread
@@ -1201,7 +1224,7 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
 // four outcomes — post new, keep open, reopen auto-resolved, leave human-dismissed, resolve stale — are unit-tested.
 const SEVERITY_RANK = { error: 0, warn: 1, info: 2 };
 
-export async function reconcile(currentByFp, threads, io, { provisional = false, verifiedIds = null, supersededIds = null } = {}) {
+export async function reconcile(currentByFp, threads, io, { provisional = false, verifiedIds = null, supersededBy = null } = {}) {
   // Errors first: with MAX_INLINE in play, the findings a human most needs in context must get the slots.
   currentByFp = new Map([...currentByFp].sort(([, a], [, b]) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]));
   const existingByFp = new Map();
@@ -1214,6 +1237,8 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
   const stats = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
   const unpostable = [];
   const resolvedIds = new Set(); // what was actually resolved, for a caller that reports it to a human
+  const postedFps = new Set(); // which findings actually landed inline, so a supersede claim can be checked
+  const supersededKept = new Set(); // superseded threads left open because their replacement never posted
   for (const [fp, f] of currentByFp) {
     const existing = existingByFp.get(fp);
     if (existing) {
@@ -1250,6 +1275,7 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
     try {
       await io.post(f, body);
       stats.posted++;
+      postedFps.add(fp);
     } catch (e) {
       console.warn(`inline post failed ${f.file}:${f.line} — ${e.message}`);
       unpostable.push(f);
@@ -1261,10 +1287,20 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
   if (provisional) {
     // A fallback answer is less complete than what the agent was about to check: judge nothing on it.
     console.log('Provisional result: stale threads left for the next run');
-    return { stats, unpostable, resolvedIds };
+    return { stats, unpostable, resolvedIds, supersededKept };
   }
   for (const [fp, t] of existingByFp) {
     if (currentByFp.has(fp) || t.isResolved) continue;
+    // A thread is only superseded if the finding that supersedes it actually landed. A finding that MOVED is a
+    // prime candidate for a 422 (its new line may not be in the diff) or for the inline cap, and closing the old
+    // thread with "the new comment carries it" when there is no new comment loses the finding outright — the more
+    // so because a superseded thread was pulled out of the verification pass as well.
+    const supersedingFp = supersededBy?.get(t.id);
+    if (supersedingFp && !postedFps.has(supersedingFp)) {
+      console.warn(`superseded thread kept open (fp:${fp}): its replacement was not posted`);
+      supersededKept.add(t.id);
+      continue;
+    }
     // The verification pass judged this one against the current code; that beats "was not re-reported".
     if (verifiedIds && verifiedIds.has(t.id)) continue;
     try {
@@ -1274,13 +1310,13 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
       // Marker only after a successful resolve — otherwise a run without a resolve token would add a
       // "resolved automatically" reply on every push while the thread stays open. The note says which of the two
       // reasons it was: gone from the run, or moved and re-posted at its new line.
-      const note = supersededIds && supersededIds.has(t.id) ? SUPERSEDED_NOTE : AUTO_RESOLVED_NOTE;
+      const note = supersededBy?.has(t.id) ? SUPERSEDED_NOTE : AUTO_RESOLVED_NOTE;
       await io.reply(t, note).catch((e) => console.warn(`auto-resolve note failed (fp:${fp}) — ${e.message}`));
     } catch (e) {
       console.warn(`resolve failed (fp:${fp}) — ${e.message}`);
     }
   }
-  return { stats, unpostable, resolvedIds };
+  return { stats, unpostable, resolvedIds, supersededKept };
 }
 
 // Say why on the PR before failing the check — the run log alone is easy to miss. Returns the error for rethrow.
@@ -1405,6 +1441,9 @@ async function main() {
     MODEL = retryModel;
     try {
       agentRun = await runAgent(buildUserPrompt(pr, diffPath), reviewBudget(startedAt));
+      // The same gate as the first attempt: a retry that ends with an unexpected subtype and no output is a
+      // failure, not a degrade.
+      if (shouldHardFail(agentRun)) throw new Error(`agent ended with ${agentRun.resultSubtype} and no output`);
     } catch (e2) {
       throw await explainFailure(e2);
     }
@@ -1511,7 +1550,7 @@ async function main() {
     console.warn(`listReviewThreads failed: ${e.message}`);
     await upsertSummary(
       [
-        renderSummary(parsed, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 }, [], { provisional }),
+        renderSummary(parsed, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 }, [], { provisional, provisionalCause }),
         '',
         '> ⚠️ Could not read existing review threads on this run, so inline comments were skipped to avoid duplicates; the next push will post them.',
       ].join('\n'),
@@ -1555,8 +1594,10 @@ async function main() {
     .map(({ t }) => t);
   // Never on a provisional result: reconcile resolves nothing then, so calling a thread superseded would be a
   // claim about a resolve that was never attempted.
-  const superseded = provisional ? [] : pickSuperseded(openUnreportedAll, currentByFp, existingFps);
-  const supersededIds = new Set(superseded.map((t) => t.id));
+  const supersededPairs = provisional ? [] : pickSuperseded(openUnreportedAll, currentByFp, existingFps);
+  const supersededBy = new Map(supersededPairs.map(({ thread, fp }) => [thread.id, fp]));
+  const superseded = supersededPairs.map(({ thread }) => thread);
+  const supersededIds = new Set(supersededBy.keys());
   const openUnreported = openUnreportedAll.filter((t) => !supersededIds.has(t.id));
   const toVerify = openUnreported.slice(0, MAX_VERIFY_THREADS);
   const overflow = openUnreported.slice(MAX_VERIFY_THREADS); // left open for the next run, never resolved unverified
@@ -1597,14 +1638,15 @@ async function main() {
 
   if (superseded.length) console.log(`${superseded.length} earlier thread(s) re-reported at a new line; resolving them as superseded`);
 
-  const { stats, unpostable, resolvedIds } = await reconcile(currentByFp, threads, io, {
+  const { stats, unpostable, resolvedIds, supersededKept } = await reconcile(currentByFp, threads, io, {
     provisional,
-    // Threads the second pass judged, plus the ones it deliberately left for the next run: "was not re-reported"
-    // must not overrule either. `handledIds` is filled in as applyVerification goes, so a throw halfway through
-    // does not hand the threads it already resolved back to the stale loop, which would reply again on top of its
-    // own "verified fixed" note.
-    verifiedIds: verified || handledIds.size ? new Set([...handledIds, ...toVerify, ...overflow].map((t) => (typeof t === 'object' ? t.id : t))) : null,
-    supersededIds,
+    // Every thread the verification pass was responsible for, whether or not it got to run. "Was not re-reported"
+    // is a weaker signal than "judged against the current code", and it used to overrule it in exactly the wrong
+    // case: when the pass was skipped for a thin budget or threw early, `verifiedIds` was null and the stale loop
+    // resolved every open unreported thread — `overflow` and `error` severities included — with no judgement
+    // behind it. A thread left unjudged now stays open for the next round, which is what the summary already says.
+    verifiedIds: new Set([...handledIds, ...toVerify.map((t) => t.id), ...overflow.map((t) => t.id)]),
+    supersededBy,
   });
 
   // Written from what reconcile actually resolved, never from what it was asked to: without a resolve token the
@@ -1612,9 +1654,11 @@ async function main() {
   previously = previously.concat(
     superseded.map((t) => {
       const label = `\`${mdPath(t.path)}:${threadAnchor(t).line ?? '?'}\``;
-      return resolvedIds.has(t.id)
-        ? { label, status: 'resolved', note: 'reported again at a new line' }
-        : { label, status: 'open', note: 'reported again at a new line (this thread could not be resolved)' };
+      if (resolvedIds.has(t.id)) return { label, status: 'resolved', note: 'reported again at a new line', superseded: true };
+      const note = supersededKept.has(t.id)
+        ? 'reported again at a new line, but that comment could not be posted — kept open'
+        : 'reported again at a new line (this thread could not be resolved)';
+      return { label, status: 'open', note, superseded: true };
     }),
   );
 

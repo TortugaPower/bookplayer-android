@@ -42,7 +42,14 @@ const RETRY_TRIES = 3;
 // retrying it three times half a second apart burns the attempts and fails anyway.
 const rateLimited = (res) => Boolean(res.headers?.get?.('retry-after'));
 const isRetryableResponse = (res) => res.status >= 500 || res.status === 429 || (res.status === 403 && rateLimited(res));
-const retryableError = (e) => e?.name === 'TimeoutError' || e?.name === 'AbortError' || e?.code === 'ECONNRESET' || e instanceof TypeError;
+// A network failure surfaces as TypeError, but so does a programming error in the request options — retrying
+// that three times and reporting it as a network problem hides the real cause. undici sets `cause` on the
+// network kind and says "fetch failed".
+const retryableError = (e) =>
+  e?.name === 'TimeoutError' ||
+  e?.name === 'AbortError' ||
+  e?.code === 'ECONNRESET' ||
+  (e instanceof TypeError && (e.cause !== undefined || /fetch failed|network/i.test(e.message || '')));
 const backoffMs = (attempt) => 500 * 2 ** attempt + Math.floor(Math.random() * 250);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
