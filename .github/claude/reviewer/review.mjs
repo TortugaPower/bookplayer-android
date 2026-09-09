@@ -52,6 +52,10 @@ const HARNESS_RESOLVED_MARKERS = [MARKER_AUTO_RESOLVED, MARKER_VERIFIED, MARKER_
 const SUPERSEDED_NOTE =
   'Reported again at a different line on the newest commit; the new comment carries it. ' +
   `<!-- bp-ai-review-auto-resolved -->`;
+// Kept because threads resolved by earlier versions of this harness carry the marker and must still be
+// recognised (HARNESS_RESOLVED_MARKERS, so a re-report reopens them). Nothing writes it any more: a thread that
+// simply went unreported is now left for the verification pass to judge rather than closed on silence, so the
+// only thread the stale loop can close is one superseded by a finding that moved.
 const AUTO_RESOLVED_NOTE = `Not reported in the latest run — resolved automatically. ${MARKER_AUTO_RESOLVED}`;
 // Posted when we reopen, so the auto-resolve marker is no longer the last comment: if a human then resolves
 // the thread themselves, that decision is respected on later runs.
@@ -239,7 +243,7 @@ exactly this shape, with NOTHING after it:
   the severity or drop it. No prose after the JSON block.
 `;
 
-const buildSystemPrompt = () =>
+export const buildSystemPrompt = () =>
   readFileSync(join(__dirname, '..', 'review-guide.md'), 'utf8') + '\n' + OUTPUT_CONTRACT;
 
 const MAX_PR_BODY = 4000;
@@ -303,6 +307,7 @@ function hasDeniedFlag(segment) {
   return DENY_FLAGS_ANY.test(segment) || Boolean(scoped && scoped.test(segment));
 }
 const BASH_DENY_MESSAGE = `Bash is restricted to read-only commands: ${BASH_RULES} Use Read/Grep/Glob for files.`;
+export const BASH_DENY_MESSAGE_FOR_TEST = BASH_DENY_MESSAGE; // the agent's first sight of the rules, asserted alongside the prompts
 
 // Walk the command once, tracking quotes, and produce what bash would actually execute: simple commands split
 // at | || && ; & and newlines outside quotes, with quote characters removed and backslash escapes resolved
@@ -1051,7 +1056,7 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
 
   lines.push(
     '',
-    `<sub>Model \`${MODEL}\`${RUN_URL ? ` · [run log](${RUN_URL})` : ''} · ${stats.posted} new · ${stats.kept} carried over${verifiedClosed ? ` · ${verifiedClosed} verified closed` : ''}${stats.reopened ? ` · ${stats.reopened} reopened` : ''}${stats.dismissed ? ` · ${stats.dismissed} dismissed by a human` : ''} · ${stats.resolved} resolved · advisory (a human should still review). Duplicate findings are de-duplicated and stale ones auto-resolved across pushes.</sub>`,
+    `<sub>Model \`${MODEL}\`${RUN_URL ? ` · [run log](${RUN_URL})` : ''} · ${stats.posted} new · ${stats.kept} carried over${verifiedClosed ? ` · ${verifiedClosed} verified closed` : ''}${stats.reopened ? ` · ${stats.reopened} reopened` : ''}${stats.dismissed ? ` · ${stats.dismissed} dismissed by a human` : ''} · ${stats.resolved} resolved · advisory (a human should still review). Findings are de-duplicated across pushes; an earlier one closes when the verification pass judges it fixed or no longer applicable.</sub>`,
     '',
     MARKER_SUMMARY,
   );
@@ -1064,11 +1069,12 @@ const VERIFY_BUDGET_MS = num(process.env.REVIEW_VERIFY_BUDGET_MS, 5 * 60 * 1000)
 const MAINTAINER_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const VERIFY_STATUSES = new Set(['fixed', 'present', 'not_applicable', 'accepted', 'insufficient']);
 
-const VERIFY_SYSTEM_PROMPT = `You check whether previously reported review findings still apply to the code as it
+export const VERIFY_SYSTEM_PROMPT = `You check whether previously reported review findings still apply to the code as it
 stands now. You are NOT reviewing the pull request and must not look for new issues.
 
-You have read-only tools: Read, Grep, Glob, and a Bash that accepts ONLY read-only commands. You never post
-anything: an automated harness applies your verdicts.
+You have read-only tools: Read, Grep, Glob, and a Bash that accepts ONLY read-only commands.
+${BASH_RULES} Anything else is denied. The repository is checked out in the current working directory, at the
+commit under review. You never post anything: an automated harness applies your verdicts.
 
 For each finding you are given, open the file it names and judge it against the CURRENT code:
 
@@ -1291,21 +1297,28 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
         status === 'fixed' ? `verified fixed${commit ? ` in \`${commit.slice(0, 7)}\`` : ''}`
           // `not_applicable` is the one close that rests on neither a code change nor a human, so the summary
           // table carries the model's own reason rather than making a maintainer open the thread to find it.
-          : status === 'not_applicable' ? `no longer applies — ${mdCell(evidence).slice(0, 180)}`
+          : status === 'not_applicable' ? `no longer applies — ${mdCell(evidence).slice(0, 180)}` // quoted here, so the reply below does not repeat it
             : 'closed by a maintainer';
       try {
         // Resolve first: without REVIEW_RESOLVE_TOKEN the resolve fails, and a "verified fixed" reply on a thread
         // that stays open would be a false claim repeated on every push.
         await io.resolve(t);
         const marker = status === 'accepted' ? MARKER_HUMAN_ACCEPTED : MARKER_VERIFIED;
-        await io.reply(t, redact(`✅ ${note}: ${evidence}\n\n${marker}`)).catch((e) => console.warn(`verified-resolve note failed — ${e.message}`));
+        // `note` may already carry the evidence (the `not_applicable` row quotes it for the summary table), so the
+        // reply states the outcome and adds the evidence only when it is not already in there — a maintainer was
+        // reading it twice, with the table's `\|` escaping leaking into the prose.
+        const reply = note.includes(evidence) || !evidence ? `✅ ${note}` : `✅ ${note}: ${evidence}`;
+        await io.reply(t, redact(`${reply}\n\n${marker}`)).catch((e) => console.warn(`verified-resolve note failed — ${e.message}`));
         rows.push({ label, status: 'resolved', note });
         if (status === 'fixed') stats.verifiedFixed++;
         else if (status === 'accepted') stats.closedByHuman++;
         else stats.dropped++;
       } catch (e) {
+        // The judgement stands, the resolve did not — and REVIEW_RESOLVE_TOKEN is documented as optional, so on a
+        // repo without one this is every verified finding, on every push. Saying "still open" there is wrong in
+        // the one direction that matters: it reads as a finding nobody has dealt with.
         console.warn(`verified-resolve failed (${t.path}) — ${e.message}`);
-        rows.push({ label, status: 'open', note: 'still open' });
+        rows.push({ label, status: 'open', note: `${note}, but this thread could not be resolved` });
         stats.stillOpen++;
       }
       continue;
@@ -1410,6 +1423,7 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
       // Marker only after a successful resolve — otherwise a run without a resolve token would add a
       // "resolved automatically" reply on every push while the thread stays open. The note says which of the two
       // reasons it was: gone from the run, or moved and re-posted at its new line.
+      // Only a superseded thread reaches this loop; see AUTO_RESOLVED_NOTE for why the other branch is dead.
       const note = supersededBy?.has(t.id) ? SUPERSEDED_NOTE : AUTO_RESOLVED_NOTE;
       await io.reply(t, note).catch((e) => console.warn(`auto-resolve note failed (fp:${fp}) — ${e.message}`));
     } catch (e) {
@@ -1743,6 +1757,17 @@ async function main() {
   }
 
   if (superseded.length) console.log(`${superseded.length} earlier thread(s) re-reported at a new line; resolving them as superseded`);
+  if (toVerify.length && !verified) {
+    // The pass was skipped or failed, and nothing else closes a thread now, so the summary has to show these as
+    // unjudged instead of rendering no table at all and leaving a maintainer to assume they were dealt with.
+    previously = previously.concat(
+      [...toVerify, ...overflow].map((t) => ({
+        label: `\`${mdPath(t.path)}:${threadAnchor(t).line ?? '?'}\``,
+        status: 'open',
+        note: 'not checked this round',
+      })),
+    );
+  }
 
   const { stats, unpostable, resolvedIds, supersededKept } = await reconcile(currentByFp, threads, io, {
     provisional,

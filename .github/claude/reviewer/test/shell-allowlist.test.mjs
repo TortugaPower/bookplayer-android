@@ -3,10 +3,10 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, restoreQuotedSpaces, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, restoreQuotedSpaces, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // The real one, imported: re-implementing it here meant a change to the shape (base64, a different
@@ -1671,4 +1671,48 @@ test('bash expansions after quote removal, round two', () => {
   // ...and ordinary work is untouched.
   assert.equal(isAllowedBash('cat plain.kt', [root], root), true);
   assert.equal(isAllowedBash('wc -l *.kt', [root], root), true);
+});
+
+test('what the verifier posts and what the table says agree, and never overstate', async () => {
+  const thread = (over = {}) => ({
+    id: 't1', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]',
+    path: 'a.kt', line: 1, firstCommentBody: '🟡 **WARN** — the original finding', comments: [],
+    lastCommentBody: '', lastCommentAuthor: '', ...over,
+  });
+  const recorder = () => {
+    const calls = { replies: [], resolves: [] };
+    return [calls, { post: async () => {}, reply: async (t, body) => calls.replies.push(body), resolve: async (t) => calls.resolves.push(t.id), unresolve: async () => {} }];
+  };
+
+  // `not_applicable` quotes the evidence in the table row, so the reply must not print it a second time.
+  const [c1, io1] = recorder();
+  const na = await applyVerification(verdictsById([{ id: 1, status: 'not_applicable', evidence: 'the caller is gone' }]), [{ id: 1, thread: thread() }], io1, {});
+  assert.match(na.rows[0].note, /no longer applies — the caller is gone/);
+  assert.equal(c1.replies[0].split('the caller is gone').length - 1, 1);
+
+  // A resolve that fails leaves the judgement standing: "still open" alone reads as a finding nobody handled,
+  // and REVIEW_RESOLVE_TOKEN is optional, so that would be every verified finding on every push.
+  const [c2, io2] = recorder();
+  io2.resolve = async () => { throw new Error('Resource not accessible by integration'); };
+  const failed = await applyVerification(verdictsById([{ id: 1, status: 'fixed', evidence: 'the guard is there now' }]), [{ id: 1, thread: thread() }], io2, { commit: 'abcdef1234' });
+  assert.equal(failed.rows[0].status, 'open');
+  assert.match(failed.rows[0].note, /verified fixed.*could not be resolved/);
+  assert.deepEqual(c2.replies, []); // and nothing claims a fix on a thread that stayed open
+});
+
+test('both system prompts state the same shell rules, from the same constant', () => {
+  // Prompt/denial drift costs a turn per denial, and the verify pass has the tighter budget of the two. Asserted
+  // on the prompts themselves, not by counting interpolations in the source.
+  const review = buildSystemPrompt();
+  for (const prompt of [review, VERIFY_SYSTEM_PROMPT]) {
+    assert.match(prompt, /git diff\/log\/show\/blame\/status/);
+    assert.match(prompt, /No interpreters, test runners, gh, curl/);
+    assert.match(prompt, /A glob may not select a directory/);
+    assert.match(prompt, /No cd — paths are relative to the checkout/);
+  }
+  // The reviewer is told where the code is; the verifier needs that too, since it opens the files a finding names.
+  assert.match(VERIFY_SYSTEM_PROMPT, /checked out in the current working directory/);
+  // And the denial the agent sees on a refusal says the same thing.
+  assert.match(BASH_DENY_MESSAGE_FOR_TEST, /git diff\/log\/show\/blame\/status/);
+  assert.match(BASH_DENY_MESSAGE_FOR_TEST, /A glob may not select a directory/);
 });
