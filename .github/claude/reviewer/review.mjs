@@ -316,11 +316,15 @@ const BASH_DENY_MESSAGE = `Bash is restricted to read-only commands: ${BASH_RULE
 // reasoning about a string the shell never sees.
 const STDERR_REDIRECT = /^2>(&1|\/dev\/null)(?=\s|$)/;
 
-// Whitespace that was quoted is held as \x00 through the walk and turned back into a space when a segment is
-// split into tokens: bash removes the quotes but the word stays ONE word, and splitting `cat "p q"` on whitespace
-// produced the two harmless-looking names `p` and `q` while bash read `./p q`.
-const QUOTED_SPACE = '\x00';
-export const restoreQuotedSpaces = (tok) => tok.split(QUOTED_SPACE).join(' ');
+// Whitespace bash would NOT split on — quoted or backslash-escaped — is held as a placeholder through the walk
+// and restored when a segment is split into tokens: bash removes the quoting but the word stays ONE word, and
+// splitting `cat "p q"` (or `cat p\\ q`) on whitespace produced the two harmless-looking names `p` and `q` while
+// bash read `./p q`. Each kind gets its own placeholder, because a quoted TAB is a different filename from a
+// quoted space and the path check has to ask about the file bash will actually open.
+const WS_PLACEHOLDER = { ' ': '\x00', '\t': '\x01', '\n': '\x02', '\r': '\x03', '\v': '\x04', '\f': '\x05' };
+const PLACEHOLDER_WS = Object.fromEntries(Object.entries(WS_PLACEHOLDER).map(([ws, ph]) => [ph, ws]));
+const holdWhitespace = (ch) => WS_PLACEHOLDER[ch] || ch;
+export const restoreQuotedSpaces = (tok) => String(tok).replace(/[\x00-\x05]/g, (ph) => PLACEHOLDER_WS[ph] ?? ph);
 
 export function analyzeShell(command) {
   const cmd = String(command || '');
@@ -335,7 +339,12 @@ export function analyzeShell(command) {
   for (let i = 0; i < cmd.length; i++) {
     const ch = cmd[i];
     if (ch === '\\' && quote !== "'") {
-      current += cmd[++i] ?? ''; // bash drops the backslash and keeps the next character literally
+      // bash drops the backslash and keeps the next character literally — including a space, which then does NOT
+      // split the word. The quote branch was fixed for that and this one was not, so `cat p\\ q` still arrived as
+      // two names and `cat \\ 2>&1` left the `2` looking like a descriptor at a word start.
+      const next = cmd[++i] ?? '';
+      current += holdWhitespace(next);
+      tokenStarted = true;
       continue;
     }
     if (quote) {
@@ -344,7 +353,7 @@ export function analyzeShell(command) {
         continue;
       }
       if (quote === '"' && (ch === '`' || ch === '$')) unsafe = true; // expansion happens inside double quotes
-      current += /\s/.test(ch) ? QUOTED_SPACE : ch;
+      current += holdWhitespace(ch);
       continue;
     }
     if (ch === '"' || ch === "'") {
@@ -449,7 +458,10 @@ const globSegmentToRegExp = (pattern) => {
       const end = pattern.indexOf(']', i + 1);
       if (end === -1) out += '\\[';
       else {
-        out += pattern.slice(i, end + 1);
+        // `[!abc]` is bash's negated class; RegExp spells it `[^abc]` and would otherwise read `!` as a literal
+        // member — so `cat [!z]` was checked against a different set of files than bash would open.
+        const cls = pattern.slice(i, end + 1);
+        out += cls.startsWith('[!') ? `[^${cls.slice(2)}` : cls;
         i = end;
       }
     } else out += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -469,12 +481,15 @@ function globTokenAllowed(token, roots, cwd) {
   const pattern = token.slice(slash + 1);
   if (GLOB_META.test(dir)) return false;
   if (!isPathAllowed(dir, roots, cwd)) return false;
+  // When a pattern matches nothing, bash passes the LITERAL token to the command — so a file really named
+  // `sec[r]et` is opened, and it must be confined like any other path. Checking only the matches missed that.
+  if (!isPathAllowed(token, roots, cwd)) return false;
   const re = globSegmentToRegExp(pattern);
   let entries;
   try {
     entries = readdirSync(resolve(cwd, dir));
   } catch {
-    return true; // nothing to enumerate: bash passes the literal token through and the command fails on its own
+    return true; // an unreadable directory expands to nothing, and the literal token was just checked
   }
   return entries.every((entry) => !re.test(entry) || isPathAllowed(`${dir}/${entry}`, roots, cwd));
 }

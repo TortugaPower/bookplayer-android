@@ -1423,13 +1423,16 @@ test('the expansions bash performs after quote removal cannot smuggle a path out
   assert.equal(isAllowedBash('grep -rn x conf 2>&1', [root], root), true);
 });
 
-test('the options handed to the SDK are the sandbox, and say so', () => {
+test('the options handed to the SDK are the sandbox, and say so', async () => {
   const q = agentQuery({ userPrompt: 'review this', systemPrompt: 'be a reviewer', abort: new AbortController(), env: { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'k' } });
   const o = q.options;
   assert.equal(q.prompt, 'review this');
   // Nothing pre-approved: every call goes through the permission gate.
   assert.deepEqual(o.allowedTools, []);
   assert.equal(typeof o.canUseTool, 'function');
+  // ...and that it is the real gate: `async () => ({behavior:'allow'})` satisfies "is a function".
+  assert.equal((await o.canUseTool('Bash', { command: 'cat /etc/passwd' })).behavior, 'deny');
+  assert.equal((await o.canUseTool('Write', { file_path: 'x', content: 'y' })).behavior, 'deny');
   assert.equal(o.permissionMode, 'default');
   // No on-disk settings: a `.claude/settings.json` in the PR head must not add hooks that run before the gate.
   assert.deepEqual(o.settingSources, []);
@@ -1628,4 +1631,33 @@ test('the summary counts a superseded close once, and escapes evidence for the t
   );
   assert.ok(applied[0].note.includes('\\|'));
   assert.ok(!applied[0].note.includes('\n'));
+});
+
+test('bash expansions after quote removal, round two', () => {
+  // Round one closed globs, quoted spaces and the empty-quote word start. These four are the same class, found by
+  // re-reviewing that fix, and each was verified against real bash reading a symlink outside the root.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'esc2-')));
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'esc2out-')));
+  const secret = join(outside, 'o.txt');
+  writeFileSync(secret, 'SECRET=abc');
+  symlinkSync(secret, join(root, 'p q'));
+  symlinkSync(secret, join(root, ' 2'));
+  symlinkSync(secret, join(root, 'a\tb'));
+  symlinkSync(secret, join(root, 'sec[r]et'));
+  symlinkSync(secret, join(root, 'y'));
+  writeFileSync(join(root, 'plain.kt'), 'fine');
+
+  // A backslash escapes whitespace exactly as quotes do — the branch that handles it did neither.
+  assert.equal(isAllowedBash('cat p\\ q', [root], root), false);
+  assert.equal(isAllowedBash('cat \\ 2>&1', [root], root), false);
+  // A quoted TAB is a different filename from a quoted space, so it must be checked as one.
+  assert.equal(isAllowedBash('cat "a\tb"', [root], root), false);
+  assert.equal(restoreQuotedSpaces(analyzeShell('cat "a\tb"').segments[0]), 'cat a\tb');
+  // `[!z]` is bash's negated class; read as a literal class it matched a different set of files.
+  assert.equal(isAllowedBash('cat [!z]', [root], root), false);
+  // A pattern that matches nothing is passed through literally by bash, so the literal is a path too.
+  assert.equal(isAllowedBash('cat sec[r]et', [root], root), false);
+  // ...and ordinary work is untouched.
+  assert.equal(isAllowedBash('cat plain.kt', [root], root), true);
+  assert.equal(isAllowedBash('wc -l *.kt', [root], root), true);
 });
