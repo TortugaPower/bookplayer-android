@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -280,7 +280,10 @@ test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismisse
   const { stats, unpostable } = await reconcile(current, threads, io, { eligibleIds: new Set() });
 
   assert.deepEqual(stats, { posted: 1, kept: 1, reopened: 1, dismissed: 1, resolved: 1 });
-  assert.equal(unpostable.length, 0);
+  // The finding on the human-resolved thread is NOT dropped: no new comment and no reopen (both would be
+  // nagging), but it goes in the summary body so a maintainer can see the reviewer still considers it live.
+  // This assertion used to read `0`, which pinned the silent drop.
+  assert.deepEqual(unpostable.map((f) => f.file), [DISMISSED.file]);
   assert.equal(calls.post.length, 1);
   assert.match(calls.post[0].body, /new one/);
   assert.match(calls.post[0].body, new RegExp(`bp-ai-review-fp:${fp('a.kt', 1, 'warn')}`));
@@ -2063,4 +2066,74 @@ test('reconcile refuses to run without knowing which threads the verifier owns',
   const { stats } = await reconcile(new Map(), [t], spy, { eligibleIds: new Set(['t1']), handledIds: [] });
   assert.deepEqual(calls, []);
   assert.equal(stats.resolved, 0);
+});
+
+test('a finding that oscillates between two lines does not leave two threads open forever', async () => {
+  // Push 1 posts F@3. Push 2 reports F@7: the old thread is superseded, a new one posted. Push 3 reports F@3
+  // again: the first thread reopens on its fingerprint, and the F@7 thread is now unreported, unclaimable by
+  // `pickSuperseded` (its finding's fingerprint already has a thread, so it "did not move"), and the verifier is
+  // instructed to answer `present` for exactly that shape. It stayed open forever — two threads, one issue.
+  const same = 'the deadline is read before the message in hand';
+  const f3 = { file: 'a.kt', line: 3, severity: 'warn', comment: same };
+  const f7 = { file: 'a.kt', line: 7, severity: 'warn', comment: same };
+  const thread = (id, f, commentId) => ({
+    id, isResolved: false, firstCommentId: commentId, firstCommentAuthor: 'github-actions[bot]',
+    path: f.file, line: f.line, comments: [],
+    firstCommentBody: `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${reconcileFp(f)} -->`,
+  });
+  const threads = [thread('t-3', f3, 1), thread('t-7', f7, 2)];
+  const currentByFp = new Map([[reconcileFp(f3), f3]]);
+
+  const plan = planRound({ threads, currentByFp, provisional: false });
+  assert.deepEqual(plan.duplicates.map((t) => t.id), ['t-7']);
+  assert.deepEqual(plan.toVerify, []); // judging it again could only produce two verdicts for one issue
+  assert.equal(plan.duplicateOf.get('t-7'), reconcileFp(f3));
+
+  const calls = { resolve: [], reply: [] };
+  const io = { post: async () => {}, reply: async (t, body) => calls.reply.push(body), resolve: async (t) => calls.resolve.push(t.id), unresolve: async () => {} };
+  const { stats } = await reconcile(currentByFp, threads, io, {
+    eligibleIds: plan.eligibleIds, supersededBy: plan.supersededBy, duplicateOf: plan.duplicateOf,
+  });
+  assert.deepEqual(calls.resolve, ['t-7']);
+  assert.equal(stats.kept, 1); // the thread carrying the finding stays
+  assert.match(calls.reply[0], /tracked on another open thread/); // and the note says why, not "reported again"
+
+  // If the thread it duplicates stops carrying the finding, the duplicate is NOT closed on a claim about a
+  // thread that is no longer there.
+  const orphaned = await reconcile(new Map(), threads, io, {
+    eligibleIds: new Set(), supersededBy: new Map(), duplicateOf: plan.duplicateOf,
+  });
+  assert.equal(orphaned.resolvedIds.has('t-7'), false);
+  assert.ok(orphaned.supersededKept.has('t-7'));
+
+  // A DIFFERENT finding in the same file is not a duplicate, whatever its line.
+  const other = { file: 'a.kt', line: 9, severity: 'warn', comment: 'an entirely different problem: the artwork cache never evicts' };
+  const plan2 = planRound({ threads: [thread('t-3', f3, 1), thread('t-other', other, 3)], currentByFp, provisional: false });
+  assert.deepEqual(plan2.duplicates, []);
+  assert.deepEqual(plan2.toVerify.map((t) => t.id), ['t-other']);
+});
+
+test('the summary never claims convergence on a result it also disclaims', () => {
+  const stats = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
+  const clean = { verdict: 'pass', summary: 'nothing new', findings: [] };
+  // With a complete result and nothing open, saying so is the point.
+  assert.match(renderSummary(clean, stats, [], { priorState: 'none-open' }), /Converged/);
+  // On a provisional result the banner says the finding list may be partial, so "nothing new, and nothing left
+  // open" claims exactly what the banner disclaims.
+  const provisional = renderSummary(clean, stats, [], { priorState: 'none-open', provisional: true, provisionalCause: 'truncated' });
+  assert.equal(provisional.includes('Converged'), false);
+  assert.match(provisional, /cut off mid-JSON/);
+});
+
+test('a long thread does not get the same note repeated on every push', () => {
+  // `harnessClosed` reads the 30-comment window, so on a longer thread it cannot see our own note and would
+  // re-post it forever. The window is detectable: the opening comment comes from its own selection, so if the
+  // window's first entry is not it, something was dropped.
+  const opening = { id: 1, author: 'github-actions[bot]', body: 'the finding', association: 'NONE', createdAt: '2026-01-01T00:00:00Z' };
+  const later = Array.from({ length: 30 }, (_, i) => ({ id: 100 + i, author: 'someone', body: `chatter ${i}`, association: 'NONE', createdAt: '2026-02-01T00:00:00Z' }));
+  const truncated = { id: 't-long', firstCommentId: 1, firstCommentBody: 'the finding', comments: later, lastCommentAuthor: 'someone', lastCommentBody: 'chatter 29' };
+  const whole = { id: 't-short', firstCommentId: 1, firstCommentBody: 'the finding', comments: [opening, later[0]], lastCommentAuthor: 'someone', lastCommentBody: 'chatter 0' };
+  // A truncated window cannot prove we have not already answered, so it counts as answered.
+  assert.equal(answeredAlreadyForTest(truncated), true);
+  assert.equal(answeredAlreadyForTest(whole), false);
 });
