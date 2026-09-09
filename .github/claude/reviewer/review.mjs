@@ -1257,22 +1257,35 @@ export function planRound({ threads, currentByFp, provisional, maxVerify = MAX_V
   // Duplicates of a thread this run keeps: same file, same severity, matching text, and the finding they carry is
   // not in this run because the OTHER thread carries it. Judging them again can only produce two verdicts for one
   // issue, so they never reach the verifier.
-  const keptThreads = harnessThreads.filter((t) => {
+  // The anchor for a duplicate is any thread carrying a finding THIS RUN REPORTS — open, or resolved and about to
+  // be reopened on its fingerprint. Requiring it to be open missed the very sequence this rule exists for: at the
+  // third push the live thread is the one reconcile reopens, which `stats.kept` does not count.
+  const anchorThreads = harnessThreads.filter((t) => {
     const fp = (FP_REGEX.exec(t.firstCommentBody || '') || [])[1];
-    return fp && currentByFp.has(fp) && !t.isResolved;
+    return fp && currentByFp.has(fp);
   });
+  const duplicateTwin = (t, anchors) =>
+    anchors.find(
+      (a) =>
+        a.id !== t.id &&
+        a.path === t.path &&
+        findingSeverity(a.firstCommentBody) === findingSeverity(t.firstCommentBody) &&
+        findingSimilarity(stripHarnessMarkup(a.firstCommentBody || ''), stripHarnessMarkup(t.firstCommentBody || '')) >= SUPERSEDE_SIMILARITY,
+    );
+  // A thread being superseded this round is an anchor too: when a finding moves to a THIRD line, one old thread is
+  // claimed as superseded and the other would otherwise match nothing and leak. And several duplicates may
+  // collapse onto one anchor — unlike a supersede claim, there is no scarcity here, because they are all
+  // duplicates of the same live finding.
   const duplicatePairs = provisional
     ? []
     : openUnreportedAll
         .filter((t) => !supersededBy.has(t.id))
         .map((t) => {
-          const twin = keptThreads.find(
-            (k) =>
-              k.path === t.path &&
-              findingSeverity(k.firstCommentBody) === findingSeverity(t.firstCommentBody) &&
-              findingSimilarity(stripHarnessMarkup(k.firstCommentBody || ''), stripHarnessMarkup(t.firstCommentBody || '')) >= SUPERSEDE_SIMILARITY,
-          );
-          return twin ? { thread: t, fp: (FP_REGEX.exec(twin.firstCommentBody || '') || [])[1] } : null;
+          const twin = duplicateTwin(t, anchorThreads) || duplicateTwin(t, superseded);
+          if (!twin) return null;
+          const twinFp = (FP_REGEX.exec(twin.firstCommentBody || '') || [])[1];
+          // A superseded twin is closing too, so the live finding is the one that claimed it.
+          return { thread: t, fp: supersededBy.get(twin.id) || twinFp };
         })
         .filter(Boolean);
   const duplicateOf = new Map(duplicatePairs.map(({ thread, fp }) => [thread.id, fp]));
@@ -1293,6 +1306,26 @@ export function planRound({ threads, currentByFp, provisional, maxVerify = MAX_V
     // what the pass actually handled is the mutation that reintroduces resolving `error`s on silence.
     eligibleIds: new Set([...toVerify, ...overflow].map((t) => t.id)),
   };
+}
+
+// The "Previously raised" rows for threads this round closed on its own — superseded or duplicate. Pure, because
+// the flag on them is load-bearing: `renderSummary` counts every unflagged `resolved` row as "verified closed"
+// while the stale loop also counts it in `resolved`, so an unflagged row reports one close twice. Built in main()
+// before, where no test could reach it and that mutation stayed green.
+export function closedThreadRows({ superseded = [], duplicates = [], resolvedIds = new Set(), supersededKept = new Set() }) {
+  const row = (t, resolvedNote, keptNote) => {
+    const label = `\`${mdPath(t.path)}:${threadAnchor(t).line ?? '?'}\``;
+    if (resolvedIds.has(t.id)) return { label, status: 'resolved', note: resolvedNote, superseded: true };
+    return { label, status: 'open', note: supersededKept.has(t.id) ? keptNote : `${resolvedNote} (this thread could not be resolved)`, superseded: true };
+  };
+  return [
+    ...duplicates.map((t) =>
+      row(t, 'duplicate of another open thread', 'duplicate of another open thread, but the thread it duplicates is no longer carrying the finding — left open'),
+    ),
+    ...superseded.map((t) =>
+      row(t, 'reported again at a new line', 'reported again at a new line, but that comment could not be posted — kept open'),
+    ),
+  ];
 }
 
 // Decide what to do with each verified thread. Pure apart from `io`, so the trust rules are unit-tested:
@@ -1372,10 +1405,13 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
         // that stays open would be a false claim repeated on every push.
         await io.resolve(t);
         const marker = status === 'accepted' ? MARKER_HUMAN_ACCEPTED : MARKER_VERIFIED;
-        // `note` may already carry the evidence (the `not_applicable` row quotes it for the summary table), so the
-        // reply states the outcome and adds the evidence only when it is not already in there — a maintainer was
-        // reading it twice, with the table's `\|` escaping leaking into the prose.
-        const reply = note.includes(evidence) || !evidence ? `✅ ${note}` : `✅ ${note}: ${evidence}`;
+        // Decided by which status it is, not by matching strings: the row for `not_applicable` embeds the evidence
+        // through `mdCell` and truncates it to 180 characters, so `note.includes(evidence)` was false whenever the
+        // evidence was longer than that or held a pipe, a newline or a run of whitespace — and the reply then
+        // printed it twice, with the table's escaping leaking into the prose. Evidence is capped at 400, so that
+        // was most of the range.
+        const noteQuotesEvidence = status === 'not_applicable';
+        const reply = noteQuotesEvidence || !evidence ? `✅ ${note}` : `✅ ${note}: ${evidence}`;
         await io.reply(t, redact(`${reply}\n\n${marker}`)).catch((e) => console.warn(`verified-resolve note failed — ${e.message}`));
         rows.push({ label, status: 'resolved', note });
         if (status === 'fixed') stats.verifiedFixed++;
@@ -1425,19 +1461,20 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
   const unpostable = [];
   const resolvedIds = new Set(); // what was actually resolved, for a caller that reports it to a human
   const postedFps = new Set(); // which findings actually landed inline, so a supersede claim can be checked
-  const keptFps = new Set(); // findings still carried by an open thread, which is what a duplicate closes against
+  const liveFps = new Set(); // findings a thread still carries after this round — kept, reopened, or just posted
   const supersededKept = new Set(); // superseded threads left open because their replacement never posted
   for (const [fp, f] of currentByFp) {
     const existing = existingByFp.get(fp);
     if (existing) {
       if (!existing.isResolved) {
         stats.kept++;
-        keptFps.add(fp);
+        liveFps.add(fp);
       } else if (harnessClosed(existing)) {
         // We closed it (not re-reported, or verified fixed) and it is back: reopen it.
         try {
           await io.unresolve(existing);
           stats.reopened++;
+          liveFps.add(fp); // reopened, so a duplicate of it has somewhere to point
           await io.reply(existing, REOPENED_NOTE).catch((e) => console.warn(`reopen note failed (fp:${fp}) — ${e.message}`));
         } catch (e) {
           // The reopen failed (a stale REVIEW_RESOLVE_TOKEN is the likely reason), so the thread stays collapsed
@@ -1469,6 +1506,7 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
       await io.post(f, body);
       stats.posted++;
       postedFps.add(fp);
+      liveFps.add(fp);
     } catch (e) {
       console.warn(`inline post failed ${f.file}:${f.line} — ${e.message}`);
       unpostable.push(f);
@@ -1491,7 +1529,7 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
     // A duplicate closes against a finding this run KEPT on another thread; nothing is posted for it, so the
     // "did the replacement land" gate asks a different question: is that other thread still open and carrying it.
     const duplicateFp = duplicateOf?.get(t.id);
-    if (duplicateFp && !keptFps.has(duplicateFp)) {
+    if (duplicateFp && !liveFps.has(duplicateFp)) {
       console.warn(`duplicate thread kept open (fp:${fp}): the thread it duplicates is no longer carrying the finding`);
       supersededKept.add(t.id);
       continue;
@@ -1856,16 +1894,7 @@ async function main() {
 
   // Written from what reconcile actually resolved, never from what it was asked to: without a resolve token the
   // resolve throws and is only logged, and every other row in this table is written after a successful one.
-  previously = previously.concat(
-    superseded.map((t) => {
-      const label = `\`${mdPath(t.path)}:${threadAnchor(t).line ?? '?'}\``;
-      if (resolvedIds.has(t.id)) return { label, status: 'resolved', note: 'reported again at a new line', superseded: true };
-      const note = supersededKept.has(t.id)
-        ? 'reported again at a new line, but that comment could not be posted — kept open'
-        : 'reported again at a new line (this thread could not be resolved)';
-      return { label, status: 'open', note, superseded: true };
-    }),
-  );
+  previously = previously.concat(closedThreadRows({ superseded, duplicates, resolvedIds, supersededKept }));
 
   // The review itself succeeded by this point; a flaky comments API must not turn the check red.
   const priorState = verified ? 'verified' : toVerify.length === 0 ? 'none-open' : 'unknown';

@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -1570,9 +1570,13 @@ test('the summary counts a superseded close once, and escapes evidence for the t
   const rows = [
     { label: '`a.kt:1`', status: 'resolved', note: 'verified fixed' },
     { label: '`b.kt:2`', status: 'resolved', note: 'reported again at a new line', superseded: true },
+    // A duplicate close is the same shape: the stale loop counts it in `resolved`, so an unflagged row here would
+    // be reported twice in the footer, once as resolved and once as verified closed.
+    { label: '`c.kt:3`', status: 'resolved', note: 'duplicate of another open thread', superseded: true },
   ];
-  const body = renderSummary({ verdict: 'pass', summary: 's', findings: [] }, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 1 }, [], { previously: rows });
-  assert.match(body, /1 verified closed/); // the superseded row is already counted in `resolved`
+  const body = renderSummary({ verdict: 'pass', summary: 's', findings: [] }, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 2 }, [], { previously: rows });
+  assert.match(body, /1 verified closed/); // only the verified row; the superseded and duplicate rows are already in `resolved`
+  assert.match(body, /2 resolved/);
   // Verifier evidence goes into a table cell: a raw `|` would end the column.
   const io = { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
   const thread = {
@@ -2136,4 +2140,100 @@ test('a long thread does not get the same note repeated on every push', () => {
   // A truncated window cannot prove we have not already answered, so it counts as answered.
   assert.equal(answeredAlreadyForTest(truncated), true);
   assert.equal(answeredAlreadyForTest(whole), false);
+});
+
+test('a duplicate closes against a thread that is reopening, and several collapse onto one', async () => {
+  // The correction that mattered: at the third push the live thread is the one reconcile REOPENS, which
+  // `stats.kept` does not count — a rule written against "kept this round" missed the very sequence it was for.
+  const same = 'the deadline is read before the message in hand';
+  const at = (line) => ({ file: 'a.kt', line, severity: 'warn', comment: same });
+  const thread = (id, f, commentId, isResolved = false) => ({
+    id, isResolved, firstCommentId: commentId, firstCommentAuthor: 'github-actions[bot]', path: f.file, line: f.line,
+    firstCommentBody: `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${reconcileFp(f)} -->`,
+    comments: [], lastCommentAuthor: 'github-actions[bot]',
+    lastCommentBody: 'Not reported in the latest run — resolved automatically. <!-- bp-ai-review-auto-resolved -->',
+  });
+
+  // Push 3 of the sequence: A was auto-resolved last round and its finding is reported again, so it reopens; B is
+  // the orphan. B must close against A even though A is not open yet.
+  const A = thread('t-A', at(3), 1, true);
+  const B = thread('t-B', at(7), 2);
+  const reported = new Map([[reconcileFp(at(3)), at(3)]]);
+  const plan = planRound({ threads: [A, B], currentByFp: reported, provisional: false });
+  assert.deepEqual(plan.duplicates.map((t) => t.id), ['t-B']);
+  assert.deepEqual(plan.toVerify, []);
+
+  const calls = { resolve: [], unresolve: [], reply: [] };
+  const io = {
+    post: async () => {}, reply: async (t, body) => calls.reply.push(body),
+    resolve: async (t) => calls.resolve.push(t.id), unresolve: async (t) => calls.unresolve.push(t.id),
+  };
+  const { stats, resolvedIds } = await reconcile(reported, [A, B], io, {
+    eligibleIds: plan.eligibleIds, supersededBy: plan.supersededBy, duplicateOf: plan.duplicateOf,
+  });
+  assert.deepEqual(calls.unresolve, ['t-A']); // the live finding's thread comes back...
+  assert.deepEqual(calls.resolve, ['t-B']);   // ...and the duplicate closes against it
+  assert.equal(stats.reopened, 1);
+  assert.ok(resolvedIds.has('t-B'));
+  // The note must carry a harness marker, or the close is indistinguishable from a human's and the finding is
+  // dropped rather than reopened next time it returns.
+  const dupNote = calls.reply.find((b) => b.includes('tracked on another open thread'));
+  assert.match(dupNote, /bp-ai-review-auto-resolved/);
+
+  // The third line: A and B both open and unreported, the finding now at 11. One is claimed as superseded, and
+  // the other must not leak — several duplicates may collapse onto one anchor.
+  const A2 = thread('t-A', at(3), 1);
+  const B2 = thread('t-B', at(7), 2);
+  const moved = planRound({ threads: [A2, B2], currentByFp: new Map([[reconcileFp(at(11)), at(11)]]), provisional: false });
+  assert.equal(moved.superseded.length + moved.duplicates.length, 2);
+  assert.deepEqual(moved.toVerify, []);
+});
+
+test('a not_applicable reply prints its evidence once, however long or messy it is', async () => {
+  // The row embeds the evidence through mdCell and truncates it to 180 characters, so deciding by
+  // `note.includes(evidence)` was false for anything longer than that, or holding a pipe, a newline or a run of
+  // whitespace — and the reply printed it twice, with the table's escaping leaking into the prose.
+  const long = `the caller is gone: ${'x'.repeat(200)} | and a pipe\nand a newline`;
+  const thread = {
+    id: 't1', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', path: 'a.kt', line: 1,
+    firstCommentBody: '🔵 **INFO** — x', comments: [], lastCommentBody: '', lastCommentAuthor: '',
+  };
+  const replies = [];
+  const io = { post: async () => {}, reply: async (_t, body) => replies.push(body), resolve: async () => {}, unresolve: async () => {} };
+  const { rows } = await applyVerification(verdictsById([{ id: 1, status: 'not_applicable', evidence: long }]), [{ id: 1, thread }], io, {});
+  assert.match(rows[0].note, /no longer applies/);
+  assert.equal(replies[0].includes('x'.repeat(200)), false); // the reply does not repeat the long evidence
+  assert.equal(replies[0].split('the caller is gone').length - 1, 1);
+  assert.equal(replies[0].includes('\\|'), false); // and no table escaping leaks into prose
+});
+
+test('a close this round made is reported once, and an attempted one is not reported as done', () => {
+  const t = (id, line) => ({ id, path: 'a.kt', line, originalLine: line });
+  const superseded = [t('t-moved', 3)];
+  const duplicates = [t('t-dup', 7)];
+
+  // Both resolved: two rows, both flagged, so `verifiedClosed` does not count them a second time.
+  const done = closedThreadRows({ superseded, duplicates, resolvedIds: new Set(['t-moved', 't-dup']) });
+  assert.deepEqual(done.map((r) => [r.status, r.superseded]), [['resolved', true], ['resolved', true]]);
+  assert.match(done[0].note, /duplicate of another open thread/);
+  assert.match(done[1].note, /reported again at a new line/);
+
+  // Neither resolved, and the reason is known: the row says what actually happened, not what was intended.
+  const kept = closedThreadRows({ superseded, duplicates, resolvedIds: new Set(), supersededKept: new Set(['t-moved', 't-dup']) });
+  assert.deepEqual(kept.map((r) => r.status), ['open', 'open']);
+  assert.match(kept[0].note, /no longer carrying the finding/);
+  assert.match(kept[1].note, /could not be posted/);
+
+  // Neither resolved and no reason recorded: the resolve itself failed.
+  const failed = closedThreadRows({ superseded, duplicates, resolvedIds: new Set() });
+  for (const row of failed) {
+    assert.equal(row.status, 'open');
+    assert.match(row.note, /could not be resolved/);
+    assert.equal(row.superseded, true);
+  }
+
+  // The footer must count a close once: two flagged rows, `resolved: 2`, and nothing "verified".
+  const body = renderSummary({ verdict: 'pass', summary: 's', findings: [] }, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 2 }, [], { previously: done });
+  assert.equal(body.includes('verified closed'), false);
+  assert.match(body, /2 resolved/);
 });
