@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -28,6 +28,7 @@ const ALLOWED = [
 // Accepted by the old emulator, refused by the grammar on purpose. Each needs a shell feature whose expansion the
 // gate would have to predict; the reviewer has Read/Grep/Glob for all of them, and BASH_RULES says so.
 const REFUSED_BY_GRAMMAR = [
+  'grep -n "foo$" LibraryViewModel.kt', // refused for the QUOTE: a `$` before a closing quote is literal to bash
   'cat LibraryViewModel.kt | head -50',
   'grep -rn "MediaSession" --include=*.kt .',
   'find . -maxdepth 3 -type d -name "sdk" 2>/dev/null | head',
@@ -50,7 +51,7 @@ const DENIED = [
   'echo $(cat k)', 'cat `cat k`', 'grep -n "$(cat k)" a', 'grep `cat k` a', 'cat <(curl x)', 'cat a; curl b', 'cat a & curl b',
   'cat "unbalanced', 'env', 'printenv ANTHROPIC_API_KEY',
   // parameter expansion reads the agent's environment
-  'ls "$ANTHROPIC_API_KEY"', 'ls $HOME', 'cat ${HOME}/.npmrc', 'grep -n "foo$" LibraryViewModel.kt', 'echo $PATH',
+  'ls "$ANTHROPIC_API_KEY"', 'ls $HOME', 'cat ${HOME}/.npmrc', 'echo $PATH',
   // cd is not allowlisted (would let relative paths reach outside the checkout)
   'cd tests && ls', 'cd ~ && cat .ssh/id_ed25519', 'cd /home/runner && cat .npmrc',
 ];
@@ -1677,4 +1678,78 @@ test('every escape the emulator ever allowed is refused by the grammar', () => {
   // ...and the reviewer's ordinary work is unaffected.
   assert.equal(isAllowedBash('cat plain.kt', [root], root), true);
   assert.equal(isAllowedBash('grep -rn x cls', [root], root), true);
+});
+
+test('the deny lists are pinned clause by clause, not by whichever one fires first', async () => {
+  // The escape tests that used to cover these were collapsed into the historical corpus, and a mutation sweep
+  // found the result: each of these could be deleted with the suite green, because two overlapping clauses were
+  // covering each other.
+  // This repo's own secret files, in BOTH branches of the gate. Deleting REPO_SECRET_PATH from either one used to
+  // leave the suite green.
+  for (const name of ['local.properties', 'keystore.properties', 'google-services.json']) {
+    assert.equal(isAllowedBash(`cat ${name}`), false, `bash should refuse: ${name}`);
+    assert.equal(REPO_SECRET_PATH.test(`cat ${name}`), true, `pattern should match: ${name}`);
+  }
+  // ...and the templates of those files are readable, which is the point of TEMPLATE_SUFFIX.
+  assert.equal(REPO_SECRET_PATH.test('cat local.properties.example'), false);
+  assert.equal(REPO_SECRET_PATH.test('cat keystore.properties.template'), false);
+
+  // Each home-directory group on its own, WITHOUT a leading `~`, so the tilde clause cannot stand in for it.
+  for (const dir of ['.aws', '.gnupg', '.docker', '.kube', '.gradle', '.m2', '.claude', '.ssh', '.npmrc', '.netrc', '.config']) {
+    assert.equal(FORBIDDEN_PATH.test(`cat ${dir}/x`), true, `should forbid: ${dir}`);
+    assert.equal(isAllowedBash(`cat ${dir}/x`), false, `bash should refuse: ${dir}`);
+  }
+  // ...and the tilde clause on its own, with no dotfile in the path, so the dotfile group cannot stand in for it.
+  assert.equal(FORBIDDEN_PATH.test('cat ~/notes.txt'), true);
+  assert.equal(FORBIDDEN_PATH.test('cat a=~/notes.txt'), true);   // bash expands `~` after `=` in this shape
+  assert.equal(FORBIDDEN_PATH.test('cat a=b:~/notes.txt'), true); // ...and after a later `:`
+  assert.equal(FORBIDDEN_PATH.test('cat notes~1.txt'), false);    // a mid-word `~` is literal and must stay allowed
+
+  // TEMPLATE_SUFFIX in both directions. Its comment says it must not be written as "the name may not continue",
+  // and this is the case that proves why: `.env.local` is a real secrets file, `.env.example` is a template.
+  assert.equal(FORBIDDEN_PATH.test('cat .env.example'), false);
+  assert.equal(FORBIDDEN_PATH.test('cat .env.template'), false);
+  assert.equal(FORBIDDEN_PATH.test('cat .env.sample'), false);
+  assert.equal(FORBIDDEN_PATH.test('cat .env.local'), true);
+  assert.equal(FORBIDDEN_PATH.test('cat .env.production'), true);
+  assert.equal(FORBIDDEN_PATH.test('cat .env'), true);
+
+  // BOTH branches of the gate, not just Bash: deleting REPO_SECRET_PATH from the read-tool branch left the suite
+  // green, and Read is the easier way to fetch a file anyway.
+  assert.equal((await canUseToolForTest('Read', { file_path: 'local.properties' })).behavior, 'deny');
+  assert.equal((await canUseToolForTest('Grep', { pattern: 'DSN', path: 'keystore.properties' })).behavior, 'deny');
+  assert.equal((await canUseToolForTest('Glob', { pattern: 'google-services.json' })).behavior, 'deny');
+  assert.equal((await canUseToolForTest('Read', { file_path: 'local.properties.example' })).behavior, 'allow');
+});
+
+test('the grep exemption resolves against the injected base, not the process cwd', () => {
+  // The subject of a test lost in the collapse. The exemption skips grep's first positional only when nothing
+  // exists at that path; if it resolved against the process cwd instead of the checkout, an in-root file whose
+  // name looks like a pattern would be skipped — and a symlink under that name would then go unchecked.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'grepbase-')));
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'grepbase-out-')));
+  writeFileSync(join(outside, 'o.txt'), 'SECRET=abc');
+  symlinkSync(join(outside, 'o.txt'), join(root, 'TODO'));   // a name a reviewer would plausibly grep for
+  writeFileSync(join(root, 'real.kt'), 'fine');
+
+  // `TODO` exists in the checkout and points outside it, so it must be checked, not skipped as a pattern.
+  assert.equal(isAllowedBash('grep -rn TODO .', [root], root), false);
+  // A pattern that names nothing is still exempt, which is what the exemption is for.
+  assert.equal(isAllowedBash('grep -rn /v1/library .', [root], root), true);
+  assert.equal(isAllowedBash('grep -rn TODONOTHERE .', [root], root), true);
+  // ...and an ordinary file argument is checked as a path.
+  assert.equal(isAllowedBash('grep -rn pattern real.kt', [root], root), true);
+});
+
+test('surrounding whitespace is trimmed, an interior newline is not', () => {
+  // A model routinely ends a command with a newline; the old walk trimmed it, and refusing `git status\n` outright
+  // is a lost turn for nothing. An INTERIOR newline or tab still fails, because it could separate two commands.
+  assert.equal(isAllowedBash('git status\n'), true);
+  assert.equal(isAllowedBash('  git status  '), true);
+  assert.equal(isAllowedBash('git status\t'), true);
+  assert.equal(isAllowedBash('git st\natus'), false);
+  assert.equal(isAllowedBash('git status\nrm -rf .'), false);
+  assert.equal(isAllowedBash('cat a\tb'), false);
+  assert.equal(isAllowedBash('   '), false);
+  assert.equal(isAllowedBash('\n'), false);
 });

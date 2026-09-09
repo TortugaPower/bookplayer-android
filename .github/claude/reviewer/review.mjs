@@ -208,7 +208,9 @@ const BASH_RULES =
   'ls, head, tail, wc, grep, find, stat, file, du, pwd, echo. No quotes, no backslashes, no globs (`*?[`), no ' +
   '`$`/backticks/braces, no redirection or pipes, no `;`/`&&`, no `~` starting a word, no `cd`, and printable ' +
   'ASCII only. This is a grammar, not a filter: anything else is refused without interpretation, because a ' +
-  'permission gate cannot reliably predict what bash would expand a cleverer command into. For a pattern with ' +
+  'permission gate cannot reliably predict what bash would expand a cleverer command into. Flags that make a ' +
+  'walk follow symlinks are refused too (grep -R, find -L/-H, ls/du dereference forms), as is anything that ' +
+  'never returns (tail -f). For a pattern with ' +
   'spaces or a glob, use the Grep and Glob tools — they take the pattern as data and are allowed. Paths are ' +
   'relative to the checkout.';
 
@@ -356,13 +358,20 @@ const SAFE_WORD = /^[A-Za-z0-9._/@=+:,%^-][A-Za-z0-9._/@=+:,%^~-]*$/;
 // The argv bash would build, or unsafe. `segments` is kept for callers that match a whole command line; there is
 // at most one, because every operator is refused.
 export function analyzeShell(command) {
-  const cmd = String(command ?? '');
+  // Surrounding whitespace is trimmed before the ASCII test: a model routinely ends a command with a newline, and
+  // the old walk trimmed it, so refusing `git status\n` outright is a lost turn for nothing. Trimming can only
+  // shrink the string — an all-whitespace command still lands on `!words.length`, and an INTERIOR newline or tab
+  // still fails the test, which is what matters (it could otherwise separate two commands).
+  const cmd = String(command ?? '').replace(/^[ \t\n]+|[ \t\n]+$/g, '');
   if (!PRINTABLE_ASCII.test(cmd)) return { words: [], segments: [], unsafe: true };
   const words = cmd.split(' ').filter(Boolean);
   if (!words.length || !words.every((w) => SAFE_WORD.test(w))) return { words: [], segments: [], unsafe: true };
   return { words, segments: [words.join(' ')], unsafe: false };
 }
 
+// The program allowlist and the flag denials, as one predicate. `isAllowedBash` calls it rather than repeating
+// the two checks: they were briefly inlined there, which left this function reachable only from the tests — so the
+// ALLOWED/DENIED corpora were asserting against a copy production did not run.
 export function isReadOnlyShell(command) {
   const { segments, unsafe } = analyzeShell(command);
   if (unsafe || segments.length === 0) return false;
@@ -382,7 +391,7 @@ export const FORBIDDEN_PATH = new RegExp(
 // This repo's own secret files. Gitignored today and no step materialises them, so this is defence in depth: the
 // moment a build step writes local.properties from Actions secrets, the agent could otherwise read it and quote a
 // value that redact() has no pattern for (a base URL, a client id).
-const REPO_SECRET_PATH = new RegExp(
+export const REPO_SECRET_PATH = new RegExp(
   `(^|[\\s"'=:\\/])(local\\.properties|keystore\\.properties|google-services\\.json)${TEMPLATE_SUFFIX}(\\b|$)`,
 );
 
@@ -431,8 +440,8 @@ const pathish = (tok) => {
 export function isAllowedBash(command, roots = READ_ROOTS, cwd = AGENT_CWD) {
   const { words, unsafe } = analyzeShell(command);
   if (unsafe) return false;
+  if (!isReadOnlyShell(command)) return false;
   const line = words.join(' ');
-  if (!BASH_ALLOW.some((re) => re.test(line)) || hasDeniedFlag(line)) return false;
   if (FORBIDDEN_PATH.test(line) || REPO_SECRET_PATH.test(line)) return false;
   // grep's first positional is the PATTERN, not a path: a route literal like `/v1/library` must not be refused as
   // an absolute path outside the roots. Exempt only when nothing exists at that path, which is what makes the
