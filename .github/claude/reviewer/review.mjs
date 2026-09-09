@@ -1635,6 +1635,10 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
     if (status === 'duplicate') {
       // Which finding of this round it named. Only a finding for the SAME FILE counts, and only a line this
       // round actually reports: `of` is model output, so it is looked up rather than trusted.
+      // The recorded path, with the thread's as the fallback — and it must be the SAME key `buildVerifyPrompt`
+      // used to choose what to show, or the model is offered one file's findings and judged against another's.
+      // The two can differ after a rename (GitHub moves the thread; the record keeps the name the finding was
+      // raised under), and a mismatch can only refuse a close, never make a wrong one.
       const file = identity?.path || t.path;
       const match = [...currentByFp].find(([, f]) => f.file === file && Number(f.line) === Number(v.of));
       if (!match) {
