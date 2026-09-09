@@ -1225,6 +1225,41 @@ export function pickSuperseded(openThreads, currentByFp, existingFps) {
   return pairs;
 }
 
+// What this round does with the threads already on the PR, as a pure decision. Lifted out of main() because
+// main() is not reachable from a test: a mutation sweep showed `verifiedIds` could be narrowed to `handledIds`
+// and the superseded set flipped on or off for a provisional result, both with the whole suite green — and both
+// reintroduce bugs this branch fixed. Composition is where those live, so composition has to be assertable.
+export function planRound({ threads, currentByFp, provisional, maxVerify = MAX_VERIFY_THREADS }) {
+  const harnessThreads = threads.filter((t) => isHarnessComment(t.firstCommentAuthor));
+  const existingFps = new Set(
+    harnessThreads.map((t) => (FP_REGEX.exec(t.firstCommentBody || '') || [])[1]).filter(Boolean),
+  );
+  const openUnreportedAll = harnessThreads
+    .filter((t) => !t.isResolved)
+    .map((t) => ({ t, fp: (FP_REGEX.exec(t.firstCommentBody || '') || [])[1] }))
+    .filter(({ fp }) => fp && !currentByFp.has(fp))
+    .map(({ t }) => t);
+  // Never on a provisional result: reconcile resolves nothing then, so calling a thread superseded would be a
+  // claim about a resolve that was never attempted.
+  const supersededPairs = provisional ? [] : pickSuperseded(openUnreportedAll, currentByFp, existingFps);
+  const supersededBy = new Map(supersededPairs.map(({ thread, fp }) => [thread.id, fp]));
+  const superseded = supersededPairs.map(({ thread }) => thread);
+  const openUnreported = openUnreportedAll.filter((t) => !supersededBy.has(t.id));
+  const toVerify = openUnreported.slice(0, maxVerify);
+  const overflow = openUnreported.slice(maxVerify); // left for the next run, never resolved unverified
+  return {
+    existingFps,
+    superseded,
+    supersededBy,
+    toVerify,
+    overflow,
+    // Every thread the verification pass is responsible for, whether or not it gets to run: "was not re-reported"
+    // is a weaker signal than "judged against the current code", and must never overrule it. Narrowing this to
+    // what the pass actually handled is the mutation that reintroduces resolving `error`s on silence.
+    eligibleIds: new Set([...toVerify, ...overflow].map((t) => t.id)),
+  };
+}
+
 // Decide what to do with each verified thread. Pure apart from `io`, so the trust rules are unit-tested:
 // a human's "accepted" needs a maintainer reply on the thread, and the model may never invent one.
 // The newest comment comes from listReviewThreads' own `last` selection: `comments` is capped, so its tail is not
@@ -1327,7 +1362,13 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
 // four outcomes — post new, keep open, reopen auto-resolved, leave human-dismissed, resolve stale — are unit-tested.
 const SEVERITY_RANK = { error: 0, warn: 1, info: 2 };
 
-export async function reconcile(currentByFp, threads, io, { provisional = false, verifiedIds = null, supersededBy = null } = {}) {
+export async function reconcile(currentByFp, threads, io, { provisional = false, eligibleIds, handledIds = [], supersededBy = null } = {}) {
+  // Required, not defaulted: this set is what stops "was not re-reported" from resolving a thread the verification
+  // pass was responsible for but never judged. Omitting it at the call site used to be a silent security
+  // regression that no test could reach, since main() is not importable; now it is a crash the harness reports on
+  // the PR. The union is computed here so a test can hold it.
+  if (!(eligibleIds instanceof Set)) throw new Error('reconcile: eligibleIds must be a Set of thread ids the verification pass owns');
+  const verifiedIds = new Set([...handledIds, ...eligibleIds]);
   // Errors first: with MAX_INLINE in play, the findings a human most needs in context must get the slots.
   currentByFp = new Map([...currentByFp].sort(([, a], [, b]) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]));
   const existingByFp = new Map();
@@ -1694,26 +1735,7 @@ async function main() {
   // unverified, with a note claiming it moved when it did not.
   // Harness-authored threads only, like openUnreportedAll below and reconcile's own map: the marker is a public
   // string, so a comment from anyone else carrying one must not decide which findings count as new.
-  const existingFps = new Set(
-    threads
-      .filter((t) => isHarnessComment(t.firstCommentAuthor))
-      .map((t) => (FP_REGEX.exec(t.firstCommentBody || '') || [])[1])
-      .filter(Boolean),
-  );
-  const openUnreportedAll = threads
-    .filter((t) => !t.isResolved && isHarnessComment(t.firstCommentAuthor))
-    .map((t) => ({ t, fp: (FP_REGEX.exec(t.firstCommentBody || '') || [])[1] }))
-    .filter(({ fp }) => fp && !currentByFp.has(fp))
-    .map(({ t }) => t);
-  // Never on a provisional result: reconcile resolves nothing then, so calling a thread superseded would be a
-  // claim about a resolve that was never attempted.
-  const supersededPairs = provisional ? [] : pickSuperseded(openUnreportedAll, currentByFp, existingFps);
-  const supersededBy = new Map(supersededPairs.map(({ thread, fp }) => [thread.id, fp]));
-  const superseded = supersededPairs.map(({ thread }) => thread);
-  const supersededIds = new Set(supersededBy.keys());
-  const openUnreported = openUnreportedAll.filter((t) => !supersededIds.has(t.id));
-  const toVerify = openUnreported.slice(0, MAX_VERIFY_THREADS);
-  const overflow = openUnreported.slice(MAX_VERIFY_THREADS); // left open for the next run, never resolved unverified
+  const { superseded, supersededBy, toVerify, overflow, eligibleIds } = planRound({ threads, currentByFp, provisional });
   const verifySlice = verifyBudget(startedAt);
   if (toVerify.length && (provisional || verifySlice <= 60_000)) {
     // Say why in the log: silently falling back to "was not re-reported" is how this pass came to look like it
@@ -1769,7 +1791,8 @@ async function main() {
     // case: when the pass was skipped for a thin budget or threw early, `verifiedIds` was null and the stale loop
     // resolved every open unreported thread — `overflow` and `error` severities included — with no judgement
     // behind it. A thread left unjudged now stays open for the next round, which is what the summary already says.
-    verifiedIds: new Set([...handledIds, ...toVerify.map((t) => t.id), ...overflow.map((t) => t.id)]),
+    eligibleIds,
+    handledIds,
     supersededBy,
   });
 
