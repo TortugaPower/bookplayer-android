@@ -1550,8 +1550,10 @@ test('a review thread is mapped from the selection that answers each question', 
     ...over,
   });
   let page = 0;
+  const queries = [];
   const threads = await withStubbedFetch(
-    async () => {
+    async (_url, init) => {
+      queries.push(JSON.parse(init.body).query);
       page++;
       const nodes = page === 1 ? [node()] : [node({ id: 't2', isResolved: true, line: null })];
       return {
@@ -1565,6 +1567,13 @@ test('a review thread is mapped from the selection that answers each question', 
   );
   assert.equal(page, 2); // the cursor hop happened
   assert.equal(threads.length, 2);
+  // The QUERY, not only the JS that maps its answer: three selections, each answering a different question, and
+  // a stub cannot tell them apart. Flipping `first: comments(first:1)` to `last:1` reads the fingerprint marker
+  // off the wrong comment (every finding re-posted on every push); flipping the window to `comments(first:30)`
+  // makes the trust rules ("did a maintainer speak after us") read the OLDEST 30 comments instead of the newest.
+  assert.match(queries[0], /first: comments\(first:1\)/);
+  assert.match(queries[0], /comments\(last:30\)/);
+  assert.match(queries[0], /last: comments\(last:1\)/);
   const [t] = threads;
   // The opening comment comes from its own selection: past 30 comments it is no longer comments[0], and the
   // fingerprint marker lives in it.

@@ -3,6 +3,11 @@
 // review threads (there is no REST endpoint for resolving a review thread).
 
 const REST = 'https://api.github.com';
+// One constant for the page size and for the "was that page full?" test. They were two bare 100s in two loops,
+// so changing the page size — the obvious thing to do to save a request — silently stopped pagination after the
+// first page: the agent would review the first slice of a large diff with no truncation marker, and the harness
+// would read only the first page of comments, losing its own state record and posting a second summary.
+const PER_PAGE = 100;
 const GQL = 'https://api.github.com/graphql';
 
 function token() {
@@ -178,7 +183,7 @@ export async function fetchDiffFromFiles(prNumber, maxPages = 30) {
   let page = 1;
   let lastPageFull = false;
   for (; page <= maxPages; page++) {
-    const files = await rest('GET', `/repos/${owner}/${name}/pulls/${prNumber}/files?per_page=100&page=${page}`);
+    const files = await rest('GET', `/repos/${owner}/${name}/pulls/${prNumber}/files?per_page=${PER_PAGE}&page=${page}`);
     if (!Array.isArray(files) || files.length === 0) break;
     for (const f of files) {
       const header = `diff --git a/${f.previous_filename || f.filename} b/${f.filename}`;
@@ -189,7 +194,7 @@ export async function fetchDiffFromFiles(prNumber, maxPages = 30) {
       const to = f.status === 'removed' ? '/dev/null' : `b/${f.filename}`;
       parts.push(f.patch ? `${header}\n--- ${from}\n+++ ${to}\n${f.patch}` : `${header}\n[no patch returned by the API: binary or too large — ${f.status}, +${f.additions}/-${f.deletions}]`);
     }
-    lastPageFull = files.length === 100;
+    lastPageFull = files.length === PER_PAGE;
     if (!lastPageFull) break;
   }
   if (!parts.length) throw new Error('GitHub returned no files for this PR');
@@ -220,11 +225,11 @@ export async function listIssueComments(prNumber) {
   for (let page = 1; page <= MAX_COMMENT_PAGES; page++) {
     const batch = await rest(
       'GET',
-      `/repos/${owner}/${name}/issues/${prNumber}/comments?per_page=100&page=${page}`,
+      `/repos/${owner}/${name}/issues/${prNumber}/comments?per_page=${PER_PAGE}&page=${page}`,
     );
     if (!Array.isArray(batch) || batch.length === 0) break;
     all.push(...batch);
-    if (batch.length < 100) break;
+    if (batch.length < PER_PAGE) break;
     if (page === MAX_COMMENT_PAGES) console.warn(`Comment listing stopped at the ${MAX_COMMENT_PAGES}-page cap`);
   }
   return all;

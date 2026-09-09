@@ -104,9 +104,13 @@ const DEADLINE_MS = num(process.env.REVIEW_DEADLINE_MS, 12 * 60 * 1000);
 //
 // It has to leave room inside the workflow's timeout-minutes for what this clock does NOT cover: the ~1 min of
 // checkout, install and harness tests before node starts, and the reconcile phase afterwards, which posts up to
-// MAX_INLINE comments plus a resolve and a reply per stale thread, each with its own timeout. Being cancelled
-// mid-reconcile is the half-finished state the deadline exists to prevent, so the sum stays well under it:
-// 13 (review) + 5 (verify) + ~1 setup + ~4 reconcile headroom = 23 < timeout-minutes 25.
+// MAX_INLINE comments plus a resolve and a reply per closed thread, each with its own 30 s timeout. Being
+// cancelled mid-reconcile is the half-finished state the deadline exists to prevent, so the two model passes
+// are bounded to 12 (the review's own DEADLINE_MS) + 5 (the verify slice) = 17 min, and with ~1 min of setup
+// that leaves ~7 of the workflow's 25 for reconcile. That last figure is an ASSUMPTION, not a bound: nothing
+// measures the clock during reconcile, and a pathological round (25 posts and dozens of replies, all slow)
+// could exceed it. It errs safe — a cancelled job writes nothing rather than something wrong — and raising
+// either budget means raising `timeout-minutes` in the workflow with it.
 const JOB_BUDGET_MS = num(process.env.REVIEW_JOB_BUDGET_MS, 18 * 60 * 1000);
 // Failure dump of the agent's answer in the run log (head + tail). Extraction failures are visible in the first and
 // last couple of KB; the full 20 KB is available with ACTIONS_STEP_DEBUG, since the log of a public repo is public
@@ -221,7 +225,7 @@ const BASH_RULES =
   'ls, head, tail, wc, grep, find, stat, file, du, pwd, echo. No quotes, no backslashes, no globs (`*?[`), no ' +
   '`$`/backticks/braces, no redirection or pipes, no `;`/`&&`, no `~` starting a word, no `cd`, and printable ' +
   'ASCII only. This is a grammar, not a filter: anything else is refused without interpretation, because a ' +
-  'permission gate cannot reliably predict what bash would expand a cleverer command into. Flags that make a ' +
+  'permission gate cannot reliably predict what bash would expand a cleverer command into. ' +
   'Flags are allowlisted per command, spelled in full: the ones a review needs are accepted and every other ' +
   'flag is refused, including abbreviations, anything that makes a walk follow symlinks (grep -R, find -L), ' +
   'anything that never returns (tail -f), and anything that takes its filenames from a file (--files0-from, ' +
@@ -410,7 +414,10 @@ const ALLOWED_LONG_FLAGS = new Set([
   '--ignore-case', '--word-regexp', '--max-count', '--after-context', '--before-context', '--context',
 ]);
 // Short letters, per command. Notice what is absent: `f`/`F` for tail (never returns), `f` for file
-// (indirection), `L`/`H` where a walk could follow a symlink, `d` for grep (`-d recurse`).
+// (indirection), `L`/`H` anywhere, so nothing here follows a symlink on purpose, and `d` for grep
+// (`-d recurse`). `file -L` was in this table while the line above said it was not — harmless in itself (the
+// realpath check still confines what `file` reads, and `file` walks no trees), but this table is what a
+// maintainer consults before adding a command, so it has to be true about itself.
 const ALLOWED_SHORT_FLAGS = {
   git: 'pnLC',
   cat: 'nbs',
@@ -424,7 +431,7 @@ const ALLOWED_SHORT_FLAGS = {
   grep: 'rnicleEFfwovABChHqsam',
   find: '',
   stat: 'c',
-  file: 'bihL',
+  file: 'bih',
   du: 'shac',
   pwd: '',
   echo: 'n',
@@ -432,7 +439,9 @@ const ALLOWED_SHORT_FLAGS = {
 // find does not use getopt_long: its predicates are exact words, so they are listed as words.
 const FIND_PREDICATES = new Set([
   '-name', '-iname', '-type', '-maxdepth', '-mindepth', '-path', '-ipath', '-not', '-o', '-a', '-and', '-or',
-  '-print', '-newer', '-size', '-empty', '-regex', '-prune', '-quit', '-follow-never',
+  '-print', '-newer', '-size', '-empty', '-regex', '-prune', '-quit',
+  // `-follow` is deliberately NOT here: it makes the walk follow symlinks, which is the whole point of denying
+  // `-L`. (An earlier edit left the two glued together as `-follow-never`, a word find has never had.)
 ]);
 
 // Every flag in the command must be one this review needs. Values attached to a flag are not flags.
@@ -1271,7 +1280,8 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
       deadline:
         'The reviewer hit its time limit before finishing; this is the last complete answer it produced, so no ' +
         'earlier finding was resolved from it. Raise `REVIEW_DEADLINE_MS` — and `REVIEW_JOB_BUDGET_MS` with it, ' +
-        'since the review may not exceed the job budget minus the verification slice — or split the PR.',
+        'since the review may not exceed the job budget minus the verification slice, and `timeout-minutes` in ' +
+        'the workflow, which bounds them both — or split the PR.',
       turns:
         'The reviewer hit its turn limit before finishing; this is the last complete answer it produced, so no ' +
         'earlier finding was resolved from it. Bump `REVIEW_MAX_TURNS` or split the PR.',
@@ -1282,7 +1292,7 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
   if (unpostable.length) {
     lines.push(
       '',
-      `<details><summary>Findings not visible inline (no line in this diff, beyond the ${MAX_INLINE}-comment cap, on a thread that could not be reopened, or on one a human resolved deliberately)</summary>`,
+      `<details><summary>Findings not visible inline (no line in this diff, beyond the ${MAX_INLINE}-comment cap, a comment the API refused, on a thread that could not be reopened, or on one a maintainer had the last word on)</summary>`,
       '',
       ...unpostable.map((f) => `- ${severityEmoji(f.severity)} \`${neutralizeMarkup(String(f.file).replace(/`/g, ''))}:${f.line}\` — ${neutralizeMarkup(f.comment)}`),
       '',
@@ -1292,7 +1302,7 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
 
   lines.push(
     '',
-    `<sub>Model \`${MODEL}\`${RUN_URL ? ` · [run log](${RUN_URL})` : ''} · ${stats.posted} new · ${stats.kept} carried over${verifiedClosed ? ` · ${verifiedClosed} verified closed` : ''}${stats.reopened ? ` · ${stats.reopened} reopened` : ''}${stats.dismissed ? ` · ${stats.dismissed} on threads resolved outside this harness` : ''} · ${stats.resolved} resolved · advisory (a human should still review). Findings are de-duplicated across pushes; an earlier one closes when the verification pass judges it fixed or no longer applicable, or when another finding this run reports takes it over.</sub>`,
+    `<sub>Model \`${MODEL}\`${RUN_URL ? ` · [run log](${RUN_URL})` : ''} · ${stats.posted} new · ${stats.kept} carried over${verifiedClosed ? ` · ${verifiedClosed} verified closed` : ''}${stats.reopened ? ` · ${stats.reopened} reopened` : ''}${stats.dismissed ? ` · ${stats.dismissed} on threads a maintainer had the last word on` : ''} · ${stats.resolved} resolved · advisory (a human should still review). Findings are de-duplicated across pushes; an earlier one closes when the verification pass judges it fixed or no longer applicable, or when another finding this run reports takes it over.</sub>`,
     '',
     MARKER_SUMMARY,
   );
@@ -1926,6 +1936,11 @@ async function upsertSummary(rawBody, state = null, { mergeExistingRecord = fals
 // red with no comment — the invisible failure the rest of this file exists to avoid. Note only: no agent, no
 // review, no reconciliation, and it needs nothing but a token and a PR number.
 async function reportSetupFailure(reason) {
+  // Logged FIRST. `appendNoteToSummary` swallows a failed write ("the run log still carries the reason"), and
+  // this function was the one place where that was false: it never logged anything, so a --setup-failed run
+  // that could not reach GitHub printed nothing, wrote nothing and exited 0 — the invisible failure this mode
+  // exists to prevent, in the mode built to prevent it.
+  console.warn(`The reviewer did not run: ${redact(String(reason || 'a step before the review failed'))}`);
   const note = `> ⚠️ **The reviewer did not run:** ${boundedDump(reason || 'a step before the review failed', 400)}${RUN_URL ? ` See the [run log](${RUN_URL}).` : ''}`;
   await appendNoteToSummary(note, '## ⚠️ Claude PR Review — did not run');
 }
@@ -2039,7 +2054,7 @@ export async function runReview({ agent = runAgent } = {}) {
         resultSubtype === 'error_max_turns'
           ? 'hit the turn limit before finishing — likely a large PR. Bump `REVIEW_MAX_TURNS` or split the PR into smaller ones.'
           : resultSubtype === 'error_deadline'
-            ? 'hit the time limit before finishing — likely a large PR. Raise `REVIEW_DEADLINE_MS`, and `REVIEW_JOB_BUDGET_MS` with it (the review is capped by the job budget minus the verification slice), or split the PR.'
+            ? 'hit the time limit before finishing — likely a large PR. Raise `REVIEW_DEADLINE_MS`, `REVIEW_JOB_BUDGET_MS` with it (the review is capped by the job budget minus the verification slice), and `timeout-minutes` in the workflow, which bounds them both — or split the PR.'
             : `could not produce a structured result (${e.message}).`;
       console.warn(`Review incomplete: ${reason}`);
       // The whole answer (bounded, redacted): a 400-char tail was not enough to diagnose why extraction failed. An

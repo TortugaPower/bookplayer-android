@@ -41,7 +41,7 @@ function fakeGitHub({ summaryBody = null, threads = [] } = {}) {
     if (/\/issues\/\d+\/comments/.test(u) && method === 'POST') { calls.issueComments.push(body.body); return ok({ id: 100 }); }
     if (/\/issues\/comments\/\d+/.test(u) && method === 'PATCH') { calls.patched.push(body.body); return ok({ id: 99 }); }
     if (/\/pulls\/\d+\/comments\/\d+\/replies/.test(u)) { calls.replies.push(body.body); return ok({ id: 101 }); }
-    if (/\/pulls\/\d+\/comments/.test(u) && method === 'POST') { calls.inline.push({ path: body.path, line: body.line, body: body.body }); return ok({ id: 102 }); }
+    if (/\/pulls\/\d+\/comments/.test(u) && method === 'POST') { calls.inline.push({ path: body.path, line: body.line, body: body.body, commit_id: body.commit_id, side: body.side }); return ok({ id: 102 }); }
     throw new Error(`unstubbed ${method} ${u}`);
   };
   return { calls, fetch, summaryOut: () => calls.patched[calls.patched.length - 1] ?? calls.issueComments[calls.issueComments.length - 1] };
@@ -651,6 +651,134 @@ test('a round that could not READ the record does not overwrite it', async () =>
     // still describes the commit that was reviewed rather than reverting to the older one.
     assert.equal(after.commit, 'f00d000000000001');
     assert.equal(after.findings[fp].commit, 'f00d000000000001');
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('the --setup-failed mode says why in the log, not only on the PR', async () => {
+  // The mode exists for the one failure nothing else can report: a step BEFORE the review (the install, the
+  // harness's own tests). Its write goes through `appendNoteToSummary`, which swallows a failure on the
+  // grounds that "the run log still carries the reason" — and this was the one path where that was false. With
+  // GitHub unreachable it printed nothing, wrote nothing, and exited 0.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'setupfail-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '20', COMMIT: 'add0000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'setupfail');
+  const realFetch = globalThis.fetch;
+  const realWarn = console.warn;
+  const warnings = [];
+  const argv = process.argv;
+  try {
+    globalThis.fetch = async () => { throw new Error('getaddrinfo ENOTFOUND api.github.com'); };
+    console.warn = (m) => warnings.push(String(m));
+    process.argv = [argv[0], argv[1], '--setup-failed', 'npm ci failed on the lockfile'];
+    await mod.runReview({ agent: async () => { throw new Error('the agent must never run in this mode'); } });
+    assert.match(warnings.join('\n'), /The reviewer did not run: npm ci failed on the lockfile/);
+  } finally {
+    globalThis.fetch = realFetch;
+    console.warn = realWarn;
+    process.argv = argv;
+    restore();
+  }
+});
+
+test('an inline comment is anchored to the head commit, on the right-hand side', async () => {
+  // Two one-word mutations — `commitId: COMMIT` → the base sha, and `side: 'RIGHT'` → 'LEFT' — make every
+  // inline post 422, so every finding silently becomes a summary-only entry and the PR looks reviewed but
+  // carries no comments. The fake used to record only the path, line and body, so neither was visible to it.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'anchor-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '21', COMMIT: 'cafebabe00000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'anchor');
+  const realFetch = globalThis.fetch;
+  try {
+    const gh = fakeGitHub();
+    globalThis.fetch = gh.fetch;
+    await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'one finding', findings: [{ severity: 'warn', file: 'app/A.kt', line: 12, comment: 'a finding to anchor' }] }) });
+    assert.equal(gh.calls.inline.length, 1);
+    assert.equal(gh.calls.inline[0].commit_id, 'cafebabe00000001');
+    assert.equal(gh.calls.inline[0].side, 'RIGHT');
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('a secret quoted in a verifier verdict is redacted in the reply it posts', async () => {
+  // The verify replies are write boundaries too, and both `redact()` calls in them could be deleted with the
+  // suite green: the model's `evidence` is quoted straight into a public comment.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'vredact-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '22', COMMIT: 'dada000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'vredact');
+  const realFetch = globalThis.fetch;
+  try {
+    const secret = 'ghp_0123456789abcdefghijklmnopqrstuvwx';
+    const f = { severity: 'warn', file: 'app/V.kt', line: 3, comment: 'a finding from an earlier push' };
+    const fp = mod.fingerprint(f);
+    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+      commit: 'aaaaaaa', findings: { [fp]: { id: 'T-v', file: f.file, line: f.line, severity: 'warn', text: f.comment, action: 'posted', commit: 'aaaaaaa' } },
+    })}`;
+    const gh = fakeGitHub({
+      summaryBody: priorSummary,
+      threads: [{
+        id: 'T-v', isResolved: false, path: f.file, line: f.line, originalLine: f.line,
+        first: { nodes: [{ databaseId: 91, body: `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${fp} -->`, author: { login: 'github-actions[bot]' } }] },
+        comments: { nodes: [] }, last: { nodes: [] },
+      }],
+    });
+    globalThis.fetch = gh.fetch;
+    await mod.runReview({
+      agent: agentSequence(
+        { verdict: 'pass', summary: 'nothing new', findings: [] },
+        { threads: [{ id: 1, status: 'fixed', evidence: `the token ${secret} was moved to SSM` }] },
+      ),
+    });
+    assert.deepEqual(gh.calls.resolved, ['T-v']);
+    const replies = gh.calls.replies.join('\n');
+    assert.equal(replies.includes(secret), false, 'the verify reply carried the secret');
+    assert.match(replies, /\[redacted\]/);
+    assert.equal(gh.summaryOut().includes(secret), false, 'the summary table carried the secret');
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('a secret with no recognisable shape is still redacted, because the harness knows its own', async () => {
+  // Two defences: patterns for known shapes, and exact-match on the values this job was actually given. The
+  // second is the one that catches a token whose shape nothing recognises — a rotated format, an app password,
+  // a self-hosted URL — and every test until now used a pattern-shaped secret, so deleting it changed nothing.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'valredact-')));
+  const opaque = 'quite-ordinary-looking-string-42';
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '23', COMMIT: 'b0b0000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: opaque, RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'valredact');
+  const realFetch = globalThis.fetch;
+  try {
+    const gh = fakeGitHub();
+    globalThis.fetch = gh.fetch;
+    await mod.runReview({
+      agent: agentReturning({
+        verdict: 'warn',
+        summary: `The key ${opaque} appears in a test fixture.`,
+        findings: [{ severity: 'warn', file: 'app/Key.kt', line: 5, comment: `hardcoded: ${opaque}` }],
+      }),
+    });
+    const posted = gh.calls.inline.map((c) => c.body).join('\n');
+    assert.equal(posted.includes(opaque), false, 'the inline comment carried the key this job was given');
+    assert.match(posted, /\[redacted\]/);
+    assert.equal(gh.summaryOut().includes(opaque), false, 'the summary carried it');
   } finally {
     globalThis.fetch = realFetch;
     restore();
