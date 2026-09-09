@@ -716,6 +716,112 @@ function isSummary(v) {
   return typeof v === 'string' || (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string'));
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// The harness's own record of what it did.
+//
+// Everything about a previous round used to be re-derived from the PR's rendered comments: fingerprints pulled out
+// of markdown with a regex, our own past actions inferred from HTML-comment markers, severity re-parsed from an
+// emoji prefix, "did we close this" decided by marker archaeology over a comment window that silently truncates,
+// "who resolved this" unknowable in principle. That is a lossy projection of the harness's history, and five
+// review rounds produced the same class of defect from it again and again — two threads for one finding, an
+// anchor that had to be "open or reopening", a close indistinguishable from a human's.
+//
+// So the harness writes its history down. One hidden blob in its own summary comment, per finding: the
+// fingerprint, the thread it lives on, what was done last round, and at which commit. Reconciliation then reads
+// its own record instead of parsing its own output. What must still come from the API is what the API actually
+// knows: whether a thread is resolved, and whether a human has replied.
+//
+// The record is advisory: a PR opened before this landed has none, and a body can be edited, so every consumer
+// falls back to the marker-derived answer when the record is absent. It is trusted only from a comment this
+// harness authored, which is the same rule the markers already have.
+// ---------------------------------------------------------------------------------------------------------------
+
+const STATE_MARKER = '<!-- bp-ai-review-state:';
+const STATE_VERSION = 1;
+// Bounded twice, by count and by bytes: 200 records of the longest plausible text came to 81 KB, past GitHub's
+// 65 536-character comment limit — the record would have destroyed the comment it rides in. 60 is well beyond the
+// inline cap, and the byte budget is the backstop that does not depend on my arithmetic staying right.
+const MAX_STATE_RECORDS = 60;
+const MAX_STATE_BYTES = 20_000;
+const MAX_STATE_TEXT = 160;
+
+// What we did with a finding, in the vocabulary reconcile already uses.
+export const STATE_ACTIONS = ['posted', 'kept', 'reopened', 'resolved', 'superseded', 'duplicate', 'dismissed', 'unpostable'];
+
+export function encodeState(state) {
+  let records = Object.entries(state.findings || {}).slice(0, MAX_STATE_RECORDS);
+  const wrap = (entries) => {
+    const payload = { v: STATE_VERSION, commit: state.commit || '', findings: Object.fromEntries(entries) };
+    // The blob is data, not prose. JSON.stringify escapes nothing that would close an HTML comment early, but a
+    // finding's own text can contain `-->`, so that one sequence is neutralised and restored on read.
+    return `${STATE_MARKER}${JSON.stringify(payload).replace(/--+>/g, '--&gt;')} -->`;
+  };
+  // Records are already severity-first, so dropping from the end drops the least consequential.
+  let encoded = wrap(records);
+  while (encoded.length > MAX_STATE_BYTES && records.length) {
+    records = records.slice(0, -1);
+    encoded = wrap(records);
+  }
+  return encoded;
+}
+
+export function decodeState(body) {
+  const text = String(body || '');
+  const start = text.indexOf(STATE_MARKER);
+  if (start === -1) return null;
+  const end = text.indexOf(' -->', start + STATE_MARKER.length);
+  if (end === -1) return null;
+  try {
+    const parsed = JSON.parse(text.slice(start + STATE_MARKER.length, end).replace(/--&gt;/g, '-->'));
+    if (parsed?.v !== STATE_VERSION || !parsed.findings || typeof parsed.findings !== 'object') return null;
+    return { commit: String(parsed.commit || ''), findings: parsed.findings };
+  } catch {
+    return null; // an unreadable record is no record: every consumer falls back to the markers
+  }
+}
+
+// Which thread carries which finding, from the threads as fetched — the one place a fingerprint is still read out
+// of a comment body, and only to seed the record that replaces doing so.
+export function threadIdByFp(threads = []) {
+  const map = new Map();
+  for (const t of threads) {
+    if (!isHarnessComment(t.firstCommentAuthor)) continue;
+    const fp = (FP_REGEX.exec(t.firstCommentBody || '') || [])[1];
+    if (fp && !map.has(fp)) map.set(fp, t.id);
+  }
+  return map;
+}
+
+// What happened to each finding this round, in the record's vocabulary.
+export function actionByFp({ unpostable = [], currentByFp = new Map(), superseded = [], duplicates = [], resolvedIds = new Set() } = {}) {
+  const actions = new Map();
+  for (const [fp] of currentByFp) actions.set(fp, 'posted');
+  for (const f of unpostable) actions.set(fingerprint(f), 'unpostable');
+  for (const t of superseded) if (resolvedIds.has(t.id)) actions.set(`thread:${t.id}`, 'superseded');
+  for (const t of duplicates) if (resolvedIds.has(t.id)) actions.set(`thread:${t.id}`, 'duplicate');
+  return actions;
+}
+
+// The record this round leaves behind, built from what reconcile and the verification pass actually did.
+export function buildState({ commit, currentByFp, threadIdByFp = new Map(), actions = new Map() }) {
+  const findings = {};
+  // Bounded here, not only at the encoder, so nothing downstream carries an unbounded record — and ordered
+  // severity-first, so a truncated one keeps the findings that matter rather than whichever came first.
+  const ranked = [...currentByFp].sort(([, a], [, b]) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9));
+  for (const [fp, f] of ranked.slice(0, MAX_STATE_RECORDS)) {
+    findings[fp] = {
+      id: threadIdByFp.get(fp) || null,
+      file: f.file,
+      line: f.line,
+      severity: f.severity,
+      text: String(f.comment || '').slice(0, MAX_STATE_TEXT),
+      action: actions.get(fp) || 'posted',
+      commit: String(commit || '').slice(0, 40),
+    };
+  }
+  return { commit: String(commit || '').slice(0, 40), findings };
+}
+
 // The one place the post-extraction invariant is stated: whatever reaches reconcile() has a known verdict, a string
 // summary and an array of findings. extractJson already guarantees it via normaliseResult; this makes that explicit
 // for both the normal and the turn-limit-fallback path.
@@ -1614,9 +1720,11 @@ async function explainFailure(err) {
   return err;
 }
 
-async function upsertSummary(rawBody) {
+async function upsertSummary(rawBody, state = null) {
   const redacted = redact(rawBody);
-  const body = boundedSummaryBody(redacted);
+  // The record is appended AFTER the trim, so a long summary cannot cut it in half — and it is redacted with the
+  // body, since a finding's text travels in it.
+  const body = state ? `${boundedSummaryBody(redacted)}\n${redact(encodeState(state))}` : boundedSummaryBody(redacted);
   const existing = (await listIssueComments(PR_NUMBER)).find(
     (c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY),
   );
@@ -1898,7 +2006,14 @@ async function main() {
 
   // The review itself succeeded by this point; a flaky comments API must not turn the check red.
   const priorState = verified ? 'verified' : toVerify.length === 0 ? 'none-open' : 'unknown';
-  await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause, previously, priorState })).catch((e) =>
+  // What this round did, written down for the next one rather than left to be re-derived from these comments.
+  const roundState = buildState({
+    commit: COMMIT,
+    currentByFp,
+    threadIdByFp: threadIdByFp(threads),
+    actions: actionByFp({ stats, unpostable, currentByFp, superseded, duplicates, resolvedIds }),
+  });
+  await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause, previously, priorState }), roundState).catch((e) =>
     console.warn(`Could not post the summary comment: ${e.message}`),
   );
   console.log(

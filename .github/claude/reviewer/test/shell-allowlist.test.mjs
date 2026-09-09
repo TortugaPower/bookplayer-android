@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { encodeState, decodeState, buildState, threadIdByFp, actionByFp, closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -2236,4 +2236,73 @@ test('a close this round made is reported once, and an attempted one is not repo
   const body = renderSummary({ verdict: 'pass', summary: 's', findings: [] }, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 2 }, [], { previously: done });
   assert.equal(body.includes('verified closed'), false);
   assert.match(body, /2 resolved/);
+});
+
+test('the harness writes down what it did, and reads back only its own record', () => {
+  // Five rounds of defects came from re-deriving this from rendered comments. The record round-trips through the
+  // summary comment; every consumer still falls back to the markers when it is absent, so a PR opened before this
+  // landed behaves as it did.
+  const f = { file: 'a.kt', line: 3, severity: 'warn', comment: 'the deadline is read before the message in hand' };
+  const fp = fingerprint(f);
+  const state = buildState({
+    commit: 'abcdef1234567890',
+    currentByFp: new Map([[fp, f]]),
+    threadIdByFp: new Map([[fp, 'PRRT_thread1']]),
+    actions: new Map([[fp, 'kept']]),
+  });
+  const body = `## ✅ Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${encodeState(state)}`;
+  const read = decodeState(body);
+  assert.equal(read.commit, 'abcdef1234567890');
+  assert.deepEqual(read.findings[fp], { id: 'PRRT_thread1', file: f.file, line: 3, severity: 'warn', text: f.comment, action: 'kept', commit: 'abcdef1234567890' });
+
+  // Absent, unreadable, or a different version: no record, so the caller falls back rather than guessing.
+  assert.equal(decodeState('## a summary with no record\n\n<!-- bp-ai-review-summary -->'), null);
+  assert.equal(decodeState('<!-- bp-ai-review-state:{not json} -->'), null);
+  assert.equal(decodeState('<!-- bp-ai-review-state:{"v":99,"findings":{}} -->'), null);
+  assert.equal(decodeState(''), null);
+
+  // A finding's own text cannot close the comment early and smuggle markup into the summary.
+  const hostile = { file: 'a.kt', line: 1, severity: 'warn', comment: 'ends the comment --> <script>alert(1)</script>' };
+  const encoded = encodeState(buildState({ commit: 'c', currentByFp: new Map([[fingerprint(hostile), hostile]]), threadIdByFp: new Map(), actions: new Map() }));
+  assert.equal(encoded.split('-->').length - 1, 1); // exactly one terminator: its own
+  assert.match(decodeState(encoded).findings[fingerprint(hostile)].text, /ends the comment --> <script>/);
+
+  // The record is bounded: a runaway PR cannot push the comment past GitHub's limit through it.
+  // Bounded by count AND by bytes: 200 records of the longest plausible text came to 81 KB, which would have
+  // destroyed the comment the record rides in. Severity-first, so what survives a trim is what matters.
+  const many = new Map(Array.from({ length: 500 }, (_, i) => [`fp${i}`, { file: `f${i}.kt`, line: i, severity: i % 5 === 0 ? 'error' : 'info', comment: 'x'.repeat(400) }]));
+  const big = buildState({ commit: 'c', currentByFp: many, threadIdByFp: new Map(), actions: new Map() });
+  assert.equal(Object.keys(big.findings).length, 60);
+  assert.equal(Object.values(big.findings).filter((r) => r.severity === 'error').length, 60); // errors first
+  assert.ok(encodeState(big).length < 20_001, `encoded ${encodeState(big).length}`);
+  // And the byte budget holds even when every record is at its text cap.
+  const wide = buildState({ commit: 'c', currentByFp: new Map(Array.from({ length: 60 }, (_, i) => [`g${i}`, { file: 'x'.repeat(200), line: i, severity: 'error', comment: 'y'.repeat(400) }])), threadIdByFp: new Map(), actions: new Map() });
+  assert.ok(encodeState(wide).length <= 20_000);
+  assert.ok(decodeState(encodeState(wide)) !== null); // still parseable after the trim
+});
+
+test('the record says which thread carries which finding, and what became of it', () => {
+  const f = (file, line, severity, comment) => ({ file, line, severity, comment });
+  const posted = f('a.kt', 1, 'warn', 'posted this round');
+  const over = f('b.kt', 2, 'info', 'past the inline cap');
+  const threads = [
+    { id: 'T1', firstCommentAuthor: 'github-actions[bot]', firstCommentBody: `x <!-- bp-ai-review-fp:${fingerprint(posted)} -->` },
+    { id: 'T2', firstCommentAuthor: 'someone', firstCommentBody: `forged <!-- bp-ai-review-fp:${fingerprint(over)} -->` },
+  ];
+  // Only threads this harness opened count, the same rule the markers already have.
+  const byFp = threadIdByFp(threads);
+  assert.equal(byFp.get(fingerprint(posted)), 'T1');
+  assert.equal(byFp.has(fingerprint(over)), false);
+
+  const actions = actionByFp({
+    currentByFp: new Map([[fingerprint(posted), posted], [fingerprint(over), over]]),
+    unpostable: [over],
+    superseded: [{ id: 'T9' }],
+    duplicates: [{ id: 'T8' }],
+    resolvedIds: new Set(['T9', 'T8']),
+  });
+  assert.equal(actions.get(fingerprint(posted)), 'posted');
+  assert.equal(actions.get(fingerprint(over)), 'unpostable'); // it exists, it just is not inline
+  assert.equal(actions.get('thread:T9'), 'superseded');
+  assert.equal(actions.get('thread:T8'), 'duplicate');
 });
