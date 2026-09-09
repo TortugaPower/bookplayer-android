@@ -1,0 +1,102 @@
+# The AI PR reviewer
+
+Runs on every push to a PR against `main` or `develop` (`.github/workflows/claude-review.yml`), reviews the
+diff with a Claude agent, and keeps the result as review comments on the PR. Advisory: the check is always
+green, a human still merges.
+
+`review-guide.md` (one directory up) is the reviewer's rubric — what to flag, at what severity, what to skip.
+It is the file to edit to change *what* gets reviewed. Everything below is about the harness that runs it.
+
+## What a round does
+
+1. Fetches the PR and its diff (the agent gets no token; the diff is written to `RUNNER_TEMP`).
+2. **Review pass** — the agent reads the diff and the checkout with read-only tools and returns JSON findings.
+3. Each finding gets a fingerprint, `sha1(file|line|severity)`. A finding whose fingerprint already has a
+   comment is left alone; one that is new is posted inline; one that cannot be anchored (no such line in the
+   diff, past the 25-comment cap, a refused post) is listed in the summary comment instead.
+4. **Verification pass** — a second agent judges every still-open thread this round did *not* re-report against
+   the current code: `fixed`, `present`, `not_applicable`, `accepted` (a maintainer said so), `insufficient`,
+   or `duplicate` of a finding this push reports. **This is the only thing that closes a thread.** Absence
+   closes nothing; an `error` closes only on evidence of a fix or a maintainer's own resolve.
+5. Writes one summary comment, which carries a hidden state record (`<!-- bp-ai-review-state:… -->`) of what
+   this round did: which thread carries which finding, what was closed and why. The next round reads it instead
+   of re-deriving its own history from rendered comments.
+
+## Running the tests
+
+```
+cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
+```
+
+~150 tests, a few seconds, no network and no API key. CI runs exactly this before the review step, so a red
+suite means no review ran (and the workflow says so on the PR).
+
+`test/shell-allowlist.test.mjs` holds the unit tests — the tool gate, the record, the prompts, the budgets.
+`test/round.test.mjs` runs whole rounds through `runReview({ agent })` with `fetch` stubbed and the model
+faked, which is where composition bugs show up.
+
+**When you change behaviour, mutate it.** The discipline this harness is held to: make the change, then break
+it on purpose and check a test fails. Most of the bugs found in it were found that way, and most of them lived
+in code that was already covered by a test that could not see them.
+
+## Running it locally
+
+```
+DRY_RUN=1 \
+ANTHROPIC_API_KEY=… GITHUB_TOKEN=$(gh auth token) \
+GITHUB_REPOSITORY=TortugaPower/bookplayer-android PR_NUMBER=114 \
+COMMIT=$(gh pr view 114 --json headRefOid --jq .headRefOid) BASE_REF=develop \
+RUNNER_TEMP=/tmp/reviewer \
+node .github/claude/reviewer/review.mjs
+```
+
+`DRY_RUN=1` reads GitHub for real (PR, diff, comments) and runs the real agent, then prints the findings and
+the summary it *would* post. Every write path sits behind that flag, so nothing reaches the PR. Drop the flag
+only against a PR you are happy to have commented on.
+
+To exercise the plumbing without spending a model call, stub the agent as the round tests do:
+`runReview({ agent: async () => ({ finalText: '```json\n{…}\n```', resultSubtype: 'success' }) })`.
+
+## Knobs
+
+| env | default | what it does |
+| --- | --- | --- |
+| `REVIEW_MODEL` | unset | Pins the model. Unset = newest Opus-tier id from the Models API, with a fallback list. |
+| `REVIEW_DEADLINE_MS` | 12 min | The review pass's own clock. |
+| `REVIEW_JOB_BUDGET_MS` | 18 min | Both passes plus setup. The review is capped by this minus the verify slice. |
+| `REVIEW_VERIFY_BUDGET_MS` | 5 min | Reserved for the verification pass; under 60 s left, it is skipped and the summary says so. |
+| `REVIEW_MAX_TURNS` | 40 in code, 200 in the workflow | Runaway guard only; the real bound is the deadline. |
+| `REVIEW_MAX_OUTPUT_TOKENS` | 32,000 | Per model response. A finding list cut off mid-JSON is reported as a partial round, and closes nothing. |
+| `DRY_RUN` | off | Read everything, write nothing. |
+| `ACTIONS_STEP_DEBUG` | off | Raises the agent-output dump in the log from 4 KB to 20 KB. A public repo's log is public. |
+
+Raising `REVIEW_DEADLINE_MS` or `REVIEW_JOB_BUDGET_MS` means raising `timeout-minutes` in the workflow with
+them: it bounds both, and a job cancelled mid-reconcile leaves a PR with comments and no summary.
+
+## Tokens
+
+- `ANTHROPIC_API_KEY` — repository secret. The agent's environment is built by allowlist, so neither token
+  below is visible to it.
+- `REVIEW_RESOLVE_TOKEN` — optional but load-bearing: the default `GITHUB_TOKEN` cannot resolve review threads
+  ("Resource not accessible by integration"), so without it every close fails, the threads stay open, and the
+  summary says "could not be resolved" on each one. A fine-grained PAT scoped to this repository with
+  **Pull requests: read & write** is enough — a classic repo-scope token over-reaches, since this job runs
+  PR-branch code. To rotate: create the PAT, update the repository secret, and update the backup copy in SSM
+  (`/github/review-resolve-pat`, profile `bookplayer`, us-east-1) so a write-only GitHub secret is recoverable.
+
+## Things worth knowing before changing it
+
+- **Nothing closes a thread except a judgement.** Two earlier designs closed threads by resemblance (file +
+  severity + a similarity score over the comment texts) and both retired live findings: two different findings
+  in one file measure 0.889 against a 0.5 bar. If you are tempted again, the answer is a verdict from the
+  verification pass, which reads the code.
+- **The record is the harness's memory, and every summary write replaces the comment it lives in.** Any path
+  that writes a summary must carry a record — its own, or the one it read. Two bugs came from a path that
+  wrote one without.
+- **The agent's Bash is a grammar, not an emulator.** `analyzeShell` accepts only what it can prove it has
+  parsed exactly as bash would (the words it sees ARE the argv), and flags are allowlisted per command in full
+  spelling, because `getopt_long` accepts any unambiguous prefix. Adding a command means adding its flags, and
+  anything that follows symlinks, never returns, or takes filenames from a file stays out.
+- **Everything the model writes is untrusted at the write boundary.** `redact()` runs on every body, reply and
+  record field; `neutralizeMarkup` stops model text from opening an HTML comment, which is what keeps a
+  finding from forging a state record or a fingerprint marker.

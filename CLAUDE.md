@@ -5,7 +5,7 @@ iOS BookPlayer app and shares the same BookPlayer backend (sync, auth, subscript
 
 ## Tech stack
 
-- **Language / build:** Kotlin, Gradle (Kotlin DSL), KSP. JDK 17. `minSdk 28`, `targetSdk`/`compileSdk 35`.
+- **Language / build:** Kotlin, Gradle (Kotlin DSL), KSP. JDK 17. `minSdk 28`, `targetSdk`/`compileSdk 36`.
 - **UI:** Jetpack Compose + **Material3**, Navigation Compose, Coil (images), `konfetti` (effects).
 - **Architecture:** MVVM. `ViewModel` + `StateFlow` for state; UI observes and renders.
 - **DI:** **Manual** — `ViewModelProvider.Factory` per ViewModel (e.g. `LibraryViewModelFactory`),
@@ -123,8 +123,11 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   resource shrinking and `-repackageclasses`. Anything another process resolves **by class name**
   (manifest components, Room `_Impl`, the Wear ongoing-activity surface) needs a keep rule AND an
   entry in `scripts/audit-mapping.sh`, which fails CI when such a class is renamed or moved.
-- **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest`, `lintDevDebug`, then an
-  unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17.
+- **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest` **and**
+  `:core:testDebugUnitTest` (the `:core` tests have no flavour, so they are not covered by the app's task),
+  `lintDevDebug`, then an unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17.
+  A separate workflow (`.github/workflows/claude-review.yml`) runs the AI PR reviewer on every push to a PR —
+  see `.github/claude/reviewer/README.md`; its own tests run there before the review.
 
 ## Conventions
 
