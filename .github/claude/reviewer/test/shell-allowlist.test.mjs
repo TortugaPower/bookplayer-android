@@ -2089,6 +2089,24 @@ test('a flag must be one this review needs, spelled in full', () => {
   }
 });
 
+test('a second thread carrying the same fingerprint is judged, not ignored forever', () => {
+  // reconcile keeps the FIRST thread per fingerprint, so a second one carrying the same finding was in no
+  // bucket at all: never kept, never closed, never verified, never recorded — invisible for as long as its
+  // finding kept being reported. Reachable through the window `cancel-in-progress` leaves, where a cancelled
+  // run has already posted a comment and its successor listed the threads seconds earlier.
+  const f = { file: 'a.kt', line: 5, severity: 'warn', comment: 'one finding, two threads' };
+  const fp = reconcileFp(f);
+  const thread = (id) => ({
+    id, isResolved: false, firstCommentId: id.length, firstCommentAuthor: 'github-actions[bot]',
+    path: f.file, line: f.line, comments: [],
+    firstCommentBody: `🟡 **WARN** — ${f.comment} <!-- bp-ai-review-fp:${fp} -->`,
+  });
+  const plan = planRound({ threads: [thread('T-d1'), thread('T-d2')], currentByFp: new Map([[fp, f]]), provisional: false });
+  // The carrier is left alone (its finding was re-reported); the other goes to the verifier, which can call it
+  // a duplicate of the finding this push reports.
+  assert.deepEqual(plan.toVerify.map((t) => t.id), ['T-d2']);
+});
+
 test('the round plan is what production runs, and it holds the rules composition can break', () => {
   // main() is not reachable from a test, so the decisions it used to make inline live here. A mutation sweep
   // showed both of these could be changed with the whole suite green: narrowing `eligibleIds` to what the verify
