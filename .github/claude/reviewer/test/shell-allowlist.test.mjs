@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, closedThreadRows, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -2405,4 +2405,23 @@ test('whether WE closed a thread comes from the record, not from marker archaeol
   assert.equal(harnessClosedByRecord(buried, recordWith('resolved')), true);
   assert.equal(harnessClosed(buried), false); // the old path cannot see it, which is the bug
   assert.equal(harnessClosed(buried, undefined, recordWith('resolved')), true); // and the record fixes it
+});
+
+test('one place decides which finding a thread carries, and it prefers the record', () => {
+  // Three consumers derived this separately and two were still parsing comment bodies after the others had moved
+  // to the record — an end-to-end round caught it, and a returning finding was posted as new instead of reopening.
+  const f = { file: 'a.kt', line: 4, severity: 'warn', comment: 'a finding' };
+  const fp = fingerprint(f);
+  const withMarker = { id: 'T1', firstCommentBody: `🟡 **WARN** — a finding <!-- bp-ai-review-fp:${fp} -->` };
+  const edited = { id: 'T1', firstCommentBody: 'someone removed everything from this comment' };
+  const record = { commit: 'c', findings: { [fp]: { id: 'T1', file: f.file, line: 4, severity: 'warn', text: f.comment, action: 'posted', commit: 'c' } } };
+
+  // The marker still answers when there is no record: that is the path a PR opened before this landed takes.
+  assert.equal(fingerprintOfThread(withMarker, null), fp);
+  assert.equal(fingerprintOfThread(edited, null), undefined);
+  // The record answers regardless of what the body says.
+  assert.equal(fingerprintOfThread(edited, record), fp);
+  assert.equal(fingerprintOfThread(withMarker, record), fp);
+  // A record entry for a different thread does not leak onto this one.
+  assert.equal(fingerprintOfThread({ id: 'T2', firstCommentBody: 'x' }, record), undefined);
 });

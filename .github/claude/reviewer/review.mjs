@@ -70,6 +70,16 @@ const AUTO_RESOLVED_NOTE = `Not reported in the latest run — resolved automati
 // the thread themselves, that decision is respected on later runs.
 const REOPENED_NOTE = 'Reported again in the latest run — reopened. <!-- bp-ai-review-reopened -->';
 const FP_REGEX = /<!-- bp-ai-review-fp:([a-f0-9]+) -->/;
+// The fingerprint a thread carries. The record answers when it has an entry for that thread; the marker in the
+// comment body is the FALLBACK, for a PR opened before the record existed and for a round where the record could
+// not be read. Both paths live here rather than in each consumer: three of them drifted apart before this, and an
+// end-to-end round caught two of them still parsing bodies after the others had moved.
+export function fingerprintOfThread(thread, priorState = null) {
+  for (const [fp, record] of Object.entries(priorState?.findings || {})) {
+    if (record?.id && record.id === thread.id) return fp;
+  }
+  return (FP_REGEX.exec(thread.firstCommentBody || '') || [])[1];
+}
 
 // Model is resolved at runtime (newest Opus-tier id from the Models API) unless REVIEW_MODEL pins one.
 // Used only when the Models API cannot be reached. An ordered list, not one constant: a single retired id would
@@ -792,7 +802,7 @@ export function threadIdByFp(threads = [], priorState = null) {
     if (record?.id && ids.has(record.id)) map.set(fp, record.id);
   }
   for (const t of ours) {
-    const fp = (FP_REGEX.exec(t.firstCommentBody || '') || [])[1];
+    const fp = fingerprintOfThread(t, priorState);
     if (fp && !map.has(fp)) map.set(fp, t.id);
   }
   return map;
@@ -1365,10 +1375,12 @@ export function planRound({ threads, currentByFp, provisional, priorState = null
   // The fingerprint a thread carries, and the finding it was: from the record when there is one, from the comment
   // body when there is not. The record is the reason this no longer has to parse its own rendered output — and it
   // knows the finding's text and severity exactly, rather than recovering them from an emoji prefix.
-  const recorded = new Map(Object.entries(priorState?.findings || {}));
   const byThreadId = new Map();
-  for (const [fp, record] of recorded) if (record?.id) byThreadId.set(record.id, { fp, record });
-  const fpOf = (t) => byThreadId.get(t.id)?.fp || (FP_REGEX.exec(t.firstCommentBody || '') || [])[1];
+  for (const [fp, record] of Object.entries(priorState?.findings || {})) if (record?.id) byThreadId.set(record.id, { fp, record });
+  const fpOf = (t) => fingerprintOfThread(t, priorState);
+  // The finding a thread carries. The record knows it exactly; the fallback recovers it from the rendered comment,
+  // which is lossy in both directions — severity comes back from an emoji prefix and the text from markdown with
+  // our own markup stripped out.
   const identityOf = (t) => {
     const known = byThreadId.get(t.id)?.record;
     if (known) return { path: known.file, severity: known.severity, text: known.text };
@@ -1618,14 +1630,9 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
   // edited was invisible here, so a returning finding was posted as new instead of reopening its own thread.
   const existingByFp = new Map();
   const ours = threads.filter((t) => isHarnessComment(t.firstCommentAuthor));
-  const byId = new Map(ours.map((t) => [t.id, t]));
-  for (const [fp, record] of Object.entries(priorState?.findings || {})) {
-    const t = record?.id ? byId.get(record.id) : null;
-    if (t) existingByFp.set(fp, t);
-  }
   for (const t of ours) {
-    const m = (t.firstCommentBody || '').match(FP_REGEX);
-    if (m && !existingByFp.has(m[1])) existingByFp.set(m[1], t);
+    const fp = fingerprintOfThread(t, priorState);
+    if (fp && !existingByFp.has(fp)) existingByFp.set(fp, t);
   }
 
   const stats = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
