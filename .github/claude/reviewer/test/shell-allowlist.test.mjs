@@ -437,6 +437,29 @@ test('a provisional result never closes a thread this round decided to close', a
 });
 
 
+test('the LAST complete fenced result is the answer, not an earlier one', () => {
+  // The model is asked for concrete fixes, so its prose routinely quotes result-shaped JSON — this repo's own
+  // review guide contains one. Candidates are tried newest-fence-first for that reason: the answer is the block
+  // the model ended with. Trying them in document order instead returns the quoted example, and the round then
+  // reports whatever that example happened to say. Deleting the reversal left the suite green.
+  const quoted = { verdict: 'pass', summary: 'the example in the guide', findings: [] };
+  const real = { verdict: 'fail', summary: 'what this run actually found', findings: [{ severity: 'error', file: 'a.kt', line: 3, comment: 'the real finding' }] };
+  const answer = [
+    'The contract in the guide looks like this:',
+    '```json',
+    JSON.stringify(quoted),
+    '```',
+    'and here is my own result:',
+    '```json',
+    JSON.stringify(real),
+    '```',
+  ].join('\n');
+  const parsed = extractJson(answer);
+  assert.equal(parsed.verdict, 'fail');
+  assert.equal(parsed.summary, real.summary);
+  assert.equal(parsed.findings.length, 1);
+});
+
 test('a result that omits findings is accepted and normalised (seen live: a complete pass was discarded)', () => {
   // The exact shape from run 34134948485: prose containing an inline ```json mention, then the fenced result with
   // verdict + summary and no findings key.
