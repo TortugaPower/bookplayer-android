@@ -280,7 +280,7 @@ test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismisse
   // t-stale's finding is gone from this run and `planRound` decided the new NEW comment carries it: that named
   // decision is the ONLY thing that can close a thread now. Absence alone leaves it for the verification pass.
   const closedBy = new Map([['t-stale', { fp: reconcileFp(NEW), kind: 'posted' }]]);
-  const { stats, unpostable } = await reconcile(current, threads, io, { eligibleIds: new Set(), closedBy, priorState: null });
+  const { stats, unpostable } = await reconcile(current, threads, io, { closedBy, priorState: null });
 
   assert.deepEqual(stats, { posted: 1, kept: 1, reopened: 1, dismissed: 1, resolved: 1 });
   // The finding on the human-resolved thread is NOT dropped: no new comment and no reopen (both would be
@@ -303,7 +303,7 @@ test('reconcile: a human resolve after a reopen is respected (reopen note is the
     firstCommentBody: `x <!-- bp-ai-review-fp:${reconcileFp(f)} -->` };
   const calls = [];
   const io = { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async (t) => { calls.push(t.id); } };
-  const { stats } = await reconcile(current, [thread], io, { eligibleIds: new Set(), priorState: null });
+  const { stats } = await reconcile(current, [thread], io, { priorState: null });
   assert.deepEqual(calls, []);
   assert.equal(stats.dismissed, 1);
   assert.equal(stats.reopened, 0);
@@ -315,7 +315,7 @@ test('reconcile: when resolving fails, no auto-resolve marker is posted', async 
     firstCommentBody: `x <!-- bp-ai-review-fp:${reconcileFp(f)} -->` };
   const replies = [];
   const io = { post: async () => {}, reply: async (t, body) => { replies.push(body); }, resolve: async () => { throw new Error('Resource not accessible by integration'); }, unresolve: async () => {} };
-  const { stats } = await reconcile(new Map(), [thread], io, { eligibleIds: new Set(), priorState: null });
+  const { stats } = await reconcile(new Map(), [thread], io, { priorState: null });
   assert.equal(stats.resolved, 0);
   assert.deepEqual(replies, []);
 });
@@ -325,7 +325,7 @@ test('reconcile: model text cannot forge a fingerprint marker', async () => {
   const current = new Map([[reconcileFp(f), f]]);
   const bodies = [];
   const io = { post: async (_f, body) => { bodies.push(body); }, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
-  await reconcile(current, [], io, { eligibleIds: new Set(), priorState: null });
+  await reconcile(current, [], io, { priorState: null });
   const markers = [...bodies[0].matchAll(/<!-- bp-ai-review-fp:([a-f0-9]+) -->/g)].map((m) => m[1]);
   assert.deepEqual(markers, [reconcileFp(f)]); // only ours survives; the model's is neutralised
 });
@@ -337,7 +337,7 @@ test('reconcile: inline comments are capped severity-first; overflow is reported
   const current = new Map(findings.map((f) => [reconcileFp(f), f]));
   const posted = [];
   const io = { post: async (f) => { posted.push(f); }, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
-  const { stats, unpostable } = await reconcile(current, [], io, { eligibleIds: new Set(), priorState: null });
+  const { stats, unpostable } = await reconcile(current, [], io, { priorState: null });
   assert.equal(posted.length, 25);
   assert.equal(posted[0].severity, 'error');
   assert.equal(stats.posted, 25);
@@ -349,7 +349,7 @@ test('reconcile: a failed inline post lands in unpostable instead of aborting', 
   const f = { file: 'a.kt', line: 1, severity: 'warn', comment: 'x' };
   const current = new Map([[reconcileFp(f), f]]);
   const io = { post: async () => { throw new Error('422 line not in diff'); }, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
-  const { stats, unpostable } = await reconcile(current, [], io, { eligibleIds: new Set(), priorState: null });
+  const { stats, unpostable } = await reconcile(current, [], io, { priorState: null });
   assert.equal(stats.posted, 0);
   assert.deepEqual(unpostable, [f]);
 });
@@ -428,10 +428,10 @@ test('a provisional result never closes a thread this round decided to close', a
   const closedBy = new Map([['t1', { fp: reconcileFp(f), kind: 'posted' }]]);
   // `planRound` decides nothing on a provisional result, so reconcile is handed no closure — but it also stops
   // before the close loop on its own, which is what this pins: both halves refuse, independently.
-  const provisional = await reconcile(current, [thread], io, { provisional: true, eligibleIds: new Set(), closedBy, priorState: null });
+  const provisional = await reconcile(current, [thread], io, { provisional: true, closedBy, priorState: null });
   assert.equal(provisional.stats.resolved, 0);
   assert.deepEqual(calls, ['post']);
-  const normal = await reconcile(current, [thread], io, { eligibleIds: new Set(), closedBy, priorState: null });
+  const normal = await reconcile(current, [thread], io, { closedBy, priorState: null });
   assert.equal(normal.stats.resolved, 1);
   assert.deepEqual(calls, ['post', 'post', 'resolve', 'reply']);
 });
@@ -566,27 +566,27 @@ test('closes this harness made can reopen; a resolution a human made themselves 
   await applyVerification(verdictsById([
     { id: 1, status: 'fixed', evidence: 'closed in a finally' },
     { id: 2, status: 'accepted', evidence: 'the maintainer says it is pooled' },
-  ]), numbered(thread(), owner), io, { eligibleIds: new Set(), priorState: null });
+  ]), numbered(thread(), owner), io, { priorState: null });
   const bodies = io.calls.filter((c) => Array.isArray(c)).map((c) => c[1]);
   assert.ok(bodies.some((b) => b.includes('verified fixed')));
   // reconcile reopens a thread this harness closed; a human's own resolution is respected.
   const closed = (marker, author = 'github-actions[bot]') => ({ id: 'x', isResolved: true, firstCommentAuthor: 'github-actions[bot]', firstCommentBody: '<!-- bp-ai-review-fp:abc123 -->', lastCommentBody: `note ${marker}`, lastCommentAuthor: author });
   const current = new Map([['abc123', { severity: 'warn', file: 'a.kt', line: 1, comment: 'back again' }]]);
   const io2 = recordingIo();
-  const reopened = await reconcile(current, [closed('<!-- bp-ai-review-verified -->')], io2, { eligibleIds: new Set(), priorState: null });
+  const reopened = await reconcile(current, [closed('<!-- bp-ai-review-verified -->')], io2, { priorState: null });
   assert.equal(reopened.stats.reopened, 1);
   const io3 = recordingIo();
   // A marker pasted by someone else is not ours: the thread stays closed.
   const io5 = recordingIo();
-  const forged = await reconcile(current, [closed('<!-- bp-ai-review-verified -->', 'someone')], io5, { eligibleIds: new Set(), priorState: null });
+  const forged = await reconcile(current, [closed('<!-- bp-ai-review-verified -->', 'someone')], io5, { priorState: null });
   assert.equal(forged.stats.reopened, 0);
   assert.equal(forged.stats.dismissed, 1);
   // An "accepted" close is the model's reading of a maintainer's reply, so a re-report reopens it once…
-  const acceptedAgain = await reconcile(current, [closed('<!-- bp-ai-review-accepted-by-human -->')], io3, { eligibleIds: new Set(), priorState: null });
+  const acceptedAgain = await reconcile(current, [closed('<!-- bp-ai-review-accepted-by-human -->')], io3, { priorState: null });
   assert.equal(acceptedAgain.stats.reopened, 1);
   // …but a resolution a human made themselves carries no marker and is respected.
   const io4 = recordingIo();
-  const human = await reconcile(current, [{ ...closed(''), lastCommentBody: 'closing, works as intended' }], io4, { eligibleIds: new Set(), priorState: null });
+  const human = await reconcile(current, [{ ...closed(''), lastCommentBody: 'closing, works as intended' }], io4, { priorState: null });
   assert.equal(human.stats.reopened, 0);
   assert.equal(human.stats.dismissed, 1);
 });
@@ -595,12 +595,12 @@ test('an insufficient thread is answered once, not on every push', async () => {
   const io = recordingIo();
   const note = '🟡 still open: the leak stands\n\n<!-- bp-ai-review-verify-note -->';
   const answered = thread({ lastCommentBody: note, lastCommentAuthor: 'github-actions[bot]', comments: [thread().comments[0], { id: 2, body: note, author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-02T00:00:00Z' }] });
-  await applyVerification(verdictsById([{ id: 1, status: 'insufficient', evidence: 'still leaks' }]), numbered(answered), io, { eligibleIds: new Set(), priorState: null });
+  await applyVerification(verdictsById([{ id: 1, status: 'insufficient', evidence: 'still leaks' }]), numbered(answered), io, { priorState: null });
   assert.deepEqual(io.calls, []); // our note is already the last word
   // ...and a human replying after it reopens the conversation, so we answer again.
   // A maintainer's reply is newer than our note, so the thread is live again and gets an answer.
   const humanReplied = thread({ lastCommentBody: 'but the pool is per-thread', lastCommentAuthor: 'gianni', comments: answered.comments.concat({ id: 3, body: 'but the pool is per-thread', author: 'gianni', association: 'OWNER', createdAt: '2026-01-03T00:00:00Z' }) });
-  await applyVerification(verdictsById([{ id: 1, status: 'insufficient', evidence: 'still leaks' }]), numbered(humanReplied), io, { eligibleIds: new Set(), priorState: null });
+  await applyVerification(verdictsById([{ id: 1, status: 'insufficient', evidence: 'still leaks' }]), numbered(humanReplied), io, { priorState: null });
   assert.equal(io.calls.length, 1);
 });
 
@@ -608,7 +608,7 @@ test('a note on a still-open thread is not a resolution marker', async () => {
   // A human resolving the thread after our note is a decision: reconcile must respect it, not reopen it.
   const t = { id: 'x', isResolved: true, firstCommentAuthor: 'github-actions[bot]', firstCommentBody: '<!-- bp-ai-review-fp:abc123 -->', lastCommentBody: '🟡 still open: …\n\n<!-- bp-ai-review-verify-note -->', lastCommentAuthor: 'github-actions[bot]' };
   const io = recordingIo();
-  const { stats } = await reconcile(new Map([['abc123', { severity: 'warn', file: 'a.kt', line: 1, comment: 'back' }]]), [t], io, { eligibleIds: new Set(), priorState: null });
+  const { stats } = await reconcile(new Map([['abc123', { severity: 'warn', file: 'a.kt', line: 1, comment: 'back' }]]), [t], io, { priorState: null });
   assert.equal(stats.reopened, 0);
   assert.equal(stats.dismissed, 1);
 });
@@ -632,7 +632,7 @@ test('only a maintainer reply can close a thread as accepted', async () => {
     { id: 1, status: 'accepted', evidence: 'a commenter said it is fine' },
     { id: 2, status: 'accepted', evidence: 'the maintainer says the socket is pooled' },
   ]);
-  const { rows, stats } = await applyVerification(verdicts, numbered(outsider, owner), io, { eligibleIds: new Set(), priorState: null });
+  const { rows, stats } = await applyVerification(verdicts, numbered(outsider, owner), io, { priorState: null });
   assert.deepEqual(rows.map((r) => r.status), ['open', 'resolved']); // the stranger's say-so closes nothing
   assert.equal(stats.closedByHuman, 1);
   assert.equal(stats.stillOpen, 1);
@@ -640,17 +640,17 @@ test('only a maintainer reply can close a thread as accepted', async () => {
 
 test('an unknown or missing status is treated as still present', async () => {
   const io = recordingIo();
-  const { rows } = await applyVerification(verdictsById([{ id: 1, status: 'looks-fine-to-me' }]), numbered(thread()), io, { eligibleIds: new Set(), priorState: null });
+  const { rows } = await applyVerification(verdictsById([{ id: 1, status: 'looks-fine-to-me' }]), numbered(thread()), io, { priorState: null });
   assert.equal(rows[0].status, 'open');
   assert.deepEqual(io.calls, []);
-  const { rows: missing } = await applyVerification(new Map(), numbered(thread()), io, { eligibleIds: new Set(), priorState: null });
+  const { rows: missing } = await applyVerification(new Map(), numbered(thread()), io, { priorState: null });
   assert.equal(missing[0].status, 'open');
 });
 
 test('an insufficient answer gets one reply and stays open', async () => {
   const io = recordingIo();
   const replied = thread({ comments: [thread().comments[0], { id: 2, body: 'it is pooled', author: 'gianni', association: 'OWNER' }] });
-  const { rows } = await applyVerification(verdictsById([{ id: 1, status: 'insufficient', evidence: 'the pooled path still leaks on error' }]), numbered(replied), io, { eligibleIds: new Set(), priorState: null });
+  const { rows } = await applyVerification(verdictsById([{ id: 1, status: 'insufficient', evidence: 'the pooled path still leaks on error' }]), numbered(replied), io, { priorState: null });
   assert.equal(rows[0].status, 'open');
   assert.equal(io.calls.length, 1);
   assert.ok(io.calls[0][1].startsWith('🟡 still open'));
@@ -668,12 +668,12 @@ test('thread text reaches the verifier as escaped data', () => {
 test('reconcile leaves stale threads to the verification pass when it ran', async () => {
   const t = { id: 't1', isResolved: false, firstCommentAuthor: 'github-actions[bot]', firstCommentBody: '<!-- bp-ai-review-fp:abc123 -->', lastCommentBody: '' };
   const io = recordingIo();
-  const { stats } = await reconcile(new Map(), [t], io, { eligibleIds: new Set(['t1']), priorState: null });
+  const { stats } = await reconcile(new Map(), [t], io, { priorState: null });
   assert.equal(stats.resolved, 0);
   assert.deepEqual(io.calls, []);
   // And a thread in NEITHER set — no closure decision, not owned by the pass — is a composition bug, not a
   // licence to close: it stays open too. This is the branch that used to resolve on silence.
-  const { stats: orphan } = await reconcile(new Map(), [t], io, { eligibleIds: new Set(['other']), priorState: null });
+  const { stats: orphan } = await reconcile(new Map(), [t], io, { priorState: null });
   assert.equal(orphan.resolved, 0);
   assert.deepEqual(io.calls, []);
 });
@@ -702,6 +702,43 @@ test('a resolve that fails leaves the thread open and posts no "verified fixed" 
   assert.equal(stats.verifiedFixed, 0);
   assert.ok(!calls.some((c) => String(c).includes('verified fixed')));
   assert.ok(!calls.some((c) => String(c).includes('bp-ai-review-verified')));
+});
+
+test('what the verifier is shown: the fuller text, always bounded, and never the editor\'s prose', () => {
+  // `planRound` decides what the verification pass sees, and three separate mutations of that decision passed
+  // the suite: showing the body whatever state it is in, showing the record's 160-character prefix even when the
+  // full comment is intact, and dropping the bound on either. The prompt is where PR-author-influenced text
+  // reaches the model, so all three matter.
+  const long = `the audio session is never deactivated, ${'and the player is never released '.repeat(80)}`;
+  const fp = 'fp-prompt';
+  const thread = (body) => ({
+    id: 'T-p', isResolved: false, firstCommentId: 3, firstCommentAuthor: 'github-actions[bot]',
+    path: 'app/P.kt', line: 4, comments: [], firstCommentBody: body,
+  });
+  const record = { commit: 'c', findings: { [fp]: { id: 'T-p', file: 'app/P.kt', line: 4, severity: 'error', text: long.slice(0, 160), action: 'posted', commit: 'c' } } };
+
+  // Intact body: the BODY is the text, because it is the fuller of the two — the record only stores a prefix.
+  const intact = planRound({ threads: [thread(`🔴 **ERROR** — ${long} <!-- bp-ai-review-fp:${fp} -->`)], currentByFp: new Map(), provisional: false, priorState: record });
+  const shownIntact = intact.identities.get('T-p').promptText;
+  assert.ok(shownIntact.length > 160, `only ${shownIntact.length} characters of an intact comment reached the prompt`);
+  assert.ok(shownIntact.length <= 1200, `${shownIntact.length} characters reached the prompt`); // MAX_VERIFY_CHARS
+
+  // Edited past recognition: the record's text is the only true text there is, and the editor's prose is not it.
+  const edited = planRound({ threads: [thread('I trimmed this while triaging')], currentByFp: new Map(), provisional: false, priorState: record });
+  const shownEdited = edited.identities.get('T-p').promptText;
+  assert.equal(shownEdited, long.slice(0, 160));
+  assert.equal(shownEdited.includes('trimmed this'), false);
+  // The identity text the matcher compares is bounded too, on both paths.
+  assert.equal(intact.identities.get('T-p').text.length, 160);
+  assert.equal(edited.identities.get('T-p').text.length, 160);
+
+  // And an empty recorded severity is not knowledge: the body's prefix still counts, or the "an error closes
+  // only on a fix" guard cannot fire at all.
+  const blank = { commit: 'c', findings: { [fp]: { ...record.findings[fp], severity: '' } } };
+  const t = thread(`🔴 **ERROR** — ${long} <!-- bp-ai-review-fp:${fp} -->`);
+  const identity = planRound({ threads: [t], currentByFp: new Map(), provisional: false, priorState: blank }).identities.get('T-p');
+  assert.equal(identity.severity, '');
+  assert.match(buildVerifyPrompt([{ id: 1, thread: t, identity }], 'abcdef1234'), /severity="error"/);
 });
 
 test('an edited comment body cannot turn off the error guard or rewrite the finding', async () => {
@@ -752,7 +789,7 @@ test('an error finding is closed by a fix, never by the model rereading its prem
   const io = recordingIo();
   const errBody = '🔴 **ERROR** — the credential is logged';
   const err = thread({ firstCommentBody: errBody, comments: [{ id: 1, body: errBody, author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-01T00:00:00Z' }] });
-  const { rows, stats } = await applyVerification(verdictsById([{ id: 1, status: 'not_applicable', evidence: 'I think the premise was wrong' }]), numbered(err), io, { eligibleIds: new Set(), priorState: null });
+  const { rows, stats } = await applyVerification(verdictsById([{ id: 1, status: 'not_applicable', evidence: 'I think the premise was wrong' }]), numbered(err), io, { priorState: null });
   assert.equal(rows[0].status, 'open');
   assert.equal(stats.stillOpen, 1);
   assert.deepEqual(io.calls, []);
@@ -760,18 +797,18 @@ test('an error finding is closed by a fix, never by the model rereading its prem
   // ...nor by a maintainer comment the model reads as acceptance: any comment satisfies that gate.
   const io2 = recordingIo();
   const withReply = thread({ firstCommentBody: errBody, comments: [err.comments[0], { id: 2, body: 'good catch, fixing next week', author: 'gianni', association: 'OWNER', createdAt: '2026-01-02T00:00:00Z' }] });
-  const accepted = await applyVerification(verdictsById([{ id: 1, status: 'accepted', evidence: 'the maintainer replied' }]), numbered(withReply), io2, { eligibleIds: new Set(), priorState: null });
+  const accepted = await applyVerification(verdictsById([{ id: 1, status: 'accepted', evidence: 'the maintainer replied' }]), numbered(withReply), io2, { priorState: null });
   assert.equal(accepted.rows[0].status, 'open');
   assert.deepEqual(io2.calls, []);
   // ...and the gate is about closing only: an ERROR thread a maintainer replied to still gets its answer.
   const io4 = recordingIo();
-  const answered = await applyVerification(verdictsById([{ id: 1, status: 'insufficient', evidence: 'the redact() call is on the wrong branch' }]), numbered(withReply), io4, { eligibleIds: new Set(), priorState: null });
+  const answered = await applyVerification(verdictsById([{ id: 1, status: 'insufficient', evidence: 'the redact() call is on the wrong branch' }]), numbered(withReply), io4, { priorState: null });
   assert.equal(answered.rows[0].status, 'open');
   assert.equal(io4.calls.length, 1);
   assert.ok(String(io4.calls[0][1]).startsWith('🟡 still open'));
   // ...but evidence of a fix does close it.
   const io3 = recordingIo();
-  const fixed = await applyVerification(verdictsById([{ id: 1, status: 'fixed', evidence: 'the log line now uses redact()' }]), numbered(err), io3, { eligibleIds: new Set(), priorState: null });
+  const fixed = await applyVerification(verdictsById([{ id: 1, status: 'fixed', evidence: 'the log line now uses redact()' }]), numbered(err), io3, { priorState: null });
   assert.equal(fixed.stats.verifiedFixed, 1);
 });
 
@@ -787,7 +824,7 @@ test('a stale anchor is labelled rather than presented as a current line', () =>
 
 test('an insufficient verdict with no human reply posts nothing', async () => {
   const io = recordingIo();
-  const { rows } = await applyVerification(verdictsById([{ id: 1, status: 'insufficient', evidence: 'still there' }]), numbered(thread()), io, { eligibleIds: new Set(), priorState: null });
+  const { rows } = await applyVerification(verdictsById([{ id: 1, status: 'insufficient', evidence: 'still there' }]), numbered(thread()), io, { priorState: null });
   assert.equal(rows[0].status, 'open');
   assert.deepEqual(io.calls, []); // nobody replied, so there is nobody to answer
 });
@@ -968,14 +1005,14 @@ test('a human resolving after we reopened has the last word (realistic comment l
   // A human then resolved it silently: our newest comment is the reopen note, so the resolution is not ours.
   const humanResolved = { id: 'x', isResolved: true, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', firstCommentBody: comments[0].body, lastCommentBody: comments[2].body, lastCommentAuthor: 'github-actions[bot]', comments };
   const io = recordingIo();
-  const respected = await reconcile(current, [humanResolved], io, { eligibleIds: new Set(), priorState: null });
+  const respected = await reconcile(current, [humanResolved], io, { priorState: null });
   assert.equal(respected.stats.reopened, 0);
   assert.equal(respected.stats.dismissed, 1);
   assert.deepEqual(io.calls, []);
   // ...whereas a thread whose newest comment from us IS the resolve note is ours to reopen.
   const oursToReopen = { ...humanResolved, comments: comments.slice(0, 2), lastCommentBody: comments[1].body };
   const io2 = recordingIo();
-  const reopened = await reconcile(current, [oursToReopen], io2, { eligibleIds: new Set(), priorState: null });
+  const reopened = await reconcile(current, [oursToReopen], io2, { priorState: null });
   assert.equal(reopened.stats.reopened, 1);
 });
 
@@ -983,7 +1020,7 @@ test('a human resolving after we reopened has the last word (realistic comment l
 test('a hostile filename cannot break the summary table', async () => {
   const io = recordingIo();
   const nasty = thread({ path: 'app/we|ird`name<!--x.kt' });
-  const { rows } = await applyVerification(verdictsById([{ id: 1, status: 'present', evidence: 'x' }]), numbered(nasty), io, { eligibleIds: new Set(), priorState: null });
+  const { rows } = await applyVerification(verdictsById([{ id: 1, status: 'present', evidence: 'x' }]), numbered(nasty), io, { priorState: null });
   assert.ok(!rows[0].label.includes('|'));
   assert.ok(!rows[0].label.includes('<!--'));
   assert.ok(rows[0].label.includes('app/weirdname'));
@@ -1159,7 +1196,7 @@ test('a re-reported finding still surfaces when the reopen fails', async () => {
       throw new Error('Resource not accessible by integration');
     },
   };
-  const { stats, unpostable } = await reconcile(new Map([[reconcileFp(f), f]]), [t], io, { eligibleIds: new Set(), priorState: null });
+  const { stats, unpostable } = await reconcile(new Map([[reconcileFp(f), f]]), [t], io, { priorState: null });
   assert.equal(stats.reopened, 0);
   assert.deepEqual(unpostable, [f]);
   assert.ok(renderSummary({ verdict: 'warn', summary: 's', findings: [f] }, stats, unpostable).includes('came back'));
@@ -1229,7 +1266,7 @@ test('a finding that only moved line leaves one open thread, not two', async () 
     resolve: async (t) => calls.resolve.push(t.id),
     unresolve: async () => {},
   };
-  const { stats } = await reconcile(new Map([[reconcileFp(moved), moved]]), [old], io, { priorState: null, eligibleIds: new Set(), closedBy: new Map([['t-old', { fp: reconcileFp(moved), kind: 'posted' }]]) });
+  const { stats } = await reconcile(new Map([[reconcileFp(moved), moved]]), [old], io, { priorState: null, closedBy: new Map([['t-old', { fp: reconcileFp(moved), kind: 'posted' }]]) });
   assert.equal(stats.posted, 1); // the finding is posted where the code is now...
   assert.deepEqual(calls.resolve, ['t-old']); // ...and the stale anchor is closed, so one thread is open
   assert.match(calls.reply[0].body, /different line/); // and it says why, not "not reported in the latest run"
@@ -1275,12 +1312,12 @@ test('a superseded thread is only reported resolved when the resolve worked', as
     firstCommentBody: `🟡 **WARN** — same issue <!-- bp-ai-review-fp:${reconcileFp({ file: 'a.kt', line: 3, severity: 'warn' })} -->`,
   };
   const current = new Map([[reconcileFp(moved), moved]]);
-  const ok = await reconcile(current, [stale], { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} }, { priorState: null, eligibleIds: new Set(), closedBy: new Map([['t-old', { fp: reconcileFp(moved), kind: 'posted' }]]) });
+  const ok = await reconcile(current, [stale], { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} }, { priorState: null, closedBy: new Map([['t-old', { fp: reconcileFp(moved), kind: 'posted' }]]) });
   assert.deepEqual([...ok.resolvedIds], ['t-old']);
   const failed = await reconcile(current, [stale], {
     post: async () => {}, reply: async () => {}, unresolve: async () => {},
     resolve: async () => { throw new Error('Resource not accessible by integration'); },
-  }, { priorState: null, eligibleIds: new Set(), closedBy: new Map([['t-old', { fp: reconcileFp(moved), kind: 'posted' }]]) });
+  }, { priorState: null, closedBy: new Map([['t-old', { fp: reconcileFp(moved), kind: 'posted' }]]) });
   assert.equal(failed.resolvedIds.size, 0); // ...so the caller writes "could not be resolved", not ✅
   assert.equal(failed.stats.resolved, 0);
 });
@@ -1478,11 +1515,11 @@ test('a superseded thread stays open when its replacement never posted', async (
   const current = new Map([[reconcileFp(moved), moved]]);
   const by = new Map([['t-old', { fp: reconcileFp(moved), kind: 'posted' }]]);
 
-  const landed = await reconcile(current, [stale], io(true), { priorState: null, eligibleIds: new Set(), closedBy: by });
+  const landed = await reconcile(current, [stale], io(true), { priorState: null, closedBy: by });
   assert.deepEqual([...landed.resolvedIds], ['t-old']);
   assert.equal(landed.supersededKept.size, 0);
 
-  const lost = await reconcile(current, [stale], io(false), { priorState: null, eligibleIds: new Set(), closedBy: by });
+  const lost = await reconcile(current, [stale], io(false), { priorState: null, closedBy: by });
   assert.equal(lost.resolvedIds.size, 0); // nothing closed on a claim that did not land...
   assert.deepEqual([...lost.supersededKept], ['t-old']); // ...and the caller can say why
   assert.equal(lost.unpostable.length, 1);
@@ -2166,17 +2203,17 @@ test('only a maintainer can revoke our close, not any commenter', () => {
   }
 });
 
-test('reconcile refuses to run without knowing which threads the verifier owns', async () => {
-  // main() is not importable, so a call site that stopped passing the eligible set was a silent security
-  // regression no test could reach: the stale loop would resolve every unreported thread, errors included.
-  // Required rather than defaulted, so that mutation is a crash the harness reports instead of silence.
+test('reconcile closes only what it was told to close, and refuses to run without the record', async () => {
+  // The safety property, stated once: an unreported open thread with no closure decision is left ALONE. Two
+  // sets used to be passed in to keep the old "resolve on absence" branch away from such threads; the branch is
+  // gone, so those sets could not change any outcome (a mutation sweep proved it by emptying them), and the
+  // property now lives in one line of reconcile instead of in a contract between two functions.
   const io = { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
-  await assert.rejects(() => reconcile(new Map(), [], io, { priorState: null }), /eligibleIds must be a Set/);
-  await assert.rejects(() => reconcile(new Map(), [], io, { priorState: null, eligibleIds: ['t1'] }), /eligibleIds must be a Set/);
-  // Same for the state record. It is legitimately null on a first round, so it cannot be defaulted — a default is
-  // how a refactor drops it and sends reconciliation back to guessing from markers. The KEY is required.
-  await assert.rejects(() => reconcile(new Map(), [], io, { eligibleIds: new Set() }), /priorState must be passed explicitly/);
-  // With it, an eligible thread is left for the verifier even when nothing was handled this round.
+  // The state record is still required rather than defaulted: it is legitimately null on a first round, so a
+  // default is exactly how a refactor drops it and sends reconciliation back to guessing from markers. The KEY
+  // is required, so a call site that stops passing it crashes instead of quietly regressing.
+  await assert.rejects(() => reconcile(new Map(), [], io, {}), /priorState must be passed explicitly/);
+
   const f = { file: 'a.kt', line: 1, severity: 'error', comment: 'gone from this run' };
   const t = {
     id: 't1', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', path: 'a.kt', line: 1,
@@ -2184,9 +2221,17 @@ test('reconcile refuses to run without knowing which threads the verifier owns',
   };
   const calls = [];
   const spy = { ...io, resolve: async (thread) => calls.push(thread.id) };
-  const { stats } = await reconcile(new Map(), [t], spy, { eligibleIds: new Set(['t1']), handledIds: [], priorState: null });
+  // No closure decision at all: nothing is resolved, whatever else is true of the round.
+  const { stats } = await reconcile(new Map(), [t], spy, { priorState: null });
   assert.deepEqual(calls, []);
   assert.equal(stats.resolved, 0);
+  // An empty decision map is the same answer, not a licence.
+  await reconcile(new Map(), [t], spy, { priorState: null, closedBy: new Map() });
+  assert.deepEqual(calls, []);
+  // And a decision naming a carrier that is not live keeps it open too (the gate above the close).
+  const kept = await reconcile(new Map(), [t], spy, { priorState: null, closedBy: new Map([['t1', { fp: 'nowhere', kind: 'posted' }]]) });
+  assert.deepEqual(calls, []);
+  assert.deepEqual([...kept.supersededKept], ['t1']);
 });
 
 test('a finding that oscillates between two lines does not leave two threads open forever', async () => {
@@ -2214,7 +2259,7 @@ test('a finding that oscillates between two lines does not leave two threads ope
   const calls = { resolve: [], reply: [] };
   const io = { post: async () => {}, reply: async (t, body) => calls.reply.push(body), resolve: async (t) => calls.resolve.push(t.id), unresolve: async () => {} };
   const { stats } = await reconcile(currentByFp, threads, io, {
-    priorState: null, eligibleIds: plan.eligibleIds, closedBy: plan.closedBy,
+    priorState: null, closedBy: plan.closedBy,
   });
   assert.deepEqual(calls.resolve, ['t-7']);
   assert.equal(stats.kept, 1); // the thread carrying the finding stays
@@ -2223,7 +2268,7 @@ test('a finding that oscillates between two lines does not leave two threads ope
   // If the thread it duplicates stops carrying the finding, the duplicate is NOT closed on a claim about a
   // thread that is no longer there.
   const orphaned = await reconcile(new Map(), threads, io, {
-    priorState: null, eligibleIds: new Set(), closedBy: plan.closedBy,
+    priorState: null, closedBy: plan.closedBy,
   });
   assert.equal(orphaned.resolvedIds.has('t-7'), false);
   assert.ok(orphaned.supersededKept.has('t-7'));
@@ -2288,7 +2333,7 @@ test('a duplicate closes against a thread that is reopening, and several collaps
     resolve: async (t) => calls.resolve.push(t.id), unresolve: async (t) => calls.unresolve.push(t.id),
   };
   const { stats, resolvedIds } = await reconcile(reported, [A, B], io, {
-    priorState: null, eligibleIds: plan.eligibleIds, closedBy: plan.closedBy,
+    priorState: null, closedBy: plan.closedBy,
   });
   assert.deepEqual(calls.unresolve, ['t-A']); // the live finding's thread comes back...
   assert.deepEqual(calls.resolve, ['t-B']);   // ...and the duplicate closes against it
@@ -2582,6 +2627,10 @@ test('an open thread nobody re-reported keeps its identity, and cannot masquerad
   };
   const carried = carriedRecords({ identities, threads, currentByFp, closed, priorState, commit: 'abc1234' });
   const byFp = Object.fromEntries(carried);
+  // Bounded here too, not only in `identities`: a bound that exists by coupling is not a bound.
+  const wordy = new Map([['T-open', { ...identities.get('T-open'), text: 'w'.repeat(900) }]]);
+  const wordyOut = carriedRecords({ identities: wordy, threads, currentByFp, closed, priorState, commit: 'abc1234' });
+  assert.equal(wordyOut.find(([, r]) => r.id === 'T-open')[1].text.length, 160);
   // The remembered close FIRST (a lost close drops a finding; a lost identity only posts a second comment), then
   // the open, unreported, unclosed thread.
   assert.deepEqual(carried.map(([fp]) => fp), ['fp-done', 'fp-open']);
@@ -2924,7 +2973,7 @@ test('the record cannot turn a human decision into one of ours, or carry a dead 
   assert.equal(harnessClosed(humanResolved, undefined, posted), false); // so the human's decision stands
 
   const io = { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
-  return reconcile(new Map([[fp, f]]), [humanResolved], io, { priorState: posted, eligibleIds: new Set() }).then(({ stats }) => {
+  return reconcile(new Map([[fp, f]]), [humanResolved], io, { priorState: posted }).then(({ stats }) => {
     assert.equal(stats.dismissed, 1);
     assert.equal(stats.reopened, 0);
   });
