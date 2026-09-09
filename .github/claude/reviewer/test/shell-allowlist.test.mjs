@@ -1716,3 +1716,42 @@ test('both system prompts state the same shell rules, from the same constant', (
   assert.match(BASH_DENY_MESSAGE_FOR_TEST, /git diff\/log\/show\/blame\/status/);
   assert.match(BASH_DENY_MESSAGE_FOR_TEST, /A glob may not select a directory/);
 });
+
+test('bash expansions after quote removal, round three', () => {
+  // Round three of re-reviewing this walk. Every case below was verified against /bin/bash opening a symlink
+  // outside the root, with the crafted filenames accepted by a real `git add`.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'esc3-')));
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'esc3out-')));
+  const secret = join(outside, 'o.txt');
+  writeFileSync(secret, 'SECRET=abc');
+  mkdirSync(join(root, 'cls'), { recursive: true });
+  mkdirSync(join(root, '.git'), { recursive: true });
+  writeFileSync(join(root, '.git', 'config'), '[remote]');
+  writeFileSync(join(root, 'local.properties'), 'SENTRY_DSN=x');
+  writeFileSync(join(root, 'plain.kt'), 'fine');
+  symlinkSync(secret, join(root, 'z\r'));
+  symlinkSync(secret, join(root, 'f\u0001ile'));
+  symlinkSync(secret, join(root, "'q"));
+  symlinkSync(secret, join(root, 'cls', 'a'));
+
+  // `String.trim()` also strips CR/VT/FF/NBSP, which bash keeps in the word: a TRAILING one was dropped, so
+  // `cat z<CR>` was checked as `cat z`. A symlink under that name reads anything — /proc/self/environ included,
+  // which carries the API key `agentEnv` deliberately keeps.
+  assert.equal(isAllowedBash('cat z\r', [root], root), false);
+  // A raw control character in the command is indistinguishable from a whitespace placeholder after the walk.
+  assert.equal(isAllowedBash('cat f\u0001ile', [root], root), false);
+  // The walk already removed the shell's quoting, so a remaining quote is part of the FILENAME.
+  assert.equal(isAllowedBash("cat \\'q", [root], root), false);
+  // bash's bracket classes are not JavaScript's: `[]a]` is a class containing `]` and `a`, not an empty one.
+  assert.equal(isAllowedBash('cat cls/[]a]', [root], root), false);
+  assert.equal(isAllowedBash('cat cls/[[:alpha:]]', [root], root), false);
+  assert.equal(isAllowedBash('cat cls/*', [root], root), false);
+  // The deny lists apply to what a glob SELECTS, not only to what the command names.
+  assert.equal(isAllowedBash('cat *.properties', [root], root), false);
+  assert.equal(isAllowedBash('cat .g*/config', [root], root), false);
+  // ...and ordinary work is untouched. `grep -r` follows only symlinks named on the command line, and `-R` is
+  // denied, so a recursive grep over a directory holding one stays allowed.
+  assert.equal(isAllowedBash('cat plain.kt', [root], root), true);
+  assert.equal(isAllowedBash('wc -l *.kt', [root], root), true);
+  assert.equal(isAllowedBash('grep -rn x cls', [root], root), true);
+});

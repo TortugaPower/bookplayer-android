@@ -364,6 +364,7 @@ export function analyzeShell(command) {
         continue;
       }
       if (quote === '"' && (ch === '`' || ch === '$')) unsafe = true; // expansion happens inside double quotes
+      if (ch >= '\x00' && ch <= '\x02') unsafe = true; // see below: a raw placeholder character is forgery
       current += holdWhitespace(ch);
       continue;
     }
@@ -388,6 +389,10 @@ export function analyzeShell(command) {
       current = current.replace(/[ \t\n]+$/, '');
       continue;
     }
+    // A raw control character in the command is indistinguishable from a placeholder once the walk has run —
+    // `\x01` in a filename read as a held TAB, so the path check asked about a file that does not exist while
+    // bash opened the real one. No read-only review command needs one, so the whole command is refused.
+    if (ch >= '\x00' && ch <= '\x02') unsafe = true;
     if (ch === '`' || ch === '>' || ch === '<' || ch === '$' || ch === '{' || ch === '}') unsafe = true;
     if (ch === '|' || ch === '&' || ch === ';' || ch === '\n') {
       segments.push(current);
@@ -400,7 +405,10 @@ export function analyzeShell(command) {
   }
   segments.push(current);
   if (quote) unsafe = true; // unbalanced quote: don't guess
-  return { segments: segments.map((seg) => seg.trim()).filter(Boolean), unsafe };
+  // Trimmed on the IFS set, like the split and the fd rule: `String.trim()` also removes CR, VT, FF and NBSP,
+  // which bash keeps inside the word, so a TRAILING one was dropped and `cat z<CR>` was checked as `cat z` while
+  // bash opened `z<CR>` — a symlink under that name reads anything, including /proc/self/environ.
+  return { segments: segments.map((seg) => seg.replace(/^[ \t\n]+|[ \t\n]+$/g, '')).filter(Boolean), unsafe };
 }
 
 export function isReadOnlyShell(command) {
@@ -442,13 +450,15 @@ const safeRealpath = (p) => {
 // written file agree even where the temp path has a symlinked component, e.g. macOS /var -> /private/var.
 const DIFF_PATH = join(safeRealpath(process.env.RUNNER_TEMP || tmpdir()), `pr-${PR_NUMBER}.diff`);
 const READ_ROOTS = [process.env.GITHUB_WORKSPACE || process.cwd(), DIFF_PATH].map(safeRealpath);
-const stripQuotes = (s) => s.replace(/^["']|["']$/g, '');
+// No stripQuotes: `analyzeShell` has already removed the shell's quoting, so a remaining `'` or `"` is part of
+// the FILENAME. Stripping it asked the check about a different file than bash opens — `cat \\'q` was checked as
+// `q` (which does not exist) while bash read `'q`.
 // The base a relative token is resolved against. It is the checkout, stated explicitly rather than inherited from
 // wherever the harness happens to run, and the agent's shell cannot drift away from it: `cd` (and `pushd`) are not
 // on BASH_ALLOW, so every `cd …` segment is refused, and `git -C <path>` still has that path confined below.
 const AGENT_CWD = process.env.GITHUB_WORKSPACE || process.cwd();
 export function isPathAllowed(rawPath, roots = READ_ROOTS, cwd = AGENT_CWD) {
-  const p = stripQuotes(String(rawPath || ''));
+  const p = String(rawPath || '');
   if (p.split('/').includes('..')) return false;
   const within = (abs) => roots.some((root) => abs === root || abs.startsWith(root.endsWith('/') ? root : `${root}/`));
   if (p.startsWith('/') && !within(p)) return false;
@@ -495,14 +505,33 @@ function globTokenAllowed(token, roots, cwd) {
   // When a pattern matches nothing, bash passes the LITERAL token to the command — so a file really named
   // `sec[r]et` is opened, and it must be confined like any other path. Checking only the matches missed that.
   if (!isPathAllowed(token, roots, cwd)) return false;
-  const re = globSegmentToRegExp(pattern);
   let entries;
   try {
     entries = readdirSync(resolve(cwd, dir));
   } catch {
     return true; // an unreadable directory expands to nothing, and the literal token was just checked
   }
-  return entries.every((entry) => !re.test(entry) || isPathAllowed(`${dir}/${entry}`, roots, cwd));
+  // A bracket class is not worth re-implementing: bash has `[]a]`, `[[:alpha:]]`, collating classes and its own
+  // escaping rules, and translating them wrongly is worse than not translating them — `[]a]` became an empty
+  // JavaScript class that matched nothing, so `cat cls/[]a]` was allowed while bash opened `cls/a`. When a class
+  // is present, every entry in the directory has to be readable, whatever the class selects.
+  let matches;
+  if (pattern.includes('[')) matches = entries;
+  else {
+    let re;
+    try {
+      re = globSegmentToRegExp(pattern);
+    } catch {
+      return false; // an untranslatable pattern is refused rather than thrown out of the permission gate
+    }
+    matches = entries.filter((entry) => re.test(entry));
+  }
+  // The deny lists apply to what a glob SELECTS, not just to what the command names: `cat *.properties` would
+  // otherwise read local.properties, which naming outright is refused.
+  return matches.every((entry) => {
+    const path = `${dir}/${entry}`;
+    return !FORBIDDEN_PATH.test(path) && !REPO_SECRET_PATH.test(path) && isPathAllowed(path, roots, cwd);
+  });
 }
 
 // The single predicate canUseTool applies to a Bash command — tested as a unit, not as its parts.
@@ -536,7 +565,7 @@ export function isAllowedBash(command, roots = READ_ROOTS, cwd = AGENT_CWD) {
       const first = tokens.findIndex((tok, i) => i > 0 && !tok.startsWith('-'));
       // Resolved against the same base as isPathAllowed below, or the two would disagree about which file
       // "app/x.kt" means and the exemption would be decided on a different file from the confinement check.
-      if (first !== -1 && !existsSync(resolve(cwd, stripQuotes(restoreQuotedSpaces(tokens[first]))))) skip.add(first);
+      if (first !== -1 && !existsSync(resolve(cwd, restoreQuotedSpaces(tokens[first])))) skip.add(first);
     }
     return tokens
       .map((tok, i) => (skip.has(i) ? '' : pathish(restoreQuotedSpaces(tok))))
