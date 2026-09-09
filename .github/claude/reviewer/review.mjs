@@ -1302,7 +1302,7 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
 
   lines.push(
     '',
-    `<sub>Model \`${MODEL}\`${RUN_URL ? ` · [run log](${RUN_URL})` : ''} · ${stats.posted} new · ${stats.kept} carried over${verifiedClosed ? ` · ${verifiedClosed} verified closed` : ''}${stats.reopened ? ` · ${stats.reopened} reopened` : ''}${stats.dismissed ? ` · ${stats.dismissed} on threads a maintainer had the last word on` : ''} · ${stats.resolved} resolved · advisory (a human should still review). Findings are de-duplicated across pushes; an earlier one closes when the verification pass judges it fixed or no longer applicable, or when another finding this run reports takes it over.</sub>`,
+    `<sub>Model \`${MODEL}\`${RUN_URL ? ` · [run log](${RUN_URL})` : ''} · ${stats.posted} new · ${stats.kept} carried over${verifiedClosed ? ` · ${verifiedClosed} verified closed` : ''}${stats.reopened ? ` · ${stats.reopened} reopened` : ''}${stats.dismissed ? ` · ${stats.dismissed} on threads a maintainer had the last word on` : ''} · ${stats.resolved} resolved · advisory (a human should still review). Findings are de-duplicated across pushes; an earlier finding closes only when the verification pass judges it against the current code — fixed, no longer applicable, accepted by a maintainer, or a duplicate of a finding reported on this push.</sub>`,
     '',
     MARKER_SUMMARY,
   );

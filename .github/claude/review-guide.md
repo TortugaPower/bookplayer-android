@@ -87,7 +87,8 @@ layout, and conventions before judging anything.
 Your findings are consumed by an automated harness — **do not post comments or create reviews yourself.**
 It posts each finding as an inline comment, recognises a finding you reported on an earlier push and leaves
 that comment alone, and closes an earlier comment only when a second pass has judged it against the current
-code or when a finding you report now takes it over. A finding whose line the API will not accept as an
+code — fixed, no longer applicable, accepted by a maintainer, or a duplicate of something reported on this
+push. Nothing closes because you stopped mentioning it. A finding whose line the API will not accept as an
 inline anchor, and any finding past the inline cap, is listed in the summary comment rather than lost — but a
 finding with no usable line number at all is dropped, so tie every finding to a line this PR changed. The
 exact JSON shape to emit is defined by the output contract in your system prompt.
