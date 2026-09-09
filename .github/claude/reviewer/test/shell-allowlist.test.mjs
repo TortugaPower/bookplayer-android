@@ -1715,6 +1715,19 @@ test('an oversized summary is trimmed but keeps its marker', () => {
   assert.ok(huge.trimEnd().endsWith('<!-- bp-ai-review-summary -->')); // or the upsert loses the comment
 });
 
+test('the summary claims convergence only when it actually knows', () => {
+  // "no earlier finding is open" is a claim about threads this round did not look at. It may only be made when
+  // the verification pass RAN and found nothing left open (`none-open`) — never when it was skipped for a thin
+  // budget or threw (`unknown`), where an empty table means "not checked", not "nothing there".
+  const clean = { verdict: 'pass', summary: 's', findings: [] };
+  const zero = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
+  assert.match(renderSummary(clean, zero, [], { priorState: 'none-open' }), /Converged/);
+  assert.equal(renderSummary(clean, zero, [], { priorState: 'unknown' }).includes('Converged'), false);
+  assert.equal(renderSummary(clean, zero, [], { priorState: 'verified' }).includes('Converged'), false);
+  // And never on a provisional round, whose banner says the finding list itself may be partial.
+  assert.equal(renderSummary(clean, zero, [], { priorState: 'none-open', provisional: true }).includes('Converged'), false);
+});
+
 test('the summary counts a superseded close once, and escapes evidence for the table', async () => {
   const rows = [
     { label: '`a.kt:1`', status: 'resolved', note: 'verified fixed' },

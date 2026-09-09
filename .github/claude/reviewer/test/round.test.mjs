@@ -428,3 +428,113 @@ test('a close whose note never posted is still ours two rounds later', async () 
     restore();
   }
 });
+
+// A degraded answer, a secret in model output, and malformed findings: three things that only main() decides.
+const agentDegraded = (result, resultSubtype) => async () => ({ finalText: '```json\n' + JSON.stringify(result) + '\n```', lastAnswer: '', turns: 3, resultSubtype });
+
+test('a deadline answer closes nothing, however complete it looks', async () => {
+  // The whole provisional concept rests on one expression in main(): a finished-looking answer that arrived
+  // after the clock ran out is LESS complete than what the agent was about to check, so no earlier finding may
+  // be closed on its authority. Emptying the subtype half of that expression left the suite green.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'deadline-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '15', COMMIT: 'dead000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'deadline');
+  const realFetch = globalThis.fetch;
+  try {
+    const text = 'the deadline is read before the message in hand, so a finished run is relabelled';
+    const oldF = { severity: 'warn', file: 'app/Moved.kt', line: 5, comment: text };
+    const newF = { severity: 'warn', file: 'app/Moved.kt', line: 41, comment: `${text} (still)` };
+    const oldFp = mod.fingerprint(oldF);
+    const gh = fakeGitHub({
+      threads: [{
+        id: 'T-old', isResolved: false, path: oldF.file, line: oldF.line, originalLine: oldF.line,
+        first: { nodes: [{ databaseId: 71, body: `🟡 **WARN** — ${text} <!-- bp-ai-review-fp:${oldFp} -->`, author: { login: 'github-actions[bot]' } }] },
+        comments: { nodes: [] }, last: { nodes: [] },
+      }],
+    });
+    globalThis.fetch = gh.fetch;
+    // The same round that closes T-old when the answer is whole (see the "finding that moved" test above).
+    await mod.runReview({ agent: agentDegraded({ verdict: 'warn', summary: 'it moved', findings: [newF] }, 'error_deadline') });
+
+    assert.deepEqual(gh.calls.resolved, [], 'a provisional round may not close a thread');
+    assert.deepEqual(gh.calls.inline.map((c) => c.line), [41], 'but the findings it did produce are still posted');
+    assert.match(gh.summaryOut(), /time limit/);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('a secret in model output is redacted in everything the harness posts', async () => {
+  // `redact()` runs at the write boundary — the inline body and the summary — because the model quotes the code
+  // it reviews, and this repo's own secret shapes are in that code. Both call sites could be removed with the
+  // suite green: the unit tests covered the function, nothing covered its use.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'redact-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '16', COMMIT: 'beef000000000002',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'redact');
+  const realFetch = globalThis.fetch;
+  try {
+    const secret = 'ghp_0123456789abcdefghijklmnopqrstuvwx';
+    const gh = fakeGitHub();
+    globalThis.fetch = gh.fetch;
+    await mod.runReview({
+      agent: agentReturning({
+        verdict: 'warn',
+        summary: `The token \`${secret}\` is committed here.`,
+        findings: [{ severity: 'warn', file: 'app/Leak.kt', line: 2, comment: `This is a real token: ${secret}` }],
+      }),
+    });
+    const posted = gh.calls.inline.map((c) => c.body).join('\n');
+    assert.equal(posted.includes(secret), false, 'the inline comment carried the secret');
+    assert.match(posted, /\[redacted\]/);
+    const summary = gh.summaryOut();
+    assert.equal(summary.includes(secret), false, 'the summary carried the secret');
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('a malformed finding is dropped, and two findings on one line become one comment', async () => {
+  // Both are main()'s normalisation, and both mutations were silent: a finding with no usable line posted a
+  // comment the API rejects, and two findings that share a file/line/severity (one thread can only carry one)
+  // lost the second one outright instead of being merged into it.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'norm-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '17', COMMIT: 'beef000000000003',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'normalise');
+  const realFetch = globalThis.fetch;
+  try {
+    const gh = fakeGitHub();
+    globalThis.fetch = gh.fetch;
+    await mod.runReview({
+      agent: agentReturning({
+        verdict: 'warn',
+        summary: 'a mixed bag',
+        findings: [
+          { severity: 'warn', file: 'app/Same.kt', line: 9, comment: 'the first thing wrong here' },
+          { severity: 'warn', file: 'app/Same.kt', line: 9, comment: 'the second thing wrong here' },
+          { severity: 'warn', file: '', line: 3, comment: 'no file at all' },
+          { severity: 'warn', file: 'app/Bad.kt', line: 0, comment: 'no usable line' },
+          { severity: 'sev', file: 'app/Bad.kt', line: 4, comment: 'not a severity' },
+        ],
+      }),
+    });
+    // One comment for the shared line, carrying BOTH texts; nothing for the three malformed ones.
+    assert.deepEqual(gh.calls.inline.map((c) => [c.path, c.line]), [['app/Same.kt', 9]]);
+    assert.match(gh.calls.inline[0].body, /the first thing wrong here/);
+    assert.match(gh.calls.inline[0].body, /the second thing wrong here/);
+    assert.equal(gh.summaryOut().includes('no usable line'), false);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
