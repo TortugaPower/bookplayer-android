@@ -50,11 +50,11 @@ const MARKER_FAILURE_NOTE = '<!-- bp-ai-review-failed -->';
 // only knows a maintainer replied, not that they dismissed it. If the human resolves it again themselves, their
 // resolution carries no marker and is respected from then on.
 const HARNESS_RESOLVED_MARKERS = [MARKER_AUTO_RESOLVED, MARKER_VERIFIED, MARKER_HUMAN_ACCEPTED];
-// Two threads for one finding, which `pickSuperseded` alone cannot close: it skips a candidate finding whose
-// fingerprint already has a thread ("it did not move"), so once a finding oscillates between two lines — F@3,
-// then F@7, then F@3 again — the F@7 thread is unreported, unclaimable, and the verifier is told to answer
-// `present` for exactly that shape. It stayed open forever. This is the thread-side rule: an open thread whose
-// finding is not in this run, but which duplicates a thread that IS being kept, is closed as its duplicate.
+// Posted on a thread closed against ANOTHER THREAD rather than against a comment this run posts (`kind:
+// 'thread'` in planClosures). The shape it exists for: a finding that oscillates between two lines — F@3, then
+// F@7, then F@3 again — leaves the F@7 thread unreported while the F@3 thread is the one carrying it, and a
+// carrier that has to be posted can never claim it, because that finding already has a thread. It stayed open
+// forever, and the verifier is instructed to answer `present` for exactly that shape.
 const DUPLICATE_NOTE =
   'The same finding is tracked on another open thread for this file, so this duplicate is being closed. ' +
   `<!-- bp-ai-review-auto-resolved -->`;
@@ -1564,10 +1564,10 @@ export function planRound({ threads, currentByFp, provisional, priorState = null
   };
 }
 
-// The "Previously raised" rows for threads this round closed on its own — superseded or duplicate. Pure, because
-// the flag on them is load-bearing: `renderSummary` counts every unflagged `resolved` row as "verified closed"
-// while the stale loop also counts it in `resolved`, so an unflagged row reports one close twice. Built in main()
-// before, where no test could reach it and that mutation stayed green.
+// The "Previously raised" rows for the threads this round closed on its own, either kind. Pure, because the flag
+// on them is load-bearing: `renderSummary` counts every unflagged `resolved` row as "verified closed" while
+// reconcile also counts the close in `stats.resolved`, so an unflagged row reports one close twice. Built in
+// main() before, where no test could reach it and that mutation stayed green.
 export function closedThreadRows({ closing = [], closedBy = new Map(), resolvedIds = new Set(), supersededKept = new Set() }) {
   const row = (t, resolvedNote, keptNote) => {
     const label = `\`${mdPath(t.path)}:${threadAnchor(t).line ?? '?'}\``;
@@ -2229,9 +2229,10 @@ export async function runReview({ agent = runAgent } = {}) {
     provisional,
     // Every thread the verification pass was responsible for, whether or not it got to run. "Was not re-reported"
     // is a weaker signal than "judged against the current code", and it used to overrule it in exactly the wrong
-    // case: when the pass was skipped for a thin budget or threw early, `verifiedIds` was null and the stale loop
-    // resolved every open unreported thread — `overflow` and `error` severities included — with no judgement
-    // behind it. A thread left unjudged now stays open for the next round, which is what the summary already says.
+    // case: when the pass was skipped for a thin budget or threw early, `verifiedIds` was null and every open
+    // unreported thread was resolved — `overflow` and `error` severities included — with no judgement behind it.
+    // Absence now closes nothing at all (see reconcile's one gate); this set is what tells the two halves apart,
+    // so a thread the pass owned but never reached is reported as unjudged rather than quietly dealt with.
     eligibleIds,
     handledIds,
     closedBy,
