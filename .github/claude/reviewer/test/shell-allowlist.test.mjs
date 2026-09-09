@@ -2770,6 +2770,30 @@ test('over many rounds the record stays bounded, unique and truthful', () => {
   assert.equal(Object.keys(capped.findings).length, 60);
 });
 
+test('a fingerprint counts only inside the marker the harness writes', () => {
+  // `neutralizeMarkup` stops model text from opening an HTML comment, so a finding cannot produce
+  // `<!-- bp-ai-review-fp:… -->`. It CAN produce the bare string — that is ordinary prose, and a finding about
+  // this harness quotes one routinely. The marker syntax is what separates the two, and `exec` takes the FIRST
+  // match, so a loosened pattern reads the quoted one as the thread's identity: the thread then carries a
+  // fingerprint no finding has, is never recognised again, and its finding is posted anew on every push.
+  const real = 'a1b2c3d4e5f6';
+  const forged = 'deadbeef0000';
+  const thread = {
+    id: 'T1', isResolved: false, firstCommentAuthor: 'github-actions[bot]', comments: [],
+    firstCommentBody: `🟡 **WARN** — the record's own key looks like bp-ai-review-fp:${forged} in prose <!-- bp-ai-review-fp:${real} -->`,
+  };
+  assert.equal(fingerprintOfThread(thread), real);
+  // With no marker at all there is no fingerprint, however much the body talks about one.
+  assert.equal(fingerprintOfThread({ ...thread, firstCommentBody: `mentions bp-ai-review-fp:${forged} only` }), undefined);
+  // And the record still wins over the body when it has an entry for the thread.
+  assert.equal(fingerprintOfThread(thread, { commit: 'c', findings: { fromrecord01: { id: 'T1', action: 'posted' } } }), 'fromrecord01');
+  // The captured value is a fingerprint, not "whatever sits between the colon and the close": a marker holding
+  // model text would otherwise become a key in the record — and `-->` inside it would end the state blob.
+  const wild = `<!-- bp-ai-review-fp:${'x'.repeat(4)} and some prose -->`;
+  assert.equal(fingerprintOfThread({ ...thread, firstCommentBody: wild }), undefined);
+  assert.equal(fingerprintOfThread({ ...thread, firstCommentBody: '<!-- bp-ai-review-fp:NOTHEX0BEEF -->' }), undefined);
+});
+
 test('model text cannot forge a state record', () => {
   // The record is read from THIS harness's own summary comment, and everything the model writes goes into that
   // comment: the summary prose, every finding's text in the "not visible inline" list. `decodeState` takes the
