@@ -76,7 +76,10 @@ const MAX_TURNS = num(process.env.REVIEW_MAX_TURNS, 40);
 const MAX_OUTPUT_TOKENS = num(process.env.REVIEW_MAX_OUTPUT_TOKENS, 32_000);
 // Wall-clock bound for the agent, under the job's timeout-minutes: hitting it degrades to the "incomplete"
 // note instead of a cancelled job that may have half-reconciled the PR.
-const DEADLINE_MS = num(process.env.REVIEW_DEADLINE_MS, 14 * 60 * 1000);
+// 12, not 14: this is the knob the summary tells a maintainer to raise, so it has to be the one that BINDS.
+// With the job budget at 18 and the verify slice at 5, a 14-minute deadline was never reached — the review always
+// stopped at 13 — and raising REVIEW_DEADLINE_MS changed nothing at all.
+const DEADLINE_MS = num(process.env.REVIEW_DEADLINE_MS, 12 * 60 * 1000);
 // The budget for the two model passes, measured from the start of main(). The review and the verification pass
 // are both bounded by THIS, not by each other: taking the verify slice out of the review's own deadline meant a
 // review that used its full 14 minutes left a negative verify budget, so the second pass was silently skipped on
@@ -863,6 +866,17 @@ export function agentQuery({ userPrompt, systemPrompt, abort, onStderr = () => {
   };
 }
 
+// What survives the bell, in order of how much it can be trusted: a strictly terminal answer in the buffer; else
+// a strictly terminal earlier answer, which the fallback path will use; else whatever the parser can read, which
+// beats nothing but may be a result-shaped block the agent quoted from the diff. ONE rule, because the two
+// deadline paths must agree: the abort branch fires while the agent is mid-generation (the common case) and used
+// to keep a partial rewrite of an answer it had already finished.
+export function salvageAtDeadline({ finalText, lastAnswer, isFinished, isSalvageable }) {
+  if (isFinished(finalText)) return finalText;
+  if (lastAnswer) return '';
+  return isSalvageable(finalText) ? finalText : '';
+}
+
 // Two different questions, so two predicates. `isFinished` decides whether a segment a tool call discarded was a
 // finished answer, and must stay strict (a result block quoted from the diff must not qualify). `isSalvageable`
 // decides whether the text in hand at the deadline is worth keeping, and should be as tolerant as the parser that
@@ -921,10 +935,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = '', i
         if (resultSubtype) break;
         console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns; stopping the agent`);
         resultSubtype = 'error_deadline';
-        // What to keep, in order of how much it can be trusted: a strictly terminal answer in the buffer; else a
-        // strictly terminal earlier answer, which the fallback path will use; else whatever the parser can read,
-        // which is better than nothing but may be a result-shaped block the agent quoted from the diff.
-        if (!isFinished(finalText) && (lastAnswer || !isSalvageable(finalText))) finalText = '';
+        finalText = salvageAtDeadline({ finalText, lastAnswer, isFinished, isSalvageable });
         if (typeof iterator.interrupt === 'function') await iterator.interrupt().catch(() => {});
         break; // closes the generator (and with it the agent subprocess)
       }
@@ -932,11 +943,12 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = '', i
   } catch (err) {
     if (abort.signal.aborted) {
       console.warn(`Deadline of ${Math.round(budgetMs / 60000)} min reached after ${turns} turns (agent aborted)`);
-      // The same order of preference as the in-loop branch: this path fires while the agent is mid-generation,
-      // so the buffer is often a partial rewrite of an answer it had already finished. Keeping that partial and
-      // blaming truncation loses every finding the earlier answer had.
-      const keep = isFinished(finalText) || (!lastAnswer && isSalvageable(finalText));
-      return { finalText: keep ? finalText : '', lastAnswer, turns, resultSubtype: 'error_deadline' };
+      return {
+        finalText: salvageAtDeadline({ finalText, lastAnswer, isFinished, isSalvageable }),
+        lastAnswer,
+        turns,
+        resultSubtype: 'error_deadline',
+      };
     }
     err.capturedStderr = stderrChunks.join('');
     throw err;
@@ -996,7 +1008,8 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
         'no earlier finding was resolved from it. If it repeats, ask for fewer findings or split the PR.',
       deadline:
         'The reviewer hit its time limit before finishing; this is the last complete answer it produced, so no ' +
-        'earlier finding was resolved from it. Raise `REVIEW_DEADLINE_MS` (and `timeout-minutes`) or split the PR.',
+        'earlier finding was resolved from it. Raise `REVIEW_DEADLINE_MS` — and `REVIEW_JOB_BUDGET_MS` with it, ' +
+        'since the review may not exceed the job budget minus the verification slice — or split the PR.',
       turns:
         'The reviewer hit its turn limit before finishing; this is the last complete answer it produced, so no ' +
         'earlier finding was resolved from it. Bump `REVIEW_MAX_TURNS` or split the PR.',
@@ -1388,6 +1401,15 @@ export async function reconcile(currentByFp, threads, io, { provisional = false,
 // Say why on the PR before failing the check — the run log alone is easy to miss. Returns the error for rethrow.
 const MAX_COMMENT = 60000; // GitHub's limit is 65 536; leave room for the note and the markers
 
+// GitHub rejects a comment over 65 536 characters. renderSummary inlines the full text of every finding that
+// could not be attached inline, so a run with many findings can reach that — and the post would throw, the caller
+// would log a warning, and the PR would carry no summary at all. Trim instead, keeping the marker (the upsert
+// finds the comment by it) and a line saying what happened.
+export function boundedSummaryBody(body) {
+  if (body.length <= MAX_COMMENT) return body;
+  return `${body.slice(0, MAX_COMMENT)}\n\n> ⚠️ This summary was trimmed to fit GitHub's comment limit; the run log has the rest.\n\n${MARKER_SUMMARY}`;
+}
+
 // Build the summary body for a degrade note: keep whatever review is already there (upsertSummary overwrites, and
 // a transient fatal must not replace a complete review a human may be reading) and REPLACE a previous note of the
 // same kind rather than stacking one. Pure, so the replace rule is unit-tested.
@@ -1433,13 +1455,7 @@ async function explainFailure(err) {
 
 async function upsertSummary(rawBody) {
   const redacted = redact(rawBody);
-  // GitHub rejects a comment over 65 536 characters. renderSummary inlines the full text of every finding that
-  // could not be attached inline, so a run with many findings can reach that — the post would throw, the caller
-  // would log a warning, and the PR would carry no summary at all. Trim it instead, keeping the marker (the upsert
-  // finds the comment by it) and a line saying what happened.
-  const body = redacted.length > MAX_COMMENT
-    ? `${redacted.slice(0, MAX_COMMENT)}\n\n> ⚠️ This summary was trimmed to fit GitHub's comment limit; the run log has the rest.\n\n${MARKER_SUMMARY}`
-    : redacted;
+  const body = boundedSummaryBody(redacted);
   const existing = (await listIssueComments(PR_NUMBER)).find(
     (c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY),
   );
@@ -1458,8 +1474,11 @@ async function reportSetupFailure(reason) {
 
 // What the review may spend: its own deadline, capped by the job budget minus the slice held back for the
 // verification pass. Setup (the PR fetch, the diff, retries) has already run, so it is measured from `startedAt`.
-const reviewBudget = (startedAt) =>
-  Math.max(60_000, Math.min(DEADLINE_MS, JOB_BUDGET_MS - (Date.now() - startedAt) - VERIFY_BUDGET_MS));
+export const reviewBudget = (startedAt, now = Date.now()) =>
+  Math.max(60_000, Math.min(DEADLINE_MS, JOB_BUDGET_MS - (now - startedAt) - VERIFY_BUDGET_MS));
+// The verification slice, bounded by what is left of the job budget rather than by the review's own deadline.
+export const verifyBudget = (startedAt, now = Date.now()) =>
+  Math.min(VERIFY_BUDGET_MS, JOB_BUDGET_MS - (now - startedAt) - 30_000);
 
 async function main() {
   // Before the --setup-failed branch too: NaN would otherwise reach listIssueComments(NaN), whose failure
@@ -1555,7 +1574,7 @@ async function main() {
         resultSubtype === 'error_max_turns'
           ? 'hit the turn limit before finishing — likely a large PR. Bump `REVIEW_MAX_TURNS` or split the PR into smaller ones.'
           : resultSubtype === 'error_deadline'
-            ? 'hit the time limit before finishing — likely a large PR. Raise `REVIEW_DEADLINE_MS` (and `timeout-minutes`) or split the PR.'
+            ? 'hit the time limit before finishing — likely a large PR. Raise `REVIEW_DEADLINE_MS`, and `REVIEW_JOB_BUDGET_MS` with it (the review is capped by the job budget minus the verification slice), or split the PR.'
             : `could not produce a structured result (${e.message}).`;
       console.warn(`Review incomplete: ${reason}`);
       // The whole answer (bounded, redacted): a 400-char tail was not enough to diagnose why extraction failed. An
@@ -1667,17 +1686,17 @@ async function main() {
   const openUnreported = openUnreportedAll.filter((t) => !supersededIds.has(t.id));
   const toVerify = openUnreported.slice(0, MAX_VERIFY_THREADS);
   const overflow = openUnreported.slice(MAX_VERIFY_THREADS); // left open for the next run, never resolved unverified
-  const verifyBudget = Math.min(VERIFY_BUDGET_MS, JOB_BUDGET_MS - (Date.now() - startedAt) - 30_000);
-  if (toVerify.length && (provisional || verifyBudget <= 60_000)) {
+  const verifySlice = verifyBudget(startedAt);
+  if (toVerify.length && (provisional || verifySlice <= 60_000)) {
     // Say why in the log: silently falling back to "was not re-reported" is how this pass came to look like it
     // was working on the large PRs where it was in fact being skipped.
     console.warn(
       provisional
         ? `Verification skipped: the result is provisional, so ${toVerify.length} open finding(s) go unjudged this round`
-        : `Verification skipped: only ${Math.round(verifyBudget / 1000)}s of the job budget left for ${toVerify.length} open finding(s)`,
+        : `Verification skipped: only ${Math.round(verifySlice / 1000)}s of the job budget left for ${toVerify.length} open finding(s)`,
     );
   }
-  if (!provisional && toVerify.length && verifyBudget > 60_000) {
+  if (!provisional && toVerify.length && verifySlice > 60_000) {
     console.log(`Verifying ${toVerify.length} open finding(s) from earlier runs against ${COMMIT.slice(0, 8)}`);
     try {
       const numbered = toVerify.map((t, i) => ({ id: i + 1, thread: t }));
@@ -1685,7 +1704,7 @@ async function main() {
       // recognise one — otherwise a complete verdict list arriving near the bell would be discarded and these
       // threads would fall back to the fingerprint heuristic, unverified.
       const verifyFinished = (t) => parseVerifyResult(t) !== null;
-      const run = await runAgent(buildVerifyPrompt(numbered, COMMIT, pr.author), verifyBudget, VERIFY_SYSTEM_PROMPT, verifyFinished, verifyFinished);
+      const run = await runAgent(buildVerifyPrompt(numbered, COMMIT, pr.author), verifySlice, VERIFY_SYSTEM_PROMPT, verifyFinished, verifyFinished);
       // `verifyFinished` gates what runAgent remembers, so lastAnswer here is a verdict list, not a review
       // result — usable when the deadline landed after a complete list but before the run ended.
       const parsedThreads = parseVerifyResult(run.finalText || run.lastAnswer || '');

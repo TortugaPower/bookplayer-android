@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fingerprint, agentQuery, canUseToolForTest, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, restoreQuotedSpaces, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, pickSuperseded, findingSimilarity, restoreQuotedSpaces, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
@@ -1478,4 +1478,154 @@ test('writes are never retried, however transient the failure looks', async () =
     if (prevRepo === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = prevRepo;
     if (prevToken === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = prevToken;
   }
+});
+
+// One stub, restored in `finally`, for the transport-level tests below.
+async function withStubbedFetch(handler, fn) {
+  const realFetch = globalThis.fetch;
+  const prevRepo = process.env.GITHUB_REPOSITORY;
+  const prevToken = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_REPOSITORY = 'TortugaPower/repo';
+  process.env.GITHUB_TOKEN = 'x';
+  globalThis.fetch = handler;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = realFetch;
+    if (prevRepo === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = prevRepo;
+    if (prevToken === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = prevToken;
+  }
+}
+
+test('a review thread is mapped from the selection that answers each question', async () => {
+  // Untested before, and the regression is silent: sourcing firstCommentBody from the capped 30-comment window,
+  // or blanking firstCommentAuthor, makes the harness re-post every finding on every push and resolve nothing.
+  const { listReviewThreads } = await import('../github.mjs');
+  const node = (over = {}) => ({
+    id: 't1', isResolved: false, path: 'a.kt', line: 42, originalLine: 7,
+    first: { nodes: [{ databaseId: 11, body: 'the opening comment <!-- bp-ai-review-fp:abc123 -->', author: { login: 'github-actions[bot]' } }] },
+    comments: { nodes: [
+      { databaseId: 11, body: 'the opening comment', author: { login: 'github-actions[bot]' }, authorAssociation: 'NONE', createdAt: '2026-01-01T00:00:00Z' },
+      { databaseId: 12, body: 'a maintainer reply', author: { login: 'gianni' }, authorAssociation: 'OWNER', createdAt: '2026-01-02T00:00:00Z' },
+    ] },
+    last: { nodes: [{ body: 'the newest comment', author: { login: 'gianni' }, createdAt: '2026-01-02T00:00:00Z' }] },
+    ...over,
+  });
+  let page = 0;
+  const threads = await withStubbedFetch(
+    async () => {
+      page++;
+      const nodes = page === 1 ? [node()] : [node({ id: 't2', isResolved: true, line: null })];
+      return {
+        ok: true, status: 200, headers: { get: () => null },
+        json: async () => ({ data: { repository: { pullRequest: { reviewThreads: {
+          nodes, pageInfo: { hasNextPage: page === 1, endCursor: 'CUR' },
+        } } } } }),
+      };
+    },
+    () => listReviewThreads(1),
+  );
+  assert.equal(page, 2); // the cursor hop happened
+  assert.equal(threads.length, 2);
+  const [t] = threads;
+  // The opening comment comes from its own selection: past 30 comments it is no longer comments[0], and the
+  // fingerprint marker lives in it.
+  assert.match(t.firstCommentBody, /bp-ai-review-fp:abc123/);
+  assert.equal(t.firstCommentId, 11);
+  assert.equal(t.firstCommentAuthor, 'github-actions[bot]');
+  // The newest comment comes from ITS own selection, with the author — a marker only counts as ours if we wrote it.
+  assert.equal(t.lastCommentBody, 'the newest comment');
+  assert.equal(t.lastCommentAuthor, 'gianni');
+  assert.equal(t.lastCommentAt, '2026-01-02T00:00:00Z');
+  // The window carries the association and timestamp the trust rules read.
+  assert.deepEqual(t.comments.map((c) => [c.author, c.association]), [['github-actions[bot]', 'NONE'], ['gianni', 'OWNER']]);
+  // `line` is null exactly when the thread is outdated; originalLine then points at the stale anchor.
+  assert.equal(threads[1].line, null);
+  assert.equal(threads[1].originalLine, 7);
+});
+
+test('a 406 falls back to the per-file diff, and a transient GraphQL error is retried', async () => {
+  const { fetchPullRequestDiff, listReviewThreads } = await import('../github.mjs');
+  let calls = 0;
+  const diff = await withStubbedFetch(
+    async (url) => {
+      calls++;
+      if (calls === 1) return { ok: false, status: 406, headers: { get: () => null }, text: async () => 'too large', json: async () => ({}) };
+      return {
+        ok: true, status: 200, headers: { get: () => null }, text: async () => '',
+        json: async () => [{ filename: 'x.kt', status: 'modified', additions: 1, deletions: 0, patch: '@@ -1 +1 @@\n+x' }],
+      };
+    },
+    () => fetchPullRequestDiff(1),
+  );
+  assert.match(diff, /diff --git a\/x.kt b\/x.kt/); // 406 is the deliberate path, not a retry
+  assert.equal(calls, 2);
+
+  // GraphQL answers 200 with an `errors` array for its most common transient failures, so status alone is not
+  // enough — this is the failure that costs every inline comment on a push.
+  let gql = 0;
+  const threads = await withStubbedFetch(
+    async () => {
+      gql++;
+      if (gql === 1) return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ errors: [{ type: 'RATE_LIMITED', message: 'slow down' }] }) };
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ data: { repository: { pullRequest: { reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } } } } } }) };
+    },
+    () => listReviewThreads(1),
+  );
+  assert.deepEqual(threads, []);
+  assert.equal(gql, 2);
+});
+
+test('the budgets reserve the verification slice, and the deadline is the knob that binds', () => {
+  const t0 = 1_000_000;
+  // At defaults the review stops at its own deadline, so the advice to raise REVIEW_DEADLINE_MS is true.
+  assert.equal(reviewBudget(t0, t0), 12 * 60 * 1000);
+  // The verification slice is held back rather than taken out of the review's deadline.
+  assert.equal(verifyBudget(t0, t0), 5 * 60 * 1000);
+  // Time already spent comes off the job budget, and both stay positive with a floor.
+  assert.equal(reviewBudget(t0, t0 + 10 * 60 * 1000), Math.min(12 * 60 * 1000, 3 * 60 * 1000));
+  assert.ok(verifyBudget(t0, t0 + 17 * 60 * 1000) < 60_000); // a thin budget is visible to the caller
+  assert.equal(reviewBudget(t0, t0 + 30 * 60 * 1000), 60_000); // never negative
+});
+
+test('one rule decides what survives the bell, on both deadline paths', () => {
+  const isFinished = (t) => t === 'terminal';
+  const isSalvageable = (t) => t.length > 0;
+  // A strictly terminal buffer always wins.
+  assert.equal(salvageAtDeadline({ finalText: 'terminal', lastAnswer: 'earlier', isFinished, isSalvageable }), 'terminal');
+  // Otherwise a finished earlier answer beats a partial rewrite — the abort path used to keep the partial.
+  assert.equal(salvageAtDeadline({ finalText: 'half a thought', lastAnswer: 'earlier', isFinished, isSalvageable }), '');
+  // With nothing earlier, anything the parser can read beats nothing at all.
+  assert.equal(salvageAtDeadline({ finalText: 'half a thought', lastAnswer: '', isFinished, isSalvageable }), 'half a thought');
+  assert.equal(salvageAtDeadline({ finalText: '', lastAnswer: '', isFinished, isSalvageable }), '');
+});
+
+test('an oversized summary is trimmed but keeps its marker', () => {
+  const small = 'a short summary\n\n<!-- bp-ai-review-summary -->';
+  assert.equal(boundedSummaryBody(small), small);
+  const huge = boundedSummaryBody('x'.repeat(70000));
+  assert.ok(huge.length <= 60200);
+  assert.match(huge, /trimmed to fit GitHub's comment limit/);
+  assert.ok(huge.trimEnd().endsWith('<!-- bp-ai-review-summary -->')); // or the upsert loses the comment
+});
+
+test('the summary counts a superseded close once, and escapes evidence for the table', async () => {
+  const rows = [
+    { label: '`a.kt:1`', status: 'resolved', note: 'verified fixed' },
+    { label: '`b.kt:2`', status: 'resolved', note: 'reported again at a new line', superseded: true },
+  ];
+  const body = renderSummary({ verdict: 'pass', summary: 's', findings: [] }, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 1 }, [], { previously: rows });
+  assert.match(body, /1 verified closed/); // the superseded row is already counted in `resolved`
+  // Verifier evidence goes into a table cell: a raw `|` would end the column.
+  const io = { post: async () => {}, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
+  const thread = {
+    id: 't1', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', path: 'a.kt', line: 1,
+    firstCommentBody: '🔵 **INFO** — x', comments: [], lastCommentBody: '', lastCommentAuthor: '',
+  };
+  const { rows: applied } = await applyVerification(
+    verdictsById([{ id: 1, status: 'not_applicable', evidence: 'gone: see a|b and\nthe next line' }]),
+    [{ id: 1, thread }], io, {},
+  );
+  assert.ok(applied[0].note.includes('\\|'));
+  assert.ok(!applied[0].note.includes('\n'));
 });

@@ -22,7 +22,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
-    # 25, not 20: review.mjs budgets 13 min for the review and 5 for the verification pass, and its clock starts
+    # 25, not 20: review.mjs budgets 12 min for the review and 5 for the verification pass, and its clock starts
     # after checkout/install/tests and stops before the reconcile phase (up to 25 inline posts plus a resolve and
     # a reply per stale thread). At 20 a full-budget run could be cancelled mid-reconcile.
     timeout-minutes: 25
@@ -82,7 +82,7 @@ jobs:
           # Model is NOT pinned: review.mjs asks the Models API for the newest Opus-tier model on
           # every run (Opus 5 today). To pin, e.g. while diagnosing a regression, set an exact id.
           # REVIEW_MODEL: claude-opus-5
-          REVIEW_MAX_TURNS: '200'  # a runaway guard only; the real bound is REVIEW_DEADLINE_MS (14 min) in review.mjs
+          REVIEW_MAX_TURNS: '200'  # a runaway guard only; the real bound is REVIEW_DEADLINE_MS (12 min) in review.mjs
         run: node .github/claude/reviewer/review.mjs
 
       # A failure in the two steps above happens outside review.mjs, so nothing would reach the PR and the check
