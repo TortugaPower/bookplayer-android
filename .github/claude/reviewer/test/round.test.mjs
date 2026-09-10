@@ -1710,3 +1710,42 @@ test('only a note that landed says the PR has been told', async () => {
     globalThis.fetch = realFetch;
   }
 });
+
+test('a note that could not be posted says so in the log', async () => {
+  // `--setup-failed` produces exactly one thing: a note on the pull request. When that write is refused — a stale
+  // token's 403, a 422, the 90-second budget running out — the run used to print the setup reason, write nothing,
+  // and exit 0: a green step, no comment, and nothing anywhere naming the GitHub error. The swallow was justified
+  // by "the run log still carries the reason", which was true of the ORIGINAL failure and never of this one.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'notefail-')));
+  const outFile = join(temp, 'step-output');
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '43', COMMIT: 'cd77000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(), GITHUB_OUTPUT: outFile,
+  }, 'notefail');
+  const realFetch = globalThis.fetch;
+  const realWarn = console.warn;
+  const warnings = [];
+  const argv = process.argv;
+  try {
+    writeFileSync(outFile, '');
+    globalThis.fetch = async () => ({ ok: false, status: 403, headers: { get: () => null }, json: async () => ({}), text: async () => 'Resource not accessible by integration' });
+    console.warn = (m) => warnings.push(String(m));
+    process.argv = [argv[0], argv[1], '--setup-failed', 'npm ci failed on the lockfile'];
+    await mod.runReview({ agent: async () => { throw new Error('the agent must never run in this mode'); } });
+    console.warn = realWarn;
+
+    const log = warnings.join('\n');
+    assert.match(log, /npm ci failed on the lockfile/, 'the original reason must still be logged');
+    assert.match(log, /Could not append the note to the summary/, 'the write failure was swallowed');
+    assert.match(log, /403|not accessible/, "the GitHub error's text is nowhere");
+    assert.match(log, /pull request was NOT told/, 'nothing said the mode produced no output at all');
+    // And the workflow must not be told the PR carries an explanation, or its own fallback note stays quiet too.
+    assert.equal(readFileSync(outFile, 'utf8').includes('explained=true'), false);
+  } finally {
+    console.warn = realWarn;
+    globalThis.fetch = realFetch;
+    process.argv = argv;
+    restore();
+  }
+});

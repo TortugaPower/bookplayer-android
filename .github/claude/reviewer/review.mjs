@@ -2291,8 +2291,13 @@ async function appendNoteToSummary(note, heading) {
     const previous = listing.comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
     await upsertSummary(summaryWithNote(previous?.body || '', note, heading), null, { listing });
     return true;
-  } catch {
-    // the PR could not be updated: the run log still carries the reason
+  } catch (e) {
+    // The run log carries the reason for the ORIGINAL failure — that is logged before this is ever called — but
+    // it did not carry this one: why the note could not be posted. In `--setup-failed` that is the whole output
+    // of the mode, so a refused write (a stale token's 403, a 422, the 90-second budget running out) printed the
+    // setup reason, wrote nothing to the pull request, and exited 0 — a green step, no comment, and nothing
+    // anywhere naming the GitHub error.
+    console.warn(`Could not append the note to the summary (${redact(e.message || String(e))}); the reason above is in this log only`);
     return false;
   }
 }
@@ -2419,7 +2424,10 @@ async function reportSetupFailure(reason) {
   // exists to prevent, in the mode built to prevent it.
   console.warn(`The reviewer did not run: ${redact(String(reason || 'a step before the review failed'))}`);
   const note = `> ⚠️ **The reviewer did not run:** ${boundedDump(reason || 'a step before the review failed', 400)}${RUN_URL ? ` See the [run log](${RUN_URL}).` : ''}`;
-  await appendNoteToSummary(note, '## ⚠️ Claude PR Review — did not run');
+  // This note IS the mode: there is no summary, no findings, nothing else it produces. So whether it landed is
+  // worth a line of its own — a reader of the log should not have to infer it from the absence of a comment.
+  if (await appendNoteToSummary(note, '## ⚠️ Claude PR Review — did not run')) recordExplainedOnPr();
+  else console.warn('The pull request was NOT told that the reviewer did not run; this log is the only record');
 }
 
 // All `--setup-failed` has to do is read the summary comment and write it back.
