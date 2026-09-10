@@ -2282,9 +2282,14 @@ async function appendNoteToSummary(note, heading) {
     return;
   }
   try {
-    const { comments } = await listIssueComments(PR_NUMBER);
-    const previous = comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
-    await upsertSummary(summaryWithNote(previous?.body || '', note, heading));
+    // The read is handed on, not repeated: `upsertSummary` needs the same listing to find the comment it updates,
+    // and paginating it twice was the thing the main path stopped doing — up to 20 GETs with their own ladders,
+    // and two reads that can disagree about whether a summary exists, with the later one silently deciding
+    // whether a SECOND one is posted. It matters most in `--setup-failed`, where both reads share a 90-second
+    // network budget and this note is the only output that path has.
+    const listing = await listIssueComments(PR_NUMBER);
+    const previous = listing.comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
+    await upsertSummary(summaryWithNote(previous?.body || '', note, heading), null, { listing });
     return true;
   } catch {
     // the PR could not be updated: the run log still carries the reason

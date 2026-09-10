@@ -1433,6 +1433,9 @@ test('the note-only mode runs on a clock of its own', async () => {
     assert.ok(deadline > before, 'the clock was armed in the past');
     assert.ok(deadline <= before + 5 * 60_000, `a note-only run was given ${Math.round((deadline - before) / 1000)}s`);
     assert.match(gh.summaryOut(), /the harness tests failed/);
+    // Once, not twice: this mode has a 90-second network budget for the whole thing, and the note is the only
+    // output it has. `upsertSummary` needs the same listing this step already read, so it is handed on.
+    assert.equal(gh.calls.commentReads, 1, `the note path listed the comments ${gh.calls.commentReads} times`);
   } finally {
     globalThis.fetch = realFetch;
     process.argv = argv;

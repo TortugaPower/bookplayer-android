@@ -36,7 +36,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~210 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~216 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
@@ -51,6 +51,11 @@ caps fitting inside the job cap with slack, the review step's cap looser than th
 number. Three consecutive review rounds found bugs in that file, all of them arithmetic nobody could check.
 **When a comment names a cap, write it as "the job's N" or "the review step's N"**, which is the form that test
 reads.
+
+`test/ci-scope.test.mjs` runs `scripts/ci-scope.sh`, which decides whether the repo's *other* workflow runs the
+Android build. It lives here because this is the only script-level test runner in the repo and this suite runs on
+every pull request — and because that decision governs a required check, so a wrong answer hands a green `build`
+to untested Kotlin.
 
 `test/shell-allowlist.test.mjs` holds the unit tests — the tool gate, the record, the prompts, the budgets.
 `test/round.test.mjs` runs whole rounds through `runReview({ agent })` with `fetch` stubbed and the model

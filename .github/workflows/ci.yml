@@ -22,32 +22,26 @@ jobs:
       # is "build something that did not need it", never "let an untested Kotlin change through a green check".
       # The API is asked rather than `git diff`, so no deep clone is needed; a listing at the 3000-file cap is
       # treated as unknown.
+      # Only an explicit `false` skips the build below. A push (a merge into develop or main) always builds; so
+      # does anything this cannot answer — a failed listing, a truncated one, an unrecognised path. The decision
+      # itself lives in `scripts/ci-scope.sh` because it governs a REQUIRED check, and logic that can hand out a
+      # green `build` for untested code has to be testable: `.github/claude/reviewer/test/ci-scope.test.mjs`
+      # runs it against the cases that matter. A blip talking to the API must not fail this step — that would
+      # red-flag the pull request over something a re-run fixes — so it falls into the same "build" answer.
       - name: Decide whether the Android build has to run
         id: scope
+        timeout-minutes: 3
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          files="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[].filename')"
-          count="$(printf '%s\n' "$files" | grep -c . || true)"
-          if [ "$count" -eq 0 ] || [ "$count" -ge 3000 ]; then
-            echo "changed-file listing is unusable ($count entries); building"
+          set -uo pipefail
+          if ! files="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[].filename')"; then
+            echo "could not list the changed files; building" >&2
             echo "android=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          android=false
-          while IFS= read -r f; do
-            [ -n "$f" ] || continue
-            case "$f" in
-              # Inert for the Android build: the reviewer harness and its own workflow, documentation, gitignore.
-              # Everything else — Gradle files, Kotlin, resources, manifests, scripts/, and ci.yml itself — builds.
-              .github/claude/*|.github/workflows/claude-review.yml|*.md|.gitignore) ;;
-              *) android=true; echo "needs the Android build: $f" ;;
-            esac
-          done <<< "$files"
-          echo "android=$android" >> "$GITHUB_OUTPUT"
-          [ "$android" = true ] || echo "$count changed file(s), none of them Android: skipping Gradle"
+          printf '%s\n' "$files" | bash scripts/ci-scope.sh >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17
         if: steps.scope.outputs.android != 'false'
