@@ -1708,7 +1708,10 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
   // for the caller to apply after the posts land — the same "is the carrier live?" gate the old resemblance
   // rule had, moved to the one place that now decides a close.
   const duplicates = [];
-  const stats = { verifiedFixed: 0, stillOpen: 0, closedByHuman: 0, dropped: 0, duplicate: 0 };
+  // No `duplicate` counter: the duplicate branch pushes onto `duplicates` and continues, and the caller reports
+  // `applied.duplicates.length` — so the field was always 0, which is worse than absent because a later reader
+  // trusts it.
+  const stats = { verifiedFixed: 0, stillOpen: 0, closedByHuman: 0, dropped: 0 };
   for (const { id, thread: t, identity = null } of entries) {
     const v = verdicts.get(id) || {};
     const status = VERIFY_STATUSES.has(v.status) ? v.status : 'present';
@@ -2459,7 +2462,7 @@ export async function runReview({ agent = runAgent } = {}) {
     requireEnv('PR_NUMBER');
     // This mode returns before the clock the rest of main() arms, so its ladders were bounded only by attempts
     // times timeout: a comment listing is up to 20 pages, each with 3 attempts of 30 s, and `outOfTime()` cannot
-    // fire against an `Infinity` deadline — half an hour against a job capped at 25 minutes. The job would then
+    // fire against an `Infinity` deadline — half an hour against the job's 48. The job would then
     // be cancelled and the PR would get no comment at all, which is the one thing this mode exists to prevent.
     // A note needs a read and a write, so it gets a minute and a half.
     setNetworkDeadline(Date.now() + SETUP_NOTE_BUDGET_MS);

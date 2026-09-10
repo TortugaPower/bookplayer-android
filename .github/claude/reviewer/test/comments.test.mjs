@@ -39,6 +39,17 @@ const SELF = 'comments.test.mjs';
 const sourceFiles = () =>
   ['review.mjs', 'github.mjs', ...readdirSync(`${DIR}test`).filter((f) => f.endsWith('.mjs') && f !== SELF).map((f) => `test/${f}`)];
 
+// The code a comment in this directory may legitimately name is not only JavaScript: these tests reason about the
+// workflows and the scope script, and `concurrency` or `timeout-minutes` are as real as any function here. They
+// are part of the corpus a name resolves against, with their own comment syntax stripped.
+const NEIGHBOURS = [
+  ['../../../workflows/claude-review.yml', /^\s*#.*$/gm],
+  ['../../../workflows/ci.yml', /^\s*#.*$/gm],
+  ['../../../../scripts/ci-scope.sh', /^\s*#.*$/gm],
+];
+const neighbourCode = () =>
+  NEIGHBOURS.map(([rel, comments]) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(comments, '')).join('\n');
+
 const identifiersInComments = (text) => {
   const found = new Set();
   for (const line of text.split('\n')) {
@@ -58,7 +69,7 @@ test('every identifier a comment names exists in the code', () => {
   const sources = files.map((f) => readFileSync(`${DIR}${f}`, 'utf8'));
   // Comments stripped: a name that appears ONLY in comments is exactly what this is looking for, and one comment
   // agreeing with another is not evidence of anything.
-  const code = sources.map((s) => s.replace(/\/\/.*$/gm, '')).join('\n');
+  const code = [...sources.map((s) => s.replace(/\/\/.*$/gm, '')), neighbourCode()].join('\n');
 
   const unresolved = [];
   for (const [file, text] of files.map((f, i) => [f, sources[i]])) {
@@ -77,7 +88,7 @@ test('the allowlist is a list of decisions, not a drawer', () => {
   const files = sourceFiles();
   const sources = files.map((f) => readFileSync(`${DIR}${f}`, 'utf8'));
   const named = new Set(sources.flatMap((s) => [...identifiersInComments(s)]));
-  const code = sources.map((s) => s.replace(/\/\/.*$/gm, '')).join('\n');
+  const code = [...sources.map((s) => s.replace(/\/\/.*$/gm, '')), neighbourCode()].join('\n');
 
   for (const [name, reason] of Object.entries(NOT_CODE)) {
     assert.ok(reason.length > 20, `${name}: an allowlist entry needs a reason worth reading`);

@@ -36,7 +36,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~223 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~224 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the

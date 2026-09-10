@@ -1408,7 +1408,7 @@ test('a summary is written even when the read it depends on fails', async () => 
 test('the note-only mode runs on a clock of its own', async () => {
   // `--setup-failed` returns before the line that arms the network clock, so `networkDeadline` stayed Infinity
   // for the whole mode and `outOfTime()` could never fire: a comment listing is up to 20 pages, each with three
-  // attempts of 30 s, which is half an hour against a job capped at 25 minutes. The job is then cancelled and
+  // attempts of 30 s, which is half an hour against the job's 48. The job is then cancelled and
   // the PR gets no comment at all — the invisible failure this mode exists to prevent, in the mode built to
   // prevent it. The clock must be armed, and it must be short: this mode does one read and one write.
   const temp = realpathSync(mkdtempSync(join(tmpdir(), 'notemode-')));

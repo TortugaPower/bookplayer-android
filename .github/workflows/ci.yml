@@ -111,7 +111,12 @@ jobs:
       # LAST, not first: it needs the npm registry, and on a Kotlin-only pull request a registry blip that ran
       # before Gradle would fail the required check while telling the author nothing about their Android change.
       # Here the Gradle result is already in when it runs. Cached for the same reason — a smaller window.
+      # `!cancelled()`, not "no condition": a step with no `if:` is skipped once ANY earlier step in the job has
+      # failed, and these are last — so on a pull request where Gradle failed, the suite that guards the required
+      # check would not run at all. Moving them here to protect the Android signal took the property this comment
+      # claims. Not `always()`: a run superseded by `concurrency` should still stop.
       - name: Set up Node for the reviewer harness
+        if: ${{ !cancelled() }}
         timeout-minutes: 3
         uses: actions/setup-node@v4
         with:
@@ -120,6 +125,7 @@ jobs:
           cache-dependency-path: .github/claude/reviewer/package-lock.json
 
       - name: Test the reviewer harness
+        if: ${{ !cancelled() }}
         timeout-minutes: 8
         working-directory: .github/claude/reviewer
         run: |

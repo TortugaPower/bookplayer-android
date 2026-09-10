@@ -61,6 +61,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          # Same reason ci.yml caches: every round otherwise pulls the SDK and its platform binaries fresh, inside
+          # a 4-minute install cap. A failed install here degrades to the "did not run" note rather than a silent
+          # red check, so this is flakiness and cost rather than correctness — which is why it is a cache and not
+          # a guard.
+          cache: npm
+          cache-dependency-path: .github/claude/reviewer/package-lock.json
 
       # --ignore-scripts: the lockfile comes from the PR head, so an install hook would be PR-authored code
       # running before anything else in this job.

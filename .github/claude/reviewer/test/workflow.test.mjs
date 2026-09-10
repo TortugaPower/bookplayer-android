@@ -185,7 +185,16 @@ test('the harness suite runs where nothing can skip it', () => {
   const { steps } = readWorkflow(CI);
   const suite = steps.filter((s) => (s.run || '').includes('node --test test/') || (s.name || '').includes('Test the reviewer harness'));
   assert.equal(suite.length, 1, 'ci.yml does not run the reviewer suite');
-  assert.equal(suite[0].if, undefined, 'the harness suite is gated on something; it must run on every pull request');
+  // "No `if:`" was the wrong assertion, and it was wrong in the direction that hides the bug: a step without a
+  // condition is skipped once any EARLIER step in the job has failed, and these run last (so that a registry blip
+  // cannot deny a Kotlin-only pull request its Android signal). On a pull request where Gradle failed, the suite
+  // guarding the required check would not have run — and the old assertion would have rejected the fix.
+  // `always()` is accepted but `!cancelled()` is the right one: a run superseded by `concurrency` should stop.
+  assert.match(
+    String(suite[0].if ?? ''),
+    /!cancelled\(\)|always\(\)/,
+    'the harness suite is skipped when an earlier step fails; it needs `if: ${{ !cancelled() }}`',
+  );
   assert.match(ci, /node --test test\//, 'the step exists but does not run the tests');
 });
 
@@ -232,4 +241,21 @@ test("the knob table's budgets are the code's budgets", () => {
   const inWorkflow = /REVIEW_MAX_TURNS: '(\d+)'/.exec(readFileSync(WORKFLOW, 'utf8'));
   assert.ok(inWorkflow, 'the workflow no longer sets REVIEW_MAX_TURNS');
   assert.equal(Number(turns[2]), Number(inWorkflow[1]), 'the README disagrees with the workflow about the turn limit');
+});
+
+test('cap figures in prose are written in the form the drift check reads', () => {
+  // The convention is "the job's N" / "the review step's N", and the check above verifies every figure written
+  // that way. A figure written ANOTHER way is invisible to it — which is how one sentence in `review.mjs` went on
+  // naming 25 through two cap changes. So the other phrasings are refused outright: this is the third instance of
+  // the same drift, and a convention nothing enforces is a preference. (The offending phrasings are matched, not
+  // quoted, for the obvious reason that quoting one here would fail this test.)
+  const offenders = [];
+  for (const [name, file] of [['claude-review.yml', WORKFLOW], ['ci.yml', CI], ['review.mjs', HARNESS], ['README.md', README]]) {
+    for (const [i, line] of readFileSync(file, 'utf8').split('\n').entries()) {
+      if (/capped (?:at|to) \d+ minutes?|job cap(?:ped)? (?:at|of) \d+/i.test(line)) {
+        offenders.push(`${name}:${i + 1}: ${line.trim().slice(0, 100)}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], `write cap figures as \`the job's N\` or \`the review step's N\`, which the drift check reads:\n${offenders.join('\n')}`);
 });
