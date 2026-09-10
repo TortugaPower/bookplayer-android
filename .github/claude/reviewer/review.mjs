@@ -115,7 +115,8 @@ const DEADLINE_MS = num(process.env.REVIEW_DEADLINE_MS, 12 * 60 * 1000);
 // MAX_INLINE comments plus a resolve and a reply per closed thread, each with its own 30 s timeout. Being
 // cancelled mid-reconcile is the half-finished state the deadline exists to prevent, so the two model passes
 // are bounded to 12 (the review's own DEADLINE_MS) + 5 (the verify slice) = 17 min, and with ~1 min of setup
-// that leaves ~7 of the workflow's 25 for reconcile. That last figure is an ASSUMPTION, not a bound: nothing
+// that leaves ~6 of the review step's 24 for reconcile — the STEP's cap is what binds here, not the job's 48,
+// which is deliberately the looser of the two. That last figure is an ASSUMPTION, not a bound: nothing
 // measures the clock during reconcile, and a pathological round (25 posts and dozens of replies, all slow)
 // could exceed it. It errs safe — a cancelled job writes nothing rather than something wrong — and raising
 // either budget means raising `timeout-minutes` in the workflow with it.
@@ -202,7 +203,11 @@ export function redact(text) {
     // This repo's own secret shapes: a Sentry DSN, a RevenueCat key, and a Play service-account private key.
     // (Keystore passwords are deliberately not pattern-matched: they live only in a gitignored
     // keystore.properties and in Actions secrets, and no useful pattern exists that would not mangle prose.)
-    .replace(/https:\/\/[0-9a-f]{16,}@[\w.-]*ingest[\w.-]*sentry\.io\/\d+/gi, 'https://[redacted]@sentry.io/[redacted]')
+    // Any sentry.io host, not only the modern `o<org>.ingest[.<region>].sentry.io`: the legacy
+    // `https://<32 hex>@sentry.io/<id>` form is still valid and still what older projects carry, and it was
+    // passing through this backstop unredacted. Redaction is the boundary that catches what the path rules
+    // cannot, so it is widened rather than kept precise.
+    .replace(/https:\/\/[0-9a-f]{16,}(?::[0-9a-f]+)?@[\w.-]*sentry\.io\/\d+/gi, 'https://[redacted]@sentry.io/[redacted]')
     // A recursive grep can reach the CONTENTS of local.properties even though naming the file is denied, so the
     // post boundary has to catch what the path rule cannot: an OAuth client id is the one value in there with a
     // shape worth matching. (A base URL is not a secret shape; the path rule remains the defence for those.)

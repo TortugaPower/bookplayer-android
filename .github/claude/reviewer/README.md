@@ -36,13 +36,21 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~204 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~210 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
 comment created *next* — off by one, for as long as it has existed, because nothing had ever read that value.
 The first code that did read it mis-identified every thread, and the conservation law reported it as lost
 findings. A double that lies is worse than one that refuses.
+
+`test/workflow.test.mjs` reads `claude-review.yml` and does the budget arithmetic: every step bounded, the step
+caps fitting inside the job cap with slack, the review step's cap looser than the harness's own budget (so
+`review.mjs` is what ends that step, not the runner), the two failure notes mutually exclusive and gated on
+`failure()` rather than `always()`, and — the drift-killer — every cap named in a comment matching the real
+number. Three consecutive review rounds found bugs in that file, all of them arithmetic nobody could check.
+**When a comment names a cap, write it as "the job's N" or "the review step's N"**, which is the form that test
+reads.
 
 `test/shell-allowlist.test.mjs` holds the unit tests — the tool gate, the record, the prompts, the budgets.
 `test/round.test.mjs` runs whole rounds through `runReview({ agent })` with `fetch` stubbed and the model

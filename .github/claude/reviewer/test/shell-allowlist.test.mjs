@@ -234,6 +234,13 @@ test('key-shaped strings are redacted at the post boundary', () => {
   assert.equal(redact('ordinary review text with sk-ant mention'), 'ordinary review text with sk-ant mention');
   // This repo's own shapes: a Sentry DSN, a RevenueCat-style key, and a Play service-account private key.
   assert.equal(redact('dsn https://0123456789abcdef0123456789abcdef@o12345.ingest.sentry.io/6789 set'), 'dsn https://[redacted]@sentry.io/[redacted] set');
+  // The LEGACY DSN shape has no `ingest` in the host — `https://<key>@sentry.io/<id>` — and it is still valid and
+  // still what older projects carry. Requiring `ingest` let it through this backstop unredacted; redaction is
+  // where what the path rules cannot cover is caught, so it matches any sentry.io host (and the older
+  // key:secret@ form). What is NOT a secret shape still passes untouched: the point is a credential, not the word.
+  assert.equal(redact('https://0123456789abcdef0123456789abcdef@sentry.io/1234'), 'https://[redacted]@sentry.io/[redacted]');
+  assert.equal(redact('https://0123456789abcdef0123456789abcdef:fedcba9876543210@sentry.io/1234'), 'https://[redacted]@sentry.io/[redacted]');
+  assert.equal(redact('see sentry.io/docs and o1.ingest.sentry.io for setup'), 'see sentry.io/docs and o1.ingest.sentry.io for setup');
   assert.equal(redact('rc goog_' + 'A'.repeat(24) + ' set'), 'rc [redacted] set');
   assert.equal(redact('-----BEGIN PRIVATE KEY-----\nMIIabc\n-----END PRIVATE KEY-----'), '[redacted private key]');
   assert.equal(redact('the googleusercontent client id stays'), 'the googleusercontent client id stays');

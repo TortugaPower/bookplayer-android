@@ -24,10 +24,16 @@ jobs:
     runs-on: ubuntu-latest
     # The LOOSEST bound in the file, and it has to be: every step below is capped, a step that hits its cap FAILS
     # (which is what lets the notes at the end run), but a step that is merely slow and succeeds still spends the
-    # job's clock. So the caps have to fit inside this one — 4 + 6 + 24 + 3, plus a minute for checkout and node —
-    # or the job cap becomes the binding one, and a job cancelled by ITS timeout runs no `if: failure()` step at
-    # all: no note, no summary, a red check and nothing on the pull request.
-    timeout-minutes: 38
+    # job's clock. So the step caps must fit inside this one with room to spare, or the job cap becomes the
+    # binding one — and a job cancelled by ITS timeout runs no `if: failure()` step at all: no note, no summary,
+    # a red check and nothing on the pull request.
+    #
+    # Every step below carries its own cap, sized from what the step actually takes (measured worst cases across
+    # six runs: review 9.6 min, the harness's tests 62 s, install 6 s, node 5 s, checkout 2 s) — so these are hang
+    # guards with an order of magnitude of headroom, not budgets. This number must exceed their sum with room to
+    # spare, and `test/workflow.test.mjs` fails the build if it stops doing so: at 38 the sum was 37 and the worst
+    # realistic path finished at 38:00 on the nose, which is not slack, it is a coincidence.
+    timeout-minutes: 48
     permissions:
       contents: read
       pull-requests: write   # post inline + summary comments and resolve review threads
@@ -40,6 +46,7 @@ jobs:
     steps:
       - name: Checkout PR head
         id: checkout
+        timeout-minutes: 3
         uses: actions/checkout@v5
         with:
           # Check out the PR head commit (not the merge ref) so file line numbers
@@ -50,6 +57,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node
+        timeout-minutes: 3
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -57,7 +65,7 @@ jobs:
       # --ignore-scripts: the lockfile comes from the PR head, so an install hook would be PR-authored code
       # running before anything else in this job.
       # Both pre-review steps are bounded, and the bound is the point rather than the number: a step that hangs
-      # (an install stuck on the registry, a test that never returns) would otherwise burn the job's 25 minutes,
+      # (an install stuck on the registry, a test that never returns) would otherwise burn the job's 48 minutes,
       # and a job cancelled by ITS timeout does not run steps guarded by `if: failure()` — only `always()` or
       # `cancelled()`. The "did not run" note below would never fire, and the round would end as a red check with
       # nothing on the PR: the invisible failure the whole harness is organised against. A STEP timeout fails the
@@ -93,7 +101,7 @@ jobs:
           # every run (Opus 5 today). To pin, e.g. while diagnosing a regression, set an exact id.
           # REVIEW_MODEL: claude-opus-5
           REVIEW_MAX_TURNS: '200'  # a runaway guard only; the real bound is REVIEW_DEADLINE_MS (12 min) in review.mjs
-        # Above the harness's own budget and just under the job's 25, so review.mjs's clock is what ends this step
+        # Above the harness's own budget and well inside the job's 48, so review.mjs's clock is what ends this step
         # in every case it can: its 18 minutes are measured from before the model lookup, and the reconcile phase
         # that follows them is deliberately unclocked (up to 25 posts plus a resolve and a reply per closed
         # thread). At 22 this cap, not the harness, was the tighter of the two. If it does fire, the step FAILS
