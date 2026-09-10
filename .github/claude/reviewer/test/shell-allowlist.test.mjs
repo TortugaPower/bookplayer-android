@@ -3712,3 +3712,53 @@ test('a re-worded finding whose reply is refused is listed in the summary instea
   // thread for the next round to look up.
   assert.equal(unpostableFps.has(fp), false);
 });
+
+test('a result-shaped example quoted inside a finding does not outrank the real answer', () => {
+  // The candidate scan tries fenced blocks last-first and takes the first COMPLETE result-shaped object. That is
+  // right for repaired fragments and wrong for this: a finding's comment routinely embeds a fenced snippet, and
+  // this repo's own review guide contains a verdict/summary/findings example a reviewer may quote verbatim. As
+  // valid JSON, quoted back, it used to win — and the answer the agent actually gave was thrown away.
+  const decoy = JSON.stringify({ verdict: 'pass', summary: 'the example from the output contract', findings: [] }, null, 2);
+  const real = JSON.stringify({
+    verdict: 'warn',
+    summary: 'one real finding',
+    findings: [{ severity: 'warn', file: 'app/A.kt', line: 3, comment: 'the guide shows the shape as\n\n```json\n' + decoy + '\n```\n\nwhich this reviewer quoted' }],
+  });
+  const message = [
+    'Here is what the contract asks for:',
+    '',
+    '```json',
+    decoy,
+    '```',
+    '',
+    'And here is my answer:',
+    '',
+    '```json',
+    real,
+    '```',
+  ].join('\n');
+
+  const out = extractJson(message);
+  assert.equal(out.summary, 'one real finding', 'a quoted example beat the terminal answer');
+  assert.equal(out.findings.length, 1);
+  assert.equal(wasTruncationRepaired(out), false);
+});
+
+test('a thread with no comment to reply to is judged but never closed', () => {
+  // A close is only as visible as its explanation, and the thread is the only place an explanation LASTS: the
+  // summary row that would otherwise carry it is replaced by the next round's summary. So a thread the harness
+  // cannot reply to at all — GitHub can answer with an empty `first` selection, and `github.mjs` passes the null
+  // id through deliberately — is reported, not resolved. Attempting the close and undoing it was the alternative,
+  // and it flaps the thread open and shut on every push for a verdict that was earned against the code.
+  const io = { calls: [], post: async () => {}, resolve: async () => io.calls.push('resolve'), unresolve: async () => io.calls.push('unresolve'), reply: async () => io.calls.push('reply') };
+  const orphan = { ...thread(), firstCommentId: null };
+  return applyVerification(verdictsById([{ id: 1, status: 'fixed', evidence: 'the receiver is unregistered now' }]), numbered(orphan), io, { commit: 'abcdef1234' }).then(({ rows, stats, closedIds }) => {
+    assert.deepEqual(io.calls, [], 'it resolved a thread it can never explain');
+    assert.equal(rows[0].status, 'open');
+    assert.equal(stats.stillOpen, 1);
+    assert.equal(stats.verifiedFixed, 0);
+    assert.match(rows[0].note, /no comment to reply to/);
+    assert.match(rows[0].note, /verified fixed/, 'and the judgement is still reported');
+    assert.equal(closedIds.size, 0);
+  });
+});

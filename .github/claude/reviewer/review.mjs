@@ -614,6 +614,16 @@ async function canUseTool(toolName, input) {
 // and accepted only when the repaired object validates.
 export function extractJson(text) {
   const s = String(text);
+  // The contract's own answer first: "your FINAL message MUST end with a single fenced ```json block … with
+  // NOTHING after it". When the message really does end with a complete, result-shaped block, that block IS the
+  // answer and nothing earlier in the message can outrank it. The scan below tries fenced blocks last-first and
+  // takes the first COMPLETE result-shaped object it finds, which is right for repaired fragments and wrong here:
+  // a finding's comment routinely embeds a fenced snippet, and this repo's own review guide and output contract
+  // contain a `{ "verdict": …, "summary": …, "findings": [] }` example a reviewer may quote verbatim. Quoted back
+  // as valid JSON, that decoy used to win. Truncated answers are unaffected: this parser returns null unless the
+  // message ends with a balanced, parseable block.
+  const terminal = parseTerminalFencedJson(s, (o) => isResultShape(o));
+  if (terminal) return normaliseResult(terminal);
   const candidates = [...s.matchAll(/```[^\n]*\n?([\s\S]*?)```/g)].map((m) => m[1]).reverse();
   candidates.push(s);
   // A COMPLETE object anywhere beats a repaired one, and the whole message is always a candidate. Fence pairing is
@@ -1613,14 +1623,24 @@ export function harnessClosed(t, markers = HARNESS_RESOLVED_MARKERS, priorState 
   return maintainerAt === null || maintainerAt <= ours.at;
 }
 
-// Resolve, then say why. The resolve goes FIRST on purpose — a "verified fixed" reply on a thread that stays
-// open would be a false claim repeated on every push — which leaves this window: the resolve landed and the
-// reply did not, so the thread is collapsed in the UI with nothing on it saying who closed it or why. Undoing
-// the close was the other candidate and is worse: the verdict was earned against the code, and a reply endpoint
-// that keeps refusing would flap the thread open and shut on every push. So the close stands and the summary row
-// carries the reason instead — the same place every other disposition is reported — and the state record still
-// remembers that the harness was the one that closed it.
+// Resolve, then say why — in that order, because the reply is a CLAIM: without REVIEW_RESOLVE_TOKEN (documented
+// as optional) every resolve fails, and reply-first would then post "✅ verified fixed" on every finding of every
+// push while every thread stayed open. Two tests hold that line.
+//
+// Which leaves the window this closes: the resolve lands and the reply does not, so the thread is collapsed with
+// nothing on it saying who closed it or why. It splits in two, and only one half is fixable here:
+//
+//  - The thread has no comment to reply to at all (`firstCommentId` is null — GitHub can answer with an empty
+//    `first` selection). Nothing will ever make that reply land, so the close is refused BEFORE the resolve and
+//    the finding is reported still open. Attempting it and undoing it would flap the thread on every push, and a
+//    row in the summary lives exactly one round: the next round's summary replaces it.
+//  - The reply is refused (a 502, a body GitHub will not take). That is transient by nature — the thread is
+//    resolved by then, so the next round does not re-judge it — and what carries the reason is this round's
+//    summary row plus the state record, which is what the next round reads.
 async function closeWithReason(io, thread, body) {
+  if (!thread.firstCommentId) {
+    throw Object.assign(new Error('this thread has no comment to reply to, so a close could not be explained on it'), { stage: 'unreplyable' });
+  }
   await io.resolve(thread);
   try {
     await io.reply(thread, body);
@@ -1709,7 +1729,7 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
         // repo without one this is every verified finding, on every push. Saying "still open" there is wrong in
         // the one direction that matters: it reads as a finding nobody has dealt with.
         console.warn(`verified-resolve failed (${t.path}) — ${e.message}`);
-        rows.push({ label, status: 'open', note: `${note}, but this thread could not be resolved` });
+        rows.push({ label, status: 'open', note: e?.stage === 'unreplyable' ? `${note}, but ${e.message} — left for a human` : `${note}, but this thread could not be resolved` });
         stats.stillOpen++;
       }
       continue;
@@ -2545,7 +2565,14 @@ export async function runReview({ agent = runAgent } = {}) {
 
   const io = {
     post: (f, body) => postInlineComment({ prNumber: PR_NUMBER, commitId: COMMIT, path: f.file, line: f.line, body }),
-    reply: (t, body) => (t.firstCommentId ? replyToReviewComment(PR_NUMBER, t.firstCommentId, body) : Promise.resolve()),
+    // Rejects rather than resolving when there is nothing to reply TO. A thread's `firstCommentId` is null when
+    // the opening comment is not in the `first` selection (it can be deleted), and a silent success there made
+    // three callers lie: `closeWithReason` reported the reason as posted and left the thread resolved with
+    // nothing on it, `sayCurrentWording` counted a re-wording that reached nobody instead of listing the finding
+    // in the summary, and the reopen note was skipped so an auto-resolve marker stayed the last word. Every one
+    // of those callers already handles a refused reply; none of them could handle a reply that pretended.
+    reply: (t, body) =>
+      t.firstCommentId ? replyToReviewComment(PR_NUMBER, t.firstCommentId, body) : Promise.reject(new Error(`thread ${t.id} has no comment to reply to`)),
     resolve: (t) => resolveReviewThread(t.id),
     unresolve: (t) => unresolveReviewThread(t.id),
   };
@@ -2638,8 +2665,16 @@ export async function runReview({ agent = runAgent } = {}) {
       const dupNote = `duplicate of the finding reported at line ${d.line}`;
       previously.push({ label: d.label, status: 'resolved', note: explained ? dupNote : `${dupNote} (the reply saying so could not be posted)`, superseded: true });
     } catch (e) {
-      console.warn(`duplicate resolve failed (${d.label}) — ${e.message}`);
-      previously.push({ label: d.label, status: 'open', note: 'duplicate of another finding this push, but this thread could not be resolved', superseded: true });
+      console.warn(`duplicate close failed (${d.label}) — ${e.message}`);
+      previously.push({
+        label: d.label,
+        status: 'open',
+        note:
+          e?.stage === 'unreplyable'
+            ? `duplicate of another finding this push, but ${e.message} — left for a human`
+            : 'duplicate of another finding this push, but this thread could not be resolved',
+        superseded: true,
+      });
     }
   }
 

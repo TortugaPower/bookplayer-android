@@ -45,7 +45,7 @@ function worldGitHub() {
   let nextComment = 1000;
   let nextThread = 1;
   const state = { threads: [], summary: null, failPost: false, failResolve: false, failRecordRead: false, failThreadRead: false, failReply: false, failSummaryWrite: false };
-  const calls = { posted: 0, resolved: 0, unresolved: 0, replies: 0 };
+  const calls = { posted: 0, resolved: 0, unresolved: 0, replies: 0, resolvedIds: [] };
 
   const threadNodes = () =>
     state.threads.map((t) => ({
@@ -54,7 +54,12 @@ function worldGitHub() {
       path: t.path,
       line: t.outdated ? null : t.line,
       originalLine: t.line,
-      first: { nodes: [{ databaseId: t.comments[0].databaseId, body: t.comments[0].body, author: { login: t.comments[0].author } }] },
+      // A thread whose opening comment has been deleted: the body and author are still in the selection, the id
+      // is not. GitHub answers `databaseId: null` there, `github.mjs` passes the null through deliberately, and
+      // the harness then has a thread it can read but cannot reply to. Every reply the harness makes is a
+      // promise it keeps about text reaching the pull request, so this is the shape that tests whether a reply
+      // it CANNOT make is reported as one it did.
+      first: { nodes: [{ databaseId: t.noReplyTarget ? null : t.comments[0].databaseId, body: t.comments[0].body, author: { login: t.comments[0].author } }] },
       comments: { nodes: t.comments.slice(-30).map((c) => ({ databaseId: c.databaseId, body: c.body, author: { login: c.author }, authorAssociation: c.association, createdAt: c.createdAt })) },
       last: { nodes: t.comments.slice(-1).map((c) => ({ body: c.body, author: { login: c.author }, createdAt: c.createdAt })) },
     }));
@@ -72,6 +77,7 @@ function worldGitHub() {
         const t = state.threads.find((x) => x.id === body.variables.threadId);
         if (t) t.isResolved = true;
         calls.resolved++;
+        calls.resolvedIds.push(body.variables.threadId);
         return ok({ data: { resolveReviewThread: {} } });
       }
       if (/unresolveReviewThread/.test(body.query)) {
@@ -229,6 +235,11 @@ async function runScenario(seed) {
     }
     // GitHub outdates a thread whose anchor no longer maps.
     if (rand() < 0.2 && gh.state.threads.length) pick(gh.state.threads).outdated = true;
+    // Somebody deletes the opening comment of one of our threads: the thread survives, its reply target does not.
+    // Deliberately common (0.4, not the 0.15 the other injections use): the state that matters is this thread
+    // ALSO being one the round decides to close, and at 0.15 the two coincided so rarely across twelve seeds that
+    // removing the guard in the harness left the law green.
+    if (rand() < 0.4 && gh.state.threads.length) pick(gh.state.threads).noReplyTarget = true;
     // Injected failures, one round at a time.
     gh.state.failPost = rand() < 0.15;
     gh.state.failResolve = rand() < 0.15;
@@ -253,6 +264,7 @@ async function runScenario(seed) {
       if (mood < 0.8) return offered.find((o) => o !== mine)?.id ?? mine?.id; // careless: someone else's thread
       return 999;                                                          // inventive: never offered
     };
+    const resolvesBefore = gh.calls.resolvedIds.length;
     let threw = null;
     try {
       await mod.runReview({ agent: scriptedAgent(reporting.map(asFinding), claimPolicy) });
@@ -334,19 +346,33 @@ async function runScenario(seed) {
     // Nothing here is ever FIXED, so every close the harness makes must be a duplicate close — and it must say
     // so on the thread. A close with no reason on it is the failure this law was written for: a thread that goes
     // quiet with no record of who closed it or why.
-    const ourCloses = gh.state.threads.filter((t) => t.isResolved && t.comments.every((c) => c.author === 'github-actions[bot]'));
-    // A close has a second legitimate home for its reason, and it is the SUMMARY, not the record: the resolve can
-    // land while the reply explaining it is refused, and undoing the close then would flap the thread open and
-    // shut on every push over a verdict earned against the code. What that costs is a collapsed thread with
-    // nothing on it, so the row in the summary table has to say both what happened at that location and that the
-    // explanation never reached the thread. The record is NOT accepted here on purpose: it is a hidden HTML
-    // comment, so a law satisfied by it would be satisfied by something no human reading the PR can see — and
-    // since every close the harness makes is recorded, that would retire this check altogether.
-    const rowForThread = (t) => summary.includes(`\`${t.path}:${t.line}\``);
+    // THIS round's closes, not every closed thread on the PR: the question is whether the round that closed a
+    // thread explained itself, and a violation inherited from an earlier round would otherwise be re-reported for
+    // ever, drowning the round that actually caused it. `resolvedIds` is what the round asked GitHub to resolve.
+    const closedThisRound = new Set(gh.calls.resolvedIds.slice(resolvesBefore));
+    const ourCloses = gh.state.threads.filter((t) => closedThisRound.has(t.id) && t.comments.every((c) => c.author === 'github-actions[bot]'));
+    // And the rule that makes the row above an acceptable fallback at all: a close is only ever explained for one
+    // round by the summary, since the next round's summary replaces it — so a thread the harness KNOWS it can
+    // never reply to must not be closed in the first place. `noReplyTarget` is the world's truth (the opening
+    // comment's id is gone), and `firstCommentId` is how the harness sees the same fact.
+    for (const t of gh.state.threads) {
+      if (closedThisRound.has(t.id) && t.noReplyTarget) {
+        problems.push(
+          `seed ${seed} round ${round}: thread ${t.id} was closed although it has no comment to reply to — ` +
+            `nothing can ever put the reason on it, and a summary row lasts one round`,
+        );
+      }
+    }
     for (const t of ourCloses) {
-      const explained =
-        t.comments.some((c) => /same issue is reported on this push/.test(c.body)) ||
-        (rowForThread(t) && /could not be posted/.test(summary));
+      // The reason on the thread, or — when the reply was refused after the resolve had already landed — this
+      // round's summary saying so. The record is NOT accepted: it is a hidden HTML comment, and since every close
+      // is recorded in it, a law satisfied by that would have retired itself. The other half of this is in the
+      // harness: a thread it can never reply to is never closed at all, so this branch only has to cover a
+      // refusal it could not have known about in advance.
+      // On the thread's OWN row, not anywhere in the summary: a single refused reply would otherwise excuse every
+      // unexplained close in the same round.
+      const ownRow = summary.split('\n').find((l) => l.startsWith('|') && l.includes(`\`${t.path}:${t.line}\``));
+      const explained = t.comments.some((c) => /same issue is reported on this push/.test(c.body)) || /could not be posted/.test(ownRow || '');
       if (!explained) {
         problems.push(
           `seed ${seed} round ${round}: thread ${t.id} was closed by the harness with no reason on it and no ` +

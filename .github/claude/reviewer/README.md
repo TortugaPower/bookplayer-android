@@ -33,7 +33,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~193 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~195 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 `test/shell-allowlist.test.mjs` holds the unit tests — the tool gate, the record, the prompts, the budgets.
@@ -104,6 +104,12 @@ them: it bounds both, and a job cancelled mid-reconcile leaves a PR with comment
   not do what you think. Its failure injections are where its blind spots have been: the thread read, the
   comment read, the inline post, the resolve, the reason-reply and the summary write can each be refused for a
   round. Every one of those was added after the round it could not see hid a real bug.
+- **A close the harness cannot explain on the thread is not made.** The reply carrying the reason goes AFTER the
+  resolve on purpose (without `REVIEW_RESOLVE_TOKEN` every resolve fails, and reply-first would claim "verified
+  fixed" on every thread that stayed open), so a thread with no comment to reply to — GitHub can answer with an
+  empty `first` selection — is judged, reported and left open instead. The two rejected alternatives: undoing the
+  close flaps the thread on every push, and a row in the summary explains it for exactly one round, because the
+  next round's summary replaces it.
 - **Similarity may decide MATCHING, never CLOSING.** A wrong match costs an extra comment somebody can see; a
   wrong close costs a finding. Every use of `findingSimilarity` is on the first side of that line.
 - **The record is the harness's memory, and every summary write replaces the comment it lives in.** Any path
@@ -121,4 +127,6 @@ them: it bounds both, and a job cancelled mid-reconcile leaves a PR with comment
   anything that follows symlinks, never returns, or takes filenames from a file stays out.
 - **Everything the model writes is untrusted at the write boundary.** `redact()` runs on every body, reply and
   record field; `neutralizeMarkup` stops model text from opening an HTML comment, which is what keeps a
-  finding from forging a state record or a fingerprint marker.
+  finding from forging a state record or a fingerprint marker. The same applies to the answer itself: the review's
+  result is taken from the terminal fenced block the output contract mandates, so a result-shaped example quoted
+  inside a finding — this file's own guide contains one — cannot be adopted as the round's answer.
