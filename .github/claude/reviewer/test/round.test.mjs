@@ -44,7 +44,10 @@ function fakeGitHub({ summaryBody = null, threads = [] } = {}) {
     if (/\/issues\/\d+\/comments/.test(u) && method === 'POST') { calls.issueComments.push(body.body); return ok({ id: 100 }); }
     if (/\/issues\/comments\/\d+/.test(u) && method === 'PATCH') { calls.patched.push(body.body); return ok({ id: 99 }); }
     if (/\/pulls\/\d+\/comments\/\d+\/replies/.test(u)) { calls.replies.push(body.body); return ok({ id: 101 }); }
-    if (/\/pulls\/\d+\/comments/.test(u) && method === 'POST') { calls.inline.push({ path: body.path, line: body.line, body: body.body, commit_id: body.commit_id, side: body.side }); return ok({ id: 102 }); }
+    // A DISTINCT id per posted comment, and the same one the thread would report as its `firstCommentId`: the
+    // harness records it so a finding posted this round keeps its identity through an edited body, and a fake
+    // that answers one constant cannot tell a right answer from a wrong one.
+    if (/\/pulls\/\d+\/comments/.test(u) && method === 'POST') { const id = 200 + calls.inline.length; calls.inline.push({ id, path: body.path, line: body.line, body: body.body, commit_id: body.commit_id, side: body.side }); return ok({ id }); }
     throw new Error(`unstubbed ${method} ${u}`);
   };
   return { calls, fetch, diffBody, summaryOut: () => calls.patched[calls.patched.length - 1] ?? calls.issueComments[calls.issueComments.length - 1] };
@@ -1557,6 +1560,62 @@ test('a round that cannot write its summary fails loudly instead of exiting gree
       mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'one finding', findings: [{ severity: 'warn', file: 'app/A.kt', line: 4, comment: 'a finding with nowhere to go' }] }) }),
       /produced no visible output/,
     );
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('a finding posted this round survives its comment being edited on the next', async () => {
+  // The record's identity for a finding is the THREAD id, and a round that posts a comment cannot know it: the
+  // thread listing was read before the post. So a finding posted in round A was recorded with `id: null`, and in
+  // round B its identity rested entirely on the `bp-ai-review-fp:` marker in the body — the marker archaeology
+  // the record exists to replace. One maintainer edit of that body between the two pushes (the case the record is
+  // FOR) made the thread unrecognisable, and the finding got a second comment on a second thread. The id of the
+  // comment the harness created closes that window: it is the same number the thread reports as its
+  // `firstCommentId`, so round B can match on it while the record still has no thread id.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'freshid-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '40', COMMIT: 'ee44000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'freshid');
+  const realFetch = globalThis.fetch;
+  try {
+    const f = { severity: 'warn', file: 'app/Fresh.kt', line: 11, comment: 'the receiver is never unregistered' };
+
+    // ---- Round A: nothing on the PR yet, so the finding is posted and recorded.
+    const a = fakeGitHub();
+    globalThis.fetch = a.fetch;
+    await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'one finding', findings: [f] }) });
+    assert.equal(a.calls.inline.length, 1, 'round A did not post');
+    const posted = a.calls.inline[0];
+    const summaryA = a.summaryOut();
+    const entry = Object.values(mod.decodeState(summaryA).findings)[0];
+    assert.equal(entry.id, null, 'the thread id cannot be known in the round that posts');
+    assert.equal(entry.commentId, posted.id, 'the created comment id was not recorded');
+
+    // ---- Round B: a maintainer has rewritten the body past recognition — no marker, nothing that looks ours —
+    // and the finding is reported again. It must land on the SAME thread, with no second comment.
+    const b = fakeGitHub({
+      summaryBody: summaryA,
+      threads: [{
+        id: 'T-fresh', isResolved: false, path: f.file, line: f.line, originalLine: f.line,
+        first: { nodes: [{ databaseId: posted.id, body: 'I rewrote this while triaging', author: { login: 'github-actions[bot]' } }] },
+        comments: { nodes: [] }, last: { nodes: [] },
+      }],
+    });
+    globalThis.fetch = b.fetch;
+    await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'still there', findings: [f] }) });
+
+    assert.deepEqual(b.calls.inline, [], 'the finding was posted a second time');
+    assert.match(b.summaryOut(), /1 carried over/);
+    // And the wording goes on the thread, because the edited body no longer says it — the safety net, not a
+    // second comment on a second thread.
+    assert.equal(b.calls.replies.length, 1);
+    assert.match(b.calls.replies[0], /never unregistered/);
+    // The record now knows the thread id too, so the next round does not need the comment id at all.
+    assert.equal(Object.values(mod.decodeState(b.summaryOut()).findings)[0].id, 'T-fresh');
   } finally {
     globalThis.fetch = realFetch;
     restore();

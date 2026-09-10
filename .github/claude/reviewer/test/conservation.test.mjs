@@ -116,16 +116,22 @@ function worldGitHub() {
     }
     if (/\/pulls\/\d+\/comments/.test(u) && method === 'POST') {
       if (state.failPost) return fail(422);
+      // The id of the comment it just created, which is what the real endpoint returns. It used to answer
+      // `nextComment` AFTER the increment — every id one too high, pointing at the comment created NEXT — and
+      // nothing read the value, so nothing noticed. The first code to read it (recording the id so a finding
+      // posted this round has an identity that survives an edited body) then mis-identified every thread by one,
+      // and the law reported it as lost findings. A double that lies is worse than one that refuses.
+      const created = nextComment++;
       state.threads.push({
         id: `T${nextThread++}`,
         path: body.path,
         line: body.line,
         isResolved: false,
         outdated: false,
-        comments: [{ databaseId: nextComment++, body: body.body, author: 'github-actions[bot]', association: 'NONE', createdAt: new Date().toISOString() }],
+        comments: [{ databaseId: created, body: body.body, author: 'github-actions[bot]', association: 'NONE', createdAt: new Date().toISOString() }],
       });
       calls.posted++;
-      return ok({ id: nextComment });
+      return ok({ id: created });
     }
     throw new Error(`unstubbed ${method} ${u}`);
   };
@@ -363,16 +369,26 @@ async function runScenario(seed) {
         );
       }
     }
+    // The reason on the thread, or — when the reply was refused after the resolve had already landed — this
+    // round's summary saying so. The record is NOT accepted: it is a hidden HTML comment, and since every close is
+    // recorded in it, a law satisfied by that would have retired itself. The other half of this lives in the
+    // harness: a thread it can never reply to is never closed at all, so this only has to cover a refusal that
+    // could not have been known in advance.
+    //
+    // Counted per LOCATION, because a row names a `path:line` and this fuzzer deliberately puts two threads on
+    // one line. Taking the first row there let it answer for a close it had nothing to do with; accepting the
+    // annotation anywhere in the summary let one refused reply excuse every other close in the round.
+    const saidOnTheThread = (t) => t.comments.some((c) => /same issue is reported on this push/.test(c.body));
+    const rowsSaying = (t) =>
+      summary.split('\n').filter((l) => l.startsWith('|') && l.includes(`\`${t.path}:${t.line}\``) && /could not be posted/.test(l)).length;
+    const needARow = new Map();
     for (const t of ourCloses) {
-      // The reason on the thread, or — when the reply was refused after the resolve had already landed — this
-      // round's summary saying so. The record is NOT accepted: it is a hidden HTML comment, and since every close
-      // is recorded in it, a law satisfied by that would have retired itself. The other half of this is in the
-      // harness: a thread it can never reply to is never closed at all, so this branch only has to cover a
-      // refusal it could not have known about in advance.
-      // On the thread's OWN row, not anywhere in the summary: a single refused reply would otherwise excuse every
-      // unexplained close in the same round.
-      const ownRow = summary.split('\n').find((l) => l.startsWith('|') && l.includes(`\`${t.path}:${t.line}\``));
-      const explained = t.comments.some((c) => /same issue is reported on this push/.test(c.body)) || /could not be posted/.test(ownRow || '');
+      if (saidOnTheThread(t)) continue;
+      const at = `${t.path}:${t.line}`;
+      needARow.set(at, (needARow.get(at) || 0) + 1);
+    }
+    for (const t of ourCloses) {
+      const explained = saidOnTheThread(t) || rowsSaying(t) >= (needARow.get(`${t.path}:${t.line}`) || 0);
       if (!explained) {
         problems.push(
           `seed ${seed} round ${round}: thread ${t.id} was closed by the harness with no reason on it and no ` +

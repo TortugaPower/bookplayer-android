@@ -11,7 +11,10 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 
 1. Fetches the PR and its diff (the agent gets no token; the diff is written to `RUNNER_TEMP`).
 2. **Review pass** — the agent reads the diff and the checkout with read-only tools and returns JSON findings.
-3. Identity. The prompt lists the findings still open from earlier pushes, and the agent may answer
+3. Identity. A finding's identity in the record is the thread it lives on, plus the id of the comment the harness
+   created for it — a round that posts a comment cannot know its thread id (the listing was read first), so
+   without the comment id the round after a post falls back to the marker in the body, and one maintainer edit of
+   that body loses the finding. The prompt lists the findings still open from earlier pushes, and the agent may answer
    `same_as: <id>` to say "this is that one again" — identity **stated** rather than inferred. Where it says
    nothing, the fallback is a fingerprint, `sha1(file|line|severity)`, corroborated against what the thread
    actually says: that hash identifies a *location*, and two different findings at one location used to become
@@ -33,8 +36,13 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~195 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~199 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
+
+**And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
+comment created *next* — off by one, for as long as it has existed, because nothing had ever read that value.
+The first code that did read it mis-identified every thread, and the conservation law reported it as lost
+findings. A double that lies is worse than one that refuses.
 
 `test/shell-allowlist.test.mjs` holds the unit tests — the tool gate, the record, the prompts, the budgets.
 `test/round.test.mjs` runs whole rounds through `runReview({ agent })` with `fetch` stubbed and the model

@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { redactBody, openFindings, openFindingsBlock, keyFindings, MODEL_FOR_TEST, MAX_TURNS_FOR_TEST, buildUserPrompt, VERIFY_STATUSES_FOR_TEST, carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { readChunkLines, redactBody, openFindings, openFindingsBlock, keyFindings, MODEL_FOR_TEST, MAX_TURNS_FOR_TEST, buildUserPrompt, VERIFY_STATUSES_FOR_TEST, carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -2108,11 +2108,11 @@ test('the summary claims convergence only when it actually knows', () => {
   // budget or threw (`unknown`), where an empty table means "not checked", not "nothing there".
   const clean = { verdict: 'pass', summary: 's', findings: [] };
   const zero = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
-  assert.match(renderSummary(clean, zero, [], { priorState: 'none-open' }), /Converged/);
-  assert.equal(renderSummary(clean, zero, [], { priorState: 'unknown' }).includes('Converged'), false);
-  assert.equal(renderSummary(clean, zero, [], { priorState: 'verified' }).includes('Converged'), false);
+  assert.match(renderSummary(clean, zero, [], { verificationState: 'none-open' }), /Converged/);
+  assert.equal(renderSummary(clean, zero, [], { verificationState: 'unknown' }).includes('Converged'), false);
+  assert.equal(renderSummary(clean, zero, [], { verificationState: 'verified' }).includes('Converged'), false);
   // And never on a provisional round, whose banner says the finding list itself may be partial.
-  assert.equal(renderSummary(clean, zero, [], { priorState: 'none-open', provisional: true }).includes('Converged'), false);
+  assert.equal(renderSummary(clean, zero, [], { verificationState: 'none-open', provisional: true }).includes('Converged'), false);
 });
 
 test('the summary counts a superseded close once, and escapes evidence for the table', async () => {
@@ -2975,10 +2975,10 @@ test('the summary never claims convergence on a result it also disclaims', () =>
   const stats = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
   const clean = { verdict: 'pass', summary: 'nothing new', findings: [] };
   // With a complete result and nothing open, saying so is the point.
-  assert.match(renderSummary(clean, stats, [], { priorState: 'none-open' }), /Converged/);
+  assert.match(renderSummary(clean, stats, [], { verificationState: 'none-open' }), /Converged/);
   // On a provisional result the banner says the finding list may be partial, so "nothing new, and nothing left
   // open" claims exactly what the banner disclaims.
-  const provisional = renderSummary(clean, stats, [], { priorState: 'none-open', provisional: true, provisionalCause: 'truncated' });
+  const provisional = renderSummary(clean, stats, [], { verificationState: 'none-open', provisional: true, provisionalCause: 'truncated' });
   assert.equal(provisional.includes('Converged'), false);
   assert.match(provisional, /cut off mid-JSON/);
 });
@@ -3761,4 +3761,97 @@ test('a thread with no comment to reply to is judged but never closed', () => {
     assert.match(rows[0].note, /verified fixed/, 'and the judgement is still reported');
     assert.equal(closedIds.size, 0);
   });
+});
+
+test('a not_applicable close says whose account it rests on', async () => {
+  // `accepted` is barred to the PR author outright, because it would have the harness assert that a MAINTAINER
+  // accepted the finding. `not_applicable` is deliberately open to them — a reply can state a fact the code
+  // cannot show, and that is the status for it — but closed in the harness's voice "no longer applies" reads as
+  // though the reviewer established it, when on that thread only the person who wrote the code has spoken. The
+  // close stands; the row says where it comes from.
+  const withReply = (author, association) => ({
+    ...thread(),
+    comments: [
+      { id: 1, body: '🟡 **WARN** — the socket is never closed', author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-01T00:00:00Z' },
+      { id: 2, body: 'the caller closes it upstream', author, association, createdAt: '2026-01-02T00:00:00Z' },
+    ],
+  });
+  const verdict = verdictsById([{ id: 1, status: 'not_applicable', evidence: 'the caller closes it upstream' }]);
+
+  // Only the author has spoken: closed, and attributed.
+  const byAuthor = await applyVerification(verdict, numbered(withReply('gianni', 'OWNER')), recordingIo(), { prAuthor: 'gianni' });
+  assert.equal(byAuthor.rows[0].status, 'resolved', 'the close itself still happens');
+  assert.match(byAuthor.rows[0].note, /no longer applies, on the author's own account — the caller closes it upstream/);
+
+  // Somebody other than the author has looked at it: no attribution needed.
+  const byMaintainer = await applyVerification(verdict, numbered(withReply('someone-else', 'COLLABORATOR')), recordingIo(), { prAuthor: 'gianni' });
+  assert.equal(byMaintainer.rows[0].status, 'resolved');
+  assert.match(byMaintainer.rows[0].note, /^no longer applies — /);
+
+  // And a thread nobody replied to at all: the verdict rests on the code, which is the ordinary case.
+  const noReplies = await applyVerification(verdict, numbered(thread()), recordingIo(), { prAuthor: 'gianni' });
+  assert.match(noReplies.rows[0].note, /^no longer applies — /);
+
+  // The case the attribution is NOT for, and the one a fixture without both replies cannot see: the author spoke
+  // AND so did somebody else. Attributing it to the author then would be wrong in the other direction — it reads
+  // as "only the author has looked at this" when a maintainer has.
+  const both = {
+    ...thread(),
+    comments: [
+      { id: 1, body: '🟡 **WARN** — the socket is never closed', author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-01T00:00:00Z' },
+      { id: 2, body: 'the caller closes it upstream', author: 'gianni', association: 'OWNER', createdAt: '2026-01-02T00:00:00Z' },
+      { id: 3, body: 'confirmed, that path is gone', author: 'someone-else', association: 'COLLABORATOR', createdAt: '2026-01-03T00:00:00Z' },
+    ],
+  };
+  const corroborated = await applyVerification(verdict, numbered(both), recordingIo(), { prAuthor: 'gianni' });
+  assert.match(corroborated.rows[0].note, /^no longer applies — /, 'attributed to the author although a maintainer replied too');
+});
+
+test("a recorded comment id outlives the round that posted it", () => {
+  // The window it closes is one round wide only if the id is INHERITED: round A posts and records it, round B
+  // carries the finding without posting anything (so it has no id of its own to record), and round C is where an
+  // edited body would otherwise cost the identity. A record that only ever holds ids from its own round would
+  // pass the test one round after the post and fail the round after that.
+  const f = { severity: 'warn', file: 'app/A.kt', line: 4, comment: 'a finding' };
+  const fp = fingerprint(f);
+  const carriedOver = buildState({
+    commit: 'bbbbbbb',
+    currentByFp: new Map([[fp, f]]),
+    threadIdByFp: new Map(),           // still no thread id: the listing came before the post
+    commentIdByFp: new Map(),          // and this round posted nothing
+    priorState: { commit: 'aaaaaaa', findings: { [fp]: { id: null, commentId: 4242, file: f.file, line: f.line, severity: 'warn', text: 'a finding', action: 'posted', commit: 'aaaaaaa' } } },
+  });
+  assert.equal(carriedOver.findings[fp].commentId, 4242, "the id from an earlier round was dropped");
+
+  // A round that posts its own comment for that finding records THAT id, not the stale one.
+  const reposted = buildState({
+    commit: 'ccccccc',
+    currentByFp: new Map([[fp, f]]),
+    commentIdByFp: new Map([[fp, 5151]]),
+    priorState: { commit: 'bbbbbbb', findings: { [fp]: { commentId: 4242 } } },
+  });
+  assert.equal(reposted.findings[fp].commentId, 5151);
+
+  // And nothing to record means the field is absent, not null: sixty entries of `"commentId":null` is a kilobyte
+  // of a 20 KB record spent saying nothing.
+  const bare = buildState({ commit: 'ddddddd', currentByFp: new Map([[fp, f]]) });
+  assert.equal('commentId' in bare.findings[fp], false);
+});
+
+test('the diff-reading advice is derived from the diff, not from the tool docs', () => {
+  // "About 2000 lines per call" is the Read tool's LINE cap and the wrong bound for a diff: each call is also
+  // capped at ~25k tokens, and a unified diff is dense enough that the token cap binds first. Measured on a real
+  // run of this harness: a 2000-line request on a 641 KB diff came back refused at 41 683 tokens, so the agent
+  // spent a turn discovering it — on exactly the large PRs where the deadline is tight.
+  assert.equal(readChunkLines(0, 0), 2000);            // nothing measured: the tool's own advice
+  assert.equal(readChunkLines(1000, 0), 2000);         // and a line count of zero is not a measurement
+  const dense = readChunkLines(641 * 1024, 11000);     // ~60 bytes a line, the diff from that run
+  assert.ok(dense > 500 && dense < 1200, `a dense diff got ${dense} lines per call`);
+  // Both sides of the same 200 KB, at 80 and at 40 bytes a line — chosen away from the 2000 clamp, where every
+  // sparse diff answers the same and the comparison proves nothing.
+  assert.ok(readChunkLines(200 * 1024, 2500) < readChunkLines(200 * 1024, 5000), 'denser lines must mean fewer of them');
+
+  const prompt = buildUserPrompt({ title: 't', body: 'b' }, '/tmp/d.diff', 641 * 1024, 11000);
+  assert.ok(prompt.includes(`${dense} lines per call`), 'the prompt does not carry the derived number');
+  assert.match(prompt, /25k tokens/);
 });

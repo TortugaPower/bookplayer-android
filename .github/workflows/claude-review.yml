@@ -54,13 +54,21 @@ jobs:
 
       # --ignore-scripts: the lockfile comes from the PR head, so an install hook would be PR-authored code
       # running before anything else in this job.
+      # Both pre-review steps are bounded, and the bound is the point rather than the number: a step that hangs
+      # (an install stuck on the registry, a test that never returns) would otherwise burn the job's 25 minutes,
+      # and a job cancelled by ITS timeout does not run steps guarded by `if: failure()` — only `always()` or
+      # `cancelled()`. The "did not run" note below would never fire, and the round would end as a red check with
+      # nothing on the PR: the invisible failure the whole harness is organised against. A STEP timeout fails the
+      # step instead of cancelling the job, so the note posts.
       - name: Install reviewer deps
         id: install
+        timeout-minutes: 5
         working-directory: .github/claude/reviewer
         run: npm ci --ignore-scripts --no-audit --no-fund --silent
 
       - name: Test the agent's tool allowlist and redaction
         id: harness-tests
+        timeout-minutes: 8   # the suite is ~1 min; this is a hang guard, and the conservation fuzzer is the slow part
         working-directory: .github/claude/reviewer
         run: node --test test/
 
@@ -83,6 +91,9 @@ jobs:
           # every run (Opus 5 today). To pin, e.g. while diagnosing a regression, set an exact id.
           # REVIEW_MODEL: claude-opus-5
           REVIEW_MAX_TURNS: '200'  # a runaway guard only; the real bound is REVIEW_DEADLINE_MS (12 min) in review.mjs
+        # Above the harness's own 18-minute job budget, below the job's 25: review.mjs is what should end this
+        # step, and if it cannot, failing the step leaves the job alive to run what follows.
+        timeout-minutes: 22
         run: node .github/claude/reviewer/review.mjs
 
       # A failure in the two steps above happens outside review.mjs, so nothing would reach the PR and the check
