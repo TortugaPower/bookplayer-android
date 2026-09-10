@@ -7,36 +7,78 @@ on:
     branches: [ main, develop ]
 
 jobs:
+  # `build` is a REQUIRED status check on main and develop, so this job must always run and always report:
+  # a required check that never starts leaves a pull request waiting for a status forever. What is conditional
+  # is the work inside it — a PR that touches no Android source has nothing for Gradle to do, and the runner
+  # then costs seconds instead of the ~12 minutes an assemble + tests + lint + minified release build takes.
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
+      # Only an explicit `false` skips the build below. A push (a merge into develop or main) always builds; so
+      # does anything this step cannot answer, because it fails the job — the direction a mistake has to fall in
+      # is "build something that did not need it", never "let an untested Kotlin change through a green check".
+      # The API is asked rather than `git diff`, so no deep clone is needed; a listing at the 3000-file cap is
+      # treated as unknown.
+      - name: Decide whether the Android build has to run
+        id: scope
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          files="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[].filename')"
+          count="$(printf '%s\n' "$files" | grep -c . || true)"
+          if [ "$count" -eq 0 ] || [ "$count" -ge 3000 ]; then
+            echo "changed-file listing is unusable ($count entries); building"
+            echo "android=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          android=false
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            case "$f" in
+              # Inert for the Android build: the reviewer harness and its own workflow, documentation, gitignore.
+              # Everything else — Gradle files, Kotlin, resources, manifests, scripts/, and ci.yml itself — builds.
+              .github/claude/*|.github/workflows/claude-review.yml|*.md|.gitignore) ;;
+              *) android=true; echo "needs the Android build: $f" ;;
+            esac
+          done <<< "$files"
+          echo "android=$android" >> "$GITHUB_OUTPUT"
+          [ "$android" = true ] || echo "$count changed file(s), none of them Android: skipping Gradle"
+
       - name: Set up JDK 17
+        if: steps.scope.outputs.android != 'false'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle
+        if: steps.scope.outputs.android != 'false'
         uses: gradle/actions/setup-gradle@v4
 
       - name: Make gradlew executable
+        if: steps.scope.outputs.android != 'false'
         run: chmod +x ./gradlew
 
       # The `dev` flavor defaults DEV_BASE_URL to the emulator loopback alias, so devDebug builds and
       # unit tests run without any secrets. These tasks run in every module that has the variant, so
       # they cover :app AND :wear (both declare the `env` flavor).
       - name: Assemble devDebug
+        if: steps.scope.outputs.android != 'false'
         run: ./gradlew assembleDevDebug --stacktrace
 
       # :app/:wear tests via testDevDebugUnitTest; :core is a flavorless library, so its tests live
       # under testDebugUnitTest and must be invoked explicitly.
       - name: Run unit tests
+        if: steps.scope.outputs.android != 'false'
         run: ./gradlew testDevDebugUnitTest :core:testDebugUnitTest --stacktrace
 
       - name: Lint
+        if: steps.scope.outputs.android != 'false'
         run: ./gradlew lintDevDebug --stacktrace
 
       # Exercise the R8/resource-shrink release config on every PR: a missing keep rule or a
@@ -44,10 +86,12 @@ jobs:
       # at release-cut time. Builds unsigned and secretless (config falls back to empty strings,
       # signing attaches only when the keystore exists, Sentry upload skips without a token).
       - name: Assemble minified prodRelease (unsigned)
+        if: steps.scope.outputs.android != 'false'
         run: ./gradlew :app:assembleProdRelease :wear:assembleProdRelease --stacktrace
 
       # Classes another process resolves BY NAME (manifest components, Room's _Impl, the Wear
       # ongoing-activity surface) must survive R8 with their names and packages intact. Play review
       # was the only thing that caught the 1.1.2 wear rejection; this catches it on the PR.
       - name: Audit R8 mapping (cross-process keeps)
+        if: steps.scope.outputs.android != 'false'
         run: scripts/audit-mapping.sh app && scripts/audit-mapping.sh wear
