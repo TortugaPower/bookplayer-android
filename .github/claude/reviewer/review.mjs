@@ -1732,43 +1732,62 @@ export function findingSimilarity(a, b) {
 // it errs toward "not the same finding", which posts a comment rather than merging two.
 const SAME_FINDING_SIMILARITY = 0.35;
 
-// A fingerprint is sha1(file|line|severity): it identifies a LOCATION, not a finding. Two different findings at
-// one location therefore share one — measured in production on this very PR, where an `info` about
-// `FALLBACK_MODEL` at review.mjs:57 and an `info` about `duplicateNote` at review.mjs:57 collided. The harness
-// read the second as a re-report of the first, reopened that thread, recorded the new text against it, and the
-// verification pass — shown the thread's own body, which still described the FIRST finding — closed it as
-// "verified fixed" on evidence about the other issue. One finding silently gone.
+// Keying the round's findings. One rule, applied to every claim on a fingerprint, whether the claimant is
+// another finding from THIS round or a thread from an earlier one: a fingerprint is sha1(file|line|severity),
+// which identifies a LOCATION, so a match is a candidate that has to be corroborated by what is already there.
 //
-// So a fingerprint match is a CANDIDATE, corroborated by what the thread actually says. When the texts do not
-// look like the same finding, the new one is re-keyed with a text digest and posted as its own comment, and the
-// old thread goes to the verification pass to be judged on its own merits. A wrong answer here costs a comment;
-// the answer it replaces cost a finding.
-export function disambiguate(currentByFp, threads = [], priorState = null) {
+// Both halves were live bugs, and both lost a finding without a word:
+//   * across rounds, an `info` about `FALLBACK_MODEL` at review.mjs:57 and an `info` about `duplicateNote` at
+//     review.mjs:57 shared a fingerprint, so the second was read as a re-report of the first — thread reopened,
+//     record overwritten, and the verification pass then closed that thread on the OTHER finding's evidence;
+//   * within one round, two findings at one location were merged into a single comment, and if that location
+//     already had a thread the merged text was never posted anywhere: `stats.kept` counted the finding as
+//     handled while the thread still showed only the original text. Found by the conservation fuzzer.
+//
+// So: same location AND recognisably the same finding ⇒ one comment carries both (a genuine double report).
+// Same location, different finding ⇒ the newcomer is keyed with a text digest and gets its own comment. A wrong
+// answer costs one extra comment a human can see; the answer it replaces cost a finding.
+export function keyFindings(findings, threads = [], priorState = null) {
   const ours = threads.filter((t) => isHarnessComment(t.firstCommentAuthor));
-  const byFp = new Map();
+  const threadByFp = new Map();
   for (const t of ours) {
     const fp = fingerprintOfThread(t, priorState);
-    if (fp && !byFp.has(fp)) byFp.set(fp, t);
+    if (fp && !threadByFp.has(fp)) threadByFp.set(fp, t);
   }
+  // What a thread SAYS, preferring its own body: the record's entry for it may already have been overwritten by
+  // a colliding finding, which is the state this function exists to detect.
+  const textOfThread = (t) => {
+    if (!t) return '';
+    if (bodyLooksOurs(t.firstCommentBody)) return stripHarnessMarkup(t.firstCommentBody || '');
+    const recorded = Object.values(priorState?.findings || {}).find((r) => r?.id === t.id);
+    return recorded?.text || '';
+  };
   const out = new Map();
-  for (const [fp, f] of currentByFp) {
-    const t = byFp.get(fp);
-    // What that thread SAYS, preferring its own body: the record's entry for it may already have been
-    // overwritten by a colliding finding, which is exactly the state this function exists to detect.
-    const recorded = t ? Object.values(priorState?.findings || {}).find((r) => r?.id === t.id) : null;
-    const theirs = t
-      ? (bodyLooksOurs(t.firstCommentBody) ? stripHarnessMarkup(t.firstCommentBody || '') : recorded?.text || '')
-      : '';
-    if (!t || !theirs || findingSimilarity(theirs, f.comment) >= SAME_FINDING_SIMILARITY) {
-      out.set(fp, f);
+  let merged = 0;
+  let collided = 0;
+  for (const f of findings) {
+    let fp = fingerprint(f);
+    const claimant = out.get(fp)?.comment ?? textOfThread(threadByFp.get(fp));
+    if (claimant && findingSimilarity(claimant, f.comment) < SAME_FINDING_SIMILARITY) {
+      fp = fingerprint({ ...f, salt: String(f.comment || '').slice(0, MAX_STATE_TEXT) });
+      collided++;
+    }
+    const existing = out.get(fp);
+    if (existing) {
+      // The same finding, reported twice in one round: one thread carrying both texts, rather than one of them
+      // going missing. Copied rather than mutated — the caller's array is its own, and a function that edits
+      // what it was handed is a trap for the next reader (it bit this file's own test).
+      out.set(fp, { ...existing, comment: `${existing.comment}\n\n---\n\n${f.comment}` });
+      merged++;
       continue;
     }
-    const salted = fingerprint({ ...f, salt: String(f.comment || '').slice(0, MAX_STATE_TEXT) });
-    console.warn(`fingerprint collision at ${f.file}:${f.line} (${f.severity}): the thread there carries a different finding; posting this one as ${salted.slice(0, 8)}`);
-    out.set(salted, f);
+    out.set(fp, { ...f });
   }
+  if (merged) console.log(`Merged ${merged} finding(s) reported twice at one location`);
+  if (collided) console.warn(`${collided} finding(s) landed where a different finding already lives; each keyed and posted on its own`);
   return out;
 }
+
 
 export async function reconcile(currentByFp, threads, io, options = {}) {
   const { provisional = false, priorState } = options;
@@ -2155,9 +2174,8 @@ export async function runReview({ agent = runAgent } = {}) {
 
   // Current findings, de-duplicated by fingerprint.
   const VALID_SEVERITY = new Set(['info', 'warn', 'error']);
-  let currentByFp = new Map();
+  const valid = [];
   let dropped = 0;
-  let merged = 0;
   for (const f of parsed.findings) {
     f.line = Number(f.line);
     f.file = typeof f.file === 'string' ? f.file.replace(/^\.\//, '') : '';
@@ -2165,18 +2183,12 @@ export async function runReview({ agent = runAgent } = {}) {
       dropped++;
       continue;
     }
-    const fp = fingerprint(f);
-    const existing = currentByFp.get(fp);
-    if (existing) {
-      // Same file/line/severity: one thread carrying both comments, rather than silently losing one.
-      existing.comment += `\n\n---\n\n${f.comment}`;
-      merged++;
-      continue;
-    }
-    currentByFp.set(fp, f);
+    valid.push(f);
   }
   if (dropped) console.warn(`Dropped ${dropped} malformed finding(s) (missing field or invalid severity)`);
-  if (merged) console.log(`Merged ${merged} finding(s) that shared a file/line/severity`);
+  // Keyed without the threads for now — a dry run stops before fetching them — and keyed again below once they
+  // are in hand, which is when a collision with an EXISTING thread can be seen.
+  let currentByFp = keyFindings(valid);
   parsed.findings = [...currentByFp.values()]; // summary counts reflect what is actually posted
 
   if (DRY_RUN) {
@@ -2228,10 +2240,11 @@ export async function runReview({ agent = runAgent } = {}) {
     ).catch((e2) => console.warn(`Could not post the summary comment: ${e2.message}`));
     return;
   }
-  // Now that the threads are in hand: a finding whose fingerprint matches a thread that says something else is
-  // a collision, not a re-report, and it is re-keyed here so everything downstream — reconcile, the record, the
-  // verification pass — sees one identity per finding.
-  currentByFp = disambiguate(currentByFp, threads, stateRecord);
+  // Again, now that the threads are in hand: a finding whose fingerprint matches a thread that says something
+  // else is a collision, not a re-report, and re-keying it here means everything downstream — reconcile, the
+  // record, the verification pass — sees one identity per finding.
+  currentByFp = keyFindings(valid, threads, stateRecord);
+  parsed.findings = [...currentByFp.values()];
 
   const io = {
     post: (f, body) => postInlineComment({ prNumber: PR_NUMBER, commitId: COMMIT, path: f.file, line: f.line, body }),

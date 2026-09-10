@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { disambiguate, MODEL_FOR_TEST, MAX_TURNS_FOR_TEST, buildUserPrompt, VERIFY_STATUSES_FOR_TEST, carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { keyFindings, MODEL_FOR_TEST, MAX_TURNS_FOR_TEST, buildUserPrompt, VERIFY_STATUSES_FOR_TEST, carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -2494,28 +2494,41 @@ test('two different findings at one location do not become one', () => {
 
   // The SECOND finding does not inherit the first one's thread: it is re-keyed, so it gets its own comment and
   // the old thread is left for the verification pass to judge on its own merits.
-  const collided = disambiguate(new Map([[fingerprint(second), second]]), [thread], null);
+  const collided = keyFindings([second], [thread], null);
   const [[keyForSecond, kept]] = [...collided];
-  assert.equal(kept, second);
+  // A copy, not the object handed in — the function does not edit its caller's array.
+  assert.deepEqual(kept, second);
+  assert.notEqual(kept, second);
   assert.notEqual(keyForSecond, fingerprint(first));
   // And that key is stable: the same finding on the next push lands on the same thread rather than posting again.
-  assert.equal([...disambiguate(new Map([[fingerprint(second), second]]), [thread], null).keys()][0], keyForSecond);
+  assert.equal([...keyFindings([second], [thread], null).keys()][0], keyForSecond);
 
   // A genuine re-report of the SAME finding is untouched — that is the whole point of a fingerprint, and the
   // measured gap is wide: 0.905 for a re-report against 0.000 for the collision above.
   const reReported = at57(`${first.comment} (still true on this push)`);
-  const same = disambiguate(new Map([[fingerprint(reReported), reReported]]), [thread], null);
+  const same = keyFindings([reReported], [thread], null);
   assert.deepEqual([...same.keys()], [fingerprint(first)]);
 
   // With no thread at that location there is nothing to collide with.
-  assert.deepEqual([...disambiguate(new Map([[fingerprint(second), second]]), [], null).keys()], [fingerprint(second)]);
+  assert.deepEqual([...keyFindings([second], [], null).keys()], [fingerprint(second)]);
   // A thread that is not ours never claims a fingerprint, however its body reads.
   const foreign = { ...thread, id: 'T-foreign', firstCommentAuthor: 'someone' };
-  assert.deepEqual([...disambiguate(new Map([[fingerprint(second), second]]), [foreign], null).keys()], [fingerprint(second)]);
+  assert.deepEqual([...keyFindings([second], [foreign], null).keys()], [fingerprint(second)]);
   // And when the thread's body has been edited past recognition, the record's text for it is what is compared.
   const edited = { ...thread, firstCommentBody: 'a maintainer rewrote this comment' };
   const record = { commit: 'c', findings: { [fingerprint(first)]: { id: 'T-first', file: first.file, line: 57, severity: 'info', text: first.comment.slice(0, 160), action: 'posted', commit: 'c' } } };
-  assert.notEqual([...disambiguate(new Map([[fingerprint(second), second]]), [edited], record).keys()][0], fingerprint(first));
+  assert.notEqual([...keyFindings([second], [edited], record).keys()][0], fingerprint(first));
+
+  // And the same rule within ONE round, which is where it was also being broken: two different findings at one
+  // location were merged into a single comment, and if that location already had a thread the merged text was
+  // never posted at all — `kept` counted the finding as handled while the thread still showed the old text.
+  const together = keyFindings([first, second], [], null);
+  assert.equal(together.size, 2, 'two different findings at one location were merged into one comment');
+  assert.equal([...together.values()].filter((f) => f.comment.includes('inlines the literal')).length, 1);
+  // A genuine double report of the SAME finding still shares one comment, which is what that merge is for.
+  const twice = keyFindings([first, { ...first, comment: `${first.comment} — and it matters because the retry has nowhere to go` }], [], null);
+  assert.equal(twice.size, 1);
+  assert.match([...twice.values()][0].comment, /nowhere to go/);
 });
 
 test('severity is part of a finding\'s identity', () => {
