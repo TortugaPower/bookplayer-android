@@ -108,7 +108,10 @@ async function rest(method, path, body) {
   const res = method === 'GET' ? await fetchRead(url, options, label) : await fetch(url, options());
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`${label} -> ${res.status}: ${text}`);
+    // The status as a property, not only inside the message: a caller that has to tell "the comment I meant to
+    // update is gone" (404/410, where posting a new one is right) from "GitHub refused this write" (where
+    // posting one would duplicate the summary) should not have to parse prose to do it.
+    throw Object.assign(new Error(`${label} -> ${res.status}: ${text}`), { status: res.status });
   }
   return res.status === 204 ? null : res.json();
 }

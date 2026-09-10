@@ -3671,3 +3671,44 @@ test('every count the round keeps reaches the summary', () => {
   const quiet = countsLine(renderSummary(result, zeroed, [], {}));
   for (const noisy of [/reopened/, /re-worded/, /last word/]) assert.equal(noisy.test(quiet), false, `${noisy} shown at zero`);
 });
+
+test('a close whose reason is refused still says so where a human will read it', async () => {
+  // The resolve goes first (a "verified fixed" reply on a thread that stays open would be a false claim on every
+  // push), so the resolve can land while the reply that explains it does not — and the thread is then collapsed
+  // with nothing on it saying who closed it or why. Undoing the close was the other candidate and flaps a thread
+  // that a verdict earned; the summary row carries the reason instead, and has to admit the reply never landed.
+  const io = { calls: [], post: async () => {}, resolve: async () => io.calls.push('resolve'), unresolve: async () => io.calls.push('unresolve'), reply: async () => { throw new Error('502 from the replies endpoint'); } };
+  const verdicts = verdictsById([{ id: 1, status: 'fixed', evidence: 'the receiver is unregistered in onDestroy' }]);
+  const { rows, stats, closedIds } = await applyVerification(verdicts, numbered(thread()), io, { commit: 'abcdef1234' });
+
+  assert.equal(stats.verifiedFixed, 1, 'the verdict was earned; a refused reply does not undo it');
+  assert.deepEqual(io.calls, ['resolve'], 'the close was undone, which flaps the thread instead');
+  assert.deepEqual([...closedIds], ['t1']);
+  assert.equal(rows[0].status, 'resolved');
+  assert.match(rows[0].note, /could not be posted/, 'the summary row does not admit the reason never landed');
+  assert.match(rows[0].note, /verified fixed/, 'and it still says what the verdict was');
+});
+
+test('a re-worded finding whose reply is refused is listed in the summary instead', async () => {
+  // The reply IS the safety net: it is what puts a re-matched finding's CURRENT wording on the pull request when
+  // the thread it matched says something else. A refused net used to be a warning and nothing more, so the new
+  // wording was nowhere at all while the finding counted as carried over. It joins the unpostable list now —
+  // which is exactly what that list is for, and what `renderSummary` prints in full.
+  const f = { severity: 'warn', file: 'app/A.kt', line: 42, comment: 'the receiver is never unregistered on the way out' };
+  const fp = fingerprint(f);
+  const base = {
+    id: 't-word', isResolved: false, path: f.file, line: f.line,
+    firstCommentId: 7, firstCommentAuthor: 'github-actions[bot]',
+    firstCommentBody: `🟡 **WARN** — something else entirely\n\n<!-- bp-ai-review-fp:${fp} -->`,
+    comments: [],
+  };
+  const io = { post: async () => ({ id: 1 }), resolve: async () => {}, unresolve: async () => {}, reply: async () => { throw new Error('422 from the replies endpoint'); } };
+  const { stats, unpostable, unpostableFps } = await reconcile(new Map([[fp, f]]), [base], io, { priorState: null });
+
+  assert.equal(stats.kept, 1, 'the finding is still carried by its thread');
+  assert.equal(stats.reworded, 0, 'a reply that never landed must not be counted as one that did');
+  assert.deepEqual(unpostable.map((u) => u.comment), [f.comment], 'the wording has no home at all');
+  // Not in the record's unpostable KEYS: those are the findings whose POST was refused, and this one does have a
+  // thread for the next round to look up.
+  assert.equal(unpostableFps.has(fp), false);
+});

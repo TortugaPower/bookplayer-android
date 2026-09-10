@@ -1613,6 +1613,24 @@ export function harnessClosed(t, markers = HARNESS_RESOLVED_MARKERS, priorState 
   return maintainerAt === null || maintainerAt <= ours.at;
 }
 
+// Resolve, then say why. The resolve goes FIRST on purpose — a "verified fixed" reply on a thread that stays
+// open would be a false claim repeated on every push — which leaves this window: the resolve landed and the
+// reply did not, so the thread is collapsed in the UI with nothing on it saying who closed it or why. Undoing
+// the close was the other candidate and is worse: the verdict was earned against the code, and a reply endpoint
+// that keeps refusing would flap the thread open and shut on every push. So the close stands and the summary row
+// carries the reason instead — the same place every other disposition is reported — and the state record still
+// remembers that the harness was the one that closed it.
+async function closeWithReason(io, thread, body) {
+  await io.resolve(thread);
+  try {
+    await io.reply(thread, body);
+    return { explained: true };
+  } catch (e) {
+    console.warn(`the reason for closing ${thread.id} could not be posted (${e.message}); the summary row says so instead`);
+    return { explained: false };
+  }
+}
+
 export async function applyVerification(verdicts, entries, io, { commit = '', prAuthor = '', currentByFp = new Map() } = {}) {
   const rows = [];
   const closedIds = new Set(); // what this pass actually resolved, so the record can carry the close
@@ -1672,9 +1690,6 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
           : status === 'not_applicable' ? `no longer applies — ${mdCell(evidence).slice(0, 180)}` // quoted here, so the reply below does not repeat it
             : 'closed by a maintainer';
       try {
-        // Resolve first: without REVIEW_RESOLVE_TOKEN the resolve fails, and a "verified fixed" reply on a thread
-        // that stays open would be a false claim repeated on every push.
-        await io.resolve(t);
         const marker = status === 'accepted' ? MARKER_HUMAN_ACCEPTED : MARKER_VERIFIED;
         // Decided by which status it is, not by matching strings: the row for `not_applicable` embeds the evidence
         // through `mdCell` and truncates it to 180 characters, so `note.includes(evidence)` was false whenever the
@@ -1683,8 +1698,8 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
         // was most of the range.
         const noteQuotesEvidence = status === 'not_applicable';
         const reply = noteQuotesEvidence || !evidence ? `✅ ${note}` : `✅ ${note}: ${evidence}`;
-        await io.reply(t, redact(`${reply}\n\n${marker}`)).catch((e) => console.warn(`verified-resolve note failed — ${e.message}`));
-        rows.push({ label, status: 'resolved', note });
+        const { explained } = await closeWithReason(io, t, redact(`${reply}\n\n${marker}`));
+        rows.push({ label, status: 'resolved', note: explained ? note : `${note} (the reply saying so could not be posted)` });
         closedIds.add(t.id);
         if (status === 'fixed') stats.verifiedFixed++;
         else if (status === 'accepted') stats.closedByHuman++;
@@ -1922,9 +1937,21 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
     const rendered = redact(neutralizeMarkup(f.comment));
     if (bodies.some((b) => b.includes(rendered))) return;
     stats.reworded++;
-    await io
-      .reply(thread, redact(rewordedNote(neutralizeMarkup(f.comment))))
-      .catch((e) => console.warn(`reworded note failed (fp:${fp}) — ${e.message}`));
+    try {
+      await io.reply(thread, redact(rewordedNote(neutralizeMarkup(f.comment))));
+    } catch (e) {
+      // This reply IS the safety net — it is what keeps a re-matched finding's current wording on the pull
+      // request when the thread it was matched to says something else. A failed net used to be a warning and
+      // nothing more, which left the new wording nowhere at all while the finding counted as carried over. So
+      // the finding joins the unpostable list instead: its full text goes in the summary, which is where every
+      // other finding that could not be put on a thread ends up.
+      console.warn(`reworded note failed (fp:${fp}) — ${e.message}; listing the finding in the summary instead`);
+      stats.reworded--;
+      // The summary list only, not `unpostableFps`: those are the keys whose POST was refused, and this finding
+      // does have a thread — the record still points at it, and the next round must look it up there rather than
+      // treat it as never posted.
+      unpostable.push(f);
+    }
   };
 
   for (const [fp, f] of currentByFp) {
@@ -2145,6 +2172,13 @@ export function summaryWithNote(previousBody, note, heading) {
 
 // Both degrade routes use this: the deadline route is the likely one on a large PR.
 async function appendNoteToSummary(note, heading) {
+  // The flag is checked HERE rather than in each caller, because one caller forgot: `--setup-failed` posted a
+  // real comment under `DRY_RUN=1`, against a README that promises every write path sits behind the flag. Every
+  // note-writer inherits it now, and the note still reaches the log, which is the whole point of a dry run.
+  if (DRY_RUN) {
+    console.log(`[dry-run] would append to the summary under "${heading}":\n${note}`);
+    return;
+  }
   try {
     const { comments } = await listIssueComments(PR_NUMBER);
     const previous = comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
@@ -2155,8 +2189,18 @@ async function appendNoteToSummary(note, heading) {
 }
 
 // Say why on the PR before failing the check — the run log alone is easy to miss. Returns the error for rethrow.
+// A summary write that fails is not a cosmetic loss, and it used to be logged and forgiven. The summary is the
+// round's only durable output: it is where a finding that could not be posted inline lives, and where the state
+// record lives, so a round whose summary never landed has put nothing on the pull request and remembers nothing —
+// and it did that while exiting 0, which is the invisible failure this file is organised around. Found by the
+// conservation fuzzer once it started failing the comment writes as well: three findings, reported, nowhere, green.
+// Throwing hands it to the top-level handler, which tries to say so on the PR and then exits 1 — a red check is
+// the one signal left when the harness cannot write to the PR at all.
+function summaryWriteFailed(e) {
+  throw new Error(`Could not post the summary comment, so this round produced no visible output: ${e.message}`, { cause: e });
+}
+
 async function explainFailure(err) {
-  if (DRY_RUN) return err;
   // Bounded: rest()/graphql() embed the whole upstream response in their message, and this note is appended to
   // the previous summary — an unbounded body would push the comment past GitHub's 65 536-char limit, the post
   // would fail, and the catch below would swallow exactly the failure this function exists to surface.
@@ -2169,19 +2213,27 @@ async function explainFailure(err) {
 // that comment, so passing nothing erases the harness's memory of every earlier round. Pass the round's own new
 // record, or the one the round read (unchanged), or — as `appendNoteToSummary` does — a body that already carries
 // the record it pulled out and re-appended.
-async function upsertSummary(rawBody, state = null, { mergeExistingRecord = false } = {}) {
+async function upsertSummary(rawBody, state = null, { mergeExistingRecord = false, listing = null } = {}) {
   // The read this write depends on can fail on its own, and it used to take the whole write with it: the round
   // then said NOTHING — no summary, no findings, no note — which on a round that also could not read the
   // threads (so posted nothing inline) meant the entire round's output vanished. Found by the conservation
   // fuzzer once it started failing the thread listing as well. A comment that may duplicate an existing one is
   // visible and fixable; silence is neither, so the write goes ahead without an id to update.
-  let comments = [];
-  let truncated = false;
-  try {
-    ({ comments, truncated } = await listIssueComments(PR_NUMBER));
-  } catch (e) {
-    truncated = true;
-    console.warn(`Could not read this PR's comments before writing the summary (${e.message}); posting rather than staying silent`);
+  //
+  // `listing` is the read main() already did for the state record. Paginating the same comments twice per round
+  // costs up to 20 GETs with their own ladders inside the job budget, and the two reads could disagree about
+  // whether a summary exists at all — the later one deciding, silently, whether a SECOND one gets posted. What
+  // this function needs from it is a comment id, which does not change while the round runs; if the comment is
+  // gone by the time we write, the update below says so with a 404 and takes the fresh-read path.
+  let comments = listing?.comments || [];
+  let truncated = listing?.truncated || false;
+  if (!listing) {
+    try {
+      ({ comments, truncated } = await listIssueComments(PR_NUMBER));
+    } catch (e) {
+      truncated = true;
+      console.warn(`Could not read this PR's comments before writing the summary (${e.message}); posting rather than staying silent`);
+    }
   }
   const existing = comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
   // Posting a SECOND summary is the one thing this function must not do quietly: the record lives in the
@@ -2214,8 +2266,18 @@ async function upsertSummary(rawBody, state = null, { mergeExistingRecord = fals
     : state;
   if (carried) console.warn(`Merging this round's record into the ${Object.keys(carried.findings).length} entry/entries already in the summary`);
   const body = summaryBodyWithState(redactBody(rawBody), merged);
-  if (existing) return updateIssueComment(existing.id, body);
-  return postIssueComment(PR_NUMBER, body);
+  if (!existing) return postIssueComment(PR_NUMBER, body);
+  try {
+    return await updateIssueComment(existing.id, body);
+  } catch (e) {
+    // Only when the comment is GONE. Any other refusal has to stay a failure: posting a new summary over a
+    // transient 500 is how a PR ends up with two records, and the caller turns a failed write into a red check
+    // precisely so nobody has to guess. A deleted summary is the one case where posting is the right answer —
+    // and it is reachable now that the id can come from a listing read at the start of the round.
+    if (e?.status !== 404 && e?.status !== 410) throw e;
+    console.warn(`The summary comment (${existing.id}) is gone; posting a new one`);
+    return postIssueComment(PR_NUMBER, body);
+  }
 }
 
 // `--setup-failed <reason>`: the workflow calls this when a step BEFORE the review failed (the install, or the
@@ -2231,6 +2293,9 @@ async function reportSetupFailure(reason) {
   const note = `> ⚠️ **The reviewer did not run:** ${boundedDump(reason || 'a step before the review failed', 400)}${RUN_URL ? ` See the [run log](${RUN_URL}).` : ''}`;
   await appendNoteToSummary(note, '## ⚠️ Claude PR Review — did not run');
 }
+
+// All `--setup-failed` has to do is read the summary comment and write it back.
+const SETUP_NOTE_BUDGET_MS = 90_000;
 
 // What the review may spend: its own deadline, capped by the job budget minus the slice held back for the
 // verification pass. Setup (the PR fetch, the diff, retries) has already run, so it is measured from `startedAt`.
@@ -2252,6 +2317,12 @@ export async function runReview({ agent = runAgent } = {}) {
   if (setupFailedAt !== -1) {
     requireEnv('GITHUB_TOKEN');
     requireEnv('PR_NUMBER');
+    // This mode returns before the clock the rest of main() arms, so its ladders were bounded only by attempts
+    // times timeout: a comment listing is up to 20 pages, each with 3 attempts of 30 s, and `outOfTime()` cannot
+    // fire against an `Infinity` deadline — half an hour against a job capped at 25 minutes. The job would then
+    // be cancelled and the PR would get no comment at all, which is the one thing this mode exists to prevent.
+    // A note needs a read and a write, so it gets a minute and a half.
+    setNetworkDeadline(Date.now() + SETUP_NOTE_BUDGET_MS);
     await reportSetupFailure(process.argv.slice(setupFailedAt + 1).join(' '));
     return;
   }
@@ -2278,8 +2349,12 @@ export async function runReview({ agent = runAgent } = {}) {
   // close the harness remembered and every thread identity a maintainer's edit had erased from the bodies. The
   // failure is carried to the write instead, where the record that IS in the comment can be kept.
   let recordReadFailed = false;
+  // Kept for the summary write at the end of the round, so the comments are paginated once and both decisions —
+  // which record this round starts from, and which comment it writes back into — are made from the same read.
+  let listing = null;
   try {
     const { comments, truncated } = await listIssueComments(PR_NUMBER);
+    listing = { comments, truncated };
     stateRecord = await readPriorState(comments);
     if (stateRecord) console.log(`Prior state: ${Object.keys(stateRecord.findings).length} finding(s) recorded at ${stateRecord.commit.slice(0, 8) || 'an unknown commit'}`);
     else if (truncated) {
@@ -2463,8 +2538,8 @@ export async function runReview({ agent = runAgent } = {}) {
       ].join('\n'),
       // The record this round READ, written back unchanged: this write replaces the comment the record lives in.
       stateRecord,
-      { mergeExistingRecord: recordReadFailed },
-    ).catch((e2) => console.warn(`Could not post the summary comment: ${e2.message}`));
+      { mergeExistingRecord: recordReadFailed, listing },
+    ).catch(summaryWriteFailed);
     return;
   }
 
@@ -2557,13 +2632,11 @@ export async function runReview({ agent = runAgent } = {}) {
       continue;
     }
     try {
-      await io.resolve(d.thread);
+      const { explained } = await closeWithReason(io, d.thread, redact(duplicateNote(d.line, d.evidence)));
       duplicateClosed.add(d.thread.id);
       stats.resolved++;
-      await io
-        .reply(d.thread, redact(duplicateNote(d.line, d.evidence)))
-        .catch((e) => console.warn(`duplicate note failed (${d.label}) — ${e.message}`));
-      previously.push({ label: d.label, status: 'resolved', note: `duplicate of the finding reported at line ${d.line}`, superseded: true });
+      const dupNote = `duplicate of the finding reported at line ${d.line}`;
+      previously.push({ label: d.label, status: 'resolved', note: explained ? dupNote : `${dupNote} (the reply saying so could not be posted)`, superseded: true });
     } catch (e) {
       console.warn(`duplicate resolve failed (${d.label}) — ${e.message}`);
       previously.push({ label: d.label, status: 'open', note: 'duplicate of another finding this push, but this thread could not be resolved', superseded: true });
@@ -2584,7 +2657,8 @@ export async function runReview({ agent = runAgent } = {}) {
   });
   await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause, previously, priorState }), roundState, {
     mergeExistingRecord: recordReadFailed,
-  }).catch((e) => console.warn(`Could not post the summary comment: ${e.message}`));
+    listing,
+  }).catch(summaryWriteFailed);
   console.log(
     `Reconcile: ${stats.posted} new, ${stats.kept} kept, ${stats.reworded} reworded, ${stats.reopened} reopened, ${stats.dismissed} dismissed, ${stats.resolved} resolved, ${unpostable.length} unpostable`,
   );

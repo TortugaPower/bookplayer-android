@@ -33,7 +33,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~185 tests, a few seconds, no network and no API key. CI runs exactly this before the review step, so a red
+~193 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 `test/shell-allowlist.test.mjs` holds the unit tests — the tool gate, the record, the prompts, the budgets.
@@ -56,7 +56,8 @@ node .github/claude/reviewer/review.mjs
 ```
 
 `DRY_RUN=1` reads GitHub for real (PR, diff, comments) and runs the real agent, then prints the findings and
-the summary it *would* post. Every write path sits behind that flag, so nothing reaches the PR. Drop the flag
+the summary it *would* post. Every write path sits behind that flag, so nothing reaches the PR — including
+`--setup-failed`, whose note is gated inside `appendNoteToSummary` so no caller can forget it (one did). Drop the flag
 only against a PR you are happy to have commented on.
 
 To exercise the plumbing without spending a model call, stub the agent as the round tests do:
@@ -100,12 +101,20 @@ them: it bounds both, and a job cancelled mid-reconcile leaves a PR with comment
   evolves — drifting lines, rewordings, collisions, edited bodies, human resolves, failed posts, and an agent
   that lies about `same_as`. It has caught two bugs the whole mutation-testing loop missed. When you change how
   identity or closing works, run it first; if it passes and you expected it to fail, your change probably does
-  not do what you think.
+  not do what you think. Its failure injections are where its blind spots have been: the thread read, the
+  comment read, the inline post, the resolve, the reason-reply and the summary write can each be refused for a
+  round. Every one of those was added after the round it could not see hid a real bug.
 - **Similarity may decide MATCHING, never CLOSING.** A wrong match costs an extra comment somebody can see; a
   wrong close costs a finding. Every use of `findingSimilarity` is on the first side of that line.
 - **The record is the harness's memory, and every summary write replaces the comment it lives in.** Any path
   that writes a summary must carry a record — its own, or the one it read. Two bugs came from a path that
   wrote one without.
+- **A summary that cannot be written is a fatal error, not a warning.** It is the round's only durable output:
+  the findings that could not be posted inline live in it, and so does the record. Swallowing the failure let a
+  round report findings, put none of them anywhere, and exit 0 — indistinguishable, on an advisory check, from
+  a clean review. It throws now, and the job goes red. The one exception is a summary comment that has been
+  *deleted* (404/410), where posting a new one is right; any other refusal must not post, because a second
+  summary means two records.
 - **The agent's Bash is a grammar, not an emulator.** `analyzeShell` accepts only what it can prove it has
   parsed exactly as bash would (the words it sees ARE the argv), and flags are allowlisted per command in full
   spelling, because `getopt_long` accepts any unambiguous prefix. Adding a command means adding its flags, and

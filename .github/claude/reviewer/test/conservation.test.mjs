@@ -44,7 +44,7 @@ function rng(seed) {
 function worldGitHub() {
   let nextComment = 1000;
   let nextThread = 1;
-  const state = { threads: [], summary: null, failPost: false, failResolve: false, failRecordRead: false, failThreadRead: false };
+  const state = { threads: [], summary: null, failPost: false, failResolve: false, failRecordRead: false, failThreadRead: false, failReply: false, failSummaryWrite: false };
   const calls = { posted: 0, resolved: 0, unresolved: 0, replies: 0 };
 
   const threadNodes = () =>
@@ -91,14 +91,17 @@ function worldGitHub() {
       return ok(state.summary ? [{ id: 99, user: { login: 'github-actions[bot]' }, body: state.summary }] : []);
     }
     if (/\/issues\/\d+\/comments/.test(u) && method === 'POST') {
+      if (state.failSummaryWrite) return fail(500);
       state.summary = body.body;
       return ok({ id: 99 });
     }
     if (/\/issues\/comments\/\d+/.test(u) && method === 'PATCH') {
+      if (state.failSummaryWrite) return fail(500);
       state.summary = body.body;
       return ok({ id: 99 });
     }
     if (/\/pulls\/\d+\/comments\/\d+\/replies/.test(u)) {
+      if (state.failReply) return fail(422);
       const id = Number(/comments\/(\d+)\/replies/.exec(u)[1]);
       const t = state.threads.find((x) => x.comments[0].databaseId === id);
       if (t) t.comments.push({ databaseId: nextComment++, body: body.body, author: 'github-actions[bot]', association: 'NONE', createdAt: new Date().toISOString() });
@@ -234,6 +237,8 @@ async function runScenario(seed) {
     // law is for: on that path the round posted nothing inline and the summary carried only COUNTS, so every
     // finding of that round left the PR without a word. Injected now, so the law sees it.
     gh.state.failThreadRead = rand() < 0.15;
+    gh.state.failReply = rand() < 0.15;
+    gh.state.failSummaryWrite = rand() < 0.1;
 
     // What the model reports this round: a random subset, so "not re-reported" happens constantly.
     const reporting = world.filter(() => rand() < 0.7);
@@ -248,7 +253,21 @@ async function runScenario(seed) {
       if (mood < 0.8) return offered.find((o) => o !== mine)?.id ?? mine?.id; // careless: someone else's thread
       return 999;                                                          // inventive: never offered
     };
-    await mod.runReview({ agent: scriptedAgent(reporting.map(asFinding), claimPolicy) });
+    let threw = null;
+    try {
+      await mod.runReview({ agent: scriptedAgent(reporting.map(asFinding), claimPolicy) });
+    } catch (e) {
+      threw = e;
+    }
+    // The law's own escape clause, and the only one: when GitHub refuses the writes, no mechanism can put a
+    // finding on the pull request, so what the harness owes is a VISIBLE failure instead of a quiet one. A round
+    // that threw has failed the job (`process.exit(1)` at the top level) and the check goes red. A round that
+    // could not write its summary and returned normally is the forbidden state, and is what this catches.
+    if (threw) {
+      if (!/Could not post the summary comment/.test(threw.message)) throw threw;
+      problems.push(...(gh.state.summary === null && !gh.state.failSummaryWrite ? [`seed ${seed} round ${round}: threw about the summary but the write was never refused: ${threw.message}`] : []));
+      continue;
+    }
 
     // THE LAW, in two halves.
     //
@@ -316,12 +335,22 @@ async function runScenario(seed) {
     // so on the thread. A close with no reason on it is the failure this law was written for: a thread that goes
     // quiet with no record of who closed it or why.
     const ourCloses = gh.state.threads.filter((t) => t.isResolved && t.comments.every((c) => c.author === 'github-actions[bot]'));
+    // A close has a second legitimate home for its reason, and it is the SUMMARY, not the record: the resolve can
+    // land while the reply explaining it is refused, and undoing the close then would flap the thread open and
+    // shut on every push over a verdict earned against the code. What that costs is a collapsed thread with
+    // nothing on it, so the row in the summary table has to say both what happened at that location and that the
+    // explanation never reached the thread. The record is NOT accepted here on purpose: it is a hidden HTML
+    // comment, so a law satisfied by it would be satisfied by something no human reading the PR can see — and
+    // since every close the harness makes is recorded, that would retire this check altogether.
+    const rowForThread = (t) => summary.includes(`\`${t.path}:${t.line}\``);
     for (const t of ourCloses) {
-      const explained = t.comments.some((c) => /same issue is reported on this push/.test(c.body));
+      const explained =
+        t.comments.some((c) => /same issue is reported on this push/.test(c.body)) ||
+        (rowForThread(t) && /could not be posted/.test(summary));
       if (!explained) {
         problems.push(
-          `seed ${seed} round ${round}: thread ${t.id} was closed by the harness with no reason on it — ` +
-            `nothing was fixed this round, so the only close available was a duplicate`,
+          `seed ${seed} round ${round}: thread ${t.id} was closed by the harness with no reason on it and no ` +
+            `row in the summary saying why — nothing was fixed this round, so the only close available was a duplicate`,
         );
       }
     }

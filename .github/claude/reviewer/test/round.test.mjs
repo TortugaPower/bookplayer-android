@@ -25,7 +25,7 @@ function fakeGitHub({ summaryBody = null, threads = [] } = {}) {
   // Big enough that a truncated write is visible: the harness hands the agent a FILE, and nothing else in the
   // suite compares what lands on disk with what GitHub returned.
   const diffBody = `diff --git a/x b/x\n@@ -1 +1 @@\n+x\n${Array.from({ length: 200 }, (_, i) => `+line ${i} of a diff long enough to notice losing`).join('\n')}\n`;
-  const calls = { inline: [], issueComments: [], patched: [], replies: [], resolved: [], unresolved: [], graphql: [] };
+  const calls = { inline: [], issueComments: [], patched: [], replies: [], resolved: [], unresolved: [], graphql: [], commentReads: 0 };
   const summary = summaryBody === null ? [] : [{ id: 99, user: { login: 'github-actions[bot]' }, body: summaryBody }];
   const fetch = async (url, init = {}) => {
     const u = String(url);
@@ -40,7 +40,7 @@ function fakeGitHub({ summaryBody = null, threads = [] } = {}) {
     }
     if (/\/pulls\/\d+$/.test(u) && (init.headers?.Accept || '').includes('diff')) return ok(diffBody);
     if (/\/pulls\/\d+$/.test(u)) return ok({ title: 'a PR', body: 'a description', user: { login: 'gianni' } });
-    if (/\/issues\/\d+\/comments/.test(u) && method === 'GET') return ok(summary);
+    if (/\/issues\/\d+\/comments/.test(u) && method === 'GET') { calls.commentReads++; return ok(summary); }
     if (/\/issues\/\d+\/comments/.test(u) && method === 'POST') { calls.issueComments.push(body.body); return ok({ id: 100 }); }
     if (/\/issues\/comments\/\d+/.test(u) && method === 'PATCH') { calls.patched.push(body.body); return ok({ id: 99 }); }
     if (/\/pulls\/\d+\/comments\/\d+\/replies/.test(u)) { calls.replies.push(body.body); return ok({ id: 101 }); }
@@ -1397,6 +1397,167 @@ test('a summary is written even when the read it depends on fails', async () => 
     assert.match(warnings.join('\n'), /posting rather than staying silent/);
   } finally {
     console.warn = realWarn;
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('the note-only mode runs on a clock of its own', async () => {
+  // `--setup-failed` returns before the line that arms the network clock, so `networkDeadline` stayed Infinity
+  // for the whole mode and `outOfTime()` could never fire: a comment listing is up to 20 pages, each with three
+  // attempts of 30 s, which is half an hour against a job capped at 25 minutes. The job is then cancelled and
+  // the PR gets no comment at all — the invisible failure this mode exists to prevent, in the mode built to
+  // prevent it. The clock must be armed, and it must be short: this mode does one read and one write.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'notemode-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '35', COMMIT: 'c10c000000000003',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'notemode');
+  // By plain specifier, like the harness itself: every cache-busted copy shares one client, and that one holds
+  // the clock being checked here.
+  const { networkDeadlineForTest } = await import('../github.mjs');
+  const realFetch = globalThis.fetch;
+  const argv = process.argv;
+  try {
+    const gh = fakeGitHub();
+    globalThis.fetch = gh.fetch;
+    process.argv = [argv[0], argv[1], '--setup-failed', 'the harness tests failed'];
+    const before = Date.now();
+    await mod.runReview({ agent: async () => { throw new Error('the agent must never run in this mode'); } });
+    const deadline = networkDeadlineForTest();
+    assert.ok(Number.isFinite(deadline), 'the note-only mode left the network clock unarmed');
+    assert.ok(deadline > before, 'the clock was armed in the past');
+    assert.ok(deadline <= before + 5 * 60_000, `a note-only run was given ${Math.round((deadline - before) / 1000)}s`);
+    assert.match(gh.summaryOut(), /the harness tests failed/);
+  } finally {
+    globalThis.fetch = realFetch;
+    process.argv = argv;
+    restore();
+  }
+});
+
+test('a dry run writes nothing, in the note-only mode too', async () => {
+  // The README promises every write path sits behind DRY_RUN. `explainFailure` and the degrade path check it;
+  // `reportSetupFailure` did not, so `DRY_RUN=1 … --setup-failed` posted a real comment on a real PR. The flag
+  // is checked in `appendNoteToSummary` now, where every note-writer passes through.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'drynote-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '36', COMMIT: 'dc1a000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: '1',
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'drynote');
+  const realFetch = globalThis.fetch;
+  const argv = process.argv;
+  const realLog = console.log;
+  const logs = [];
+  try {
+    const gh = fakeGitHub();
+    globalThis.fetch = gh.fetch;
+    process.argv = [argv[0], argv[1], '--setup-failed', 'npm ci failed on the lockfile'];
+    console.log = (m) => logs.push(String(m));
+    await mod.runReview({ agent: async () => { throw new Error('the agent must never run in this mode'); } });
+    console.log = realLog;
+    assert.deepEqual(gh.calls.issueComments, [], 'a dry run posted a comment');
+    assert.deepEqual(gh.calls.patched, [], 'a dry run edited a comment');
+    assert.match(logs.join('\n'), /npm ci failed on the lockfile/, 'and it did not print the note either');
+  } finally {
+    console.log = realLog;
+    globalThis.fetch = realFetch;
+    process.argv = argv;
+    restore();
+  }
+});
+
+test("a round paginates the PR's comments once", async () => {
+  // Twice per round, it used to be: once for the state record and once inside `upsertSummary` for the id to
+  // PATCH. That is up to 40 GETs with their own retry ladders inside the job budget, and — worse than the cost —
+  // the two reads could disagree about whether a summary exists at all, with the LATER one silently deciding
+  // whether a second summary got posted.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'onceread-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '37', COMMIT: 'aa11000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'onceread');
+  const realFetch = globalThis.fetch;
+  try {
+    const gh = fakeGitHub({ summaryBody: '## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->' });
+    globalThis.fetch = gh.fetch;
+    await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'one finding', findings: [{ severity: 'warn', file: 'app/A.kt', line: 4, comment: 'a finding' }] }) });
+    assert.equal(gh.calls.commentReads, 1, `the comments were listed ${gh.calls.commentReads} times`);
+    // And the write still went to the comment that read found, rather than becoming a second summary.
+    assert.equal(gh.calls.patched.length, 1);
+    assert.deepEqual(gh.calls.issueComments, []);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('a summary comment that is gone is replaced; a refused write is not retried into a duplicate', async () => {
+  // The id now comes from a listing read at the START of the round, so between the read and the write the
+  // comment can be deleted — a PATCH to a comment that no longer exists 404s. Posting a new one is right there,
+  // and wrong for every other refusal: a second summary means two state records, and the next round reads
+  // whichever it finds first. So 404/410 posts, and anything else stays a failure.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'gonesummary-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '38', COMMIT: 'bb22000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'gonesummary');
+  const realFetch = globalThis.fetch;
+  try {
+    for (const status of [404, 500]) {
+      const gh = fakeGitHub({ summaryBody: '## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->' });
+      const inner = gh.fetch;
+      globalThis.fetch = async (url, init = {}) => {
+        if (/\/issues\/comments\/\d+/.test(String(url)) && (init.method || 'GET') === 'PATCH') {
+          return { ok: false, status, headers: { get: () => null }, json: async () => ({}), text: async () => 'nope' };
+        }
+        return inner(url, init);
+      };
+      const run = mod.runReview({ agent: agentReturning({ verdict: 'pass', summary: 'nothing', findings: [] }) });
+      if (status === 404) {
+        await run;
+        assert.equal(gh.calls.issueComments.length, 1, 'a deleted summary was not replaced');
+      } else {
+        await assert.rejects(run, /Could not post the summary comment/, 'a refused write passed for a success');
+        assert.deepEqual(gh.calls.issueComments, [], 'a refused write became a second summary');
+      }
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('a round that cannot write its summary fails loudly instead of exiting green', async () => {
+  // The summary is the round's only durable output: the findings that could not be posted inline live in it, and
+  // so does the state record. A failed write was logged and forgiven, so a round could report findings, put none
+  // of them anywhere, remember nothing, and exit 0 — which on an advisory check reads exactly like a clean
+  // review. Throwing hands it to the top-level handler, which tries to say so on the PR and then exits 1.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'loudfail-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '39', COMMIT: 'cc33000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'loudfail');
+  const realFetch = globalThis.fetch;
+  try {
+    const gh = fakeGitHub();
+    const inner = gh.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      const u = String(url);
+      const isSummaryWrite = /\/issues\/(\d+\/)?comments/.test(u) && ['POST', 'PATCH'].includes(init.method || 'GET') && !/\/pulls\//.test(u);
+      if (isSummaryWrite) return { ok: false, status: 502, headers: { get: () => null }, json: async () => ({}), text: async () => 'bad gateway' };
+      return inner(url, init);
+    };
+    await assert.rejects(
+      mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'one finding', findings: [{ severity: 'warn', file: 'app/A.kt', line: 4, comment: 'a finding with nowhere to go' }] }) }),
+      /produced no visible output/,
+    );
+  } finally {
     globalThis.fetch = realFetch;
     restore();
   }
