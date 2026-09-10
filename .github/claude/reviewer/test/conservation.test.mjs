@@ -44,7 +44,7 @@ function rng(seed) {
 function worldGitHub() {
   let nextComment = 1000;
   let nextThread = 1;
-  const state = { threads: [], summary: null, failPost: false, failResolve: false, failRecordRead: false };
+  const state = { threads: [], summary: null, failPost: false, failResolve: false, failRecordRead: false, failThreadRead: false };
   const calls = { posted: 0, resolved: 0, unresolved: 0, replies: 0 };
 
   const threadNodes = () =>
@@ -81,6 +81,7 @@ function worldGitHub() {
         calls.unresolved++;
         return ok({ data: { unresolveReviewThread: {} } });
       }
+      if (state.failThreadRead) return fail(502);
       return ok({ data: { repository: { pullRequest: { reviewThreads: { nodes: threadNodes(), pageInfo: { hasNextPage: false, endCursor: null } } } } } });
     }
     if (/\/pulls\/\d+$/.test(u) && (init.headers?.Accept || '').includes('diff')) return ok('diff --git a/x b/x\n@@ -1 +1 @@\n+x\n');
@@ -229,6 +230,10 @@ async function runScenario(seed) {
     gh.state.failPost = rand() < 0.15;
     gh.state.failResolve = rand() < 0.15;
     gh.state.failRecordRead = rand() < 0.15;
+    // The thread listing failing was the fuzzer's own blind spot, and the bug it hid was exactly the one this
+    // law is for: on that path the round posted nothing inline and the summary carried only COUNTS, so every
+    // finding of that round left the PR without a word. Injected now, so the law sees it.
+    gh.state.failThreadRead = rand() < 0.15;
 
     // What the model reports this round: a random subset, so "not re-reported" happens constantly.
     const reporting = world.filter(() => rand() < 0.7);

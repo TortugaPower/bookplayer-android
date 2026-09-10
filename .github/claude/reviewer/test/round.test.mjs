@@ -1314,3 +1314,90 @@ test('a degraded round keeps its record intact, and a control character never re
     restore();
   }
 });
+
+test('when the thread list is unusable the findings still reach the PR', async () => {
+  // This path posts nothing inline — a second comment on a thread that already has one is worse than waiting —
+  // so the summary is the only place the round's output can appear. It used to carry COUNTS only, on the
+  // reasoning that "the next push will post them"; on a PR about to merge there is no next push, and the whole
+  // round went missing. Two shapes of unusable: the read fails, and the read returns a partial list (which is
+  // worse, because every thread past the cut looks like a finding with no comment).
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'nothreads-')));
+  const env = {
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '33', COMMIT: 'f00d000000000002',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  };
+  const { mod, restore } = await loadHarness(env, 'nothreads');
+  const realFetch = globalThis.fetch;
+  try {
+    const f = { severity: 'warn', file: 'app/Lost.kt', line: 7, comment: 'a finding that must not vanish with the thread list' };
+    for (const mode of ['failed', 'truncated']) {
+      const gh = fakeGitHub();
+      const inner = gh.fetch;
+      globalThis.fetch = async (url, init = {}) => {
+        const body = init.body ? JSON.parse(init.body) : null;
+        if (String(url).endsWith('/graphql') && /reviewThreads/.test(body?.query || '')) {
+          if (mode === 'failed') return { ok: false, status: 502, headers: { get: () => null }, json: async () => ({ errors: [{ type: 'SERVICE_UNAVAILABLE' }] }), text: async () => 'bad gateway' };
+          // Truncated: every page full and a cursor that never ends, so the harness stops at its own cap.
+          return {
+            ok: true, status: 200, headers: { get: () => null },
+            json: async () => ({ data: { repository: { pullRequest: { reviewThreads: {
+              nodes: [{ id: 'T-x', isResolved: false, path: 'app/Other.kt', line: 1, originalLine: 1, first: { nodes: [] }, comments: { nodes: [] }, last: { nodes: [] } }],
+              pageInfo: { hasNextPage: true, endCursor: 'CUR' },
+            } } } } }),
+          };
+        }
+        return inner(url, init);
+      };
+      await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'one finding', findings: [f] }) });
+
+      assert.deepEqual(gh.calls.inline, [], `${mode}: posted inline without a usable thread list`);
+      const summary = gh.summaryOut();
+      assert.ok(summary, `${mode}: no summary was written at all`);
+      // The finding's own text, not just a count.
+      assert.match(summary, /must not vanish with the thread list/, `${mode}: the finding's text is not on the PR`);
+      assert.match(summary, /Could not read existing review threads/);
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('a summary is written even when the read it depends on fails', async () => {
+  // `upsertSummary` reads the comments to find the one it should update. That read can fail on its own, and it
+  // used to take the whole write with it — so a round that could not read the threads either said nothing at
+  // all: no summary, no findings, no note. A comment that might duplicate an existing one is visible and
+  // fixable; silence is neither.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'blindwrite-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '34', COMMIT: 'f00d000000000003',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'blindwrite');
+  const realFetch = globalThis.fetch;
+  const warnings = [];
+  const realWarn = console.warn;
+  try {
+    const f = { severity: 'warn', file: 'app/Blind.kt', line: 2, comment: 'a finding written without an id to update' };
+    const gh = fakeGitHub();
+    const inner = gh.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      const isCommentsRead = /\/issues\/\d+\/comments/.test(String(url)) && (init.method || 'GET') === 'GET';
+      if (isCommentsRead) return { ok: false, status: 500, headers: { get: () => null }, json: async () => ({}), text: async () => 'boom' };
+      return inner(url, init);
+    };
+    console.warn = (m) => warnings.push(String(m));
+    await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'one finding', findings: [f] }) });
+    console.warn = realWarn;
+
+    // It posted rather than staying silent, and said why.
+    assert.equal(gh.calls.issueComments.length, 1, 'no summary was written when the read failed');
+    assert.match(gh.calls.issueComments[0], /a finding written without an id to update|one finding/);
+    assert.match(warnings.join('\n'), /posting rather than staying silent/);
+  } finally {
+    console.warn = realWarn;
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});

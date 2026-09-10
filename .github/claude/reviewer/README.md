@@ -33,7 +33,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~150 tests, a few seconds, no network and no API key. CI runs exactly this before the review step, so a red
+~185 tests, a few seconds, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 `test/shell-allowlist.test.mjs` holds the unit tests — the tool gate, the record, the prompts, the budgets.

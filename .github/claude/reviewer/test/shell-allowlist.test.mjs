@@ -1314,7 +1314,7 @@ test('the page loops stop when the run is out of time', async () => {
     assert.equal(truncated, true);
 
     let threadPages = 0;
-    const threads = await withStubbedFetch(async () => {
+    const { threads, truncated: threadsTruncated } = await withStubbedFetch(async () => {
       threadPages++;
       return {
         ok: true, status: 200, headers: { get: () => null },
@@ -1326,6 +1326,9 @@ test('the page loops stop when the run is out of time', async () => {
     }, () => listReviewThreads(1));
     assert.equal(threadPages, 1, `kept paging threads past the deadline (${threadPages} pages)`);
     assert.equal(threads.length, 1);
+    // And it says the list is partial — a short thread list is worse than a missing one, because reconcile
+    // reads it as "these findings have no comment" and posts a second one on every thread past the cut.
+    assert.equal(threadsTruncated, true);
   } finally {
     setNetworkDeadline(Infinity);
     if (prevRepo === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = prevRepo;
@@ -1899,7 +1902,7 @@ test('a review thread is mapped from the selection that answers each question', 
   });
   let page = 0;
   const queries = [];
-  const threads = await withStubbedFetch(
+  const { threads } = await withStubbedFetch(
     async (_url, init) => {
       queries.push(JSON.parse(init.body).query);
       page++;
@@ -2061,7 +2064,8 @@ test('a 406 falls back to the per-file diff, and a transient GraphQL error is re
     },
     () => listReviewThreads(1),
   );
-  assert.deepEqual(threads, []);
+  assert.deepEqual(threads.threads, []);
+  assert.equal(threads.truncated, false); // a retried read that completed is not a truncated one
   assert.equal(gql, 2);
 });
 
@@ -2409,7 +2413,7 @@ test('the thread listing terminates, whatever the cursor says', async () => {
     json: async () => ({ data: { repository: { pullRequest: { reviewThreads: { nodes: [], pageInfo: { hasNextPage, endCursor } } } } } }),
   });
   await withStubbedFetch(async () => { calls++; return page(true, null); }, async () => {
-    assert.deepEqual(await listReviewThreads(1), []);
+    assert.deepEqual((await listReviewThreads(1)).threads, []);
   });
   assert.equal(calls, 1);
   // A real cursor still pages, and the page cap is the backstop if a cursor ever repeats.
@@ -2498,7 +2502,7 @@ test('a comment id of zero is an id, not a missing value', async () => {
     }),
     () => listReviewThreads(1),
   );
-  assert.equal(threads[0].firstCommentId, 0); // `|| null` here would silently stop every reply and resolve
+  assert.equal(threads.threads[0].firstCommentId, 0); // `|| null` here would silently stop every reply and resolve
 });
 
 test('a flag must be one this review needs, spelled in full', () => {
@@ -3647,4 +3651,23 @@ test('reconcile closes nothing at all, and refuses to run without the record', a
   assert.deepEqual([...liveFps], []);
   const posted = await reconcile(new Map([[reconcileFp(f), f]]), [], spy, { priorState: null });
   assert.deepEqual([...posted.liveFps], [reconcileFp(f)]);
+});
+
+test('every count the round keeps reaches the summary', () => {
+  // `reworded` was counted for weeks and shown nowhere: the reply it counts is the safety net that keeps a
+  // re-matched finding's text on the PR, so a round could quietly do the most interesting thing it does and
+  // report nothing. Rather than pin that one field, this asks the question of the whole object — add a counter
+  // to `reconcile` and forget the summary, and this fails.
+  const keys = ['posted', 'kept', 'reopened', 'dismissed', 'resolved', 'reworded'];
+  const zeroed = Object.fromEntries(keys.map((k) => [k, 0]));
+  const result = { verdict: 'warn', summary: 's', findings: [] };
+  const countsLine = (body) => (body.match(/<sub>Model[^]*?<\/sub>/) || [''])[0];
+
+  for (const k of keys) {
+    const line = countsLine(renderSummary(result, { ...zeroed, [k]: 7 }, [], {}));
+    assert.match(line, /\b7\b/, `stats.${k} is counted but never shown on the summary`);
+  }
+  // And a zero stays quiet, so a clean round does not read as a list of nothings.
+  const quiet = countsLine(renderSummary(result, zeroed, [], {}));
+  for (const noisy of [/reopened/, /re-worded/, /last word/]) assert.equal(noisy.test(quiet), false, `${noisy} shown at zero`);
 });

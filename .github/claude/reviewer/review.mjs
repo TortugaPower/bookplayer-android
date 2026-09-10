@@ -1320,7 +1320,7 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
 
   lines.push(
     '',
-    `<sub>Model \`${MODEL}\`${RUN_URL ? ` · [run log](${RUN_URL})` : ''} · ${stats.posted} new · ${stats.kept} carried over${verifiedClosed ? ` · ${verifiedClosed} verified closed` : ''}${stats.reopened ? ` · ${stats.reopened} reopened` : ''}${stats.dismissed ? ` · ${stats.dismissed} on threads a maintainer had the last word on` : ''} · ${stats.resolved} resolved · advisory (a human should still review). Findings are de-duplicated across pushes; an earlier finding closes only when the verification pass judges it against the current code — fixed, no longer applicable, accepted by a maintainer, or a duplicate of a finding reported on this push.</sub>`,
+    `<sub>Model \`${MODEL}\`${RUN_URL ? ` · [run log](${RUN_URL})` : ''} · ${stats.posted} new · ${stats.kept} carried over${verifiedClosed ? ` · ${verifiedClosed} verified closed` : ''}${stats.reworded ? ` · ${stats.reworded} re-worded on their own thread` : ''}${stats.reopened ? ` · ${stats.reopened} reopened` : ''}${stats.dismissed ? ` · ${stats.dismissed} on threads a maintainer had the last word on` : ''} · ${stats.resolved} resolved · advisory (a human should still review). Findings are de-duplicated across pushes; an earlier finding closes only when the verification pass judges it against the current code — fixed, no longer applicable, accepted by a maintainer, or a duplicate of a finding reported on this push.</sub>`,
     '',
     MARKER_SUMMARY,
   );
@@ -2170,7 +2170,19 @@ async function explainFailure(err) {
 // record, or the one the round read (unchanged), or — as `appendNoteToSummary` does — a body that already carries
 // the record it pulled out and re-appended.
 async function upsertSummary(rawBody, state = null, { mergeExistingRecord = false } = {}) {
-  const { comments, truncated } = await listIssueComments(PR_NUMBER);
+  // The read this write depends on can fail on its own, and it used to take the whole write with it: the round
+  // then said NOTHING — no summary, no findings, no note — which on a round that also could not read the
+  // threads (so posted nothing inline) meant the entire round's output vanished. Found by the conservation
+  // fuzzer once it started failing the thread listing as well. A comment that may duplicate an existing one is
+  // visible and fixable; silence is neither, so the write goes ahead without an id to update.
+  let comments = [];
+  let truncated = false;
+  try {
+    ({ comments, truncated } = await listIssueComments(PR_NUMBER));
+  } catch (e) {
+    truncated = true;
+    console.warn(`Could not read this PR's comments before writing the summary (${e.message}); posting rather than staying silent`);
+  }
   const existing = comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
   // Posting a SECOND summary is the one thing this function must not do quietly: the record lives in the
   // summary, so two of them means two memories, and the next round reads whichever it finds first. If the
@@ -2284,7 +2296,11 @@ export async function runReview({ agent = runAgent } = {}) {
 
   let threads = null;
   try {
-    threads = await listReviewThreads(PR_NUMBER);
+    const listed = await listReviewThreads(PR_NUMBER);
+    // A list that stopped early is not a list this round can reconcile against: every thread past the cut looks
+    // like a finding with no comment and would get a second one. Treated exactly like a failed read.
+    if (listed.truncated) console.warn('The thread listing was truncated; treating it as unavailable rather than posting duplicates');
+    else threads = listed.threads;
   } catch (e) {
     // Not fatal here any more: the review can still run, it just cannot be told what is already open, and the
     // reconcile below stops rather than risk duplicates. Read BEFORE the agent so the prompt can carry the open
@@ -2413,9 +2429,11 @@ export async function runReview({ agent = runAgent } = {}) {
     valid.push(f);
   }
   if (dropped) console.warn(`Dropped ${dropped} malformed finding(s) (missing field or invalid severity)`);
-  // Keyed without the threads for now — a dry run stops before fetching them — and keyed again below once they
-  // are in hand, which is when a collision with an EXISTING thread can be seen.
-  let currentByFp = keyFindings(valid);
+  // Keyed once, with whatever is in hand. The threads are read before the agent runs (the prompt carries the
+  // open findings), so a dry run has them too — an earlier comment here claimed otherwise and left DRY_RUN
+  // exercising a different keying path from production: no collision salt, and a `same_as` claim never applied,
+  // in the one mode the README recommends for local iteration.
+  let currentByFp = keyFindings(valid, threads || [], stateRecord, claims);
   parsed.findings = [...currentByFp.values()]; // summary counts reflect what is actually posted
 
   if (DRY_RUN) {
@@ -2435,9 +2453,13 @@ export async function runReview({ agent = runAgent } = {}) {
   if (!threads) {
     await upsertSummary(
       [
-        renderSummary(parsed, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 }, [], { provisional, provisionalCause }),
+        // The findings themselves, not just their count: this path posts nothing inline, so the summary is the
+        // only place the round's output can appear. "The next push will post them" assumes there is a next
+        // push, and on a PR about to merge there is not — the whole round would have gone missing, which is the
+        // one thing this harness is not allowed to do.
+        renderSummary(parsed, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 }, [...currentByFp.values()], { provisional, provisionalCause }),
         '',
-        '> ⚠️ Could not read existing review threads on this run, so inline comments were skipped to avoid duplicates; the next push will post them.',
+        '> ⚠️ Could not read existing review threads on this run, so nothing was posted inline (a second comment on a thread that already has one is worse); every finding is listed above instead.',
       ].join('\n'),
       // The record this round READ, written back unchanged: this write replaces the comment the record lives in.
       stateRecord,
@@ -2445,12 +2467,6 @@ export async function runReview({ agent = runAgent } = {}) {
     ).catch((e2) => console.warn(`Could not post the summary comment: ${e2.message}`));
     return;
   }
-
-  // Now the findings are keyed: a claim the agent made wins, a fingerprint that matches a thread saying
-  // something else is a collision rather than a re-report, and everything downstream — reconcile, the record,
-  // the verification pass — sees one identity per finding.
-  currentByFp = keyFindings(valid, threads, stateRecord, claims);
-  parsed.findings = [...currentByFp.values()];
 
   const io = {
     post: (f, body) => postInlineComment({ prNumber: PR_NUMBER, commitId: COMMIT, path: f.file, line: f.line, body }),
@@ -2570,7 +2586,7 @@ export async function runReview({ agent = runAgent } = {}) {
     mergeExistingRecord: recordReadFailed,
   }).catch((e) => console.warn(`Could not post the summary comment: ${e.message}`));
   console.log(
-    `Reconcile: ${stats.posted} new, ${stats.kept} kept, ${stats.reopened} reopened, ${stats.dismissed} dismissed, ${stats.resolved} resolved, ${unpostable.length} unpostable`,
+    `Reconcile: ${stats.posted} new, ${stats.kept} kept, ${stats.reworded} reworded, ${stats.reopened} reopened, ${stats.dismissed} dismissed, ${stats.resolved} resolved, ${unpostable.length} unpostable`,
   );
   console.log(`Done. Verdict: ${parsed.verdict}`);
   // Advisory by design: exit 0 regardless of verdict so the review never blocks a merge.

@@ -281,10 +281,17 @@ export async function postInlineComment({ prNumber, commitId, path, line, body }
 
 // Every review thread on the PR: identity, resolution state, where it is anchored, and its full comment list
 // (author login + association, so the harness can tell a maintainer's reply from anyone else's).
+//
+// Returns `{ threads, truncated }`, for the same reason `listIssueComments` does and with worse consequences if
+// it did not: `reconcile` builds its "which finding already has a comment" map from this list, so every thread
+// past a silent cut looks like a finding with no comment and gets a SECOND inline comment, and
+// `carriedRecords` drops the remembered closes for those threads. A short list is worse than no list, so the
+// caller is told rather than left to guess.
 const MAX_THREAD_PAGES = 100;
 export async function listReviewThreads(prNumber) {
   const { owner, name } = repo();
   const threads = [];
+  let truncated = false;
   let cursor = null;
   for (let page = 1; ; page++) {
     const data = await graphql(
@@ -347,13 +354,22 @@ export async function listReviewThreads(prNumber) {
     // A null cursor with hasNextPage true would re-request the FIRST page forever: verified by probe, and an
     // infinite loop here defeats every degrade path the harness has — the job just runs to timeout-minutes with no
     // comment. The page cap is the second backstop; 100 pages is 10,000 threads.
-    if (!conn.pageInfo.hasNextPage || !conn.pageInfo.endCursor || page >= MAX_THREAD_PAGES) break;
+    if (!conn.pageInfo.hasNextPage || !conn.pageInfo.endCursor) break;
+    if (page >= MAX_THREAD_PAGES) {
+      console.warn(`Thread listing stopped at the ${MAX_THREAD_PAGES}-page cap`);
+      truncated = true;
+      break;
+    }
     // 100 pages x 30 s is 50 minutes — twice the whole job — so the page loop honours the network deadline too,
     // not only the retry ladder inside each call.
-    if (outOfTime()) { console.warn('Thread listing stopped: out of time'); break; }
+    if (outOfTime()) {
+      console.warn('Thread listing stopped: out of time');
+      truncated = true;
+      break;
+    }
     cursor = conn.pageInfo.endCursor;
   }
-  return threads;
+  return { threads, truncated };
 }
 
 // Reply inside an existing review thread (used to leave the auto-resolve marker).
