@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MODEL_FOR_TEST, MAX_TURNS_FOR_TEST, buildUserPrompt, VERIFY_STATUSES_FOR_TEST, carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { disambiguate, MODEL_FOR_TEST, MAX_TURNS_FOR_TEST, buildUserPrompt, VERIFY_STATUSES_FOR_TEST, carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -2476,6 +2476,48 @@ test('a flag must be one this review needs, spelled in full', () => {
   }
 });
 
+test('two different findings at one location do not become one', () => {
+  // Measured in production on this branch's own PR: an `info` about `FALLBACK_MODEL` at review.mjs:57 and an
+  // `info` about `duplicateNote` at review.mjs:57 share a fingerprint, because a fingerprint is
+  // sha1(file|line|severity) — a LOCATION. The harness read the second as a re-report of the first, reopened
+  // that thread, wrote the new text into the record against it, and the verification pass — shown the thread's
+  // own body, which still described the FIRST finding — closed it as "verified fixed" on evidence about the
+  // other issue. The duplicateNote finding was never seen again.
+  const at57 = (comment) => ({ file: '.github/claude/reviewer/review.mjs', line: 57, severity: 'info', comment });
+  const first = at57('`FALLBACK_MODEL` is a hardcoded id and the only recovery path when the Models API lookup fails, so a retired id leaves the run nowhere to go');
+  const second = at57('`duplicateNote` inlines the literal auto-resolved marker instead of interpolating MARKER_AUTO_RESOLVED, declared fifteen lines above it');
+  assert.equal(fingerprint(first), fingerprint(second)); // the collision itself, still true by construction
+  const thread = {
+    id: 'T-first', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', comments: [],
+    firstCommentBody: `🔵 **INFO** — ${first.comment} <!-- bp-ai-review-fp:${fingerprint(first)} -->`,
+  };
+
+  // The SECOND finding does not inherit the first one's thread: it is re-keyed, so it gets its own comment and
+  // the old thread is left for the verification pass to judge on its own merits.
+  const collided = disambiguate(new Map([[fingerprint(second), second]]), [thread], null);
+  const [[keyForSecond, kept]] = [...collided];
+  assert.equal(kept, second);
+  assert.notEqual(keyForSecond, fingerprint(first));
+  // And that key is stable: the same finding on the next push lands on the same thread rather than posting again.
+  assert.equal([...disambiguate(new Map([[fingerprint(second), second]]), [thread], null).keys()][0], keyForSecond);
+
+  // A genuine re-report of the SAME finding is untouched — that is the whole point of a fingerprint, and the
+  // measured gap is wide: 0.905 for a re-report against 0.000 for the collision above.
+  const reReported = at57(`${first.comment} (still true on this push)`);
+  const same = disambiguate(new Map([[fingerprint(reReported), reReported]]), [thread], null);
+  assert.deepEqual([...same.keys()], [fingerprint(first)]);
+
+  // With no thread at that location there is nothing to collide with.
+  assert.deepEqual([...disambiguate(new Map([[fingerprint(second), second]]), [], null).keys()], [fingerprint(second)]);
+  // A thread that is not ours never claims a fingerprint, however its body reads.
+  const foreign = { ...thread, id: 'T-foreign', firstCommentAuthor: 'someone' };
+  assert.deepEqual([...disambiguate(new Map([[fingerprint(second), second]]), [foreign], null).keys()], [fingerprint(second)]);
+  // And when the thread's body has been edited past recognition, the record's text for it is what is compared.
+  const edited = { ...thread, firstCommentBody: 'a maintainer rewrote this comment' };
+  const record = { commit: 'c', findings: { [fingerprint(first)]: { id: 'T-first', file: first.file, line: 57, severity: 'info', text: first.comment.slice(0, 160), action: 'posted', commit: 'c' } } };
+  assert.notEqual([...disambiguate(new Map([[fingerprint(second), second]]), [edited], record).keys()][0], fingerprint(first));
+});
+
 test('severity is part of a finding\'s identity', () => {
   // The fingerprint is `sha1(file|line|severity)`. Drop severity from it and a `warn` and an `error` on the
   // same line become one finding: whichever is reported second is merged into the other's comment and its
@@ -2487,8 +2529,9 @@ test('severity is part of a finding\'s identity', () => {
   // The other two terms as well, so the whole key is pinned rather than one third of it.
   assert.notEqual(fingerprint(at('warn')), fingerprint({ ...at('warn'), line: 13 }));
   assert.notEqual(fingerprint(at('warn')), fingerprint({ ...at('warn'), file: 'app/B.kt' }));
-  // And the comment text is NOT part of it: a finding reworded between pushes is the same finding, which is
-  // what stops a reworded comment from posting a second thread.
+  // The comment text is not part of the KEY — a finding reworded between pushes keeps its identity — but the
+  // key alone is not identity: see `disambiguate`, which refuses to merge two findings that share a location
+  // and say different things. That assertion used to end here, pinning the collision as if it were the design.
   assert.equal(fingerprint(at('warn')), fingerprint({ ...at('warn'), comment: 'entirely different words' }));
 });
 

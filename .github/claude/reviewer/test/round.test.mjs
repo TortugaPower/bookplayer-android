@@ -1042,3 +1042,87 @@ test('a malformed PR number is refused before anything is attempted', async () =
     restore();
   }
 });
+
+test('a finding that lands where another one lives gets its own comment', async () => {
+  // The collision, end to end, as it happened on this branch's own PR: a thread already carries an `info` at
+  // review.mjs:57, and this push reports a DIFFERENT `info` at review.mjs:57. Sharing a fingerprint, the second
+  // was read as a re-report of the first — the thread was reopened, the record was overwritten with the new
+  // text, and the verification pass (shown the thread's own body, still describing the FIRST finding) closed it
+  // as "verified fixed" on evidence about the other issue. One finding, gone without a trace.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'collide-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '29', COMMIT: 'c011000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'collide');
+  const realFetch = globalThis.fetch;
+  try {
+    const at = (comment) => ({ severity: 'info', file: 'app/Collide.kt', line: 57, comment });
+    const first = at('`FALLBACK_MODEL` is a hardcoded id and the only recovery path when the lookup fails');
+    const second = at('this constant inlines the literal marker instead of interpolating the one declared above');
+    const fp = mod.fingerprint(first);
+    assert.equal(mod.fingerprint(second), fp); // same file, line and severity: one fingerprint, two findings
+    const gh = fakeGitHub({
+      threads: [{
+        id: 'T-first', isResolved: false, path: first.file, line: first.line, originalLine: first.line,
+        first: { nodes: [{ databaseId: 41, body: `🔵 **INFO** — ${first.comment} <!-- bp-ai-review-fp:${fp} -->`, author: { login: 'github-actions[bot]' } }] },
+        comments: { nodes: [] }, last: { nodes: [] },
+      }],
+    });
+    globalThis.fetch = gh.fetch;
+    await mod.runReview({
+      agent: agentSequence(
+        { verdict: 'warn', summary: 'a different finding in the same place', findings: [second] },
+        { threads: [{ id: 1, status: 'present', evidence: 'the fallback is still a single hardcoded id' }] },
+      ),
+    });
+
+    // The new finding gets its OWN comment rather than inheriting the thread...
+    assert.deepEqual(gh.calls.inline.map((c) => [c.path, c.line]), [[second.file, second.line]]);
+    assert.match(gh.calls.inline[0].body, /inlines the literal marker/);
+    // ...the old thread is untouched by the reconcile (not reopened, not closed)...
+    assert.deepEqual(gh.calls.resolved, []);
+    assert.deepEqual(gh.calls.unresolved, []);
+    // ...it went to the verification pass instead, which judged it on its own text and left it open...
+    const summary = gh.summaryOut();
+    assert.match(summary, /still open/);
+    // ...and the record holds BOTH, under different keys, with the old thread's own text intact.
+    const state = mod.decodeState(summary);
+    const entries = Object.entries(state.findings);
+    assert.equal(entries.length, 2, `record held ${entries.length} entries: ${JSON.stringify(entries.map(([k, v]) => [k, v.id, v.text.slice(0, 30)]))}`);
+    const carried = state.findings[fp];
+    assert.equal(carried.id, 'T-first');
+    assert.match(carried.text, /FALLBACK_MODEL/);
+    const posted = entries.find(([k]) => k !== fp)[1];
+    assert.match(posted.text, /inlines the literal marker/);
+
+    // And the same collision when the thread's body has been EDITED past recognition: the comparison then has
+    // only the record's text to go on, so the round must hand the record to the check. Passing null instead
+    // makes the two findings merge again, silently.
+    const prior = `## 🔵 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+      commit: 'aaaaaaa',
+      findings: { [fp]: { id: 'T-first', file: first.file, line: first.line, severity: 'info', text: first.comment, action: 'posted', commit: 'aaaaaaa' } },
+    })}`;
+    const edited = fakeGitHub({
+      summaryBody: prior,
+      threads: [{
+        id: 'T-first', isResolved: false, path: first.file, line: first.line, originalLine: first.line,
+        first: { nodes: [{ databaseId: 41, body: 'I trimmed this while triaging', author: { login: 'github-actions[bot]' } }] },
+        comments: { nodes: [] }, last: { nodes: [] },
+      }],
+    });
+    globalThis.fetch = edited.fetch;
+    await mod.runReview({
+      agent: agentSequence(
+        { verdict: 'warn', summary: 'a different finding in the same place', findings: [second] },
+        { threads: [{ id: 1, status: 'present', evidence: 'still a single hardcoded id' }] },
+      ),
+    });
+    assert.deepEqual(edited.calls.inline.map((c) => c.line), [second.line], 'the colliding finding did not get its own comment');
+    assert.deepEqual(edited.calls.unresolved, []);
+    assert.equal(Object.keys(mod.decodeState(edited.summaryOut()).findings).length, 2);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});

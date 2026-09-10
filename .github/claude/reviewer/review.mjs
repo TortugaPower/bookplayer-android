@@ -172,8 +172,11 @@ const BASE = process.env.BASE_REF || 'main';
 
 // Fingerprint identifies "the same issue at the same spot" across runs.
 // Intentionally EXCLUDES the comment text so a re-wording doesn't create a duplicate.
+// Location, and a `salt` only when one is passed. See `disambiguate`: the salt is what a SECOND finding at an
+// occupied location is keyed by, so two findings that share a place do not share an identity.
 export function fingerprint(f) {
-  return createHash('sha1').update(`${f.file}|${f.line}|${f.severity}`).digest('hex').slice(0, 12);
+  const salt = f.salt ? `|${f.salt}` : '';
+  return createHash('sha1').update(`${f.file}|${f.line}|${f.severity}${salt}`).digest('hex').slice(0, 12);
 }
 
 // Everything the model writes is posted to the PR, and everything it reads is PR-author-controlled, so
@@ -1702,6 +1705,71 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
 // four outcomes — post new, keep open, reopen auto-resolved, leave human-dismissed, resolve stale — are unit-tested.
 const SEVERITY_RANK = { error: 0, warn: 1, info: 2 };
 
+// Word-set Dice over two finding texts. Deleted once already, and reinstated deliberately for a DIFFERENT
+// job: it may decide whether two texts are the same finding, and it may never decide to close a thread. The
+// asymmetry is the whole point. Closing on resemblance retires a live finding silently (measured: two real
+// findings in one file at 0.889); MATCHING on resemblance, wrongly, costs one extra comment that a human can
+// see. So the direction a mistake falls in is the test of where this may be used.
+const contentWords = (text) =>
+  new Set(
+    String(text || '')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .toLowerCase()
+      .replace(/[^a-z0-9_.`/]+/g, ' ')
+      .split(' ')
+      .filter((w) => w.length > 3),
+  );
+export function findingSimilarity(a, b) {
+  const A = contentWords(a);
+  const B = contentWords(b);
+  if (!A.size || !B.size) return 0;
+  let shared = 0;
+  for (const w of A) if (B.has(w)) shared++;
+  return (2 * shared) / (A.size + B.size);
+}
+// Measured on the collision that produced this function: two different findings that shared a fingerprint
+// scored 0.000, and the same finding re-reported on the next push scored 0.905. The bar sits far from both, and
+// it errs toward "not the same finding", which posts a comment rather than merging two.
+const SAME_FINDING_SIMILARITY = 0.35;
+
+// A fingerprint is sha1(file|line|severity): it identifies a LOCATION, not a finding. Two different findings at
+// one location therefore share one — measured in production on this very PR, where an `info` about
+// `FALLBACK_MODEL` at review.mjs:57 and an `info` about `duplicateNote` at review.mjs:57 collided. The harness
+// read the second as a re-report of the first, reopened that thread, recorded the new text against it, and the
+// verification pass — shown the thread's own body, which still described the FIRST finding — closed it as
+// "verified fixed" on evidence about the other issue. One finding silently gone.
+//
+// So a fingerprint match is a CANDIDATE, corroborated by what the thread actually says. When the texts do not
+// look like the same finding, the new one is re-keyed with a text digest and posted as its own comment, and the
+// old thread goes to the verification pass to be judged on its own merits. A wrong answer here costs a comment;
+// the answer it replaces cost a finding.
+export function disambiguate(currentByFp, threads = [], priorState = null) {
+  const ours = threads.filter((t) => isHarnessComment(t.firstCommentAuthor));
+  const byFp = new Map();
+  for (const t of ours) {
+    const fp = fingerprintOfThread(t, priorState);
+    if (fp && !byFp.has(fp)) byFp.set(fp, t);
+  }
+  const out = new Map();
+  for (const [fp, f] of currentByFp) {
+    const t = byFp.get(fp);
+    // What that thread SAYS, preferring its own body: the record's entry for it may already have been
+    // overwritten by a colliding finding, which is exactly the state this function exists to detect.
+    const recorded = t ? Object.values(priorState?.findings || {}).find((r) => r?.id === t.id) : null;
+    const theirs = t
+      ? (bodyLooksOurs(t.firstCommentBody) ? stripHarnessMarkup(t.firstCommentBody || '') : recorded?.text || '')
+      : '';
+    if (!t || !theirs || findingSimilarity(theirs, f.comment) >= SAME_FINDING_SIMILARITY) {
+      out.set(fp, f);
+      continue;
+    }
+    const salted = fingerprint({ ...f, salt: String(f.comment || '').slice(0, MAX_STATE_TEXT) });
+    console.warn(`fingerprint collision at ${f.file}:${f.line} (${f.severity}): the thread there carries a different finding; posting this one as ${salted.slice(0, 8)}`);
+    out.set(salted, f);
+  }
+  return out;
+}
+
 export async function reconcile(currentByFp, threads, io, options = {}) {
   const { provisional = false, priorState } = options;
   // `priorState` is legitimately null on a first round, so it cannot be defaulted — a default is exactly how a
@@ -2087,7 +2155,7 @@ export async function runReview({ agent = runAgent } = {}) {
 
   // Current findings, de-duplicated by fingerprint.
   const VALID_SEVERITY = new Set(['info', 'warn', 'error']);
-  const currentByFp = new Map();
+  let currentByFp = new Map();
   let dropped = 0;
   let merged = 0;
   for (const f of parsed.findings) {
@@ -2160,6 +2228,11 @@ export async function runReview({ agent = runAgent } = {}) {
     ).catch((e2) => console.warn(`Could not post the summary comment: ${e2.message}`));
     return;
   }
+  // Now that the threads are in hand: a finding whose fingerprint matches a thread that says something else is
+  // a collision, not a re-report, and it is re-keyed here so everything downstream — reconcile, the record, the
+  // verification pass — sees one identity per finding.
+  currentByFp = disambiguate(currentByFp, threads, stateRecord);
+
   const io = {
     post: (f, body) => postInlineComment({ prNumber: PR_NUMBER, commitId: COMMIT, path: f.file, line: f.line, body }),
     reply: (t, body) => (t.firstCommentId ? replyToReviewComment(PR_NUMBER, t.firstCommentId, body) : Promise.resolve()),
