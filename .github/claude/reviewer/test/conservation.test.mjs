@@ -17,7 +17,10 @@
 // one — so duplication is bounded instead of forbidden.
 //
 // Each finding carries an oracle token (`[F7]`) that survives rewording, so the check is exact string
-// containment rather than a judgement of its own. It would have caught all three of today's failures.
+// containment rather than a judgement of its own — and a SECOND tag per wording (`[W3]`), because the first
+// one alone let the law pass vacuously exactly where it was needed: a finding that came back re-worded onto a
+// thread the harness had closed was reopened with its new text posted nowhere, and the original comment still
+// carried the finding's token. The law now asks for the CURRENT wording, not merely the finding.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, realpathSync } from 'node:fs';
@@ -186,6 +189,7 @@ async function runScenario(seed) {
   const SEVERITIES = ['error', 'warn', 'info'];
   // The world's findings. `token` is the oracle's handle on each one and survives every rewording.
   let nextToken = 1;
+  let nextWording = 1;
   const world = [];
   const newFinding = (over = {}) => {
     const token = `[F${nextToken++}]`;
@@ -201,7 +205,9 @@ async function runScenario(seed) {
   for (let round = 1; round <= 6; round++) {
     // Mutations a real push makes.
     if (rand() < 0.4) { const f = pick(world); f.line = 1 + Math.floor(rand() * 60); }            // the line drifts
-    if (rand() < 0.3) { const f = pick(world); f.words = `${f.words} (still true at push ${round})`; } // reworded
+    // Reworded — and the new wording gets its own tag, so "is this finding still on the PR" and "is what it
+    // says NOW on the PR" are different questions the law can ask separately.
+    if (rand() < 0.3) { const f = pick(world); f.wording = `W${nextWording++}`; f.words = `${f.words} [${f.wording}] (still true at push ${round})`; }
     if (rand() < 0.35) {                                                                            // a NEW finding where one already lives
       const host = pick(world.filter((f) => f.reported)) || pick(world);
       newFinding({ file: host.file, line: host.line, severity: host.severity, words: `the [F${nextToken}] problem is a different one entirely: this receiver is registered twice` });
@@ -274,6 +280,15 @@ async function runScenario(seed) {
           `is accounted for nowhere — ${open.length} open thread(s) carry it, ${mine.length - open.length} resolved, ` +
           `in summary: ${summary.includes(f.token)}, in record on an open thread: ${recordCarries(f.token)}`,
       );
+    }
+    // And the CURRENT WORDING is on the PR, not just the finding. A finding matched to a thread that does not
+    // carry its new text used to be counted as handled while the thread showed the old wording — on the kept
+    // path once, and on the reopen path after that was fixed. Only a per-wording tag can see it.
+    for (const f of world.filter((x) => x.reported && x.wording)) {
+      const tag = `[${f.wording}]`;
+      const onAThread = gh.state.threads.some((t) => t.comments.some((c) => c.body.includes(tag)));
+      if (onAThread || summary.includes(tag) || !reporting.includes(f)) continue;
+      problems.push(`seed ${seed} round ${round}: ${f.token} was re-reported as ${tag} and that wording is nowhere on the PR`);
     }
     // Churn has a ceiling. Every duplicate is a comment a human has to read, so unbounded duplication is its
     // own failure even though nothing is lost: six rounds of drifting lines and mistaken claims may leave a

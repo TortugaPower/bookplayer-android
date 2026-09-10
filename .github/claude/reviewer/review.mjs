@@ -474,9 +474,8 @@ export function flagsAllowed(words) {
 // the two checks: they were briefly inlined there, which left this function reachable only from the tests — so the
 // ALLOWED/DENIED corpora were asserting against a copy production did not run.
 export function isReadOnlyShell(command) {
-  const { segments, unsafe } = analyzeShell(command);
+  const { words, segments, unsafe } = analyzeShell(command);
   if (unsafe || segments.length === 0) return false;
-  const { words } = analyzeShell(command);
   return segments.every((s) => BASH_ALLOW.some((re) => re.test(s)) && !hasDeniedFlag(s)) && flagsAllowed(words);
 }
 
@@ -1915,6 +1914,19 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
   const unpostable = [];
   const unpostableFps = new Set(); // the KEYS, so the record cannot disagree with what was actually attempted
   const liveFps = new Set(); // findings a thread still carries after this round — kept, reopened, or just posted
+  // Post the finding's CURRENT wording on a thread that does not already carry it. Compared in the form it
+  // was posted in — bodies go out through `redact(neutralizeMarkup(...))` — which is what makes it
+  // self-limiting: after the reply the thread contains that text, so a wording is never posted twice.
+  const sayCurrentWording = async (thread, f, fp) => {
+    const bodies = [thread.firstCommentBody || '', ...(Array.isArray(thread.comments) ? thread.comments.map((c) => c.body || '') : [])];
+    const rendered = redact(neutralizeMarkup(f.comment));
+    if (bodies.some((b) => b.includes(rendered))) return;
+    stats.reworded++;
+    await io
+      .reply(thread, redact(rewordedNote(neutralizeMarkup(f.comment))))
+      .catch((e) => console.warn(`reworded note failed (fp:${fp}) — ${e.message}`));
+  };
+
   for (const [fp, f] of currentByFp) {
     const existing = existingByFp.get(fp);
     if (existing) {
@@ -1924,20 +1936,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
         // The thread stays as it is when it already says this — no churn for a finding that has not changed —
         // and otherwise the current wording goes on it. Whatever decided that this finding belongs here (a
         // fingerprint, or the agent's own `same_as`), a decision must not be able to bury text.
-        const bodies = [existing.firstCommentBody || '', ...(Array.isArray(existing.comments) ? existing.comments.map((c) => c.body || '') : [])];
-        // Compared in the form it was POSTED in, not the form the model wrote. Bodies go out through
-        // `redact(neutralizeMarkup(...))`, so testing the raw text against them fails for every finding those
-        // two functions alter — a finding quoting a token-shaped string, or one containing `<!--`, which this
-        // repo's own rubric asks the agent to look for. The reply then never matches itself and is posted on
-        // every push, for ever: the self-limiting property below depends on comparing like with like.
-        const rendered = redact(neutralizeMarkup(f.comment));
-        const said = bodies.some((b) => b.includes(rendered));
-        if (!said) {
-          stats.reworded++;
-          await io
-            .reply(existing, redact(rewordedNote(neutralizeMarkup(f.comment))))
-            .catch((e) => console.warn(`reworded note failed (fp:${fp}) — ${e.message}`));
-        }
+        await sayCurrentWording(existing, f, fp);
       } else if (harnessClosed(existing, HARNESS_RESOLVED_MARKERS, priorState)) {
         // We closed it (not re-reported, or verified fixed) and it is back: reopen it.
         try {
@@ -1945,6 +1944,13 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
           stats.reopened++;
           liveFps.add(fp); // reopened, so a duplicate of it has somewhere to point
           await io.reply(existing, REOPENED_NOTE).catch((e) => console.warn(`reopen note failed (fp:${fp}) — ${e.message}`));
+          // The same rule as the kept branch. A finding that comes back RE-WORDED onto a thread we had closed
+          // was unresolved, counted in `stats.reopened`, and its new text posted nowhere — the thread went on
+          // showing the original wording. The invariant is not "a kept finding's text is never buried", it is
+          // that no identity decision buries text, so it belongs to every branch that matches a finding to a
+          // thread. (The conservation law could not see this: its oracle token survives rewording, so the
+          // original comment still contained it and the law held vacuously here. Fixed there too.)
+          await sayCurrentWording(existing, f, fp);
         } catch (e) {
           // The reopen failed (a stale REVIEW_RESOLVE_TOKEN is the likely reason), so the thread stays collapsed
           // as resolved while the finding is live again. Surface it in the summary body rather than leaving it
@@ -2045,6 +2051,23 @@ export function boundedSummaryBody(body, max = MAX_COMMENT) {
 // a long summary would cut the record in half and the next round would fall back to guessing — which is exactly
 // the failure this record exists to end. Pure, because it lived in `upsertSummary` where no test could reach it
 // and both mutations (drop the record, trim it with the body) stayed green.
+// Redact a summary body that may already CARRY a record — the degrade path builds one that way, because
+// `summaryWithNote` pulls the record out of the previous comment and re-appends it inside the body it returns.
+// Running `redact` across that assembled string re-opens the very hazard per-field redaction closed: a
+// dangling `-----BEGIN … PRIVATE KEY-----` in one entry's text and a dangling `-----END …-----` in another's
+// both survive per-field redaction, and the unbounded pattern then matches ACROSS the concatenation and eats
+// every entry between them. Measured on this path: three entries in, one out. The blob's fields were already
+// redacted when they were written, so it is left exactly as it is and only the prose around it is redacted.
+export function redactBody(body) {
+  const text = String(body ?? '');
+  const start = text.indexOf(STATE_MARKER);
+  if (start === -1) return redact(text);
+  const end = text.indexOf(' -->', start + STATE_MARKER.length);
+  if (end === -1) return redact(text);
+  const blob = text.slice(start, end + ' -->'.length);
+  return `${redact(text.slice(0, start))}${blob}${redact(text.slice(end + ' -->'.length))}`;
+}
+
 // Redaction applied to a record ENTRY at a time, so no pattern can span two of them. `redact` is otherwise
 // unchanged; this only decides what it is pointed at.
 function redactState(state) {
@@ -2096,7 +2119,11 @@ export function summaryWithNote(previousBody, note, heading) {
   // ~11 characters more than `summaryBodyWithState` allows when it re-bounds the result, so on a previous
   // summary long enough for the slice to bite, the trim took the record's own ` -->` terminator with it and
   // `decodeState` returned null — losing the record this path re-appends it specifically to protect.
-  const SEPARATORS = '\n\n---\n\n'.length + '\n\n'.length + '\n'.length;
+  // Every separator this function emits, including the `\n` that precedes the closers when a repair is needed.
+  // Leaving that one out made the worst case exactly one character over what `summaryBodyWithState` re-bounds
+  // to — and its trim cuts at a line boundary, where the last line is the record, so the degrade path would
+  // lose the record it re-appends specifically to protect. Reachable at equality, not just in theory.
+  const SEPARATORS = '\n\n---\n\n'.length + '\n\n'.length + '\n'.length + '\n'.length;
   // And the cut is repaired, for the same reason `boundedSummaryBody` repairs its own: `renderSummary` puts
   // every unpostable finding inside a `<details>` block, so on a summary long enough for this slice to bite the
   // cut lands INSIDE that element and the "did not complete" note renders collapsed — invisible, in the one
@@ -2174,7 +2201,7 @@ async function upsertSummary(rawBody, state = null, { mergeExistingRecord = fals
       }
     : state;
   if (carried) console.warn(`Merging this round's record into the ${Object.keys(carried.findings).length} entry/entries already in the summary`);
-  const body = summaryBodyWithState(redact(rawBody), merged);
+  const body = summaryBodyWithState(redactBody(rawBody), merged);
   if (existing) return updateIssueComment(existing.id, body);
   return postIssueComment(PR_NUMBER, body);
 }
@@ -2370,6 +2397,16 @@ export async function runReview({ agent = runAgent } = {}) {
     f.line = Number(f.line);
     f.file = typeof f.file === 'string' ? f.file.replace(/^\.\//, '') : '';
     if (!f.file || !Number.isInteger(f.line) || f.line < 1 || !f.comment || !VALID_SEVERITY.has(f.severity)) {
+      dropped++;
+      continue;
+    }
+    // A control character in `file` has no legitimate use and this string reaches the run log, where a newline
+    // would put model-authored text at the start of a line — and the runner reads `::workflow-command::` there.
+    // The agent dump is already bracketed with `::stop-commands::` for exactly this; the warnings that name a
+    // file were the sinks that bypassed it. `set-env`/`add-path` are disabled, so the impact is log spoofing on
+    // a public log rather than execution, and the fix belongs where the finding is validated.
+    if (/[\x00-\x1f\x7f]/.test(f.file)) {
+      console.warn(`Dropped a finding whose file name holds a control character (${boundedDump(f.file, 80)})`);
       dropped++;
       continue;
     }

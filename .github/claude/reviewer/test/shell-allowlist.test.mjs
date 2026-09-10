@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openFindings, openFindingsBlock, keyFindings, MODEL_FOR_TEST, MAX_TURNS_FOR_TEST, buildUserPrompt, VERIFY_STATUSES_FOR_TEST, carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { redactBody, openFindings, openFindingsBlock, keyFindings, MODEL_FOR_TEST, MAX_TURNS_FOR_TEST, buildUserPrompt, VERIFY_STATUSES_FOR_TEST, carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -281,7 +281,7 @@ test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismisse
   // every close in the harness comes from the verification pass, which reads the code. t-stale goes there.
   const { stats, unpostable } = await reconcile(current, threads, io, { priorState: null });
 
-  assert.deepEqual(stats, { posted: 1, kept: 1, reopened: 1, dismissed: 1, resolved: 0, reworded: 1 });
+  assert.deepEqual(stats, { posted: 1, kept: 1, reopened: 1, dismissed: 1, resolved: 0, reworded: 2 });
   // The finding on the human-resolved thread is NOT dropped: no new comment and no reopen (both would be
   // nagging), but it goes in the summary body so a maintainer can see the reviewer still considers it live.
   // This assertion used to read `0`, which pinned the silent drop.
@@ -290,9 +290,11 @@ test('reconcile: post new, keep open, reopen auto-resolved, leave human-dismisse
   assert.match(calls.post[0].body, /new one/);
   assert.match(calls.post[0].body, new RegExp(`bp-ai-review-fp:${fp('a.kt', 1, 'warn')}`));
   assert.deepEqual(calls.unresolve, ['t-back']);
-  // The reopen leaves its note, and the kept thread is told the current wording because its comment does not
-  // contain it — a matched finding whose text the thread does not carry is never left unsaid.
-  assert.deepEqual(calls.reply.sort(), ['t-back:reopen', 't-open:reworded']);
+  // The reopen leaves its note, and BOTH matched threads are told the current wording, because neither
+  // comment contains it — a matched finding whose text the thread does not carry is never left unsaid, on the
+  // kept path or the reopened one. The reopen branch used to skip this, so a finding that came back re-worded
+  // was unresolved, counted as handled, and its new text posted nowhere.
+  assert.deepEqual(calls.reply.sort(), ['t-back:reopen', 't-back:reworded', 't-open:reworded']);
   assert.deepEqual(calls.resolve, []);              // never the foreign human thread, never the dismissed one
 });
 
@@ -1564,7 +1566,31 @@ test('the degrade note is never left inside a collapsed block either', () => {
   const line = '<details><summary>Findings not visible inline</summary>';
   const previous = `## ✅ Claude PR Review\n\n${Array.from({ length: 1500 }, () => line).join('\n')}\n\n<!-- bp-ai-review-summary -->`;
   const out = summaryWithNote(previous, 'ran out of time', '## ⚠️ Claude PR Review — incomplete');
-  assert.ok(out.length <= 65536, `body was ${out.length}`);
+  // The ceiling that matters is what `summaryBodyWithState` re-bounds this to in `upsertSummary` — 65536 less
+  // the margin — not the raw limit. One character over and its trim cuts at a line boundary, and the last line
+  // is the record this path re-appends specifically to protect.
+  assert.ok(out.length <= 65536 - 1000, `body was ${out.length}, over what upsertSummary allows`);
+  // Across the boundary, not at one convenient size: the worst case is an exact equality (when the tail the
+  // repair removes contains no `<details>`, the closers do not shrink and `cut + closers` lands exactly on
+  // `room`), and one character over is enough for the re-bound to cut the record off the end.
+  for (let n = 1150; n <= 1210; n++) {
+    const body = `## ✅ Claude PR Review\n\n${Array.from({ length: n }, () => line).join('\n')}\n\n<!-- bp-ai-review-summary -->`;
+    const sized = summaryWithNote(body, 'ran out of time', '## ⚠️ incomplete');
+    assert.ok(sized.length <= 65536 - 1000, `at ${n} tags the note came to ${sized.length}`);
+  }
+  // The tightest family: tags first, then a long PLAIN tail, so the cut lands in the tail and shrinking it by
+  // the closers' length removes no tags — the closer count does not change and `cut + closers` lands exactly on
+  // `room`. This is the shape that puts the result one character from the ceiling (measured: 64535 against the
+  // 64536 `summaryBodyWithState` allows), and it is why the `\n` before the closers is reserved.
+  for (const tags of [700, 800, 900, 1000]) {
+    const head = Array.from({ length: tags }, () => line).join('\n');
+    const tail = 'plain line with no tags at all whatsoever padding padding\n'.repeat(600);
+    const sized = summaryWithNote(`## ✅ Claude PR Review\n\n${head}\n${tail}\n<!-- bp-ai-review-summary -->`, 'ran out of time', '## ⚠️ incomplete');
+    assert.ok(sized.length <= 65536 - 1000, `${tags} tags then a plain tail came to ${sized.length}`);
+    // And what upsertSummary then does to it must be a no-op: one character over and its trim cuts at a line
+    // boundary, where the last line is the record.
+    assert.equal(boundedSummaryBody(sized, 65536 - 1000), sized, `${tags} tags: the re-bound trimmed the note`);
+  }
   // Every element the cut left open is closed, so the note is outside all of them...
   assert.equal((out.match(/<details>/g) || []).length, (out.match(/<\/details>/g) || []).length);
   assert.ok(out.indexOf('ran out of time') > out.lastIndexOf('</details>'));
@@ -2681,6 +2707,71 @@ test('every marker has one spelling', () => {
     const uses = (src.match(new RegExp(`\\b${constant}\\b`, 'g')) || []).length;
     assert.ok(uses >= 2, `${constant} is declared and never used`);
   }
+});
+
+
+test('a finding that comes back re-worded onto a closed thread has its new text posted', async () => {
+  // The kept branch posted the current wording when the thread did not carry it; the REOPEN branch did not. A
+  // finding that returns re-worded onto a thread the harness had closed was unresolved, counted in
+  // `stats.reopened`, and its new text posted nowhere — the thread went on showing the original wording. The
+  // invariant is not "a kept finding's text is never buried", it is that no identity decision buries text, so
+  // it belongs to every branch that matches a finding to a thread.
+  const f = { file: 'a.kt', line: 5, severity: 'warn', comment: 'nothing unregisters the receiver on the way out' };
+  const fp = reconcileFp(f);
+  const closedByUs = {
+    id: 'T1', isResolved: true, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', path: f.file, line: f.line,
+    firstCommentBody: `🟡 **WARN** — the receiver is never unregistered <!-- bp-ai-review-fp:${fp} -->`,
+    lastCommentAuthor: 'github-actions[bot]',
+    lastCommentBody: 'Not reported in the latest run — resolved automatically. <!-- bp-ai-review-auto-resolved -->',
+    comments: [],
+  };
+  const calls = [];
+  const io = { post: async () => {}, reply: async (x, b) => calls.push(b), resolve: async () => {}, unresolve: async () => calls.push('UNRESOLVE') };
+  const { stats } = await reconcile(new Map([[fp, f]]), [closedByUs], io, { priorState: null });
+
+  assert.equal(stats.reopened, 1);
+  assert.equal(calls[0], 'UNRESOLVE');
+  assert.match(calls.join('\n'), /Reported again in the latest run/);      // the reopen note
+  assert.match(calls.join('\n'), /worded differently/);                    // and the current wording
+  assert.match(calls.join('\n'), /on the way out/);
+  assert.equal(stats.reworded, 1);
+  // Still self-limiting on this path: with that reply on the thread, nothing is said a second time.
+  const again = [];
+  const io2 = { post: async () => {}, reply: async (x, b) => again.push(b), resolve: async () => {}, unresolve: async () => {} };
+  await reconcile(new Map([[fp, f]]), [{ ...closedByUs, comments: calls.filter((c) => c !== 'UNRESOLVE').map((b, i) => ({ id: 10 + i, body: b, author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-02T00:00:00Z' })) }], io2, { priorState: null });
+  assert.equal(again.filter((b) => /worded differently/.test(b)).length, 0);
+});
+
+test('redaction never spans an embedded record', async () => {
+  // The degrade path builds a body that CARRIES the record: `summaryWithNote` pulls it out of the previous
+  // comment and re-appends it inside what it returns. Running `redact` across that assembled string re-opens
+  // the hazard per-field redaction closed — a dangling `-----BEGIN … PRIVATE KEY-----` in one entry's text and
+  // a dangling `-----END …-----` in another's each survive per-field redaction, and the unbounded pattern then
+  // matches ACROSS the concatenation and deletes every entry between them. Measured: three entries in, one out.
+  const state = {
+    commit: 'c',
+    findings: {
+      a: { id: 'T1', file: 'a.kt', line: 1, severity: 'warn', text: 'the header -----BEGIN PRIVATE KEY----- appears here', action: 'posted', commit: 'c' },
+      b: { id: 'T2', file: 'b.kt', line: 2, severity: 'warn', text: 'an ordinary finding in between', action: 'posted', commit: 'c' },
+      c: { id: 'T3', file: 'c.kt', line: 3, severity: 'warn', text: 'and the footer -----END PRIVATE KEY----- here', action: 'posted', commit: 'c' },
+    },
+  };
+  const carried = summaryWithNote(summaryBodyWithState('## review\n\nbody', state), 'ran out of time', '## incomplete');
+  assert.equal(Object.keys(decodeState(carried).findings).length, 3);
+  const written = summaryBodyWithState(redactBody(carried), null);
+  assert.equal(Object.keys(decodeState(written).findings).length, 3, 'the record lost entries to a redaction that spanned it');
+  // The prose half is still redacted, which is the whole reason this runs at all.
+  assert.equal(redactBody('a token ghp_0123456789abcdefghijklmnopqrstuvwx in prose').includes('ghp_0123456789'), false);
+  assert.match(redactBody('a token ghp_0123456789abcdefghijklmnopqrstuvwx in prose'), /\[redacted\]/);
+  // A body with no record is redacted as a whole, exactly as before.
+  assert.match(redactBody('sk-ant-0123456789abcdefghij'), /\[redacted\]/);
+  // And with a record present, the prose on BOTH sides of it is still redacted — the blob is the only thing
+  // this function leaves alone, not everything in a body that happens to contain one.
+  const around = `before ghp_0123456789abcdefghijklmnopqrstuvwx\n${encodeState(state)}\nafter sk-ant-0123456789abcdefghij`;
+  const done = redactBody(around);
+  assert.equal(done.includes('ghp_0123456789'), false, 'the prose before the record was not redacted');
+  assert.equal(done.includes('sk-ant-0123456789'), false, 'the prose after the record was not redacted');
+  assert.equal(Object.keys(decodeState(done).findings).length, 3);
 });
 
 test('a thread that already carries the current wording is not told again', () => {

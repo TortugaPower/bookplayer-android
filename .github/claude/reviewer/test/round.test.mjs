@@ -1252,3 +1252,65 @@ test('a truncated comment listing is not read as "no record"', async () => {
     restore();
   }
 });
+
+test('a degraded round keeps its record intact, and a control character never reaches the log', async () => {
+  // Two things only main() puts together. The degrade path builds a body that CARRIES the record, and
+  // `upsertSummary` redacts what it is handed — across the blob, unless it is told not to, which deletes every
+  // entry between two dangling halves of a key block. And a finding's `file` is model-authored and reaches the
+  // run log, where a newline would put that text at the start of a line, which is where the runner reads
+  // `::workflow-command::`.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'degrade-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '32', COMMIT: 'de9a000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'degrade');
+  const realFetch = globalThis.fetch;
+  try {
+    // A record whose entries hold the two dangling halves, as per-field redaction legitimately leaves them.
+    const prior = mod.encodeState({
+      commit: 'aaaaaaa',
+      findings: {
+        a: { id: 'T1', file: 'app/A.kt', line: 1, severity: 'warn', text: 'the header -----BEGIN PRIVATE KEY----- appears here', action: 'posted', commit: 'aaaaaaa' },
+        b: { id: 'T2', file: 'app/B.kt', line: 2, severity: 'warn', text: 'an ordinary finding in between', action: 'posted', commit: 'aaaaaaa' },
+        c: { id: 'T3', file: 'app/C.kt', line: 3, severity: 'warn', text: 'and the footer -----END PRIVATE KEY----- here', action: 'posted', commit: 'aaaaaaa' },
+      },
+    });
+    const gh = fakeGitHub({ summaryBody: `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${prior}` });
+    globalThis.fetch = gh.fetch;
+    // A round that produces nothing usable takes the degrade path, which re-appends that record inside the body.
+    await mod.runReview({ agent: async () => ({ finalText: 'no json here at all', lastAnswer: '', turns: 1, resultSubtype: 'success' }) });
+    const after = mod.decodeState(gh.summaryOut());
+    assert.ok(after, 'the degraded round left no record');
+    assert.equal(Object.keys(after.findings).length, 3, 'the record lost entries to a redaction that spanned it');
+    assert.match(gh.summaryOut(), /did not finish|did not run/);
+
+    // And a finding whose file holds a newline is dropped rather than logged.
+    const gh2 = fakeGitHub();
+    globalThis.fetch = gh2.fetch;
+    const warnings = [];
+    const realWarn = console.warn;
+    console.warn = (m) => warnings.push(String(m));
+    try {
+      await mod.runReview({
+        agent: agentReturning({
+          verdict: 'warn',
+          summary: 'one good, one hostile',
+          findings: [
+            { severity: 'warn', file: 'app/Good.kt', line: 3, comment: 'a real finding' },
+            { severity: 'warn', file: 'app/Bad.kt\n::error::spoofed', line: 4, comment: 'a finding with a newline in its path' },
+          ],
+        }),
+      });
+    } finally {
+      console.warn = realWarn;
+    }
+    assert.deepEqual(gh2.calls.inline.map((c) => c.path), ['app/Good.kt']);
+    assert.match(warnings.join('\n'), /control character/);
+    // The spoofed text never appears at the start of any logged line.
+    for (const w of warnings) assert.equal(/^::/.test(w), false, `a log line began with a workflow command: ${w}`);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
