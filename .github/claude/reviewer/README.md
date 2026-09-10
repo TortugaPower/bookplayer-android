@@ -11,14 +11,19 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 
 1. Fetches the PR and its diff (the agent gets no token; the diff is written to `RUNNER_TEMP`).
 2. **Review pass** — the agent reads the diff and the checkout with read-only tools and returns JSON findings.
-3. Each finding gets a fingerprint, `sha1(file|line|severity)`. A finding whose fingerprint already has a
-   comment is left alone; one that is new is posted inline; one that cannot be anchored (no such line in the
-   diff, past the 25-comment cap, a refused post) is listed in the summary comment instead.
-4. **Verification pass** — a second agent judges every still-open thread this round did *not* re-report against
+3. Identity. The prompt lists the findings still open from earlier pushes, and the agent may answer
+   `same_as: <id>` to say "this is that one again" — identity **stated** rather than inferred. Where it says
+   nothing, the fallback is a fingerprint, `sha1(file|line|severity)`, corroborated against what the thread
+   actually says: that hash identifies a *location*, and two different findings at one location used to become
+   one. A finding matched to a thread that does not already carry its text gets that text posted as a reply, so
+   no decision about identity — the agent's or the harness's — can bury a finding's wording.
+4. A finding whose identity already has a comment is left alone; a new one is posted inline; one that cannot be
+   anchored (no such line in the diff, past the 25-comment cap, a refused post) is listed in the summary.
+5. **Verification pass** — a second agent judges every still-open thread this round did *not* re-report against
    the current code: `fixed`, `present`, `not_applicable`, `accepted` (a maintainer said so), `insufficient`,
    or `duplicate` of a finding this push reports. **This is the only thing that closes a thread.** Absence
    closes nothing; an `error` closes only on evidence of a fix or a maintainer's own resolve.
-5. Writes one summary comment, which carries a hidden state record (`<!-- bp-ai-review-state:… -->`) of what
+6. Writes one summary comment, which carries a hidden state record (`<!-- bp-ai-review-state:… -->`) of what
    this round did: which thread carries which finding, what was closed and why. The next round reads it instead
    of re-deriving its own history from rendered comments.
 
@@ -90,6 +95,14 @@ them: it bounds both, and a job cancelled mid-reconcile leaves a PR with comment
   severity + a similarity score over the comment texts) and both retired live findings: two different findings
   in one file measure 0.889 against a 0.5 bar. If you are tempted again, the answer is a verdict from the
   verification pass, which reads the code.
+- **A finding never leaves the PR silently, and `test/conservation.test.mjs` is where that is enforced.** It
+  states the law rather than testing a mechanism, and fuzzes rounds against it against a GitHub whose state
+  evolves — drifting lines, rewordings, collisions, edited bodies, human resolves, failed posts, and an agent
+  that lies about `same_as`. It has caught two bugs the whole mutation-testing loop missed. When you change how
+  identity or closing works, run it first; if it passes and you expected it to fail, your change probably does
+  not do what you think.
+- **Similarity may decide MATCHING, never CLOSING.** A wrong match costs an extra comment somebody can see; a
+  wrong close costs a finding. Every use of `findingSimilarity` is on the first side of that line.
 - **The record is the harness's memory, and every summary write replaces the comment it lives in.** Any path
   that writes a summary must carry a record — its own, or the one it read. Two bugs came from a path that
   wrote one without.

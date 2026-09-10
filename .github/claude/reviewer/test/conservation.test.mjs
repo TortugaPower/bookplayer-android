@@ -11,8 +11,10 @@
 // against it: findings appear, drift to new lines, get reworded, collide on a line another finding already
 // occupies; maintainers edit comment bodies and resolve threads; posts, resolves and the record read fail. The
 // verifier is scripted to answer `present` for everything — nothing is ever fixed — so NOTHING may be closed,
-// and after every round each finding ever reported must still be findable on the PR: carried by exactly one
-// open thread, or named in the summary as unpostable or unjudged.
+// and after every round each finding ever reported must still be findable on the PR: carried by an open thread,
+// or named in the summary as unpostable or unjudged. Being carried by SEVERAL threads is churn rather than
+// loss — the verifier's `duplicate` verdict is what collapses those, and this scripted verifier never issues
+// one — so duplication is bounded instead of forbidden.
 //
 // Each finding carries an oracle token (`[F7]`) that survives rewording, so the check is exact string
 // containment rather than a judgement of its own. It would have caught all three of today's failures.
@@ -119,11 +121,39 @@ function worldGitHub() {
 
 // The scripted model. The review pass reports the findings the scenario asks for; the verification pass answers
 // `present` for every id it is given — nothing is ever fixed, so nothing may ever be closed.
-const scriptedAgent = (findings) => async (prompt) => {
+//
+// It also exercises the `same_as` protocol, and exercises it BADLY on purpose. The prompt now lists the open
+// findings and invites the model to name the one its finding repeats, which moves identity from something the
+// harness infers to something the model asserts — so the law has to hold when that assertion is right, when it
+// is wrong (naming a thread about something else), and when it is nonsense (an id that was never offered). A
+// model is not a contract; the fuzzer treats it as an adversary.
+const scriptedAgent = (findings, claimPolicy = () => undefined) => async (prompt) => {
   const isVerify = prompt.includes('Below are findings reported on it by');
-  const result = isVerify
-    ? { threads: [...prompt.matchAll(/<finding id="(\d+)"/g)].map((m) => ({ id: Number(m[1]), status: 'present', evidence: 'the code still does this' })) }
-    : { verdict: findings.length ? 'warn' : 'pass', summary: 'a round', findings };
+  if (isVerify) {
+    // Nothing is ever fixed — so no thread may be closed on that basis. But this verifier DOES answer
+    // `duplicate` when it can see that the finding it is judging is one this push reported elsewhere in the
+    // same file, which is what production does and what collapses the churn a drifting line produces. It also
+    // exercises the duplicate path, which has never run outside a test.
+    const threads = [...prompt.matchAll(/<finding id="(\d+)"[^>]*>([\s\S]*?)<\/finding>/g)].map((m) => {
+      const id = Number(m[1]);
+      const block = m[2];
+      const token = block.match(/\[F\d+\]/)?.[0];
+      const twin = token
+        ? [...block.matchAll(/<reported line="(\d+)"[^>]*>([\s\S]*?)<\/reported>/g)].find((r) => r[2].includes(token))
+        : null;
+      return twin
+        ? { id, status: 'duplicate', of: Number(twin[1]), evidence: 'the same issue is reported at that line on this push' }
+        : { id, status: 'present', evidence: 'the code still does this' };
+    });
+    return { finalText: '```json\n' + JSON.stringify({ threads }) + '\n```', lastAnswer: '', turns: 2, resultSubtype: 'success' };
+  }
+  // What the prompt offered, in the order it offered it: id -> the text of that open finding.
+  const offered = [...prompt.matchAll(/<finding id="(\d+)"[^>]*>([\s\S]*?)<\/finding>/g)].map((m) => ({ id: Number(m[1]), text: m[2] }));
+  const claimed = findings.map((f) => {
+    const same_as = claimPolicy(f, offered);
+    return same_as === undefined ? f : { ...f, same_as };
+  });
+  const result = { verdict: claimed.length ? 'warn' : 'pass', summary: 'a round', findings: claimed };
   return { finalText: '```json\n' + JSON.stringify(result) + '\n```', lastAnswer: '', turns: 2, resultSubtype: 'success' };
 };
 
@@ -197,7 +227,17 @@ async function runScenario(seed) {
     // What the model reports this round: a random subset, so "not re-reported" happens constantly.
     const reporting = world.filter(() => rand() < 0.7);
     for (const f of reporting) f.reported = true;
-    await mod.runReview({ agent: scriptedAgent(reporting.map(asFinding)) });
+    // How this round's model behaves about `same_as`: honest (name the open finding that carries this token),
+    // careless (name a DIFFERENT open finding), inventive (an id nobody offered), or silent.
+    const mood = rand();
+    const claimPolicy = (f, offered) => {
+      if (!offered.length || mood < 0.25) return undefined;
+      const mine = offered.find((o) => o.text.includes(f.comment.match(/\[F\d+\]/)?.[0] || 'never'));
+      if (mood < 0.6) return mine?.id;                                    // honest, when it can tell
+      if (mood < 0.8) return offered.find((o) => o !== mine)?.id ?? mine?.id; // careless: someone else's thread
+      return 999;                                                          // inventive: never offered
+    };
+    await mod.runReview({ agent: scriptedAgent(reporting.map(asFinding), claimPolicy) });
 
     // THE LAW, in two halves.
     //
@@ -224,7 +264,10 @@ async function runScenario(seed) {
       const closedByHuman = gh.state.threads.some(
         (t) => t.isResolved && t.comments.some((c) => c.body.includes(f.token)) && t.comments.some((c) => c.author !== 'github-actions[bot]'),
       );
-      if (open.length === 1 || closedByHuman || summary.includes(f.token) || recordCarries(f.token)) continue;
+      // One or more open threads is accounted for. MORE than one is churn, not loss — a wrong `same_as`, or a
+      // finding that moved and got a second comment — and the thing that collapses it is the verifier's
+      // `duplicate` verdict, which this scripted model never issues. Churn is bounded below instead.
+      if (open.length >= 1 || closedByHuman || summary.includes(f.token) || recordCarries(f.token)) continue;
       const mine = gh.state.threads.filter((t) => t.comments.some((c) => c.body.includes(f.token)));
       problems.push(
         `seed ${seed} round ${round}: ${f.token} (${f.severity} ${f.file}:${f.line}, reported this round: ${reportedNow}) ` +
@@ -232,17 +275,35 @@ async function runScenario(seed) {
           `in summary: ${summary.includes(f.token)}, in record on an open thread: ${recordCarries(f.token)}`,
       );
     }
+    // Churn has a ceiling. Every duplicate is a comment a human has to read, so unbounded duplication is its
+    // own failure even though nothing is lost: six rounds of drifting lines and mistaken claims may leave a
+    // finding on a few threads, not on a dozen.
+    for (const f of world.filter((x) => x.reported)) {
+      const carrying = gh.state.threads.filter((t) => t.comments.some((c) => c.body.includes(f.token)));
+      const openCarrying = carrying.filter((t) => !t.isResolved);
+      // Drift can outpace the collapse by one per round — a line moves, a comment is posted, and the verifier
+      // collapses the old thread on the NEXT round — so a small steady state is expected. Growth without bound
+      // is not: six rounds may not leave a finding open on six threads.
+      if (openCarrying.length > 3) problems.push(`seed ${seed} round ${round}: ${f.token} is OPEN on ${openCarrying.length} threads`);
+    }
     // The second half: a finding reported this round that ended up on no thread must be named in the summary.
     for (const f of reporting) {
       const onAThread = gh.state.threads.some((t) => t.comments.some((c) => c.body.includes(f.token)));
       if (onAThread || summary.includes(f.token) || recordCarries(f.token)) continue;
       problems.push(`seed ${seed} round ${round}: ${f.token} was reported and could not be posted, and the summary does not mention it`);
     }
-    // And with the verifier saying "present" about everything, the harness may not close a thread on its own.
-    // (A resolve the scenario's maintainer made is not the harness's.)
+    // Nothing here is ever FIXED, so every close the harness makes must be a duplicate close — and it must say
+    // so on the thread. A close with no reason on it is the failure this law was written for: a thread that goes
+    // quiet with no record of who closed it or why.
     const ourCloses = gh.state.threads.filter((t) => t.isResolved && t.comments.every((c) => c.author === 'github-actions[bot]'));
     for (const t of ourCloses) {
-      problems.push(`seed ${seed} round ${round}: thread ${t.id} was closed by the harness though the verifier said every finding is still present`);
+      const explained = t.comments.some((c) => /same issue is reported on this push/.test(c.body));
+      if (!explained) {
+        problems.push(
+          `seed ${seed} round ${round}: thread ${t.id} was closed by the harness with no reason on it — ` +
+            `nothing was fixed this round, so the only close available was a duplicate`,
+        );
+      }
     }
   }
 

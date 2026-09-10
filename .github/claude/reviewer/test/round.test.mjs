@@ -1126,3 +1126,57 @@ test('a finding that lands where another one lives gets its own comment', async 
     restore();
   }
 });
+
+test('the agent is shown what is open, and naming one keeps the finding on its thread', async () => {
+  // The protocol end to end: the review prompt lists the open findings, the agent's answer says `same_as`, and
+  // the finding stays on the thread it already has even though its line moved and its wording changed — where
+  // before, identity was a hash of file+line+severity and this was two comments plus a duplicate verdict.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'sameas-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '30', COMMIT: '5a3e000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'sameas');
+  const realFetch = globalThis.fetch;
+  try {
+    const old = { severity: 'warn', file: 'app/Same.kt', line: 12, comment: 'the broadcast receiver registered in onStart is never unregistered' };
+    const fp = mod.fingerprint(old);
+    const gh = fakeGitHub({
+      threads: [{
+        id: 'T-old', isResolved: false, path: old.file, line: old.line, originalLine: old.line,
+        first: { nodes: [{ databaseId: 31, body: `🟡 **WARN** — ${old.comment} <!-- bp-ai-review-fp:${fp} -->`, author: { login: 'github-actions[bot]' } }] },
+        comments: { nodes: [] }, last: { nodes: [] },
+      }],
+    });
+    globalThis.fetch = gh.fetch;
+    let seen = '';
+    const moved = { severity: 'warn', file: 'app/Same.kt', line: 96, comment: 'nothing calls unregisterReceiver on the way out, so the onStart registration leaks', same_as: 1 };
+    await mod.runReview({
+      agent: async (prompt) => {
+        if (!prompt.includes('Below are findings reported on it by')) seen = prompt;
+        const isVerify = prompt.includes('Below are findings reported on it by');
+        const result = isVerify
+          ? { threads: [] }
+          : { verdict: 'warn', summary: 'it moved and I said so', findings: [moved] };
+        return { finalText: '```json\n' + JSON.stringify(result) + '\n```', lastAnswer: '', turns: 2, resultSubtype: 'success' };
+      },
+    });
+
+    // The prompt offered the open finding, with an id to name.
+    assert.match(seen, /<open_findings>/);
+    assert.match(seen, /<finding id="1" file="app\/Same.kt" line="12" severity="warn">/);
+    assert.match(seen, /never unregistered/);
+    // The claim was honoured: no second comment for a finding that already has a thread...
+    assert.deepEqual(gh.calls.inline, []);
+    // ...and because the thread does not carry the NEW wording, it is told — a decision may not bury text.
+    assert.match(gh.calls.replies.join('\n'), /worded differently/);
+    assert.match(gh.calls.replies.join('\n'), /unregisterReceiver on the way out/);
+    // The record keeps it under the thread's own fingerprint, so the next round starts from the same identity.
+    const state = mod.decodeState(gh.summaryOut());
+    assert.equal(state.findings[fp].id, 'T-old');
+    assert.match(gh.summaryOut(), /1 carried over/);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
