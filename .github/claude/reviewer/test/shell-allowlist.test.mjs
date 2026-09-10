@@ -3240,7 +3240,7 @@ test('an open thread nobody re-reported keeps its identity, and cannot masquerad
     { id: 'T-closing', isResolved: false, path: 'd.kt', line: 6, originalLine: 6 },
   ];
   const currentByFp = new Map([['fp-live', { file: 'b.kt', line: 4, severity: 'warn', comment: 'reported again this round' }]]);
-  const closed = [['fp-closing', { id: 'T-closing', file: 'd.kt', line: 6, severity: 'warn', text: 'closed by this round', action: 'superseded' }]];
+  const closed = [['fp-closing', { id: 'T-closing', file: 'd.kt', line: 6, severity: 'warn', text: 'closed by this round', action: 'resolved' }]];
   // A close this harness made in an EARLIER round, whose thread is still there and still resolved: remembered,
   // unchanged. `closed` only holds the closes made THIS round, so without this a close was forgotten after one
   // quiet round — and then, if the note that carries the marker had failed to post, the thread read as a
@@ -3284,7 +3284,7 @@ test('an open thread nobody re-reported keeps its identity, and cannot masquerad
     closed,
     carried: [['fp-closing', { id: 'T-closing', file: 'd.kt', line: 6, severity: 'warn', text: 'x', action: 'open' }], ...Array.from({ length: 20 }, (_, i) => [`car${i}`, { id: `T${i}`, file: 'e.kt', line: i, severity: 'warn', text: 'x', action: 'open' }])],
   });
-  assert.equal(state.findings['fp-closing'].action, 'superseded');
+  assert.equal(state.findings['fp-closing'].action, 'resolved');
   assert.ok(Object.keys(state.findings).length <= 60, `record held ${Object.keys(state.findings).length} entries`);
 });
 
@@ -3433,7 +3433,7 @@ test('whether WE closed a thread comes from the record, not from marker archaeol
 
   // We closed it and nobody has spoken since: ours to reopen.
   assert.equal(harnessClosedByRecord(thread([ours('2026-01-01T00:00:00Z')]), recordWith('resolved')), true);
-  assert.equal(harnessClosedByRecord(thread([ours('2026-01-01T00:00:00Z')]), recordWith('superseded')), true);
+  assert.equal(harnessClosedByRecord(thread([ours('2026-01-01T00:00:00Z')]), recordWith('duplicate')), true);
   assert.equal(harnessClosedByRecord(thread([ours('2026-01-01T00:00:00Z')]), recordWith('duplicate')), true);
   // A maintainer spoke after us: their decision stands, whatever our record says.
   assert.equal(harnessClosedByRecord(thread([ours('2026-01-01T00:00:00Z'), human('2026-01-02T00:00:00Z', 'OWNER')]), recordWith('resolved')), false);
@@ -3525,7 +3525,7 @@ test('a recorded close stops counting once we have spoken after it', () => {
   // Two overlapping runs make a rolled-back record reachable: A closes T and records it, B sees the finding come
   // back and reopens T, then A's summary write lands after B's and the record asserts the close again. If a
   // maintainer then resolves T silently, believing the record would unresolve their decision on every push.
-  const record = (at) => ({ commit: 'c', findings: { fp1: { id: 'T1', file: 'a.kt', line: 1, severity: 'warn', text: 'x', action: 'superseded', commit: 'c', at } } });
+  const record = (at) => ({ commit: 'c', findings: { fp1: { id: 'T1', file: 'a.kt', line: 1, severity: 'warn', text: 'x', action: 'duplicate', commit: 'c', at } } });
   const thread = (comments) => ({ id: 'T1', path: 'a.kt', line: 1, firstCommentId: 1, firstCommentBody: 'x', comments });
   const closedAt = '2026-03-01T00:00:00Z';
   const ourClose = { author: 'github-actions[bot]', body: 'resolved automatically', association: 'NONE', createdAt: closedAt };

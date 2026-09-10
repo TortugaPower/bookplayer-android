@@ -1622,7 +1622,11 @@ function answeredAlready(t) {
 // Our own action comes from the record; only the external half — has a maintainer spoken since — still needs the
 // comments. That is the split the whole record exists for: marker archaeology over a window that silently
 // truncates was deciding a question we already knew the answer to.
-const HARNESS_CLOSE_ACTIONS = new Set(['resolved', 'superseded', 'duplicate']);
+// No 'superseded': nothing has ever written it as an action — `closedRecords` writes 'resolved' and 'duplicate',
+// `carriedRecords` writes 'open' — so no record can carry it and this could never match it. The word is taken
+// anyway: `superseded` is the boolean on a `previously` row that `renderSummary` reads, and having it here made
+// the two look related.
+const HARNESS_CLOSE_ACTIONS = new Set(['resolved', 'duplicate']);
 // Exported for the test that pins the carried-entry action OUT of this set: an entry that read as a close
 // would have the next round reopening a thread that was never closed.
 export const HARNESS_CLOSE_ACTIONS_FOR_TEST = HARNESS_CLOSE_ACTIONS;

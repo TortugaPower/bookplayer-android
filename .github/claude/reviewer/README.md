@@ -36,7 +36,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~222 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~223 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
@@ -115,6 +115,13 @@ reviewer did not run would never fire. A step killed anyway (its cap, an OOM) is
 workflow, which fires only when `review.mjs` did not manage to say anything itself.
 
 ## Tokens
+
+The SDK version is **pinned exactly** (`0.3.261`, not `^0.3.261`), and that is a safety property rather than
+tidiness: the agent's sandbox is configured entirely by SDK option *names* — `settingSources: []`,
+`allowedTools: []`, `permissionMode: 'default'`, `canUseTool`, `env` — and every test stubs the agent seam, so a
+release that renamed or stopped honouring one of them would pass the whole suite with the isolation silently
+weakened. **Raising it means reading the options block in `agentQuery` against the SDK's current types**, which is
+why the bump has to be an edit a human makes rather than a range that drifts.
 
 - `ANTHROPIC_API_KEY` — repository secret. The agent's environment is built by allowlist, so neither token
   below is visible to it.

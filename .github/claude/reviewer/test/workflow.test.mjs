@@ -18,10 +18,20 @@ import { fileURLToPath } from 'node:url';
 
 const WORKFLOW = fileURLToPath(new URL('../../../workflows/claude-review.yml', import.meta.url));
 const CI = fileURLToPath(new URL('../../../workflows/ci.yml', import.meta.url));
+const README = fileURLToPath(new URL('../README.md', import.meta.url));
 const HARNESS = fileURLToPath(new URL('../review.mjs', import.meta.url));
 
 // What the harness itself budgets, read from its source rather than restated here: the whole point is that two
 // files stop disagreeing.
+// The default behind an env knob, by the CONSTANT's name (`JOB_BUDGET_MS`) or by the env variable's
+// (`REVIEW_JOB_BUDGET_MS`) — the README's table is keyed by the latter and the code by the former.
+function budgetMinutes(envName) {
+  const src = readFileSync(HARNESS, 'utf8');
+  const m = new RegExp(`num\\(process\\.env\\.${envName}, (\\d+) \\* 60 \\* 1000\\)`).exec(src);
+  assert.ok(m, `could not find ${envName}'s default in review.mjs — this test is reading the wrong shape`);
+  return Number(m[1]);
+}
+
 function harnessDefaultMinutes(name) {
   const src = readFileSync(HARNESS, 'utf8');
   const m = new RegExp(`const ${name} = num\\(process\\.env\\.\\w+, (\\d+) \\* 60 \\* 1000\\)`).exec(src);
@@ -196,4 +206,30 @@ test('nothing in the scope step can fail the required check', () => {
   assert.match(scope, /if ! files=/, 'the file listing is unguarded');
   assert.match(scope, /if ! printf/, 'the scope script call is unguarded');
   assert.equal(/set -euo pipefail/.test(scope), false, 'set -e here fails the step, and the step is inside a required check');
+});
+
+test("the knob table's budgets are the code's budgets", () => {
+  // The README is the document a maintainer reads BEFORE changing a budget, which makes it the worst place for a
+  // stale number — and the prose check above reads only the workflow and review.mjs, so this table was the one
+  // spot where these figures could drift unnoticed. Same failure the check exists to prevent, one file over.
+  const readme = readFileSync(README, 'utf8');
+  const rows = [
+    ['REVIEW_DEADLINE_MS', 'DEADLINE_MS'],
+    ['REVIEW_JOB_BUDGET_MS', 'JOB_BUDGET_MS'],
+    ['REVIEW_VERIFY_BUDGET_MS', 'VERIFY_BUDGET_MS'],
+  ];
+  for (const [envName] of rows) {
+    const row = new RegExp(`\\| \`${envName}\` \\| (\\d+) min`).exec(readme);
+    assert.ok(row, `the knob table has no row for ${envName}`);
+    assert.equal(Number(row[1]), budgetMinutes(envName), `the README says ${envName} is ${row[1]} min`);
+  }
+  // And the turn limit, which is written in two places at once: the code's default and the workflow's override.
+  const turns = /\| `REVIEW_MAX_TURNS` \| (\d+) in code, (\d+) in the workflow \|/.exec(readme);
+  assert.ok(turns, 'the knob table has no REVIEW_MAX_TURNS row');
+  const codeDefault = /num\(process\.env\.REVIEW_MAX_TURNS, (\d+)\)/.exec(readFileSync(HARNESS, 'utf8'));
+  assert.ok(codeDefault, "could not find REVIEW_MAX_TURNS's default in review.mjs");
+  assert.equal(Number(turns[1]), Number(codeDefault[1]), 'the README disagrees with the code about the turn limit');
+  const inWorkflow = /REVIEW_MAX_TURNS: '(\d+)'/.exec(readFileSync(WORKFLOW, 'utf8'));
+  assert.ok(inWorkflow, 'the workflow no longer sets REVIEW_MAX_TURNS');
+  assert.equal(Number(turns[2]), Number(inWorkflow[1]), 'the README disagrees with the workflow about the turn limit');
 });
