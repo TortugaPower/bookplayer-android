@@ -435,13 +435,15 @@ test('a provisional result posts what it has and touches no earlier thread', asy
   const calls = [];
   const io = { post: async () => calls.push('post'), reply: async () => calls.push('reply'), resolve: async () => calls.push('resolve'), unresolve: async () => calls.push('unresolve') };
   const current = new Map([[reconcileFp(f), f]]);
-  // A provisional answer is less complete than what the agent was about to check, so the round judges nothing:
-  // main skips the verification pass outright, and reconcile touches no unreported thread either way.
-  const provisional = await reconcile(current, [thread], io, { provisional: true, priorState: null });
-  assert.equal(provisional.stats.resolved, 0);
+  // A provisional answer is less complete than what the agent was about to check, so the round judges nothing —
+  // and `reconcile` is not where that is decided: it closes nothing at all, so it behaves the same either way and
+  // `main` is the single place `provisional` means anything (it skips the verification pass). The option used to
+  // be passed here and did nothing but change a log line, under a comment describing a step that had moved.
+  const first = await reconcile(current, [thread], io, { priorState: null });
+  assert.equal(first.stats.resolved, 0);
   assert.deepEqual(calls, ['post']);
-  const normal = await reconcile(current, [thread], io, { priorState: null });
-  assert.equal(normal.stats.resolved, 0);
+  const again = await reconcile(current, [thread], io, { priorState: null });
+  assert.equal(again.stats.resolved, 0);
   assert.deepEqual(calls, ['post', 'post']);
 });
 

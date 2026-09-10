@@ -1749,3 +1749,72 @@ test('a note that could not be posted says so in the log', async () => {
     restore();
   }
 });
+
+test('a timeout on the thread listing costs a retry, not the round', async () => {
+  // The GraphQL ladder covered HTTP statuses and `errors` arrays and nothing that THREW — so the 30-second
+  // `AbortSignal.timeout` firing, or a socket reset, ended the read on its first attempt. That is not a lost
+  // read, it is a lost round: `runReview` catches it, reviews with `threads = null`, and reconcile never runs, so
+  // every finding on that push goes to the summary instead of onto the code.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'gqltimeout-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '44', COMMIT: 'de88000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'gqltimeout');
+  const realFetch = globalThis.fetch;
+  try {
+    const f = { severity: 'warn', file: 'app/Slow.kt', line: 5, comment: 'a finding that should reach the code' };
+    const gh = fakeGitHub();
+    const inner = gh.fetch;
+    let listingReads = 0;
+    globalThis.fetch = async (url, init = {}) => {
+      const body = init.body ? JSON.parse(init.body) : null;
+      if (String(url).endsWith('/graphql') && /reviewThreads/.test(body?.query || '')) {
+        listingReads++;
+        // The shape undici gives a request that outran `AbortSignal.timeout`.
+        if (listingReads === 1) throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+      }
+      return inner(url, init);
+    };
+    await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'one finding', findings: [f] }) });
+
+    assert.equal(listingReads, 2, 'the listing was not retried after the timeout');
+    assert.equal(gh.calls.inline.length, 1, 'the finding never reached the code');
+    assert.match(gh.calls.inline[0].body, /should reach the code/);
+    // And nothing told the PR the threads were unreadable, because in the end they were not.
+    assert.equal(/Could not read existing review threads/.test(gh.summaryOut()), false);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('a programming error is not retried as if it were a network blip', async () => {
+  // The other half of the same guard. `fetch` surfaces a network failure as a TypeError — and so does a mistake in
+  // the request options, which no amount of retrying fixes: three attempts and 90 seconds spent, then a failure
+  // reported as a transient GitHub problem, with the real cause (ours) nowhere in the message. `retryableError`
+  // is what separates them, and until now the GraphQL ladder did not consult it at all.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'gqlbug-')));
+  const { restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '45', COMMIT: 'ef99000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'gqlbug');
+  const { listReviewThreads, setNetworkDeadline } = await import('../github.mjs');
+  const realFetch = globalThis.fetch;
+  try {
+    setNetworkDeadline(Date.now() + 60_000);
+    let attempts = 0;
+    globalThis.fetch = async () => {
+      attempts++;
+      // A bare TypeError with no `cause`: undici sets one on a real network failure, and this is what a bad
+      // request option looks like instead.
+      throw new TypeError('Cannot read properties of undefined (reading \'entries\')');
+    };
+    await assert.rejects(listReviewThreads(45), /entries/, 'the real cause was replaced by a transient-failure story');
+    assert.equal(attempts, 1, `a programming error was retried ${attempts} times`);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});

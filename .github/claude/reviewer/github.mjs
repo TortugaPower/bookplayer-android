@@ -133,8 +133,23 @@ async function graphql(queryStr, variables, tok, { retry = false, label = 'GitHu
   for (let attempt = 0; ; attempt++) {
     // Plain fetch, not fetchRead: this loop IS the retry for the read query, and nesting the two multiplied
     // 3 attempts into 9 (and 90 s of timeouts into 270 s).
-    const res = await fetch(GQL, options());
-    const json = await res.json().catch(() => ({}));
+    //
+    // Thrown failures are retried HERE, with the same predicate `fetchRead` uses. Without this the ladder covered
+    // only HTTP statuses and GraphQL `errors` arrays — so the 30-second `AbortSignal.timeout` firing, or a socket
+    // reset, threw on the FIRST attempt. That is the exact failure the comment above says this exists for: it
+    // costs every inline comment on the push, because `runReview` catches it, reviews with `threads = null`, and
+    // reconcile never runs.
+    let res;
+    let json;
+    try {
+      res = await fetch(GQL, options());
+      json = await res.json().catch(() => ({}));
+    } catch (e) {
+      if (!retry || attempt >= RETRY_TRIES - 1 || outOfTime() || !retryableError(e)) throw e;
+      console.warn(`${label} failed (${e.name || e.message}); retrying (${attempt + 1}/${RETRY_TRIES - 1})`);
+      await sleep(backoffMs(attempt));
+      continue;
+    }
     if (res.ok && !json.errors) return json.data;
     const transient =
       retry &&

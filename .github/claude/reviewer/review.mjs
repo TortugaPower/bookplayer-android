@@ -2008,7 +2008,11 @@ export function keyFindings(findings, threads = [], priorState = null, claims = 
 
 
 export async function reconcile(currentByFp, threads, io, options = {}) {
-  const { provisional = false, priorState } = options;
+  // No `provisional` here any more: this function closes nothing, so there was nothing for it to withhold — the
+  // branch returned the identical object and differed only by a log line, while its comment went on describing a
+  // resolve-stale-threads step that moved to the verification pass. `provisional` still means something in
+  // `main`, which is where it gates that pass.
+  const { priorState } = options;
   // `priorState` is legitimately null on a first round, so it cannot be defaulted — a default is exactly how a
   // refactor drops it silently and sends reconciliation back to marker archaeology. The KEY is required instead:
   // absent means someone stopped passing it, which is a crash the harness reports rather than a quiet regression.
@@ -2127,13 +2131,6 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
     }
   }
 
-  // Resolve stale, still-open threads whose finding is gone from the current run — never on a provisional result
-  // (a turn-limit fallback answer is by construction less complete than what the agent was about to check).
-  if (provisional) {
-    // A fallback answer is less complete than what the agent was about to check: judge nothing on it.
-    console.log('Provisional result: stale threads left for the next run');
-    return { stats, unpostable, unpostableFps, liveFps, postedCommentIdByFp };
-  }
   // No loop over the threads this round did not re-report: this function does not close anything. Posting,
   // keeping and reopening are what it decides, and every close in the harness now comes from the verification
   // pass, which reads the code. `liveFps` is handed back so the caller can check that a finding the verifier
@@ -2766,7 +2763,6 @@ export async function runReview({ agent = runAgent } = {}) {
   }
 
   const { stats, unpostable, unpostableFps, liveFps, postedCommentIdByFp } = await reconcile(currentByFp, threads, io, {
-    provisional,
     priorState: stateRecord,
   });
 
