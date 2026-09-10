@@ -74,7 +74,13 @@ jobs:
         id: install
         timeout-minutes: 4
         working-directory: .github/claude/reviewer
-        run: npm ci --ignore-scripts --no-audit --no-fund --silent
+        # The smoke check is the only thing that loads the SDK before the review runs: it is imported lazily inside
+        # `runAgent`, and every test stubs that seam, so `node --test test/` cannot tell a good install from one
+        # whose platform package was left unusable by the lifecycle scripts `--ignore-scripts` skips. Without it
+        # the first thing to find out is the review step, minutes later.
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --silent
+          node -e "import('@anthropic-ai/claude-agent-sdk').then((m) => { if (typeof m.query !== 'function') { console.error('the agent SDK installed but exports no query()'); process.exit(1); } })"
 
       - name: Test the agent's tool allowlist and redaction
         id: harness-tests

@@ -2,8 +2,10 @@
 // develop — so a wrong `false` hands a green required check to untested Kotlin. That is worth more than a shape
 // assertion on a YAML string, which is what testing it inline in `ci.yml` would have amounted to.
 //
-// It lives in this suite because this is the repo's only script-level test runner, and this suite runs on every
-// pull request (the reviewer workflow is not gated on paths — it reviews everything).
+// It lives in this suite because this is the repo's only script-level test runner. Note WHERE that suite runs: the
+// reviewer workflow runs it before every review, but that job skips draft pull requests, forks and Dependabot — so
+// `ci.yml` runs it too, unconditionally, inside the required `build` job. Until it did, a pull request touching
+// only the harness got no tests at all: Gradle skipped by this very script, and the reviewer job never started.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';

@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const WORKFLOW = fileURLToPath(new URL('../../../workflows/claude-review.yml', import.meta.url));
+const CI = fileURLToPath(new URL('../../../workflows/ci.yml', import.meta.url));
 const HARNESS = fileURLToPath(new URL('../review.mjs', import.meta.url));
 
 // What the harness itself budgets, read from its source rather than restated here: the whole point is that two
@@ -28,8 +29,8 @@ function harnessDefaultMinutes(name) {
   return Number(m[1]);
 }
 
-function readWorkflow() {
-  const lines = readFileSync(WORKFLOW, 'utf8').split('\n');
+function readWorkflow(file = WORKFLOW) {
+  const lines = readFileSync(file, 'utf8').split('\n');
   const steps = [];
   let jobTimeout = null;
   let inSteps = false;
@@ -55,13 +56,13 @@ function readWorkflow() {
     }
     const key = /^ {8}(\w[\w-]*):(.*)$/.exec(line);
     if (key) {
-      assert.ok(current, `${WORKFLOW}:${i + 1}: a step key before any step — the reader has lost the shape`);
+      assert.ok(current, `${file}:${i + 1}: a step key before any step — the reader has lost the shape`);
       current[key[1]] = key[2].trim();
       continue;
     }
     // Deeper lines belong to a `with:`/`env:` block, and a multi-line `if: >-` continues at any depth. Neither
     // changes an answer here, but an unindented line inside `steps:` means the file is not the shape assumed.
-    assert.ok(/^ {10,}/.test(line) || /^ {6,}[^-]/.test(line), `${WORKFLOW}:${i + 1}: unrecognised line inside steps: ${line}`);
+    assert.ok(/^ {10,}/.test(line) || /^ {6,}[^-]/.test(line), `${file}:${i + 1}: unrecognised line inside steps: ${line}`);
   }
   assert.ok(jobTimeout, 'no job-level timeout-minutes found');
   assert.ok(steps.length >= 5, `only ${steps.length} steps parsed — the reader is not seeing the file`);
@@ -162,4 +163,37 @@ test('the budget numbers written in prose are the real ones', () => {
     }
   }
   assert.ok(checked >= 3, `only ${checked} prose figures found — the convention has been written around, so this test is no longer reading anything`);
+});
+
+test('the harness suite runs where nothing can skip it', () => {
+  // The reviewer workflow runs these tests before every review — and its job `if:` skips draft pull requests,
+  // forks and Dependabot. `ci-scope.sh` calls `.github/claude/**` inert. Together that meant a pull request
+  // touching only the harness got NO tests: Gradle skipped in seconds by the script itself, and the reviewer job
+  // never started, so a lockfile bump of the agent SDK could land on a green required check. `build` is the
+  // required check, so the suite runs there, and nothing may gate it.
+  const ci = readFileSync(CI, 'utf8');
+  const { steps } = readWorkflow(CI);
+  const suite = steps.filter((s) => (s.run || '').includes('node --test test/') || (s.name || '').includes('Test the reviewer harness'));
+  assert.equal(suite.length, 1, 'ci.yml does not run the reviewer suite');
+  assert.equal(suite[0].if, undefined, 'the harness suite is gated on something; it must run on every pull request');
+  assert.match(ci, /node --test test\//, 'the step exists but does not run the tests');
+});
+
+test('the job that runs pull-request code says what it may do', () => {
+  // Without a `permissions:` block a job inherits the repository default, which may be "read and write" — a write
+  // token in a job that runs PR-authored Gradle. And under the read-only default `pull-requests` is `none`, which
+  // works here only because this repo is public: the day it is not, the scope step 403s and silently answers
+  // "build everything".
+  const ci = readFileSync(CI, 'utf8');
+  assert.match(ci, /permissions:\s*\n\s+contents: read\s*\n\s+pull-requests: read/, 'ci.yml\'s build job does not state its permissions');
+});
+
+test('nothing in the scope step can fail the required check', () => {
+  // Both halves: listing the changed files, and running the script that reads them. Either failing must fall into
+  // "build", never into a red `build` — a required check going red over a blip blocks a merge that a re-run fixes.
+  const ci = readFileSync(CI, 'utf8');
+  const scope = ci.slice(ci.indexOf('Decide whether the Android build has to run'), ci.indexOf('Set up Node for the reviewer harness'));
+  assert.match(scope, /if ! files=/, 'the file listing is unguarded');
+  assert.match(scope, /if ! printf/, 'the scope script call is unguarded');
+  assert.equal(/set -euo pipefail/.test(scope), false, 'set -e here fails the step, and the step is inside a required check');
 });

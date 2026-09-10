@@ -14,6 +14,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Stated, not inherited. This job runs PR-authored Gradle code, and under a repository default of "read and
+    # write" it would carry a write token while doing so. `pull-requests: read` is what the scope step below needs
+    # to list a pull request's files — it works today without it only because this repo is public, and would start
+    # 403ing (and silently answering "build everything") the day it is not.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
 
@@ -36,7 +43,31 @@ jobs:
             echo "android=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          printf '%s\n' "$files" | bash scripts/ci-scope.sh >> "$GITHUB_OUTPUT"
+          # Guarded for the same reason the call above is: this script exits non-zero on any error of its own, and
+          # an unguarded failure here fails the step and so the required `build` check. The fallback is already
+          # implicit — a script that dies before its final line leaves `outputs.android` empty, and every step
+          # below runs on `!= 'false'` — so all that is needed is not to take the step down with it.
+          if ! printf '%s\n' "$files" | bash scripts/ci-scope.sh >> "$GITHUB_OUTPUT"; then
+            echo "the scope script failed; building" >&2
+          fi
+
+      # UNCONDITIONAL, and in this job rather than a new one because `build` is the required check. The reviewer
+      # workflow also runs this suite — that copy gates the review — but its job `if:` skips draft pull requests,
+      # forks and Dependabot, and `ci-scope.sh` calls `.github/claude/**` inert. Together those meant a pull
+      # request that touched only the harness got NO tests at all: Gradle skipped in seconds, the reviewer job
+      # never started, and a lockfile bump of the agent SDK could land on a green required check. ~90 seconds.
+      - name: Set up Node for the reviewer harness
+        timeout-minutes: 3
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Test the reviewer harness
+        timeout-minutes: 8
+        working-directory: .github/claude/reviewer
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --silent
+          node --test test/
 
       - name: Set up JDK 17
         if: steps.scope.outputs.android != 'false'

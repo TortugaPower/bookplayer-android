@@ -36,7 +36,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~219 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~222 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
@@ -44,7 +44,11 @@ comment created *next* — off by one, for as long as it has existed, because no
 The first code that did read it mis-identified every thread, and the conservation law reported it as lost
 findings. A double that lies is worse than one that refuses.
 
-`test/workflow.test.mjs` reads `claude-review.yml` and does the budget arithmetic: every step bounded, the step
+`test/workflow.test.mjs` reads both workflows. On `ci.yml`: that the harness suite runs there unconditionally
+(the reviewer workflow skips drafts, forks and Dependabot, and `ci-scope.sh` calls this directory inert — so
+without it a pull request touching only the harness got no tests at all), that the job running pull-request code
+states its permissions, and that nothing in the scope step can fail the required check. On `claude-review.yml`
+it does the budget arithmetic: every step bounded, the step
 caps fitting inside the job cap with slack, the review step's cap looser than the harness's own budget (so
 `review.mjs` is what ends that step, not the runner), the two failure notes mutually exclusive and gated on
 `failure()` rather than `always()`, and — the drift-killer — every cap named in a comment matching the real
