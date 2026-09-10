@@ -2567,6 +2567,91 @@ test('the agent may say which open finding its own is, and a wrong claim costs a
 });
 
 
+
+test('the reworded reply compares what was POSTED, so it cannot repeat for ever', async () => {
+  // The self-limiting property depends on comparing like with like. Bodies go out through
+  // `redact(neutralizeMarkup(...))`, so testing the model's RAW text against them never matches for any finding
+  // those two alter — a finding quoting a token-shaped string, or one containing `<!--`, both of which this
+  // repo's own rubric asks the agent to look for. The reply then never recognises itself and is posted on every
+  // push, for ever. Found by the harness reviewing the commit that introduced it.
+  const secretish = 'ghp_0123456789abcdefghijklmnopqrstuvwx';
+  const f = { file: 'a.kt', line: 5, severity: 'warn', comment: `the token ${secretish} is hardcoded, and <!-- a comment --> is quoted too` };
+  const fp = reconcileFp(f);
+  const io = () => {
+    const calls = [];
+    return { calls, post: async () => {}, reply: async (t, b) => calls.push(b), resolve: async () => {}, unresolve: async () => {} };
+  };
+  const thread = (comments) => ({
+    id: 'T1', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', path: f.file, line: f.line,
+    firstCommentBody: `🟡 **WARN** — something else entirely <!-- bp-ai-review-fp:${fp} -->`,
+    comments,
+  });
+
+  // First push: the thread does not carry this wording, so it is told — once.
+  const first = io();
+  await reconcile(new Map([[fp, f]]), [thread([])], first, { priorState: null });
+  assert.equal(first.calls.length, 1);
+  // What went out is redacted and markup-neutralised...
+  assert.equal(first.calls[0].includes(secretish), false);
+  assert.equal(first.calls[0].includes('<!-- a comment -->'), false);
+  // ...and on the next push, with that reply on the thread, nothing is said again.
+  const second = io();
+  await reconcile(new Map([[fp, f]]), [thread([{ id: 2, body: first.calls[0], author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-02T00:00:00Z' }])], second, { priorState: null });
+  assert.deepEqual(second.calls, []);
+  // And a third push says nothing either — the property has to hold indefinitely, not once.
+  const third = io();
+  await reconcile(new Map([[fp, f]]), [thread([{ id: 2, body: first.calls[0], author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-02T00:00:00Z' }])], third, { priorState: null });
+  assert.deepEqual(third.calls, []);
+});
+
+
+test('every finding that could not be posted is recorded as such, by the key it was keyed under', async () => {
+  // Four ways a finding ends up not inline — past the 25-comment cap, a refused post, a thread that could not
+  // be reopened, a thread a maintainer had the last word on — and the record has to say `unpostable` for each,
+  // under the key the round actually used. It said `posted` for anything whose key came from a salt or a
+  // `same_as` claim, and filed the real entry under a key nothing would ever look up.
+  const io = { post: async (f) => { if (f.line === 999) throw new Error('422 line not in diff'); }, reply: async () => {}, resolve: async () => {}, unresolve: async () => {} };
+  const many = new Map();
+  for (let i = 1; i <= 30; i++) {
+    const f = { file: 'a.kt', line: i, severity: 'info', comment: `finding ${i}` };
+    many.set(reconcileFp(f), f);
+  }
+  const refused = { file: 'a.kt', line: 999, severity: 'error', comment: 'a post the API will refuse' };
+  many.set(reconcileFp(refused), refused);
+  // And one keyed under something the hash cannot reproduce, as a salted or claimed finding is.
+  const salted = { file: 'a.kt', line: 4, severity: 'warn', comment: 'keyed by a salt, not by its location' };
+  many.set('a-key-no-hash-makes', salted);
+
+  const { unpostableFps, unpostable, stats } = await reconcile(many, [], io, { priorState: null });
+  assert.equal(stats.posted, 25);
+  // Everything not posted is in the set, and the set holds KEYS from the map — not hashes of the findings.
+  assert.equal(unpostableFps.size, unpostable.length);
+  for (const fp of unpostableFps) assert.ok(many.has(fp), `${fp} is not a key of this round's findings`);
+  assert.ok(unpostableFps.has(reconcileFp(refused)), 'a refused post was not recorded as unpostable');
+  // The record then says `unpostable` for each of them, including the one whose key no hash can reproduce.
+  const actions = actionByFp({ unpostableFps: [...unpostableFps], currentByFp: many });
+  for (const fp of unpostableFps) assert.equal(actions.get(fp), 'unpostable');
+  if (unpostableFps.has('a-key-no-hash-makes')) assert.equal(actions.get('a-key-no-hash-makes'), 'unpostable');
+});
+
+test('every marker has one spelling', () => {
+  // `HARNESS_RESOLVED_MARKERS` decides whether a resolved thread was closed BY US and may be reopened when its
+  // finding returns. A note that hardcodes a marker string instead of interpolating the constant is a rename
+  // hazard with teeth: the list would be updated and the note would go on writing the old string, so those
+  // threads would quietly stop being recognised as ours.
+  const src = readFileSync(new URL('../review.mjs', import.meta.url), 'utf8');
+  // The markers are declared once each...
+  for (const marker of ['bp-ai-review-auto-resolved', 'bp-ai-review-verified', 'bp-ai-review-reopened', 'bp-ai-review-reworded', 'bp-ai-review-human-accepted']) {
+    const literals = src.match(new RegExp(`<!-- ${marker} -->`, 'g')) || [];
+    assert.ok(literals.length <= 1, `${marker} is written out ${literals.length} times; interpolate the constant instead`);
+  }
+  // ...and the constants they belong to are actually used.
+  for (const constant of ['MARKER_AUTO_RESOLVED', 'MARKER_VERIFIED', 'MARKER_REWORDED']) {
+    const uses = (src.match(new RegExp(`\\b${constant}\\b`, 'g')) || []).length;
+    assert.ok(uses >= 2, `${constant} is declared and never used`);
+  }
+});
+
 test('a thread that already carries the current wording is not told again', () => {
   // The reworded note is bounded by containment, so it cannot become churn: after it is posted once, the thread
   // contains that text and the same wording is never posted again, however many pushes report it.
@@ -3083,12 +3168,17 @@ test('the record says which thread carries which finding, and what became of it'
   assert.equal(byFp.get(fingerprint(posted)), 'T1');
   assert.equal(byFp.has(fingerprint(over)), false);
 
+  // The KEYS reconcile used, not a hash re-derived from the finding: a finding keyed with a salt (a collision
+  // at one location) or by the agent's `same_as` has a key the hash cannot reproduce, and the record then said
+  // `posted` for something that was never posted.
   const actions = actionByFp({
-    currentByFp: new Map([[fingerprint(posted), posted], [fingerprint(over), over]]),
-    unpostable: [over],
+    currentByFp: new Map([[fingerprint(posted), posted], ['a-salted-key', over]]),
+    unpostableFps: ['a-salted-key'],
   });
   assert.equal(actions.get(fingerprint(posted)), 'posted');
-  assert.equal(actions.get(fingerprint(over)), 'unpostable'); // it exists, it just is not inline
+  assert.equal(actions.get('a-salted-key'), 'unpostable'); // it exists, it just is not inline
+  // And a key that is not in this round's findings is not invented from the finding object either.
+  assert.equal(actions.has(fingerprint(over)), false);
 
   // A CLOSE is keyed by fingerprint too, through `closedRecords` — it used to be filed under `thread:<id>`,
   // which `buildState` never read, so no record ever carried a close and the whole mechanism was inert.

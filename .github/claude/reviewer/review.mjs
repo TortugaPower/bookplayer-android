@@ -56,7 +56,7 @@ const HARNESS_RESOLVED_MARKERS = [MARKER_AUTO_RESOLVED, MARKER_VERIFIED, MARKER_
 // sees it. The line is filled in from the verdict.
 const duplicateNote = (line, evidence) =>
   `The same issue is reported on this push at line ${line}, so this thread is being closed in favour of that comment.` +
-  `${evidence ? ` ${evidence}` : ''} <!-- bp-ai-review-auto-resolved -->`;
+  `${evidence ? ` ${evidence}` : ''} ${MARKER_AUTO_RESOLVED}`;
 // (The note earlier versions posted when a finding simply went unreported is gone; only its MARKER_AUTO_RESOLVED
 // survives, in HARNESS_RESOLVED_MARKERS, so threads those versions closed are still recognised as ours and
 // reopen on a re-report. Nothing closes a thread on silence any more.)
@@ -844,10 +844,14 @@ export function threadIdByFp(threads = [], priorState = null) {
 
 // What happened to each finding this round, in the record's vocabulary. Fingerprint-keyed, because that is how
 // the record is keyed and how the next round looks a thread up.
-export function actionByFp({ unpostable = [], currentByFp = new Map() } = {}) {
+// `unpostableFps` are the keys reconcile actually used, not a hash re-derived from the finding. Re-deriving was
+// wrong the moment a finding could be keyed with a salt (a collision at one location) or by the agent's own
+// `same_as`: the recomputed hash then matched nothing, so the finding was recorded as `posted` when it could not
+// be posted, and the `unpostable` entry landed under a key no round would ever look up.
+export function actionByFp({ unpostableFps = [], currentByFp = new Map() } = {}) {
   const actions = new Map();
   for (const [fp] of currentByFp) actions.set(fp, 'posted');
-  for (const f of unpostable) actions.set(fingerprint(f), 'unpostable');
+  for (const fp of unpostableFps) actions.set(fp, 'unpostable');
   return actions;
 }
 
@@ -1799,7 +1803,7 @@ as new. Do not set \`same_as\` for a different problem that happens to be nearby
 // It is also self-limiting: after the reply, the thread DOES contain that text, so the same wording is never
 // posted twice however many pushes report it.
 const rewordedNote = (text) =>
-  `Reported again on the newest commit, worded differently — the current wording is:\n\n${text}\n\n<!-- bp-ai-review-reworded -->`;
+  `Reported again on the newest commit, worded differently — the current wording is:\n\n${text}\n\n${MARKER_REWORDED}`;
 
 // Keying the round's findings. One rule, applied to every claim on a fingerprint, whether the claimant is
 // another finding from THIS round or a thread from an earlier one: a fingerprint is sha1(file|line|severity),
@@ -1909,6 +1913,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
 
   const stats = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0, reworded: 0 };
   const unpostable = [];
+  const unpostableFps = new Set(); // the KEYS, so the record cannot disagree with what was actually attempted
   const liveFps = new Set(); // findings a thread still carries after this round — kept, reopened, or just posted
   for (const [fp, f] of currentByFp) {
     const existing = existingByFp.get(fp);
@@ -1920,7 +1925,13 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
         // and otherwise the current wording goes on it. Whatever decided that this finding belongs here (a
         // fingerprint, or the agent's own `same_as`), a decision must not be able to bury text.
         const bodies = [existing.firstCommentBody || '', ...(Array.isArray(existing.comments) ? existing.comments.map((c) => c.body || '') : [])];
-        const said = bodies.some((b) => b.includes(f.comment));
+        // Compared in the form it was POSTED in, not the form the model wrote. Bodies go out through
+        // `redact(neutralizeMarkup(...))`, so testing the raw text against them fails for every finding those
+        // two functions alter — a finding quoting a token-shaped string, or one containing `<!--`, which this
+        // repo's own rubric asks the agent to look for. The reply then never matches itself and is posted on
+        // every push, for ever: the self-limiting property below depends on comparing like with like.
+        const rendered = redact(neutralizeMarkup(f.comment));
+        const said = bodies.some((b) => b.includes(rendered));
         if (!said) {
           stats.reworded++;
           await io
@@ -1940,6 +1951,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
           // as a number in the counts line, exactly as a failed inline post does below.
           console.warn(`unresolve failed (fp:${fp}) — ${e.message}`);
           unpostable.push(f);
+          unpostableFps.add(fp);
         }
       } else {
         // A human resolved it: that is a decision, not a fix. Don't nag — but don't drop it either. The finding
@@ -1947,6 +1959,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
         // reopen (right, that would be nagging), and until now no mention anywhere. It goes in the summary body,
         // where a maintainer can see the reviewer still considers it live without being pushed to reopen.
         unpostable.push(f);
+        unpostableFps.add(fp);
         // One-time wrinkle on PRs already open when this harness landed: the previous version resolved threads
         // without leaving a note, so those carry no marker and are read here as human decisions — a finding
         // re-reported on such a thread is neither reopened nor re-posted. It cannot be told apart from a human
@@ -1957,6 +1970,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
     }
     if (stats.posted >= MAX_INLINE) {
       unpostable.push(f);
+      unpostableFps.add(fp);
       continue;
     }
     const body = redact(`${severityEmoji(f.severity)} **${f.severity.toUpperCase()}** — ${neutralizeMarkup(f.comment)}\n\n<!-- bp-ai-review-fp:${fp} -->`);
@@ -1967,6 +1981,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
     } catch (e) {
       console.warn(`inline post failed ${f.file}:${f.line} — ${e.message}`);
       unpostable.push(f);
+      unpostableFps.add(fp);
     }
   }
 
@@ -1975,13 +1990,13 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
   if (provisional) {
     // A fallback answer is less complete than what the agent was about to check: judge nothing on it.
     console.log('Provisional result: stale threads left for the next run');
-    return { stats, unpostable, liveFps };
+    return { stats, unpostable, unpostableFps, liveFps };
   }
   // No loop over the threads this round did not re-report: this function does not close anything. Posting,
   // keeping and reopening are what it decides, and every close in the harness now comes from the verification
   // pass, which reads the code. `liveFps` is handed back so the caller can check that a finding the verifier
   // called a duplicate actually landed before closing the thread it duplicates.
-  return { stats, unpostable, liveFps };
+  return { stats, unpostable, unpostableFps, liveFps };
 }
 
 // What the summary half may use: the whole limit, less the record's budget and a margin.
@@ -2441,7 +2456,7 @@ export async function runReview({ agent = runAgent } = {}) {
     );
   }
 
-  const { stats, unpostable, liveFps } = await reconcile(currentByFp, threads, io, {
+  const { stats, unpostable, unpostableFps, liveFps } = await reconcile(currentByFp, threads, io, {
     provisional,
     priorState: stateRecord,
   });
@@ -2479,7 +2494,7 @@ export async function runReview({ agent = runAgent } = {}) {
     commit: COMMIT,
     currentByFp,
     threadIdByFp: threadIdByFp(threads, stateRecord),
-    actions: actionByFp({ unpostable, currentByFp }),
+    actions: actionByFp({ unpostableFps, currentByFp }),
     closed,
     carried: carriedRecords({ identities, threads, currentByFp, closed, priorState: stateRecord, commit: COMMIT }),
   });
