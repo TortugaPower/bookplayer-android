@@ -218,188 +218,195 @@ async function runScenario(seed) {
   const asFinding = (f) => ({ severity: f.severity, file: f.file, line: f.line, comment: f.words });
   const problems = [];
 
-  for (let round = 1; round <= 6; round++) {
-    // Mutations a real push makes.
-    if (rand() < 0.4) { const f = pick(world); f.line = 1 + Math.floor(rand() * 60); }            // the line drifts
-    // Reworded — and the new wording gets its own tag, so "is this finding still on the PR" and "is what it
-    // says NOW on the PR" are different questions the law can ask separately.
-    if (rand() < 0.3) { const f = pick(world); f.wording = `W${nextWording++}`; f.words = `${f.words} [${f.wording}] (still true at push ${round})`; }
-    if (rand() < 0.35) {                                                                            // a NEW finding where one already lives
-      const host = pick(world.filter((f) => f.reported)) || pick(world);
-      newFinding({ file: host.file, line: host.line, severity: host.severity, words: `the [F${nextToken}] problem is a different one entirely: this receiver is registered twice` });
-    }
-    if (rand() < 0.25) newFinding();
-    // A maintainer edits one of our comment bodies past recognition.
-    if (rand() < 0.25 && gh.state.threads.length) {
-      const t = pick(gh.state.threads);
-      t.comments[0].body = 'I rewrote this while triaging';
-    }
-    // A maintainer resolves one of our threads themselves.
-    if (rand() < 0.2 && gh.state.threads.length) {
-      const t = pick(gh.state.threads.filter((x) => !x.isResolved) || []);
-      if (t) { t.isResolved = true; t.comments.push({ databaseId: 9000 + round, body: 'handled, thanks', author: 'gianni', association: 'OWNER', createdAt: new Date().toISOString() }); }
-    }
-    // GitHub outdates a thread whose anchor no longer maps.
-    if (rand() < 0.2 && gh.state.threads.length) pick(gh.state.threads).outdated = true;
-    // Somebody deletes the opening comment of one of our threads: the thread survives, its reply target does not.
-    // Deliberately common (0.4, not the 0.15 the other injections use): the state that matters is this thread
-    // ALSO being one the round decides to close, and at 0.15 the two coincided so rarely across twelve seeds that
-    // removing the guard in the harness left the law green.
-    if (rand() < 0.4 && gh.state.threads.length) pick(gh.state.threads).noReplyTarget = true;
-    // Injected failures, one round at a time.
-    gh.state.failPost = rand() < 0.15;
-    gh.state.failResolve = rand() < 0.15;
-    gh.state.failRecordRead = rand() < 0.15;
-    // The thread listing failing was the fuzzer's own blind spot, and the bug it hid was exactly the one this
-    // law is for: on that path the round posted nothing inline and the summary carried only COUNTS, so every
-    // finding of that round left the PR without a word. Injected now, so the law sees it.
-    gh.state.failThreadRead = rand() < 0.15;
-    gh.state.failReply = rand() < 0.15;
-    gh.state.failSummaryWrite = rand() < 0.1;
+  // try/finally, because the stub is global: the law's own escape clause re-throws (a round that threw for a
+  // reason other than the summary write), and an assertion or a TypeError anywhere in a scenario does the same —
+  // which used to leave `globalThis.fetch` stubbed and the environment mutated for every seed after it, so one
+  // real failure arrived wearing five confusing ones.
+  try {
+    for (let round = 1; round <= 6; round++) {
+      // Mutations a real push makes.
+      if (rand() < 0.4) { const f = pick(world); f.line = 1 + Math.floor(rand() * 60); }            // the line drifts
+      // Reworded — and the new wording gets its own tag, so "is this finding still on the PR" and "is what it
+      // says NOW on the PR" are different questions the law can ask separately.
+      if (rand() < 0.3) { const f = pick(world); f.wording = `W${nextWording++}`; f.words = `${f.words} [${f.wording}] (still true at push ${round})`; }
+      if (rand() < 0.35) {                                                                            // a NEW finding where one already lives
+        const host = pick(world.filter((f) => f.reported)) || pick(world);
+        newFinding({ file: host.file, line: host.line, severity: host.severity, words: `the [F${nextToken}] problem is a different one entirely: this receiver is registered twice` });
+      }
+      if (rand() < 0.25) newFinding();
+      // A maintainer edits one of our comment bodies past recognition.
+      if (rand() < 0.25 && gh.state.threads.length) {
+        const t = pick(gh.state.threads);
+        t.comments[0].body = 'I rewrote this while triaging';
+      }
+      // A maintainer resolves one of our threads themselves.
+      if (rand() < 0.2 && gh.state.threads.length) {
+        const t = pick(gh.state.threads.filter((x) => !x.isResolved) || []);
+        if (t) { t.isResolved = true; t.comments.push({ databaseId: 9000 + round, body: 'handled, thanks', author: 'gianni', association: 'OWNER', createdAt: new Date().toISOString() }); }
+      }
+      // GitHub outdates a thread whose anchor no longer maps.
+      if (rand() < 0.2 && gh.state.threads.length) pick(gh.state.threads).outdated = true;
+      // Somebody deletes the opening comment of one of our threads: the thread survives, its reply target does not.
+      // Deliberately common (0.4, not the 0.15 the other injections use): the state that matters is this thread
+      // ALSO being one the round decides to close, and at 0.15 the two coincided so rarely across twelve seeds that
+      // removing the guard in the harness left the law green.
+      if (rand() < 0.4 && gh.state.threads.length) pick(gh.state.threads).noReplyTarget = true;
+      // Injected failures, one round at a time.
+      gh.state.failPost = rand() < 0.15;
+      gh.state.failResolve = rand() < 0.15;
+      gh.state.failRecordRead = rand() < 0.15;
+      // The thread listing failing was the fuzzer's own blind spot, and the bug it hid was exactly the one this
+      // law is for: on that path the round posted nothing inline and the summary carried only COUNTS, so every
+      // finding of that round left the PR without a word. Injected now, so the law sees it.
+      gh.state.failThreadRead = rand() < 0.15;
+      gh.state.failReply = rand() < 0.15;
+      gh.state.failSummaryWrite = rand() < 0.1;
 
-    // What the model reports this round: a random subset, so "not re-reported" happens constantly.
-    const reporting = world.filter(() => rand() < 0.7);
-    for (const f of reporting) f.reported = true;
-    // How this round's model behaves about `same_as`: honest (name the open finding that carries this token),
-    // careless (name a DIFFERENT open finding), inventive (an id nobody offered), or silent.
-    const mood = rand();
-    const claimPolicy = (f, offered) => {
-      if (!offered.length || mood < 0.25) return undefined;
-      const mine = offered.find((o) => o.text.includes(f.comment.match(/\[F\d+\]/)?.[0] || 'never'));
-      if (mood < 0.6) return mine?.id;                                    // honest, when it can tell
-      if (mood < 0.8) return offered.find((o) => o !== mine)?.id ?? mine?.id; // careless: someone else's thread
-      return 999;                                                          // inventive: never offered
-    };
-    const resolvesBefore = gh.calls.resolvedIds.length;
-    let threw = null;
-    try {
-      await mod.runReview({ agent: scriptedAgent(reporting.map(asFinding), claimPolicy) });
-    } catch (e) {
-      threw = e;
-    }
-    // The law's own escape clause, and the only one: when GitHub refuses the writes, no mechanism can put a
-    // finding on the pull request, so what the harness owes is a VISIBLE failure instead of a quiet one. A round
-    // that threw has failed the job (`process.exit(1)` at the top level) and the check goes red. A round that
-    // could not write its summary and returned normally is the forbidden state, and is what this catches.
-    if (threw) {
-      if (!/Could not post the summary comment/.test(threw.message)) throw threw;
-      problems.push(...(gh.state.summary === null && !gh.state.failSummaryWrite ? [`seed ${seed} round ${round}: threw about the summary but the write was never refused: ${threw.message}`] : []));
-      continue;
-    }
+      // What the model reports this round: a random subset, so "not re-reported" happens constantly.
+      const reporting = world.filter(() => rand() < 0.7);
+      for (const f of reporting) f.reported = true;
+      // How this round's model behaves about `same_as`: honest (name the open finding that carries this token),
+      // careless (name a DIFFERENT open finding), inventive (an id nobody offered), or silent.
+      const mood = rand();
+      const claimPolicy = (f, offered) => {
+        if (!offered.length || mood < 0.25) return undefined;
+        const mine = offered.find((o) => o.text.includes(f.comment.match(/\[F\d+\]/)?.[0] || 'never'));
+        if (mood < 0.6) return mine?.id;                                    // honest, when it can tell
+        if (mood < 0.8) return offered.find((o) => o !== mine)?.id ?? mine?.id; // careless: someone else's thread
+        return 999;                                                          // inventive: never offered
+      };
+      const resolvesBefore = gh.calls.resolvedIds.length;
+      let threw = null;
+      try {
+        await mod.runReview({ agent: scriptedAgent(reporting.map(asFinding), claimPolicy) });
+      } catch (e) {
+        threw = e;
+      }
+      // The law's own escape clause, and the only one: when GitHub refuses the writes, no mechanism can put a
+      // finding on the pull request, so what the harness owes is a VISIBLE failure instead of a quiet one. A round
+      // that threw has failed the job (`process.exit(1)` at the top level) and the check goes red. A round that
+      // could not write its summary and returned normally is the forbidden state, and is what this catches.
+      if (threw) {
+        if (!/Could not post the summary comment/.test(threw.message)) throw threw;
+        problems.push(...(gh.state.summary === null && !gh.state.failSummaryWrite ? [`seed ${seed} round ${round}: threw about the summary but the write was never refused: ${threw.message}`] : []));
+        continue;
+      }
 
-    // THE LAW, in two halves.
-    //
-    // First: every finding the harness is STILL being told about, or that it has a comment for, must be
-    // accounted for — carried by exactly one open thread, identified by the record as living on an open thread
-    // (which is what happens when a maintainer wipes our comment body), named in the summary, or closed by a
-    // human. Never simply absent. A finding the model has stopped reporting and that never got a comment is
-    // outside this: the harness has no evidence it is still true and nothing to carry it on.
-    //
-    // Second: in the round where a finding could NOT be posted, that round's summary has to name it. That is
-    // the harness's actual obligation to a finding it could not put inline, and the only thing that keeps the
-    // first half honest about the case above.
-    const summary = gh.state.summary || '';
-    const record = mod.decodeState(summary);
-    const recordCarries = (token) =>
-      Object.values(record?.findings || {}).some(
-        (r) => String(r?.text || '').includes(token) && gh.state.threads.some((t) => t.id === r.id && !t.isResolved),
-      );
-    for (const f of world) {
-      const anyThread = gh.state.threads.some((t) => t.comments.some((c) => c.body.includes(f.token)));
-      const reportedNow = reporting.includes(f);
-      if (!reportedNow && !anyThread) continue;
-      const open = gh.state.threads.filter((t) => !t.isResolved && t.comments.some((c) => c.body.includes(f.token)));
-      const closedByHuman = gh.state.threads.some(
-        (t) => t.isResolved && t.comments.some((c) => c.body.includes(f.token)) && t.comments.some((c) => c.author !== 'github-actions[bot]'),
-      );
-      // One or more open threads is accounted for. MORE than one is churn, not loss — a wrong `same_as`, or a
-      // finding that moved and got a second comment — and the thing that collapses it is the verifier's
-      // `duplicate` verdict, which this scripted model never issues. Churn is bounded below instead.
-      if (open.length >= 1 || closedByHuman || summary.includes(f.token) || recordCarries(f.token)) continue;
-      const mine = gh.state.threads.filter((t) => t.comments.some((c) => c.body.includes(f.token)));
-      problems.push(
-        `seed ${seed} round ${round}: ${f.token} (${f.severity} ${f.file}:${f.line}, reported this round: ${reportedNow}) ` +
-          `is accounted for nowhere — ${open.length} open thread(s) carry it, ${mine.length - open.length} resolved, ` +
-          `in summary: ${summary.includes(f.token)}, in record on an open thread: ${recordCarries(f.token)}`,
-      );
-    }
-    // And the CURRENT WORDING is on the PR, not just the finding. A finding matched to a thread that does not
-    // carry its new text used to be counted as handled while the thread showed the old wording — on the kept
-    // path once, and on the reopen path after that was fixed. Only a per-wording tag can see it.
-    for (const f of world.filter((x) => x.reported && x.wording)) {
-      const tag = `[${f.wording}]`;
-      const onAThread = gh.state.threads.some((t) => t.comments.some((c) => c.body.includes(tag)));
-      if (onAThread || summary.includes(tag) || !reporting.includes(f)) continue;
-      problems.push(`seed ${seed} round ${round}: ${f.token} was re-reported as ${tag} and that wording is nowhere on the PR`);
-    }
-    // Churn has a ceiling. Every duplicate is a comment a human has to read, so unbounded duplication is its
-    // own failure even though nothing is lost: six rounds of drifting lines and mistaken claims may leave a
-    // finding on a few threads, not on a dozen.
-    for (const f of world.filter((x) => x.reported)) {
-      const carrying = gh.state.threads.filter((t) => t.comments.some((c) => c.body.includes(f.token)));
-      const openCarrying = carrying.filter((t) => !t.isResolved);
-      // Drift can outpace the collapse by one per round — a line moves, a comment is posted, and the verifier
-      // collapses the old thread on the NEXT round — so a small steady state is expected. Growth without bound
-      // is not: six rounds may not leave a finding open on six threads.
-      if (openCarrying.length > 3) problems.push(`seed ${seed} round ${round}: ${f.token} is OPEN on ${openCarrying.length} threads`);
-    }
-    // The second half: a finding reported this round that ended up on no thread must be named in the summary.
-    for (const f of reporting) {
-      const onAThread = gh.state.threads.some((t) => t.comments.some((c) => c.body.includes(f.token)));
-      if (onAThread || summary.includes(f.token) || recordCarries(f.token)) continue;
-      problems.push(`seed ${seed} round ${round}: ${f.token} was reported and could not be posted, and the summary does not mention it`);
-    }
-    // Nothing here is ever FIXED, so every close the harness makes must be a duplicate close — and it must say
-    // so on the thread. A close with no reason on it is the failure this law was written for: a thread that goes
-    // quiet with no record of who closed it or why.
-    // THIS round's closes, not every closed thread on the PR: the question is whether the round that closed a
-    // thread explained itself, and a violation inherited from an earlier round would otherwise be re-reported for
-    // ever, drowning the round that actually caused it. `resolvedIds` is what the round asked GitHub to resolve.
-    const closedThisRound = new Set(gh.calls.resolvedIds.slice(resolvesBefore));
-    const ourCloses = gh.state.threads.filter((t) => closedThisRound.has(t.id) && t.comments.every((c) => c.author === 'github-actions[bot]'));
-    // And the rule that makes the row above an acceptable fallback at all: a close is only ever explained for one
-    // round by the summary, since the next round's summary replaces it — so a thread the harness KNOWS it can
-    // never reply to must not be closed in the first place. `noReplyTarget` is the world's truth (the opening
-    // comment's id is gone), and `firstCommentId` is how the harness sees the same fact.
-    for (const t of gh.state.threads) {
-      if (closedThisRound.has(t.id) && t.noReplyTarget) {
+      // THE LAW, in two halves.
+      //
+      // First: every finding the harness is STILL being told about, or that it has a comment for, must be
+      // accounted for — carried by exactly one open thread, identified by the record as living on an open thread
+      // (which is what happens when a maintainer wipes our comment body), named in the summary, or closed by a
+      // human. Never simply absent. A finding the model has stopped reporting and that never got a comment is
+      // outside this: the harness has no evidence it is still true and nothing to carry it on.
+      //
+      // Second: in the round where a finding could NOT be posted, that round's summary has to name it. That is
+      // the harness's actual obligation to a finding it could not put inline, and the only thing that keeps the
+      // first half honest about the case above.
+      const summary = gh.state.summary || '';
+      const record = mod.decodeState(summary);
+      const recordCarries = (token) =>
+        Object.values(record?.findings || {}).some(
+          (r) => String(r?.text || '').includes(token) && gh.state.threads.some((t) => t.id === r.id && !t.isResolved),
+        );
+      for (const f of world) {
+        const anyThread = gh.state.threads.some((t) => t.comments.some((c) => c.body.includes(f.token)));
+        const reportedNow = reporting.includes(f);
+        if (!reportedNow && !anyThread) continue;
+        const open = gh.state.threads.filter((t) => !t.isResolved && t.comments.some((c) => c.body.includes(f.token)));
+        const closedByHuman = gh.state.threads.some(
+          (t) => t.isResolved && t.comments.some((c) => c.body.includes(f.token)) && t.comments.some((c) => c.author !== 'github-actions[bot]'),
+        );
+        // One or more open threads is accounted for. MORE than one is churn, not loss — a wrong `same_as`, or a
+        // finding that moved and got a second comment — and the thing that collapses it is the verifier's
+        // `duplicate` verdict, which this scripted model never issues. Churn is bounded below instead.
+        if (open.length >= 1 || closedByHuman || summary.includes(f.token) || recordCarries(f.token)) continue;
+        const mine = gh.state.threads.filter((t) => t.comments.some((c) => c.body.includes(f.token)));
         problems.push(
-          `seed ${seed} round ${round}: thread ${t.id} was closed although it has no comment to reply to — ` +
-            `nothing can ever put the reason on it, and a summary row lasts one round`,
+          `seed ${seed} round ${round}: ${f.token} (${f.severity} ${f.file}:${f.line}, reported this round: ${reportedNow}) ` +
+            `is accounted for nowhere — ${open.length} open thread(s) carry it, ${mine.length - open.length} resolved, ` +
+            `in summary: ${summary.includes(f.token)}, in record on an open thread: ${recordCarries(f.token)}`,
         );
       }
-    }
-    // The reason on the thread, or — when the reply was refused after the resolve had already landed — this
-    // round's summary saying so. The record is NOT accepted: it is a hidden HTML comment, and since every close is
-    // recorded in it, a law satisfied by that would have retired itself. The other half of this lives in the
-    // harness: a thread it can never reply to is never closed at all, so this only has to cover a refusal that
-    // could not have been known in advance.
-    //
-    // Counted per LOCATION, because a row names a `path:line` and this fuzzer deliberately puts two threads on
-    // one line. Taking the first row there let it answer for a close it had nothing to do with; accepting the
-    // annotation anywhere in the summary let one refused reply excuse every other close in the round.
-    const saidOnTheThread = (t) => t.comments.some((c) => /same issue is reported on this push/.test(c.body));
-    const rowsSaying = (t) =>
-      summary.split('\n').filter((l) => l.startsWith('|') && l.includes(`\`${t.path}:${t.line}\``) && /could not be posted/.test(l)).length;
-    const needARow = new Map();
-    for (const t of ourCloses) {
-      if (saidOnTheThread(t)) continue;
-      const at = `${t.path}:${t.line}`;
-      needARow.set(at, (needARow.get(at) || 0) + 1);
-    }
-    for (const t of ourCloses) {
-      const explained = saidOnTheThread(t) || rowsSaying(t) >= (needARow.get(`${t.path}:${t.line}`) || 0);
-      if (!explained) {
-        problems.push(
-          `seed ${seed} round ${round}: thread ${t.id} was closed by the harness with no reason on it and no ` +
-            `row in the summary saying why — nothing was fixed this round, so the only close available was a duplicate`,
-        );
+      // And the CURRENT WORDING is on the PR, not just the finding. A finding matched to a thread that does not
+      // carry its new text used to be counted as handled while the thread showed the old wording — on the kept
+      // path once, and on the reopen path after that was fixed. Only a per-wording tag can see it.
+      for (const f of world.filter((x) => x.reported && x.wording)) {
+        const tag = `[${f.wording}]`;
+        const onAThread = gh.state.threads.some((t) => t.comments.some((c) => c.body.includes(tag)));
+        if (onAThread || summary.includes(tag) || !reporting.includes(f)) continue;
+        problems.push(`seed ${seed} round ${round}: ${f.token} was re-reported as ${tag} and that wording is nowhere on the PR`);
+      }
+      // Churn has a ceiling. Every duplicate is a comment a human has to read, so unbounded duplication is its
+      // own failure even though nothing is lost: six rounds of drifting lines and mistaken claims may leave a
+      // finding on a few threads, not on a dozen.
+      for (const f of world.filter((x) => x.reported)) {
+        const carrying = gh.state.threads.filter((t) => t.comments.some((c) => c.body.includes(f.token)));
+        const openCarrying = carrying.filter((t) => !t.isResolved);
+        // Drift can outpace the collapse by one per round — a line moves, a comment is posted, and the verifier
+        // collapses the old thread on the NEXT round — so a small steady state is expected. Growth without bound
+        // is not: six rounds may not leave a finding open on six threads.
+        if (openCarrying.length > 3) problems.push(`seed ${seed} round ${round}: ${f.token} is OPEN on ${openCarrying.length} threads`);
+      }
+      // The second half: a finding reported this round that ended up on no thread must be named in the summary.
+      for (const f of reporting) {
+        const onAThread = gh.state.threads.some((t) => t.comments.some((c) => c.body.includes(f.token)));
+        if (onAThread || summary.includes(f.token) || recordCarries(f.token)) continue;
+        problems.push(`seed ${seed} round ${round}: ${f.token} was reported and could not be posted, and the summary does not mention it`);
+      }
+      // Nothing here is ever FIXED, so every close the harness makes must be a duplicate close — and it must say
+      // so on the thread. A close with no reason on it is the failure this law was written for: a thread that goes
+      // quiet with no record of who closed it or why.
+      // THIS round's closes, not every closed thread on the PR: the question is whether the round that closed a
+      // thread explained itself, and a violation inherited from an earlier round would otherwise be re-reported for
+      // ever, drowning the round that actually caused it. `resolvedIds` is what the round asked GitHub to resolve.
+      const closedThisRound = new Set(gh.calls.resolvedIds.slice(resolvesBefore));
+      const ourCloses = gh.state.threads.filter((t) => closedThisRound.has(t.id) && t.comments.every((c) => c.author === 'github-actions[bot]'));
+      // And the rule that makes the row above an acceptable fallback at all: a close is only ever explained for one
+      // round by the summary, since the next round's summary replaces it — so a thread the harness KNOWS it can
+      // never reply to must not be closed in the first place. `noReplyTarget` is the world's truth (the opening
+      // comment's id is gone), and `firstCommentId` is how the harness sees the same fact.
+      for (const t of gh.state.threads) {
+        if (closedThisRound.has(t.id) && t.noReplyTarget) {
+          problems.push(
+            `seed ${seed} round ${round}: thread ${t.id} was closed although it has no comment to reply to — ` +
+              `nothing can ever put the reason on it, and a summary row lasts one round`,
+          );
+        }
+      }
+      // The reason on the thread, or — when the reply was refused after the resolve had already landed — this
+      // round's summary saying so. The record is NOT accepted: it is a hidden HTML comment, and since every close is
+      // recorded in it, a law satisfied by that would have retired itself. The other half of this lives in the
+      // harness: a thread it can never reply to is never closed at all, so this only has to cover a refusal that
+      // could not have been known in advance.
+      //
+      // Counted per LOCATION, because a row names a `path:line` and this fuzzer deliberately puts two threads on
+      // one line. Taking the first row there let it answer for a close it had nothing to do with; accepting the
+      // annotation anywhere in the summary let one refused reply excuse every other close in the round.
+      const saidOnTheThread = (t) => t.comments.some((c) => /same issue is reported on this push/.test(c.body));
+      const rowsSaying = (t) =>
+        summary.split('\n').filter((l) => l.startsWith('|') && l.includes(`\`${t.path}:${t.line}\``) && /could not be posted/.test(l)).length;
+      const needARow = new Map();
+      for (const t of ourCloses) {
+        if (saidOnTheThread(t)) continue;
+        const at = `${t.path}:${t.line}`;
+        needARow.set(at, (needARow.get(at) || 0) + 1);
+      }
+      for (const t of ourCloses) {
+        const explained = saidOnTheThread(t) || rowsSaying(t) >= (needARow.get(`${t.path}:${t.line}`) || 0);
+        if (!explained) {
+          problems.push(
+            `seed ${seed} round ${round}: thread ${t.id} was closed by the harness with no reason on it and no ` +
+              `row in the summary saying why — nothing was fixed this round, so the only close available was a duplicate`,
+          );
+        }
       }
     }
+
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
   }
-
-  globalThis.fetch = realFetch;
-  restore();
   return problems;
 }
 

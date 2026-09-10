@@ -6,7 +6,7 @@
 // Same hardened harness as bookplayer-support-pipeline; model resolved at runtime instead of pinned.
 
 import { randomBytes, createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -180,7 +180,7 @@ const BASE = process.env.BASE_REF || 'main';
 
 // Fingerprint identifies "the same issue at the same spot" across runs.
 // Intentionally EXCLUDES the comment text so a re-wording doesn't create a duplicate.
-// Location, and a `salt` only when one is passed. See `disambiguate`: the salt is what a SECOND finding at an
+// Location, and a `salt` only when one is passed. See `keyFindings`: the salt is what a SECOND finding at an
 // occupied location is keyed by, so two findings that share a place do not share an identity.
 export function fingerprint(f) {
   const salt = f.salt ? `|${f.salt}` : '';
@@ -1784,7 +1784,10 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
       // Only when the last word is not already ours: the thread stays open and is re-verified on every push.
       await io.reply(t, redact(`🟡 still open: ${evidence}\n\n${MARKER_VERIFY_NOTE}`)).catch((e) => console.warn(`reply failed — ${e.message}`));
     }
-    rows.push({ label, status: 'open', note: status === 'insufficient' ? 'answered, concern stands' : 'still open' });
+    // "Answered" is a claim about a HUMAN, so it is gated on the same fact the reply above is: the verifier can
+    // answer `insufficient` on a thread nobody has replied to, and the row then told a reader a maintainer had
+    // engaged when nobody had.
+    rows.push({ label, status: 'open', note: status === 'insufficient' && hasMaintainerReply ? 'answered, concern stands' : 'still open' });
     stats.stillOpen++;
   }
   return { rows, stats, closedIds, duplicates };
@@ -2257,8 +2260,26 @@ async function appendNoteToSummary(note, heading) {
     const { comments } = await listIssueComments(PR_NUMBER);
     const previous = comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
     await upsertSummary(summaryWithNote(previous?.body || '', note, heading));
+    return true;
   } catch {
     // the PR could not be updated: the run log still carries the reason
+    return false;
+  }
+}
+
+// Tell the WORKFLOW that the pull request already carries an explanation. The workflow's fallback note exists for
+// the one failure the harness cannot report on its own — the step being killed (its timeout, an OOM) rather than
+// failing on its own terms, where none of the handlers below ever run — and that step must not fire when the
+// harness did explain itself, because both notes share a heading and the second would replace the first, trading
+// the actual error for "the step ended without writing a summary". Only a note that LANDED counts. A killed step
+// writes nothing here, so the fallback fires, which is the direction the failure has to fall in.
+function recordExplainedOnPr() {
+  const out = process.env.GITHUB_OUTPUT;
+  if (!out) return;
+  try {
+    appendFileSync(out, 'explained=true\n');
+  } catch (e) {
+    console.warn(`could not record that the PR was told (${e.message}); the workflow may add a second note`);
   }
 }
 
@@ -2274,12 +2295,15 @@ function summaryWriteFailed(e) {
   throw new Error(`Could not post the summary comment, so this round produced no visible output: ${e.message}`, { cause: e });
 }
 
-async function explainFailure(err) {
+// Exported for the test that pins the rule inside it: only a note that LANDED may tell the workflow the pull
+// request has been told. Nothing else reaches this function — the top-level handler is the only caller, and that
+// runs when the file is executed rather than imported.
+export async function explainFailure(err) {
   // Bounded: rest()/graphql() embed the whole upstream response in their message, and this note is appended to
   // the previous summary — an unbounded body would push the comment past GitHub's 65 536-char limit, the post
   // would fail, and the catch below would swallow exactly the failure this function exists to surface.
   const note = `> ⚠️ **A run did not complete:** the reviewer failed before producing a result: ${boundedDump(err.message || String(err), 2000)}`;
-  await appendNoteToSummary(note, '## ⚠️ Claude PR Review — did not run');
+  if (await appendNoteToSummary(note, '## ⚠️ Claude PR Review — did not run')) recordExplainedOnPr();
   return err;
 }
 
@@ -2753,6 +2777,7 @@ export async function runReview({ agent = runAgent } = {}) {
   console.log(
     `Reconcile: ${stats.posted} new, ${stats.kept} kept, ${stats.reworded} reworded, ${stats.reopened} reopened, ${stats.dismissed} dismissed, ${stats.resolved} resolved, ${unpostable.length} unpostable`,
   );
+  recordExplainedOnPr(); // the summary is on the PR, so the workflow's fallback note has nothing to add
   console.log(`Done. Verdict: ${parsed.verdict}`);
   // Advisory by design: exit 0 regardless of verdict so the review never blocks a merge.
   // To make it a hard gate (failed check that blocks merge on a "fail" verdict),

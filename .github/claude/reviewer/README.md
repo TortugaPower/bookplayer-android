@@ -36,7 +36,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~199 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~202 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
@@ -85,7 +85,12 @@ To exercise the plumbing without spending a model call, stub the agent as the ro
 | `ACTIONS_STEP_DEBUG` | off | Raises the agent-output dump in the log from 4 KB to 20 KB. A public repo's log is public. |
 
 Raising `REVIEW_DEADLINE_MS` or `REVIEW_JOB_BUDGET_MS` means raising `timeout-minutes` in the workflow with
-them: it bounds both, and a job cancelled mid-reconcile leaves a PR with comments and no summary.
+them — both the job's and the review step's. The harness's clock has to be the tighter of the two: its budget is
+measured from before the model lookup and the reconcile phase after it is unclocked (up to 25 posts plus a
+resolve and a reply per closed thread), so a step cap set too close cancels the round mid-write. Every step is
+bounded, because a job cancelled by ITS OWN timeout runs no `if: failure()` step at all — the note saying the
+reviewer did not run would never fire. A step killed anyway (its cap, an OOM) is covered by the last step in the
+workflow, which fires only when `review.mjs` did not manage to say anything itself.
 
 ## Tokens
 

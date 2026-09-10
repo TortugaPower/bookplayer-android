@@ -91,9 +91,12 @@ jobs:
           # every run (Opus 5 today). To pin, e.g. while diagnosing a regression, set an exact id.
           # REVIEW_MODEL: claude-opus-5
           REVIEW_MAX_TURNS: '200'  # a runaway guard only; the real bound is REVIEW_DEADLINE_MS (12 min) in review.mjs
-        # Above the harness's own 18-minute job budget, below the job's 25: review.mjs is what should end this
-        # step, and if it cannot, failing the step leaves the job alive to run what follows.
-        timeout-minutes: 22
+        # Above the harness's own budget and just under the job's 25, so review.mjs's clock is what ends this step
+        # in every case it can: its 18 minutes are measured from before the model lookup, and the reconcile phase
+        # that follows them is deliberately unclocked (up to 25 posts plus a resolve and a reply per closed
+        # thread). At 22 this cap, not the harness, was the tighter of the two. If it does fire, the step FAILS
+        # rather than cancelling the job, which is what lets the notes below run.
+        timeout-minutes: 24
         run: node .github/claude/reviewer/review.mjs
 
       # A failure in the two steps above happens outside review.mjs, so nothing would reach the PR and the check
@@ -109,3 +112,17 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node .github/claude/reviewer/review.mjs --setup-failed "a step before the review failed (dependency install or the harness's own tests), so no review ran on this commit"
+
+      # And the failure the harness cannot report itself: the review step KILLED rather than failed — its own
+      # timeout, an OOM — where none of review.mjs's handlers ever run, so the round would end as a red check with
+      # nothing on the PR. `explained` is written by review.mjs whenever the pull request already carries its
+      # summary or its own failure note; a killed step never gets to write it, so this fires exactly then. Without
+      # that gate this note would replace review.mjs's own explanation (same heading) and trade the real error for
+      # a generic one.
+      - name: Say on the PR that the review step was killed
+        if: failure() && steps.review.outcome == 'failure' && steps.review.outputs.explained != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node .github/claude/reviewer/review.mjs --setup-failed "the review step ended without writing a summary — it was killed rather than failing on its own terms (its 24-minute step timeout, or the runner ran out of memory)"

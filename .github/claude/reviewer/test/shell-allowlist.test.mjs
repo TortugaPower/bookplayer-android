@@ -2882,7 +2882,7 @@ test('severity is part of a finding\'s identity', () => {
   assert.notEqual(fingerprint(at('warn')), fingerprint({ ...at('warn'), line: 13 }));
   assert.notEqual(fingerprint(at('warn')), fingerprint({ ...at('warn'), file: 'app/B.kt' }));
   // The comment text is not part of the KEY — a finding reworded between pushes keeps its identity — but the
-  // key alone is not identity: see `disambiguate`, which refuses to merge two findings that share a location
+  // key alone is not identity: see `keyFindings`, which refuses to merge two findings that share a location
   // and say different things. That assertion used to end here, pinning the collision as if it were the design.
   assert.equal(fingerprint(at('warn')), fingerprint({ ...at('warn'), comment: 'entirely different words' }));
 });
@@ -3854,4 +3854,25 @@ test('the diff-reading advice is derived from the diff, not from the tool docs',
   const prompt = buildUserPrompt({ title: 't', body: 'b' }, '/tmp/d.diff', 641 * 1024, 11000);
   assert.ok(prompt.includes(`${dense} lines per call`), 'the prompt does not carry the derived number');
   assert.match(prompt, /25k tokens/);
+});
+
+test('"answered" is only said when somebody answered', async () => {
+  // `insufficient` means "a human replied but the concern stands", and the REPLY the harness posts for it is
+  // gated on there being a maintainer reply — but the summary row was not, so a verifier answering `insufficient`
+  // on a thread nobody had touched still rendered as "answered, concern stands" in the Previously raised table.
+  // The row is the part a maintainer reads, and it was telling them a colleague had engaged when nobody had.
+  const verdict = verdictsById([{ id: 1, status: 'insufficient', evidence: 'the reply does not address the leak' }]);
+  const bare = await applyVerification(verdict, numbered(thread()), recordingIo(), { prAuthor: 'gianni' });
+  assert.equal(bare.rows[0].status, 'open');
+  assert.equal(bare.rows[0].note, 'still open', 'claimed an answer on a thread with no human reply');
+
+  const answered = {
+    ...thread(),
+    comments: [
+      { id: 1, body: '🟡 **WARN** — the socket is never closed', author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-01T00:00:00Z' },
+      { id: 2, body: 'we close it in the service', author: 'someone-else', association: 'COLLABORATOR', createdAt: '2026-01-02T00:00:00Z' },
+    ],
+  };
+  const real = await applyVerification(verdict, numbered(answered), recordingIo(), { prAuthor: 'gianni' });
+  assert.equal(real.rows[0].note, 'answered, concern stands');
 });

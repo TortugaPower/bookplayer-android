@@ -1,7 +1,7 @@
 // An end-to-end round: the real GitHub client and the real composition, a stubbed `fetch`, a faked model.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -1619,5 +1619,91 @@ test('a finding posted this round survives its comment being edited on the next'
   } finally {
     globalThis.fetch = realFetch;
     restore();
+  }
+});
+
+test('the workflow is told when the PR already carries an explanation', async () => {
+  // The workflow has a fallback note for the one failure the harness cannot report itself: the review step
+  // KILLED rather than failed (its own timeout, an OOM), where none of review.mjs's handlers run. That note
+  // shares a heading with review.mjs's own, so it REPLACES it — trading the real error for a generic one — and
+  // must therefore fire only when nothing was written. `explained=true` on the step's output is how the harness
+  // says the pull request has been told; a killed step never writes it, which is the direction the failure has to
+  // fall in.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'explained-')));
+  const outFile = join(temp, 'step-output');
+  const env = {
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '41', COMMIT: 'ff55000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(), GITHUB_OUTPUT: outFile,
+  };
+  const realFetch = globalThis.fetch;
+  try {
+    // A round that finished: the summary is on the PR, so the fallback has nothing to add.
+    writeFileSync(outFile, '');
+    const ok = await loadHarness(env, 'explained-ok');
+    const gh = fakeGitHub();
+    globalThis.fetch = gh.fetch;
+    await ok.mod.runReview({ agent: agentReturning({ verdict: 'pass', summary: 'all fine', findings: [] }) });
+    ok.restore();
+    assert.match(readFileSync(outFile, 'utf8'), /explained=true/, 'a completed round did not say the PR was told');
+
+    // A round that could not write anything: nothing may claim the PR was told, or the workflow's fallback —
+    // the only thing left that can speak — is suppressed as well.
+    writeFileSync(outFile, '');
+    const dead = await loadHarness(env, 'explained-dead');
+    const inner = fakeGitHub().fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      const u = String(url);
+      if (/\/issues\/(\d+\/)?comments/.test(u) && ['POST', 'PATCH'].includes(init.method || 'GET') && !/\/pulls\//.test(u)) {
+        return { ok: false, status: 502, headers: { get: () => null }, json: async () => ({}), text: async () => 'bad gateway' };
+      }
+      return inner(url, init);
+    };
+    await assert.rejects(dead.mod.runReview({ agent: agentReturning({ verdict: 'pass', summary: 'nothing', findings: [] }) }));
+    dead.restore();
+    assert.equal(readFileSync(outFile, 'utf8').includes('explained=true'), false, 'it claimed the PR was told when no write landed');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('only a note that landed says the PR has been told', async () => {
+  // The fatal handler's half of the same rule. `explainFailure` writes the "a run did not complete" note, and
+  // `appendNoteToSummary` swallows a failed write on the grounds that the run log still carries the reason — so
+  // "I posted the note" and "the note is on the PR" are different facts, and only the second may suppress the
+  // workflow's fallback. Get that wrong and a run whose GitHub writes are ALL failing tells the workflow to stay
+  // quiet too, which is the silence this whole gate exists to prevent.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'explainnote-')));
+  const outFile = join(temp, 'step-output');
+  const env = {
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '42', COMMIT: 'ab66000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(), GITHUB_OUTPUT: outFile,
+  };
+  const realFetch = globalThis.fetch;
+  const realWarn = console.warn;
+  try {
+    console.warn = () => {};
+
+    // The note lands: the PR carries the reason, so the workflow's fallback would only overwrite it.
+    writeFileSync(outFile, '');
+    const ok = await loadHarness(env, 'explainnote-ok');
+    const gh = fakeGitHub();
+    globalThis.fetch = gh.fetch;
+    await ok.mod.explainFailure(new Error('the model returned nothing twice'));
+    ok.restore();
+    assert.equal(gh.calls.issueComments.length + gh.calls.patched.length, 1, 'the note was not written');
+    assert.match(readFileSync(outFile, 'utf8'), /explained=true/);
+
+    // The note does not land: nothing may claim the PR was told.
+    writeFileSync(outFile, '');
+    const dead = await loadHarness(env, 'explainnote-dead');
+    globalThis.fetch = async () => { throw new Error('getaddrinfo ENOTFOUND api.github.com'); };
+    await dead.mod.explainFailure(new Error('the model returned nothing twice'));
+    dead.restore();
+    assert.equal(readFileSync(outFile, 'utf8').includes('explained=true'), false, 'claimed the PR was told with GitHub unreachable');
+  } finally {
+    console.warn = realWarn;
+    globalThis.fetch = realFetch;
   }
 });
