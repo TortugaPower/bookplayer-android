@@ -1007,6 +1007,26 @@ test('DRY_RUN writes nothing at all, and the diff on disk is the whole diff', as
     assert.deepEqual(gh.calls.patched, []);
     assert.deepEqual(gh.calls.resolved, []);
 
+    // A dry run on a DEADLINE-hit answer names the deadline knob, not the turn limit. The banner block says a
+    // wrong knob is worse than no knob, and this call site passed `provisional` without `provisionalCause`, so
+    // a local run on a truncated or timed-out answer told the reader to bump REVIEW_MAX_TURNS.
+    const logs = [];
+    const realLog = console.log;
+    console.log = (m) => logs.push(String(m));
+    try {
+      await mod.runReview({
+        agent: async () => ({
+          finalText: '```json\n' + JSON.stringify({ verdict: 'warn', summary: 'partial', findings: [] }) + '\n```',
+          lastAnswer: '', turns: 1, resultSubtype: 'error_deadline',
+        }),
+      });
+    } finally {
+      console.log = realLog;
+    }
+    const printed = logs.join('\n');
+    assert.match(printed, /time limit/);
+    assert.equal(printed.includes('turn limit'), false, 'the dry run named the wrong knob');
+
     // The diff handed to the agent is the whole diff GitHub returned, byte for byte.
     const { readFileSync } = await import('node:fs');
     assert.ok(seenDiffPath, 'the prompt named no diff file');
@@ -1176,6 +1196,58 @@ test('the agent is shown what is open, and naming one keeps the finding on its t
     assert.equal(state.findings[fp].id, 'T-old');
     assert.match(gh.summaryOut(), /1 carried over/);
   } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('a truncated comment listing is not read as "no record"', async () => {
+  // The listing stops early when the run is out of budget or hits the page cap, and a partial list looks exactly
+  // like a complete one. Every caller is after ONE comment — this harness's summary, which carries the record —
+  // so "not found" means either "there is none yet" or "we did not look at all of them", and those lead
+  // opposite ways: the second would build a fresh record over the top of the real one and post a second summary
+  // beside it. `truncated` now travels with the list, and the round treats it as a failed read.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'trunc-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '31', COMMIT: '7a1c000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'truncated');
+  const realFetch = globalThis.fetch;
+  const warnings = [];
+  const realWarn = console.warn;
+  try {
+    const f = { severity: 'warn', file: 'app/T.kt', line: 3, comment: 'a finding recorded last round' };
+    const fp = mod.fingerprint(f);
+    const prior = mod.encodeState({
+      commit: 'aaaaaaa',
+      findings: { [fp]: { id: 'T-old', file: f.file, line: f.line, severity: 'warn', text: f.comment, action: 'posted', commit: 'aaaaaaa' } },
+    });
+    const summary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${prior}`;
+    const gh = fakeGitHub({ summaryBody: summary });
+    const inner = gh.fetch;
+    // A PR with more comments than the harness will page through, and the summary on a page it never reaches:
+    // every page comes back full, so the listing stops at the cap.
+    globalThis.fetch = async (url, init = {}) => {
+      const isCommentsRead = /\/issues\/\d+\/comments/.test(String(url)) && (init.method || 'GET') === 'GET';
+      if (isCommentsRead) {
+        return {
+          ok: true, status: 200, headers: { get: () => null },
+          json: async () => Array.from({ length: 100 }, (_, i) => ({ id: i, user: { login: 'gianni' }, body: 'chatter' })),
+        };
+      }
+      return inner(url, init);
+    };
+    console.warn = (m) => warnings.push(String(m));
+    await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'still here', findings: [f] }) });
+    console.warn = realWarn;
+
+    // The round says so rather than treating the missing record as "there is none"...
+    assert.match(warnings.join('\n'), /truncated before a state record was found/);
+    // ...and the summary it writes says it may be duplicating one it could not see.
+    assert.match(warnings.join('\n'), /may duplicate an existing summary/);
+  } finally {
+    console.warn = realWarn;
     globalThis.fetch = realFetch;
     restore();
   }

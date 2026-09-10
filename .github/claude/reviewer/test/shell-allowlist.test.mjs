@@ -1301,12 +1301,15 @@ test('the page loops stop when the run is out of time', async () => {
   try {
     setNetworkDeadline(Date.now() - 1); // the job is already over
     let commentPages = 0;
-    const comments = await withStubbedFetch(async () => {
+    const { comments, truncated } = await withStubbedFetch(async () => {
       commentPages++;
       return { ok: true, status: 200, headers: { get: () => null }, json: async () => Array.from({ length: 100 }, (_, i) => ({ id: i })) };
     }, () => listIssueComments(1));
     assert.equal(commentPages, 1, `kept paging comments past the deadline (${commentPages} pages)`);
     assert.equal(comments.length, 100); // what it did read is returned, not thrown away
+    // ...and it SAYS it is partial. A caller looking for the one comment that carries the state record cannot
+    // otherwise tell "there is no summary" from "we did not look at all of them", and those lead opposite ways.
+    assert.equal(truncated, true);
 
     let threadPages = 0;
     const threads = await withStubbedFetch(async () => {
@@ -1344,10 +1347,11 @@ test('the comment listing asks for the newest first and is bounded', async () =>
       urls.push(String(url));
       return { ok: true, status: 200, headers: { get: () => null }, json: async () => Array.from({ length: 100 }, (_, i) => ({ id: i, body: 'x' })) };
     };
-    const all = await listIssueComments(7);
+    const { comments: all, truncated } = await listIssueComments(7);
     assert.equal(urls.length, 20, `stopped after ${urls.length} pages`);
     assert.equal(all.length, 2000);
     assert.match(urls[19], /page=20/);
+    assert.equal(truncated, true, 'stopping at the page cap is a truncation and has to say so');
 
     // And a short page still ends it immediately.
     urls.length = 0;
@@ -1355,7 +1359,9 @@ test('the comment listing asks for the newest first and is bounded', async () =>
       urls.push(String(url));
       return { ok: true, status: 200, headers: { get: () => null }, json: async () => [{ id: 1, body: 'only one' }] };
     };
-    assert.equal((await listIssueComments(7)).length, 1);
+    const short = await listIssueComments(7);
+    assert.equal(short.comments.length, 1);
+    assert.equal(short.truncated, false); // a complete listing is not a truncated one
     assert.equal(urls.length, 1);
   } finally {
     globalThis.fetch = realFetch;
@@ -1549,6 +1555,28 @@ test('an answer the parser had to close itself is provisional', () => {
   assert.equal(JSON.stringify(repaired).includes('truncation'), false); // the flag cannot reach a comment
 });
 
+
+test('the degrade note is never left inside a collapsed block either', () => {
+  // `boundedSummaryBody` was fixed for this and `summaryWithNote` was not — the same cut, the same `<details>`,
+  // the other function. `renderSummary` puts every unpostable finding inside that element, so on a summary long
+  // enough for the slice to bite, the cut lands inside it and the "did not complete" note renders collapsed:
+  // an invisible failure in the one path whose whole job is to make a failure visible.
+  const line = '<details><summary>Findings not visible inline</summary>';
+  const previous = `## ✅ Claude PR Review\n\n${Array.from({ length: 1500 }, () => line).join('\n')}\n\n<!-- bp-ai-review-summary -->`;
+  const out = summaryWithNote(previous, 'ran out of time', '## ⚠️ Claude PR Review — incomplete');
+  assert.ok(out.length <= 65536, `body was ${out.length}`);
+  // Every element the cut left open is closed, so the note is outside all of them...
+  assert.equal((out.match(/<details>/g) || []).length, (out.match(/<\/details>/g) || []).length);
+  assert.ok(out.indexOf('ran out of time') > out.lastIndexOf('</details>'));
+  // ...and the marker the upsert finds its own comment by is still last.
+  assert.ok(out.trimEnd().endsWith('<!-- bp-ai-review-summary -->'));
+  // With a record to carry, both still fit and the record still decodes.
+  const state = { commit: 'c', findings: Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`fp${i}`, { id: `T${i}`, file: 'a.kt', line: i, severity: 'warn', text: 'y'.repeat(160), action: 'posted', commit: 'c' }])) };
+  const withRecord = summaryWithNote(summaryBodyWithState(previous, state), 'ran out of time', '## ⚠️ incomplete');
+  assert.ok(withRecord.length <= 65536, `body+record was ${withRecord.length}`);
+  assert.ok(decodeState(withRecord), 'the record did not survive the repaired trim');
+  assert.equal((withRecord.match(/<details>/g) || []).length, (withRecord.match(/<\/details>/g) || []).length);
+});
 
 test('the trim never returns more than it was given room for', () => {
   // The repair that closes an unbalanced `<details>` used to be appended AFTER the cut, so the result exceeded
@@ -1886,7 +1914,6 @@ test('a review thread is mapped from the selection that answers each question', 
   // The newest comment comes from ITS own selection, with the author — a marker only counts as ours if we wrote it.
   assert.equal(t.lastCommentBody, 'the newest comment');
   assert.equal(t.lastCommentAuthor, 'gianni');
-  assert.equal(t.lastCommentAt, '2026-01-02T00:00:00Z');
   // The window carries the association and timestamp the trust rules read.
   assert.deepEqual(t.comments.map((c) => [c.author, c.association]), [['github-actions[bot]', 'NONE'], ['gianni', 'OWNER'], ['nobody', 'NONE']]);
   // And a comment GitHub returns WITHOUT an association is a stranger, not a maintainer. Defaulting the other
@@ -1915,7 +1942,7 @@ test('what the read ladder retries, what it refuses to retry, and that it waits'
       let calls = 0;
       const out = await withStubbedFetch(async () => (++calls === 1 ? answer(status) : okPage), () => listIssueComments(1));
       assert.equal(calls, 2, `a ${status} was not retried`);
-      assert.deepEqual(out, []);
+      assert.deepEqual(out.comments, []);
     }
     // A 403 is retried ONLY when it looks like the secondary rate limit, which says so with Retry-After. The
     // primary limit resets up to an hour out, so retrying it three times half a second apart just fails later.
@@ -2641,12 +2668,16 @@ test('every marker has one spelling', () => {
   // threads would quietly stop being recognised as ours.
   const src = readFileSync(new URL('../review.mjs', import.meta.url), 'utf8');
   // The markers are declared once each...
-  for (const marker of ['bp-ai-review-auto-resolved', 'bp-ai-review-verified', 'bp-ai-review-reopened', 'bp-ai-review-reworded', 'bp-ai-review-human-accepted']) {
+  // EXACTLY once — the declaration — not "at most once". `bp-ai-review-human-accepted` was in this list and is
+  // not a marker this harness has (the constant spells it `accepted-by-human`), so it matched zero literals and
+  // `<= 1` passed vacuously: the one marker in HARNESS_RESOLVED_MARKERS this test did not cover was the one
+  // whose duplication would be hardest to notice.
+  for (const marker of ['bp-ai-review-auto-resolved', 'bp-ai-review-verified', 'bp-ai-review-reopened', 'bp-ai-review-reworded', 'bp-ai-review-accepted-by-human']) {
     const literals = src.match(new RegExp(`<!-- ${marker} -->`, 'g')) || [];
-    assert.ok(literals.length <= 1, `${marker} is written out ${literals.length} times; interpolate the constant instead`);
+    assert.equal(literals.length, 1, `${marker} appears ${literals.length} times as a literal; declare it once and interpolate the constant`);
   }
   // ...and the constants they belong to are actually used.
-  for (const constant of ['MARKER_AUTO_RESOLVED', 'MARKER_VERIFIED', 'MARKER_REWORDED']) {
+  for (const constant of ['MARKER_AUTO_RESOLVED', 'MARKER_VERIFIED', 'MARKER_REWORDED', 'MARKER_HUMAN_ACCEPTED']) {
     const uses = (src.match(new RegExp(`\\b${constant}\\b`, 'g')) || []).length;
     assert.ok(uses >= 2, `${constant} is declared and never used`);
   }

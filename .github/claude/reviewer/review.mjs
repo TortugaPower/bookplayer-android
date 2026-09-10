@@ -2006,6 +2006,14 @@ const MAX_COMMENT = GITHUB_COMMENT_LIMIT - MAX_STATE_BYTES - MAX_STATE_MARGIN;
 // could not be attached inline, so a run with many findings can reach that — and the post would throw, the caller
 // would log a warning, and the PR would carry no summary at all. Trim instead, keeping the marker (the upsert
 // finds the comment by it) and a line saying what happened.
+// The closers a cut needs so that whatever follows it is not rendered inside a collapsed element. Shared by
+// the two paths that trim a summary: the second one was fixed for this and the first was not, which is exactly
+// how a fix in one branch fails to be a fix in the other.
+export function closeUnbalancedDetails(text) {
+  const open = (String(text).match(/<details>/g) || []).length - (String(text).match(/<\/details>/g) || []).length;
+  return open > 0 ? '</details>\n'.repeat(open) : '';
+}
+
 export function boundedSummaryBody(body, max = MAX_COMMENT) {
   if (body.length <= max) return body;
   // Cut at a line boundary, then close whatever the cut left open. The one thing that makes a body reach this
@@ -2021,16 +2029,12 @@ export function boundedSummaryBody(body, max = MAX_COMMENT) {
     const raw = body.slice(0, Math.max(0, limit));
     return raw.slice(0, Math.max(raw.lastIndexOf('\n'), 0)) || raw;
   };
-  const closersFor = (text) => {
-    const open = (text.match(/<details>/g) || []).length - (text.match(/<\/details>/g) || []).length;
-    return open > 0 ? '</details>\n'.repeat(open) : '';
-  };
   const tail = `\n\n> ⚠️ This summary was trimmed to fit GitHub's comment limit; the run log has the rest.\n\n${MARKER_SUMMARY}`;
   let cut = cutTo(max - tail.length);
   // One correction is enough in principle (fewer characters cannot open more tags), but the loop is cheap and
   // makes the bound a fact rather than an argument: it stops when the whole thing fits.
   for (let i = 0; i < 8; i++) {
-    const closers = closersFor(cut);
+    const closers = closeUnbalancedDetails(cut);
     if (cut.length + closers.length + tail.length <= max) return `${cut}\n${closers}${tail}`.replace(/\n\n\n+/g, '\n\n');
     cut = cutTo(max - tail.length - closers.length - 1);
   }
@@ -2093,16 +2097,30 @@ export function summaryWithNote(previousBody, note, heading) {
   // summary long enough for the slice to bite, the trim took the record's own ` -->` terminator with it and
   // `decodeState` returned null — losing the record this path re-appends it specifically to protect.
   const SEPARATORS = '\n\n---\n\n'.length + '\n\n'.length + '\n'.length;
-  const room = Math.max(0, GITHUB_COMMENT_LIMIT - body.length - carriedRecord.length - MARKER_SUMMARY.length - SEPARATORS - MAX_STATE_MARGIN);
-  return [`${kept.slice(0, room)}\n\n---\n\n${body}\n\n${MARKER_SUMMARY}`, carriedRecord].filter(Boolean).join('\n');
+  // And the cut is repaired, for the same reason `boundedSummaryBody` repairs its own: `renderSummary` puts
+  // every unpostable finding inside a `<details>` block, so on a summary long enough for this slice to bite the
+  // cut lands INSIDE that element and the "did not complete" note renders collapsed — invisible, in the one
+  // path that exists to make a failure visible. Fixed twenty lines above and not here, which is how a fix in
+  // one branch fails to be a fix in the other; both call the same repair now.
+  let room = Math.max(0, GITHUB_COMMENT_LIMIT - body.length - carriedRecord.length - MARKER_SUMMARY.length - SEPARATORS - MAX_STATE_MARGIN);
+  let cut = kept.slice(0, room);
+  let closers = closeUnbalancedDetails(cut);
+  for (let i = 0; i < 4 && closers.length; i++) {
+    const next = kept.slice(0, Math.max(0, room - closers.length));
+    const nextClosers = closeUnbalancedDetails(next);
+    if (next.length + nextClosers.length <= room) { cut = next; closers = nextClosers; break; }
+    room = Math.max(0, room - closers.length);
+    cut = next;
+    closers = nextClosers;
+  }
+  return [`${cut}${closers ? `\n${closers}` : ''}\n\n---\n\n${body}\n\n${MARKER_SUMMARY}`, carriedRecord].filter(Boolean).join('\n');
 }
 
 // Both degrade routes use this: the deadline route is the likely one on a large PR.
 async function appendNoteToSummary(note, heading) {
   try {
-    const previous = (await listIssueComments(PR_NUMBER)).find(
-      (c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY),
-    );
+    const { comments } = await listIssueComments(PR_NUMBER);
+    const previous = comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
     await upsertSummary(summaryWithNote(previous?.body || '', note, heading));
   } catch {
     // the PR could not be updated: the run log still carries the reason
@@ -2125,9 +2143,15 @@ async function explainFailure(err) {
 // record, or the one the round read (unchanged), or — as `appendNoteToSummary` does — a body that already carries
 // the record it pulled out and re-appended.
 async function upsertSummary(rawBody, state = null, { mergeExistingRecord = false } = {}) {
-  const existing = (await listIssueComments(PR_NUMBER)).find(
-    (c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY),
-  );
+  const { comments, truncated } = await listIssueComments(PR_NUMBER);
+  const existing = comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
+  // Posting a SECOND summary is the one thing this function must not do quietly: the record lives in the
+  // summary, so two of them means two memories, and the next round reads whichever it finds first. If the
+  // listing stopped early and no summary was in what we saw, say so loudly — the comment still gets posted,
+  // because a round with no summary at all is the worse failure, but the log names the reason.
+  if (!existing && truncated) {
+    console.warn('The comment listing was truncated and no summary was found in it; posting a new one, which may duplicate an existing summary');
+  }
   // `mergeExistingRecord` is set when this round could not READ the record: this write would otherwise replace
   // the comment it lives in with a record built from nothing. The comment is in hand here (the upsert has to
   // find it anyway), so what it still holds is merged UNDER this round's entries — this round wins per
@@ -2216,9 +2240,16 @@ export async function runReview({ agent = runAgent } = {}) {
   // failure is carried to the write instead, where the record that IS in the comment can be kept.
   let recordReadFailed = false;
   try {
-    stateRecord = await readPriorState(await listIssueComments(PR_NUMBER));
+    const { comments, truncated } = await listIssueComments(PR_NUMBER);
+    stateRecord = await readPriorState(comments);
     if (stateRecord) console.log(`Prior state: ${Object.keys(stateRecord.findings).length} finding(s) recorded at ${stateRecord.commit.slice(0, 8) || 'an unknown commit'}`);
-    else console.log('No prior state record on this PR; falling back to the comment markers');
+    else if (truncated) {
+      // "No record" and "we stopped looking" are different facts, and this is the second door through which
+      // they were being conflated: an over-budget or capped listing that missed the summary would have the
+      // round build a fresh record over the top of the real one.
+      recordReadFailed = true;
+      console.warn('The comment listing was truncated before a state record was found; treating it as a failed read');
+    } else console.log('No prior state record on this PR; falling back to the comment markers');
   } catch (e) {
     recordReadFailed = true;
     console.warn(`Could not read the prior state record (${e.message}); falling back to the comment markers, and this round will merge into whatever record the summary still holds`);
@@ -2356,7 +2387,7 @@ export async function runReview({ agent = runAgent } = {}) {
       console.log(`${severityEmoji(f.severity)} ${f.file}:${f.line} [${fp}] ${f.comment}`);
     }
     console.log('\n--- summary ---');
-    console.log(renderSummary(parsed, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 }, [], { provisional }));
+    console.log(renderSummary(parsed, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 }, [], { provisional, provisionalCause }));
     return;
   }
 

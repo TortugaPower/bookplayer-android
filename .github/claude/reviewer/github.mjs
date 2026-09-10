@@ -222,24 +222,36 @@ const MAX_COMMENT_PAGES = 20;
 // this — `sort`/`direction` are documented on the REPOSITORY-wide comments endpoint, not on this per-issue one,
 // and it ignores them (verified against the API: identical order with and without). No matter, since the summary
 // is CREATED on the first round and this order is chronological, so it is on page 1 of almost any PR.
+// Returns `{ comments, truncated }`. `truncated` is the whole point: a list that stopped early is
+// indistinguishable from a complete one, and every caller here is looking for ONE comment — this harness's own
+// summary. Not finding it then means either "there is no summary yet" or "we did not look at all of them", and
+// those lead opposite ways: the first says post a new summary, the second would post a SECOND one and drop the
+// state record with it. So the fact travels with the data.
 export async function listIssueComments(prNumber) {
   const { owner, name } = repo();
-  const all = [];
+  const comments = [];
+  let truncated = false;
   for (let page = 1; page <= MAX_COMMENT_PAGES; page++) {
     const batch = await rest(
       'GET',
       `/repos/${owner}/${name}/issues/${prNumber}/comments?per_page=${PER_PAGE}&page=${page}`,
     );
     if (!Array.isArray(batch) || batch.length === 0) break;
-    all.push(...batch);
+    comments.push(...batch);
     if (batch.length < PER_PAGE) break;
     // The same clock the retry ladders use. Paging is the other way this file can run past the end of the job:
-    // 20 pages x 30 s is 10 minutes, and a partial list degrades through the callers' existing paths, where a
-    // cancelled job leaves comments with no summary and no record.
-    if (outOfTime()) { console.warn('Comment listing stopped: out of time'); break; }
-    if (page === MAX_COMMENT_PAGES) console.warn(`Comment listing stopped at the ${MAX_COMMENT_PAGES}-page cap`);
+    // 20 pages x 30 s is 10 minutes.
+    if (outOfTime()) {
+      console.warn('Comment listing stopped: out of time');
+      truncated = true;
+      break;
+    }
+    if (page === MAX_COMMENT_PAGES) {
+      console.warn(`Comment listing stopped at the ${MAX_COMMENT_PAGES}-page cap`);
+      truncated = true;
+    }
   }
-  return all;
+  return { comments, truncated };
 }
 
 export async function postIssueComment(prNumber, body) {
@@ -292,7 +304,7 @@ export async function listReviewThreads(prNumber) {
                 # marker came after whose reply), and the newest one (is our note the last word).
                 first: comments(first:1){ nodes{ databaseId body author { login } } }
                 comments(last:30){ nodes{ databaseId body author { login } authorAssociation createdAt } }
-                last: comments(last:1){ nodes{ body author { login } createdAt } }
+                last: comments(last:1){ nodes{ body author { login } } }
               }
             }
           }
@@ -330,7 +342,6 @@ export async function listReviewThreads(prNumber) {
         // when we wrote the comment carrying it.
         lastCommentBody: node.last?.nodes?.[0]?.body || '',
         lastCommentAuthor: node.last?.nodes?.[0]?.author?.login || '',
-        lastCommentAt: node.last?.nodes?.[0]?.createdAt || '',
       });
     }
     // A null cursor with hasNextPage true would re-request the FIRST page forever: verified by probe, and an
