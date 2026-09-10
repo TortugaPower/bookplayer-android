@@ -892,9 +892,15 @@ export function actionByFp({ unpostableFps = [], currentByFp = new Map() } = {})
 // held an action in HARNESS_CLOSE_ACTIONS, `harnessClosedByRecord` always returned null, and the marker
 // archaeology the record was built to replace was still what ran in production. The tests passed only because
 // they hand-wrote `action: 'resolved'`.
-export function closedRecords({ identities = new Map(), verifiedClosedIds = new Set(), duplicateClosedIds = new Set() } = {}) {
+export function closedRecords({ identities = new Map(), threads = [], verifiedClosedIds = new Set(), duplicateClosedIds = new Set() } = {}) {
   const entries = [];
-  const add = (thread, action) => {
+  // The threads by id, because the callers hold only ids: `thread.line ?? thread.originalLine ?? 0` was reading a
+  // synthetic `{ id, line: 0 }`, so it could not return anything but 0 while advertising an anchor. Nothing reads
+  // a closed entry's line today — `openFindings` takes the anchor from the live thread — and these are the
+  // entries `carriedRecords` keeps longest, so a future reader would have got 0 for exactly them.
+  const byId = new Map(threads.map((t) => [t.id, t]));
+  const add = (id, action) => {
+    const thread = byId.get(id) || { id, line: null, originalLine: null };
     const identity = identities.get(thread.id);
     if (!identity?.fp) return; // no fingerprint, nothing the next round could look up
     entries.push([
@@ -917,8 +923,8 @@ export function closedRecords({ identities = new Map(), verifiedClosedIds = new 
   };
   // Both sets hold threads whose resolve LANDED — the callers add an id only after `io.resolve` returned — so
   // no record here claims a close that failed.
-  for (const id of verifiedClosedIds) add({ id, line: 0 }, 'resolved');
-  for (const id of duplicateClosedIds) add({ id, line: 0 }, 'duplicate');
+  for (const id of verifiedClosedIds) add(id, 'resolved');
+  for (const id of duplicateClosedIds) add(id, 'duplicate');
   return entries;
 }
 
@@ -1929,7 +1935,21 @@ export function keyFindings(findings, threads = [], priorState = null, claims = 
     // corroborated, but generously: the model read both texts and the code, so only a claim that looks like a
     // different finding entirely is refused, and a refusal costs an extra comment rather than a lost finding.
     // An id that was never offered is ignored outright.
-    const claimedFp = Number.isInteger(f.same_as) ? claims.get(f.same_as) : undefined;
+    // Coerced, then validated. The contract asks for `"same_as": 3` and `"same_as": "3"` is a routine model slip,
+    // which `Number.isInteger` used to discard in silence — so the finding was posted as new and collected a
+    // second comment on a thread it already had, which is the churn this protocol exists to remove, with nothing
+    // in the log to say why. Coercing widens nothing: the corroboration below (same file, and the wording read
+    // against the thread's) is what actually admits a claim, and an id nobody offered still resolves to nothing.
+    // Digits only, and positive: ids are 1-based, and a bare `Number()` maps `''` and `[]` to 0 — an integer, so
+    // they would pass this check and then quietly match no claim, which is the same silent drop in a new place.
+    const claimId =
+      typeof f.same_as === 'number' ? f.same_as
+        : typeof f.same_as === 'string' && /^\s*\d+\s*$/.test(f.same_as) ? Number(f.same_as)
+          : NaN;
+    if (f.same_as !== undefined && f.same_as !== null && !(Number.isInteger(claimId) && claimId > 0)) {
+      console.warn(`ignoring an unusable same_as (${JSON.stringify(f.same_as)}) at ${f.file}:${f.line}; treating the finding as new`);
+    }
+    const claimedFp = Number.isInteger(claimId) && claimId > 0 ? claims.get(claimId) : undefined;
     if (claimedFp) {
       const claimedThread = threadByFp.get(claimedFp);
       const theirs = textOfThread(claimedThread);
@@ -1946,7 +1966,7 @@ export function keyFindings(findings, threads = [], priorState = null, claims = 
       }
       refused++;
       console.warn(
-        `refusing same_as:${f.same_as} at ${f.file}:${f.line} — ` +
+        `refusing same_as:${claimId} at ${f.file}:${f.line} — ` +
           `${sameFile ? 'the finding on that thread reads as a different one' : `that thread is on ${claimedThread.path}`}; posting this as new`,
       );
     }
@@ -2759,7 +2779,7 @@ export async function runReview({ agent = runAgent } = {}) {
   // The review itself succeeded by this point; a flaky comments API must not turn the check red.
   const verificationState = verified ? 'verified' : toVerify.length === 0 ? 'none-open' : 'unknown';
   // What this round did, written down for the next one rather than left to be re-derived from these comments.
-  const closed = closedRecords({ identities, verifiedClosedIds, duplicateClosedIds: duplicateClosed });
+  const closed = closedRecords({ identities, threads, verifiedClosedIds, duplicateClosedIds: duplicateClosed });
   const roundState = buildState({
     commit: COMMIT,
     currentByFp,

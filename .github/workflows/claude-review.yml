@@ -22,10 +22,12 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
-    # 25, not 20: review.mjs budgets 12 min for the review and 5 for the verification pass, and its clock starts
-    # after checkout/install/tests and stops before the reconcile phase (up to 25 inline posts plus a resolve and
-    # a reply per stale thread). At 20 a full-budget run could be cancelled mid-reconcile.
-    timeout-minutes: 25
+    # The LOOSEST bound in the file, and it has to be: every step below is capped, a step that hits its cap FAILS
+    # (which is what lets the notes at the end run), but a step that is merely slow and succeeds still spends the
+    # job's clock. So the caps have to fit inside this one — 4 + 6 + 24 + 3, plus a minute for checkout and node —
+    # or the job cap becomes the binding one, and a job cancelled by ITS timeout runs no `if: failure()` step at
+    # all: no note, no summary, a red check and nothing on the pull request.
+    timeout-minutes: 38
     permissions:
       contents: read
       pull-requests: write   # post inline + summary comments and resolve review threads
@@ -62,13 +64,13 @@ jobs:
       # step instead of cancelling the job, so the note posts.
       - name: Install reviewer deps
         id: install
-        timeout-minutes: 5
+        timeout-minutes: 4
         working-directory: .github/claude/reviewer
         run: npm ci --ignore-scripts --no-audit --no-fund --silent
 
       - name: Test the agent's tool allowlist and redaction
         id: harness-tests
-        timeout-minutes: 8   # the suite is ~1 min; this is a hang guard, and the conservation fuzzer is the slow part
+        timeout-minutes: 6   # the suite is ~1 min; this is a hang guard, and the conservation fuzzer is the slow part
         working-directory: .github/claude/reviewer
         run: node --test test/
 
@@ -107,6 +109,7 @@ jobs:
         # Node is preinstalled on ubuntu-latest, so setup-node failing is not fatal here either. The review step
         # itself is excluded because it explains its own failures.
         if: failure() && steps.checkout.outcome == 'success' && steps.review.outcome != 'failure'
+        timeout-minutes: 3   # a read and a write; review.mjs arms its own 90-second network clock in this mode
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -121,6 +124,7 @@ jobs:
       # a generic one.
       - name: Say on the PR that the review step was killed
         if: failure() && steps.review.outcome == 'failure' && steps.review.outputs.explained != 'true'
+        timeout-minutes: 3   # exclusive with the note above: one of the two runs, never both
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

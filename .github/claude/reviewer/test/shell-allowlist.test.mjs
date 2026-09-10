@@ -3876,3 +3876,76 @@ test('"answered" is only said when somebody answered', async () => {
   const real = await applyVerification(verdict, numbered(answered), recordingIo(), { prAuthor: 'gianni' });
   assert.equal(real.rows[0].note, 'answered, concern stands');
 });
+
+test('a same_as the model spelled as a string is still a claim', async () => {
+  // The output contract asks for `"same_as": 3`; `"same_as": "3"` is a routine model slip. It used to be dropped
+  // in SILENCE, so the finding was posted as new and picked up a second comment on a thread it already had —
+  // the churn this protocol was added to remove, with nothing in the log saying why. Coercing widens nothing:
+  // the corroboration (same file, and the wording read against the thread's) is what admits a claim.
+  const fpOf = (f) => fingerprint({ file: f.file, line: f.line, severity: f.severity });
+  const at = { file: 'app/A.kt', line: 12, severity: 'warn' };
+  const fp = fpOf(at);
+  const t1 = {
+    id: 'T1', isResolved: false, firstCommentId: 7, firstCommentAuthor: 'github-actions[bot]', comments: [],
+    path: at.file, line: at.line, originalLine: at.line,
+    firstCommentBody: `🟡 **WARN** — the broadcast receiver registered in onStart is never unregistered <!-- bp-ai-review-fp:${fp} -->`,
+  };
+  const claims = new Map(openFindings([t1], null).map((f) => [f.n, f.fp]));
+  const moved = { severity: 'warn', file: 'app/A.kt', line: 96, comment: 'the receiver from onStart still leaks — nothing calls unregisterReceiver on the way out' };
+
+  // The number and the string reach the same conclusion.
+  assert.deepEqual([...keyFindings([{ ...moved, same_as: 1 }], [t1], null, claims).keys()], [fp]);
+  assert.deepEqual([...keyFindings([{ ...moved, same_as: '1' }], [t1], null, claims).keys()], [fp], 'a string claim was dropped');
+  assert.deepEqual([...keyFindings([{ ...moved, same_as: ' 1 ' }], [t1], null, claims).keys()], [fp]);
+
+  // What is NOT a claim stays not a claim, and says so in the log rather than vanishing.
+  const warnings = [];
+  const realWarn = console.warn;
+  console.warn = (m) => warnings.push(String(m));
+  try {
+    // 0 and '0' belong here: ids are 1-based, so zero names nothing — and a bare `Number()` makes it an INTEGER,
+    // which is how `''` and `[]` used to reach the claim lookup and match nothing without a word in the log.
+    for (const junk of ['first', {}, [], true, '1.5', '', 0, '0']) {
+      const keyed = keyFindings([{ ...moved, same_as: junk }], [t1], null, claims);
+      assert.deepEqual([...keyed.keys()], [fpOf(moved)], `same_as:${JSON.stringify(junk)} was treated as a claim`);
+    }
+  } finally {
+    console.warn = realWarn;
+  }
+  assert.equal(warnings.filter((w) => /unusable same_as/.test(w)).length, 8, 'an unusable claim was dropped in silence');
+
+  // And no claim at all is not an error worth logging.
+  const quiet = [];
+  console.warn = (m) => quiet.push(String(m));
+  try {
+    keyFindings([moved], [t1], null, claims);
+  } finally {
+    console.warn = realWarn;
+  }
+  assert.deepEqual(quiet.filter((w) => /unusable same_as/.test(w)), []);
+});
+
+test('a closed record carries the anchor it claims to', () => {
+  // `thread.line ?? thread.originalLine ?? 0` could not return anything but 0: the callers held ids and passed a
+  // synthetic `{ id, line: 0 }`. Nothing reads a closed entry's line today, and these are the entries
+  // `carriedRecords` keeps longest — so the first reader of `record.line` would have got 0 for exactly them,
+  // from an expression that says it looked.
+  const identities = new Map([
+    ['T1', { fp: 'aaaa1111', path: 'app/A.kt', severity: 'warn', text: 'the receiver leaks' }],
+    ['T2', { fp: 'bbbb2222', path: 'app/B.kt', severity: 'info', text: 'a duplicate of another' }],
+    ['T3', { fp: 'cccc3333', path: 'app/C.kt', severity: 'info', text: 'a thread that vanished' }],
+  ]);
+  const threads = [
+    { id: 'T1', line: 42, originalLine: 40 },
+    { id: 'T2', line: null, originalLine: 17 }, // outdated: GitHub drops `line`, and `originalLine` is the anchor
+  ];
+  const entries = closedRecords({ identities, threads, verifiedClosedIds: new Set(['T1', 'T3']), duplicateClosedIds: new Set(['T2']) });
+  const byFp = Object.fromEntries(entries);
+  assert.equal(byFp.aaaa1111.line, 42);
+  assert.equal(byFp.aaaa1111.action, 'resolved');
+  assert.equal(byFp.bbbb2222.line, 17, 'an outdated thread should fall back to its original line');
+  assert.equal(byFp.bbbb2222.action, 'duplicate');
+  // A thread that is no longer in the listing at all: 0 is the honest answer, and the entry is still recorded,
+  // because the close is knowledge nothing else holds.
+  assert.equal(byFp.cccc3333.line, 0);
+});
