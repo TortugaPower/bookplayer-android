@@ -143,6 +143,12 @@ test('the two failure notes cover the failures the harness cannot report itself'
   // And the killed-note must not overwrite an explanation review.mjs already posted: they share a heading, so
   // the second write replaces the first and would trade the real error for a generic one.
   assert.match(killedNote.if, /steps\.review\.outputs\.explained != 'true'/);
+  // And its text may not name a cause it cannot know. The gate fires on "the step failed and nothing was
+  // written", which is two cases — killed before any handler ran, or a handler whose write was refused — and
+  // asserting the first points a maintainer at the wrong knob when it was the second.
+  const killedText = readFileSync(WORKFLOW, 'utf8').slice(readFileSync(WORKFLOW, 'utf8').indexOf('review step was killed'));
+  const run = killedText.slice(killedText.indexOf('--setup-failed'), killedText.indexOf('\n', killedText.indexOf('--setup-failed')));
+  assert.match(run, /either|or/, 'the note asserts one cause when the gate cannot tell two apart');
   assert.match(readFileSync(HARNESS, 'utf8'), /appendFileSync\(out, 'explained=true/, 'nothing in the harness writes the output that gate reads');
 });
 

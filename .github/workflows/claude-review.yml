@@ -136,12 +136,12 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node .github/claude/reviewer/review.mjs --setup-failed "a step before the review failed (dependency install or the harness's own tests), so no review ran on this commit"
 
-      # And the failure the harness cannot report itself: the review step KILLED rather than failed — its own
-      # timeout, an OOM — where none of review.mjs's handlers ever run, so the round would end as a red check with
-      # nothing on the PR. `explained` is written by review.mjs whenever the pull request already carries its
-      # summary or its own failure note; a killed step never gets to write it, so this fires exactly then. Without
-      # that gate this note would replace review.mjs's own explanation (same heading) and trade the real error for
-      # a generic one.
+      # And the failure the harness could not report ITSELF. `explained` is written by review.mjs whenever the pull
+      # request already carries its summary or its own failure note, so this fires whenever the step failed and
+      # nothing was written — which is two cases, not one: the step was killed (its cap, an OOM) so no handler ran
+      # at all, OR a handler ran and its write was refused. The note below must not claim to know which; saying
+      # "killed" when the cause was a refused write points a maintainer at the wrong knob. The gate is what stops
+      # this from replacing review.mjs's own explanation, which shares its heading.
       - name: Say on the PR that the review step was killed
         if: failure() && steps.review.outcome == 'failure' && steps.review.outputs.explained != 'true'
         timeout-minutes: 3   # exclusive with the note above: one of the two runs, never both
@@ -149,4 +149,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: node .github/claude/reviewer/review.mjs --setup-failed "the review step ended without writing a summary — it was killed rather than failing on its own terms (the review step's 24 minutes, or the runner ran out of memory)"
+        run: node .github/claude/reviewer/review.mjs --setup-failed "the review step failed without leaving an explanation on this PR — either it was killed (the review step's 24 minutes, or the runner ran out of memory) or it could not post its own note; the run log has the reason"
