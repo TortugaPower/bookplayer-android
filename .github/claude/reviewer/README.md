@@ -40,7 +40,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~241 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~242 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
@@ -120,13 +120,14 @@ workflow, which fires only when `review.mjs` did not manage to say anything itse
 
 ## Tokens
 
-**Nothing watches this dependency tree.** There is no Dependabot configuration in this repository, and the
-review workflow skips `dependabot[bot]` anyway, so a vulnerable transitive dependency in the committed lockfile
-(the tree pulls in express, ajv, jose and others) stays invisible until somebody looks. Two ways to close it, and
-both are a maintainer's call rather than the harness's: a Dependabot npm entry scoped to this directory — its
-pull requests skip the reviewer, so there is no loop, and `ci.yml` still runs `npm ci` and the suite on them — or
-a standing habit of running `npm audit` here when the SDK is bumped. Until one of those exists, this is a known
-residual, not an oversight.
+**What watches this dependency tree, and what does not.** The tree is installed in the job that holds
+`ANTHROPIC_API_KEY` and the resolve PAT, and it pulls in express, ajv, jose and others. `ci.yml` now runs
+`npm audit --audit-level=high` after the suite and turns a hit into a **warning annotation**, not a failure — a
+new advisory with no fix available must not red a required check on an unrelated pull request. So the residual is
+visible on the PR rather than only in this file. What is still missing is anything that tells you a bump is
+*due*: that would be a Dependabot npm entry scoped to this directory (its pull requests skip the reviewer, so
+there is no loop, and `ci.yml` still runs `npm ci` and the suite on them), and it is a maintainer's decision
+because it opens pull requests on a schedule.
 
 The SDK version is **pinned exactly** (`0.3.261`, not `^0.3.261`), and that is a safety property rather than
 tidiness: the agent's sandbox is configured entirely by SDK option *names* — `settingSources: []`,

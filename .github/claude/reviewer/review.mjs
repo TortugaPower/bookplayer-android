@@ -2061,7 +2061,7 @@ export function keyFindings(findings, threads = [], priorState = null, claims = 
         : typeof f.same_as === 'string' && /^\s*\d+\s*$/.test(f.same_as) ? Number(f.same_as)
           : NaN;
     if (f.same_as !== undefined && f.same_as !== null && !(Number.isInteger(claimId) && claimId > 0)) {
-      console.warn(`ignoring an unusable same_as (${JSON.stringify(f.same_as)}) at ${f.file}:${f.line}; treating the finding as new`);
+      console.warn(`ignoring an unusable same_as (${boundedDump(JSON.stringify(f.same_as), 120)}) at ${boundedDump(f.file, 80)}:${f.line}; treating the finding as new`);
     }
     const claimedFp = Number.isInteger(claimId) && claimId > 0 ? claims.get(claimId) : undefined;
     if (claimedFp) {
@@ -2232,7 +2232,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
       stats.posted++;
       liveFps.add(fp);
     } catch (e) {
-      console.warn(`inline post failed ${f.file}:${f.line} — ${redact(e.message)}`);
+      console.warn(`inline post failed ${boundedDump(f.file, 80)}:${f.line} — ${redact(e.message)}`);
       unpostable.push(f);
       unpostableFps.add(fp);
     }
@@ -2793,7 +2793,7 @@ export async function runReview({ agent = runAgent } = {}) {
   if (DRY_RUN) {
     console.log('\n===== DRY RUN =====');
     for (const [fp, f] of currentByFp) {
-      console.log(`${severityEmoji(f.severity)} ${f.file}:${f.line} [${fp}] ${f.comment}`);
+      console.log(`${severityEmoji(f.severity)} ${boundedDump(f.file, 120)}:${f.line} [${fp}] ${boundedDump(f.comment)}`);
     }
     console.log('\n--- summary ---');
     console.log(renderSummary(parsed, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 }, [], { provisional, provisionalCause }));

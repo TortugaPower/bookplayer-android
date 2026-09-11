@@ -160,3 +160,26 @@ test('nothing reaches the log with an upstream message still in it', () => {
   }
   assert.deepEqual(offenders, [], `wrap these in redact():\n${offenders.join('\n')}`);
 });
+
+test("model-authored text reaches the log only through boundedDump", () => {
+  // `boundedDump` is the one wrapper that does all three things this needs: it redacts, it bounds, and it breaks
+  // a leading `::` so model text cannot forge a workflow command. The redaction check above cannot see this
+  // class — it keys on names like `message` and `reason`, and `f.same_as` is neither — and a public run log is
+  // where an unbounded finding, or a `same_as` filled with prose quoted from the diff, would land verbatim.
+  //
+  // The DRY_RUN print goes through it too, and loses nothing: the default bound is thousands of characters, far
+  // past any real finding, and redaction only touches secret shapes.
+  const src = readFileSync(`${DIR}review.mjs`, 'utf8');
+  const modelText = /\b[fvd]\.(file|comment|same_as|evidence|text|summary)\b/;
+  const offenders = [];
+  for (const [i, line] of src.split('\n').entries()) {
+    if (!/console\.(warn|log|error)\(/.test(line)) continue;
+    for (const m of line.matchAll(/\$\{([^}]*)\}/g)) {
+      const expr = m[1];
+      if (!modelText.test(expr)) continue;
+      if (/boundedDump\(/.test(expr)) continue;
+      offenders.push(`review.mjs:${i + 1}: \${${expr}} — model text to the log without boundedDump`);
+    }
+  }
+  assert.deepEqual(offenders, [], `wrap these in boundedDump():\n${offenders.join('\n')}`);
+});

@@ -181,3 +181,9 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund --silent --fetch-retries=5 --fetch-retry-maxtimeout=30000
           node --test test/
+          # The dependency tree is installed in the job that holds ANTHROPIC_API_KEY and the resolve PAT, and
+          # nothing in this repository watches it. An ANNOTATION rather than a failure: a new advisory with no
+          # fix available must not red a required check on an unrelated pull request, and a silent residual is
+          # what this replaces. Dependabot for this directory would be the enforced version, and that is a
+          # maintainer's decision, because it opens pull requests on a schedule.
+          npm audit --audit-level=high || echo "::warning title=Reviewer dependencies::npm audit reported high-severity advisories in .github/claude/reviewer - see this step log"
