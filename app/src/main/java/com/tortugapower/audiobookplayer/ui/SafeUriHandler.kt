@@ -42,10 +42,15 @@ class SafeUriHandler(
      * Thrown bare by `startActivity`, or wrapped by the platform handler as `IllegalArgumentException("Can't open …")`
      * — today one level deep, so the whole causal chain is walked rather than only the immediate cause: a Compose
      * release that adds a wrapper would otherwise bring the crash back with nothing in Sentry to say so. A
-     * causeless [IllegalArgumentException] (a malformed URI of our own making) is still not this.
+     * causeless [IllegalArgumentException] (a malformed URI of our own making) is still not this. Bounded, because a
+     * cyclic cause graph is constructible (`initCause`) and this runs on the main thread.
      */
     private fun RuntimeException.isNoHandler(): Boolean =
-        generateSequence(this as Throwable) { it.cause }.any { it is ActivityNotFoundException }
+        generateSequence(this as Throwable) { it.cause }.take(MAX_CAUSE_DEPTH).any { it is ActivityNotFoundException }
+
+    private companion object {
+        const val MAX_CAUSE_DEPTH = 8
+    }
 }
 
 /**

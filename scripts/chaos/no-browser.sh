@@ -38,8 +38,12 @@ echo "https handlers after disabling Chrome: $HANDLERS"
 "$ADB" logcat -c
 "$ADB" shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
 sleep 6
-# The bottom navigation's third tab is Settings (its items carry no text in the accessibility dump).
-"$ADB" shell input tap 900 2000; sleep 2
+# The bottom navigation's third tab is Settings. Its items carry no text in this AVD's accessibility dump, so the
+# helper is tried first and a fixed coordinate (Pixel 3a profile) is the fallback — and either way the screen is
+# checked, so a different AVD fails loudly here rather than "passing" on whatever screen the tap landed on.
+tap "Settings" >/dev/null 2>&1 || { "$ADB" shell input tap 900 2000; sleep 2; }
+"$ADB" shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+"$ADB" shell cat /sdcard/ui.xml | grep -q 'text="Settings"' || { echo "did not reach the Settings screen; adjust the tab tap for this AVD"; exit 1; }
 for _ in 1 2 3; do "$ADB" shell input swipe 540 1500 540 500 300; sleep 1; done
 tap "View project on GitHub"
 sleep 3

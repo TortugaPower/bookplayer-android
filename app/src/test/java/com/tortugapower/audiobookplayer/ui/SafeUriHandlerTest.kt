@@ -62,6 +62,17 @@ class SafeUriHandlerTest {
         assertEquals(listOf("https://example.org"), reported)
     }
 
+    @Test(timeout = 2_000)
+    fun `a cyclic cause chain is rethrown, not walked forever`() {
+        // `initCause` can build a cycle; an unbounded walk would spin on the main thread instead of rethrowing.
+        val a = IllegalArgumentException("a")
+        val b = RuntimeException("b", a)
+        a.initCause(b)
+        val handler = SafeUriHandler(RecordingDelegate(a)) { throw AssertionError("must not be reported: $it") }
+
+        assertThrows(IllegalArgumentException::class.java) { handler.openUri("https://example.org") }
+    }
+
     @Test
     fun `any other failure is not swallowed`() {
         // A wrapper that ate every IllegalArgumentException would hide a malformed URI built by our own code.
