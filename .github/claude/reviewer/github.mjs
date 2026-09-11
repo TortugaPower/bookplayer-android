@@ -7,7 +7,12 @@ const REST = 'https://api.github.com';
 // so changing the page size — the obvious thing to do to save a request — silently stopped pagination after the
 // first page: the agent would review the first slice of a large diff with no truncation marker, and the harness
 // would read only the first page of comments, losing its own state record and posting a second summary.
-const PER_PAGE = 100;
+// One page size for every listing in this file, REST and GraphQL alike. The GraphQL query kept its own literal
+// `first:100` for a while, and `MAX_THREAD_PAGES`' arithmetic ("100 pages is 10,000 threads") silently depended
+// on it — so halving this to save a request would have left that comment and the `truncated` reasoning wrong
+// without touching anything named `PER_PAGE`. (`$cursor` in that query is a GraphQL variable, not a template
+// hole; only `${` interpolates.)
+export const PER_PAGE = 100;
 const GQL = 'https://api.github.com/graphql';
 
 function token() {
@@ -325,7 +330,7 @@ export async function listReviewThreads(prNumber) {
       `query($owner:String!,$name:String!,$number:Int!,$cursor:String){
         repository(owner:$owner,name:$name){
           pullRequest(number:$number){
-            reviewThreads(first:100, after:$cursor){
+            reviewThreads(first:${PER_PAGE}, after:$cursor){
               pageInfo{ hasNextPage endCursor }
               nodes{
                 id

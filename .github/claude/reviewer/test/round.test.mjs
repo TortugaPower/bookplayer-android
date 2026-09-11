@@ -1998,3 +1998,38 @@ test('a summary posted DURING the round is found before a second one is', async 
     restore();
   }
 });
+
+test('every listing in the client asks for the same page size', async () => {
+  // `PER_PAGE` was introduced as the one page size, and the GraphQL query kept a literal `first:100` — with
+  // `MAX_THREAD_PAGES`' arithmetic ("100 pages is 10,000 threads") silently resting on that literal. Halving the
+  // constant to save a request would have left the page-cap reasoning and the `truncated` signal wrong without
+  // touching anything named `PER_PAGE`, which is the drift the constant exists to prevent.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'pagesize-')));
+  const { restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '50', COMMIT: 'ad00000000000004',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'pagesize');
+  const { listReviewThreads, listIssueComments, PER_PAGE, setNetworkDeadline } = await import('../github.mjs');
+  const realFetch = globalThis.fetch;
+  try {
+    setNetworkDeadline(Date.now() + 60_000);
+    const asked = [];
+    globalThis.fetch = async (url, init = {}) => {
+      const u = String(url);
+      if (u.endsWith('/graphql')) {
+        asked.push(Number((/reviewThreads\(first:(\d+)/.exec(JSON.parse(init.body).query) || [])[1]));
+        return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ data: { repository: { pullRequest: { reviewThreads: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } } } } }) };
+      }
+      asked.push(Number((/per_page=(\d+)/.exec(u) || [])[1]));
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => [], text: async () => '[]' };
+    };
+    await listReviewThreads(50);
+    await listIssueComments(50);
+    assert.ok(asked.length >= 2, 'nothing was listed');
+    assert.deepEqual([...new Set(asked)], [PER_PAGE], `listings asked for ${[...new Set(asked)].join(', ')} and PER_PAGE is ${PER_PAGE}`);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});

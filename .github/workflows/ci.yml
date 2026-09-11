@@ -15,7 +15,12 @@ on:
 # catches two pull requests that were each green alone and are not green together. "Only the last one can be
 # merged" is an argument about a PR's head, and a branch's own history is not that.
 concurrency:
-  group: ci-${{ github.ref }}
+  # A PULL REQUEST's head supersedes itself; a pushed COMMIT gets a group of its own. `cancel-in-progress: false`
+  # was only half the fix: GitHub also cancels a PENDING run when a new one is queued into an occupied group, so
+  # with three merges in a row — A running, B pending, C queued — B was cancelled and its merge commit still never
+  # got a completed `build`, which is the outcome this is here to prevent. Keying the push group on the SHA takes
+  # every pushed commit out of any shared group, so nothing can queue behind it.
+  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.ref) || format('ci-push-{0}', github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
