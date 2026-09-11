@@ -40,7 +40,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~238 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~239 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
@@ -141,8 +141,10 @@ why the bump has to be an edit a human makes rather than a range that drifts.
   ("Resource not accessible by integration"), so without it every close fails, the threads stay open, and the
   summary says "could not be resolved" on each one. A fine-grained PAT scoped to this repository with
   **Pull requests: read & write** is enough — a classic repo-scope token over-reaches, since this job runs
-  PR-branch code. To rotate: create the PAT, update the repository secret, and update the backup copy in SSM
-  (`/github/review-resolve-pat`, profile `bookplayer`, us-east-1) so a write-only GitHub secret is recoverable.
+  PR-branch code. To rotate: create the PAT, update the repository secret, and update the backup copy in SSM (the parameter name
+  and account are in the internal runbook, not here) so a write-only GitHub secret is recoverable. **This
+  repository is public**: the fact that a backup exists belongs in this file, its coordinates do not — they are
+  free reconnaissance for anyone who later gets credentials for that account.
 
 ## Things worth knowing before changing it
 

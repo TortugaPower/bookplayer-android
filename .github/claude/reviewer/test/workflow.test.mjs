@@ -20,8 +20,13 @@ const WORKFLOW = fileURLToPath(new URL('../../../workflows/claude-review.yml', i
 const CI = fileURLToPath(new URL('../../../workflows/ci.yml', import.meta.url));
 const README = fileURLToPath(new URL('../README.md', import.meta.url));
 const CLIENT = fileURLToPath(new URL('../github.mjs', import.meta.url));
+const HARNESS = fileURLToPath(new URL('../review.mjs', import.meta.url));
 // Everywhere a budget figure can be written down. Adding a file here is the cheap half of keeping these two
 // checks honest; the expensive half is remembering that a check over a FILE LIST is only as wide as the list.
+//
+// Every path it names is declared ABOVE it, and the call below proves it: naming one that is declared later works
+// only while nothing invokes this during module evaluation, and precomputing the list — the natural next edit —
+// throws on the temporal dead zone, which in this file would look like the drift checks losing their corpus.
 const capSources = () => [
   WORKFLOW,
   CI,
@@ -32,7 +37,10 @@ const capSources = () => [
     .filter((f) => f.endsWith('.mjs'))
     .map((f) => fileURLToPath(new URL(f, import.meta.url))),
 ];
-const HARNESS = fileURLToPath(new URL('../review.mjs', import.meta.url));
+
+// Invoked HERE, at module scope, which is the edit the shape above has to survive. A path declared below the
+// closure fails this line with `ReferenceError: Cannot access '...' before initialization`.
+const CAP_SOURCES = capSources();
 
 // What the harness itself budgets, read from its source rather than restated here: the whole point is that two
 // files stop disagreeing.
@@ -340,4 +348,17 @@ test('ci.yml cancels superseded runs and does not lend them a token', () => {
   // middle commit without a completed required check — the outcome the setting above is there to prevent.
   assert.match(ci, /group: .*github\.sha/, 'pushed commits share a concurrency group, so a pending build can still be cancelled');
   assert.match(ci, /uses: actions\/checkout@v\d+\n\s+with:\n\s+persist-credentials: false/, 'the checkout leaves the job token in .git/config while PR code runs');
+});
+
+test('the public README keeps no secret coordinates', () => {
+  // This repository is public. That the resolve PAT has a backup belongs in the README; the parameter name, the
+  // account profile and the region do not — none is a credential, and all three are reconnaissance for anyone who
+  // later obtains credentials for that account. The rest of this file is careful about exactly that class.
+  const readme = readFileSync(README, 'utf8');
+  for (const leak of [/\/github\/review-resolve-pat/, /profile `?bookplayer`?/, /us-east-1/]) {
+    assert.equal(leak.test(readme), false, `the README publishes ${leak} in a public repository`);
+  }
+  assert.match(readme, /backup copy in SSM/, 'the fact that a backup exists should stay');
+  // And the corpus helper is usable where it is now called: at module scope, above.
+  assert.ok(CAP_SOURCES.length >= 5 && CAP_SOURCES.every((f) => typeof f === 'string' && f.length));
 });

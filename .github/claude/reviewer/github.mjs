@@ -9,9 +9,13 @@ const REST = 'https://api.github.com';
 // would read only the first page of comments, losing its own state record and posting a second summary.
 // One page size for every listing in this file, REST and GraphQL alike. The GraphQL query kept its own literal
 // `first:100` for a while, and `MAX_THREAD_PAGES`' arithmetic ("100 pages is 10,000 threads") silently depended
-// on it — so halving this to save a request would have left that comment and the `truncated` reasoning wrong
-// without touching anything named `PER_PAGE`. (`$cursor` in that query is a GraphQL variable, not a template
-// hole; only `${` interpolates.)
+// on it — so halving this would have left that comment and the `truncated` reasoning wrong without touching
+// anything named `PER_PAGE`. (`$cursor` in that query is a GraphQL variable, not a template hole; only `${`
+// interpolates.)
+//
+// 100 is the MAXIMUM both APIs accept — REST caps `per_page` there, and GraphQL rejects `first:` above it with
+// MAX_NODE_LIMIT_EXCEEDED — so this may only be lowered. Raising it fails the thread listing outright, which
+// `runReview` catches into a round that posts nothing inline.
 export const PER_PAGE = 100;
 const GQL = 'https://api.github.com/graphql';
 
