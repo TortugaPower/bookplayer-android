@@ -1559,7 +1559,7 @@ export function buildVerifyPrompt(entries, headSha, prAuthor = '', currentByFp =
     const lineAttr = anchor.line == null
       ? 'line="unknown"'
       : anchor.stale
-        ? `line="${anchor.line}" anchor="stale: from the commit the finding was raised on — the code may have moved"`
+        ? `line="${anchor.line}" ${STALE_ANCHOR_ATTR}`
         : `line="${anchor.line}"`;
     return [
       // Severity and text from the thread's ONE identity, which knows them from the record; the body is the
@@ -1598,6 +1598,10 @@ export function findingSeverity(body) {
 }
 
 // `line` is null on an outdated thread; the fallback anchor is from an earlier commit and is labelled as such.
+// One wording for both prompts that show an anchor: the verifier's and the review's open-findings list. The
+// review prompt used to render a stale line bare, so the two prompts disagreed about a fact they both had — and a
+// stale anchor presented as current is the one thing that can make a correct `same_as` claim look wrong.
+const STALE_ANCHOR_ATTR = 'anchor="stale: from the commit the finding was raised on — the code may have moved"';
 export function threadAnchor(t) {
   if (t.line != null) return { line: t.line, stale: false };
   return { line: t.originalLine ?? null, stale: true };
@@ -2018,6 +2022,8 @@ export function openFindings(threads = [], priorState = null, max = MAX_OPEN_FIN
       fp,
       file: recorded ? recorded.file : t.path,
       line: anchor.line ?? recorded?.line ?? null,
+      // Carried through to the block: an outdated thread's line is from the commit the finding was raised on.
+      stale: anchor.stale,
       severity: (recorded ? recorded.severity : findingSeverity(t.firstCommentBody)) || 'info',
       // The body while it still looks like ours, the record's text once a maintainer has edited it past
       // recognition — the same choice `identities` makes, for the same reason.
@@ -2033,7 +2039,7 @@ export function openFindings(threads = [], priorState = null, max = MAX_OPEN_FIN
 export function openFindingsBlock(list) {
   if (!list.length) return '';
   const rows = list
-    .map((f) => `  <finding id="${f.n}" file="${escapeAttr(f.file)}" line="${escapeAttr(String(f.line ?? 'unknown'))}" severity="${escapeAttr(f.severity)}">${escapePrText(f.text)}</finding>`)
+    .map((f) => `  <finding id="${f.n}" file="${escapeAttr(f.file)}" line="${escapeAttr(String(f.line ?? 'unknown'))}"${f.stale && f.line != null ? ` ${STALE_ANCHOR_ATTR}` : ''} severity="${escapeAttr(f.severity)}">${escapePrText(f.text)}</finding>`)
     .join('\n');
   return `\n\nFindings from earlier pushes on this PR that are still open. If one of your findings is the SAME ISSUE as
 one of these — even at a different line, even worded differently — set \`same_as\` to its id instead of writing it

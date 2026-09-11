@@ -284,6 +284,14 @@ test('a cap claimed in prose is written where the drift check can read it', () =
   }
   assert.deepEqual(offenders, [], `write a cap as \`the job's N\` / \`the review step's N\`, or leave the number out:\n${offenders.join('\n')}`);
 });
+test('the directory is self-contained: its own .gitignore covers what npm ci installs', () => {
+  // The rule lived in the repository root for a while, which is the one file the porting story ("copy this
+  // directory and the workflow") does not copy — so the first `npm ci` in the next repository, which the README
+  // tells you to run, left an unignored `node_modules` under it.
+  const ignore = readFileSync(fileURLToPath(new URL('../.gitignore', import.meta.url)), 'utf8');
+  assert.ok(ignore.split('\n').some((l) => l.trim() === 'node_modules/' || l.trim() === 'node_modules'), 'the module .gitignore does not ignore node_modules/');
+});
+
 test('the public README keeps no secret coordinates', () => {
   // This repository is public. That the resolve PAT has a backup belongs in the README; the parameter name, the
   // account profile and the region do not — none is a credential, and all three are reconnaissance for anyone who

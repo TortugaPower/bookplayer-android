@@ -174,6 +174,62 @@ function wrappedInRedact(expr) {
   return false;
 }
 
+// The text between a brace at `open` and its match, `{}`/`()`/`[]` counted together.
+function balanced(text, open) {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    if ('{(['.includes(text[i])) depth++;
+    else if ('})]'.includes(text[i]) && --depth === 0) return text.slice(open + 1, i);
+  }
+  return null;
+}
+// Top-level segments of an object literal or destructuring pattern.
+const segments = (inner) => {
+  const out = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < inner.length; i++) {
+    if ('{(['.includes(inner[i])) depth++;
+    else if ('})]'.includes(inner[i])) depth--;
+    else if (inner[i] === ',' && depth === 0) { out.push(inner.slice(start, i)); start = i + 1; }
+  }
+  out.push(inner.slice(start));
+  return out.map((s) => s.trim()).filter(Boolean);
+};
+const keyOf = (segment) => /^(?:\.\.\.)?([A-Za-z_$][\w$]*)/.exec(segment)?.[1] ?? null;
+
+test('an option a caller passes is one the function takes', () => {
+  // `actionByFp({ currentByFp, unpostable: [] })` passed an option the function does not have — its name is
+  // `unpostableFps` — so the default applied and the test meant something other than what it said. The same
+  // class as a comment naming code that is not there, one level down: a name that looks bound and is not. For
+  // every exported function whose first parameter is an options object, every call that spells its options as
+  // a literal may use only the names the pattern declares. A spread or a computed key is not checked.
+  const src = readFileSync(`${DIR}review.mjs`, 'utf8');
+  const declared = new Map();
+  for (const m of src.matchAll(/^export (?:async )?function (\w+)\(\{/gm)) {
+    const pattern = balanced(src, m.index + m[0].length - 1);
+    declared.set(m[1], new Set(segments(pattern).map(keyOf).filter(Boolean)));
+  }
+  assert.ok(declared.size >= 5, `only ${declared.size} option-object functions found; the signature regex has drifted`);
+
+  const offenders = [];
+  for (const file of sourceFiles()) {
+    const text = readFileSync(`${DIR}${file}`, 'utf8');
+    for (const [name, keys] of declared) {
+      for (const call of text.matchAll(new RegExp(`\\b${name}\\(\\{`, 'g'))) {
+        const literal = balanced(text, call.index + call[0].length - 1);
+        if (literal === null) continue;
+        for (const seg of segments(literal)) {
+          if (seg.startsWith('...') || seg.startsWith('[')) continue;
+          const key = keyOf(seg);
+          if (key && !keys.has(key)) offenders.push(`${file}: ${name}({ ${key} }) — the function takes { ${[...keys].join(', ')} }`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], `${offenders.length} call(s) pass an option the function ignores:\n${offenders.join('\n')}`);
+});
+
 test('nothing reaches the log with an upstream message still in it', () => {
   // The rule this file's subject states about itself: "every string that leaves this process goes through
   // `redact`, log lines included". It was applied by hand — twice, by regex — and both times the regex was the

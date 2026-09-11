@@ -40,11 +40,12 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~237 tests, a minute or so, no network and no API key. The reviewer workflow runs exactly this before the review
+~239 tests, a minute or so, no network and no API key. The reviewer workflow runs exactly this before the review
 step, so a red suite means no review ran (and the workflow says so on the PR). Note where that is: the reviewer
 job skips draft pull requests, forks and Dependabot, so a pull request touching only this directory is tested only
 if your repository's own CI also runs `node --test test/` here. That is a per-repository decision — this harness
-ports by copying this directory and `claude-review.yml`, and nothing in it assumes the rest of your CI.
+ports by copying this directory and `claude-review.yml`, and nothing in it assumes the rest of your CI — the
+directory carries its own `.gitignore` for `node_modules/`, so the copy is complete without touching the root one.
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
 comment created *next* — off by one, for as long as it has existed, because nothing had ever read that value.
