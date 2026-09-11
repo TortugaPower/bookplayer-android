@@ -37,8 +37,14 @@ while IFS= read -r path || [ -n "$path" ]; do
   esac
 done
 
-# An empty listing is not "nothing changed", it is "we were not told" — a failed or truncated read. The 3000 is
-# the GitHub API's own cap on a pull request's file listing, past which the answer is silently partial.
+# An empty listing is not "nothing changed", it is "we were not told" — a failed or truncated read.
+#
+# The 3000 is GitHub's cap on a pull request's FILE listing, and what is counted here is LINES: the caller emits a
+# rename's old path as well as its new one, so 3000 lines can be as few as 1500 files. That makes this a
+# conservative proxy — it can declare a fully-listed change set unusable and build anyway — and it is deliberately
+# not corrected to 6000, because a listing of 3000 files with no renames is exactly 3000 lines and IS truncated.
+# Counting lines over-builds; counting against a doubled bound would skip a truncated listing, and that is the one
+# direction this script may never fall.
 if [ "$count" -eq 0 ] || [ "$count" -ge 3000 ]; then
   echo "changed-file listing is unusable ($count entries); building" >&2
   echo "android=true"

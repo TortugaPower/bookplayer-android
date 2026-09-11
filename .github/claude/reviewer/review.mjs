@@ -460,6 +460,10 @@ const ALLOWED_LONG_FLAGS = new Set([
 // (`-d recurse`). `file -L` was in this table while the line above said it was not — harmless in itself (the
 // realpath check still confines what `file` reads, and `file` walks no trees), but this table is what a
 // maintainer consults before adding a command, so it has to be true about itself.
+// How many non-flag operands each of these needs before it is reading a file rather than stdin. `pwd` and `echo`
+// are absent because they read nothing; `find` and `ls` default to the working directory rather than stdin.
+const STDIN_WITHOUT_OPERANDS = { cat: 1, head: 1, tail: 1, wc: 1, file: 1, du: 1, stat: 1, grep: 2 };
+
 const ALLOWED_SHORT_FLAGS = {
   git: 'pnLC',
   cat: 'nbs',
@@ -584,6 +588,22 @@ export function isAllowedBash(command, roots = READ_ROOTS, cwd = AGENT_CWD) {
     const first = words.findIndex((w, i) => i > 0 && !w.startsWith('-'));
     if (first !== -1 && !existsSync(resolve(cwd, words[first]))) skip.add(first);
   }
+  // A command that would read STDIN because it was given nothing to read. The `-` and `-f=` rules below cover the
+  // explicit spellings, and `tail -f` is refused by the flag allowlist, all for the same reason — a command
+  // waiting on stdin blocks until the tool's own timeout and spends the review's budget on nothing. `cat` on its
+  // own passed every one of those rules, because they only inspect words that exist. `grep` needs two operands
+  // (a pattern AND a path); the rest need one.
+  // A number is a flag's VALUE, not something to read: `tail -n 5` is a stdin read whose "operand" is the 5.
+  // Deliberately a heuristic and not a table of which flags take values — that table is the emulator this gate
+  // refuses to be, and getting it wrong fails open. Residual: a file actually named `5` is refused, and a
+  // non-numeric separated value (`grep -m x`) is miscounted as an operand, which fails closed either way.
+  const operands = words.slice(1).filter((w) => !w.startsWith('-') && !/^\d+$/.test(w));
+  // `grep` normally needs two (a pattern and a path), but a RECURSIVE grep needs only the pattern: GNU grep
+  // searches the working directory when given no path, so `grep -rn TODO` reads no stdin and is the spelling the
+  // agent reaches for most. Refusing it would cost a denied call and teach nothing.
+  const recursive = words.some((w) => /^-[A-Za-z]*[rR]/.test(w) || w === '--recursive' || w === '--dereference-recursive');
+  const needed = words[0] === 'grep' && recursive ? 1 : STDIN_WITHOUT_OPERANDS[words[0]];
+  if (needed > operands.length) return false;
   // Every word that could name a path. The program name is not one, and a bare flag is not either.
   return words.every((word, i) => {
     if (i === 0 || skip.has(i)) return true;

@@ -4069,3 +4069,23 @@ test('the record answers "did we close this", never "have we already answered"',
   const noted = { ...t, comments: [...t.comments, { id: 2, body: 'still open <!-- bp-ai-review-verify-note -->', author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-02T00:00:00Z' }] };
   assert.equal(harnessClosed(noted, ['<!-- bp-ai-review-verify-note -->'], closedRecord), true);
 });
+
+test('a command with nothing to read is refused', () => {
+  // The `-` and `-f=` rules refuse the explicit stdin spellings and `tail -f` is refused by the flag allowlist,
+  // all for one reason: a command waiting on stdin blocks until the tool's own timeout and spends the review's
+  // budget on nothing. `cat` on its own passed all of them, because they only inspect words that are there.
+  for (const blocked of ['cat', 'wc', 'head', 'file', 'du', 'stat', 'grep TODO', 'cat -n', 'tail -n 5', 'head -c 100', 'grep -m 3 TODO']) {
+    assert.equal(isAllowedBash(blocked), false, `${blocked} would read stdin and block`);
+  }
+  // What reads a file, or reads nothing at all, is untouched.
+  for (const allowed of ['cat review.mjs', 'wc -l review.mjs', 'tail -n 5 review.mjs', 'head -c 100 review.mjs',
+                         'grep -rn TODO review.mjs', 'stat -c %s review.mjs', 'ls', 'pwd', 'echo hi', 'find . -name x']) {
+    assert.equal(isAllowedBash(allowed), true, `${allowed} should be allowed`);
+  }
+  // A RECURSIVE grep needs only its pattern: GNU grep searches the working directory when given no path, so this
+  // reads no stdin — and it is the spelling the agent reaches for most, so refusing it would teach nothing.
+  for (const recursive of ['grep -rn TODO', 'grep -r TODO', 'grep --recursive TODO']) {
+    assert.equal(isAllowedBash(recursive), true, `${recursive} reads the working directory, not stdin`);
+  }
+  assert.equal(isAllowedBash('grep -n TODO'), false, 'without -r, grep with no path reads stdin');
+});
