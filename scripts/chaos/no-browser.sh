@@ -28,7 +28,7 @@ tap() {
   sleep 2
 }
 
-"$ADB" shell pm disable-user --user 0 com.android.chrome >/dev/null
+"$ADB" shell pm disable-user --user 0 com.android.chrome >/dev/null 2>&1 || true   # absent or already disabled is fine
 HANDLERS=$("$ADB" shell pm query-activities -a android.intent.action.VIEW -d https://github.com | grep -c packageName= || true)
 echo "https handlers after disabling Chrome: $HANDLERS"
 
@@ -43,7 +43,7 @@ tap "View project on GitHub"
 sleep 3
 
 FATAL=$("$ADB" logcat -d -v brief | grep -c "FATAL EXCEPTION" || true)
-ALIVE=$("$ADB" shell pidof "$PKG" | wc -w | tr -d ' ')
+ALIVE=$("$ADB" shell pidof "$PKG" 2>/dev/null | wc -w | tr -d ' ' || true)   # pidof exits non-zero when the process is gone
 TOAST=$("$ADB" logcat -d -v brief | grep -c "NotificationService.*Toast.*pkg=$PKG" || true)
 echo "fatal=$FATAL alive=$ALIVE toast=$TOAST"
 "$ADB" logcat -d -v brief | grep -E "Can't open|ActivityNotFoundException" | head -2

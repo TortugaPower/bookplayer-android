@@ -16,6 +16,8 @@ import androidx.core.view.WindowCompat
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.ThemeManager
 import com.tortugapower.audiobookplayer.ui.SafeUriHandler
+import io.sentry.Breadcrumb
+import io.sentry.Sentry
 
 /**
  * Root theme wrapper. Resolves the active variant (system or manual), provides
@@ -44,7 +46,12 @@ fun BookPlayerTheme(content: @Composable () -> Unit) {
     val platformUriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val uriHandler = remember(platformUriHandler, context) {
-        SafeUriHandler(platformUriHandler) {
+        SafeUriHandler(platformUriHandler) { uri ->
+            // The handled case would otherwise vanish from Sentry once the crash is gone; the scheme alone says
+            // how common a no-browser device is without putting a user's link in a report.
+            Sentry.addBreadcrumb(
+                Breadcrumb.info("no app to open a ${uri.substringBefore(':')} link").apply { category = "links" }
+            )
             Toast.makeText(context, R.string.common_no_link_handler, Toast.LENGTH_SHORT).show()
         }
     }

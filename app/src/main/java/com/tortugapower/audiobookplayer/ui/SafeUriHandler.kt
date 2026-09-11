@@ -24,10 +24,13 @@ class SafeUriHandler(
     override fun openUri(uri: String) {
         try {
             delegate.openUri(uri)
-        } catch (e: ActivityNotFoundException) {
+        } catch (e: RuntimeException) {
+            if (!e.isNoHandler()) throw e
             onNoHandler(uri)
-        } catch (e: IllegalArgumentException) {
-            if (e.cause is ActivityNotFoundException) onNoHandler(uri) else throw e
         }
     }
+
+    /** Thrown bare by `startActivity`, or wrapped by the platform handler as `IllegalArgumentException("Can't open …")`. */
+    private fun RuntimeException.isNoHandler(): Boolean =
+        this is ActivityNotFoundException || (this is IllegalArgumentException && cause is ActivityNotFoundException)
 }
