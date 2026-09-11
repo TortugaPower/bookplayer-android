@@ -211,10 +211,17 @@ test('nothing in the scope step can fail the required check', () => {
   // Both halves: listing the changed files, and running the script that reads them. Either failing must fall into
   // "build", never into a red `build` — a required check going red over a blip blocks a merge that a re-run fixes.
   const ci = readFileSync(CI, 'utf8');
-  const scope = ci.slice(ci.indexOf('Decide whether the Android build has to run'), ci.indexOf('Set up Node for the reviewer harness'));
+  const scope = ci.slice(ci.indexOf('Decide whether the Android build has to run'), ci.indexOf('- name: Set up JDK 17'));
   assert.match(scope, /if ! files=/, 'the file listing is unguarded');
   assert.match(scope, /if ! printf/, 'the scope script call is unguarded');
   assert.equal(/set -euo pipefail/.test(scope), false, 'set -e here fails the step, and the step is inside a required check');
+  // The path the shell guards cannot cover, and the one this test was NAMED for while not checking it: a step
+  // killed by its own `timeout-minutes` is marked failed, and `build` is required. `continue-on-error` sends that
+  // the same way — the step leaves no output, and every gated step below runs on `!= 'false'`.
+  assert.match(scope, /continue-on-error: true/, "the step's own timeout can still red the required check");
+  // And nothing in the script is assembled by template expansion: values arrive through `env:`.
+  const run = scope.slice(scope.indexOf('run: |'));
+  assert.equal(/\$\{\{/.test(run), false, 'a value is interpolated into the script text instead of passed through env');
 });
 
 test("the knob table's budgets are the code's budgets", () => {

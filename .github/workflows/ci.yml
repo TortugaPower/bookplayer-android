@@ -54,12 +54,23 @@ jobs:
       - name: Decide whether the Android build has to run
         id: scope
         timeout-minutes: 3
+        # The cap is a path to a red required check that no shell guard covers: a step killed by its own timeout
+        # is marked FAILED, and `build` is required, so a slow listing would block a merge. `continue-on-error`
+        # sends it the same way every other failure here goes — a killed step leaves `outputs.android` empty, and
+        # every gated step below runs on `!= 'false'`. Reachable: `--paginate` asks for 30 files a request by
+        # default, so a 3,000-file pull request is a hundred round trips; `per_page=100` cuts that to thirty.
+        continue-on-error: true
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
+          # Through the environment, not interpolated into the script text. Neither value is attacker-controlled
+          # (a repository slug and an integer), so this is the class being closed rather than a live hole — but
+          # the block is right here, and a script assembled from template expansion is the shape that goes wrong.
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
-          if ! files="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[].filename')"; then
+          if ! files="$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate --jq '.[].filename')"; then
             echo "could not list the changed files; building" >&2
             echo "android=true" >> "$GITHUB_OUTPUT"
             exit 0
