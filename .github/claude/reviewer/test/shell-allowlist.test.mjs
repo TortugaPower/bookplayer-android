@@ -1,7 +1,7 @@
 // The Bash allowlist and the redaction pass are the harness's security boundary: the agent reads
 // PR-author-controlled content, so every command it may run and every string it may post is checked here.
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
-import { REPO_SECRET_FILES } from '../repo.mjs';
+import { REPO_SECRET_FILES, REPO_SECRET_SHAPES } from '../repo.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_TURNS_FOR_TEST, MODEL_FOR_TEST, accumulateFinalText, agentQuery, escapeControlCharsInStrings, extractJson, isTerminalResult, preToolUseGate, rankOpusModels, salvageAtDeadline, shouldHardFail, wasTruncationRepaired } from '../agent.mjs';
@@ -239,21 +239,19 @@ test('key-shaped strings are redacted at the post boundary', () => {
   assert.equal(redact('token ghs_' + 'c'.repeat(36)), 'token [redacted]');
   assert.equal(redact('token github_pat_' + 'd'.repeat(30)), 'token [redacted]');
   assert.equal(redact('ordinary review text with sk-ant mention'), 'ordinary review text with sk-ant mention');
-  // This repo's own shapes: a Sentry DSN, a RevenueCat-style key, and a Play service-account private key.
-  assert.equal(redact('dsn https://0123456789abcdef0123456789abcdef@o12345.ingest.sentry.io/6789 set'), 'dsn https://[redacted]@sentry.io/[redacted] set');
-  // The LEGACY DSN shape has no `ingest` in the host — `https://<key>@sentry.io/<id>` — and it is still valid and
-  // still what older projects carry. Requiring `ingest` let it through this backstop unredacted; redaction is
-  // where what the path rules cannot cover is caught, so it matches any sentry.io host (and the older
-  // key:secret@ form). What is NOT a secret shape still passes untouched: the point is a credential, not the word.
-  assert.equal(redact('https://0123456789abcdef0123456789abcdef@sentry.io/1234'), 'https://[redacted]@sentry.io/[redacted]');
-  assert.equal(redact('https://0123456789abcdef0123456789abcdef:fedcba9876543210@sentry.io/1234'), 'https://[redacted]@sentry.io/[redacted]');
-  assert.equal(redact('see sentry.io/docs and o1.ingest.sentry.io for setup'), 'see sentry.io/docs and o1.ingest.sentry.io for setup');
-  assert.equal(redact('rc goog_' + 'A'.repeat(24) + ' set'), 'rc [redacted] set');
   assert.equal(redact('-----BEGIN PRIVATE KEY-----\nMIIabc\n-----END PRIVATE KEY-----'), '[redacted private key]');
-  assert.equal(redact('the googleusercontent client id stays'), 'the googleusercontent client id stays');
-  // ...but a real one does not: a recursive grep can reach local.properties' contents even though naming the
-  // file is denied, so the post boundary is the backstop.
-  assert.equal(redact('id 123456789012-abcdefghijklmnopqrstuvwxyz012345.apps.googleusercontent.com set'), 'id [redacted client id] set');
+  // The repository's own shapes come from repo.mjs, each with the example that proves it and a look-alike that
+  // must pass: a shape cannot be listed without working, and cannot eat prose. Redaction is the boundary that
+  // catches what the path rules cannot (a recursive grep reaches a secret file's CONTENTS), so every shape here
+  // is a credential, not a word.
+  assert.ok(REPO_SECRET_SHAPES.length >= 1, 'repo.mjs lists no secret shapes at all');
+  for (const { pattern, replacement, example, keeps } of REPO_SECRET_SHAPES) {
+    assert.ok(pattern.global, `${pattern}: must be a global pattern, or only the first occurrence is scrubbed`);
+    const scrubbed = redact(example);
+    assert.notEqual(scrubbed, example, `${pattern}: its own example passed through unredacted`);
+    assert.ok(scrubbed.includes(replacement), `${pattern}: the replacement is not in the output`);
+    assert.equal(redact(keeps), keeps, `${pattern}: ate prose it should have left alone`);
+  }
   assert.equal(redact('the read-only allow-list flag'), 'the read-only allow-list flag');
   assert.equal(redact('a data-sync-task-uuid identifier'), 'a data-sync-task-uuid identifier');
 });
@@ -2352,11 +2350,14 @@ test('the deny lists are pinned clause by clause, not by whichever one fires fir
   assert.equal(FORBIDDEN_PATH.test('cat .env'), true);
 
   // BOTH branches of the gate, not just Bash: deleting REPO_SECRET_PATH from the read-tool branch left the suite
-  // green, and Read is the easier way to fetch a file anyway.
-  assert.equal((await canUseToolForTest('Read', { file_path: 'local.properties' })).behavior, 'deny');
-  assert.equal((await canUseToolForTest('Grep', { pattern: 'DSN', path: 'keystore.properties' })).behavior, 'deny');
-  assert.equal((await canUseToolForTest('Glob', { pattern: 'google-services.json' })).behavior, 'deny');
-  assert.equal((await canUseToolForTest('Read', { file_path: 'local.properties.example' })).behavior, 'allow');
+  // green, and Read is the easier way to fetch a file anyway. Every name the repository lists, through every
+  // read tool's path-shaped field — and the template copy of each stays readable.
+  for (const name of REPO_SECRET_FILES) {
+    assert.equal((await canUseToolForTest('Read', { file_path: name })).behavior, 'deny', `Read should refuse ${name}`);
+    assert.equal((await canUseToolForTest('Grep', { pattern: 'x', path: name })).behavior, 'deny', `Grep should refuse ${name}`);
+    assert.equal((await canUseToolForTest('Glob', { pattern: name })).behavior, 'deny', `Glob should refuse ${name}`);
+    assert.equal((await canUseToolForTest('Read', { file_path: `${name}.example` })).behavior, 'allow', `a template of ${name} stays readable`);
+  }
 });
 
 test('the grep exemption resolves against the injected base, not the process cwd', () => {
