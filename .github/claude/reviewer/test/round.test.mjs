@@ -1860,3 +1860,49 @@ test('the model retry tries a different release, not the same one under another 
     restore();
   }
 });
+
+test('the 406 diff rebuild stops at the clock and says so in the diff', async () => {
+  // The last paging loop in github.mjs without a deadline, and the one with the most room to run: 30 sequential
+  // pages at the 30-second request timeout is most of the review's budget, spent before the review pass starts.
+  // `rest()`'s deadline check stops RETRIES, never fresh pages. And the agent has to be told in the DIFF, because
+  // that is what it reads — a silently short diff is a review of half a pull request presented as a whole one.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'diff406-')));
+  const { restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '47', COMMIT: 'ab00000000000002',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'diff406');
+  const { fetchDiffFromFiles, setNetworkDeadline } = await import('../github.mjs');
+  const realFetch = globalThis.fetch;
+  const realWarn = console.warn;
+  try {
+    console.warn = () => {};
+    let pages = 0;
+    globalThis.fetch = async (url) => {
+      pages++;
+      // Always a FULL page, so the loop would keep going to its 30-page cap if nothing stopped it.
+      const files = Array.from({ length: 100 }, (_, i) => ({
+        filename: `app/File${pages}_${i}.kt`, status: 'modified', additions: 1, deletions: 0, patch: '@@ -1 +1 @@\n+x',
+      }));
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => files, text: async () => JSON.stringify(files) };
+    };
+
+    // A deadline already past: the first page is fetched (the harness cannot know before asking), and then it stops.
+    setNetworkDeadline(Date.now() - 1);
+    const diff = await fetchDiffFromFiles(47);
+    assert.equal(pages, 1, `kept paging past the deadline: ${pages} pages`);
+    assert.match(diff, /diff truncated: the harness ran out of time/, 'the agent is not told the diff is partial');
+    assert.match(diff, /app\/File1_0\.kt/, 'what WAS fetched must still be in the diff');
+
+    // With time on the clock it pages as before, up to what the caller asked for.
+    pages = 0;
+    setNetworkDeadline(Date.now() + 60_000);
+    const full = await fetchDiffFromFiles(47, 3);
+    assert.equal(pages, 3, 'the clock check swallowed the normal path');
+    assert.equal(/ran out of time/.test(full), false);
+  } finally {
+    console.warn = realWarn;
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});

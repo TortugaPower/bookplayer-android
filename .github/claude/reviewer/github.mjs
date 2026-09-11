@@ -217,6 +217,15 @@ export async function fetchDiffFromFiles(prNumber, maxPages = 30) {
     }
     lastPageFull = files.length === PER_PAGE;
     if (!lastPageFull) break;
+    // The last paging loop in this file without a clock, and the one with the most room to run: 30 sequential
+    // pages at the 30-second request timeout is most of the review's whole budget, spent BEFORE the review pass
+    // starts — and `rest()`'s deadline check stops retries, never fresh pages. The other two loops were hardened
+    // for exactly this; the agent is told in the diff itself, because the diff is what it reads.
+    if (outOfTime()) {
+      console.warn('Diff rebuild stopped: out of time');
+      parts.push('[diff truncated: the harness ran out of time listing this PR\'s files — anything beyond this point is not shown]');
+      break;
+    }
   }
   if (!parts.length) throw new Error('GitHub returned no files for this PR');
   if (page > maxPages && lastPageFull) {

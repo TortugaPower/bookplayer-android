@@ -278,3 +278,13 @@ test('a cap claimed in prose is written where the drift check can read it', () =
   }
   assert.deepEqual(offenders, [], `write a cap as \`the job's N\` / \`the review step's N\`, or leave the number out:\n${offenders.join('\n')}`);
 });
+
+test('ci.yml cancels superseded runs and does not lend them a token', () => {
+  // Two facts a comment in that file now depends on. The `!cancelled()` reasoning on the harness steps says a
+  // superseded run should stop — which was not true of a workflow that declared no `concurrency` at all, and the
+  // sentence was the only thing claiming it. And the job runs PR-authored code (Gradle, and a suite that shells
+  // out), so the checkout must not leave the job token in `.git/config` while it does.
+  const ci = readFileSync(CI, 'utf8');
+  assert.match(ci, /^concurrency:\n\s+group: .+\n\s+cancel-in-progress: true/m, 'ci.yml declares no concurrency, so nothing is ever superseded');
+  assert.match(ci, /uses: actions\/checkout@v\d+\n\s+with:\n\s+persist-credentials: false/, 'the checkout leaves the job token in .git/config while PR code runs');
+});

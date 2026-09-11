@@ -1571,11 +1571,10 @@ export function planRound({ threads, currentByFp, priorState = null, maxVerify =
       ).slice(0, MAX_VERIFY_CHARS),
     });
   }
-  // Straight off the map, with no fallback object. The loop above sets an identity for every thread in
-  // `harnessThreads`, and both callers iterate that same array — so the fallback could not fire, and what it was
-  // was a SECOND construction of the identity shape, free to drift from the one above and carrying `fp: undefined`,
-  // which would have made the thread invisible to `openUnreported` rather than loudly wrong. One shape, one place.
-  const identityOf = (t) => identities.get(t.id);
+  // Straight off the map, with no fallback object: the loop above sets an identity for every thread in
+  // `harnessThreads` and every caller iterates that same array, so a fallback could not fire — and what it was is
+  // a SECOND construction of the identity shape, free to drift from the one above and carrying `fp: undefined`,
+  // which would make a thread invisible to `openUnreported` rather than loudly wrong. One shape, one place.
   const fpOf = (t) => identities.get(t.id)?.fp;
   // Which thread is the harness treating as the carrier of each fingerprint: the FIRST, exactly as reconcile
   // does. A second thread with the same fingerprint is not kept, not closed and not reported by reconcile — so

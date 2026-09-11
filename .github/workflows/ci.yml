@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# A superseded run is wasted Gradle: pushing three times in a row otherwise builds all three commits, and only
+# the last one can be merged. This also makes the `!cancelled()` reasoning on the harness steps below true of
+# this file — before it, nothing here could be superseded at all.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # `build` is a REQUIRED status check on main and develop, so this job must always run and always report:
   # a required check that never starts leaves a pull request waiting for a status forever. What is conditional
@@ -26,7 +33,12 @@ jobs:
       contents: read
       pull-requests: read
     steps:
+      # `persist-credentials: false`: this job runs PR-authored code — Gradle, and the harness suite, which shells
+      # out — and the default leaves the job token in `.git/config` while it does. Nothing here uses git
+      # credentials. `claude-review.yml` has done this since it was written, for the same reason.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # Only an explicit `false` skips the build below. A push (a merge into develop or main) always builds; so
       # does anything this cannot answer — a failed listing, a truncated one, an unrecognised path. The decision
