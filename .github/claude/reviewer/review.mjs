@@ -1691,7 +1691,13 @@ export function harnessClosedByRecord(t, priorState) {
 }
 
 export function harnessClosed(t, markers = HARNESS_RESOLVED_MARKERS, priorState = null) {
-  const recorded = harnessClosedByRecord(t, priorState);
+  // The record answers ONE question — "did we close this thread?" — because close actions are all it holds. This
+  // function is also used to ask a different one: "have we already left a verify note on this open thread?", and
+  // for that a recorded close is not an answer at all. It is safe today only because the caller asking the second
+  // question passes no `priorState`; someone threading it through for consistency with `reconcile` would silently
+  // make every thread with a recorded close read as "already answered", suppressing the note that says a
+  // maintainer's reply did not settle the finding. So the record path is gated on which question is being asked.
+  const recorded = markers === HARNESS_RESOLVED_MARKERS ? harnessClosedByRecord(t, priorState) : null;
   if (recorded !== null) return recorded;
   const carries = (body) => markers.some((m) => String(body || '').includes(m));
   const comments = Array.isArray(t.comments) ? t.comments : [];

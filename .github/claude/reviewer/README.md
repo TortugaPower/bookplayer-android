@@ -1,8 +1,10 @@
 # The AI PR reviewer
 
 Runs on every push to a PR against `main` or `develop` (`.github/workflows/claude-review.yml`), reviews the
-diff with a Claude agent, and keeps the result as review comments on the PR. Advisory: the check is always
-green, a human still merges.
+diff with a Claude agent, and keeps the result as review comments on the PR. **The VERDICT is advisory** — a
+`fail` never blocks a merge, and a human still merges. The check goes red only when the harness itself could not
+run or could not post its result: a failed install, a red `node --test test/`, or a summary that could not be
+written (which throws, by design — see below).
 
 `review-guide.md` (one directory up) is the reviewer's rubric — what to flag, at what severity, what to skip.
 It is the file to edit to change *what* gets reviewed. Everything below is about the harness that runs it.
@@ -38,7 +40,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~236 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~237 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
@@ -117,6 +119,14 @@ reviewer did not run would never fire. A step killed anyway (its cap, an OOM) is
 workflow, which fires only when `review.mjs` did not manage to say anything itself.
 
 ## Tokens
+
+**Nothing watches this dependency tree.** There is no Dependabot configuration in this repository, and the
+review workflow skips `dependabot[bot]` anyway, so a vulnerable transitive dependency in the committed lockfile
+(the tree pulls in express, ajv, jose and others) stays invisible until somebody looks. Two ways to close it, and
+both are a maintainer's call rather than the harness's: a Dependabot npm entry scoped to this directory — its
+pull requests skip the reviewer, so there is no loop, and `ci.yml` still runs `npm ci` and the suite on them — or
+a standing habit of running `npm audit` here when the SDK is bumped. Until one of those exists, this is a known
+residual, not an oversight.
 
 The SDK version is **pinned exactly** (`0.3.261`, not `^0.3.261`), and that is a safety property rather than
 tidiness: the agent's sandbox is configured entirely by SDK option *names* — `settingSources: []`,

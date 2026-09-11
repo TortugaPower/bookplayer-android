@@ -4044,3 +4044,26 @@ test('the three caps are three decisions', () => {
   assert.equal(openFindings(threads, null).length, caps.MAX_OPEN_FINDINGS_SHOWN);
   assert.equal(openFindings(threads, null, 3).length, 3, 'an explicit cap still wins');
 });
+
+test('the record answers "did we close this", never "have we already answered"', () => {
+  // `harnessClosed` serves two questions, and the record can only speak to one: it holds close actions. The
+  // repeat-suppression check asks the other — "is our verify note already on this open thread?" — and a recorded
+  // close is not an answer to it. It was safe only because that caller passes no `priorState`, so threading one
+  // through for consistency would have made every thread with a recorded close read as already answered, and the
+  // note that says a maintainer's reply did not settle the finding would stop being posted.
+  const closedRecord = { commit: 'c', findings: { fp1: { id: 'T1', action: 'resolved', at: '2026-01-03T00:00:00Z' } } };
+  const t = {
+    id: 'T1', isResolved: true, path: 'a.kt', line: 1, firstCommentAuthor: 'github-actions[bot]',
+    firstCommentBody: '🟡 **WARN** — a finding', lastCommentAuthor: 'github-actions[bot]', lastCommentBody: '',
+    comments: [{ id: 1, body: '🟡 **WARN** — a finding', author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-01T00:00:00Z' }],
+  };
+
+  // The close question: the record answers, and says yes.
+  assert.equal(harnessClosed(t, undefined, closedRecord), true);
+  // The other question, with the same record in hand: the record must NOT answer it. The thread carries no
+  // verify note, so the honest answer is false.
+  assert.equal(harnessClosed(t, ['<!-- bp-ai-review-verify-note -->'], closedRecord), false, 'a recorded close was read as "already answered"');
+  // And with the note actually on the thread, it is true — by the marker, which is the evidence for that question.
+  const noted = { ...t, comments: [...t.comments, { id: 2, body: 'still open <!-- bp-ai-review-verify-note -->', author: 'github-actions[bot]', association: 'NONE', createdAt: '2026-01-02T00:00:00Z' }] };
+  assert.equal(harnessClosed(noted, ['<!-- bp-ai-review-verify-note -->'], closedRecord), true);
+});
