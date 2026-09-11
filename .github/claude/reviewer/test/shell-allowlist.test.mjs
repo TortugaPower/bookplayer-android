@@ -1817,6 +1817,46 @@ test('a truncated answer keeps every finding it did write, inner fences and all'
 
 
 
+test('the agent reads the pull request checkout the workflow names, not the job workspace', () => {
+  // The job holds two trees: the harness it executes, from the base branch, and the pull request's, which is the
+  // only one the agent has any business in. `REVIEW_CHECKOUT` names the second; the workspace is the fallback for
+  // a local run and for these tests, which check out one tree.
+  const prev = { REVIEW_CHECKOUT: process.env.REVIEW_CHECKOUT, GITHUB_WORKSPACE: process.env.GITHUB_WORKSPACE };
+  const pr = realpathSync(mkdtempSync(join(tmpdir(), 'pr-tree-')));
+  try {
+    process.env.GITHUB_WORKSPACE = '/somewhere/else';
+    process.env.REVIEW_CHECKOUT = pr;
+    assert.equal(agentCwd(), pr);
+    assert.equal(isPathAllowed(join(pr, 'app/Main.kt')), true);
+    assert.equal(isPathAllowed('/somewhere/else/app/Main.kt'), false, 'the job workspace is not the agent\'s tree');
+    delete process.env.REVIEW_CHECKOUT;
+    assert.equal(agentCwd(), '/somewhere/else', 'without REVIEW_CHECKOUT the workspace is the tree');
+  } finally {
+    for (const [k, v] of Object.entries(prev)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+});
+
+test('the agent-output dump cap is read when asked, like every other knob', () => {
+  const prev = process.env.ACTIONS_STEP_DEBUG;
+  try {
+    delete process.env.ACTIONS_STEP_DEBUG;
+    assert.equal(boundedDump('x'.repeat(30_000)).length <= 4_000 + 40, true, 'the default cap is 4 KB');
+    process.env.ACTIONS_STEP_DEBUG = 'true';
+    assert.ok(boundedDump('x'.repeat(30_000)).length > 19_000, 'ACTIONS_STEP_DEBUG did not raise the cap at call time');
+  } finally {
+    if (prev === undefined) delete process.env.ACTIONS_STEP_DEBUG; else process.env.ACTIONS_STEP_DEBUG = prev;
+  }
+});
+
+test("a finding's text cannot close the summary's details block", () => {
+  const zero = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
+  const hostile = { severity: 'info', file: 'summary.mjs', line: 91, comment: 'the block ends with </details> and then <summary>x</summary> again' };
+  const body = renderSummary({ verdict: 'pass', summary: 's', findings: [hostile] }, zero, [hostile]);
+  assert.equal((body.match(/<\/details>/g) || []).length, 1, 'model text closed the block');
+  assert.ok(body.indexOf('<sub>Model') > body.lastIndexOf('</details>'), 'the footer rendered outside the block');
+  assert.match(body, /&lt;\/details> and then &lt;summary>/);
+});
+
 test('the tool gate is also a PreToolUse hook, and only its deny travels', async () => {
   // Whether a Read is routed to `canUseTool` in default mode is the SDK's decision, and nothing in this suite can
   // observe it. A PreToolUse hook runs for every tool call before that decision, so the same predicate is

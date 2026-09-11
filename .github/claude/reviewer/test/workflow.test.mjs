@@ -61,26 +61,37 @@ function harnessDefaultMinutes(name) {
 
 function readWorkflow(file = WORKFLOW) {
   const lines = readFileSync(file, 'utf8').split('\n');
-  const steps = [];
-  let jobTimeout = null;
+  // Per job: a job starts at two spaces under `jobs:`, its keys sit at four, its steps at six. `review` is the
+  // job every arithmetic check below is about; the others are read so their steps are bounded too.
+  const jobs = {};
+  let job = null;
+  let inJobs = false;
   let inSteps = false;
   let current = null;
   for (const [i, line] of lines.entries()) {
     if (/^\s*#/.test(line) || !line.trim()) continue;
-    // Job-level keys sit at four spaces; `steps:` opens the sequence and nothing at that indent follows it here.
+    if (/^jobs:$/.test(line)) { inJobs = true; continue; }
+    if (!inJobs) continue;
+    const jobStart = /^ {2}([\w-]+):$/.exec(line);
+    if (jobStart) {
+      job = jobs[jobStart[1]] = { name: jobStart[1], timeout: null, steps: [], line: i + 1 };
+      inSteps = false;
+      continue;
+    }
     if (/^ {4}timeout-minutes: \d+$/.test(line) && !inSteps) {
-      jobTimeout = Number(line.trim().split(': ')[1]);
+      job.timeout = Number(line.trim().split(': ')[1]);
       continue;
     }
     if (/^ {4}steps:$/.test(line)) {
       inSteps = true;
       continue;
     }
+    if (/^ {4}[\w-]+:/.test(line)) { inSteps = false; continue; }
     if (!inSteps) continue;
     const stepStart = /^ {6}- (\w[\w-]*): (.*)$/.exec(line);
     if (stepStart) {
-      current = { line: i + 1 };
-      steps.push(current);
+      current = { line: i + 1, job: job.name };
+      job.steps.push(current);
       current[stepStart[1]] = stepStart[2];
       continue;
     }
@@ -90,13 +101,24 @@ function readWorkflow(file = WORKFLOW) {
       current[key[1]] = key[2].trim();
       continue;
     }
-    // Deeper lines belong to a `with:`/`env:` block, and a multi-line `if: >-` continues at any depth. Neither
-    // changes an answer here, but an unindented line inside `steps:` means the file is not the shape assumed.
+    // Deeper lines belong to a `with:`/`env:`/`run: |` block, and a multi-line `if: >-` continues at any depth.
+    // Neither changes an answer here, but an unindented line inside `steps:` means the file is not the shape assumed.
     assert.ok(/^ {10,}/.test(line) || /^ {6,}[^-]/.test(line), `${file}:${i + 1}: unrecognised line inside steps: ${line}`);
   }
-  assert.ok(jobTimeout, 'no job-level timeout-minutes found');
-  assert.ok(steps.length >= 5, `only ${steps.length} steps parsed — the reader is not seeing the file`);
-  return { jobTimeout, steps };
+  const review = jobs.review;
+  assert.ok(review, 'no `review` job found');
+  assert.ok(review.timeout, 'no job-level timeout-minutes found on the review job');
+  assert.ok(review.steps.length >= 5, `only ${review.steps.length} steps parsed — the reader is not seeing the file`);
+  return { jobTimeout: review.timeout, steps: review.steps, jobs };
+}
+
+// The text of one job, for the checks that read `with:` blocks the reader above does not model.
+function jobText(name, file = WORKFLOW) {
+  const text = readFileSync(file, 'utf8');
+  const start = text.indexOf(`\n  ${name}:\n`);
+  assert.ok(start !== -1, `no job named ${name}`);
+  const next = text.slice(start + 1).search(/\n  [\w-]+:\n/);
+  return next === -1 ? text.slice(start) : text.slice(start, start + 1 + next);
 }
 
 // A step's cap, with the inline comment that usually follows it. Strict on purpose: a value this cannot parse is
@@ -166,6 +188,7 @@ test('the two failure notes cover the failures the harness cannot report itself'
   }
   // Exclusive: exactly one of them can run, which is what lets the cap arithmetic count one.
   assert.match(setupNote.if, /steps\.review\.outcome != 'failure'/);
+  assert.match(setupNote.if, /steps\.harness\.outcome == 'success'/, 'the note runs the harness, so it depends on the harness checkout');
   assert.match(killedNote.if, /steps\.review\.outcome == 'failure'/);
   // And the killed-note must not overwrite an explanation review.mjs already posted: they share a heading, so
   // the second write replaces the first and would trade the real error for a generic one.
@@ -188,11 +211,52 @@ test('the two failure notes cover the failures the harness cannot report itself'
   assert.equal(/recordExplainedOnPr\(\)/.test(setupMode), false, 'the note-only mode writes an output nothing reads');
 });
 
-test("the harness's own tests run before the review", () => {
-  const { steps } = readWorkflow();
-  const tests = only(steps, "tool allowlist");
-  const review = only(steps, 'Run Claude review');
-  assert.ok(tests.line < review.line, 'a red suite must stop the review, not follow it');
+test('every step in every job is bounded', () => {
+  const { jobs } = readWorkflow();
+  for (const job of Object.values(jobs)) {
+    assert.ok(job.timeout, `${job.name}: no job-level timeout-minutes`);
+    const uncapped = job.steps.filter((s) => !s.hasOwnProperty('timeout-minutes')).map((s) => s.name || s.uses);
+    assert.deepEqual(uncapped, [], `${job.name}: a step with no timeout can burn the job cap`);
+  }
+});
+
+test('the job that holds the secrets executes only the base branch\'s code', () => {
+  // Under `pull_request` the workflow file, the harness and the lockfile all came from the pull request head, so
+  // anyone who could push a branch could read both secrets by editing any of them. Now the event is
+  // `pull_request_target` (the base branch's workflow file runs), the harness is checked out from the base branch
+  // into `harness/` and is the only code the job runs, and the pull request's tree is a second checkout the agent
+  // reads. Every one of those is a line in this file, and every one of them can drift back.
+  const text = readFileSync(WORKFLOW, 'utf8');
+  assert.match(text, /^on:\n  pull_request_target:/m, 'the event must be pull_request_target, or the pull request supplies this file');
+  assert.equal(/^\s+pull_request:\s*$/m.test(text), false, 'a pull_request trigger would run the pull request\'s copy of this file');
+  const review = jobText('review');
+  assert.match(review, /environment: reviewer/, 'the secrets are scoped to the reviewer environment');
+  const harness = /- name: Checkout the harness from the base branch[\s\S]*?(?=\n {6}- name:)/.exec(review)?.[0];
+  assert.ok(harness, 'no harness checkout step');
+  assert.match(harness, /ref: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/, 'the harness must come from the base branch');
+  assert.match(harness, /path: harness/);
+  const pr = /- name: Checkout PR head[\s\S]*?(?=\n {6}- name:)/.exec(review)?.[0];
+  assert.match(pr, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
+  assert.match(pr, /path: pr/);
+  assert.match(pr, /persist-credentials: false/);
+  // Every node the job runs is the harness's; the agent is pointed at the other tree.
+  for (const run of review.matchAll(/^\s+run: (node .*)$/gm)) assert.match(run[1], /^node harness\//, `${run[1]}: runs code from outside the trusted checkout`);
+  assert.match(review, /working-directory: harness\/\.github\/claude\/reviewer/);
+  assert.match(review, /REVIEW_CHECKOUT: \$\{\{ github\.workspace \}\}\/pr/, 'the agent must be pointed at the pull request tree');
+  assert.equal(/node --test/.test(review.replace(/^\s*#.*$/gm, '')), false, 'the review job must not run tests from the pull request tree');
+});
+
+test('the job that runs pull request code holds no secret', () => {
+  // The other half of `pull_request_target`: the pull request's own harness tests execute its code, so that job
+  // gets no secret, no environment, and a read-only token it does not persist.
+  const tests = jobText('harness-tests');
+  assert.equal(/secrets\./.test(tests), false, 'a secret reference in the job that runs pull request code');
+  assert.equal(/environment:/.test(tests), false, 'the environment would hand it the secrets');
+  assert.match(tests, /permissions:\n {6}contents: read\n/, 'the token must be read-only');
+  assert.match(tests, /persist-credentials: false/);
+  assert.match(tests, /node --test test\//, 'the pull request\'s tests must run somewhere');
+  // And it is gated on the pull request touching the harness, so an app change does not pay for it.
+  assert.match(tests, /steps\.touches\.outputs\.harness == 'true'/);
 });
 
 test('the budget numbers written in prose are the real ones', () => {

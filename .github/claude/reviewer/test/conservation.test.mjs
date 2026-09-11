@@ -147,7 +147,7 @@ function worldGitHub() {
 // harness infers to something the model asserts — so the law has to hold when that assertion is right, when it
 // is wrong (naming a thread about something else), and when it is nonsense (an id that was never offered). A
 // model is not a contract; the fuzzer treats it as an adversary.
-const scriptedAgent = (findings, claimPolicy = () => undefined) => async (prompt) => {
+const scriptedAgent = (findings, claimPolicy = () => undefined, garnish = () => []) => async (prompt) => {
   const isVerify = prompt.includes('Below are findings reported on it by');
   if (isVerify) {
     // Nothing is ever fixed — so no thread may be closed on that basis. But this verifier DOES answer
@@ -173,7 +173,9 @@ const scriptedAgent = (findings, claimPolicy = () => undefined) => async (prompt
     const same_as = claimPolicy(f, offered);
     return same_as === undefined ? f : { ...f, same_as };
   });
-  const result = { verdict: claimed.length ? 'warn' : 'pass', summary: 'a round', findings: claimed };
+  // Malformed elements the model can and does emit — null, prose, a finding whose comment is an object. They are
+  // not findings, so the law does not count them; a round that dies on one is a round that reported nothing.
+  const result = { verdict: claimed.length ? 'warn' : 'pass', summary: 'a round', findings: [...claimed, ...garnish()] };
   return { finalText: '```json\n' + JSON.stringify(result) + '\n```', lastAnswer: '', turns: 2, resultSubtype: 'success' };
 };
 
@@ -279,7 +281,8 @@ async function runScenario(seed) {
       const resolvesBefore = gh.calls.resolvedIds.length;
       let threw = null;
       try {
-        await mod.runReview({ agent: scriptedAgent(reporting.map(asFinding), claimPolicy) });
+        const garnish = () => (rand() < 0.2 ? [pick([null, 'nothing else to report', 42, [], { severity: 'warn', comment: 'no file' }, { severity: 'warn', file: 'g.kt', line: 3, comment: { text: 'an object' } }])] : []);
+        await mod.runReview({ agent: scriptedAgent(reporting.map(asFinding), claimPolicy, garnish) });
       } catch (e) {
         threw = e;
       }

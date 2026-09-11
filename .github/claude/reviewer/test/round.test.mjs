@@ -607,6 +607,11 @@ test('a malformed finding is dropped, and two findings on one line become one co
           { severity: 'warn', file: '', line: 3, comment: 'no file at all' },
           { severity: 'warn', file: 'app/Bad.kt', line: 0, comment: 'no usable line' },
           { severity: 'sev', file: 'app/Bad.kt', line: 4, comment: 'not a severity' },
+          // The shapes that used to THROW here — after the parse's try/catch, so the round went red instead of
+          // discarding them: a primitive element, null, and a comment that is not a string.
+          'nothing else to report',
+          null,
+          { severity: 'warn', file: 'app/Bad.kt', line: 5, comment: { text: 'an object where prose should be' } },
         ],
       }),
     });
@@ -617,7 +622,8 @@ test('a malformed finding is dropped, and two findings on one line become one co
     assert.equal(gh.summaryOut().includes('no usable line'), false);
     // Not posted, but not invisible either: the summary says how many were discarded. Until it did, a dropped
     // finding was the one way a reported finding could leave the PR with no trace but a run-log line.
-    assert.match(gh.summaryOut(), /3 reported findings were discarded as malformed/);
+    assert.match(gh.summaryOut(), /6 reported findings were discarded as malformed/);
+    assert.equal(gh.summaryOut().includes('[object Object]'), false, 'a non-string comment reached the summary');
   } finally {
     globalThis.fetch = realFetch;
     restore();

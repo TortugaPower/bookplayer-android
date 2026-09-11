@@ -36,5 +36,10 @@ try {
   fail(`${bin} is present but not executable`);
 }
 const run = spawnSync(bin, ['--version'], { encoding: 'utf8', timeout: 30_000 });
-if (run.status !== 0) fail(`${bin} --version exited ${run.status ?? run.signal}: ${String(run.stderr || run.stdout || '').slice(0, 200)}`);
+// `error` is set when the binary could not be run at all (ENOEXEC from the wrong architecture, the timeout): status
+// and signal are both null then, and the output is empty, so it is the only object carrying the cause.
+if (run.error || run.status !== 0) {
+  const cause = run.error ? `could not run: ${redact(run.error.message)}` : `exited ${run.status ?? run.signal}`;
+  fail(`${bin} --version ${cause}: ${redact(String(run.stderr || run.stdout || '')).slice(0, 200)}`);
+}
 console.log(`agent SDK loads; CLI ${run.stdout.trim()} at ${bin}`);

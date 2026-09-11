@@ -12,7 +12,7 @@ import { PR_NUMBER } from './config.mjs';
 // Failure dump of the agent's answer in the run log (head + tail). Extraction failures are visible in the first and
 // last couple of KB; the full 20 KB is available with ACTIONS_STEP_DEBUG, since the log of a public repo is public
 // and redact() does not know every secret shape (an app-specific password quoted from a diff, for instance).
-const MAX_DUMP_CHARS = process.env.ACTIONS_STEP_DEBUG === 'true' ? 20000 : 4000;
+const maxDumpChars = () => (process.env.ACTIONS_STEP_DEBUG === 'true' ? 20_000 : 4_000);
 
 // Everything the model writes is posted to the PR, and everything it reads is PR-author-controlled, so
 // scrub credential values and well-known key shapes at the post boundary regardless of how they got there.
@@ -312,14 +312,19 @@ export const safeRealpath = (p) => {
 // written file agree even where the temp path has a symlinked component, e.g. macOS /var -> /private/var.
 export const diffPath = () => join(safeRealpath(process.env.RUNNER_TEMP || tmpdir()), `pr-${PR_NUMBER()}.diff`);
 
-export const readRoots = () => [process.env.GITHUB_WORKSPACE || process.cwd(), diffPath()].map(safeRealpath);
+// The pull request's checkout: what the agent reads and what the path rules confine it to. Named by the workflow
+// (`REVIEW_CHECKOUT`), because the job's workspace also holds the harness the job executes — checked out from the
+// base branch beside it — and that tree is not the agent's business. The fallbacks are for a local run and the
+// tests, which check out one tree.
+export const checkoutRoot = () => process.env.REVIEW_CHECKOUT || process.env.GITHUB_WORKSPACE || process.cwd();
+export const readRoots = () => [checkoutRoot(), diffPath()].map(safeRealpath);
 
 // No quote handling here: the grammar refuses quote characters outright, so a path reaching this function is
 // already the literal name the program will open.
 // The base a relative token is resolved against. It is the checkout, stated explicitly rather than inherited from
 // wherever the harness happens to run, and the agent's shell cannot drift away from it: `cd` (and `pushd`) are not
 // on BASH_ALLOW, so every `cd …` segment is refused, and `git -C <path>` still has that path confined below.
-export const agentCwd = () => process.env.GITHUB_WORKSPACE || process.cwd();
+export const agentCwd = () => checkoutRoot();
 
 export function isPathAllowed(rawPath, roots = readRoots(), cwd = agentCwd()) {
   const p = String(rawPath || '');
@@ -428,7 +433,7 @@ export async function canUseTool(toolName, input) {
 
 // Head + tail of the agent's answer for the run log, redacted, with every leading `::` (indented or not) broken by a
 // zero-width space so no line can read as a workflow command even if the stop-commands bracket were missing.
-export function boundedDump(text, max = MAX_DUMP_CHARS) {
+export function boundedDump(text, max = maxDumpChars()) {
   const clean = redact(text); // redact the whole text first: a secret straddling the cut point must not survive as fragments
   const half = Math.floor(max / 2);
   const bounded = clean.length > max ? `${clean.slice(0, half)}\n…[${clean.length - max} chars omitted]…\n${clean.slice(-half)}` : clean;

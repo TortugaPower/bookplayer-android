@@ -60,15 +60,16 @@ One module per seam, so a change is read in the file that owns it:
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~241 tests, a minute or so, no network and no API key. The reviewer workflow runs exactly this before the review
-step, so a red suite means no review ran (and the workflow says so on the PR). Note where that is: the reviewer
-job skips draft pull requests, forks and Dependabot, so a pull request touching only this directory is tested only
-if your repository's own CI also runs `node --test test/` here. That is a per-repository decision — this harness
+~246 tests, a minute or so, no network and no API key. The reviewer workflow runs them in a job of their own —
+without secrets, since they are the pull request's code — whenever a pull request touches this directory or the
+workflow. The review itself runs the base branch's harness, so a red suite here does not stop a review; it stops
+the change from being the reviewer once merged. This harness
 ports by copying this directory, `review-guide.md` and `claude-review.yml`, and nothing in it assumes the rest of
 your CI — the directory carries its own `.gitignore` for `node_modules/`, so the copy is complete without touching
 the root one. Then edit the two per-repository files: `review-guide.md` (what to review) and `repo.mjs` (which
 files hold secrets, which shapes to scrub); a copy that keeps this repository's lists gets rules that match
-nothing of its own.
+nothing of its own. And create the `reviewer` environment with a deployment-branch policy for your base branches
+and put the two secrets in it (see Tokens) — the workflow's trust split depends on it.
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
 comment created *next* — off by one, for as long as it has existed, because nothing had ever read that value.
@@ -107,6 +108,9 @@ RUNNER_TEMP=/tmp/reviewer \
 node .github/claude/reviewer/review.mjs
 ```
 
+Run from a checkout of the pull request's branch: with `REVIEW_CHECKOUT` unset the agent reads the current
+directory (in CI the workflow sets it to the pull request's checkout, beside the harness it executes).
+
 `DRY_RUN=1` reads GitHub for real (PR, diff, comments) and runs the real agent, then prints the findings and
 the summary it *would* post. Every write path sits behind that flag, so nothing reaches the PR — including
 `--setup-failed`, whose note is gated inside `appendNoteToSummary` so no caller can forget it (one did). Drop the flag
@@ -128,6 +132,7 @@ To exercise the plumbing without spending a model call, stub the agent as the ro
 | `REVIEW_MAX_OUTPUT_TOKENS` | 32,000 | Per model response. A finding list cut off mid-JSON is reported as a partial round, and closes nothing. |
 | `DRY_RUN` | off | Read everything, write nothing. |
 | `ACTIONS_STEP_DEBUG` | off | Raises the agent-output dump in the log from 4 KB to 20 KB. A public repo's log is public. |
+| `REVIEW_CHECKOUT` | the workspace | The pull request's tree: what the agent reads and the path rules confine it to. Set by the workflow. |
 
 Raising `REVIEW_DEADLINE_MS` or `REVIEW_JOB_BUDGET_MS` means raising `timeout-minutes` in the workflow with
 them — both the job's and the review step's. The harness's clock has to be the tighter of the two: its budget is
@@ -138,6 +143,29 @@ reviewer did not run would never fire. A step killed anyway (its cap, an OOM) is
 workflow, which fires only when `review.mjs` did not manage to say anything itself.
 
 ## Tokens
+
+**The job that holds the secrets never executes pull request code.** The workflow runs on `pull_request_target`,
+so the workflow file that runs is the base branch's; the job checks the harness out from the base branch into
+`harness/` and executes only that, and checks the pull request's tree out beside it as the thing the agent reads
+(`REVIEW_CHECKOUT`). To the harness that tree is data, like the diff. The pull request's own harness tests run in
+a second job that holds no secret, no environment and a read-only token. The consequence to know about: a pull
+request that changes the harness is reviewed by the harness it is changing *from*; merging is what promotes it.
+
+**The secrets belong in the `reviewer` environment, not in repository secrets.** That is the step that makes the
+above hold repository-wide: any *other* `pull_request` workflow can be edited by a pull request to print a
+repository secret, but an environment whose deployment-branch policy is `develop` and `main` hands its secrets
+only to runs whose ref is one of those — which a `pull_request_target` run is and a `pull_request` run
+(`refs/pull/N/merge`) is not. The environment is created on the workflow's first run; the branch policy and the
+move of `ANTHROPIC_API_KEY` and `REVIEW_RESOLVE_TOKEN` into it (and their deletion at repository level) are
+repository settings a maintainer makes once. Until they are made, the workflow still works off the repository
+secrets — and is not protected.
+
+**What this does not close.** The agent subprocess has to hold `ANTHROPIC_API_KEY` to call the model, and it reads
+a tree the pull request author wrote. The boundary against the *model* exfiltrating it is the sandbox — `/proc/`
+and `~` denied, no `env`/`curl`/`node -e` in the Bash grammar, `redact` on everything posted — which is a grammar,
+and the key is still a long-lived secret. The next step, when wanted, is no long-lived key at all: GitHub OIDC to
+AWS Bedrock (the SDK runs on it) with a role scoped to `bedrock:InvokeModel`, or to a small proxy that holds the
+key and caps spend per run. Same for the PAT: a GitHub App token minted per run.
 
 **Nothing watches this dependency tree.** It is installed in the job that holds `ANTHROPIC_API_KEY` and the
 resolve PAT, and it pulls in express, ajv, jose and others; a vulnerable transitive dependency in the committed
@@ -152,13 +180,13 @@ release that renamed or stopped honouring one of them would pass the whole suite
 weakened. **Raising it means reading the options block in `agentQuery` against the SDK's current types**, which is
 why the bump has to be an edit a human makes rather than a range that drifts.
 
-- `ANTHROPIC_API_KEY` — repository secret. The agent's environment is built by allowlist, so neither token
-  below is visible to it.
+- `ANTHROPIC_API_KEY` — environment secret (`reviewer`). The agent's environment is built by allowlist, so
+  neither token below is visible to it.
 - `REVIEW_RESOLVE_TOKEN` — optional but load-bearing: the default `GITHUB_TOKEN` cannot resolve review threads
   ("Resource not accessible by integration"), so without it every close fails, the threads stay open, and the
   summary says "could not be resolved" on each one. A fine-grained PAT scoped to this repository with
-  **Pull requests: read & write** is enough — a classic repo-scope token over-reaches, since this job runs
-  PR-branch code. To rotate: create the PAT, update the repository secret, and update the backup copy in SSM (the parameter name
+  **Pull requests: read & write** is enough — a classic repo-scope token over-reaches. To rotate: create the
+  PAT, update the environment secret, and update the backup copy in SSM (the parameter name
   and account are in the internal runbook, not here) so a write-only GitHub secret is recoverable. **This
   repository is public**: the fact that a backup exists belongs in this file, its coordinates do not — they are
   free reconnaissance for anyone who later gets credentials for that account.

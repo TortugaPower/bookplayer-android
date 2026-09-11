@@ -395,6 +395,14 @@ export async function runReview({ agent: rawAgent = runAgent } = {}) {
   const valid = [];
   let dropped = 0;
   for (const f of parsed.findings) {
+    // Before anything is written to it: `isResultShape` asserts only that `findings` is an array, so an element
+    // can be null, a string, or an object whose `comment` is not one — and assigning `f.line` to a primitive
+    // throws in strict mode, AFTER the parse's try/catch, taking a complete answer to a red check. Discarded and
+    // counted instead, which is what the summary's "discarded as malformed" line promises.
+    if (!f || typeof f !== 'object' || Array.isArray(f) || typeof f.comment !== 'string') {
+      dropped++;
+      continue;
+    }
     f.line = Number(f.line);
     f.file = typeof f.file === 'string' ? f.file.replace(/^\.\//, '') : '';
     if (!f.file || !Number.isInteger(f.line) || f.line < 1 || !f.comment || !VALID_SEVERITY.has(f.severity)) {

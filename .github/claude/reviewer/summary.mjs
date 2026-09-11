@@ -13,6 +13,12 @@ import { MODEL } from './agent.mjs';
 // a refactor that passed one where the other belongs would type-check, run, and quietly send reconciliation back
 // to reading markers out of comment bodies — which is what `reconcile`'s explicit `'priorState' in options` guard
 // exists to stop.
+// Model text that lands INSIDE the summary's `<details>` block. `neutralizeMarkup` stops an HTML comment; a
+// finding whose text contains `</details>` — plausible when the reviewer is reviewing this file — would close the
+// block early, spill the rest of the list and the footer outside it, and skew the open-minus-close count
+// `closeUnbalancedDetails` trims by. Only those two tags are touched, so a code span in the prose stays readable.
+const mdDetails = (s) => neutralizeMarkup(String(s)).replace(/<(\/?)(details|summary)\b/gi, '&lt;$1$2');
+
 export function renderSummary(result, stats, unpostable, { provisional = false, provisionalCause = 'turns', previously = [], verificationState = 'unknown', dropped = 0 } = {}) {
   const emoji = result.verdict === 'fail' ? '🔴' : result.verdict === 'warn' ? '🟡' : '✅';
   const counts = result.findings.reduce(
@@ -88,7 +94,7 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
       '',
       `<details><summary>Findings not visible inline (no line in this diff, beyond the ${MAX_INLINE}-comment cap, a comment the API refused, on a thread that could not be reopened, or on one a maintainer had the last word on)</summary>`,
       '',
-      ...unpostable.map((f) => `- ${severityEmoji(f.severity)} \`${neutralizeMarkup(String(f.file).replace(/`/g, ''))}:${f.line}\` — ${neutralizeMarkup(f.comment)}`),
+      ...unpostable.map((f) => `- ${severityEmoji(f.severity)} \`${mdDetails(String(f.file).replace(/`/g, ''))}:${f.line}\` — ${mdDetails(f.comment)}`),
       '',
       '</details>',
     );
