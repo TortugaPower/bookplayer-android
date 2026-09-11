@@ -219,6 +219,14 @@ test('nothing in the scope step can fail the required check', () => {
   // killed by its own `timeout-minutes` is marked failed, and `build` is required. `continue-on-error` sends that
   // the same way — the step leaves no output, and every gated step below runs on `!= 'false'`.
   assert.match(scope, /continue-on-error: true/, "the step's own timeout can still red the required check");
+  // Both sides of a rename. `.filename` alone describes where a file ended up, so moving `app/Foo.kt` to
+  // `docs/foo.md` listed only the inert side and the gate answered "nothing Android changed" about a change that
+  // deleted a Kotlin file — a wrong `false`, which is the one direction this gate may never fall.
+  // The `--jq` LINE, not the step text: the paragraph above that line explains `previous_filename`, so matching
+  // the step as a whole passed with the filter stripped — a test satisfied by its own prose.
+  const jq = scope.split('\n').find((l) => l.includes('--jq'));
+  assert.ok(jq, 'the scope step no longer lists the changed files');
+  assert.match(jq, /previous_filename/, 'a rename out of an Android path can still answer android=false');
   // And nothing in the script is assembled by template expansion: values arrive through `env:`.
   const run = scope.slice(scope.indexOf('run: |'));
   assert.equal(/\$\{\{/.test(run), false, 'a value is interpolated into the script text instead of passed through env');

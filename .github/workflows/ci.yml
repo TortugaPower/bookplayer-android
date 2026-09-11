@@ -70,7 +70,11 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
-          if ! files="$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate --jq '.[].filename')"; then
+          # BOTH sides of a rename. `.filename` is where a file ended up; `previous_filename` is where it was, and
+          # a rename out of an Android path into an inert one (`app/Foo.kt` -> `docs/foo.md`) lists only the inert
+          # side — so the listing would answer "nothing Android changed" about a change that deleted a Kotlin
+          # file. `// empty` because the field is null for everything that is not a rename.
+          if ! files="$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate --jq '.[] | .filename, (.previous_filename // empty)')"; then
             echo "could not list the changed files; building" >&2
             echo "android=true" >> "$GITHUB_OUTPUT"
             exit 0

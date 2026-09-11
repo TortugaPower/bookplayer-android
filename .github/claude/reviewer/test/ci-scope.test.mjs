@@ -70,6 +70,18 @@ test('one Android file among many inert ones still builds', () => {
   ]), true, 'a Kotlin change hidden in a documentation PR must still build');
 });
 
+test('a rename out of an Android path builds, given both sides', () => {
+  // The listing hands this script both `.filename` and `previous_filename`, so a rename shows up as two paths.
+  // The script needs no rename logic of its own — one Android-visible path in the list is enough — but the case
+  // is pinned here because it is the one shape where the WRONG answer is the dangerous one: a Kotlin file that
+  // was deleted by being moved somewhere inert.
+  assert.equal(decide(['docs/foo.md', 'app/src/main/java/Foo.kt']), true, 'a rename away from Android must build');
+  assert.equal(decide(['docs/foo.md']), false, 'and the inert side alone is still inert');
+  // The reverse direction too: a doc moved into the app tree is an Android-visible path now.
+  assert.equal(decide(['app/src/main/assets/readme.md', 'docs/readme.md']), false, 'a .md is inert wherever it lives');
+  assert.equal(decide(['app/src/main/res/raw/clip.mp3', 'docs/clip.mp3']), true);
+});
+
 test('a listing this cannot trust builds rather than skipping', () => {
   // Empty is not "nothing changed", it is "we were not told" — a failed or truncated read. And 3000 is the
   // GitHub API's own cap on a pull request's file listing, past which what comes back is silently partial.
