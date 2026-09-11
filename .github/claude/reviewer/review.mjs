@@ -1571,8 +1571,12 @@ export function planRound({ threads, currentByFp, priorState = null, maxVerify =
       ).slice(0, MAX_VERIFY_CHARS),
     });
   }
-  const identityOf = (t) => identities.get(t.id) || { id: t.id, fp: undefined, path: t.path, severity: findingSeverity(t.firstCommentBody), text: stripHarnessMarkup(t.firstCommentBody || '').slice(0, MAX_STATE_TEXT), promptText: stripHarnessMarkup(t.firstCommentBody || '').slice(0, MAX_VERIFY_CHARS) };
-  const fpOf = (t) => identityOf(t).fp;
+  // Straight off the map, with no fallback object. The loop above sets an identity for every thread in
+  // `harnessThreads`, and both callers iterate that same array — so the fallback could not fire, and what it was
+  // was a SECOND construction of the identity shape, free to drift from the one above and carrying `fp: undefined`,
+  // which would have made the thread invisible to `openUnreported` rather than loudly wrong. One shape, one place.
+  const identityOf = (t) => identities.get(t.id);
+  const fpOf = (t) => identities.get(t.id)?.fp;
   // Which thread is the harness treating as the carrier of each fingerprint: the FIRST, exactly as reconcile
   // does. A second thread with the same fingerprint is not kept, not closed and not reported by reconcile — so
   // it belongs to the verification pass, which can say it is a duplicate. Before this it was in no bucket at
@@ -2016,7 +2020,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
   // No `provisional` here any more: this function closes nothing, so there was nothing for it to withhold — the
   // branch returned the identical object and differed only by a log line, while its comment went on describing a
   // resolve-stale-threads step that moved to the verification pass. `provisional` still means something in
-  // `main`, which is where it gates that pass.
+  // `runReview`, which is where it gates that pass.
   const { priorState } = options;
   // `priorState` is legitimately null on a first round, so it cannot be defaulted — a default is exactly how a
   // refactor drops it silently and sends reconciliation back to marker archaeology. The KEY is required instead:

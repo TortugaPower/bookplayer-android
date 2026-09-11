@@ -357,7 +357,7 @@ test('three rounds in a row: the record the harness wrote is the record it reads
 
 test('an error thread whose body was edited is not closed by the verifier', async () => {
   // The severity that decides whether `not_applicable` may close a thread has to come from the record, because
-  // the body it used to come from is editable. This is the composition half of that: `main` has to hand the
+  // the body it used to come from is editable. This is the composition half of that: `runReview` has to hand the
   // verification pass the identity `planRound` computed, and no unit test can see whether it does.
   const temp = realpathSync(mkdtempSync(join(tmpdir(), 'guard-')));
   const { mod, restore } = await loadHarness({
@@ -507,11 +507,11 @@ test('a close whose note never posted is still ours two rounds later', async () 
   }
 });
 
-// A degraded answer, a secret in model output, and malformed findings: three things that only main() decides.
+// A degraded answer, a secret in model output, and malformed findings: three things that only runReview() decides.
 const agentDegraded = (result, resultSubtype) => async () => ({ finalText: '```json\n' + JSON.stringify(result) + '\n```', lastAnswer: '', turns: 3, resultSubtype });
 
 test('a deadline answer closes nothing, however complete it looks', async () => {
-  // The whole provisional concept rests on one expression in main(): a finished-looking answer that arrived
+  // The whole provisional concept rests on one expression in runReview(): a finished-looking answer that arrived
   // after the clock ran out is LESS complete than what the agent was about to check, so no earlier finding may
   // be closed on its authority. Emptying the subtype half of that expression left the suite green.
   const temp = realpathSync(mkdtempSync(join(tmpdir(), 'deadline-')));
@@ -580,7 +580,7 @@ test('a secret in model output is redacted in everything the harness posts', asy
 });
 
 test('a malformed finding is dropped, and two findings on one line become one comment', async () => {
-  // Both are main()'s normalisation, and both mutations were silent: a finding with no usable line posted a
+  // Both are runReview()'s normalisation, and both mutations were silent: a finding with no usable line posted a
   // comment the API rejects, and two findings that share a file/line/severity (one thread can only carry one)
   // lost the second one outright instead of being merged into it.
   const temp = realpathSync(mkdtempSync(join(tmpdir(), 'norm-')));
@@ -806,7 +806,7 @@ test('a secret with no recognisable shape is still redacted, because the harness
 });
 
 test('a provisional round never lets the verifier judge, and a stale entry drops out when the read worked', async () => {
-  // Two guards that only main() applies, one on each side of the record.
+  // Two guards that only runReview() applies, one on each side of the record.
   const temp = realpathSync(mkdtempSync(join(tmpdir(), 'guards-')));
   const env = {
     GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '24', COMMIT: 'ba5e000000000001',
@@ -1257,7 +1257,7 @@ test('a truncated comment listing is not read as "no record"', async () => {
 });
 
 test('a degraded round keeps its record intact, and a control character never reaches the log', async () => {
-  // Two things only main() puts together. The degrade path builds a body that CARRIES the record, and
+  // Two things only runReview() puts together. The degrade path builds a body that CARRIES the record, and
   // `upsertSummary` redacts what it is handed — across the blob, unless it is told not to, which deletes every
   // entry between two dangling halves of a key block. And a finding's `file` is model-authored and reaches the
   // run log, where a newline would put that text at the start of a line, which is where the runner reads

@@ -33,6 +33,14 @@ const NOT_CODE = {
   realpath: 'the POSIX call, named where the harness explains what it resolves paths with',
 };
 
+// Calls named in comments that belong to somebody else's vocabulary.
+const NOT_OURS = {
+  'Number': 'the JavaScript builtin',
+  'always': "a GitHub Actions expression function, named where the workflow's conditions are explained",
+  'cancelled': 'a GitHub Actions expression function, named for the same reason',
+  'failure': 'a GitHub Actions expression function, named for the same reason',
+};
+
 // This file is not in its own corpus: its allowlist KEYS are identifiers, so scanning it would let every entry
 // justify itself — `planClosures` is "in the code" the moment it is written down here.
 const SELF = 'comments.test.mjs';
@@ -80,6 +88,33 @@ test('every identifier a comment names exists in the code', () => {
     }
   }
   assert.deepEqual(unresolved, [], `${unresolved.length} comment(s) name something that does not exist:\n${unresolved.join('\n')}`);
+});
+
+test('a comment that names a CALL names a function that exists', () => {
+  // The sharper half, and the one that would have caught `main()` — which survived the plain-identifier check for
+  // twelve comments because "main" also exists in the code as the string `BASE_REF || 'main'` and as a branch name
+  // in both workflows. A backticked `name()` is a claim about a FUNCTION, so it is checked against declarations
+  // rather than against any occurrence of the word.
+  const files = sourceFiles();
+  const sources = files.map((f) => readFileSync(`${DIR}${f}`, 'utf8'));
+  const code = sources.map((s) => s.replace(/\/\/.*$/gm, '')).join('\n');
+  const declared = new Set([
+    ...[...code.matchAll(/\b(?:export\s+)?(?:async\s+)?function\s+(\w+)/g)].map((m) => m[1]),
+    ...[...code.matchAll(/\b(?:const|let|var)\s+(\w+)\s*=/g)].map((m) => m[1]),
+  ]);
+
+  const unresolved = [];
+  for (const [file, text] of files.map((f, i) => [f, sources[i]])) {
+    for (const line of text.split('\n')) {
+      const comment = /^\s*(?:\/\/|#|\*)(.*)$/.exec(line);
+      if (!comment) continue;
+      for (const call of comment[1].matchAll(/`(\w+)\(\)`/g)) {
+        if (NOT_OURS[call[1]] || declared.has(call[1])) continue;
+        unresolved.push(`${file}: \`${call[1]}()\` is named in a comment and no function by that name is declared`);
+      }
+    }
+  }
+  assert.deepEqual(unresolved, [], `${unresolved.length} comment(s) name a function that does not exist:\n${unresolved.join('\n')}`);
 });
 
 test('the allowlist is a list of decisions, not a drawer', () => {

@@ -49,7 +49,7 @@ export const setNetworkDeadline = (epochMs) => {
   networkDeadline = epochMs;
 };
 const outOfTime = () => Date.now() >= networkDeadline;
-// For the test that pins main() SETTING it: the budget functions are pure and pinned, the call that arms
+// For the test that pins `runReview()` SETTING it: the budget functions are pure and pinned, the call that arms
 // them was not, and an unarmed ladder is retries outside every budget the run has.
 export const networkDeadlineForTest = () => networkDeadline;
 // 406 is deliberate (the diff is too large to render), and a bare 403 is usually "not permitted", which will not
@@ -378,7 +378,7 @@ export async function listReviewThreads(prNumber) {
       truncated = true;
       break;
     }
-    // 100 pages x 30 s is 50 minutes — twice the whole job — so the page loop honours the network deadline too,
+    // 100 pages x 30 s is 50 minutes — past the job's 48 on its own — so the page loop honours the network deadline too,
     // not only the retry ladder inside each call.
     if (outOfTime()) {
       console.warn('Thread listing stopped: out of time');

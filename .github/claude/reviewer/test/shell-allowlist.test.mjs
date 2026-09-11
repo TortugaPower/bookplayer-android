@@ -437,7 +437,7 @@ test('a provisional result posts what it has and touches no earlier thread', asy
   const current = new Map([[reconcileFp(f), f]]);
   // A provisional answer is less complete than what the agent was about to check, so the round judges nothing —
   // and `reconcile` is not where that is decided: it closes nothing at all, so it behaves the same either way and
-  // `main` is the single place `provisional` means anything (it skips the verification pass). The option used to
+  // `runReview` is the single place `provisional` means anything (it skips the verification pass). The option used to
   // be passed here and did nothing but change a log line, under a comment describing a step that had moved.
   const first = await reconcile(current, [thread], io, { priorState: null });
   assert.equal(first.stats.resolved, 0);
@@ -481,7 +481,7 @@ test('an answer cut off before its findings is not salvaged into a clean pass', 
   assert.deepEqual(complete.findings, []);
   assert.equal(wasTruncationRepaired(complete), false);
 
-  // Truncated and missing `findings`: refused outright, so main() reports an incomplete round.
+  // Truncated and missing `findings`: refused outright, so runReview() reports an incomplete round.
   for (const cut of ['```json\n{"verdict":"pass","summary":"looks fine"', '```json\n{"verdict":"warn","summary":"I found a few things']) {
     assert.throws(() => extractJson(cut), /No parseable JSON object/);
   }
@@ -1532,7 +1532,7 @@ test('a degrade note replaces the previous one instead of stacking', () => {
   const withNote = summaryWithNote(review, 'ran out of time', HEADING);
   assert.ok(withNote.includes('looks fine'));
   assert.ok(withNote.indexOf('looks fine') < withNote.indexOf('ran out of time'));
-  // The second failure of the same run (main() explains it, then the top-level handler explains it again) and
+  // The second failure of the same run (runReview() explains it, then the top-level handler explains it again) and
   // every later failing push REPLACE that note rather than adding a paragraph.
   const twice = summaryWithNote(withNote, 'failed before producing a result', HEADING);
   assert.ok(twice.includes('looks fine'));
@@ -2915,7 +2915,7 @@ test('a second thread carrying the same fingerprint is judged, not ignored forev
 });
 
 test('the round plan is what production runs, and it holds the rules composition can break', () => {
-  // main() is not reachable from a test, so the decisions it used to make inline live here. A mutation sweep
+  // runReview() is not reachable from a test, so the decisions it used to make inline live here. A mutation sweep
   // showed both of these could be changed with the whole suite green: narrowing `eligibleIds` to what the verify
   // pass actually handled (which resolves errors on silence again), and flipping the provisional guard on the
   // superseded set (which claims a resolve that was never attempted).
