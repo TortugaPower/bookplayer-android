@@ -170,10 +170,24 @@ test("model-authored text reaches the log only through boundedDump", () => {
   // The DRY_RUN print goes through it too, and loses nothing: the default bound is thousands of characters, far
   // past any real finding, and redaction only touches secret shapes.
   const src = readFileSync(`${DIR}review.mjs`, 'utf8');
-  const modelText = /\b[fvd]\.(file|comment|same_as|evidence|text|summary)\b/;
+  // Keyed on the FIELD, not the object it hangs off. `[fvd].file` was the first spelling and
+  // `claimedThread.path` was the second — the same text under another variable — so the object name proved to be
+  // the wrong half to match on. A GitHub-derived path caught by this loses nothing: `boundedDump` is idempotent
+  // on short strings.
+  const modelText = /\.(file|comment|same_as|evidence|text|summary|path)\b/;
+  // A console call SPANS LINES in this file, and the first version of this check required the `console.` and the
+  // interpolation to be on one — which is how the second site in `keyFindings` stayed unbounded while the first
+  // was fixed and this test passed. Depth is tracked across lines, and the tracker errs toward staying inside a
+  // call (more lines checked, never fewer).
   const offenders = [];
+  let depth = 0;
   for (const [i, line] of src.split('\n').entries()) {
-    if (!/console\.(warn|log|error)\(/.test(line)) continue;
+    const opens = (line.match(/\(/g) || []).length;
+    const closes = (line.match(/\)/g) || []).length;
+    const starts = /console\.(warn|log|error)\(/.test(line);
+    if (!starts && depth <= 0) continue;
+    if (starts && depth <= 0) depth = opens - closes;
+    else depth += opens - closes;
     for (const m of line.matchAll(/\$\{([^}]*)\}/g)) {
       const expr = m[1];
       if (!modelText.test(expr)) continue;

@@ -1894,7 +1894,7 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
         // The judgement stands, the resolve did not — and REVIEW_RESOLVE_TOKEN is documented as optional, so on a
         // repo without one this is every verified finding, on every push. Saying "still open" there is wrong in
         // the one direction that matters: it reads as a finding nobody has dealt with.
-        console.warn(`verified-resolve failed (${t.path}) — ${redact(e.message)}`);
+        console.warn(`verified-resolve failed (${boundedDump(t.path, 80)}) — ${redact(e.message)}`);
         rows.push({ label, status: 'open', note: e?.stage === 'unreplyable' ? `${note}, but ${e.message} — left for a human` : `${note}, but this thread could not be resolved` });
         stats.stillOpen++;
       }
@@ -2080,8 +2080,8 @@ export function keyFindings(findings, threads = [], priorState = null, claims = 
       }
       refused++;
       console.warn(
-        `refusing same_as:${claimId} at ${f.file}:${f.line} — ` +
-          `${sameFile ? 'the finding on that thread reads as a different one' : `that thread is on ${claimedThread.path}`}; posting this as new`,
+        `refusing same_as:${claimId} at ${boundedDump(f.file, 80)}:${f.line} — ` +
+          `${sameFile ? 'the finding on that thread reads as a different one' : `that thread is on ${boundedDump(claimedThread.path, 80)}`}; posting this as new`,
       );
     }
     let fp = fingerprint(f);
