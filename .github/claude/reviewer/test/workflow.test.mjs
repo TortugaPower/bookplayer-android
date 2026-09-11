@@ -178,6 +178,15 @@ test('the two failure notes cover the failures the harness cannot report itself'
   const run = killedText.slice(killedText.indexOf('--setup-failed'), killedText.indexOf('\n', killedText.indexOf('--setup-failed')));
   assert.match(run, /either|or/, 'the note asserts one cause when the gate cannot tell two apart');
   assert.match(readFileSync(HARNESS, 'utf8'), /appendFileSync\(out, 'explained=true/, 'nothing in the harness writes the output that gate reads');
+  // And it is written only from the REVIEW step's own path. `--setup-failed` runs in these note steps, where an
+  // output named `explained` is read by nobody — writing it there looked like part of the gate and was not.
+  const harness = readFileSync(HARNESS, 'utf8');
+  // Comments stripped first: the paragraph explaining WHY this call is absent names the call, and an assertion
+  // that reads prose is defeated by the prose — the same trap as a check satisfied by its own comment, mirrored.
+  const setupMode = harness
+    .slice(harness.indexOf('async function reportSetupFailure'), harness.indexOf('async function runReview'))
+    .replace(/\/\/.*$/gm, '');
+  assert.equal(/recordExplainedOnPr\(\)/.test(setupMode), false, 'the note-only mode writes an output nothing reads');
 });
 
 test("the harness's own tests run before the review", () => {

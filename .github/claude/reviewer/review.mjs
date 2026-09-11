@@ -2586,8 +2586,12 @@ async function reportSetupFailure(reason) {
   const note = `> ⚠️ **The reviewer did not run:** ${boundedDump(reason || 'a step before the review failed', 400)}${RUN_URL ? ` See the [run log](${RUN_URL}).` : ''}`;
   // This note IS the mode: there is no summary, no findings, nothing else it produces. So whether it landed is
   // worth a line of its own — a reader of the log should not have to infer it from the absence of a comment.
-  if (await appendNoteToSummary(note, '## ⚠️ Claude PR Review — did not run')) recordExplainedOnPr();
-  else console.warn('The pull request was NOT told that the reviewer did not run; this log is the only record');
+  // No `recordExplainedOnPr()` here, and the absence is deliberate: `explained` is read as
+  // `steps.review.outputs.explained`, and this mode runs in the NOTE steps, never in the review step — so writing
+  // it from here sets an output on a step nothing consults. It looked like part of the gate and was not.
+  if (!(await appendNoteToSummary(note, '## ⚠️ Claude PR Review — did not run'))) {
+    console.warn('The pull request was NOT told that the reviewer did not run; this log is the only record');
+  }
 }
 
 // All `--setup-failed` has to do is read the summary comment and write it back.
