@@ -50,7 +50,7 @@ fun BookPlayerTheme(content: @Composable () -> Unit) {
             // The handled case would otherwise vanish from Sentry once the crash is gone; the scheme alone says
             // how common a no-browser device is without putting a user's link in a report.
             Sentry.addBreadcrumb(
-                Breadcrumb.info("no app to open a ${uri.substringBefore(':')} link").apply { category = "links" }
+                Breadcrumb.info("no app to open a ${uri.substringBefore(':', missingDelimiterValue = "unknown")} link").apply { category = "links" }
             )
             Toast.makeText(context, R.string.common_no_link_handler, Toast.LENGTH_SHORT).show()
         }

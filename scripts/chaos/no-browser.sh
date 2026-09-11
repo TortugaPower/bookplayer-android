@@ -46,4 +46,4 @@ FATAL=$("$ADB" logcat -d -v brief | grep -c "FATAL EXCEPTION" || true)
 ALIVE=$("$ADB" shell pidof "$PKG" 2>/dev/null | wc -w | tr -d ' ' || true)   # pidof exits non-zero when the process is gone
 TOAST=$("$ADB" logcat -d -v brief | grep -c "NotificationService.*Toast.*pkg=$PKG" || true)
 echo "fatal=$FATAL alive=$ALIVE toast=$TOAST"
-"$ADB" logcat -d -v brief | grep -E "Can't open|ActivityNotFoundException" | head -2
+"$ADB" logcat -d -v brief | grep -E "Can't open|ActivityNotFoundException" | head -2 || echo "no link crash in logcat (the fix)"
