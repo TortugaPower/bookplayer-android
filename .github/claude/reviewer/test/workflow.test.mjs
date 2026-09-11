@@ -382,3 +382,26 @@ test('the public README keeps no secret coordinates', () => {
   // And the corpus helper is usable where it is now called: at module scope, above.
   assert.ok(CAP_SOURCES.length >= 5 && CAP_SOURCES.every((f) => typeof f === 'string' && f.length));
 });
+
+test("CLAUDE.md's API floors match the modules", () => {
+  // This file is what the agent is told to read before judging anything, so a wrong floor here propagates into
+  // API-availability judgements on the module it is wrong about — `:wear` builds at 30, and the line said 28 flat.
+  const root = fileURLToPath(new URL('../../../../', import.meta.url));
+  const claude = readFileSync(`${root}CLAUDE.md`, 'utf8');
+  const declared = {};
+  for (const mod of ['app', 'core', 'wear']) {
+    const gradle = readFileSync(`${root}${mod}/build.gradle.kts`, 'utf8');
+    declared[mod] = Number(/minSdk = (\d+)/.exec(gradle)[1]);
+  }
+  const stated = /`minSdk (\d+)`/.exec(claude);
+  assert.ok(stated, 'CLAUDE.md no longer states a minSdk');
+  assert.equal(Number(stated[1]), Math.min(...Object.values(declared)), 'the stated floor is not the lowest module floor');
+  // And every module that differs from it is named, or a reader takes the one number for all three.
+  for (const [mod, value] of Object.entries(declared)) {
+    if (value === Number(stated[1])) continue;
+    // Built with a plain string, not a template: the pattern needs backticks in it, and a template literal that
+    // contains backticks is how the first version of this line failed to parse at all.
+    const named = new RegExp(':' + mod + '[^\\n]{0,24}' + value);
+    assert.ok(named.test(claude), mod + ' builds at ' + value + ' and CLAUDE.md does not say so');
+  }
+});

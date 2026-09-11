@@ -5,7 +5,7 @@ iOS BookPlayer app and shares the same BookPlayer backend (sync, auth, subscript
 
 ## Tech stack
 
-- **Language / build:** Kotlin, Gradle (Kotlin DSL), KSP. JDK 17. `minSdk 28`, `targetSdk`/`compileSdk 36`.
+- **Language / build:** Kotlin, Gradle (Kotlin DSL), KSP. JDK 17. `minSdk 28` (`:wear` is 30), `targetSdk`/`compileSdk 36`.
 - **UI:** Jetpack Compose + **Material3**, Navigation Compose, Coil (images), `konfetti` (effects).
 - **Architecture:** MVVM. `ViewModel` + `StateFlow` for state; UI observes and renders.
 - **DI:** **Manual** — `ViewModelProvider.Factory` per ViewModel (e.g. `LibraryViewModelFactory`),
