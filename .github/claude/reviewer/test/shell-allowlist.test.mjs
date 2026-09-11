@@ -4074,8 +4074,14 @@ test('a command with nothing to read is refused', () => {
   // The `-` and `-f=` rules refuse the explicit stdin spellings and `tail -f` is refused by the flag allowlist,
   // all for one reason: a command waiting on stdin blocks until the tool's own timeout and spends the review's
   // budget on nothing. `cat` on its own passed all of them, because they only inspect words that are there.
-  for (const blocked of ['cat', 'wc', 'head', 'file', 'du', 'stat', 'grep TODO', 'cat -n', 'tail -n 5', 'head -c 100', 'grep -m 3 TODO']) {
+  for (const blocked of ['cat', 'wc', 'head', 'grep TODO', 'cat -n', 'tail -n 5', 'head -c 100', 'grep -m 3 TODO']) {
     assert.equal(isAllowedBash(blocked), false, `${blocked} would read stdin and block`);
+  }
+  // And only the commands that actually WAIT: `du` with no operand summarises the working directory, and
+  // `file`/`stat` print a usage error and exit. Refusing those cost a denied turn for nothing, and the denial
+  // talked about the grammar rather than a missing operand.
+  for (const fastFail of ['du', 'du -sh', 'file', 'stat']) {
+    assert.equal(isAllowedBash(fastFail), true, `${fastFail} does not block on stdin, so the rule must not refuse it`);
   }
   // What reads a file, or reads nothing at all, is untouched.
   for (const allowed of ['cat review.mjs', 'wc -l review.mjs', 'tail -n 5 review.mjs', 'head -c 100 review.mjs',

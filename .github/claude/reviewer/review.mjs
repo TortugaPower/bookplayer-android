@@ -455,9 +455,14 @@ const ALLOWED_LONG_FLAGS = new Set([
   '--line-number', '--recursive', '--files-with-matches', '--fixed-strings', '--extended-regexp',
   '--ignore-case', '--word-regexp', '--max-count', '--after-context', '--before-context', '--context',
 ]);
-// How many non-flag operands each of these needs before it is reading a file rather than stdin. `pwd` and `echo`
-// are absent because they read nothing; `find` and `ls` default to the working directory rather than stdin.
-const STDIN_WITHOUT_OPERANDS = { cat: 1, head: 1, tail: 1, wc: 1, file: 1, du: 1, stat: 1, grep: 2 };
+// The commands that WAIT ON STDIN when given nothing to read, and how many non-flag operands each needs before
+// it is reading a file instead. That is the whole rule — a command waiting on stdin blocks until the tool's own
+// timeout and spends the review's budget on nothing — so only the commands that actually wait belong here.
+//
+// `du`, `file` and `stat` were in this list and are not any more: `du` with no operand summarises the working
+// directory (like `ls` and `find`), and `file`/`stat` print a usage error and exit. None of them blocks, so
+// refusing them cost a denied turn and told the agent about the grammar rather than about a missing operand.
+const STDIN_WITHOUT_OPERANDS = { cat: 1, head: 1, tail: 1, wc: 1, grep: 2 };
 
 // Short letters, per command, and the block has to sit against the table it describes — inserting the constant
 // above between the two left this reading as documentation for the wrong one.

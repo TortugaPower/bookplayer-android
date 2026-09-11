@@ -150,7 +150,9 @@ test('nothing reaches the log with an upstream message still in it', () => {
   for (const [i, line] of src.split('\n').entries()) {
     if (!/console\.(warn|log|error)\(/.test(line)) continue;
     for (const m of line.matchAll(/\$\{([A-Za-z_$][\w$]*(?:\.\w+)*)\}/g)) {
-      const expr = m.group ? m.group(1) : m[1];
+      // `m[1]`, plainly: a RegExp match has `groups` (named captures), never a `group()` method, so the ternary
+      // that used to be here had a dead branch — in the file whose whole subject is claims that are not true.
+      const expr = m[1];
       if (!carriesError.test(expr)) continue;
       if (line.includes(`redact(${expr})`)) continue;
       offenders.push(`review.mjs:${i + 1}: \${${expr}} reaches the log unredacted — ${line.trim().slice(0, 80)}`);
