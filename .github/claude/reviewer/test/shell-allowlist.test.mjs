@@ -3958,3 +3958,30 @@ test('a closed record carries the anchor it claims to', () => {
   // because the close is knowledge nothing else holds.
   assert.equal(byFp.cccc3333.line, 0);
 });
+
+test("the verify prompt builds each file's reported block once", () => {
+  // Twenty threads on one file used to re-emit the identical `<reported_this_push>` block twenty times — at the
+  // caps in play, most of half a megabyte of prompt, nearly all of it repeated, spent inside the five-minute
+  // verify slice. The block is per FILE, so it is built per file.
+  const threads = Array.from({ length: 6 }, (_, i) => ({
+    id: `t${i}`, isResolved: false, firstCommentId: i + 1, firstCommentAuthor: 'github-actions[bot]',
+    path: 'app/A.kt', line: 10 + i, originalLine: 10 + i, comments: [],
+    firstCommentBody: `🟡 **WARN** — an earlier finding number ${i}`,
+  }));
+  const current = new Map([
+    ['fp1', { file: 'app/A.kt', line: 3, severity: 'warn', comment: 'the receiver is never unregistered' }],
+    ['fp2', { file: 'app/B.kt', line: 9, severity: 'info', comment: 'a finding in another file entirely' }],
+  ]);
+  const prompt = buildVerifyPrompt(numbered(...threads), 'abcdef1234567890', 'gianni', current);
+
+  // Every thread is on app/A.kt, so that file's finding is quoted once per thread — one <reported> line each,
+  // and none of app/B.kt's.
+  assert.equal(prompt.split('the receiver is never unregistered').length - 1, threads.length);
+  assert.equal(prompt.includes('a finding in another file entirely'), false, "another file's findings leaked in");
+  // The cap that applies here counts FINDINGS for one file, not threads to judge: they were one constant, and
+  // moving either silently moved the other.
+  const many = new Map(Array.from({ length: 40 }, (_, i) => [`fp${i}`, { file: 'app/A.kt', line: i, severity: 'info', comment: `finding ${i}` }]));
+  const capped = buildVerifyPrompt(numbered(threads[0]), 'abcdef1234567890', 'gianni', many);
+  const quoted = capped.split('<reported line=').length - 1;
+  assert.ok(quoted > 0 && quoted <= 20, `quoted ${quoted} findings for one file`);
+});

@@ -131,3 +131,29 @@ test('the allowlist is a list of decisions, not a drawer', () => {
     assert.equal(new RegExp(`\\b${name}\\b`).test(code), false, `${name} is allowlisted as "not code" but the code has it now — delete the entry`);
   }
 });
+
+test('nothing reaches the log with an upstream message still in it', () => {
+  // The rule this file's subject states about itself: "every string that leaves this process goes through
+  // `redact`, log lines included". It was applied by hand — twice, by regex — and both times the regex was the
+  // boundary rather than the rule: the first sweep matched `${e.message}` and missed `${msg}`, the second missed
+  // a `reason` whose own third branch embedded an error. A public repository's run log is public, and `rest()`
+  // deliberately embeds the whole upstream response body in its error messages.
+  //
+  // So it is checked, with no exemption for "this one is already safe": `redact` is idempotent, so wrapping a
+  // value that was built from redacted parts costs nothing, and a rule with exemptions is the thing that let two
+  // sweeps miss three sites. Anything interpolated into a console call whose NAME says it carries an error is
+  // wrapped at the interpolation, full stop.
+  const src = readFileSync(`${DIR}review.mjs`, 'utf8');
+  const carriesError = /\b(message|msg|stack|reason)\b/i;
+  const offenders = [];
+  for (const [i, line] of src.split('\n').entries()) {
+    if (!/console\.(warn|log|error)\(/.test(line)) continue;
+    for (const m of line.matchAll(/\$\{([A-Za-z_$][\w$]*(?:\.\w+)*)\}/g)) {
+      const expr = m.group ? m.group(1) : m[1];
+      if (!carriesError.test(expr)) continue;
+      if (line.includes(`redact(${expr})`)) continue;
+      offenders.push(`review.mjs:${i + 1}: \${${expr}} reaches the log unredacted — ${line.trim().slice(0, 80)}`);
+    }
+  }
+  assert.deepEqual(offenders, [], `wrap these in redact():\n${offenders.join('\n')}`);
+});

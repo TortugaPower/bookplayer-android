@@ -1387,6 +1387,10 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
 }
 
 const MAX_VERIFY_THREADS = 20;
+// How many of THIS push's findings are quoted alongside a thread being judged, so a `duplicate` verdict has
+// something concrete to name. Separate from the thread cap above on purpose: they were one constant, and the two
+// mean different things.
+const MAX_REPORTED_PER_FILE = 20;
 const MAX_VERIFY_CHARS = 1200; // per finding, and per reply
 const VERIFY_BUDGET_MS = num(process.env.REVIEW_VERIFY_BUDGET_MS, 5 * 60 * 1000);
 const MAINTAINER_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
@@ -1440,12 +1444,25 @@ Include every id you were given, exactly once. \`of\` is required for "duplicate
 // thread it is judging is the same issue as a comment it cannot see — and the harness used to make that guess
 // itself, from a similarity score, and got it wrong on two genuinely different findings in one file.
 export function buildVerifyPrompt(entries, headSha, prAuthor = '', currentByFp = new Map()) {
-  const reportedFor = (file) =>
-    [...currentByFp.values()]
-      .filter((f) => f.file === file)
-      .slice(0, MAX_VERIFY_THREADS)
-      .map((f) => `  <reported line="${escapeAttr(String(f.line))}" severity="${escapeAttr(f.severity)}">${escapePrText(String(f.comment || '').slice(0, MAX_VERIFY_CHARS))}</reported>`)
-      .join('\n');
+  // Built once per FILE, not once per thread. Twenty threads on one file re-emitted the identical block twenty
+  // times — at the caps in play, most of half a megabyte of prompt, nearly all of it repeated, spent inside the
+  // five-minute verify slice.
+  const reportedCache = new Map();
+  const reportedFor = (file) => {
+    if (!reportedCache.has(file)) {
+      reportedCache.set(
+        file,
+        [...currentByFp.values()]
+          .filter((f) => f.file === file)
+          // Its OWN cap. This was `MAX_VERIFY_THREADS`, which counts threads to judge, not findings to quote for
+          // one file — so moving either number silently moved the other.
+          .slice(0, MAX_REPORTED_PER_FILE)
+          .map((f) => `  <reported line="${escapeAttr(String(f.line))}" severity="${escapeAttr(f.severity)}">${escapePrText(String(f.comment || '').slice(0, MAX_VERIFY_CHARS))}</reported>`)
+          .join('\n'),
+      );
+    }
+    return reportedCache.get(file);
+  };
   const blocks = entries.map(({ id, thread: t, identity = null }) => {
     // The PR author's replies are shown too, with their own role. Hiding them (the accept gate must exclude the
     // author, who is usually OWNER on a same-repo PR) meant that on a solo repo the verifier saw every thread as
@@ -1808,7 +1825,7 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
     }
     if (status === 'insufficient' && hasMaintainerReply && !answeredAlready(t)) {
       // Only when the last word is not already ours: the thread stays open and is re-verified on every push.
-      await io.reply(t, redact(`🟡 still open: ${evidence}\n\n${MARKER_VERIFY_NOTE}`)).catch((e) => console.warn(`reply failed — ${e.message}`));
+      await io.reply(t, redact(`🟡 still open: ${evidence}\n\n${MARKER_VERIFY_NOTE}`)).catch((e) => console.warn(`reply failed — ${redact(e.message)}`));
     }
     // "Answered" is a claim about a HUMAN, so it is gated on the same fact the reply above is: the verifier can
     // answer `insufficient` on a thread nobody has replied to, and the row then told a reader a maintainer had
@@ -2572,7 +2589,7 @@ export async function runReview({ agent = runAgent } = {}) {
       FALLBACK_MODELS.find((id) => release(id) !== release(MODEL)) ||
       FALLBACK_MODEL;
     if (!modelUnavailable || retryModel === MODEL || process.env.REVIEW_MODEL) throw await explainFailure(e);
-    console.warn(`Run with ${MODEL} failed (${msg}); retrying once with ${retryModel}`);
+    console.warn(`Run with ${MODEL} failed (${redact(msg)}); retrying once with ${retryModel}`);
     MODEL = retryModel;
     try {
       agentRun = await agent(buildUserPrompt(pr, diffPath, diff.length, diffLineCount, openFindingsBlock(open)), reviewBudget(startedAt));
@@ -2625,8 +2642,8 @@ export async function runReview({ agent = runAgent } = {}) {
           ? 'hit the turn limit before finishing — likely a large PR. Bump `REVIEW_MAX_TURNS` or split the PR into smaller ones.'
           : resultSubtype === 'error_deadline'
             ? 'hit the time limit before finishing — likely a large PR. Raise `REVIEW_DEADLINE_MS`, `REVIEW_JOB_BUDGET_MS` with it (the review is capped by the job budget minus the verification slice), and `timeout-minutes` in the workflow, which bounds them both — or split the PR.'
-            : `could not produce a structured result (${e.message}).`;
-      console.warn(`Review incomplete: ${reason}`);
+            : `could not produce a structured result (${redact(e.message)}).`;
+      console.warn(`Review incomplete: ${redact(reason)}`);
       // The whole answer (bounded, redacted): a 400-char tail was not enough to diagnose why extraction failed. An
       // answer a later tool call reset is still the best evidence there is when the final buffer is empty.
       if (finalText) logAgentOutput('Agent output', finalText);
