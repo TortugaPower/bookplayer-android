@@ -31,6 +31,7 @@ const NOT_CODE = {
   direction: "a GitHub REST query parameter, on an endpoint that ignores it — that is the point of the sentence",
   pushd: 'a shell builtin the tool gate refuses, named in the list of what it refuses',
   realpath: 'the POSIX call, named where the harness explains what it resolves paths with',
+  onStop: 'an Android lifecycle method, named in the example of two findings that differ by one word',
 };
 
 // Calls named in comments that belong to somebody else's vocabulary.

@@ -1906,3 +1906,33 @@ test('the 406 diff rebuild stops at the clock and says so in the diff', async ()
     restore();
   }
 });
+
+test('the diff is written even when RUNNER_TEMP does not exist yet', async () => {
+  // In CI the runner guarantees that directory. Locally it is whatever the README's invocation says, and nothing
+  // created it — so the documented command died with ENOENT at the write, after the PR and diff fetches, and
+  // outside DRY_RUN after a "did not run" note had already been posted on a real pull request.
+  const parent = realpathSync(mkdtempSync(join(tmpdir(), 'notemp-')));
+  const missing = join(parent, 'does', 'not', 'exist');
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '48', COMMIT: 'bc00000000000003',
+    BASE_REF: 'develop', RUNNER_TEMP: missing, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'notemp');
+  const realFetch = globalThis.fetch;
+  try {
+    const gh = fakeGitHub();
+    globalThis.fetch = gh.fetch;
+    let sawDiff = '';
+    await mod.runReview({
+      agent: async () => {
+        sawDiff = readFileSync(mod.DIFF_PATH, 'utf8');
+        return { finalText: '```json\n' + JSON.stringify({ verdict: 'pass', summary: 'fine', findings: [] }) + '\n```', lastAnswer: '', turns: 1, resultSubtype: 'success' };
+      },
+    });
+    assert.ok(sawDiff.includes('diff --git'), 'the agent never got a diff');
+    assert.ok(gh.summaryOut(), 'the round produced no summary');
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});

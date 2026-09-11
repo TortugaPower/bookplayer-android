@@ -6,7 +6,7 @@
 // Same hardened harness as bookplayer-support-pipeline; model resolved at runtime instead of pinned.
 
 import { randomBytes, createHash } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1444,25 +1444,19 @@ Include every id you were given, exactly once. \`of\` is required for "duplicate
 // thread it is judging is the same issue as a comment it cannot see — and the harness used to make that guess
 // itself, from a similarity score, and got it wrong on two genuinely different findings in one file.
 export function buildVerifyPrompt(entries, headSha, prAuthor = '', currentByFp = new Map()) {
-  // Built once per FILE, not once per thread. Twenty threads on one file re-emitted the identical block twenty
-  // times — at the caps in play, most of half a megabyte of prompt, nearly all of it repeated, spent inside the
-  // five-minute verify slice.
-  const reportedCache = new Map();
-  const reportedFor = (file) => {
-    if (!reportedCache.has(file)) {
-      reportedCache.set(
-        file,
-        [...currentByFp.values()]
-          .filter((f) => f.file === file)
-          // Its OWN cap. This was `MAX_VERIFY_THREADS`, which counts threads to judge, not findings to quote for
-          // one file — so moving either number silently moved the other.
-          .slice(0, MAX_REPORTED_PER_FILE)
-          .map((f) => `  <reported line="${escapeAttr(String(f.line))}" severity="${escapeAttr(f.severity)}">${escapePrText(String(f.comment || '').slice(0, MAX_VERIFY_CHARS))}</reported>`)
-          .join('\n'),
-      );
-    }
-    return reportedCache.get(file);
-  };
+  // Emitted once per FILE, ahead of the findings — not once per thread. Memoizing the construction was the first
+  // attempt and it fixed nothing that mattered: the string was still interpolated into every `<finding>`, so
+  // twenty threads on one file still put twenty identical copies in the prompt (at the caps, ~24 KB a copy,
+  // ~480 KB in total, ~95% of it repeated) inside the five-minute verify slice. Each finding names its file, and
+  // the section for that file is above.
+  const reportedFor = (file) =>
+    [...currentByFp.values()]
+      .filter((f) => f.file === file)
+      // Its OWN cap. This was `MAX_VERIFY_THREADS`, which counts threads to judge, not findings to quote for one
+      // file — so moving either number silently moved the other.
+      .slice(0, MAX_REPORTED_PER_FILE)
+      .map((f) => `  <reported line="${escapeAttr(String(f.line))}" severity="${escapeAttr(f.severity)}">${escapePrText(String(f.comment || '').slice(0, MAX_VERIFY_CHARS))}</reported>`)
+      .join('\n');
   const blocks = entries.map(({ id, thread: t, identity = null }) => {
     // The PR author's replies are shown too, with their own role. Hiding them (the accept gate must exclude the
     // author, who is usually OWNER on a same-repo PR) meant that on a solo repo the verifier saw every thread as
@@ -1488,14 +1482,21 @@ export function buildVerifyPrompt(entries, headSha, prAuthor = '', currentByFp =
       `<finding id="${id}" severity="${escapeAttr(identity?.severity || findingSeverity(t.firstCommentBody))}" file="${escapeAttr(identity?.path || t.path)}" ${lineAttr}>`,
       escapePrText(identity?.promptText || stripHarnessMarkup(t.firstCommentBody || '').slice(0, MAX_VERIFY_CHARS)),
       replies ? `\n${replies}` : '',
-      // What this push says about the same file, so a `duplicate` verdict has something concrete to name.
-      (() => { const r = reportedFor(identity?.path || t.path); return r ? `\n  <reported_this_push>\n${r}\n  </reported_this_push>` : ''; })(),
       '</finding>',
     ].join('\n');
   });
+  // One section per file this round reports on, so a `duplicate` verdict has something concrete to name. Above
+  // the findings and once each: the same text under every finding was almost all of the prompt.
+  const files = [...new Set(entries.map(({ thread: t, identity = null }) => identity?.path || t.path))];
+  const reported = files
+    .map((file) => [file, reportedFor(file)])
+    .filter(([, block]) => block)
+    .map(([file, block]) => `<reported_this_push file="${escapeAttr(file)}">\n${block}\n</reported_this_push>`)
+    .join('\n\n');
+
   return `The pull request has moved on to commit \`${headSha.slice(0, 8)}\`. Below are findings reported on it by
 earlier runs, each with any human replies. Judge each one against the code as it is now, per your instructions.
-
+${reported ? `\nWhat THIS push reports, per file — a finding below is a \`duplicate\` only of one of these, for its own file:\n\n${reported}\n` : ''}
 ${blocks.join('\n\n')}`;
 }
 
@@ -2063,6 +2064,11 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
   // Post the finding's CURRENT wording on a thread that does not already carry it. Compared in the form it
   // was posted in — bodies go out through `redact(neutralizeMarkup(...))` — which is what makes it
   // self-limiting: after the reply the thread contains that text, so a wording is never posted twice.
+  //
+  // CONTAINMENT, not resemblance, and the churn that costs is accepted deliberately. A ~0.9 similarity guard was
+  // proposed to suppress near-identical rewordings; two wordings that differ by one word (`onStop` against
+  // `onDestroy`) score above that, and the word they differ by is the whole finding. Measured on this PR across
+  // 23 rounds and 150 threads: 6 replies, because a finding usually returns in the same words or is fixed.
   const sayCurrentWording = async (thread, f, fp) => {
     const bodies = [thread.firstCommentBody || '', ...(Array.isArray(thread.comments) ? thread.comments.map((c) => c.body || '') : [])];
     const rendered = redact(neutralizeMarkup(f.comment));
@@ -2549,6 +2555,10 @@ export async function runReview({ agent = runAgent } = {}) {
   }
 
   const diff = await fetchPullRequestDiff(PR_NUMBER);
+  // The directory, because RUNNER_TEMP is guaranteed to exist only in CI. Locally the documented invocation sets
+  // it to a path nothing creates, so the run died with ENOENT here — after fetching the PR and the diff, and
+  // outside DRY_RUN after `explainFailure` had already posted a "did not run" note on a real pull request.
+  mkdirSync(dirname(diffPath), { recursive: true });
   writeFileSync(diffPath, diff);
   // Counted once and told to the agent: the Read tool refuses a file over ~256 KB in one call, and this PR's
   // own diff is 493 KB. Without the size in the prompt the agent discovers that by trial, which costs a turn

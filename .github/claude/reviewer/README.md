@@ -38,7 +38,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~232 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~233 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
@@ -154,6 +154,13 @@ why the bump has to be an edit a human makes rather than a range that drifts.
   empty `first` selection — is judged, reported and left open instead. The two rejected alternatives: undoing the
   close flaps the thread on every push, and a row in the summary explains it for exactly one round, because the
   next round's summary replaces it.
+- **The re-wording reply is bounded by CONTAINMENT, and the churn that buys is accepted.** When a carried-over
+  finding comes back worded differently, the new wording is posted on its thread unless the thread literally
+  contains it. A similarity guard (skip if ~0.9 alike) was proposed and turned down: two wordings that differ by
+  one word — `unregistered in onStop` against `unregistered in onDestroy` — score above that bar, and suppressing
+  the second buries the part a maintainer needs. The projected cost was one reply per carried finding per push;
+  measured over 23 rounds and 150 threads on this PR, it was **6 replies**, because a finding usually comes back
+  in the same words (containment suppresses it) or has been fixed. Cheap enough not to trade the invariant for.
 - **Similarity may decide MATCHING, never CLOSING.** A wrong match costs an extra comment somebody can see; a
   wrong close costs a finding. Every use of `findingSimilarity` is on the first side of that line.
 - **The record is the harness's memory, and every summary write replaces the comment it lives in.** Any path

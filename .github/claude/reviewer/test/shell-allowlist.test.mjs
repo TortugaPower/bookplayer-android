@@ -3974,10 +3974,14 @@ test("the verify prompt builds each file's reported block once", () => {
   ]);
   const prompt = buildVerifyPrompt(numbered(...threads), 'abcdef1234567890', 'gianni', current);
 
-  // Every thread is on app/A.kt, so that file's finding is quoted once per thread — one <reported> line each,
-  // and none of app/B.kt's.
-  assert.equal(prompt.split('the receiver is never unregistered').length - 1, threads.length);
+  // Every thread is on app/A.kt, so that file's findings are quoted ONCE for the whole prompt — not once per
+  // thread, which was ~95% repetition at the caps. Memoizing the construction did not fix that; only emitting it
+  // once does, and this is the assertion that can tell the two apart.
+  assert.equal(prompt.split('the receiver is never unregistered').length - 1, 1, 'the block is still repeated per thread');
+  assert.equal(prompt.split('<reported_this_push').length - 1, 1, 'one section per file, and one file here');
   assert.equal(prompt.includes('a finding in another file entirely'), false, "another file's findings leaked in");
+  // Each finding still names its file, which is what ties it to the section above.
+  assert.equal(prompt.split('file="app/A.kt"').length - 1, threads.length + 1);
   // The cap that applies here counts FINDINGS for one file, not threads to judge: they were one constant, and
   // moving either silently moved the other.
   const many = new Map(Array.from({ length: 40 }, (_, i) => [`fp${i}`, { file: 'app/A.kt', line: i, severity: 'info', comment: `finding ${i}` }]));
