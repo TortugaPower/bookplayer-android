@@ -142,7 +142,14 @@ test("the review step's cap is looser than the harness's own budget", () => {
   // review.mjs measures its budget from before the model lookup, and the reconcile phase that follows it is
   // deliberately unclocked (up to MAX_INLINE posts plus a resolve and a reply per closed thread). If this cap is
   // the tighter of the two, the step is killed mid-write — and a killed step explains nothing on the PR.
-  assert.ok(cap >= budget + 4, `the review step's ${cap} min leaves ${cap - budget} for a reconcile the harness does not clock; the harness budgets ${budget}`);
+  // The cap must cover the model passes AND the write phase's network allowance, both read from the harness. The
+  // margin was a bare `+ 4` chosen to stand for "reconcile needs some time" — now that the harness states that
+  // number, the check reads it instead of restating it.
+  const reconcile = budgetMinutes('REVIEW_RECONCILE_NETWORK_MS');
+  assert.ok(
+    cap >= budget + reconcile + 1,
+    `the review step's ${cap} min must cover ${budget} of model passes plus ${reconcile} of write-phase network`,
+  );
   assert.ok(cap < jobTimeout, 'the review step must fail on its own cap before the job is cancelled on the job cap');
 });
 

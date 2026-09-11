@@ -2033,3 +2033,92 @@ test('every listing in the client asks for the same page size', async () => {
     restore();
   }
 });
+
+test('the write phase still has a retry budget when the model passes used all of theirs', async () => {
+  // `JOB_BUDGET_MS` is exactly what the two model passes may spend, and it used to arm the network clock too — so
+  // on a long round every GitHub call in the write phase ran with retries disabled, and that phase is the round's
+  // only durable output. The concrete failure: the summary's stale-listing re-check got one attempt, and a
+  // transient 500 there left the round with no `existing` in hand, posting a SECOND summary.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'writebudget-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '51', COMMIT: 'ae00000000000005',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'writebudget');
+  const { networkDeadlineForTest } = await import('../github.mjs');
+  const realFetch = globalThis.fetch;
+  const realNow = Date.now;
+  try {
+    const gh = fakeGitHub({ summaryBody: '## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->' });
+    const inner = gh.fetch;
+    let skew = 0;
+    Date.now = () => realNow() + skew;
+    let listReads = 0;
+    let refusedOnce = false;
+    globalThis.fetch = async (url, init = {}) => {
+      // The whole model budget is spent by the time the passes are done.
+      if (String(url).endsWith('/graphql')) skew = 18 * 60_000;
+      const isList = /\/issues\/\d+\/comments/.test(String(url)) && (init.method || 'GET') === 'GET';
+      if (isList) {
+        listReads++;
+        // One transient failure on the re-check: with a retry budget this is survivable, without one it is not.
+        if (listReads === 2 && !refusedOnce) {
+          refusedOnce = true;
+          return { ok: false, status: 500, headers: { get: () => null }, json: async () => ({}), text: async () => 'boom' };
+        }
+      }
+      return inner(url, init);
+    };
+    await mod.runReview({ agent: agentReturning({ verdict: 'pass', summary: 'quiet', findings: [] }) });
+
+    assert.ok(networkDeadlineForTest() > realNow() + 18 * 60_000, 'the clock was armed with nothing left for the writes');
+    assert.deepEqual(gh.calls.issueComments, [], 'a SECOND summary was posted: the re-check had no retry left');
+    assert.equal(gh.calls.patched.length, 1, 'the existing summary was not updated');
+  } finally {
+    Date.now = realNow;
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('the write tokens are not in this process while the agent runs', async () => {
+  // `agentEnv` filters what is handed to the SDK, and every test could only assert the shape of that options
+  // object — never that the subprocess is spawned with it rather than with `{ ...process.env, ...options.env }`.
+  // A release that merged would make the filtering cosmetic with the whole suite green, which is the class the
+  // exact version pin mitigates and cannot detect. So the credentials leave this process for the duration: there
+  // is nothing to merge. They must come back, or the round can post nothing at all.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'withhold-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', REVIEW_RESOLVE_TOKEN: 'pat', PR_NUMBER: '52',
+    COMMIT: 'af00000000000006', BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '',
+    DRY_RUN: undefined, GITHUB_WORKSPACE: process.cwd(),
+  }, 'withhold');
+  const realFetch = globalThis.fetch;
+  try {
+    const gh = fakeGitHub();
+    globalThis.fetch = gh.fetch;
+    const seen = [];
+    await mod.runReview({
+      agent: async () => {
+        seen.push({ gh: process.env.GITHUB_TOKEN, pat: process.env.REVIEW_RESOLVE_TOKEN, key: process.env.ANTHROPIC_API_KEY });
+        return { finalText: '```json\n' + JSON.stringify({ verdict: 'warn', summary: 'one', findings: [{ severity: 'warn', file: 'app/A.kt', line: 2, comment: 'a finding' }] }) + '\n```', lastAnswer: '', turns: 1, resultSubtype: 'success' };
+      },
+    });
+
+    assert.ok(seen.length >= 1, 'the agent never ran');
+    for (const at of seen) {
+      assert.equal(at.gh, undefined, 'GITHUB_TOKEN was in this process while the agent ran');
+      assert.equal(at.pat, undefined, 'REVIEW_RESOLVE_TOKEN was in this process while the agent ran');
+      // The key is NOT withheld: the agent cannot authenticate without it, and it grants no write on this PR.
+      assert.equal(at.key, 'k');
+    }
+    // Back afterwards, and used: the round posted its finding and its summary.
+    assert.equal(process.env.GITHUB_TOKEN, 'tok');
+    assert.equal(process.env.REVIEW_RESOLVE_TOKEN, 'pat');
+    assert.equal(gh.calls.inline.length, 1, 'the round could not post after the tokens were withheld');
+    assert.ok(gh.summaryOut());
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});

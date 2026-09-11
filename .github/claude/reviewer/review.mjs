@@ -121,6 +121,11 @@ const DEADLINE_MS = num(process.env.REVIEW_DEADLINE_MS, 12 * 60 * 1000);
 // could exceed it. It errs safe — a cancelled job writes nothing rather than something wrong — and raising
 // either budget means raising `timeout-minutes` in the workflow with it.
 const JOB_BUDGET_MS = num(process.env.REVIEW_JOB_BUDGET_MS, 18 * 60 * 1000);
+// What the WRITE phase may spend on the network after the two model passes are done. The phase itself is
+// deliberately unclocked — a round cut off mid-reconcile is the half-finished state everything here avoids — but
+// its GitHub calls need a retry budget of their own, and `JOB_BUDGET_MS` is already spoken for. The review step's
+// cap in the workflow has to cover this as well as the budget above; `test/workflow.test.mjs` checks that it does.
+const RECONCILE_NETWORK_MS = num(process.env.REVIEW_RECONCILE_NETWORK_MS, 4 * 60 * 1000);
 // Failure dump of the agent's answer in the run log (head + tail). Extraction failures are visible in the first and
 // last couple of KB; the full 20 KB is available with ACTIONS_STEP_DEBUG, since the log of a public repo is public
 // and redact() does not know every secret shape (an app-specific password quoted from a diff, for instance).
@@ -1189,6 +1194,33 @@ const AGENT_ENV_ALLOW = new Set([
   'TMPDIR', 'TEMP', 'TMP', 'RUNNER_TEMP', 'RUNNER_OS', 'RUNNER_ARCH', 'GITHUB_WORKSPACE',
 ]);
 const AGENT_ENV_ALLOW_PREFIX = ['LC_', 'XDG_', 'NODE_', 'CLAUDE_CODE_'];
+// Taken out of THIS process while the agent runs, then put back. `agentEnv` filters what is handed to the SDK;
+// this is the half that does not depend on the SDK honouring it — a release that spawned with
+// `{ ...process.env, ...options.env }` would make that filtering cosmetic, with every test here still green.
+// `ANTHROPIC_API_KEY` is not withheld: the agent cannot authenticate without it, and it grants nothing on this
+// pull request. What is withheld is exactly the two credentials that can write to it.
+const WITHHOLD_WHILE_AGENT_RUNS = ['GITHUB_TOKEN', 'REVIEW_RESOLVE_TOKEN'];
+
+// Wrapped around the agent SEAM rather than inside `runAgent`, for two reasons: every implementation of the seam
+// passes through here (including the stubs the tests drive whole rounds with, so the guarantee is observable),
+// and the isolation belongs to the act of calling an agent, not to one way of doing it. Safe because the harness
+// is sequential — no GitHub call is in flight while the agent runs, and the client reads these at call time.
+export async function withoutWriteTokens(fn) {
+  const withheld = {};
+  for (const name of WITHHOLD_WHILE_AGENT_RUNS) {
+    if (process.env[name] !== undefined) {
+      withheld[name] = process.env[name];
+      delete process.env[name];
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    // Whatever happened — an answer, a deadline, a throw — the harness needs these back to post anything at all.
+    for (const [name, value] of Object.entries(withheld)) process.env[name] = value;
+  }
+}
+
 export function agentEnv(source = process.env) {
   const env = {};
   for (const [k, v] of Object.entries(source)) {
@@ -2573,7 +2605,9 @@ export const verifyBudget = (startedAt, now = Date.now()) =>
 // stays real, so a test can drive the whole composition through a stubbed `fetch` and only fake the agent. Three
 // separate mutations survived a green suite purely because they lived in these call sites and nothing could reach
 // them; guarding each one was mitigation, this is the coverage.
-export async function runReview({ agent = runAgent } = {}) {
+export async function runReview({ agent: rawAgent = runAgent } = {}) {
+  // Every call to the agent goes through the withholding, whichever implementation is in hand.
+  const agent = (...args) => withoutWriteTokens(() => rawAgent(...args));
   // Before the --setup-failed branch too: NaN would otherwise reach listIssueComments(NaN), whose failure
   // appendNoteToSummary swallows — leaving exactly the silent red check that mode exists to prevent.
   if (!Number.isInteger(PR_NUMBER) || PR_NUMBER < 1) throw new Error(`PR_NUMBER must be a positive integer, got ${JSON.stringify(process.env.PR_NUMBER)}`);
@@ -2598,7 +2632,12 @@ export async function runReview({ agent = runAgent } = {}) {
   const startedAt = Date.now();
   // The GitHub client may not retry past the run's own budget: its ladders are otherwise bounded only by attempts
   // times timeout, which is time the review and verification passes have already been promised.
-  setNetworkDeadline(startedAt + JOB_BUDGET_MS);
+  //
+  // Plus the reconcile allowance, because `JOB_BUDGET_MS` is exactly what the two model passes may spend — so on
+  // a long round the clock was already expired when the WRITE phase began, and that phase is the round's only
+  // durable output. Everything in it then ran with retries disabled: one attempt for the summary's stale-listing
+  // re-check, and a transient 500 there made the round post a SECOND summary, which is two state records.
+  setNetworkDeadline(startedAt + JOB_BUDGET_MS + RECONCILE_NETWORK_MS);
   MODEL = await resolveModel();
   console.log(`Reviewing PR #${PR_NUMBER} (base ${BASE}, head ${COMMIT.slice(0, 8)}) with ${MODEL}`);
 

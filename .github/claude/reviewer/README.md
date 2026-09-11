@@ -40,7 +40,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~242 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~244 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
@@ -104,6 +104,7 @@ To exercise the plumbing without spending a model call, stub the agent as the ro
 | `REVIEW_MODEL` | unset | Pins the model. Unset = newest Opus-tier id from the Models API, with a fallback list. |
 | `REVIEW_DEADLINE_MS` | 12 min | The review pass's own clock. |
 | `REVIEW_JOB_BUDGET_MS` | 18 min | Both passes plus setup. The review is capped by this minus the verify slice. |
+| `REVIEW_RECONCILE_NETWORK_MS` | 4 min | What the write phase may spend on network retries after the passes. The phase is unclocked; its GitHub calls are not. |
 | `REVIEW_VERIFY_BUDGET_MS` | 5 min | Reserved for the verification pass; under 60 s left, it is skipped and the summary says so. |
 | `REVIEW_MAX_TURNS` | 40 in code, 200 in the workflow | Runaway guard only; the real bound is the deadline. |
 | `REVIEW_MAX_OUTPUT_TOKENS` | 32,000 | Per model response. A finding list cut off mid-JSON is reported as a partial round, and closes nothing. |
@@ -193,6 +194,12 @@ why the bump has to be an edit a human makes rather than a range that drifts.
   parsed exactly as bash would (the words it sees ARE the argv), and flags are allowlisted per command in full
   spelling, because `getopt_long` accepts any unambiguous prefix. Adding a command means adding its flags, and
   anything that follows symlinks, never returns, or takes filenames from a file stays out.
+- **The write tokens leave the process while the agent runs.** `agentEnv` filters what is handed to the SDK, and
+  whether the subprocess is spawned with that or with `{ ...process.env, ...options.env }` is the SDK's business —
+  a release that merged would make the filtering cosmetic with every test still green. So `GITHUB_TOKEN` and
+  `REVIEW_RESOLVE_TOKEN` are deleted from `process.env` for the duration of the call and restored in a `finally`.
+  The wrapper sits at the agent SEAM, not inside `runAgent`: every implementation passes through it, including the
+  stubs the tests drive rounds with, so the guarantee is observable rather than asserted.
 - **Everything the model writes is untrusted at the write boundary.** `redact()` runs on every body, reply and
   record field; `neutralizeMarkup` stops model text from opening an HTML comment, which is what keeps a
   finding from forging a state record or a fingerprint marker. The same applies to the answer itself: the review's
