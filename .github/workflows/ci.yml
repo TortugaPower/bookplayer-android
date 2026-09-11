@@ -140,6 +140,10 @@ jobs:
         if: ${{ !cancelled() }}
         timeout-minutes: 8
         working-directory: .github/claude/reviewer
+        # The exposure, considered rather than missed: this makes a REQUIRED check depend on the npm registry for
+        # every pull request, including ones that touch no JavaScript, and a blip reds it. The cache above covers
+        # the common case and the retries cover most of the rest; what is left is a re-run. The alternative —
+        # running the suite only when the harness changed — is what left a lockfile bump with no tests at all.
         run: |
-          npm ci --ignore-scripts --no-audit --no-fund --silent
+          npm ci --ignore-scripts --no-audit --no-fund --silent --fetch-retries=5 --fetch-retry-maxtimeout=30000
           node --test test/

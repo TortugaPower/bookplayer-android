@@ -3,7 +3,7 @@
 // Run with `node --test test/` from .github/claude/reviewer (after `npm ci`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readChunkLines, redactBody, openFindings, openFindingsBlock, keyFindings, MODEL_FOR_TEST, MAX_TURNS_FOR_TEST, buildUserPrompt, VERIFY_STATUSES_FOR_TEST, carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
+import { CAPS_FOR_TEST, readChunkLines, redactBody, openFindings, openFindingsBlock, keyFindings, MODEL_FOR_TEST, MAX_TURNS_FOR_TEST, buildUserPrompt, VERIFY_STATUSES_FOR_TEST, carriedRecords, HARNESS_CLOSE_ACTIONS_FOR_TEST, readPriorState, closedRecords, fingerprintOfThread, harnessClosedByRecord, summaryBodyWithState, encodeState, decodeState, buildState, threadIdByFp, actionByFp, answeredAlreadyForTest, planRound, harnessClosed, DIFF_PATH, AGENT_CWD, REPO_SECRET_PATH, BASH_DENY_MESSAGE_FOR_TEST, buildSystemPrompt, VERIFY_SYSTEM_PROMPT, fingerprint, agentQuery, canUseToolForTest, reviewBudget, verifyBudget, salvageAtDeadline, boundedSummaryBody, summaryWithNote, wasTruncationRepaired, isReadOnlyShell, isAllowedBash, isPathAllowed, analyzeShell, redact, reconcile, rankOpusModels, extractJson, accumulateFinalText, escapeControlCharsInStrings, boundedDump, isTerminalResult, agentEnv, parseVerifyResult, verdictsById, shouldHardFail, findingSeverity, threadAnchor, applyVerification, buildVerifyPrompt, FORBIDDEN_PATH, renderSummary } from '../review.mjs';
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, realpathSync, readFileSync } from 'node:fs';
@@ -3006,11 +3006,15 @@ test('a long thread does not get the same note repeated on every push', () => {
 });
 
 
-test('a not_applicable reply prints its evidence once, however long or messy it is', async () => {
-  // The row embeds the evidence through mdCell and truncates it to 180 characters, so deciding by
-  // `note.includes(evidence)` was false for anything longer than that, or holding a pipe, a newline or a run of
-  // whitespace — and the reply printed it twice, with the table's escaping leaking into the prose.
-  const long = `the caller is gone: ${'x'.repeat(200)} | and a pipe\nand a newline`;
+test('the row is escaped for a table and the reply is written for a human', async () => {
+  // One string used to serve both, and it was the table's: `mdCell` collapses newlines and escapes `|` so a
+  // Markdown cell survives, and it truncated to 180 of the 400 characters the verifier produced. That string was
+  // then posted as the thread's comment — where a maintainer read `\|` artefacts, no line breaks, and a sentence
+  // cut in half. They are formatted separately now, from one reason.
+  // The pipe and the newline come EARLY, inside the row's 180-character cut, or the escaping this is about is
+  // simply not in the string being asserted on — the first version of this test asserted it anyway and failed
+  // against correct code.
+  const long = `the caller | is gone,\nand here is the rest: ${'x'.repeat(200)}`;
   const thread = {
     id: 't1', isResolved: false, firstCommentId: 1, firstCommentAuthor: 'github-actions[bot]', path: 'a.kt', line: 1,
     firstCommentBody: '🔵 **INFO** — x', comments: [], lastCommentBody: '', lastCommentAuthor: '',
@@ -3018,10 +3022,18 @@ test('a not_applicable reply prints its evidence once, however long or messy it 
   const replies = [];
   const io = { post: async () => {}, reply: async (_t, body) => replies.push(body), resolve: async () => {}, unresolve: async () => {} };
   const { rows } = await applyVerification(verdictsById([{ id: 1, status: 'not_applicable', evidence: long }]), [{ id: 1, thread }], io, {});
-  assert.match(rows[0].note, /no longer applies/);
-  assert.equal(replies[0].includes('x'.repeat(200)), false); // the reply does not repeat the long evidence
-  assert.equal(replies[0].split('the caller is gone').length - 1, 1);
-  assert.equal(replies[0].includes('\\|'), false); // and no table escaping leaks into prose
+
+  // The row: cell-safe and bounded, because it lives in a Markdown table.
+  assert.match(rows[0].note, /^no longer applies — /);
+  assert.equal(rows[0].note.includes('\n'), false, 'a newline in a table cell breaks the table');
+  assert.match(rows[0].note, /\\\|/, 'an unescaped pipe in a table cell breaks the table');
+  assert.ok(rows[0].note.length < 230, `the row is ${rows[0].note.length} characters`);
+
+  // The reply: the whole evidence, once, as the verifier wrote it.
+  assert.equal(replies[0].split('the caller | is gone').length - 1, 1, 'the evidence is printed twice');
+  assert.ok(replies[0].includes('x'.repeat(200)), 'the reply truncates evidence the verifier produced');
+  assert.ok(replies[0].includes('here is the rest'), 'the reply lost the middle of the sentence');
+  assert.equal(replies[0].includes('\\|'), false, "the table's escaping leaked into the thread");
 });
 
 
@@ -3988,4 +4000,29 @@ test("the verify prompt builds each file's reported block once", () => {
   const capped = buildVerifyPrompt(numbered(threads[0]), 'abcdef1234567890', 'gianni', many);
   const quoted = capped.split('<reported line=').length - 1;
   assert.ok(quoted > 0 && quoted <= 20, `quoted ${quoted} findings for one file`);
+});
+
+test('the three caps are three decisions', () => {
+  // They have all been one constant at some point, and each time moving it moved something unrelated:
+  //   * MAX_VERIFY_THREADS  — how many open threads a round can afford to JUDGE (a budget decision)
+  //   * MAX_REPORTED_PER_FILE — how many of this push's findings are quoted beside a thread being judged
+  //   * MAX_OPEN_FINDINGS_SHOWN — how many open findings the REVIEW prompt offers for `same_as` to claim
+  // The third is the one with teeth: anything past its cut cannot be claimed, so identity falls back to the
+  // fingerprint heuristic the claim protocol exists to replace — and that used to happen whenever somebody
+  // adjusted the verify budget.
+  const caps = CAPS_FOR_TEST();
+  assert.deepEqual(Object.keys(caps).sort(), ['MAX_OPEN_FINDINGS_SHOWN', 'MAX_REPORTED_PER_FILE', 'MAX_VERIFY_THREADS']);
+  for (const [name, value] of Object.entries(caps)) assert.ok(Number.isInteger(value) && value > 0, `${name} is ${value}`);
+
+  // Each default is read from its OWN constant: raise one and the others must not move. `openFindings` is the
+  // one that was defaulting to the verify cap.
+  const threads = Array.from({ length: caps.MAX_OPEN_FINDINGS_SHOWN + 5 }, (_, i) => ({
+    id: `t${i}`, isResolved: false, firstCommentId: i + 1, firstCommentAuthor: 'github-actions[bot]',
+    path: `app/F${i}.kt`, line: i + 1, originalLine: i + 1, comments: [],
+    // A DISTINCT fingerprint per thread: `openFindings` keeps one entry per finding, so a fixture that reuses
+    // markers caps itself long before the constant does, and the assertion below would be measuring the fixture.
+    firstCommentBody: `🟡 **WARN** — finding ${i} <!-- bp-ai-review-fp:${String(i).padStart(12, '0')} -->`,
+  }));
+  assert.equal(openFindings(threads, null).length, caps.MAX_OPEN_FINDINGS_SHOWN);
+  assert.equal(openFindings(threads, null, 3).length, 3, 'an explicit cap still wins');
 });

@@ -1174,6 +1174,10 @@ export function agentEnv(source = process.env) {
 // Exported for the test that pins these two as REACHING the SDK: the resolved model and the turn cap are both
 // computed carefully and were both droppable from the options with the whole suite green.
 export const MODEL_FOR_TEST = () => MODEL;
+// A function, not an object: these constants are declared further down, and a `const` object built here would be
+// evaluated at import time — before them — which throws on the temporal dead zone the moment anything imports
+// this module.
+export const CAPS_FOR_TEST = () => ({ MAX_VERIFY_THREADS, MAX_REPORTED_PER_FILE, MAX_OPEN_FINDINGS_SHOWN });
 export const MAX_TURNS_FOR_TEST = MAX_TURNS;
 
 export function agentQuery({ userPrompt, systemPrompt, abort, onStderr = () => {}, env = agentEnv() } = {}) {
@@ -1391,6 +1395,11 @@ const MAX_VERIFY_THREADS = 20;
 // something concrete to name. Separate from the thread cap above on purpose: they were one constant, and the two
 // mean different things.
 const MAX_REPORTED_PER_FILE = 20;
+// How many still-open findings the REVIEW prompt offers the agent to claim with `same_as`. Its own constant for
+// the same reason as the one above: this bounds what the agent can state an identity for, and anything past the
+// cut falls back to the fingerprint heuristic — the inference the claim protocol exists to replace. That is a
+// different question from how many threads a round can afford to VERIFY, which is a budget decision.
+const MAX_OPEN_FINDINGS_SHOWN = 20;
 const MAX_VERIFY_CHARS = 1200; // per finding, and per reply
 const VERIFY_BUDGET_MS = num(process.env.REVIEW_VERIFY_BUDGET_MS, 5 * 60 * 1000);
 const MAINTAINER_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
@@ -1792,22 +1801,21 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
       continue;
     }
     if (status === 'fixed' || status === 'not_applicable' || status === 'accepted') {
-      const note =
+      const reason =
         status === 'fixed' ? `verified fixed${commit ? ` in \`${commit.slice(0, 7)}\`` : ''}`
-          // `not_applicable` is the one close that rests on neither a code change nor a human, so the summary
-          // table carries the model's own reason rather than making a maintainer open the thread to find it.
-          // Quoted here, so the reply below does not repeat it.
-          : status === 'not_applicable' ? `no longer applies${authorOnly ? ", on the author's own account" : ''} — ${mdCell(evidence).slice(0, 180)}`
+          : status === 'not_applicable' ? `no longer applies${authorOnly ? ", on the author's own account" : ''}`
             : 'closed by a maintainer';
+      // The ROW and the REPLY are built from the same reason and then formatted for where each goes. They used
+      // to be one string: `not_applicable`'s note embedded the evidence through `mdCell` — which exists to
+      // survive a Markdown table cell, so it collapses newlines and escapes `|` — and truncated it to 180 of the
+      // 400 characters the verifier produced. That string was then posted as the thread's comment, where a
+      // maintainer read table escaping and a sentence cut in half. `not_applicable` is the one close resting on
+      // neither a code change nor a human, so the row still carries the evidence rather than sending a
+      // maintainer to the thread; it just carries the cell-safe copy while the thread gets the readable one.
+      const note = status === 'not_applicable' && evidence ? `${reason} — ${mdCell(evidence).slice(0, 180)}` : reason;
       try {
         const marker = status === 'accepted' ? MARKER_HUMAN_ACCEPTED : MARKER_VERIFIED;
-        // Decided by which status it is, not by matching strings: the row for `not_applicable` embeds the evidence
-        // through `mdCell` and truncates it to 180 characters, so `note.includes(evidence)` was false whenever the
-        // evidence was longer than that or held a pipe, a newline or a run of whitespace — and the reply then
-        // printed it twice, with the table's escaping leaking into the prose. Evidence is capped at 400, so that
-        // was most of the range.
-        const noteQuotesEvidence = status === 'not_applicable';
-        const reply = noteQuotesEvidence || !evidence ? `✅ ${note}` : `✅ ${note}: ${evidence}`;
+        const reply = evidence ? `✅ ${reason}: ${evidence}` : `✅ ${reason}`;
         const { explained } = await closeWithReason(io, t, redact(`${reply}\n\n${marker}`));
         rows.push({ label, status: 'resolved', note: explained ? note : `${note} (the reply saying so could not be posted)` });
         closedIds.add(t.id);
@@ -1880,7 +1888,7 @@ const SEVERITY_RANK = { error: 0, warn: 1, info: 2 };
 // STATE which of its findings is an old one rather than leaving the harness to infer it from a hash: the two
 // collision bugs on this branch were both that inference going wrong. Bounded, severity-first, harness threads
 // only, and open only — a resolved thread is not the agent's business.
-export function openFindings(threads = [], priorState = null, max = MAX_VERIFY_THREADS) {
+export function openFindings(threads = [], priorState = null, max = MAX_OPEN_FINDINGS_SHOWN) {
   const ours = threads.filter((t) => isHarnessComment(t.firstCommentAuthor) && !t.isResolved);
   const seen = new Set();
   const out = [];
