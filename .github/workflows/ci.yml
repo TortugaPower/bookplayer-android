@@ -6,12 +6,17 @@ on:
   pull_request:
     branches: [ main, develop ]
 
-# A superseded run is wasted Gradle: pushing three times in a row otherwise builds all three commits, and only
-# the last one can be merged. This also makes the `!cancelled()` reasoning on the harness steps below true of
-# this file — before it, nothing here could be superseded at all.
+# A superseded run is wasted Gradle: pushing three times to a pull request otherwise builds all three commits,
+# and only the last one can be merged. This also makes the `!cancelled()` reasoning on the harness steps below
+# true of this file — before it, nothing here could be superseded at all.
+#
+# PULL REQUESTS ONLY. The same setting applied to `push` cancels a merge commit's build when a second PR merges
+# behind it, so that commit never gets a completed required check — and the post-merge run is the one that
+# catches two pull requests that were each green alone and are not green together. "Only the last one can be
+# merged" is an argument about a PR's head, and a branch's own history is not that.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # `build` is a REQUIRED status check on main and develop, so this job must always run and always report:

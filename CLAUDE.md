@@ -126,6 +126,10 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
 - **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest` **and**
   `:core:testDebugUnitTest` (the `:core` tests have no flavour, so they are not covered by the app's task),
   `lintDevDebug`, then an unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17.
+  **Those Gradle steps are skipped when `scripts/ci-scope.sh` decides nothing Android-visible changed** — docs,
+  `.gitignore`, and the reviewer harness under `.github/claude/` — so a PR touching only those gets a green
+  `build` with no compilation. Anything the script cannot classify builds, including `ci.yml` itself. The
+  reviewer's own test suite runs in that job unconditionally, whatever the decision.
   A separate workflow (`.github/workflows/claude-review.yml`) runs the AI PR reviewer on every push to a PR —
   see `.github/claude/reviewer/README.md`; its own tests run there before the review.
 

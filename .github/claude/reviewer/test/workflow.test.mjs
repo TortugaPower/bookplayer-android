@@ -285,6 +285,10 @@ test('ci.yml cancels superseded runs and does not lend them a token', () => {
   // sentence was the only thing claiming it. And the job runs PR-authored code (Gradle, and a suite that shells
   // out), so the checkout must not leave the job token in `.git/config` while it does.
   const ci = readFileSync(CI, 'utf8');
-  assert.match(ci, /^concurrency:\n\s+group: .+\n\s+cancel-in-progress: true/m, 'ci.yml declares no concurrency, so nothing is ever superseded');
+  // Conditioned on the event, not a bare `true`. Cancelling on `push` means a merge commit's build is killed when
+  // a second pull request merges behind it, so the commit that is actually on the branch never gets a completed
+  // required check — and that run is the one that catches two pull requests that were each green on their own.
+  assert.match(ci, /^concurrency:\n\s+group: .+\n\s+cancel-in-progress: /m, 'ci.yml declares no concurrency, so nothing is ever superseded');
+  assert.match(ci, /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/, 'a bare `true` also cancels branch builds after a merge');
   assert.match(ci, /uses: actions\/checkout@v\d+\n\s+with:\n\s+persist-credentials: false/, 'the checkout leaves the job token in .git/config while PR code runs');
 });
