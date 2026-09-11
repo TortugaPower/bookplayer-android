@@ -245,12 +245,26 @@ test('key-shaped strings are redacted at the post boundary', () => {
   // catches what the path rules cannot (a recursive grep reaches a secret file's CONTENTS), so every shape here
   // is a credential, not a word.
   assert.ok(REPO_SECRET_SHAPES.length >= 1, 'repo.mjs lists no secret shapes at all');
-  for (const { pattern, replacement, example, keeps } of REPO_SECRET_SHAPES) {
-    assert.ok(pattern.global, `${pattern}: must be a global pattern, or only the first occurrence is scrubbed`);
-    const scrubbed = redact(example);
-    assert.notEqual(scrubbed, example, `${pattern}: its own example passed through unredacted`);
-    assert.ok(scrubbed.includes(replacement), `${pattern}: the replacement is not in the output`);
-    assert.equal(redact(keeps), keeps, `${pattern}: ate prose it should have left alone`);
+  for (const shape of REPO_SECRET_SHAPES) {
+    const { pattern, replacement } = shape;
+    assert.ok(pattern instanceof RegExp && pattern.global, `${pattern}: must be a global RegExp, or only the first occurrence is scrubbed`);
+    assert.ok(typeof replacement === 'string' && replacement.length, `${pattern}: missing replacement`);
+    // `example`/`keeps` are a string or an array of them, and an empty one is a vacuous pass (`redact('')` round-trips).
+    const examples = [].concat(shape.example);
+    const keeps = [].concat(shape.keeps);
+    for (const [k, list] of [['example', examples], ['keeps', keeps]]) {
+      assert.ok(list.length && list.every((s) => typeof s === 'string' && s.length), `${pattern}: ${k} must be one or more non-empty strings`);
+    }
+    for (const example of examples) {
+      // THIS entry's pattern must be what redacts the example — a fresh RegExp, so the exported global's
+      // `lastIndex` cannot leak between calls — and the boundary's answer must be exactly that: a generic rule
+      // (an `sk-ant-` key, say) or a sibling shape catching it instead would satisfy "something was redacted"
+      // while this pattern never matched, which is the case the list exists to make impossible.
+      const own = example.replace(new RegExp(pattern.source, pattern.flags), replacement);
+      assert.notEqual(own, example, `${pattern}: its own example passed through unredacted`);
+      assert.equal(redact(example), own, `${pattern}: something other than this shape redacted its example`);
+    }
+    for (const text of keeps) assert.equal(redact(text), text, `${pattern}: ate prose it should have left alone`);
   }
   assert.equal(redact('the read-only allow-list flag'), 'the read-only allow-list flag');
   assert.equal(redact('a data-sync-task-uuid identifier'), 'a data-sync-task-uuid identifier');
@@ -2351,10 +2365,11 @@ test('the deny lists are pinned clause by clause, not by whichever one fires fir
 
   // BOTH branches of the gate, not just Bash: deleting REPO_SECRET_PATH from the read-tool branch left the suite
   // green, and Read is the easier way to fetch a file anyway. Every name the repository lists, through every
-  // read tool's path-shaped field — and the template copy of each stays readable.
+  // read tool's path-shaped field (Grep has two: `path` and `glob`) — and the template copy of each stays readable.
   for (const name of REPO_SECRET_FILES) {
     assert.equal((await canUseToolForTest('Read', { file_path: name })).behavior, 'deny', `Read should refuse ${name}`);
-    assert.equal((await canUseToolForTest('Grep', { pattern: 'x', path: name })).behavior, 'deny', `Grep should refuse ${name}`);
+    assert.equal((await canUseToolForTest('Grep', { pattern: 'x', path: name })).behavior, 'deny', `Grep should refuse ${name} as path`);
+    assert.equal((await canUseToolForTest('Grep', { pattern: 'x', glob: name })).behavior, 'deny', `Grep should refuse ${name} as glob — the field an agent sweeps for a file by name with`);
     assert.equal((await canUseToolForTest('Glob', { pattern: name })).behavior, 'deny', `Glob should refuse ${name}`);
     assert.equal((await canUseToolForTest('Read', { file_path: `${name}.example` })).behavior, 'allow', `a template of ${name} stays readable`);
   }

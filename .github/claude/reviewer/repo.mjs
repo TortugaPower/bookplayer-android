@@ -10,7 +10,7 @@
 export const REPO_SECRET_FILES = ['local.properties', 'keystore.properties', 'google-services.json'];
 
 // Secret SHAPES this repository's code and configuration can contain, applied by `redact` after the generic ones
-// (Anthropic keys, GitHub tokens, PEM private keys). Each entry carries the example that proves it and a
+// (Anthropic keys, GitHub tokens, PEM private keys). Each entry carries the example(s) that prove it and a
 // look-alike that must pass untouched: the harness's own test runs both, so a shape cannot be listed without
 // working and cannot eat prose. (Keystore passwords are deliberately not pattern-matched: they live only in a
 // gitignored keystore.properties and in Actions secrets, and no useful pattern exists that would not mangle prose.)
@@ -22,7 +22,11 @@ export const REPO_SECRET_SHAPES = [
     // widened rather than kept precise.
     pattern: /https:\/\/[0-9a-f]{16,}(?::[0-9a-f]+)?@[\w.-]*sentry\.io\/\d+/gi,
     replacement: 'https://[redacted]@sentry.io/[redacted]',
-    example: 'dsn https://0123456789abcdef0123456789abcdef:fedcba9876543210@sentry.io/1234 set',
+    example: [
+      'dsn https://0123456789abcdef0123456789abcdef@o12345.ingest.sentry.io/6789 set', // the modern host
+      'https://0123456789abcdef0123456789abcdef@sentry.io/1234', // legacy, no secret
+      'https://0123456789abcdef0123456789abcdef:fedcba9876543210@sentry.io/1234', // legacy key:secret@
+    ],
     keeps: 'see sentry.io/docs and o1.ingest.sentry.io for setup',
   },
   {
