@@ -74,6 +74,9 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          # `-u` and `pipefail` only: GitHub already runs this block as `bash -e {0}`, so every command outside
+          # an `if` condition fails the step — and this step is inside a required check. That is why both calls
+          # below are guarded rather than left to exit codes.
           set -uo pipefail
           # BOTH sides of a rename. `.filename` is where a file ended up; `previous_filename` is where it was, and
           # a rename out of an Android path into an inert one (`app/Foo.kt` -> `docs/foo.md`) lists only the inert

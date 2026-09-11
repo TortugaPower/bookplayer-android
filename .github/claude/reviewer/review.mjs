@@ -455,15 +455,23 @@ const ALLOWED_LONG_FLAGS = new Set([
   '--line-number', '--recursive', '--files-with-matches', '--fixed-strings', '--extended-regexp',
   '--ignore-case', '--word-regexp', '--max-count', '--after-context', '--before-context', '--context',
 ]);
-// Short letters, per command. Notice what is absent: `f`/`F` for tail (never returns), `f` for file
-// (indirection), `L`/`H` anywhere, so nothing here follows a symlink on purpose, and `d` for grep
-// (`-d recurse`). `file -L` was in this table while the line above said it was not — harmless in itself (the
-// realpath check still confines what `file` reads, and `file` walks no trees), but this table is what a
-// maintainer consults before adding a command, so it has to be true about itself.
 // How many non-flag operands each of these needs before it is reading a file rather than stdin. `pwd` and `echo`
 // are absent because they read nothing; `find` and `ls` default to the working directory rather than stdin.
 const STDIN_WITHOUT_OPERANDS = { cat: 1, head: 1, tail: 1, wc: 1, file: 1, du: 1, stat: 1, grep: 2 };
 
+// Short letters, per command, and the block has to sit against the table it describes — inserting the constant
+// above between the two left this reading as documentation for the wrong one.
+//
+// Notice what is absent: `f`/`F` for tail (never returns), `f` for file (indirection), and `d` for grep
+// (`-d recurse`). On symlinks the rule is narrower than "no `L`/`H` anywhere", which is what this said while the
+// table said otherwise: `L` is allowed for `git` deliberately — a `blame`/`log` LINE RANGE, not a dereference —
+// and `H` is in grep's list (`--with-filename`, which opens nothing).
+//
+// And for the commands that WALK A TREE the refusal does not come from this table alone. `ls`, `du` and `find`
+// have explicit entries in `DENY_FLAGS_BY_COMMAND`, so a dereference flag is refused there whatever is written
+// here — but `file` has no such entry for `L`, and its absence from this line is the only thing stopping it.
+// Adding a letter to `file` is therefore unguarded by anything else. This table is what a maintainer consults
+// before adding a command, so it has to be true about itself.
 const ALLOWED_SHORT_FLAGS = {
   git: 'pnLC',
   cat: 'nbs',

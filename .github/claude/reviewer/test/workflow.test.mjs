@@ -246,7 +246,11 @@ test('nothing in the scope step can fail the required check', () => {
   // Both failure branches WRITE the safe answer. Relying on "no output means build" makes that guarantee depend
   // on how seven other steps spell their condition, and one `== 'true'` added later would invert it silently.
   assert.equal((scope.match(/echo "android=true" >> "\$GITHUB_OUTPUT"/g) || []).length, 2, 'a failure branch leaves the safe answer implicit');
-  assert.equal(/set -euo pipefail/.test(scope), false, 'set -e here fails the step, and the step is inside a required check');
+  // No assertion about `set -e` here, and that absence is the point: GitHub runs a `run:` block on Linux as
+  // `bash -e {0}`, so `-e` is ALREADY in effect and the step's `set -uo pipefail` cannot turn it off. Forbidding
+  // the string `set -euo pipefail` therefore proved nothing — it was assurance this test could not give. What
+  // actually keeps a failure here from reddening the required check is the pair either side of this line: the
+  // `if !` guards, and `continue-on-error`.
   // The path the shell guards cannot cover, and the one this test was NAMED for while not checking it: a step
   // killed by its own `timeout-minutes` is marked failed, and `build` is required. `continue-on-error` sends that
   // the same way — the step leaves no output, and every gated step below runs on `!= 'false'`.

@@ -4089,3 +4089,24 @@ test('a command with nothing to read is refused', () => {
   }
   assert.equal(isAllowedBash('grep -n TODO'), false, 'without -r, grep with no path reads stdin');
 });
+
+test('the flag table is true about itself', () => {
+  // The comment above `ALLOWED_SHORT_FLAGS` has now been wrong twice — it claimed `file -L` was absent when it
+  // was present, then claimed no `L`/`H` anywhere when `git`'s `L` is a deliberate line range and grep's `H` is
+  // `--with-filename`. That comment is what a maintainer reads before adding a command, so its claims are pinned
+  // here rather than re-checked by hand.
+  const allowed = [
+    ['git blame -L 10,20 review.mjs', 'L for git is a blame/log LINE RANGE, not a dereference'],
+    ['grep -H TODO review.mjs', 'H is --with-filename: it opens nothing'],
+  ];
+  const refused = [
+    ['ls -L .', 'a command that walks a tree may never dereference'],
+    ['du -L .', 'a command that walks a tree may never dereference'],
+    ['find -L .', 'a command that walks a tree may never dereference'],
+    ['file -L review.mjs', 'a command that walks a tree may never dereference'],
+    ['tail -f review.mjs', 'never returns'],
+    ['grep -d recurse TODO review.mjs', '-d recurse walks a tree through an option value'],
+  ];
+  for (const [cmd, why] of allowed) assert.equal(isAllowedBash(cmd), true, `${cmd} should be allowed: ${why}`);
+  for (const [cmd, why] of refused) assert.equal(isAllowedBash(cmd), false, `${cmd} should be refused: ${why}`);
+});
