@@ -13,12 +13,25 @@
 // parser that guesses is a parser that agrees with you about a file you have misread.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const WORKFLOW = fileURLToPath(new URL('../../../workflows/claude-review.yml', import.meta.url));
 const CI = fileURLToPath(new URL('../../../workflows/ci.yml', import.meta.url));
 const README = fileURLToPath(new URL('../README.md', import.meta.url));
+const CLIENT = fileURLToPath(new URL('../github.mjs', import.meta.url));
+// Everywhere a budget figure can be written down. Adding a file here is the cheap half of keeping these two
+// checks honest; the expensive half is remembering that a check over a FILE LIST is only as wide as the list.
+const capSources = () => [
+  WORKFLOW,
+  CI,
+  HARNESS,
+  CLIENT,
+  README,
+  ...readdirSync(fileURLToPath(new URL('.', import.meta.url)))
+    .filter((f) => f.endsWith('.mjs'))
+    .map((f) => fileURLToPath(new URL(f, import.meta.url))),
+];
 const HARNESS = fileURLToPath(new URL('../review.mjs', import.meta.url));
 
 // What the harness itself budgets, read from its source rather than restated here: the whole point is that two
@@ -128,7 +141,7 @@ test("the review step's cap is looser than the harness's own budget", () => {
 test('the two failure notes cover the failures the harness cannot report itself', () => {
   const { steps } = readWorkflow();
   const setupNote = only(steps, 'harness did not run');
-  const killedNote = only(steps, 'review step was killed');
+  const killedNote = only(steps, 'failed without explaining itself');
 
   for (const note of [setupNote, killedNote]) {
     // `always()` and `cancelled()` would also fire when a newer push cancels this run through
@@ -146,7 +159,7 @@ test('the two failure notes cover the failures the harness cannot report itself'
   // And its text may not name a cause it cannot know. The gate fires on "the step failed and nothing was
   // written", which is two cases — killed before any handler ran, or a handler whose write was refused — and
   // asserting the first points a maintainer at the wrong knob when it was the second.
-  const killedText = readFileSync(WORKFLOW, 'utf8').slice(readFileSync(WORKFLOW, 'utf8').indexOf('review step was killed'));
+  const killedText = readFileSync(WORKFLOW, 'utf8').slice(readFileSync(WORKFLOW, 'utf8').indexOf('failed without explaining itself'));
   const run = killedText.slice(killedText.indexOf('--setup-failed'), killedText.indexOf('\n', killedText.indexOf('--setup-failed')));
   assert.match(run, /either|or/, 'the note asserts one cause when the gate cannot tell two apart');
   assert.match(readFileSync(HARNESS, 'utf8'), /appendFileSync\(out, 'explained=true/, 'nothing in the harness writes the output that gate reads');
@@ -166,7 +179,9 @@ test('the budget numbers written in prose are the real ones', () => {
   // job's N" or "the review step's N", and this test reads both files and checks every one of them.
   const { jobTimeout, steps } = readWorkflow();
   const reviewCap = minutes(only(steps, 'Run Claude review'));
-  const sources = [readFileSync(WORKFLOW, 'utf8'), readFileSync(HARNESS, 'utf8')];
+  // Every file that can carry a cap figure, and that includes `github.mjs` and this suite: a comment there said
+  // "the job's 48" while neither check read the file, which is the drift these exist for, one file over.
+  const sources = capSources().map((f) => readFileSync(f, 'utf8'));
   const claims = { "the job's": jobTimeout, "the review step's": reviewCap };
 
   let checked = 0;
@@ -292,7 +307,13 @@ test('a cap claimed in prose is written where the drift check can read it', () =
   const canonical = /the (?:job|review step)'s \d+/;
 
   const offenders = [];
-  for (const [name, file] of [['claude-review.yml', WORKFLOW], ['ci.yml', CI], ['review.mjs', HARNESS], ['README.md', README]]) {
+  for (const file of capSources()) {
+    const name = file.split('/').slice(-1)[0];
+    // This file is exempt from ITS OWN offender scan, and only from that one: its comment necessarily quotes the
+    // phrasings it refuses, and a check that cannot describe what it refuses is worse than one with an exemption
+    // it names. The canonical-number check above still reads it, so a figure written here in the checked form
+    // must still be the real one.
+    if (name === 'workflow.test.mjs') continue;
     for (const [i, line] of readFileSync(file, 'utf8').split('\n').entries()) {
       if (exempt.some((re) => re.test(line))) continue;
       if (claim.test(line) && aboutACap.test(line) && !canonical.test(line)) {

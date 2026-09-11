@@ -142,7 +142,7 @@ jobs:
       # at all, OR a handler ran and its write was refused. The note below must not claim to know which; saying
       # "killed" when the cause was a refused write points a maintainer at the wrong knob. The gate is what stops
       # this from replacing review.mjs's own explanation, which shares its heading.
-      - name: Say on the PR that the review step was killed
+      - name: Say on the PR that the review step failed without explaining itself
         if: failure() && steps.review.outcome == 'failure' && steps.review.outputs.explained != 'true'
         timeout-minutes: 3   # exclusive with the note above: one of the two runs, never both
         env:

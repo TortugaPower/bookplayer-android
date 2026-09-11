@@ -1301,9 +1301,11 @@ test('a hostile filename cannot break the summary table', async () => {
 // ---- the summary comment is found without walking the whole PR ---------------------------------------------
 
 test('the page loops stop when the run is out of time', async () => {
-  // The retry ladders honour the network deadline; the PAGE loops did not. 100 thread pages at 30 s each is
-  // 50 minutes and 20 comment pages is 10 — both past the workflow's own timeout, which ends the job with
-  // comments posted and no summary and no record. A partial list degrades through the callers instead.
+  // The retry ladders honour the network deadline; the PAGE loops did not. A hundred thread pages at the request
+  // timeout, or twenty comment pages, run past the job cap on their own — which ends the job with comments posted
+  // and no summary and no record. A partial list degrades through the callers instead. (Figures left out
+  // deliberately: `workflow.test.mjs` refuses a cap named in prose outside the checked form, and this is a
+  // comparison, not a claim about what the cap is.)
   const { listIssueComments, listReviewThreads, setNetworkDeadline } = await import('../github.mjs');
   const prevRepo = process.env.GITHUB_REPOSITORY;
   const prevToken = process.env.GITHUB_TOKEN;
