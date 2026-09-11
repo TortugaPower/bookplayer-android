@@ -29,6 +29,8 @@ tap() {
 }
 
 "$ADB" shell pm disable-user --user 0 com.android.chrome >/dev/null 2>&1 || true   # absent or already disabled is fine
+# However this ends — a tap that found no node, Ctrl-C — the emulator gets its browser back.
+trap '"$ADB" shell pm enable com.android.chrome >/dev/null 2>&1 || true' EXIT
 HANDLERS=$("$ADB" shell pm query-activities -a android.intent.action.VIEW -d https://github.com | grep -c packageName= || true)
 echo "https handlers after disabling Chrome: $HANDLERS"
 

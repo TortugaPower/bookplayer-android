@@ -1,7 +1,6 @@
 package com.tortugapower.audiobookplayer.ui.theme
 
 import android.app.Activity
-import android.widget.Toast
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -9,15 +8,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
-import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.logic.ThemeManager
-import com.tortugapower.audiobookplayer.ui.SafeUriHandler
-import io.sentry.Breadcrumb
-import io.sentry.Sentry
+import com.tortugapower.audiobookplayer.ui.rememberSafeUriHandler
 
 /**
  * Root theme wrapper. Resolves the active variant (system or manual), provides
@@ -41,24 +36,11 @@ fun BookPlayerTheme(content: @Composable () -> Unit) {
         }
     }
 
-    // Every link in the app opens through a handler that cannot crash on a device with no browser
-    // (see SafeUriHandler). Installed here because this wraps every screen the phone app shows.
-    val platformUriHandler = LocalUriHandler.current
-    val context = LocalContext.current
-    val uriHandler = remember(platformUriHandler, context) {
-        SafeUriHandler(platformUriHandler) { uri ->
-            // The handled case would otherwise vanish from Sentry once the crash is gone; the scheme alone says
-            // how common a no-browser device is without putting a user's link in a report.
-            Sentry.addBreadcrumb(
-                Breadcrumb.info("no app to open a ${uri.substringBefore(':', missingDelimiterValue = "unknown")} link").apply { category = "links" }
-            )
-            Toast.makeText(context, R.string.common_no_link_handler, Toast.LENGTH_SHORT).show()
-        }
-    }
-
+    // Every link in the app opens through a handler that cannot crash on a device with no browser (see
+    // SafeUriHandler). Installed here because this wraps every screen the phone app shows.
     CompositionLocalProvider(
         LocalBookPlayerColors provides colors,
-        LocalUriHandler provides uriHandler,
+        LocalUriHandler provides rememberSafeUriHandler(),
     ) {
         MaterialTheme(
             colorScheme = materialScheme,

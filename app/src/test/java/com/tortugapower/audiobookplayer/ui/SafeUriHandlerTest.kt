@@ -53,6 +53,16 @@ class SafeUriHandlerTest {
     }
 
     @Test
+    fun `a missing activity buried deeper in the causal chain is still recognised`() {
+        // Today the platform wraps once. A Compose release that adds a level would otherwise bring the crash back.
+        val buried = IllegalArgumentException("Can't open", RuntimeException("wrapped again", ActivityNotFoundException()))
+        val reported = mutableListOf<String>()
+        SafeUriHandler(RecordingDelegate(buried)) { reported += it }.openUri("https://example.org")
+
+        assertEquals(listOf("https://example.org"), reported)
+    }
+
+    @Test
     fun `any other failure is not swallowed`() {
         // A wrapper that ate every IllegalArgumentException would hide a malformed URI built by our own code.
         val reported = mutableListOf<String>()

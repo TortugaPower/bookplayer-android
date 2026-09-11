@@ -1,7 +1,15 @@
 package com.tortugapower.audiobookplayer.ui
 
 import android.content.ActivityNotFoundException
+import android.widget.Toast
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
+import com.tortugapower.audiobookplayer.R
+import io.sentry.Breadcrumb
+import io.sentry.Sentry
 
 /**
  * A [UriHandler] that survives a device with nothing to open the link.
@@ -30,7 +38,33 @@ class SafeUriHandler(
         }
     }
 
-    /** Thrown bare by `startActivity`, or wrapped by the platform handler as `IllegalArgumentException("Can't open …")`. */
+    /**
+     * Thrown bare by `startActivity`, or wrapped by the platform handler as `IllegalArgumentException("Can't open …")`
+     * — today one level deep, so the whole causal chain is walked rather than only the immediate cause: a Compose
+     * release that adds a wrapper would otherwise bring the crash back with nothing in Sentry to say so. A
+     * causeless [IllegalArgumentException] (a malformed URI of our own making) is still not this.
+     */
     private fun RuntimeException.isNoHandler(): Boolean =
-        this is ActivityNotFoundException || (this is IllegalArgumentException && cause is ActivityNotFoundException)
+        generateSequence(this as Throwable) { it.cause }.any { it is ActivityNotFoundException }
+}
+
+/**
+ * The app's [SafeUriHandler] over the platform handler in scope: on a device with nothing to open the link it
+ * shows a toast and leaves a Sentry breadcrumb. The scheme alone goes into the breadcrumb — it says how common a
+ * no-browser device is without putting a user's link in a report, and a scheme-less URI reads as "unknown"
+ * rather than as the whole string.
+ */
+@Composable
+fun rememberSafeUriHandler(): UriHandler {
+    val platform = LocalUriHandler.current
+    val context = LocalContext.current
+    return remember(platform, context) {
+        SafeUriHandler(platform) { uri ->
+            Sentry.addBreadcrumb(
+                Breadcrumb.info("no app to open a ${uri.substringBefore(':', missingDelimiterValue = "unknown")} link")
+                    .apply { category = "links" }
+            )
+            Toast.makeText(context, R.string.common_no_link_handler, Toast.LENGTH_SHORT).show()
+        }
+    }
 }
