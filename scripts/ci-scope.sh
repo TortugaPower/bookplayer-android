@@ -22,6 +22,10 @@ while IFS= read -r path || [ -n "$path" ]; do
   [ -n "$path" ] || continue
   count=$((count + 1))
   case "$path" in
+    # LOCATION BEATS EXTENSION. A module's source tree is compiled and packaged wholesale — a Markdown file under
+    # `app/src/main/assets/` ships in the APK and goes through AAPT — so "it is a .md" is not a reason to skip the
+    # build when the path says otherwise. This case comes first for that reason.
+    app/*|core/*|wear/*) android=true; echo "needs the Android build: $path" >&2 ;;
     # Inert for the Android build: the reviewer harness and its own workflow, documentation, gitignore.
     # Everything else builds — Gradle files, Kotlin, resources, manifests, scripts/, and ci.yml itself, which
     # defines the build and so can never be assumed harmless to it.

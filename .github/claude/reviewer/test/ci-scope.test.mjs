@@ -50,6 +50,9 @@ test('a change the Android build cannot see, does not build it', () => {
   assert.equal(decide(['.github/claude/review-guide.md']), false);
   assert.equal(decide(['.github/workflows/claude-review.yml']), false);
   assert.equal(decide(['README.md', 'CLAUDE.md', 'docs/media-servers-testing.md']), false);
+  // Documentation outside a module tree stays inert wherever it sits — the rule is the module tree, not the word
+  // "docs": `scripts/` builds, and so does anything under `app/`, `core/` or `wear/`.
+  assert.equal(decide(['app/README.md']), true, 'inside a module, even a README is packaged with the tree');
   assert.equal(decide(['.gitignore']), false);
   // The whole reviewer suite plus its docs: still nothing for Gradle to do.
   assert.equal(decide([
@@ -77,8 +80,10 @@ test('a rename out of an Android path builds, given both sides', () => {
   // was deleted by being moved somewhere inert.
   assert.equal(decide(['docs/foo.md', 'app/src/main/java/Foo.kt']), true, 'a rename away from Android must build');
   assert.equal(decide(['docs/foo.md']), false, 'and the inert side alone is still inert');
-  // The reverse direction too: a doc moved into the app tree is an Android-visible path now.
-  assert.equal(decide(['app/src/main/assets/readme.md', 'docs/readme.md']), false, 'a .md is inert wherever it lives');
+  // The reverse direction too — and this assertion used to pin the WRONG answer. A module's source tree is
+  // compiled and packaged wholesale: a Markdown file under `app/src/main/assets/` ships inside the APK and goes
+  // through AAPT, so its extension is not a reason to skip the build. Location beats extension.
+  assert.equal(decide(['app/src/main/assets/readme.md', 'docs/readme.md']), true, 'a .md inside a module is packaged, not inert');
   assert.equal(decide(['app/src/main/res/raw/clip.mp3', 'docs/clip.mp3']), true);
 });
 

@@ -1936,3 +1936,65 @@ test('the diff is written even when RUNNER_TEMP does not exist yet', async () =>
     restore();
   }
 });
+
+test('a summary posted DURING the round is found before a second one is', async () => {
+  // The cached listing is read at the start of the round and written from at the end — up to seventeen minutes
+  // later. A summary DELETED in between is covered by the 404 branch; one CREATED in between was not, and posting
+  // then means two summaries, which is two state records: what this harness calls its worst outcome. Reachable
+  // through the `cancel-in-progress` window, where a superseded run posts after this round listed the comments.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'midround-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '49', COMMIT: 'cc99000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'midround');
+  const realFetch = globalThis.fetch;
+  const realNow = Date.now; // declared out here so the finally below can put it back
+  try {
+    const gh = fakeGitHub(); // no summary at the start of the round
+    const inner = gh.fetch;
+    let reads = 0;
+    // The round has to LOOK long: the re-check is gated on the listing's age, because the note path reads and
+    // writes in the same breath and must not pay for a second GET. In process a whole round takes milliseconds,
+    // so the clock is advanced once the listing has been read — which is the fact the gate is about.
+    let skew = 0;
+    Date.now = () => realNow() + skew;
+    globalThis.fetch = async (url, init = {}) => {
+      // Advanced on the THREAD listing, which runs just after the comment read: setting it on the comment read
+      // itself would move the clock before `readAt` is stamped, and the age would come out zero — which is what
+      // the first version of this test measured.
+      if (String(url).endsWith('/graphql')) skew = 5 * 60_000;
+      const isCommentList = /\/issues\/\d+\/comments/.test(String(url)) && (init.method || 'GET') === 'GET';
+      if (isCommentList) {
+        reads++;
+        // The second read — the one the write path makes — sees a summary another run posted meanwhile.
+        if (reads > 1) {
+          const body = '## 🟡 Claude PR Review\n\nfrom a run that finished first\n\n<!-- bp-ai-review-summary -->';
+          return { ok: true, status: 200, headers: { get: () => null }, json: async () => [{ id: 77, user: { login: 'github-actions[bot]' }, body }], text: async () => '' };
+        }
+      }
+      return inner(url, init);
+    };
+    await mod.runReview({ agent: agentReturning({ verdict: 'pass', summary: 'all quiet', findings: [] }) });
+
+    assert.equal(reads, 2, `the write path made ${reads - 1} re-checks; it should make exactly one`);
+    assert.deepEqual(gh.calls.issueComments, [], 'a SECOND summary was posted, so the PR now has two state records');
+    assert.equal(gh.calls.patched.length, 1, 'the summary another run posted was not updated');
+
+    // And the other half of the gate: a listing read moments ago is NOT re-read. That is the note path, whose
+    // whole budget is 90 seconds and whose note is its only output.
+    reads = 0;
+    skew = 0;
+    const quiet = fakeGitHub();
+    globalThis.fetch = async (url, init = {}) => {
+      if (/\/issues\/\d+\/comments/.test(String(url)) && (init.method || 'GET') === 'GET') reads++;
+      return quiet.fetch(url, init);
+    };
+    await mod.runReview({ agent: agentReturning({ verdict: 'pass', summary: 'all quiet', findings: [] }) });
+    assert.equal(reads, 1, `a fresh listing was re-read ${reads - 1} time(s) for nothing`);
+  } finally {
+    Date.now = realNow;
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});

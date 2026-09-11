@@ -1400,6 +1400,9 @@ const MAX_REPORTED_PER_FILE = 20;
 // cut falls back to the fingerprint heuristic — the inference the claim protocol exists to replace. That is a
 // different question from how many threads a round can afford to VERIFY, which is a budget decision.
 const MAX_OPEN_FINDINGS_SHOWN = 20;
+// How old a comment listing may be before the summary write re-checks whether somebody else posted one. A round
+// reads it at the start and writes at the end, minutes apart; the note path reads and writes in the same breath.
+const STALE_LISTING_MS = 60_000;
 const MAX_VERIFY_CHARS = 1200; // per finding, and per reply
 const VERIFY_BUDGET_MS = num(process.env.REVIEW_VERIFY_BUDGET_MS, 5 * 60 * 1000);
 const MAINTAINER_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
@@ -2330,7 +2333,7 @@ async function appendNoteToSummary(note, heading) {
     // and two reads that can disagree about whether a summary exists, with the later one silently deciding
     // whether a SECOND one is posted. It matters most in `--setup-failed`, where both reads share a 90-second
     // network budget and this note is the only output that path has.
-    const listing = await listIssueComments(PR_NUMBER);
+    const listing = { ...(await listIssueComments(PR_NUMBER)), readAt: Date.now() };
     const previous = listing.comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
     await upsertSummary(summaryWithNote(previous?.body || '', note, heading), null, { listing });
     return true;
@@ -2411,7 +2414,24 @@ async function upsertSummary(rawBody, state = null, { mergeExistingRecord = fals
       console.warn(`Could not read this PR's comments before writing the summary (${redact(e.message)}); posting rather than staying silent`);
     }
   }
-  const existing = comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
+  let existing = comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
+  // A summary CREATED mid-round is the case the cached listing cannot see: it was read up to seventeen minutes
+  // ago, and the 404 branch below only covers one that was DELETED since. Posting then means a second summary —
+  // two state records, which this function calls its worst outcome — and it is reachable through the same
+  // `cancel-in-progress` window `planRound` documents, where a superseded run posts after this round listed.
+  //
+  // Gated on the listing's AGE, not on its presence: the note path reads and writes seconds apart, so re-reading
+  // there buys nothing and costs a GET out of a 90-second budget where the note is the only output. A listing
+  // with no `readAt` counts as stale, because the question this is asking is "could something have happened
+  // since?" and "I do not know when this was read" is not a no. One GET, on the round that would duplicate.
+  if (!existing && listing && Date.now() - (listing.readAt ?? 0) > STALE_LISTING_MS) {
+    try {
+      ({ comments, truncated } = await listIssueComments(PR_NUMBER));
+      existing = comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
+    } catch (e) {
+      console.warn(`Could not re-check for a summary posted during this round (${redact(e.message)}); posting rather than staying silent`);
+    }
+  }
   // Posting a SECOND summary is the one thing this function must not do quietly: the record lives in the
   // summary, so two of them means two memories, and the next round reads whichever it finds first. If the
   // listing stopped early and no summary was in what we saw, say so loudly — the comment still gets posted,
@@ -2533,7 +2553,7 @@ export async function runReview({ agent = runAgent } = {}) {
   let listing = null;
   try {
     const { comments, truncated } = await listIssueComments(PR_NUMBER);
-    listing = { comments, truncated };
+    listing = { comments, truncated, readAt: Date.now() };
     stateRecord = await readPriorState(comments);
     if (stateRecord) console.log(`Prior state: ${Object.keys(stateRecord.findings).length} finding(s) recorded at ${stateRecord.commit.slice(0, 8) || 'an unknown commit'}`);
     else if (truncated) {
