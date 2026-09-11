@@ -18,8 +18,10 @@ import { fileURLToPath } from 'node:url';
 
 const WORKFLOW = fileURLToPath(new URL('../../../workflows/claude-review.yml', import.meta.url));
 const README = fileURLToPath(new URL('../README.md', import.meta.url));
-const CLIENT = fileURLToPath(new URL('../github.mjs', import.meta.url));
-const HARNESS = fileURLToPath(new URL('../review.mjs', import.meta.url));
+// The harness is every module in the directory, read as one source: the budgets live in review.mjs, the caps in
+// identity.mjs, the knobs in agent.mjs, and a check that read one file would have lost the others in the split.
+const MODULES = readdirSync(fileURLToPath(new URL('..', import.meta.url))).filter((f) => f.endsWith('.mjs')).sort().map((f) => fileURLToPath(new URL(`../${f}`, import.meta.url)));
+const harnessSource = () => MODULES.map((f) => readFileSync(f, 'utf8')).join('\n');
 // Everywhere a budget figure can be written down. Adding a file here is the cheap half of keeping these two
 // checks honest; the expensive half is remembering that a check over a FILE LIST is only as wide as the list.
 //
@@ -28,8 +30,7 @@ const HARNESS = fileURLToPath(new URL('../review.mjs', import.meta.url));
 // throws on the temporal dead zone, which in this file would look like the drift checks losing their corpus.
 const capSources = () => [
   WORKFLOW,
-  HARNESS,
-  CLIENT,
+  ...MODULES,
   README,
   ...readdirSync(fileURLToPath(new URL('.', import.meta.url)))
     .filter((f) => f.endsWith('.mjs'))
@@ -45,14 +46,14 @@ const CAP_SOURCES = capSources();
 // The default behind an env knob, by the CONSTANT's name (`JOB_BUDGET_MS`) or by the env variable's
 // (`REVIEW_JOB_BUDGET_MS`) — the README's table is keyed by the latter and the code by the former.
 function budgetMinutes(envName) {
-  const src = readFileSync(HARNESS, 'utf8');
+  const src = harnessSource();
   const m = new RegExp(`num\\(process\\.env\\.${envName}, (\\d+) \\* 60 \\* 1000\\)`).exec(src);
   assert.ok(m, `could not find ${envName}'s default in review.mjs — this test is reading the wrong shape`);
   return Number(m[1]);
 }
 
 function harnessDefaultMinutes(name) {
-  const src = readFileSync(HARNESS, 'utf8');
+  const src = harnessSource();
   const m = new RegExp(`const ${name} = num\\(process\\.env\\.\\w+, (\\d+) \\* 60 \\* 1000\\)`).exec(src);
   assert.ok(m, `could not find ${name}'s default in review.mjs — this test is reading the wrong shape`);
   return Number(m[1]);
@@ -175,10 +176,10 @@ test('the two failure notes cover the failures the harness cannot report itself'
   const killedText = readFileSync(WORKFLOW, 'utf8').slice(readFileSync(WORKFLOW, 'utf8').indexOf('failed without explaining itself'));
   const run = killedText.slice(killedText.indexOf('--setup-failed'), killedText.indexOf('\n', killedText.indexOf('--setup-failed')));
   assert.match(run, /either|or/, 'the note asserts one cause when the gate cannot tell two apart');
-  assert.match(readFileSync(HARNESS, 'utf8'), /appendFileSync\(out, 'explained=true/, 'nothing in the harness writes the output that gate reads');
+  assert.match(harnessSource(), /appendFileSync\(out, 'explained=true/, 'nothing in the harness writes the output that gate reads');
   // And it is written only from the REVIEW step's own path. `--setup-failed` runs in these note steps, where an
   // output named `explained` is read by nobody — writing it there looked like part of the gate and was not.
-  const harness = readFileSync(HARNESS, 'utf8');
+  const harness = harnessSource();
   // Comments stripped first: the paragraph explaining WHY this call is absent names the call, and an assertion
   // that reads prose is defeated by the prose — the same trap as a check satisfied by its own comment, mirrored.
   const setupMode = harness
@@ -236,14 +237,14 @@ test("the knob table's budgets are the code's budgets", () => {
   // in a document is a number that can drift: this is the same check, one sentence over.
   const cap = /judges up to (\d+) still-open threads/.exec(readme);
   assert.ok(cap, 'the README no longer says how many threads a round judges');
-  const capInCode = /const MAX_VERIFY_THREADS = (\d+);/.exec(readFileSync(HARNESS, 'utf8'));
+  const capInCode = /const MAX_VERIFY_THREADS = (\d+);/.exec(harnessSource());
   assert.ok(capInCode, 'could not find MAX_VERIFY_THREADS in review.mjs');
   assert.equal(Number(cap[1]), Number(capInCode[1]), `the README says ${cap[1]} threads, the code says ${capInCode[1]}`);
 
   // And the turn limit, which is written in two places at once: the code's default and the workflow's override.
   const turns = /\| `REVIEW_MAX_TURNS` \| (\d+) in code, (\d+) in the workflow \|/.exec(readme);
   assert.ok(turns, 'the knob table has no REVIEW_MAX_TURNS row');
-  const codeDefault = /num\(process\.env\.REVIEW_MAX_TURNS, (\d+)\)/.exec(readFileSync(HARNESS, 'utf8'));
+  const codeDefault = /num\(process\.env\.REVIEW_MAX_TURNS, (\d+)\)/.exec(harnessSource());
   assert.ok(codeDefault, "could not find REVIEW_MAX_TURNS's default in review.mjs");
   assert.equal(Number(turns[1]), Number(codeDefault[1]), 'the README disagrees with the code about the turn limit');
   const inWorkflow = /REVIEW_MAX_TURNS: '(\d+)'/.exec(readFileSync(WORKFLOW, 'utf8'));
@@ -284,6 +285,16 @@ test('a cap claimed in prose is written where the drift check can read it', () =
   }
   assert.deepEqual(offenders, [], `write a cap as \`the job's N\` / \`the review step's N\`, or leave the number out:\n${offenders.join('\n')}`);
 });
+test('the install step runs the smoke check, and the smoke check runs the binary', () => {
+  // `typeof m.query === 'function'` proved only that JavaScript installed. What the review step needs is the native
+  // CLI for this runner, which a lockfile written on another OS can leave out with every JS import still green.
+  // The mini-reader keeps a `run: |` block as its marker, so the command is read from the workflow's text.
+  assert.match(readFileSync(WORKFLOW, 'utf8'), /^\s+node smoke\.mjs\s*$/m, 'the install step no longer runs smoke.mjs');
+  const smoke = readFileSync(fileURLToPath(new URL('../smoke.mjs', import.meta.url)), 'utf8');
+  assert.match(smoke, /spawnSync\(bin, \['--version'\]/, 'smoke.mjs does not run the CLI binary');
+  assert.match(smoke, /constants\.X_OK/, 'smoke.mjs does not check the execute bit');
+});
+
 test('the directory is self-contained: its own .gitignore covers what npm ci installs', () => {
   // The rule lived in the repository root for a while, which is the one file the porting story ("copy this
   // directory and the workflow") does not copy — so the first `npm ci` in the next repository, which the README

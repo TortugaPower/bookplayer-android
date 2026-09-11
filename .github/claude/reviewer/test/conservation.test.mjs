@@ -26,6 +26,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { decodeState } from '../identity.mjs';
 
 const MAIN = '../review.mjs';
 
@@ -304,7 +305,7 @@ async function runScenario(seed) {
       // the harness's actual obligation to a finding it could not put inline, and the only thing that keeps the
       // first half honest about the case above.
       const summary = gh.state.summary || '';
-      const record = mod.decodeState(summary);
+      const record = decodeState(summary);
       const recordCarries = (token) =>
         Object.values(record?.findings || {}).some(
           (r) => String(r?.text || '').includes(token) && gh.state.threads.some((t) => t.id === r.id && !t.isResolved),

@@ -4,6 +4,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MODEL_FOR_TEST, agentQuery } from '../agent.mjs';
+import { decodeState, encodeState, fingerprint } from '../identity.mjs';
+import { diffPath, redact } from '../sandbox.mjs';
+import { explainFailure } from '../summary.mjs';
 
 const MAIN = '../review.mjs';
 
@@ -75,7 +79,7 @@ test('a whole round: findings posted, the record written, an unjudged thread lef
   try {
     const fresh = { severity: 'error', file: 'app/New.kt', line: 4, comment: 'a new error worth posting' };
     const gone = { severity: 'warn', file: 'app/Old.kt', line: 9, comment: 'a finding this run no longer reports' };
-    const goneFp = mod.fingerprint(gone);
+    const goneFp = fingerprint(gone);
     const gh = fakeGitHub({
       threads: [{
         id: 'T-gone', isResolved: false, path: gone.file, line: gone.line, originalLine: gone.line,
@@ -95,10 +99,10 @@ test('a whole round: findings posted, the record written, an unjudged thread lef
     assert.deepEqual(gh.calls.resolved, []);
     // The summary carries the record, with the posted finding and its thread-less state.
     const summary = gh.summaryOut();
-    const state = mod.decodeState(summary);
+    const state = decodeState(summary);
     assert.ok(state, 'the round must leave a state record');
     assert.equal(state.commit, 'abcdef1234567890');
-    assert.equal(state.findings[mod.fingerprint(fresh)].action, 'posted');
+    assert.equal(state.findings[fingerprint(fresh)].action, 'posted');
     // And the summary says the earlier finding went unjudged rather than pretending it was handled.
     assert.match(summary, /not checked this round/);
   } finally {
@@ -117,10 +121,10 @@ test('the record from the last round decides what reopens, with no fingerprint i
   const realFetch = globalThis.fetch;
   try {
     const back = { severity: 'warn', file: 'app/Back.kt', line: 12, comment: 'a finding that came back' };
-    const fp = mod.fingerprint(back);
+    const fp = fingerprint(back);
     // Last round: we closed its thread ourselves. The bodies carry NO fingerprint and NO marker — only the
     // record knows. Before the record, this thread could not be recognised at all.
-    const priorSummary = `## ✅ Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+    const priorSummary = `## ✅ Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${encodeState({
       commit: 'aaaaaaa', findings: { [fp]: { id: 'T-back', file: back.file, line: back.line, severity: 'warn', text: back.comment, action: 'resolved', commit: 'aaaaaaa' } },
     })}`;
     const gh = fakeGitHub({
@@ -140,7 +144,7 @@ test('the record from the last round decides what reopens, with no fingerprint i
     assert.deepEqual(gh.calls.inline, []);
     assert.match(gh.calls.replies.join('\n'), /reported again/i);
     // The new record says it is being carried on that thread again.
-    const state = mod.decodeState(gh.summaryOut());
+    const state = decodeState(gh.summaryOut());
     assert.equal(state.findings[fp].id, 'T-back');
   } finally {
     globalThis.fetch = realFetch;
@@ -160,8 +164,8 @@ test('a finding that moved: the verifier calls it a duplicate and the old thread
     const text = 'the deadline is read before the message in hand, so a finished run is relabelled';
     const oldF = { severity: 'warn', file: 'app/Moved.kt', line: 5, comment: text };
     const newF = { severity: 'warn', file: 'app/Moved.kt', line: 41, comment: `${text} (still)` };
-    const oldFp = mod.fingerprint(oldF);
-    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+    const oldFp = fingerprint(oldF);
+    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${encodeState({
       commit: 'aaaaaaa',
       findings: { [oldFp]: { id: 'T-moved', file: oldF.file, line: oldF.line, severity: 'warn', text, action: 'posted', commit: 'aaaaaaa' } },
     })}`;
@@ -194,8 +198,8 @@ test('a finding that moved: the verifier calls it a duplicate and the old thread
     assert.equal(summary.includes('verified closed'), false);
     // And the record moves with it: the new fingerprint on the thread that now carries the finding, and the
     // close recorded against the old one so a return reopens it rather than reading as a human's decision.
-    const state = mod.decodeState(summary);
-    assert.equal(state.findings[mod.fingerprint(newF)].action, 'posted');
+    const state = decodeState(summary);
+    assert.equal(state.findings[fingerprint(newF)].action, 'posted');
     assert.equal(state.findings[oldFp].action, 'duplicate');
     assert.equal(state.findings[oldFp].id, 'T-moved');
   } finally {
@@ -220,7 +224,7 @@ test('a duplicate verdict is refused when its replacement never landed, or names
     const text = 'the listener is added in onStart and never removed';
     const oldF = { severity: 'warn', file: 'app/Dup.kt', line: 5, comment: text };
     const newF = { severity: 'warn', file: 'app/Dup.kt', line: 41, comment: `${text} (still)` };
-    const oldFp = mod.fingerprint(oldF);
+    const oldFp = fingerprint(oldF);
     const threadOf = () => ({
       id: 'T-dup', isResolved: false, path: oldF.file, line: oldF.line, originalLine: oldF.line,
       first: { nodes: [{ databaseId: 51, body: `🟡 **WARN** — ${text} <!-- bp-ai-review-fp:${oldFp} -->`, author: { login: 'github-actions[bot]' } }] },
@@ -289,7 +293,7 @@ test('three rounds in a row: the record the harness wrote is the record it reads
   const realFetch = globalThis.fetch;
   try {
     const f = { severity: 'error', file: 'app/Chain.kt', line: 8, comment: 'a finding that lives across three rounds' };
-    const fp = mod.fingerprint(f);
+    const fp = fingerprint(f);
     const answer = agentReturning({ verdict: 'fail', summary: 'one error', findings: [f] });
 
     // ---- Round 1: nothing exists yet.
@@ -298,7 +302,7 @@ test('three rounds in a row: the record the harness wrote is the record it reads
     await mod.runReview({ agent: answer });
     assert.equal(r1.calls.inline.length, 1, 'round 1 posts the finding');
     const summary1 = r1.summaryOut();
-    const state1 = mod.decodeState(summary1);
+    const state1 = decodeState(summary1);
     assert.equal(state1.findings[fp].action, 'posted');
 
     // The thread round 1 created, as GitHub would return it next time — including the body it actually wrote.
@@ -317,7 +321,7 @@ test('three rounds in a row: the record the harness wrote is the record it reads
     assert.deepEqual(r2.calls.resolved, []);
     assert.deepEqual(r2.calls.unresolved, []);
     const summary2 = r2.summaryOut();
-    const state2 = mod.decodeState(summary2);
+    const state2 = decodeState(summary2);
     // Recognised, and the record still names the thread that carries it — this is the fact rounds 3+ depend on.
     assert.equal(state2.findings[fp].id, 'T-chain');
     assert.match(summary2, /1 carried over/);
@@ -332,7 +336,7 @@ test('three rounds in a row: the record the harness wrote is the record it reads
     const summary3 = r3.summaryOut();
     assert.match(summary3, /not checked this round/);
     // The record is still there after a round that reported nothing, and it still knows the thread.
-    const state3 = mod.decodeState(summary3);
+    const state3 = decodeState(summary3);
     assert.ok(state3, 'a round with no findings still leaves a record');
     assert.equal(state3.findings[fp]?.id, 'T-chain', 'the open thread survives a round that did not re-report it');
 
@@ -368,8 +372,8 @@ test('an error thread whose body was edited is not closed by the verifier', asyn
   const realFetch = globalThis.fetch;
   try {
     const err = { severity: 'error', file: 'app/Guard.kt', line: 12, comment: 'the audio session is never deactivated' };
-    const fp = mod.fingerprint(err);
-    const priorSummary = `## 🔴 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+    const fp = fingerprint(err);
+    const priorSummary = `## 🔴 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${encodeState({
       commit: 'aaaaaaa', findings: { [fp]: { id: 'T-err', file: err.file, line: err.line, severity: 'error', text: err.comment, action: 'posted', commit: 'aaaaaaa' } },
     })}`;
     const gh = fakeGitHub({
@@ -414,8 +418,8 @@ test('a round that cannot read the threads keeps the record it read', async () =
   const realFetch = globalThis.fetch;
   try {
     const f = { severity: 'warn', file: 'app/Keep.kt', line: 3, comment: 'a finding recorded last round' };
-    const fp = mod.fingerprint(f);
-    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+    const fp = fingerprint(f);
+    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${encodeState({
       commit: 'aaaaaaa', findings: { [fp]: { id: 'T-keep', file: f.file, line: f.line, severity: 'warn', text: f.comment, action: 'posted', commit: 'aaaaaaa' } },
     })}`;
     const gh = fakeGitHub({ summaryBody: priorSummary });
@@ -433,7 +437,7 @@ test('a round that cannot read the threads keeps the record it read', async () =
     const summary = gh.summaryOut();
     assert.match(summary, /Could not read existing review threads/);
     // The record the round READ is written back unchanged: same commit, same entry, same thread id.
-    const state = mod.decodeState(summary);
+    const state = decodeState(summary);
     assert.ok(state, 'the summary must still carry a record');
     assert.equal(state.commit, 'aaaaaaa');
     assert.equal(state.findings[fp].id, 'T-keep');
@@ -459,8 +463,8 @@ test('a close whose note never posted is still ours two rounds later', async () 
   const realFetch = globalThis.fetch;
   try {
     const f = { severity: 'warn', file: 'app/Unmarked.kt', line: 6, comment: 'a finding that gets fixed, then comes back' };
-    const fp = mod.fingerprint(f);
-    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+    const fp = fingerprint(f);
+    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${encodeState({
       commit: 'aaaaaaa', findings: { [fp]: { id: 'T-un', file: f.file, line: f.line, severity: 'warn', text: f.comment, action: 'posted', commit: 'aaaaaaa' } },
     })}`;
     // The thread as it looks after an unmarked close: resolved, and the only comment on it is the original —
@@ -486,14 +490,14 @@ test('a close whose note never posted is still ours two rounds later', async () 
     });
     assert.deepEqual(a.calls.resolved, ['T-un'], 'round A resolves it');
     const summaryA = a.summaryOut();
-    assert.equal(mod.decodeState(summaryA).findings[fp].action, 'resolved');
+    assert.equal(decodeState(summaryA).findings[fp].action, 'resolved');
 
     // ---- Round B: a quiet round. The close must still be in the record afterwards.
     const b = fakeGitHub({ summaryBody: summaryA, threads: [thread] });
     globalThis.fetch = b.fetch;
     await mod.runReview({ agent: agentReturning({ verdict: 'pass', summary: 'still nothing', findings: [] }) });
     const summaryB = b.summaryOut();
-    assert.equal(mod.decodeState(summaryB).findings[fp]?.action, 'resolved', 'the close survives a quiet round');
+    assert.equal(decodeState(summaryB).findings[fp]?.action, 'resolved', 'the close survives a quiet round');
 
     // ---- Round C: the finding is back. It reopens on OUR record, with no marker anywhere.
     const c = fakeGitHub({ summaryBody: summaryB, threads: [thread] });
@@ -525,7 +529,7 @@ test('a deadline answer closes nothing, however complete it looks', async () => 
     const text = 'the deadline is read before the message in hand, so a finished run is relabelled';
     const oldF = { severity: 'warn', file: 'app/Moved.kt', line: 5, comment: text };
     const newF = { severity: 'warn', file: 'app/Moved.kt', line: 41, comment: `${text} (still)` };
-    const oldFp = mod.fingerprint(oldF);
+    const oldFp = fingerprint(oldF);
     const gh = fakeGitHub({
       threads: [{
         id: 'T-old', isResolved: false, path: oldF.file, line: oldF.line, originalLine: oldF.line,
@@ -633,7 +637,7 @@ test('a round that could not READ the record does not overwrite it', async () =>
   const realFetch = globalThis.fetch;
   try {
     const live = { severity: 'warn', file: 'app/Live.kt', line: 4, comment: 'a finding this round reports again' };
-    const fp = mod.fingerprint(live);
+    const fp = fingerprint(live);
     const prior = {
       commit: 'aaaaaaa',
       findings: {
@@ -642,7 +646,7 @@ test('a round that could not READ the record does not overwrite it', async () =>
         eeee: { id: 'T-closed', file: 'app/Closed.kt', line: 2, severity: 'warn', text: 'closed last round', action: 'resolved', commit: 'aaaaaaa', at: '2026-01-01T00:00:00Z' },
       },
     };
-    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState(prior)}`;
+    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${encodeState(prior)}`;
     const gh = fakeGitHub({
       summaryBody: priorSummary,
       // The thread is ours and still open, but a maintainer edited the body, so the fingerprint marker is gone:
@@ -663,7 +667,7 @@ test('a round that could not READ the record does not overwrite it', async () =>
     };
     await mod.runReview({ agent: agentReturning({ verdict: 'warn', summary: 'still here', findings: [live] }) });
 
-    const after = mod.decodeState(gh.summaryOut());
+    const after = decodeState(gh.summaryOut());
     assert.ok(after, 'the summary must still carry a record');
     // Everything this round could not learn about survives...
     assert.equal(after.findings.eeee?.action, 'resolved', 'the remembered close was destroyed');
@@ -746,8 +750,8 @@ test('a secret quoted in a verifier verdict is redacted in the reply it posts', 
   try {
     const secret = 'ghp_0123456789abcdefghijklmnopqrstuvwx';
     const f = { severity: 'warn', file: 'app/V.kt', line: 3, comment: 'a finding from an earlier push' };
-    const fp = mod.fingerprint(f);
-    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+    const fp = fingerprint(f);
+    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${encodeState({
       commit: 'aaaaaaa', findings: { [fp]: { id: 'T-v', file: f.file, line: f.line, severity: 'warn', text: f.comment, action: 'posted', commit: 'aaaaaaa' } },
     })}`;
     const gh = fakeGitHub({
@@ -820,7 +824,7 @@ test('a provisional round never lets the verifier judge, and a stale entry drops
   const realFetch = globalThis.fetch;
   try {
     const old = { severity: 'error', file: 'app/Old.kt', line: 7, comment: 'an error from an earlier push' };
-    const oldFp = mod.fingerprint(old);
+    const oldFp = fingerprint(old);
     const thread = {
       id: 'T-old', isResolved: false, path: old.file, line: old.line, originalLine: old.line,
       first: { nodes: [{ databaseId: 61, body: `🔴 **ERROR** — ${old.comment} <!-- bp-ai-review-fp:${oldFp} -->`, author: { login: 'github-actions[bot]' } }] },
@@ -847,7 +851,7 @@ test('a provisional round never lets the verifier judge, and a stale entry drops
     // (b) With the record READ successfully, an entry whose thread is gone from the PR drops out. Merging into
     // the old record unconditionally (rather than only when the read failed) would keep it for ever, and the
     // record's cap would eventually spend itself on threads that no longer exist.
-    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+    const priorSummary = `## 🟡 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${encodeState({
       commit: 'aaaaaaa',
       findings: {
         [oldFp]: { id: 'T-old', file: old.file, line: old.line, severity: 'error', text: old.comment, action: 'posted', commit: 'aaaaaaa' },
@@ -857,7 +861,7 @@ test('a provisional round never lets the verifier judge, and a stale entry drops
     const clean = fakeGitHub({ summaryBody: priorSummary, threads: [thread] });
     globalThis.fetch = clean.fetch;
     await mod.runReview({ agent: agentReturning({ verdict: 'fail', summary: 'still here', findings: [old] }) });
-    const after = mod.decodeState(clean.summaryOut());
+    const after = decodeState(clean.summaryOut());
     assert.equal(after.findings[oldFp].id, 'T-old');
     assert.equal(after.findings.deleted, undefined, 'an entry for a thread that no longer exists was kept');
   } finally {
@@ -902,7 +906,7 @@ test('the round arms the clocks and the caps it computes', async () => {
     // The resolved model and the turn cap reach the SDK options. Dropping either leaves the SDK to pick its own
     // default while `resolveModel`, `REVIEW_MODEL` and the model-unavailable retry become decoration — and the
     // footer still names the model that did not run.
-    const q = mod.agentQuery({ userPrompt: 'p', systemPrompt: 's', abort: new AbortController(), env: { PATH: '/usr/bin' } });
+    const q = agentQuery({ userPrompt: 'p', systemPrompt: 's', abort: new AbortController(), env: { PATH: '/usr/bin' } });
     assert.equal(q.options.model, 'claude-opus-5-test');
     assert.equal(q.options.maxTurns, 7);
 
@@ -951,7 +955,7 @@ test('a thin verification slice means the pass is not started at all', async () 
   const realFetch = globalThis.fetch;
   try {
     const f = { severity: 'warn', file: 'app/Thin.kt', line: 3, comment: 'a finding from an earlier push' };
-    const fp = mod.fingerprint(f);
+    const fp = fingerprint(f);
     const gh = fakeGitHub({
       threads: [{
         id: 'T-thin', isResolved: false, path: f.file, line: f.line, originalLine: f.line,
@@ -1086,8 +1090,8 @@ test('a finding that lands where another one lives gets its own comment', async 
     const at = (comment) => ({ severity: 'info', file: 'app/Collide.kt', line: 57, comment });
     const first = at('`FALLBACK_MODEL` is a hardcoded id and the only recovery path when the lookup fails');
     const second = at('this constant inlines the literal marker instead of interpolating the one declared above');
-    const fp = mod.fingerprint(first);
-    assert.equal(mod.fingerprint(second), fp); // same file, line and severity: one fingerprint, two findings
+    const fp = fingerprint(first);
+    assert.equal(fingerprint(second), fp); // same file, line and severity: one fingerprint, two findings
     const gh = fakeGitHub({
       threads: [{
         id: 'T-first', isResolved: false, path: first.file, line: first.line, originalLine: first.line,
@@ -1113,7 +1117,7 @@ test('a finding that lands where another one lives gets its own comment', async 
     const summary = gh.summaryOut();
     assert.match(summary, /still open/);
     // ...and the record holds BOTH, under different keys, with the old thread's own text intact.
-    const state = mod.decodeState(summary);
+    const state = decodeState(summary);
     const entries = Object.entries(state.findings);
     assert.equal(entries.length, 2, `record held ${entries.length} entries: ${JSON.stringify(entries.map(([k, v]) => [k, v.id, v.text.slice(0, 30)]))}`);
     const carried = state.findings[fp];
@@ -1125,7 +1129,7 @@ test('a finding that lands where another one lives gets its own comment', async 
     // And the same collision when the thread's body has been EDITED past recognition: the comparison then has
     // only the record's text to go on, so the round must hand the record to the check. Passing null instead
     // makes the two findings merge again, silently.
-    const prior = `## 🔵 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${mod.encodeState({
+    const prior = `## 🔵 Claude PR Review\n\nprose\n\n<!-- bp-ai-review-summary -->\n${encodeState({
       commit: 'aaaaaaa',
       findings: { [fp]: { id: 'T-first', file: first.file, line: first.line, severity: 'info', text: first.comment, action: 'posted', commit: 'aaaaaaa' } },
     })}`;
@@ -1146,7 +1150,7 @@ test('a finding that lands where another one lives gets its own comment', async 
     });
     assert.deepEqual(edited.calls.inline.map((c) => c.line), [second.line], 'the colliding finding did not get its own comment');
     assert.deepEqual(edited.calls.unresolved, []);
-    assert.equal(Object.keys(mod.decodeState(edited.summaryOut()).findings).length, 2);
+    assert.equal(Object.keys(decodeState(edited.summaryOut()).findings).length, 2);
   } finally {
     globalThis.fetch = realFetch;
     restore();
@@ -1166,7 +1170,7 @@ test('the agent is shown what is open, and naming one keeps the finding on its t
   const realFetch = globalThis.fetch;
   try {
     const old = { severity: 'warn', file: 'app/Same.kt', line: 12, comment: 'the broadcast receiver registered in onStart is never unregistered' };
-    const fp = mod.fingerprint(old);
+    const fp = fingerprint(old);
     const gh = fakeGitHub({
       threads: [{
         id: 'T-old', isResolved: false, path: old.file, line: old.line, originalLine: old.line,
@@ -1198,7 +1202,7 @@ test('the agent is shown what is open, and naming one keeps the finding on its t
     assert.match(gh.calls.replies.join('\n'), /worded differently/);
     assert.match(gh.calls.replies.join('\n'), /unregisterReceiver on the way out/);
     // The record keeps it under the thread's own fingerprint, so the next round starts from the same identity.
-    const state = mod.decodeState(gh.summaryOut());
+    const state = decodeState(gh.summaryOut());
     assert.equal(state.findings[fp].id, 'T-old');
     assert.match(gh.summaryOut(), /1 carried over/);
   } finally {
@@ -1224,8 +1228,8 @@ test('a truncated comment listing is not read as "no record"', async () => {
   const realWarn = console.warn;
   try {
     const f = { severity: 'warn', file: 'app/T.kt', line: 3, comment: 'a finding recorded last round' };
-    const fp = mod.fingerprint(f);
-    const prior = mod.encodeState({
+    const fp = fingerprint(f);
+    const prior = encodeState({
       commit: 'aaaaaaa',
       findings: { [fp]: { id: 'T-old', file: f.file, line: f.line, severity: 'warn', text: f.comment, action: 'posted', commit: 'aaaaaaa' } },
     });
@@ -1274,7 +1278,7 @@ test('a degraded round keeps its record intact, and a control character never re
   const realFetch = globalThis.fetch;
   try {
     // A record whose entries hold the two dangling halves, as per-field redaction legitimately leaves them.
-    const prior = mod.encodeState({
+    const prior = encodeState({
       commit: 'aaaaaaa',
       findings: {
         a: { id: 'T1', file: 'app/A.kt', line: 1, severity: 'warn', text: 'the header -----BEGIN PRIVATE KEY----- appears here', action: 'posted', commit: 'aaaaaaa' },
@@ -1286,7 +1290,7 @@ test('a degraded round keeps its record intact, and a control character never re
     globalThis.fetch = gh.fetch;
     // A round that produces nothing usable takes the degrade path, which re-appends that record inside the body.
     await mod.runReview({ agent: async () => ({ finalText: 'no json here at all', lastAnswer: '', turns: 1, resultSubtype: 'success' }) });
-    const after = mod.decodeState(gh.summaryOut());
+    const after = decodeState(gh.summaryOut());
     assert.ok(after, 'the degraded round left no record');
     assert.equal(Object.keys(after.findings).length, 3, 'the record lost entries to a redaction that spanned it');
     assert.match(gh.summaryOut(), /did not finish|did not run/);
@@ -1597,7 +1601,7 @@ test('a finding posted this round survives its comment being edited on the next'
     assert.equal(a.calls.inline.length, 1, 'round A did not post');
     const posted = a.calls.inline[0];
     const summaryA = a.summaryOut();
-    const entry = Object.values(mod.decodeState(summaryA).findings)[0];
+    const entry = Object.values(decodeState(summaryA).findings)[0];
     assert.equal(entry.id, null, 'the thread id cannot be known in the round that posts');
     assert.equal(entry.commentId, posted.id, 'the created comment id was not recorded');
 
@@ -1621,7 +1625,7 @@ test('a finding posted this round survives its comment being edited on the next'
     assert.equal(b.calls.replies.length, 1);
     assert.match(b.calls.replies[0], /never unregistered/);
     // The record now knows the thread id too, so the next round does not need the comment id at all.
-    assert.equal(Object.values(mod.decodeState(b.summaryOut()).findings)[0].id, 'T-fresh');
+    assert.equal(Object.values(decodeState(b.summaryOut()).findings)[0].id, 'T-fresh');
   } finally {
     globalThis.fetch = realFetch;
     restore();
@@ -1696,7 +1700,7 @@ test('only a note that landed says the PR has been told', async () => {
     const ok = await loadHarness(env, 'explainnote-ok');
     const gh = fakeGitHub();
     globalThis.fetch = gh.fetch;
-    await ok.mod.explainFailure(new Error('the model returned nothing twice'));
+    await explainFailure(new Error('the model returned nothing twice'));
     ok.restore();
     assert.equal(gh.calls.issueComments.length + gh.calls.patched.length, 1, 'the note was not written');
     assert.match(readFileSync(outFile, 'utf8'), /explained=true/);
@@ -1705,7 +1709,7 @@ test('only a note that landed says the PR has been told', async () => {
     writeFileSync(outFile, '');
     const dead = await loadHarness(env, 'explainnote-dead');
     globalThis.fetch = async () => { throw new Error('getaddrinfo ENOTFOUND api.github.com'); };
-    await dead.mod.explainFailure(new Error('the model returned nothing twice'));
+    await explainFailure(new Error('the model returned nothing twice'));
     dead.restore();
     assert.equal(readFileSync(outFile, 'utf8').includes('explained=true'), false, 'claimed the PR was told with GitHub unreachable');
   } finally {
@@ -1850,7 +1854,7 @@ test('the model retry tries a different release, not the same one under another 
     const tried = [];
     await mod.runReview({
       agent: async () => {
-        tried.push(mod.MODEL_FOR_TEST());
+        tried.push(MODEL_FOR_TEST());
         if (tried.length === 1) throw new Error('model claude-opus-5 is not available to this account (404)');
         return { finalText: '```json\n' + JSON.stringify({ verdict: 'pass', summary: 'fine', findings: [] }) + '\n```', lastAnswer: '', turns: 1, resultSubtype: 'success' };
       },
@@ -1928,7 +1932,7 @@ test('the diff is written even when RUNNER_TEMP does not exist yet', async () =>
     let sawDiff = '';
     await mod.runReview({
       agent: async () => {
-        sawDiff = readFileSync(mod.DIFF_PATH, 'utf8');
+        sawDiff = readFileSync(diffPath(), 'utf8');
         return { finalText: '```json\n' + JSON.stringify({ verdict: 'pass', summary: 'fine', findings: [] }) + '\n```', lastAnswer: '', turns: 1, resultSubtype: 'success' };
       },
     });
@@ -2175,7 +2179,7 @@ test('review.mjs installs its redactor in the GitHub client when it loads', asyn
   const { mod, restore } = await loadHarness({}, 'log-redactor');
   try {
     const gh = await import('../github.mjs');
-    assert.equal(gh.logRedactorForTest(), mod.redact, 'the GitHub client is logging through something other than review.mjs’s redact');
+    assert.equal(gh.logRedactorForTest(), redact, 'the GitHub client is logging through something other than review.mjs’s redact');
   } finally {
     restore();
   }

@@ -45,8 +45,11 @@ const NOT_OURS = {
 // This file is not in its own corpus: its allowlist KEYS are identifiers, so scanning it would let every entry
 // justify itself — `planClosures` is "in the code" the moment it is written down here.
 const SELF = 'comments.test.mjs';
+// Every module in the directory, then every test but this one. Listing the modules by name was fine while there
+// were two; the split into seams made the list the thing most likely to be stale.
+const MODULES = () => readdirSync(DIR).filter((f) => f.endsWith('.mjs')).sort();
 const sourceFiles = () =>
-  ['review.mjs', 'github.mjs', ...readdirSync(`${DIR}test`).filter((f) => f.endsWith('.mjs') && f !== SELF).map((f) => `test/${f}`)];
+  [...MODULES(), ...readdirSync(`${DIR}test`).filter((f) => f.endsWith('.mjs') && f !== SELF).map((f) => `test/${f}`)];
 
 // The code a comment in this directory may legitimately name is not only JavaScript: these tests reason about
 // the harness's own workflow, and `concurrency` or `timeout-minutes` are as real as any function here. It is part
@@ -204,7 +207,7 @@ test('an option a caller passes is one the function takes', () => {
   // class as a comment naming code that is not there, one level down: a name that looks bound and is not. For
   // every exported function whose first parameter is an options object, every call that spells its options as
   // a literal may use only the names the pattern declares. A spread or a computed key is not checked.
-  const src = readFileSync(`${DIR}review.mjs`, 'utf8');
+  const src = MODULES().map((f) => readFileSync(`${DIR}${f}`, 'utf8')).join('\n');
   const declared = new Map();
   for (const m of src.matchAll(/^export (?:async )?function (\w+)\(\{/gm)) {
     const pattern = balanced(src, m.index + m[0].length - 1);
@@ -249,7 +252,7 @@ test('nothing reaches the log with an upstream message still in it', () => {
   // the WHOLE expression be the argument of `redact(...)`.
   const carriesError = /\b(message|msg|stack|reason)\b/i;
   const offenders = [];
-  for (const file of ['review.mjs', 'github.mjs']) {
+  for (const file of MODULES()) {
     for (const [lineNo, line] of consoleLines(readFileSync(`${DIR}${file}`, 'utf8'))) {
       for (const expr of interpolations(line)) {
         if (!carriesError.test(expr)) continue;
@@ -280,7 +283,7 @@ test("model-authored text reaches the log only through boundedDump", () => {
   //
   // The DRY_RUN print goes through it too, and loses nothing: the default bound is thousands of characters, far
   // past any real finding, and redaction only touches secret shapes.
-  const src = readFileSync(`${DIR}review.mjs`, 'utf8');
+  const src = MODULES().map((f) => readFileSync(`${DIR}${f}`, 'utf8')).join('\n');
   // Keyed on the FIELD, not the object it hangs off. `[fvd].file` was the first spelling and
   // `claimedThread.path` was the second — the same text under another variable — so the object name proved to be
   // the wrong half to match on. A GitHub-derived path caught by this loses nothing: `boundedDump` is idempotent
@@ -292,7 +295,7 @@ test("model-authored text reaches the log only through boundedDump", () => {
     for (const expr of interpolations(line)) {
       if (!modelText.test(expr)) continue;
       if (/boundedDump\(/.test(expr)) continue;
-      offenders.push(`review.mjs:${lineNo}: \${${expr}} — model text to the log without boundedDump`);
+      offenders.push(`line ${lineNo} of the joined modules: \${${expr}} — model text to the log without boundedDump`);
     }
   }
   assert.deepEqual(offenders, [], `wrap these in boundedDump():\n${offenders.join('\n')}`);

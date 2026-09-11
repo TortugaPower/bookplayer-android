@@ -7,7 +7,27 @@ run or could not post its result: a failed install, a red `node --test test/`, o
 written (which throws, by design — see below).
 
 `review-guide.md` (one directory up) is the reviewer's rubric — what to flag, at what severity, what to skip.
-It is the file to edit to change *what* gets reviewed. Everything below is about the harness that runs it.
+It is the file to edit to change *what* gets reviewed. `repo.mjs` names this repository's secret files and secret
+shapes. Those two are the per-repository files; everything else here is the harness that runs them, and ports
+unchanged.
+
+## Layout
+
+One module per seam, so a change is read in the file that owns it:
+
+| File | Owns |
+| --- | --- |
+| `review.mjs` | The round: `runReview` composes the rest, owns the budgets and the order of operations. The entry point. |
+| `sandbox.mjs` | What the agent may run, read and see, and what may leave the process: the Bash grammar and its allowlists, the path rules, `agentEnv`, the write tokens withheld while the agent runs, `redact`. |
+| `repo.mjs` | **Per repository.** The secret files the path rules refuse by name, and the secret shapes `redact` scrubs after the generic ones. |
+| `identity.mjs` | Which finding is which across pushes: fingerprints, `same_as`, the state record, the markers, `planRound`. |
+| `prompts.mjs` | What the reviewing agent is told; loads `review-guide.md` into the system prompt. |
+| `agent.mjs` | The SDK seam: the options that are the sandbox in practice (including the tool gate as a PreToolUse hook), the run loop, model resolution, the result parsers. Everything the tests stub is behind `runAgent`. |
+| `verify.mjs` | The verification pass, and `applyVerification` — the only thing that closes a thread. |
+| `summary.mjs` | The sticky summary: rendering, the record it carries, the size budget, the failure notes, `upsertSummary`. |
+| `github.mjs` | The bounded GitHub client: timeouts, read-only retry ladders, paged listings that report truncation. |
+| `config.mjs` | Environment access, read at call time. |
+| `smoke.mjs` | The install check the workflow runs: loads the SDK and runs the native CLI binary it will spawn. |
 
 ## What a round does
 
@@ -40,12 +60,15 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~239 tests, a minute or so, no network and no API key. The reviewer workflow runs exactly this before the review
+~241 tests, a minute or so, no network and no API key. The reviewer workflow runs exactly this before the review
 step, so a red suite means no review ran (and the workflow says so on the PR). Note where that is: the reviewer
 job skips draft pull requests, forks and Dependabot, so a pull request touching only this directory is tested only
 if your repository's own CI also runs `node --test test/` here. That is a per-repository decision — this harness
-ports by copying this directory and `claude-review.yml`, and nothing in it assumes the rest of your CI — the
-directory carries its own `.gitignore` for `node_modules/`, so the copy is complete without touching the root one.
+ports by copying this directory, `review-guide.md` and `claude-review.yml`, and nothing in it assumes the rest of
+your CI — the directory carries its own `.gitignore` for `node_modules/`, so the copy is complete without touching
+the root one. Then edit the two per-repository files: `review-guide.md` (what to review) and `repo.mjs` (which
+files hold secrets, which shapes to scrub); a copy that keeps this repository's lists gets rules that match
+nothing of its own.
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the
 comment created *next* — off by one, for as long as it has existed, because nothing had ever read that value.
@@ -154,6 +177,11 @@ why the bump has to be an edit a human makes rather than a range that drifts.
   not do what you think. Its failure injections are where its blind spots have been: the thread read, the
   comment read, the inline post, the resolve, the reason-reply and the summary write can each be refused for a
   round. Every one of those was added after the round it could not see hid a real bug.
+- **GitHub can refuse a write that landed.** Observed once: two inline posts answered `422 … "An internal error
+  occurred, please try again"` and both comments were created anyway. The round reported them as not visible
+  inline, which was wrong for one round and self-corrected on the next — the thread listing found them by their
+  markers, so nothing was posted twice. Nothing in the harness checks whether a refused write landed; a read
+  after every failed write would be code for a flake seen once, so this is recorded rather than handled.
 - **A close the harness cannot explain on the thread is not made.** The reply carrying the reason goes AFTER the
   resolve on purpose (without `REVIEW_RESOLVE_TOKEN` every resolve fails, and reply-first would claim "verified
   fixed" on every thread that stayed open). A thread with no comment to reply to — GitHub can answer with an empty
@@ -193,7 +221,7 @@ why the bump has to be an edit a human makes rather than a range that drifts.
   The wrapper sits at the agent SEAM, not inside `runAgent`: every implementation passes through it, including the
   stubs the tests drive rounds with, so the guarantee is observable rather than asserted.
 - **Everything the model writes is untrusted at the write boundary.** `redact()` runs on every body, reply and
-  record field, and on every log line in both files — `github.mjs` cannot import it, so `review.mjs` hands it over
+  record field, and on every log line in every module — `github.mjs` cannot import it, so `sandbox.mjs` hands it over
   at startup (`setLogRedactor`) and until then the client withholds error messages rather than logging them raw.
   `neutralizeMarkup` stops model text from opening an HTML comment, which is what keeps a
   finding from forging a state record or a fingerprint marker. The same applies to the answer itself: the review's
