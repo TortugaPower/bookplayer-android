@@ -22,10 +22,12 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
    no decision about identity — the agent's or the harness's — can bury a finding's wording.
 4. A finding whose identity already has a comment is left alone; a new one is posted inline; one that cannot be
    anchored (no such line in the diff, past the 25-comment cap, a refused post) is listed in the summary.
-5. **Verification pass** — a second agent judges every still-open thread this round did *not* re-report against
+5. **Verification pass** — a second agent judges up to 20 still-open threads this round did *not* re-report against
    the current code: `fixed`, `present`, `not_applicable`, `accepted` (a maintainer said so), `insufficient`,
    or `duplicate` of a finding this push reports. **This is the only thing that closes a thread.** Absence
-   closes nothing; an `error` closes only on evidence of a fix or a maintainer's own resolve.
+   closes nothing; an `error` closes only on evidence of a fix or a maintainer's own resolve. Past that cap the
+   rest are listed in the summary as *not checked this round* and carried to the next, so on a long-lived PR a
+   thread can go a round unjudged — it is never closed unjudged, which is the property that matters.
 6. Writes one summary comment, which carries a hidden state record (`<!-- bp-ai-review-state:… -->`) of what
    this round did: which thread carries which finding, what was closed and why. The next round reads it instead
    of re-deriving its own history from rendered comments.
@@ -36,7 +38,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~226 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
+~227 tests, a minute or so, no network and no API key. CI runs exactly this before the review step, so a red
 suite means no review ran (and the workflow says so on the PR).
 
 **And mutate the DOUBLE, not only the code.** The fake GitHub answered a posted comment with the id of the

@@ -1818,3 +1818,45 @@ test('a programming error is not retried as if it were a network blip', async ()
     restore();
   }
 });
+
+test('the model retry tries a different release, not the same one under another name', async () => {
+  // The Models API lists a release's dated snapshot next to its alias, so "the first id that is not the current
+  // one" was usually the same model renamed — and when the failure is "this account cannot use Opus 5", that
+  // second id fails for the same reason, at double the cost, and the round is spent. The retry has to cross a
+  // release boundary to be a retry at all.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'modelretry-')));
+  const { mod, restore } = await loadHarness({
+    GITHUB_REPOSITORY: 'TortugaPower/repo', GITHUB_TOKEN: 'tok', PR_NUMBER: '46', COMMIT: 'fa00000000000001',
+    BASE_REF: 'develop', RUNNER_TEMP: temp, ANTHROPIC_API_KEY: 'k', RUN_URL: '', DRY_RUN: undefined,
+    GITHUB_WORKSPACE: process.cwd(),
+  }, 'modelretry');
+  const realFetch = globalThis.fetch;
+  try {
+    const gh = fakeGitHub();
+    const inner = gh.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      // The Models API: the alias, its dated snapshot, then the previous release.
+      if (String(url).includes('api.anthropic.com')) {
+        return {
+          ok: true, status: 200, headers: { get: () => null },
+          json: async () => ({ data: [{ id: 'claude-opus-5' }, { id: 'claude-opus-5-20260601' }, { id: 'claude-opus-4-8' }] }),
+        };
+      }
+      return inner(url, init);
+    };
+    const tried = [];
+    await mod.runReview({
+      agent: async () => {
+        tried.push(mod.MODEL_FOR_TEST());
+        if (tried.length === 1) throw new Error('model claude-opus-5 is not available to this account (404)');
+        return { finalText: '```json\n' + JSON.stringify({ verdict: 'pass', summary: 'fine', findings: [] }) + '\n```', lastAnswer: '', turns: 1, resultSubtype: 'success' };
+      },
+    });
+    assert.equal(tried.length, 2, 'the round did not retry');
+    assert.equal(tried[0], 'claude-opus-5');
+    assert.equal(tried[1], 'claude-opus-4-8', `retried with ${tried[1]}, which is the same release under another name`);
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});

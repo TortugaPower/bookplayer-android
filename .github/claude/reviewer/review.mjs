@@ -105,7 +105,7 @@ const MAX_OUTPUT_TOKENS = num(process.env.REVIEW_MAX_OUTPUT_TOKENS, 32_000);
 // With the job budget at 18 and the verify slice at 5, a 14-minute deadline was never reached — the review always
 // stopped at 13 — and raising REVIEW_DEADLINE_MS changed nothing at all.
 const DEADLINE_MS = num(process.env.REVIEW_DEADLINE_MS, 12 * 60 * 1000);
-// The budget for the two model passes, measured from the start of main(). The review and the verification pass
+// The budget for the two model passes, measured from the start of runReview(). The review and the verification pass
 // are both bounded by THIS, not by each other: taking the verify slice out of the review's own deadline meant a
 // review that used its full 14 minutes left a negative verify budget, so the second pass was silently skipped on
 // exactly the large PRs it was added for, falling back to "was not re-reported".
@@ -162,7 +162,7 @@ async function resolveModel() {
     RANKED_MODELS = ranked;
     return ranked[0];
   } catch (e) {
-    console.warn(`Could not resolve the latest Opus model (${e.message}); using ${FALLBACK_MODEL}`);
+    console.warn(`Could not resolve the latest Opus model (${redact(e.message)}); using ${FALLBACK_MODEL}`);
     RANKED_MODELS = FALLBACK_MODELS; // so the model-unavailable retry has a runner-up to try
     return FALLBACK_MODEL;
   }
@@ -174,7 +174,7 @@ function requireEnv(name) {
   return v;
 }
 
-// Read here, validated in main() — importing this module (e.g. from a test) must not throw.
+// Read here, validated in runReview() — importing this module (e.g. from a test) must not throw.
 const PR_NUMBER = Number(process.env.PR_NUMBER || 0);
 const COMMIT = process.env.COMMIT || ''; // PR head SHA — anchors inline comments
 const BASE = process.env.BASE_REF || 'main';
@@ -193,6 +193,10 @@ export function fingerprint(f) {
 const SECRET_VALUES = ['ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'REVIEW_RESOLVE_TOKEN']
   .map((k) => process.env[k])
   .filter((v) => v && v.length >= 8);
+// Every string that leaves this process goes through here — log lines included, not only what is posted. A public
+// repository's run log is public, and `rest()` embeds the whole upstream response body in its error message, so a
+// warning that interpolates `e.message` raw is a hole in a boundary the rest of this file keeps. The rule is
+// "everything", because "most of them" is not a rule anyone can check.
 export function redact(text) {
   let out = String(text);
   for (const v of SECRET_VALUES) out = out.split(v).join('[redacted]');
@@ -1053,7 +1057,7 @@ function normaliseResult(o) {
 
 const TRUNCATION_CLOSERS = ['"}]}', '"}}]}', '}]}', ']}', '}'];
 // A result the parser had to close itself is, by construction, a partial finding list: whatever the agent was still
-// writing is missing. Marked on the object (invisibly, so it can never reach a comment) and read back in main(),
+// writing is missing. Marked on the object (invisibly, so it can never reach a comment) and read back in runReview(),
 // which then declines to resolve anything on its authority.
 const REPAIRED = Symbol('truncation-repaired');
 const markRepaired = (o) => (o && typeof o === 'object' ? Object.defineProperty(o, REPAIRED, { value: true }) : o);
@@ -1524,8 +1528,9 @@ function isMaintainerReply(c, prAuthor = '') {
   return MAINTAINER_ASSOCIATIONS.has(c.association);
 }
 
-// What this round does with the threads already on the PR, as a pure decision. Lifted out of main() because
-// main() is not reachable from a test: a mutation sweep showed `verifiedIds` could be narrowed to the threads
+// What this round does with the threads already on the PR, as a pure decision. Lifted out so the composition can
+// be asserted directly — `runReview()` IS reachable from a test now, through the `{ agent }` seam, which is how
+// the round and conservation suites drive whole rounds. A mutation sweep showed `verifiedIds` could be narrowed to the threads
 // the verification pass actually judged (rather than every thread it owns), and the closure set flipped on or
 // off for a provisional result, both with the whole suite green — and both reintroduce bugs this branch fixed.
 // Composition is where those live, so composition has to be assertable.
@@ -1695,7 +1700,7 @@ async function closeWithReason(io, thread, body) {
     await io.reply(thread, body);
     return { explained: true };
   } catch (e) {
-    console.warn(`the reason for closing ${thread.id} could not be posted (${e.message}); the summary row says so instead`);
+    console.warn(`the reason for closing ${thread.id} could not be posted (${redact(e.message)}); the summary row says so instead`);
     return { explained: false };
   }
 }
@@ -1792,7 +1797,7 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
         // The judgement stands, the resolve did not — and REVIEW_RESOLVE_TOKEN is documented as optional, so on a
         // repo without one this is every verified finding, on every push. Saying "still open" there is wrong in
         // the one direction that matters: it reads as a finding nobody has dealt with.
-        console.warn(`verified-resolve failed (${t.path}) — ${e.message}`);
+        console.warn(`verified-resolve failed (${t.path}) — ${redact(e.message)}`);
         rows.push({ label, status: 'open', note: e?.stage === 'unreplyable' ? `${note}, but ${e.message} — left for a human` : `${note}, but this thread could not be resolved` });
         stats.stillOpen++;
       }
@@ -2051,7 +2056,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
       // nothing more, which left the new wording nowhere at all while the finding counted as carried over. So
       // the finding joins the unpostable list instead: its full text goes in the summary, which is where every
       // other finding that could not be put on a thread ends up.
-      console.warn(`reworded note failed (fp:${fp}) — ${e.message}; listing the finding in the summary instead`);
+      console.warn(`reworded note failed (fp:${fp}) — ${redact(e.message)}; listing the finding in the summary instead`);
       stats.reworded--;
       // The summary list only, not `unpostableFps`: those are the keys whose POST was refused, and this finding
       // does have a thread — the record still points at it, and the next round must look it up there rather than
@@ -2076,7 +2081,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
           await io.unresolve(existing);
           stats.reopened++;
           liveFps.add(fp); // reopened, so a duplicate of it has somewhere to point
-          await io.reply(existing, REOPENED_NOTE).catch((e) => console.warn(`reopen note failed (fp:${fp}) — ${e.message}`));
+          await io.reply(existing, REOPENED_NOTE).catch((e) => console.warn(`reopen note failed (fp:${fp}) — ${redact(e.message)}`));
           // The same rule as the kept branch. A finding that comes back RE-WORDED onto a thread we had closed
           // was unresolved, counted in `stats.reopened`, and its new text posted nowhere — the thread went on
           // showing the original wording. The invariant is not "a kept finding's text is never buried", it is
@@ -2088,7 +2093,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
           // The reopen failed (a stale REVIEW_RESOLVE_TOKEN is the likely reason), so the thread stays collapsed
           // as resolved while the finding is live again. Surface it in the summary body rather than leaving it
           // as a number in the counts line, exactly as a failed inline post does below.
-          console.warn(`unresolve failed (fp:${fp}) — ${e.message}`);
+          console.warn(`unresolve failed (fp:${fp}) — ${redact(e.message)}`);
           unpostable.push(f);
           unpostableFps.add(fp);
         }
@@ -2125,7 +2130,7 @@ export async function reconcile(currentByFp, threads, io, options = {}) {
       stats.posted++;
       liveFps.add(fp);
     } catch (e) {
-      console.warn(`inline post failed ${f.file}:${f.line} — ${e.message}`);
+      console.warn(`inline post failed ${f.file}:${f.line} — ${redact(e.message)}`);
       unpostable.push(f);
       unpostableFps.add(fp);
     }
@@ -2236,7 +2241,7 @@ export function summaryWithNote(previousBody, note, heading) {
   const carriedRecord = (String(previousBody || '').match(/<!-- bp-ai-review-state:[\s\S]*? -->/) || [])[0] || '';
   // The marker leads the note, so splitting on it drops the previous note entirely. With the marker trailing it,
   // the split kept all of the note's text and dropped only the marker, so a paragraph accumulated on every failing
-  // push — and twice per run, since main() explains a fatal and the top-level handler explains the same one again.
+  // push — and twice per run, since runReview() explains a fatal and the top-level handler explains the same one again.
   const kept = String(previousBody || '')
     .split(MARKER_FAILURE_NOTE)[0]
     .replace(MARKER_SUMMARY, '')
@@ -2318,7 +2323,7 @@ function recordExplainedOnPr() {
   try {
     appendFileSync(out, 'explained=true\n');
   } catch (e) {
-    console.warn(`could not record that the PR was told (${e.message}); the workflow may add a second note`);
+    console.warn(`could not record that the PR was told (${redact(e.message)}); the workflow may add a second note`);
   }
 }
 
@@ -2331,7 +2336,7 @@ function recordExplainedOnPr() {
 // Throwing hands it to the top-level handler, which tries to say so on the PR and then exits 1 — a red check is
 // the one signal left when the harness cannot write to the PR at all.
 function summaryWriteFailed(e) {
-  throw new Error(`Could not post the summary comment, so this round produced no visible output: ${e.message}`, { cause: e });
+  throw new Error(`Could not post the summary comment, so this round produced no visible output: ${redact(e.message)}`, { cause: e });
 }
 
 // Exported for the test that pins the rule inside it: only a note that LANDED may tell the workflow the pull
@@ -2357,7 +2362,7 @@ async function upsertSummary(rawBody, state = null, { mergeExistingRecord = fals
   // fuzzer once it started failing the thread listing as well. A comment that may duplicate an existing one is
   // visible and fixable; silence is neither, so the write goes ahead without an id to update.
   //
-  // `listing` is the read main() already did for the state record. Paginating the same comments twice per round
+  // `listing` is the read runReview() already did for the state record. Paginating the same comments twice per round
   // costs up to 20 GETs with their own ladders inside the job budget, and the two reads could disagree about
   // whether a summary exists at all — the later one deciding, silently, whether a SECOND one gets posted. What
   // this function needs from it is a comment id, which does not change while the round runs; if the comment is
@@ -2369,7 +2374,7 @@ async function upsertSummary(rawBody, state = null, { mergeExistingRecord = fals
       ({ comments, truncated } = await listIssueComments(PR_NUMBER));
     } catch (e) {
       truncated = true;
-      console.warn(`Could not read this PR's comments before writing the summary (${e.message}); posting rather than staying silent`);
+      console.warn(`Could not read this PR's comments before writing the summary (${redact(e.message)}); posting rather than staying silent`);
     }
   }
   const existing = comments.find((c) => isHarnessComment(c.user?.login) && (c.body || '').includes(MARKER_SUMMARY));
@@ -2418,7 +2423,7 @@ async function upsertSummary(rawBody, state = null, { mergeExistingRecord = fals
 }
 
 // `--setup-failed <reason>`: the workflow calls this when a step BEFORE the review failed (the install, or the
-// harness's own tests). Those run outside main(), so nothing would otherwise reach the PR and the check would go
+// harness's own tests). Those run outside runReview(), so nothing would otherwise reach the PR and the check would go
 // red with no comment — the invisible failure the rest of this file exists to avoid. Note only: no agent, no
 // review, no reconciliation, and it needs nothing but a token and a PR number.
 async function reportSetupFailure(reason) {
@@ -2445,7 +2450,7 @@ export const reviewBudget = (startedAt, now = Date.now()) =>
 export const verifyBudget = (startedAt, now = Date.now()) =>
   Math.min(VERIFY_BUDGET_MS, JOB_BUDGET_MS - (now - startedAt) - 30_000);
 
-// `main()` with one seam: the model call. Everything else — the GitHub client, the diff on disk, the budgets —
+// `runReview()` with one seam: the model call. Everything else — the GitHub client, the diff on disk, the budgets —
 // stays real, so a test can drive the whole composition through a stubbed `fetch` and only fake the agent. Three
 // separate mutations survived a green suite purely because they lived in these call sites and nothing could reach
 // them; guarding each one was mitigation, this is the coverage.
@@ -2457,7 +2462,7 @@ export async function runReview({ agent = runAgent } = {}) {
   if (setupFailedAt !== -1) {
     requireEnv('GITHUB_TOKEN');
     requireEnv('PR_NUMBER');
-    // This mode returns before the clock the rest of main() arms, so its ladders were bounded only by attempts
+    // This mode returns before the clock the rest of runReview() arms, so its ladders were bounded only by attempts
     // times timeout: a comment listing is up to 20 pages, each with 3 attempts of 30 s, and `outOfTime()` cannot
     // fire against an `Infinity` deadline — half an hour against the job's 48. The job would then
     // be cancelled and the PR would get no comment at all, which is the one thing this mode exists to prevent.
@@ -2506,7 +2511,7 @@ export async function runReview({ agent = runAgent } = {}) {
     } else console.log('No prior state record on this PR; falling back to the comment markers');
   } catch (e) {
     recordReadFailed = true;
-    console.warn(`Could not read the prior state record (${e.message}); falling back to the comment markers, and this round will merge into whatever record the summary still holds`);
+    console.warn(`Could not read the prior state record (${redact(e.message)}); falling back to the comment markers, and this round will merge into whatever record the summary still holds`);
   }
 
   let threads = null;
@@ -2520,7 +2525,7 @@ export async function runReview({ agent = runAgent } = {}) {
     // Not fatal here any more: the review can still run, it just cannot be told what is already open, and the
     // reconcile below stops rather than risk duplicates. Read BEFORE the agent so the prompt can carry the open
     // findings — the agent naming one is what replaced the harness inferring identity from a hash.
-    console.warn(`listReviewThreads failed: ${e.message}; reviewing without the open-findings list`);
+    console.warn(`listReviewThreads failed: ${redact(e.message)}; reviewing without the open-findings list`);
   }
 
   const diff = await fetchPullRequestDiff(PR_NUMBER);
@@ -2551,7 +2556,18 @@ export async function runReview({ agent = runAgent } = {}) {
     // Both halves required: the error must be about the model AND say it can't be used.
     const msg = e.message || '';
     const modelUnavailable = /\bmodel\b/i.test(msg) && /not[_ ]?found|404|does not exist|unsupported|not available|not (?:have|permitted|authorized)/i.test(msg);
-    const retryModel = RANKED_MODELS.find((id) => id !== MODEL) || FALLBACK_MODEL;
+    // A DIFFERENT release, not merely a different id. The Models API lists dated snapshots of the same release
+    // next to its alias (`claude-opus-5-20260601` after `claude-opus-5`), so "the runner-up" was usually the same
+    // model under another name — and if the failure really is "this account cannot use Opus 5", that fails for the
+    // same reason and the round is spent. The fallback-list path already behaved this way, because that list is
+    // one id per release; this makes the API path match it.
+    // The dated snapshot and its alias are ONE release: strip a trailing date (6+ digits) and the family prefix,
+    // so `claude-opus-5-20260601` and `claude-opus-5` both reduce to `5`, while `claude-opus-4-8` stays `4-8`.
+    const release = (id) => String(id || '').replace(/-\d{6,}$/, '').replace(/^claude-[a-z]+-/, '') || String(id);
+    const retryModel =
+      RANKED_MODELS.find((id) => release(id) !== release(MODEL)) ||
+      FALLBACK_MODELS.find((id) => release(id) !== release(MODEL)) ||
+      FALLBACK_MODEL;
     if (!modelUnavailable || retryModel === MODEL || process.env.REVIEW_MODEL) throw await explainFailure(e);
     console.warn(`Run with ${MODEL} failed (${msg}); retrying once with ${retryModel}`);
     MODEL = retryModel;
@@ -2594,7 +2610,7 @@ export async function runReview({ agent = runAgent } = {}) {
         parsed = assertResultShape(extractJson(lastAnswer));
         provisional = true;
         provisionalCause = resultSubtype === 'error_deadline' ? 'deadline' : 'turns';
-        console.warn(`${resultSubtype === 'error_deadline' ? 'Time' : 'Turn'} limit hit after a tool call; using the last complete answer (provisional): ${e.message}`);
+        console.warn(`${resultSubtype === 'error_deadline' ? 'Time' : 'Turn'} limit hit after a tool call; using the last complete answer (provisional): ${redact(e.message)}`);
         if (finalText) logAgentOutput('Agent output, superseded by the last complete answer', finalText);
       } catch {
         // no usable remembered answer either: degrade below
@@ -2613,7 +2629,7 @@ export async function runReview({ agent = runAgent } = {}) {
       if (finalText) logAgentOutput('Agent output', finalText);
       else if (lastAnswer) logAgentOutput('Agent output, the answer before its last tool call', lastAnswer);
       if (!DRY_RUN) {
-        // Appended, not overwritten: a 14-minute timeout on a later push must not wipe the review a human reads.
+        // Appended, not overwritten: a later push timing out must not wipe the review a human reads.
         await appendNoteToSummary(`> ⚠️ **This round did not finish:** the reviewer ${reason}`, '## ⚠️ Claude PR Review — incomplete');
       }
       return;
@@ -2784,7 +2800,7 @@ export async function runReview({ agent = runAgent } = {}) {
       const dupNote = `duplicate of the finding reported at line ${d.line}`;
       previously.push({ label: d.label, status: 'resolved', note: explained ? dupNote : `${dupNote} (the reply saying so could not be posted)`, superseded: true });
     } catch (e) {
-      console.warn(`duplicate close failed (${d.label}) — ${e.message}`);
+      console.warn(`duplicate close failed (${d.label}) — ${redact(e.message)}`);
       previously.push({
         label: d.label,
         status: 'open',
@@ -2832,9 +2848,9 @@ export async function runReview({ agent = runAgent } = {}) {
 const invokedDirectly = safeRealpath(resolve(process.argv[1] ?? '')) === safeRealpath(fileURLToPath(import.meta.url));
 if (invokedDirectly) runReview().catch(async (err) => {
   // Say so on the PR before failing, whatever went wrong and wherever it happened — the setup calls before the
-  // agent runs (the PR fetch, the diff fetch, writing it to disk) are outside main()'s own degrade paths, and a
+  // agent runs (the PR fetch, the diff fetch, writing it to disk) are outside runReview()'s own degrade paths, and a
   // red check with no comment is the invisible failure this harness exists to avoid. upsertSummary is an upsert,
-  // so a second call from here is harmless when main() already explained itself.
+  // so a second call from here is harmless when runReview() already explained itself.
   await explainFailure(err).catch(() => {});
   console.error('Fatal:', redact(err.stack || String(err)));
   if (err.capturedStderr) {

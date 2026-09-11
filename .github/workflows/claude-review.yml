@@ -62,7 +62,7 @@ jobs:
         with:
           node-version: '20'
           # Same reason ci.yml caches: every round otherwise pulls the SDK and its platform binaries fresh, inside
-          # a 4-minute install cap. A failed install here degrades to the "did not run" note rather than a silent
+          # the install step's cap. A failed install here degrades to the "did not run" note rather than a silent
           # red check, so this is flakiness and cost rather than correctness — which is why it is a cache and not
           # a guard.
           cache: npm
@@ -149,4 +149,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: node .github/claude/reviewer/review.mjs --setup-failed "the review step ended without writing a summary — it was killed rather than failing on its own terms (its 24-minute step timeout, or the runner ran out of memory)"
+        run: node .github/claude/reviewer/review.mjs --setup-failed "the review step ended without writing a summary — it was killed rather than failing on its own terms (the review step's 24 minutes, or the runner ran out of memory)"

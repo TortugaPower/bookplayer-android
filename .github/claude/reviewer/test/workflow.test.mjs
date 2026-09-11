@@ -232,6 +232,14 @@ test("the knob table's budgets are the code's budgets", () => {
     assert.ok(row, `the knob table has no row for ${envName}`);
     assert.equal(Number(row[1]), budgetMinutes(envName), `the README says ${envName} is ${row[1]} min`);
   }
+  // The verification cap, which the README now states in prose ("up to 20 still-open threads"). A number written
+  // in a document is a number that can drift: this is the same check, one sentence over.
+  const cap = /judges up to (\d+) still-open threads/.exec(readme);
+  assert.ok(cap, 'the README no longer says how many threads a round judges');
+  const capInCode = /const MAX_VERIFY_THREADS = (\d+);/.exec(readFileSync(HARNESS, 'utf8'));
+  assert.ok(capInCode, 'could not find MAX_VERIFY_THREADS in review.mjs');
+  assert.equal(Number(cap[1]), Number(capInCode[1]), `the README says ${cap[1]} threads, the code says ${capInCode[1]}`);
+
   // And the turn limit, which is written in two places at once: the code's default and the workflow's override.
   const turns = /\| `REVIEW_MAX_TURNS` \| (\d+) in code, (\d+) in the workflow \|/.exec(readme);
   assert.ok(turns, 'the knob table has no REVIEW_MAX_TURNS row');
@@ -243,19 +251,30 @@ test("the knob table's budgets are the code's budgets", () => {
   assert.equal(Number(turns[2]), Number(inWorkflow[1]), 'the README disagrees with the workflow about the turn limit');
 });
 
-test('cap figures in prose are written in the form the drift check reads', () => {
-  // The convention is "the job's N" / "the review step's N", and the check above verifies every figure written
-  // that way. A figure written ANOTHER way is invisible to it — which is how one sentence in `review.mjs` went on
-  // naming 25 through two cap changes. So the other phrasings are refused outright: this is the third instance of
-  // the same drift, and a convention nothing enforces is a preference. (The offending phrasings are matched, not
-  // quoted, for the obvious reason that quoting one here would fail this test.)
+test('a cap claimed in prose is written where the drift check can read it', () => {
+  // Fourth version of this check, and the first that is not a list of phrasings. Matching known wordings —
+  // "capped at N minutes", then "job cap of N" — meant each new way of writing the same claim was invisible
+  // until it drifted: "its 24-minute step timeout" was, and a stale "a 14-minute timeout" had been sitting in
+  // review.mjs since the cap was 14. So the claim is what is detected now: a minute figure on a line that also
+  // says cap or timeout. Either write it as `the job's N` / `the review step's N`, which the check above
+  // verifies, or do not put the number in prose at all.
+  const exempt = [
+    /^\s*timeout-minutes:/,          // the YAML key IS the source of truth
+    /^\s*\|/,                        // the README's knob table, pinned by the test above
+    /~\s*\d/,                        // "~1 min of setup" is an estimate of duration, not a claim about a cap
+  ];
+  const claim = /\b\d+[- ]min(?:ute)?s?\b/i;
+  const aboutACap = /\b(cap|capped|timeout)\b/i;
+  const canonical = /the (?:job|review step)'s \d+/;
+
   const offenders = [];
   for (const [name, file] of [['claude-review.yml', WORKFLOW], ['ci.yml', CI], ['review.mjs', HARNESS], ['README.md', README]]) {
     for (const [i, line] of readFileSync(file, 'utf8').split('\n').entries()) {
-      if (/capped (?:at|to) \d+ minutes?|job cap(?:ped)? (?:at|of) \d+/i.test(line)) {
+      if (exempt.some((re) => re.test(line))) continue;
+      if (claim.test(line) && aboutACap.test(line) && !canonical.test(line)) {
         offenders.push(`${name}:${i + 1}: ${line.trim().slice(0, 100)}`);
       }
     }
   }
-  assert.deepEqual(offenders, [], `write cap figures as \`the job's N\` or \`the review step's N\`, which the drift check reads:\n${offenders.join('\n')}`);
+  assert.deepEqual(offenders, [], `write a cap as \`the job's N\` / \`the review step's N\`, or leave the number out:\n${offenders.join('\n')}`);
 });
