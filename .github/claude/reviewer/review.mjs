@@ -1731,10 +1731,29 @@ async function closeWithReason(io, thread, body) {
   await io.resolve(thread);
   try {
     await io.reply(thread, body);
-    return { explained: true };
+    return { closed: true };
   } catch (e) {
-    console.warn(`the reason for closing ${thread.id} could not be posted (${redact(e.message)}); the summary row says so instead`);
-    return { explained: false };
+    // UNDONE, which reverses what this did for twenty rounds. The old answer — leave it closed, say so in the
+    // summary row — rested on that row landing, and `summaryWriteFailed` exists because it may not. Compounded,
+    // the two failures leave a thread resolved with no marker on it and no entry in the record, so the NEXT
+    // round's `harnessClosed` reads it as a maintainer's own resolve and files a returning finding as
+    // `dismissed` — invisible for good. The conservation law cannot see that, because it excuses a round that
+    // threw on the summary write.
+    //
+    // The objection recorded in round 8 was flapping: a reply that keeps failing would open and shut the thread
+    // on every push. That objection lost its teeth when the `firstCommentId` pre-check above went in — the one
+    // permanent cause of a refused reply is now refused before the resolve, so what is left is transient, and a
+    // transient failure does not flap.
+    console.warn(`the reason for closing ${thread.id} could not be posted (${redact(e.message)}); undoing the close`);
+    try {
+      await io.unresolve(thread);
+      return { closed: false, why: e.message };
+    } catch (e2) {
+      // Both writes refused. Nothing else can be tried, and the round is already failing loudly by the time this
+      // matters — the close stands, unexplained, and the summary row says so. This is the residual.
+      console.warn(`and the close could not be undone (${redact(e2.message)}); it stands with no reason on the thread`);
+      return { closed: true, unexplained: true };
+    }
   }
 }
 
@@ -1819,8 +1838,15 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
       try {
         const marker = status === 'accepted' ? MARKER_HUMAN_ACCEPTED : MARKER_VERIFIED;
         const reply = evidence ? `✅ ${reason}: ${evidence}` : `✅ ${reason}`;
-        const { explained } = await closeWithReason(io, t, redact(`${reply}\n\n${marker}`));
-        rows.push({ label, status: 'resolved', note: explained ? note : `${note} (the reply saying so could not be posted)` });
+        const { closed, unexplained } = await closeWithReason(io, t, redact(`${reply}\n\n${marker}`));
+        if (!closed) {
+          // Judged, reported, and left open: the verdict stands and the next round will act on it, rather than a
+          // close nothing on the pull request can explain.
+          rows.push({ label, status: 'open', note: `${note}, but the reply saying so could not be posted — left open for the next run` });
+          stats.stillOpen++;
+          continue;
+        }
+        rows.push({ label, status: 'resolved', note: unexplained ? `${note} (the reply saying so could not be posted)` : note });
         closedIds.add(t.id);
         if (status === 'fixed') stats.verifiedFixed++;
         else if (status === 'accepted') stats.closedByHuman++;
@@ -2852,11 +2878,15 @@ export async function runReview({ agent = runAgent } = {}) {
       continue;
     }
     try {
-      const { explained } = await closeWithReason(io, d.thread, redact(duplicateNote(d.line, d.evidence)));
+      const { closed, unexplained } = await closeWithReason(io, d.thread, redact(duplicateNote(d.line, d.evidence)));
+      const dupNote = `duplicate of the finding reported at line ${d.line}`;
+      if (!closed) {
+        previously.push({ label: d.label, status: 'open', note: `${dupNote}, but the reply saying so could not be posted — left open`, superseded: true });
+        continue;
+      }
       duplicateClosed.add(d.thread.id);
       stats.resolved++;
-      const dupNote = `duplicate of the finding reported at line ${d.line}`;
-      previously.push({ label: d.label, status: 'resolved', note: explained ? dupNote : `${dupNote} (the reply saying so could not be posted)`, superseded: true });
+      previously.push({ label: d.label, status: 'resolved', note: unexplained ? `${dupNote} (the reply saying so could not be posted)` : dupNote, superseded: true });
     } catch (e) {
       console.warn(`duplicate close failed (${d.label}) — ${redact(e.message)}`);
       previously.push({

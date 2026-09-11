@@ -150,10 +150,14 @@ why the bump has to be an edit a human makes rather than a range that drifts.
   round. Every one of those was added after the round it could not see hid a real bug.
 - **A close the harness cannot explain on the thread is not made.** The reply carrying the reason goes AFTER the
   resolve on purpose (without `REVIEW_RESOLVE_TOKEN` every resolve fails, and reply-first would claim "verified
-  fixed" on every thread that stayed open), so a thread with no comment to reply to — GitHub can answer with an
-  empty `first` selection — is judged, reported and left open instead. The two rejected alternatives: undoing the
-  close flaps the thread on every push, and a row in the summary explains it for exactly one round, because the
-  next round's summary replaces it.
+  fixed" on every thread that stayed open). A thread with no comment to reply to — GitHub can answer with an empty
+  `first` selection — is judged, reported and left open rather than closed. And when the reply is refused after
+  the resolve landed, **the close is undone**: leaving it standing rested on the summary row landing, and the
+  round that cannot post a reply may be the round that cannot write its summary either, which leaves a resolved
+  thread with no marker and no record entry — read by the next round as a maintainer's own resolve, filing a
+  returning finding as `dismissed` for good. The flapping objection that kept it closed for twenty rounds died
+  with the `firstCommentId` pre-check, which refuses the one permanent cause before the resolve. Residual: both
+  writes refused, where the close stands, the row says so, and the record carries it.
 - **The re-wording reply is bounded by CONTAINMENT, and the churn that buys is accepted.** When a carried-over
   finding comes back worded differently, the new wording is posted on its thread unless the thread literally
   contains it. A similarity guard (skip if ~0.9 alike) was proposed and turned down: two wordings that differ by

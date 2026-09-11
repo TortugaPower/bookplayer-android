@@ -374,30 +374,20 @@ async function runScenario(seed) {
           );
         }
       }
-      // The reason on the thread, or — when the reply was refused after the resolve had already landed — this
-      // round's summary saying so. The record is NOT accepted: it is a hidden HTML comment, and since every close is
-      // recorded in it, a law satisfied by that would have retired itself. The other half of this lives in the
-      // harness: a thread it can never reply to is never closed at all, so this only has to cover a refusal that
-      // could not have been known in advance.
-      //
-      // Counted per LOCATION, because a row names a `path:line` and this fuzzer deliberately puts two threads on
-      // one line. Taking the first row there let it answer for a close it had nothing to do with; accepting the
-      // annotation anywhere in the summary let one refused reply excuse every other close in the round.
+      // The reason has to be ON THE THREAD. This used to also accept "this round's summary row says the reply was
+      // refused", which matched the harness's behaviour until round 29 — and that behaviour was wrong for a reason
+      // this law could not see, because it excuses a round that threw on the summary write: the two failures
+      // compound into a thread left resolved with no marker and no record entry, which the NEXT round reads as a
+      // maintainer's own resolve. The harness undoes such a close now, so the escape clause has nothing left to
+      // excuse and the law is stricter by exactly that much. Still uncovered: a refusal of the reply AND of the
+      // unresolve, which this fuzzer cannot produce — `failResolve` governs both mutations at once.
       const saidOnTheThread = (t) => t.comments.some((c) => /same issue is reported on this push/.test(c.body));
-      const rowsSaying = (t) =>
-        summary.split('\n').filter((l) => l.startsWith('|') && l.includes(`\`${t.path}:${t.line}\``) && /could not be posted/.test(l)).length;
-      const needARow = new Map();
       for (const t of ourCloses) {
-        if (saidOnTheThread(t)) continue;
-        const at = `${t.path}:${t.line}`;
-        needARow.set(at, (needARow.get(at) || 0) + 1);
-      }
-      for (const t of ourCloses) {
-        const explained = saidOnTheThread(t) || rowsSaying(t) >= (needARow.get(`${t.path}:${t.line}`) || 0);
+        const explained = saidOnTheThread(t);
         if (!explained) {
           problems.push(
-            `seed ${seed} round ${round}: thread ${t.id} was closed by the harness with no reason on it and no ` +
-              `row in the summary saying why — nothing was fixed this round, so the only close available was a duplicate`,
+            `seed ${seed} round ${round}: thread ${t.id} was closed by the harness with no reason on it — ` +
+              `nothing was fixed this round, so the only close available was a duplicate`,
           );
         }
       }

@@ -84,7 +84,13 @@ jobs:
           # implicit — a script that dies before its final line leaves `outputs.android` empty, and every step
           # below runs on `!= 'false'` — so all that is needed is not to take the step down with it.
           if ! printf '%s\n' "$files" | bash scripts/ci-scope.sh >> "$GITHUB_OUTPUT"; then
+            # Written, not implied. The implicit path works — a step that writes no output leaves `android` empty
+            # and every gated step is spelled `!= 'false'` — but that makes the safe answer depend on a spelling
+            # in seven other steps: one `== 'true'` added later flips the required check from "build when unsure"
+            # to "skip when unsure", which is the one direction this may never fall. `ci-scope.sh` prints only on
+            # its last line, so a partial write cannot leave a competing `android=` key here.
             echo "the scope script failed; building" >&2
+            echo "android=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up JDK 17

@@ -3693,21 +3693,39 @@ test('every count the round keeps reaches the summary', () => {
   for (const noisy of [/reopened/, /re-worded/, /last word/]) assert.equal(noisy.test(quiet), false, `${noisy} shown at zero`);
 });
 
-test('a close whose reason is refused still says so where a human will read it', async () => {
-  // The resolve goes first (a "verified fixed" reply on a thread that stays open would be a false claim on every
-  // push), so the resolve can land while the reply that explains it does not — and the thread is then collapsed
-  // with nothing on it saying who closed it or why. Undoing the close was the other candidate and flaps a thread
-  // that a verdict earned; the summary row carries the reason instead, and has to admit the reply never landed.
-  const io = { calls: [], post: async () => {}, resolve: async () => io.calls.push('resolve'), unresolve: async () => io.calls.push('unresolve'), reply: async () => { throw new Error('502 from the replies endpoint'); } };
-  const verdicts = verdictsById([{ id: 1, status: 'fixed', evidence: 'the receiver is unregistered in onDestroy' }]);
-  const { rows, stats, closedIds } = await applyVerification(verdicts, numbered(thread()), io, { commit: 'abcdef1234' });
+test('a close whose reason is refused is undone, and only a double refusal leaves it standing', async () => {
+  // Reversed in round 29, on evidence. Leaving it closed rested on the summary row landing, and the round that
+  // cannot post a reply may also be the round that cannot write its summary — which leaves a thread resolved with
+  // no marker and no record entry, so the NEXT round reads it as a maintainer's own resolve and files a returning
+  // finding as `dismissed`, invisibly and for good. The flapping objection that kept it closed died with the
+  // `firstCommentId` pre-check: the one permanent cause of a refused reply is refused before the resolve now, so
+  // what is left is transient, and a transient failure does not flap.
+  const refusingReply = () => ({
+    calls: [],
+    post: async () => {},
+    resolve: async function () { this.calls.push('resolve'); },
+    unresolve: async function () { this.calls.push('unresolve'); },
+    reply: async () => { throw new Error('502 from the replies endpoint'); },
+  });
+  const verdict = verdictsById([{ id: 1, status: 'fixed', evidence: 'the receiver is unregistered in onDestroy' }]);
 
-  assert.equal(stats.verifiedFixed, 1, 'the verdict was earned; a refused reply does not undo it');
-  assert.deepEqual(io.calls, ['resolve'], 'the close was undone, which flaps the thread instead');
-  assert.deepEqual([...closedIds], ['t1']);
-  assert.equal(rows[0].status, 'resolved');
-  assert.match(rows[0].note, /could not be posted/, 'the summary row does not admit the reason never landed');
-  assert.match(rows[0].note, /verified fixed/, 'and it still says what the verdict was');
+  const io = refusingReply();
+  const undone = await applyVerification(verdict, numbered(thread()), io, { commit: 'abcdef1234' });
+  assert.deepEqual(io.calls, ['resolve', 'unresolve'], 'the close was left standing with nothing to explain it');
+  assert.equal(undone.rows[0].status, 'open');
+  assert.equal(undone.stats.verifiedFixed, 0, 'a close that did not stand must not be counted as one that did');
+  assert.equal(undone.closedIds.size, 0, 'the record would claim a close the thread does not show');
+  assert.match(undone.rows[0].note, /verified fixed/, 'the judgement is still reported');
+  assert.match(undone.rows[0].note, /could not be posted/);
+
+  // Both writes refused: nothing left to try. The close stands, the row admits it, and the record carries it —
+  // which is what `harnessClosedByRecord` is for. This is the residual, and it is named rather than hidden.
+  const stuck = refusingReply();
+  stuck.unresolve = async () => { throw new Error('403 on unresolve too'); };
+  const residual = await applyVerification(verdict, numbered(thread()), stuck, { commit: 'abcdef1234' });
+  assert.equal(residual.rows[0].status, 'resolved');
+  assert.equal([...residual.closedIds][0], 't1');
+  assert.match(residual.rows[0].note, /could not be posted/);
 });
 
 test('a re-worded finding whose reply is refused is listed in the summary instead', async () => {

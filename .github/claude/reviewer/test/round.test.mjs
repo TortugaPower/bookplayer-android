@@ -471,13 +471,13 @@ test('a close whose note never posted is still ours two rounds later', async () 
       comments: { nodes: [] }, last: { nodes: [] },
     };
 
-    // ---- Round A: the verifier says fixed; the resolve lands, the note does not.
+    // ---- Round A: the verifier says fixed, and the close lands with its note. A REFUSED note no longer reaches
+    // this state — the close is undone now, because a thread left resolved with no marker and no record entry is
+    // read by the next round as a maintainer's own resolve. The state this test is about is still reachable, and
+    // by the route that actually produces it: the note lands and a maintainer deletes it (round B's thread
+    // carries no reply), leaving a resolved thread whose only evidence that we closed it is the record.
     const a = fakeGitHub({ summaryBody: priorSummary, threads: [{ ...thread, isResolved: false }] });
-    const innerA = a.fetch;
-    globalThis.fetch = async (url, init = {}) => {
-      if (/\/replies$/.test(String(url))) throw new Error('502 while posting the note');
-      return innerA(url, init);
-    };
+    globalThis.fetch = a.fetch;
     await mod.runReview({
       agent: agentSequence(
         { verdict: 'pass', summary: 'nothing new', findings: [] },

@@ -214,6 +214,9 @@ test('nothing in the scope step can fail the required check', () => {
   const scope = ci.slice(ci.indexOf('Decide whether the Android build has to run'), ci.indexOf('- name: Set up JDK 17'));
   assert.match(scope, /if ! files=/, 'the file listing is unguarded');
   assert.match(scope, /if ! printf/, 'the scope script call is unguarded');
+  // Both failure branches WRITE the safe answer. Relying on "no output means build" makes that guarantee depend
+  // on how seven other steps spell their condition, and one `== 'true'` added later would invert it silently.
+  assert.equal((scope.match(/echo "android=true" >> "\$GITHUB_OUTPUT"/g) || []).length, 2, 'a failure branch leaves the safe answer implicit');
   assert.equal(/set -euo pipefail/.test(scope), false, 'set -e here fails the step, and the step is inside a required check');
   // The path the shell guards cannot cover, and the one this test was NAMED for while not checking it: a step
   // killed by its own `timeout-minutes` is marked failed, and `build` is required. `continue-on-error` sends that
