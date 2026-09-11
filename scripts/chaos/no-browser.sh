@@ -22,7 +22,7 @@ tap() {
   local c
   c=$("$ADB" shell cat /sdcard/ui.xml | tr '>' '\n' | grep -iE "(text|content-desc)=\"[^\"]*$1[^\"]*\"" \
     | grep -o 'bounds="\[[0-9]*,[0-9]*\]\[[0-9]*,[0-9]*\]"' | head -1 \
-    | awk -F'[][,]' '{print int(($2+$5)/2), int(($3+$6)/2)}')
+    | awk -F'[][,]' '{print int(($2+$5)/2), int(($3+$6)/2)}') || true   # an empty grep must reach the message below, not trip set -e
   [ -n "$c" ] || { echo "no node matching '$1'"; return 1; }
   "$ADB" shell input tap $c
   sleep 2
