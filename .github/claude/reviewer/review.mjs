@@ -1376,7 +1376,7 @@ async function runAgent(userPrompt, budgetMs = DEADLINE_MS, systemPrompt = '', i
 // a refactor that passed one where the other belongs would type-check, run, and quietly send reconciliation back
 // to reading markers out of comment bodies — which is what `reconcile`'s explicit `'priorState' in options` guard
 // exists to stop.
-export function renderSummary(result, stats, unpostable, { provisional = false, provisionalCause = 'turns', previously = [], verificationState = 'unknown' } = {}) {
+export function renderSummary(result, stats, unpostable, { provisional = false, provisionalCause = 'turns', previously = [], verificationState = 'unknown', dropped = 0 } = {}) {
   const emoji = result.verdict === 'fail' ? '🔴' : result.verdict === 'warn' ? '🟡' : '✅';
   const counts = result.findings.reduce(
     (a, f) => ({ ...a, [f.severity]: (a[f.severity] || 0) + 1 }),
@@ -1398,6 +1398,13 @@ export function renderSummary(result, stats, unpostable, { provisional = false, 
     '',
     `**Findings:** ${countLine}`,
   ];
+  if (dropped) {
+    // The one way a reported finding could leave the pull request with no trace: a finding with no usable file,
+    // line, comment or severity is discarded before keying, and until this line it was named in the run log
+    // only. A maintainer reading the summary could not tell it had happened. The text stays in the log — it is
+    // model output that failed validation, so it is not posted — but the COUNT is part of the round's account.
+    lines.push('', `> ⚠️ ${dropped} reported finding${dropped === 1 ? ' was' : 's were'} discarded as malformed (no usable file, line, comment or severity) and can be read in the run log only.`);
+  }
 
   if (previously.length) {
     const icon = { resolved: '✅', open: '🟡' };
@@ -1796,9 +1803,10 @@ export function harnessClosed(t, markers = HARNESS_RESOLVED_MARKERS, priorState 
 //    `first` selection). Nothing will ever make that reply land, so the close is refused BEFORE the resolve and
 //    the finding is reported still open. Attempting it and undoing it would flap the thread on every push, and a
 //    row in the summary lives exactly one round: the next round's summary replaces it.
-//  - The reply is refused (a 502, a body GitHub will not take). That is transient by nature — the thread is
-//    resolved by then, so the next round does not re-judge it — and what carries the reason is this round's
-//    summary row plus the state record, which is what the next round reads.
+//  - The reply is refused (a 502, a body GitHub will not take). That is transient by nature, so the close is
+//    UNDONE (the `catch` below says why that reversed an earlier decision), the row says the reply failed, and
+//    the next round judges the thread again. The upstream message goes to the run log, redacted; the row does not
+//    carry it — a field for it was returned here for a while and read by nobody.
 async function closeWithReason(io, thread, body) {
   if (!thread.firstCommentId) {
     throw Object.assign(new Error('this thread has no comment to reply to, so a close could not be explained on it'), { stage: 'unreplyable' });
@@ -1822,7 +1830,7 @@ async function closeWithReason(io, thread, body) {
     console.warn(`the reason for closing ${thread.id} could not be posted (${redact(e.message)}); undoing the close`);
     try {
       await io.unresolve(thread);
-      return { closed: false, why: e.message };
+      return { closed: false };
     } catch (e2) {
       // Both writes refused. Nothing else can be tried, and the round is already failing loudly by the time this
       // matters — the close stands, unexplained, and the summary row says so. This is the residual.
@@ -1853,6 +1861,10 @@ export async function applyVerification(verdicts, entries, io, { commit = '', pr
     // an edited body reads as severity-less — which turns the "an error closes only on a fix" guard off silently.
     // `||`, not `??`, for the same reason as in buildVerifyPrompt: an empty recorded severity is not knowledge.
     const severity = identity?.severity || findingSeverity(t.firstCommentBody);
+    // The LIVE path, unlike the severity above and the `duplicate` key below, which prefer the record. The label
+    // is where a maintainer finds the thread on the pull request, and `anchor.line` is the thread's current line;
+    // pairing the recorded path with the live line would name a place that exists in neither. The record's path
+    // is for keying, and the two differ only after a rename.
     const label = `\`${mdPath(t.path)}:${anchor.line ?? '?'}\`${severity ? ` (${severity})` : ''}${anchor.stale ? ' ⚠︎ moved' : ''}`;
     const replies = Array.isArray(t.comments) ? t.comments : [];
     const hasMaintainerReply = replies.some((c) => isMaintainerReply(c, prAuthor));
@@ -2829,7 +2841,7 @@ export async function runReview({ agent: rawAgent = runAgent } = {}) {
     }
     valid.push(f);
   }
-  if (dropped) console.warn(`Dropped ${dropped} malformed finding(s) (missing field or invalid severity)`);
+  if (dropped) console.warn(`Dropped ${dropped} malformed finding(s) (missing field or invalid severity); the summary carries the count`);
   // Keyed once, with whatever is in hand. The threads are read before the agent runs (the prompt carries the
   // open findings), so a dry run has them too — an earlier comment here claimed otherwise and left DRY_RUN
   // exercising a different keying path from production: no collision salt, and a `same_as` claim never applied,
@@ -2843,7 +2855,7 @@ export async function runReview({ agent: rawAgent = runAgent } = {}) {
       console.log(`${severityEmoji(f.severity)} ${boundedDump(f.file, 120)}:${f.line} [${fp}] ${boundedDump(f.comment)}`);
     }
     console.log('\n--- summary ---');
-    console.log(renderSummary(parsed, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 }, [], { provisional, provisionalCause }));
+    console.log(renderSummary(parsed, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 }, [], { provisional, provisionalCause, dropped }));
     return;
   }
 
@@ -2858,7 +2870,7 @@ export async function runReview({ agent: rawAgent = runAgent } = {}) {
         // only place the round's output can appear. "The next push will post them" assumes there is a next
         // push, and on a PR about to merge there is not — the whole round would have gone missing, which is the
         // one thing this harness is not allowed to do.
-        renderSummary(parsed, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 }, [...currentByFp.values()], { provisional, provisionalCause }),
+        renderSummary(parsed, { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 }, [...currentByFp.values()], { provisional, provisionalCause, dropped }),
         '',
         '> ⚠️ Could not read existing review threads on this run, so nothing was posted inline (a second comment on a thread that already has one is worse); every finding is listed above instead.',
       ].join('\n'),
@@ -3001,7 +3013,7 @@ export async function runReview({ agent: rawAgent = runAgent } = {}) {
     closed,
     carried: carriedRecords({ identities, threads, currentByFp, closed, priorState: stateRecord, commit: COMMIT }),
   });
-  await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause, previously, verificationState }), roundState, {
+  await upsertSummary(renderSummary(parsed, stats, unpostable, { provisional, provisionalCause, previously, verificationState, dropped }), roundState, {
     mergeExistingRecord: recordReadFailed,
     listing,
   }).catch(summaryWriteFailed);

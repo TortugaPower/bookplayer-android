@@ -241,7 +241,7 @@ async function runScenario(seed) {
       }
       // A maintainer resolves one of our threads themselves.
       if (rand() < 0.2 && gh.state.threads.length) {
-        const t = pick(gh.state.threads.filter((x) => !x.isResolved) || []);
+        const t = pick(gh.state.threads.filter((x) => !x.isResolved));
         if (t) { t.isResolved = true; t.comments.push({ databaseId: 9000 + round, body: 'handled, thanks', author: 'gianni', association: 'OWNER', createdAt: new Date().toISOString() }); }
       }
       // GitHub outdates a thread whose anchor no longer maps.

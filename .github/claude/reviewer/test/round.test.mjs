@@ -611,6 +611,9 @@ test('a malformed finding is dropped, and two findings on one line become one co
     assert.match(gh.calls.inline[0].body, /the first thing wrong here/);
     assert.match(gh.calls.inline[0].body, /the second thing wrong here/);
     assert.equal(gh.summaryOut().includes('no usable line'), false);
+    // Not posted, but not invisible either: the summary says how many were discarded. Until it did, a dropped
+    // finding was the one way a reported finding could leave the PR with no trace but a run-log line.
+    assert.match(gh.summaryOut(), /3 reported findings were discarded as malformed/);
   } finally {
     globalThis.fetch = realFetch;
     restore();

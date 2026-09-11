@@ -3695,6 +3695,15 @@ test('every count the round keeps reaches the summary', () => {
   for (const noisy of [/reopened/, /re-worded/, /last word/]) assert.equal(noisy.test(quiet), false, `${noisy} shown at zero`);
 });
 
+test('discarded findings are counted on the summary, and a zero stays quiet', () => {
+  const zero = { posted: 0, kept: 0, reopened: 0, dismissed: 0, resolved: 0 };
+  const result = { verdict: 'pass', summary: 's', findings: [] };
+  assert.equal(renderSummary(result, zero, [], {}).includes('discarded'), false);
+  assert.equal(renderSummary(result, zero, [], { dropped: 0 }).includes('discarded'), false);
+  assert.match(renderSummary(result, zero, [], { dropped: 1 }), /1 reported finding was discarded as malformed/);
+  assert.match(renderSummary(result, zero, [], { dropped: 2 }), /2 reported findings were discarded as malformed .* run log only/);
+});
+
 test('a close whose reason is refused is undone, and only a double refusal leaves it standing', async () => {
   // Reversed in round 29, on evidence. Leaving it closed rested on the summary row landing, and the round that
   // cannot post a reply may also be the round that cannot write its summary — which leaves a thread resolved with
