@@ -44,7 +44,7 @@ export function redact(text) {
     .replace(/github_pat_[A-Za-z0-9_]{20,}/g, '[redacted]')
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[redacted private key]');
   // The repository's own shapes last, from the one per-repository file (see repo.mjs).
-  for (const [pattern, replacement] of REPO_SECRET_SHAPES) out = out.replace(pattern, replacement);
+  for (const { pattern, replacement } of REPO_SECRET_SHAPES) out = out.replace(pattern, replacement);
   return out;
 }
 
