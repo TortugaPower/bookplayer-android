@@ -61,6 +61,19 @@ const outOfTime = () => Date.now() >= networkDeadline;
 // For the test that pins `runReview()` SETTING it: the budget functions are pure and pinned, the call that arms
 // them was not, and an unarmed ladder is retries outside every budget the run has.
 export const networkDeadlineForTest = () => networkDeadline;
+// The log boundary, injected for the same reason the deadline is. `review.mjs` states the rule — every string that
+// leaves the process goes through `redact`, log lines included — and its checker used to read only that file, so
+// the two warnings below that quote a thrown error's message sat outside a rule described as absolute. Today they
+// only ever see undici's own text ("fetch failed", a timeout), but `rest()` puts the whole upstream body in ITS
+// message, and "nothing that reaches this line carries a body" is a property of the callers, not of this line.
+// This file cannot import `redact` (that would be a cycle), so the function is handed in at startup, and until
+// it is the boundary fails CLOSED: a message is withheld, not passed through. The error's NAME is logged either
+// way — it is a class name from undici or this runtime, never upstream text.
+let redact = () => '[message withheld: no redactor installed]';
+export function setLogRedactor(fn) {
+  redact = fn;
+}
+export const logRedactorForTest = () => redact;
 // 406 is deliberate (the diff is too large to render), and a bare 403 is usually "not permitted", which will not
 // pass however often it is tried. The secondary rate limit also answers 403, and says so in its headers.
 // Only the SECONDARY limit, which clears on this timescale and says so with Retry-After. The primary hourly limit
@@ -99,7 +112,7 @@ async function fetchRead(url, options, label) {
     } catch (e) {
       if (!retryableError(e) || attempt === RETRY_TRIES - 1) throw e;
       lastError = e;
-      console.warn(`${label} failed (${e.name || e.message}); retrying (${attempt + 1}/${RETRY_TRIES - 1})`);
+      console.warn(`${label} failed (${e.name || 'Error'}: ${redact(e.message)}); retrying (${attempt + 1}/${RETRY_TRIES - 1})`);
     }
   }
   throw lastError;
@@ -155,7 +168,7 @@ async function graphql(queryStr, variables, tok, { retry = false, label = 'GitHu
       json = await res.json().catch(() => ({}));
     } catch (e) {
       if (!retry || attempt >= RETRY_TRIES - 1 || outOfTime() || !retryableError(e)) throw e;
-      console.warn(`${label} failed (${e.name || e.message}); retrying (${attempt + 1}/${RETRY_TRIES - 1})`);
+      console.warn(`${label} failed (${e.name || 'Error'}: ${redact(e.message)}); retrying (${attempt + 1}/${RETRY_TRIES - 1})`);
       await sleep(backoffMs(attempt));
       continue;
     }

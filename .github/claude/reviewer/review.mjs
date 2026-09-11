@@ -25,6 +25,7 @@ import {
   resolveReviewThread,
   unresolveReviewThread,
   setNetworkDeadline,
+  setLogRedactor,
 } from './github.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -201,7 +202,9 @@ const SECRET_VALUES = ['ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'REVIEW_RESOLVE_TOKE
 // Every string that leaves this process goes through here — log lines included, not only what is posted. A public
 // repository's run log is public, and `rest()` embeds the whole upstream response body in its error message, so a
 // warning that interpolates `e.message` raw is a hole in a boundary the rest of this file keeps. The rule is
-// "everything", because "most of them" is not a rule anyone can check.
+// "everything", because "most of them" is not a rule anyone can check — and "everything" means `github.mjs` too:
+// it has log lines of its own and cannot import this file, so it is handed this function below and withholds
+// error messages until it has it. The test that checks the rule reads both files.
 export function redact(text) {
   let out = String(text);
   for (const v of SECRET_VALUES) out = out.split(v).join('[redacted]');
@@ -224,6 +227,9 @@ export function redact(text) {
     .replace(/\b(goog|appl|amzn|strp|rcb)_[A-Za-z0-9]{20,}\b/g, '[redacted]')
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[redacted private key]');
 }
+// At module scope, not in `runReview`: the first GitHub call this process makes is before any budget is armed, and
+// a warning from that call would otherwise be the one line that misses the boundary.
+setLogRedactor(redact);
 
 // PR title/body are quoted inside delimiter tags in the prompt; neutralise anything that could close them.
 const escapePrText = (s) => String(s).replace(/</g, '&lt;');

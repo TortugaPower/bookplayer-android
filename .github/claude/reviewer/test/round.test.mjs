@@ -2122,3 +2122,58 @@ test('the write tokens are not in this process while the agent runs', async () =
     restore();
   }
 });
+
+test('a warning from the GitHub client withholds the error message until the redactor is installed', async () => {
+  // The two retry warnings in `github.mjs` quote a thrown error. `review.mjs` states the log rule and owns
+  // `redact`, and the client cannot import it, so the function is injected — and the seam has to fail closed: a
+  // client loaded on its own (as this test does, and as a second entry point would) must not log a message raw
+  // just because nobody has installed anything yet. The error's NAME still reaches the log; it is a class name.
+  const gh = await import(new URL('../github.mjs?fresh=log-redactor', import.meta.url).href);
+  const env = { GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
+  process.env.GITHUB_REPOSITORY = 'o/r';
+  process.env.GITHUB_TOKEN = 'tok';
+  const realFetch = globalThis.fetch;
+  const realWarn = console.warn;
+  const warnings = [];
+  console.warn = (m) => warnings.push(String(m));
+  const secret = `ghp_${'A'.repeat(30)}`;
+  globalThis.fetch = async () => { throw Object.assign(new TypeError(`fetch failed: ${secret}`), { cause: new Error('reset') }); };
+  try {
+    // The deadline already past: the REST ladder warns once, then refuses the retry without sleeping.
+    gh.setNetworkDeadline(Date.now() - 1);
+    await assert.rejects(gh.getPullRequest(1));
+    assert.equal(warnings.length, 1, warnings.join('\n'));
+    assert.match(warnings[0], /TypeError: \[message withheld/);
+    assert.ok(!warnings[0].includes(secret), `the raw message reached the log before any redactor was installed: ${warnings[0]}`);
+
+    gh.setLogRedactor((s) => `<${String(s).replace(secret, '[redacted]')}>`);
+    warnings.length = 0;
+    await assert.rejects(gh.getPullRequest(1));
+    assert.match(warnings[0], /TypeError: <fetch failed: \[redacted\]>/);
+
+    // The GraphQL ladder is the other site. A deadline just ahead lets its first retry through (one warning, one
+    // backoff) and refuses the second.
+    gh.setNetworkDeadline(Date.now() + 100);
+    warnings.length = 0;
+    await assert.rejects(gh.listReviewThreads(1));
+    assert.equal(warnings.length, 1, warnings.join('\n'));
+    assert.match(warnings[0], /GraphQL.*TypeError: <fetch failed: \[redacted\]>/);
+  } finally {
+    globalThis.fetch = realFetch;
+    console.warn = realWarn;
+    for (const [k, v] of Object.entries(env)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+});
+
+test('review.mjs installs its redactor in the GitHub client when it loads', async () => {
+  // The seam above fails closed, so a harness that forgot to install would log "[message withheld]" for every
+  // network warning rather than leak — but it would also have lost every message, and nothing else would say so.
+  // Installed at module scope: `review.mjs` imports `github.mjs` once, so the shared instance is the one to ask.
+  const { mod, restore } = await loadHarness({}, 'log-redactor');
+  try {
+    const gh = await import('../github.mjs');
+    assert.equal(gh.logRedactorForTest(), mod.redact, 'the GitHub client is logging through something other than review.mjs’s redact');
+  } finally {
+    restore();
+  }
+});

@@ -40,7 +40,7 @@ It is the file to edit to change *what* gets reviewed. Everything below is about
 cd .github/claude/reviewer && npm ci --ignore-scripts && node --test test/
 ```
 
-~233 tests, a minute or so, no network and no API key. The reviewer workflow runs exactly this before the review
+~236 tests, a minute or so, no network and no API key. The reviewer workflow runs exactly this before the review
 step, so a red suite means no review ran (and the workflow says so on the PR). Note where that is: the reviewer
 job skips draft pull requests, forks and Dependabot, so a pull request touching only this directory is tested only
 if your repository's own CI also runs `node --test test/` here. That is a per-repository decision — this harness
@@ -192,7 +192,9 @@ why the bump has to be an edit a human makes rather than a range that drifts.
   The wrapper sits at the agent SEAM, not inside `runAgent`: every implementation passes through it, including the
   stubs the tests drive rounds with, so the guarantee is observable rather than asserted.
 - **Everything the model writes is untrusted at the write boundary.** `redact()` runs on every body, reply and
-  record field; `neutralizeMarkup` stops model text from opening an HTML comment, which is what keeps a
+  record field, and on every log line in both files — `github.mjs` cannot import it, so `review.mjs` hands it over
+  at startup (`setLogRedactor`) and until then the client withholds error messages rather than logging them raw.
+  `neutralizeMarkup` stops model text from opening an HTML comment, which is what keeps a
   finding from forging a state record or a fingerprint marker. The same applies to the answer itself: the review's
   result is taken from the terminal fenced block the output contract mandates, so a result-shaped example quoted
   inside a finding — this file's own guide contains one — cannot be adopted as the round's answer.

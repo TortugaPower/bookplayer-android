@@ -131,6 +131,49 @@ test('the allowlist is a list of decisions, not a drawer', () => {
   }
 });
 
+// The lines that are inside a `console.warn/log/error(` call, the call tracked across lines by paren depth. The
+// first version of the two checks below required the `console.` and the interpolation to share a line, which is
+// how the second site in `keyFindings` stayed unbounded while the first was fixed and the test passed. The
+// tracker errs toward staying inside a call: more lines checked, never fewer.
+function* consoleLines(src) {
+  let depth = 0;
+  for (const [i, line] of src.split('\n').entries()) {
+    const opens = (line.match(/\(/g) || []).length;
+    const closes = (line.match(/\)/g) || []).length;
+    const starts = /console\.(warn|log|error)\(/.test(line);
+    if (!starts && depth <= 0) continue;
+    if (starts && depth <= 0) depth = opens - closes;
+    else depth += opens - closes;
+    yield [i + 1, line];
+  }
+}
+
+// Every `${...}` on a line, the expression read to ITS closing brace rather than to the first `}` — an object
+// literal or a nested template inside one would otherwise cut it short.
+function interpolations(line) {
+  const out = [];
+  for (let at = line.indexOf('${'); at !== -1; at = line.indexOf('${', at + 2)) {
+    let depth = 0;
+    for (let i = at + 1; i < line.length; i++) {
+      if (line[i] === '{') depth++;
+      else if (line[i] === '}' && --depth === 0) { out.push(line.slice(at + 2, i)); break; }
+    }
+  }
+  return out;
+}
+
+// `redact(` at the start and ITS `)` as the last character: `redact(a) + e.message` is not wrapped, and neither
+// is `redact(a), e.message`. The name is the one both files use — `github.mjs` receives the function under it.
+function wrappedInRedact(expr) {
+  if (!expr.startsWith('redact(')) return false;
+  let depth = 0;
+  for (let i = 'redact'.length; i < expr.length; i++) {
+    if (expr[i] === '(') depth++;
+    else if (expr[i] === ')' && --depth === 0) return i === expr.length - 1;
+  }
+  return false;
+}
+
 test('nothing reaches the log with an upstream message still in it', () => {
   // The rule this file's subject states about itself: "every string that leaves this process goes through
   // `redact`, log lines included". It was applied by hand — twice, by regex — and both times the regex was the
@@ -142,21 +185,35 @@ test('nothing reaches the log with an upstream message still in it', () => {
   // value that was built from redacted parts costs nothing, and a rule with exemptions is the thing that let two
   // sweeps miss three sites. Anything interpolated into a console call whose NAME says it carries an error is
   // wrapped at the interpolation, full stop.
-  const src = readFileSync(`${DIR}review.mjs`, 'utf8');
+  //
+  // Two more holes this check itself had, both found by the reviewer reading the code rather than by the test:
+  // it read only `review.mjs`, while `github.mjs` had two warnings quoting a thrown error; and it matched only a
+  // plain `${x.message}`, so `${e.name || e.message}` — the exact shape those two warnings used — was invisible
+  // to it. The rule is stated as absolute, so the check covers both files and every interpolation, and asks that
+  // the WHOLE expression be the argument of `redact(...)`.
   const carriesError = /\b(message|msg|stack|reason)\b/i;
   const offenders = [];
-  for (const [i, line] of src.split('\n').entries()) {
-    if (!/console\.(warn|log|error)\(/.test(line)) continue;
-    for (const m of line.matchAll(/\$\{([A-Za-z_$][\w$]*(?:\.\w+)*)\}/g)) {
-      // `m[1]`, plainly: a RegExp match has `groups` (named captures), never a `group()` method, so the ternary
-      // that used to be here had a dead branch — in the file whose whole subject is claims that are not true.
-      const expr = m[1];
-      if (!carriesError.test(expr)) continue;
-      if (line.includes(`redact(${expr})`)) continue;
-      offenders.push(`review.mjs:${i + 1}: \${${expr}} reaches the log unredacted — ${line.trim().slice(0, 80)}`);
+  for (const file of ['review.mjs', 'github.mjs']) {
+    for (const [lineNo, line] of consoleLines(readFileSync(`${DIR}${file}`, 'utf8'))) {
+      for (const expr of interpolations(line)) {
+        if (!carriesError.test(expr)) continue;
+        if (wrappedInRedact(expr)) continue;
+        offenders.push(`${file}:${lineNo}: \${${expr}} reaches the log unredacted — ${line.trim().slice(0, 80)}`);
+      }
     }
   }
   assert.deepEqual(offenders, [], `wrap these in redact():\n${offenders.join('\n')}`);
+});
+
+test('the log checks see what they claim to', () => {
+  // The helpers above ARE the boundary of the two log checks, so each blind spot they closed is pinned: a check
+  // that quietly stops seeing a shape passes vacuously, which is how both earlier versions failed.
+  assert.deepEqual([...consoleLines('a\nconsole.warn(`x`,\n  y\n);\nz')].map(([n]) => n), [2, 3, 4]);
+  assert.deepEqual(interpolations('`${e.name || e.message} and ${redact({ a: 1 }.b)}`'), ['e.name || e.message', 'redact({ a: 1 }.b)']);
+  assert.equal(wrappedInRedact('redact(e.message)'), true);
+  assert.equal(wrappedInRedact('redact(e.message || String(e))'), true);
+  assert.equal(wrappedInRedact('redact(a) + e.message'), false);
+  assert.equal(wrappedInRedact('e.name || redact(e.message)'), false);
 });
 
 test("model-authored text reaches the log only through boundedDump", () => {
@@ -173,24 +230,13 @@ test("model-authored text reaches the log only through boundedDump", () => {
   // the wrong half to match on. A GitHub-derived path caught by this loses nothing: `boundedDump` is idempotent
   // on short strings.
   const modelText = /\.(file|comment|same_as|evidence|text|summary|path)\b/;
-  // A console call SPANS LINES in this file, and the first version of this check required the `console.` and the
-  // interpolation to be on one — which is how the second site in `keyFindings` stayed unbounded while the first
-  // was fixed and this test passed. Depth is tracked across lines, and the tracker errs toward staying inside a
-  // call (more lines checked, never fewer).
+  // Lines come from `consoleLines`, which tracks a call across lines — see its comment for the site that taught it.
   const offenders = [];
-  let depth = 0;
-  for (const [i, line] of src.split('\n').entries()) {
-    const opens = (line.match(/\(/g) || []).length;
-    const closes = (line.match(/\)/g) || []).length;
-    const starts = /console\.(warn|log|error)\(/.test(line);
-    if (!starts && depth <= 0) continue;
-    if (starts && depth <= 0) depth = opens - closes;
-    else depth += opens - closes;
-    for (const m of line.matchAll(/\$\{([^}]*)\}/g)) {
-      const expr = m[1];
+  for (const [lineNo, line] of consoleLines(src)) {
+    for (const expr of interpolations(line)) {
       if (!modelText.test(expr)) continue;
       if (/boundedDump\(/.test(expr)) continue;
-      offenders.push(`review.mjs:${i + 1}: \${${expr}} — model text to the log without boundedDump`);
+      offenders.push(`review.mjs:${lineNo}: \${${expr}} — model text to the log without boundedDump`);
     }
   }
   assert.deepEqual(offenders, [], `wrap these in boundedDump():\n${offenders.join('\n')}`);
