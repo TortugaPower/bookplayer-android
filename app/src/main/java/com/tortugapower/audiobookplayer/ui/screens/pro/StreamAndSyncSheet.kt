@@ -87,6 +87,7 @@ fun LitePaywallSheet(
         // Match any "lite" offering if the ids drift, but never fall back to the `current`
         // (pro) offering — this sheet must not sell the wrong tier.
         offeringKeyword = "lite",
+        productKeyword = "lite",
         fallbackToCurrentOffering = false,
         welcomeTitle = stringResource(R.string.lite_welcome_title),
         welcomeDescription = stringResource(R.string.lite_welcome_description),
