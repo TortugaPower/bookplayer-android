@@ -11,6 +11,37 @@ interface JellyfinApi {
         @Body request: JellyfinAuthRequest
     ): Response<JellyfinAuthResponse>
 
+    // Unauthenticated server identity — what the connection flow probes before any credentials exist.
+    @GET("System/Info/Public")
+    suspend fun getPublicSystemInfo(): Response<JellyfinPublicSystemInfo>
+
+    // Whether the admin has Quick Connect switched on. Answers a bare JSON boolean. Sent with the
+    // client-identity header (no token) like every other pre-auth Jellyfin call.
+    @GET("QuickConnect/Enabled")
+    suspend fun getQuickConnectEnabled(
+        @Header("X-Emby-Authorization") authHeader: String
+    ): Response<Boolean>
+
+    // Quick Connect: start a request (server returns the user-facing Code + our Secret) …
+    @POST("QuickConnect/Initiate")
+    suspend fun initiateQuickConnect(
+        @Header("X-Emby-Authorization") authHeader: String
+    ): Response<JellyfinQuickConnectResult>
+
+    // … poll until the user approves it from the web UI (Authenticated flips to true; 404 once the secret expired) …
+    @GET("QuickConnect/Connect")
+    suspend fun getQuickConnectState(
+        @Header("X-Emby-Authorization") authHeader: String,
+        @Query("secret") secret: String
+    ): Response<JellyfinQuickConnectResult>
+
+    // … then exchange the approved secret for a session, same shape as a password sign-in.
+    @POST("Users/AuthenticateWithQuickConnect")
+    suspend fun authenticateWithQuickConnect(
+        @Header("X-Emby-Authorization") authHeader: String,
+        @Body request: JellyfinQuickConnectRequest
+    ): Response<JellyfinAuthResponse>
+
     @GET("Items")
     suspend fun getItems(
         @Header("X-Emby-Authorization") authHeader: String,
@@ -22,6 +53,17 @@ interface JellyfinApi {
         @Query("SortBy") sortBy: String? = "SortName",
         @Query("SortOrder") sortOrder: String? = "Ascending",
         @Query("ParentId") parentId: String? = null
+    ): Response<JellyfinItemsResponse>
+
+    /**
+     * Hydrates exact items with their media sources (container, path), which list responses don't carry —
+     * virtual import needs the REAL file extension. No type or recursion filters: the ids are exact.
+     */
+    @GET("Items")
+    suspend fun getItemsByIds(
+        @Header("X-Emby-Authorization") authHeader: String,
+        @Query("Ids") ids: String,
+        @Query("Fields") fields: String = "MediaSources,Path"
     ): Response<JellyfinItemsResponse>
 
     // The authenticated user's top-level views (libraries); the user is inferred from the token.
@@ -61,6 +103,27 @@ data class JellyfinSystemInfo(
     @SerializedName("Id") val id: String? = null
 )
 
+// `/System/Info/Public`: the subset any client may read before signing in.
+data class JellyfinPublicSystemInfo(
+    @SerializedName("ServerName") val serverName: String? = null,
+    @SerializedName("Id") val id: String? = null,
+    @SerializedName("Version") val version: String? = null
+)
+
+data class JellyfinQuickConnectResult(
+    @SerializedName("Secret") val secret: String? = null,
+    @SerializedName("Code") val code: String? = null,
+    @SerializedName("Authenticated") val authenticated: Boolean? = null,
+    @SerializedName("DeviceId") val deviceId: String? = null,
+    @SerializedName("DeviceName") val deviceName: String? = null,
+    @SerializedName("AppName") val appName: String? = null,
+    @SerializedName("AppVersion") val appVersion: String? = null
+)
+
+data class JellyfinQuickConnectRequest(
+    @SerializedName("Secret") val secret: String
+)
+
 data class JellyfinAuthRequest(
     @SerializedName("Username") val username: String?,
     @SerializedName("Pw") val password: String?
@@ -89,7 +152,15 @@ data class JellyfinItem(
     @SerializedName("ArtistItems") val artistItems: List<JellyfinArtist>?,
     @SerializedName("ImageTags") val imageTags: Map<String, String>?,
     @SerializedName("Path") val path: String?,
-    @SerializedName("Genres") val genres: List<String>?
+    @SerializedName("Genres") val genres: List<String>?,
+    /** Only present when `Fields=MediaSources` was requested (see [JellyfinApi.getItemsByIds]). */
+    @SerializedName("MediaSources") val mediaSources: List<JellyfinMediaSource>? = null
+)
+
+data class JellyfinMediaSource(
+    /** The container format — may be a comma list (`"mp4,m4a,m4b"`); the first entry is the one iOS uses. */
+    @SerializedName("Container") val container: String?,
+    @SerializedName("Path") val path: String?
 )
 
 data class JellyfinArtist(

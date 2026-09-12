@@ -355,6 +355,8 @@
     <string name="import_option_library">Library</string>
     <string name="import_option_current_folder">Current Folder</string>
     <string name="import_skipped_items">%1$d items were skipped because they already exist in the library</string>
+    <string name="import_no_audio_files_alert">The selected items have no audio files to import.</string>
+    <string name="import_skipped_no_audio_files">%1$d items were skipped because they have no audio files</string>
     <!-- Interval/Duration -->
     <string name="interval_seconds">%1$d secs</string>
     <string name="interval_1_min">1 min</string>
@@ -451,6 +453,7 @@
     <string name="media_servers_anonymous_username">Anonymous</string>
 
     <!-- Server Info Sheet -->
+    <string name="media_servers_rename_connection">Rename connection</string>
     <string name="media_servers_connection_details_title">Connection Details</string>
     <string name="media_servers_server_section_title">SERVER</string>
     <string name="media_servers_name_label">Name</string>
@@ -460,10 +463,34 @@
     <string name="media_servers_custom_headers_section_title">CUSTOM HEADERS</string>
 
     <!-- Add Server Sheet -->
+    <!-- Connection flow (address → method → password). Copy mirrors iOS's integration_* keys. -->
+    <string name="media_servers_address_scheme_label">Connection type</string>
+    <string name="media_servers_address_host_label">Host</string>
+    <string name="media_servers_address_port_label">Port</string>
+    <string name="media_servers_address_host_placeholder_jellyfin">jellyfin.example.com</string>
+    <string name="media_servers_address_host_placeholder_audiobookshelf">audiobookshelf.example.com</string>
+    <string name="media_servers_name_section_title">NAME</string>
+    <string name="media_servers_password_signin_button">Username &amp; Password</string>
+    <string name="media_servers_headers_detail_footer">These headers are attached to every request sent to this server. They can be edited from the server address screen.</string>
+    <string name="media_servers_sso_button">Sign in with SSO</string>
+    <string name="media_servers_quick_connect_button">Use Quick Connect</string>
+    <!-- Quick Connect sheet (Jellyfin). Copy mirrors iOS's integration_quick_connect_* keys. -->
+    <string name="media_servers_quick_connect_sheet_title">Quick Connect</string>
+    <string name="media_servers_quick_connect_retrieving_message">Requesting a code from your server…</string>
+    <string name="media_servers_quick_connect_awaiting_message">Enter this code on your server’s Quick Connect screen to sign in.</string>
+    <string name="media_servers_quick_connect_authenticating_message">Signing you in…</string>
+    <string name="media_servers_quick_connect_code_label">Quick Connect code</string>
+    <string name="media_servers_quick_connect_copy_code">Copy code</string>
+    <string name="media_servers_quick_connect_instructions_title">How to enter the code</string>
+    <string name="media_servers_quick_connect_instruction_open">Open %1$s in your browser.</string>
+    <string name="media_servers_quick_connect_instruction_sign_in">Sign in to your Jellyfin account.</string>
+    <string name="media_servers_quick_connect_instruction_open_menu">Open the user menu and choose Quick Connect.</string>
+    <string name="media_servers_quick_connect_instruction_enter_code">Type the code shown above and confirm.</string>
+    <string name="media_servers_quick_connect_error_no_code">Your Jellyfin server didn’t return a Quick Connect code. Make sure Quick Connect is enabled in the server’s dashboard.</string>
+    <string name="media_servers_quick_connect_error_generic">Quick Connect couldn’t complete. Check that Quick Connect is enabled on your server and try again.</string>
+    <string name="media_servers_quick_connect_error_timeout">Timed out waiting for the code to be entered. Please try again.</string>
     <string name="media_servers_add_server_connect_button">Connect</string>
     <string name="media_servers_add_server_sign_in_button">Sign In</string>
-    <string name="media_servers_add_server_url_label">Server URL</string>
-    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">Custom HTTP Headers</string>
     <string name="media_servers_add_server_header_name_placeholder">Header name</string>
     <string name="media_servers_add_server_header_value_placeholder">Header value</string>
@@ -471,7 +498,6 @@
     <string name="media_servers_add_server_headers_description">Headers added here are attached to every request sent to this server.</string>
     <string name="media_servers_add_server_username_placeholder">Username</string>
     <string name="media_servers_add_server_password_placeholder">Password</string>
-    <string name="media_servers_add_server_connect_to_server">Connect to your %1$s server</string>
     <string name="media_servers_error_server_not_found">Server not found</string>
     <string name="media_servers_error_failed_to_fetch_library">Failed to fetch library</string>
     <string name="media_servers_error_session_expired">Your session for %1$s expired. Sign in again to continue.</string>
@@ -589,4 +615,14 @@
     <string name="external_server_missing_title">Server not connected</string>
     <string name="external_server_missing_message">This book streams from your %1$s server. Connect it on this device to play the book.</string>
     <string name="external_server_missing_connect">Connect</string>
+
+    <!-- Storage full (StorageMonitor): launch gate, banner, refused playback -->
+    <string name="storage_full_title">Storage full</string>
+    <string name="storage_full_message">Your device has run out of storage (%1$s free). BookPlayer can’t save your listening progress, so playback, downloads and imports are paused until you free up space.</string>
+    <string name="storage_full_banner">Storage full — playback, sync and imports are paused</string>
+    <string name="storage_low_banner">Not enough storage for a pending download or import</string>
+    <string name="storage_full_playback_blocked">Playback is paused because your listening progress can’t be saved while storage is full (%1$s free). Free up space, then press play again.</string>
+    <string name="storage_full_free_up">Free up space</string>
+    <string name="storage_full_retry">Check again</string>
+    <string name="storage_full_dismiss">OK</string>
 </resources>

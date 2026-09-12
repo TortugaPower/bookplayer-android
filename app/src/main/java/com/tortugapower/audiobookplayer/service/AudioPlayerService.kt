@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
+import com.tortugapower.audiobookplayer.BookPlayerApplication
 import com.tortugapower.audiobookplayer.MainActivity
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
@@ -26,6 +27,8 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.CoverArtResolver
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import io.sentry.Breadcrumb
+import io.sentry.Sentry
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -56,6 +59,22 @@ class AudioPlayerService : MediaPlaybackService() {
 
     override fun createSessionCallback(): MediaLibrarySession.Callback = CustomMediaLibrarySessionCallback()
 
+    /**
+     * media3 promotes this service with the media notification from here. "Bad notification for
+     * startForeground" (Sentry ANDROID-BOOKPLAYER-1E) carries no cause on Android 12+, so leave a
+     * breadcrumb on every promotion attempt: the next report will at least say which notification
+     * was being posted.
+     */
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        if (startInForegroundRequired) {
+            Sentry.addBreadcrumb(
+                Breadcrumb.info("promote AudioPlayerService (media notification, playing=${session.player.isPlaying})")
+                    .apply { category = "fgs" }
+            )
+        }
+        super.onUpdateNotification(session, startInForegroundRequired)
+    }
+
     override fun onSessionReady() {
         // Keep Android Auto's Recent tab fresh: Auto caches a browse node's children, so when the playing
         // book changes we must tell browsers the "recent" node changed → Auto re-queries onGetChildren.
@@ -71,6 +90,24 @@ class AudioPlayerService : MediaPlaybackService() {
                             .libraryDao().getRecentPlayedItemsSync(RECENT_LIMIT).size
                     }
                     session.notifyChildrenChanged(MediaBrowseTree.RECENT_ID, count.coerceAtLeast(1), null)
+                }
+        }
+
+        // Same caching problem for the Library tab: when a sticky-sort preference changes (a pick
+        // in the app, or a remote preference fetch), the cached node's order is stale. Coarse
+        // invalidation: refresh the Library tab on any sort change; a folder node the browser is
+        // currently inside refreshes on its next navigation.
+        serviceScope.launch {
+            BookPlayerApplication.instance.librarySortManager.observeSortPreferences()
+                .distinctUntilChanged()
+                .drop(1) // skip the snapshot already present at connect
+                .collect {
+                    val session = mediaSession ?: return@collect
+                    val count = withContext(Dispatchers.IO) {
+                        AppDatabase.getDatabase(this@AudioPlayerService)
+                            .libraryDao().getRootItemsSync().size
+                    }
+                    session.notifyChildrenChanged(MediaBrowseTree.LIBRARY_ID, count.coerceAtLeast(1), null)
                 }
         }
     }
@@ -250,8 +287,19 @@ class AudioPlayerService : MediaPlaybackService() {
                         return@launch
                     }
 
+                    // Library/folder nodes follow the location's effective sticky sort — the same
+                    // view transform the app's list applies — BEFORE paginating, so page slices
+                    // stay stable. Recent keeps recency order by design (matches the app's tab).
+                    val ordered = when (node) {
+                        MediaBrowseTree.Node.Library ->
+                            BookPlayerApplication.instance.librarySortManager.sortedForDisplay(null, all)
+                        is MediaBrowseTree.Node.Folder ->
+                            BookPlayerApplication.instance.librarySortManager.sortedForDisplay(node.relativePath, all)
+                        else -> all
+                    }
+
                     // Honor Auto's page/pageSize instead of silently truncating a large library.
-                    val pageEntities = paginate(all, page, pageSize)
+                    val pageEntities = paginate(ordered, page, pageSize)
                     // Resolves local/cached/sub-book art synchronously; remote art is prefetched below so
                     // the list isn't blocked on network.
                     val children = pageEntities.mapNotNull { toMediaItem(it, resolveBrowseArtworkUri(it)) }

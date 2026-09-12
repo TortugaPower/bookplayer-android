@@ -15,9 +15,10 @@ iOS BookPlayer app and shares the same BookPlayer backend (sync, auth, subscript
 - **Networking:** Retrofit + Gson (`network/`), talking to the BookPlayer API.
 - **Audio:** AndroidX **Media3** — `ExoPlayer` + `MediaSession` + Media3 UI. This is the core of the app.
 - **Background work:** WorkManager.
-- **Auth:** AndroidX Credentials API + Google ID (Sign in with Google).
-- **Monetization:** Google Play Billing + **RevenueCat** (`purchases`). `pro` is currently the only
-  subscription flow; a `lite` tier (Jellyfin / AudiobookShelf integrations) is planned but not built.
+- **Auth:** AndroidX Credentials API + Google ID (Sign in with Google). Media-server SSO (AudiobookShelf
+  OpenID) runs its browser leg in a Chrome **Auth Tab** (`androidx.browser`) — see *Media-server connection flow*.
+- **Monetization:** Google Play Billing + **RevenueCat** (`purchases`). `pro` is the full subscription;
+  the `lite` tier gates streaming from Jellyfin / AudiobookShelf (`LitePaywallSheet`, `StreamAndSyncSheet`).
 - **Observability:** Sentry.
 
 ## Project layout
@@ -32,7 +33,11 @@ per-mode experiences and the phone→watch sign-in handoff still landing in late
 core/                      # shared Android library — NO Compose, NO app types (Media3 IS allowed: playback lives here)
   src/main/java/com/tortugapower/audiobookplayer/
     database/dao|entities/ # Room (AppDatabase, DAOs, entities, Converters)
-    network/               # Retrofit services / DTOs / NetworkClient / NetworkConstants
+    network/               # Retrofit services / DTOs / NetworkClient / NetworkConstants; media servers:
+                           #   services/ (Jellyfin + AudiobookShelf), ExternalService contracts (probe /
+                           #   capabilities / QuickConnectCapable / SsoCapable), ConnectionError (:core-owned
+                           #   strings), ClientIdentity, Pkce, OidcHttp (redirects-off, cookie-jar, no Sentry),
+                           #   WebAuthenticator (the browser-leg interface the app implements)
     model/                 # shared data models (SyncModels, ...)
     repository/            # data access, single source of truth per domain
     logic/                 # shared domain/sync logic: SyncTaskFactory + sync processors + engine
@@ -40,7 +45,9 @@ core/                      # shared Android library — NO Compose, NO app types
                            #   PlayableItemBuilder/BoundTimeline, chapter extraction, settings,
                            #   SubscriptionManager, StatisticsManager, PlaybackSyncCoordinator (iface),
                            #   PlaybackManager + SleepTimerManager (the shared Media3 player orchestration,
-                           #   a MediaController client — the target injects its session service)
+                           #   a MediaController client — the target injects its session service),
+                           #   media-server connection: ServerAddress, ConnectionRouting, ExternalServerSaver
+                           #   + ExternalServerUpsert, JellyfinQuickConnect (poller), AbsOidcFlow (OIDC handshake)
     service/               # abstract MediaPlaybackService (MediaLibraryService base: ExoPlayer build +
                            #   auth data source + BookTimelinePlayer + transport session callback) +
                            #   BookTimelinePlayer. Concrete registered services stay per-target.
@@ -51,6 +58,8 @@ core/                      # shared Android library — NO Compose, NO app types
 app/                       # phone app — depends on :core
   src/main/java/com/tortugapower/audiobookplayer/
     ui/screens|components|theme/  # Compose screens, reusable Composables, Material3 theme
+    ui/screens/settings/connection/  # the media-server connection flow (ConnectionFlowSheet + Address/
+                           #   Method/Password/Headers screens, QuickConnectSheet, AuthTabWebAuthenticator)
     viewmodel/             # ViewModels + their Factories
     service/               # AudioPlayerService (subclasses :core MediaPlaybackService; adds Android Auto browse +
                            #   MediaBrowseTree); sync foreground Service (TaskConcurrencyServiceHost)
@@ -107,8 +116,15 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   so `devDebug` builds and unit tests run with **no secrets**) and `prod`.
 - **Secrets** (`GOOGLE_CLIENT_ID`, `SENTRY_DSN`, `REVENUECAT_API_KEY`, `*_BASE_URL`) are read from a
   gitignored `local.properties` or env vars into `BuildConfig` — **never hardcode them in source**.
+- **Sentry reporting** is on for `prod` builds only; a `dev` build reports only with
+  `SENTRY_DEV_REPORTING=true` in `local.properties` (keeps emulator reproductions out of the issue list).
 - **Release signing** comes from a gitignored `keystore.properties`; absent it, release builds unsigned.
-- **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest`, `lintDevDebug` on JDK 17.
+- **Release R8 config** (`app`/`wear` `proguard-rules.pro` + `gradle.properties`): full mode, optimized
+  resource shrinking and `-repackageclasses`. Anything another process resolves **by class name**
+  (manifest components, Room `_Impl`, the Wear ongoing-activity surface) needs a keep rule AND an
+  entry in `scripts/audit-mapping.sh`, which fails CI when such a class is renamed or moved.
+- **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest`, `lintDevDebug`, then an
+  unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17.
 
 ## Conventions
 
@@ -125,6 +141,29 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
 - Media3 `ExoPlayer` / `MediaSession` must be released on the appropriate lifecycle; the playback
   service must be started/stopped correctly to avoid leaks and stuck foreground notifications.
 - New repository / `logic` behavior should come with a unit test.
+- **Media-server connection flow** (Jellyfin / AudiobookShelf; mirrors iOS, so check the iOS `develop`
+  branch before changing behavior): one `ConnectionFlowSheet` (own `NavHost`) serves both Add Server and
+  re-auth. Address → Connect **probes** the server (`ExternalService.probe` → `ServerCapabilities`) →
+  `ConnectionRouting.decide` picks the method screen (password + Quick Connect / SSO) or the password
+  screen, or blocks (SSO-only over http = `InsecureTransport`; SSO-only with no capable browser =
+  `SsoUnavailableOnDevice`). Every sign-in path persists through `ExternalServerSaver` (upsert keyed on
+  canonical URL + `userId`, falling back to username). Connection errors are `ConnectionError`s with
+  `:core`-owned strings; never surface a server's HTML/JSON body verbatim.
+  - **SSO is a hard requirement on Chrome's Auth Tab** (`CustomTabsClient.isAuthTabSupported`, any
+    Custom Tabs provider that declares it — Chrome 137+ today). No fallback: without a capable
+    provider the SSO button is not offered. **Never register the `audiobookshelf://` scheme in the
+    manifest** — the Auth Tab returns the callback as an activity result, so nothing else on the
+    device (the official ABS app included) can claim it.
+  - The OIDC hop order matters: the app fetches `/auth/openid` itself (redirects off, keeping
+    `connect.sid`), only the IdP URL goes to the browser, and the exchange runs on the same client.
+    Never log the authorization code, the PKCE verifier, or a token. Device testing recipe:
+    `docs/media-servers-testing.md`.
+  - **Virtual (stream) import never guesses a file extension.** List responses carry no audio-file
+    metadata, so `ExternalLibraryViewModel.prepareStreamImport` hydrates the selection through
+    `ExternalService.getFileExtensions` (Jellyfin `Items?Ids=…&Fields=MediaSources,Path`, ABS
+    `POST api/items/batch/get`), names each item `<title>.<ext>` (`VirtualImportManager.importFileName`,
+    the iOS name, so both platforms produce the same `relativePath`) and skips items without one
+    (`import_no_audio_files_alert` / the skipped count on the import sheet).
 
 ## Git
 

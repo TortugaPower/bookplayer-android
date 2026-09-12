@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -25,7 +27,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.tortugapower.audiobookplayer.network.ConnectionResult
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -52,6 +53,8 @@ import com.tortugapower.audiobookplayer.viewmodel.ExternalLibraryViewModelFactor
 import com.tortugapower.audiobookplayer.viewmodel.ExternalServerViewModel
 import com.tortugapower.audiobookplayer.viewmodel.ExternalServerViewModelFactory
 import com.tortugapower.audiobookplayer.viewmodel.ImportViewModel
+import com.tortugapower.audiobookplayer.ui.screens.settings.connection.ConnectionFlowSheet
+import com.tortugapower.audiobookplayer.viewmodel.ConnectionFlowMode
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
 import kotlinx.coroutines.launch
 
@@ -61,7 +64,9 @@ fun MediaServersFlow(
     externalServerRepository: ExternalServerRepository,
     externalLibraryRepository: ExternalLibraryRepository,
     importViewModel: ImportViewModel,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    /** Opens the add-server flow for this integration right away (the "connect your server" prompt). */
+    initialAddServerType: com.tortugapower.audiobookplayer.database.entities.ExternalServiceType? = null,
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
@@ -94,6 +99,8 @@ fun MediaServersFlow(
             ) {
                 MediaServersScreen(
                     viewModel = externalServerViewModel,
+                    externalServerRepository = externalServerRepository,
+                    initialAddServerType = initialAddServerType,
                     onBack = onDismiss,
                     onServerClick = { server ->
                         val encodedName = android.net.Uri.encode(server.name)
@@ -138,67 +145,54 @@ fun MediaServersFlow(
                     )
 
                     var showReauthSheet by remember { mutableStateOf(false) }
+                    var showDetails by remember { mutableStateOf(false) }
+                    val servers by externalServerViewModel.servers.collectAsState()
+                    val liveServer = servers.find { it.id == serverId }
 
                     ExternalLibraryScreen(
                         viewModel = extLibViewModel,
                         importViewModel = importViewModel,
-                        serverName = serverName,
+                        // The saved row's current name, so a rename from the details sheet shows at once.
+                        serverName = liveServer?.name ?: serverName,
                         onBack = { navController.popBackStack() },
                         onItemClick = { item ->
                             navController.navigate("itemDetail/${item.entity.uuid}")
                         },
                         onActionStarted = onDismiss,
-                        onReauthRequested = { showReauthSheet = true }
+                        onReauthRequested = { showReauthSheet = true },
+                        onShowConnectionDetails = { showDetails = true }
                     )
 
-                    if (showReauthSheet) {
-                        val servers by externalServerViewModel.servers.collectAsState()
-                        val expiredServer = servers.find { it.id == serverId }
-                        if (expiredServer != null) {
-                            var isConnecting by remember { mutableStateOf(false) }
-                            var connectionError by remember { mutableStateOf<ConnectionResult.Failure?>(null) }
-                            val errorDisplayMessage = connectionError?.let { error ->
-                                error.messageResId?.let { resId ->
-                                    stringResource(id = resId, *(error.args?.toTypedArray() ?: emptyArray()))
-                                } ?: error.message
+                    if (showDetails && liveServer != null) {
+                        ServerInfoSheet(
+                            server = liveServer,
+                            onDismiss = { showDetails = false },
+                            onRename = { name -> externalServerViewModel.renameServer(liveServer, name) },
+                            onLogout = {
+                                // Signing out is deletion (iOS): the connection this library describes
+                                // no longer exists, so the library leaves with it.
+                                externalServerViewModel.deleteServer(liveServer)
+                                showDetails = false
+                                navController.popBackStack()
                             }
+                        )
+                    }
 
-                            AddServerSheet(
+                    if (showReauthSheet) {
+                        val expiredServer = liveServer
+                        if (expiredServer != null) {
+                            // Same flow as Add Server, prefilled from the saved row (URL editable — a
+                            // server that moved host updates its row instead of forking). The saved
+                            // row is written before SignedIn fires, so the reload reads the new token.
+                            ConnectionFlowSheet(
                                 type = expiredServer.type,
-                                isConnecting = isConnecting,
-                                errorMessage = errorDisplayMessage,
-                                initialUrl = expiredServer.url,
-                                initialUsername = expiredServer.username.orEmpty(),
-                                initialHeaders = expiredServer.customHeaders,
-                                lockUrl = true,
-                                onDismiss = {
+                                mode = ConnectionFlowMode.Reauth(expiredServer),
+                                externalServerRepository = externalServerRepository,
+                                onDismiss = { showReauthSheet = false },
+                                onSignedIn = {
                                     showReauthSheet = false
-                                    connectionError = null
+                                    extLibViewModel.retryAfterReauth()
                                 },
-                                onConnect = { name, url, username, password, headers ->
-                                    scope.launch {
-                                        isConnecting = true
-                                        connectionError = null
-                                        val result = externalServerViewModel.testConnection(expiredServer.type, url, username, password, headers)
-                                        isConnecting = false
-
-                                        when (result) {
-                                            is ConnectionResult.Success -> {
-                                                // The canonical-URL+username dedup replaces the
-                                                // existing row (same id, selectedLibraryId kept).
-                                                // join() so the reload below reads the new token.
-                                                externalServerViewModel
-                                                    .addServer(result.name ?: name, expiredServer.type, url, username, result.token, headers, result.stableId)
-                                                    .join()
-                                                showReauthSheet = false
-                                                extLibViewModel.retryAfterReauth()
-                                            }
-                                            is ConnectionResult.Failure -> {
-                                                connectionError = result
-                                            }
-                                        }
-                                    }
-                                }
                             )
                         }
                     }
@@ -244,6 +238,29 @@ fun MediaServersFlow(
                         var showLiteSheet by remember { mutableStateOf(false) }
                         var showLiteAuthSheet by remember { mutableStateOf(false) }
                         var showLitePaywall by remember { mutableStateOf(false) }
+                        var showNoAudioAlert by remember { mutableStateOf(false) }
+                        if (showNoAudioAlert) NoAudioFilesDialog(onDismiss = { showNoAudioAlert = false })
+
+                        // The view model is shared with the library route, but only the library screen is
+                        // composed while it's on top — so the state a failed import hydration leaves behind
+                        // needs surfacing here too. A generic failure is an alert (iOS's details-view
+                        // errorAlert); an expired session pops back to the library, whose Sign In alert is
+                        // already up for it and whose re-auth reloads the library.
+                        val importError by extLibViewModel.error.collectAsState()
+                        importError?.let { failure ->
+                            AlertDialog(
+                                onDismissRequest = extLibViewModel::clearError,
+                                title = { Text(stringResource(id = R.string.common_error)) },
+                                text = { Text(failure.asString()) },
+                                confirmButton = {
+                                    TextButton(onClick = extLibViewModel::clearError) { Text(stringResource(id = R.string.common_ok)) }
+                                }
+                            )
+                        }
+                        val sessionExpired by extLibViewModel.sessionExpiredServerName.collectAsState()
+                        LaunchedEffect(sessionExpired) {
+                            if (sessionExpired != null) navController.popBackStack()
+                        }
 
                         // Stage the item as a "virtual" import: it lands in the shared import
                         // sheet for confirmation, and only on accept is it created in the library
@@ -254,15 +271,27 @@ fun MediaServersFlow(
                                 // The saved server row hasn't resolved (shouldn't happen once the
                                 // library is loaded) — stream directly without importing.
                                 PlaybackManager.playItem(context, item.entity, headers = item.customHeaders)
+                                onDismiss()
                             } else {
-                                importViewModel.startStreamImport(
-                                    context = context,
-                                    items = listOf(item),
-                                    providerName = server.type.name.lowercase(),
-                                    hostId = ExternalServiceUtils.stableHostId(server)
-                                )
+                                scope.launch {
+                                    // iOS parity: hydrate the REAL file extension first; an item the
+                                    // server reports no audio file for is never guessed at. A null
+                                    // selection is a hydration failure or an expired session — both
+                                    // surfaced by the observers above, so nothing to do here.
+                                    val selection = extLibViewModel.prepareStreamImport(listOf(item)) ?: return@launch
+                                    if (selection.items.isEmpty()) {
+                                        showNoAudioAlert = true
+                                        return@launch
+                                    }
+                                    importViewModel.startStreamImport(
+                                        context = context,
+                                        items = selection.items,
+                                        providerName = server.type.name.lowercase(),
+                                        hostId = ExternalServiceUtils.stableHostId(server)
+                                    )
+                                    onDismiss()
+                                }
                             }
-                            onDismiss()
                         }
 
                         // Shared by the intro sheet's Google button and the stacked passkey sheet

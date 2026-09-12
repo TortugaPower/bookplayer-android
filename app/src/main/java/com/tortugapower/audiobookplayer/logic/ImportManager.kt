@@ -29,7 +29,10 @@ import java.io.FileOutputStream
  * Managed as a singleton via the [ImportManager] object for global access.
  */
 object ImportManager : ImportService {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main +
+            StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull }
+    )
 
     override var importedFiles by mutableStateOf<List<ImportFile>>(emptyList())
         private set
@@ -41,6 +44,9 @@ object ImportManager : ImportService {
         private set
 
     override var skippedItemsCount by mutableStateOf(0)
+        private set
+
+    override var skippedNoAudioCount by mutableIntStateOf(0)
         private set
 
     override var showImportSheet by mutableStateOf(false)
@@ -98,6 +104,19 @@ object ImportManager : ImportService {
                         isFileOnly = true
                     }
 
+                    // Refuse a file that can't fit with headroom to spare: an import that fills the disk
+                    // takes the database down with it. It counts as skipped; the storage banner explains.
+                    val size = try {
+                        context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+                    } catch (e: Exception) {
+                        -1L
+                    }
+                    if (size > 0 && !StorageMonitor.hasRoomFor(context, size)) {
+                        StorageMonitor.noteTransferDoesNotFit(context, size)
+                        currentSkipped++
+                        return@forEach
+                    }
+
                     val destFile = ImportArchiveUtils.uniqueDestination(backupDir, fileName)
 
                     try {
@@ -108,6 +127,8 @@ object ImportManager : ImportService {
                         }
                         newFiles.add(ImportFile(destFile.name, destFile, isFileOnly = isFileOnly))
                     } catch (e: Exception) {
+                        StorageMonitor.reportFailure(context, e) // ENOSPC mid-copy: storage state, not a silent skip
+                        destFile.delete()
                         e.printStackTrace()
                     }
                 }
@@ -259,9 +280,11 @@ object ImportManager : ImportService {
         context: Context,
         items: List<com.tortugapower.audiobookplayer.model.ExternalLibraryItem>,
         providerName: String,
-        hostId: String?
+        hostId: String?,
+        skippedWithoutAudio: Int
     ) {
         scope.launch {
+            skippedNoAudioCount += skippedWithoutAudio
             val libraryDao = AppDatabase.getDatabase(context).libraryDao()
 
             // Claimed on Main before suspending, so a second staging of the same items can't race.
@@ -296,7 +319,7 @@ object ImportManager : ImportService {
 
             importedFiles = importedFiles + staged
             skippedItemsCount += currentSkipped
-            if (importedFiles.isNotEmpty() || skippedItemsCount > 0) {
+            if (importedFiles.isNotEmpty() || skippedItemsCount > 0 || skippedNoAudioCount > 0) {
                 showImportSheet = true
             }
         }
@@ -308,6 +331,7 @@ object ImportManager : ImportService {
         if (importedFiles.isEmpty()) {
             showImportSheet = false
             skippedItemsCount = 0
+            skippedNoAudioCount = 0
         }
     }
 
@@ -317,6 +341,7 @@ object ImportManager : ImportService {
         }
         importedFiles = emptyList()
         skippedItemsCount = 0
+        skippedNoAudioCount = 0
         suggestedFolderName = null
         showImportSheet = false
     }
@@ -395,7 +420,11 @@ object ImportManager : ImportService {
                             enqueueSyncTasks = isSubscribed,
                             isPro = isPro
                         )
-                        if (!result.alreadyImported) {
+                        if (result == null) {
+                            // No file name to store it under — staging hydrates the real extension, so
+                            // this only happens if an unhydrated item slipped through. Never guessed.
+                            skippedNoAudioCount++
+                        } else if (!result.alreadyImported) {
                             currentMaxRank = maxOf(currentMaxRank, result.item.orderRank)
                             enqueueHardcoverAutoMatch(context, syncTaskRepository, result.item.uuid)
                         }

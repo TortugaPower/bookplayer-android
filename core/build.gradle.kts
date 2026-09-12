@@ -75,6 +75,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test) // virtual-time tests (JellyfinQuickConnectTest)
     testImplementation(libs.okhttp.mockwebserver) // HttpRangeByteSourceTest
     testImplementation(libs.robolectric)          // in-memory Room DAO tests (JVM)
     testImplementation(libs.androidx.test.core)

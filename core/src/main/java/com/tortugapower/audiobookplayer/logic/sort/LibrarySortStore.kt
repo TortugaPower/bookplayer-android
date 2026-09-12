@@ -30,6 +30,10 @@ class LibrarySortStore(private val prefs: PreferencesStore) {
         return prefs.observeString(key).map { EffectiveSort.deserialize(it) }
     }
 
+    /** Snapshot of every stored `library_sort:*` entry; emits on any change to the store. */
+    fun observeAllPreferences(): Flow<Map<String, String>> =
+        prefs.observeAll().map { all -> all.filterKeys { it.startsWith(SortLocation.KEY_PREFIX) } }
+
     /** Remove every stored `library_sort:*` preference (used on logout). */
     suspend fun removeAll() {
         prefs.removeWithPrefix(SortLocation.KEY_PREFIX)

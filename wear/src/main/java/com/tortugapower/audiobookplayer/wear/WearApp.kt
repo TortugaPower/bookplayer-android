@@ -12,6 +12,9 @@ import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
+import com.tortugapower.audiobookplayer.logic.preferences.DataStorePreferencesStore
+import com.tortugapower.audiobookplayer.logic.sort.LibrarySortManager
+import com.tortugapower.audiobookplayer.logic.sort.LibrarySortStore
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.network.NetworkConstants
 import com.tortugapower.audiobookplayer.wear.complication.NowPlayingComplicationService
@@ -53,13 +56,24 @@ class WearApp : Application() {
     lateinit var syncTaskRepository: SyncTaskRepository
         private set
 
-    private val appScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    /**
+     * Pull-only on the watch: resolves the sticky library sort so the standalone list and playback
+     * next/auto-advance match the phone. Nothing on the watch writes sort preferences — the values
+     * arrive via [com.tortugapower.audiobookplayer.logic.PreferenceFetchProcessor] into the watch's
+     * own DataStore.
+     */
+    lateinit var librarySortManager: LibrarySortManager
+        private set
+
+    private val appScope = CoroutineScope(Dispatchers.Main + SupervisorJob() + com.tortugapower.audiobookplayer.logic.StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull })
 
     override fun onCreate() {
         super.onCreate()
 
         // Give :core the app context + flavored config before anything touches Room/network/RevenueCat.
         CoreContext.init(this)
+        // Playback is refused while storage is critically full (progress can't be saved); measure up front.
+        com.tortugapower.audiobookplayer.logic.StorageMonitor.refresh(this)
         NetworkConstants.configure(
             baseUrl = BuildConfig.BASE_URL,
             // The watch authenticates by handing the token off from the phone (Data Layer), never via
@@ -67,16 +81,31 @@ class WearApp : Application() {
             // Google-login path, which the watch never invokes.
             googleClientId = "",
         )
+        com.tortugapower.audiobookplayer.network.ClientIdentity.configure(
+            appName = "BookPlayer",
+            appVersion = BuildConfig.VERSION_NAME,
+        )
 
         val database = AppDatabase.getDatabase(this)
         accountRepository = RoomAccountRepository(database.accountDao())
         syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
         // Syncing wrapper so on-watch playback progress (and speed/boost) both persist and enqueue sync tasks.
+        val baseLibraryRepository = RoomLibraryRepository(this, database.libraryDao())
         libraryRepository = SyncingLibraryRepository(
-            RoomLibraryRepository(this, database.libraryDao()),
+            baseLibraryRepository,
             syncTaskRepository,
             accountRepository,
         )
+
+        librarySortManager = LibrarySortManager(
+            libraryRepository,
+            LibrarySortStore(DataStorePreferencesStore(this)),
+            syncTaskRepository,
+            accountRepository,
+        )
+        // Next/previous and end-of-book auto-advance follow the visible (effective) order.
+        // Property-wired: the manager depends on the repository, so this can't be a constructor arg.
+        baseLibraryRepository.effectiveSortResolver = librarySortManager::effectiveSort
 
         // RevenueCat resolves the tier that gates standalone vs. remote mode. An empty key (dev builds)
         // no-ops gracefully; login happens once the watch has an account (sign-in handoff).

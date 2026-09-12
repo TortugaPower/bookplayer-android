@@ -6,7 +6,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 object SleepTimerManager {
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(
+        Dispatchers.Main + SupervisorJob() +
+            StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull }
+    )
     private var timerJob: Job? = null
     /** Poll that watches for the armed chapter to end (end-of-chapter mode). */
     private var endOfChapterJob: Job? = null

@@ -2,7 +2,6 @@ package com.tortugapower.audiobookplayer.service
 
 import android.app.PendingIntent
 import android.content.Intent
-import android.media.audiofx.LoudnessEnhancer
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.core.content.IntentCompat
@@ -47,7 +46,7 @@ import kotlinx.coroutines.launch
  *    external-server streams (and their notification cover art) authenticate;
  *  - the [BookTimelinePlayer] wrap that gives the OS notification / lock-screen scrubber the in-app
  *    player's whole-book / chapter context;
- *  - the [LoudnessEnhancer] volume boost, wired to the shared volume-boost setting;
+ *  - the [LoudnessBooster] volume boost, wired to the shared volume-boost setting;
  *  - the shared [BaseLibrarySessionCallback] (command withholding + rewind/fast-forward/speed custom
  *    actions + Bluetooth media-button remap) and Bluetooth/headset seek behavior.
  *
@@ -63,32 +62,13 @@ abstract class MediaPlaybackService : MediaLibraryService() {
         private set
     protected var mediaSession: MediaLibrarySession? = null
         private set
-    private var loudnessEnhancer: LoudnessEnhancer? = null
-
-    /** Last boost setting seen; re-applied whenever the enhancer re-attaches to a new session. */
-    private var volumeBoostEnabled = false
-
     /**
-     * (Re)binds the volume-boost effect to [audioSessionId], releasing any previous instance.
-     * Called from onAudioSessionIdChanged — the session id changes when audio (re)initializes,
-     * and an enhancer bound to a dead/unset session silently does nothing.
+     * The volume-boost effect. Every LoudnessEnhancer call runs on the booster's own thread: creating
+     * or releasing an audio effect is a synchronous binder call into audioserver that can stall for
+     * seconds on some devices, and doing it on the main thread was Sentry ANDROID-BOOKPLAYER-11.
      */
-    private fun attachLoudnessEnhancer(audioSessionId: Int) {
-        try {
-            loudnessEnhancer?.release()
-        } catch (_: Exception) {
-        }
-        loudnessEnhancer = null
-        if (audioSessionId == C.AUDIO_SESSION_ID_UNSET) return
-        try {
-            loudnessEnhancer = LoudnessEnhancer(audioSessionId).apply {
-                setTargetGain(1000) // 10dB boost (approx double loudness)
-                enabled = volumeBoostEnabled
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
+    private val loudnessBooster = LoudnessBooster()
+
     protected val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     /** The Activity to launch when the user taps the media notification (phone: opens the player). */
@@ -105,14 +85,6 @@ abstract class MediaPlaybackService : MediaLibraryService() {
     /** Called once the session is built, for target-specific observers (phone: Android Auto Recent
      *  refresh). The shared volume-boost and speed observers are already running by this point. */
     protected open fun onSessionReady() {}
-
-    /**
-     * Whether ExoPlayer controls the system media-stream (device) volume, exposing
-     * `COMMAND_ADJUST_DEVICE_VOLUME` to controllers. OFF on the phone (the OS/hardware buttons already own
-     * STREAM_MUSIC, and enabling it would add a session volume slider); the WATCH turns it on so the rotary
-     * crown can drive the watch's own volume during standalone playback (iOS `WKInterfaceVolumeControl`).
-     */
-    protected open val deviceVolumeControlEnabled: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
@@ -162,8 +134,6 @@ abstract class MediaPlaybackService : MediaLibraryService() {
             // only needed while actually streaming). Requires only the WAKE_LOCK permission; ExoPlayer
             // acquires/releases the wake lock (and Wi-Fi lock, in NETWORK mode) with the play state.
             .setWakeMode(C.WAKE_MODE_NETWORK)
-            // Watch-only (see [deviceVolumeControlEnabled]): lets the crown drive the watch's media volume.
-            .setDeviceVolumeControlEnabled(deviceVolumeControlEnabled)
             .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(dataSourceFactory))
             .build()
 
@@ -181,7 +151,7 @@ abstract class MediaPlaybackService : MediaLibraryService() {
                 // assigns once audio initializes (it's 0/UNSET at build time — attaching then fails
                 // with ERROR_NO_INIT on many devices, e.g. Samsung, leaving boost a silent no-op).
                 override fun onAudioSessionIdChanged(audioSessionId: Int) {
-                    attachLoudnessEnhancer(audioSessionId)
+                    loudnessBooster.attach(audioSessionId)
                 }
 
                 // Surface a 401/403 on an external-server stream as an app-level error (the stored
@@ -218,6 +188,13 @@ abstract class MediaPlaybackService : MediaLibraryService() {
             )
 
             val builder = MediaLibrarySession.Builder(this, sessionPlayer, createSessionCallback())
+                // media3 keeps session ids in a process-wide registry and refuses a duplicate. With the
+                // default "" id, one session that was never released — a build that failed after
+                // registering, an OEM retrying service creation in the same process — made every later
+                // service creation die with "Session ID must be unique" (Sentry ANDROID-BOOKPLAYER-1A).
+                // Controllers connect through the service's ComponentName, never by id, so each instance
+                // simply takes a fresh one.
+                .setId("bookplayer-${SESSION_SEQUENCE.getAndIncrement()}")
                 .setMediaButtonPreferences(buildMediaButtonPreferences())
                 // Load notification artwork through the same data source factory as playback, so
                 // external-server covers (auth via headers, not URL tokens) render in the media
@@ -230,22 +207,17 @@ abstract class MediaPlaybackService : MediaLibraryService() {
             createSessionActivity()?.let { builder.setSessionActivity(it) }
             mediaSession = builder.build()
 
-            // Attach the LoudnessEnhancer now only if the player already has a real session id
+            // Attach the boost now only if the player already has a real session id
             // (it usually doesn't — onAudioSessionIdChanged above handles the normal path).
             if (p.audioSessionId != C.AUDIO_SESSION_ID_UNSET) {
-                attachLoudnessEnhancer(p.audioSessionId)
+                loudnessBooster.attach(p.audioSessionId)
             }
         }
 
         // Observe volume boost setting
         serviceScope.launch {
             PlaybackSettingsManager.getVolumeBoost(this@MediaPlaybackService).collectLatest { enabled ->
-                volumeBoostEnabled = enabled
-                try {
-                    loudnessEnhancer?.enabled = enabled
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                loudnessBooster.setEnabled(enabled)
             }
         }
 
@@ -292,12 +264,15 @@ abstract class MediaPlaybackService : MediaLibraryService() {
         // flow emission can't drive invalidateState()/getState() against a released ExoPlayer.
         serviceScope.cancel()
         mediaSession?.run {
-            player.release()
-            release()
-            mediaSession = null
+            // The session is released even if the player throws: it is what the registry holds.
+            try {
+                player.release()
+            } finally {
+                release()
+                mediaSession = null
+            }
         }
-        loudnessEnhancer?.release()
-        loudnessEnhancer = null
+        loudnessBooster.release()
         player = null
         super.onDestroy()
     }
@@ -413,6 +388,9 @@ abstract class MediaPlaybackService : MediaLibraryService() {
     }
 
     companion object {
+        /** Per-process sequence for media session ids; see the `setId` call in [onCreate]. */
+        private val SESSION_SEQUENCE = java.util.concurrent.atomic.AtomicInteger()
+
         const val APP_ACTION_REWIND = "com.tortugapower.audiobookplayer.action.REWIND"
         const val APP_ACTION_FORWARD = "com.tortugapower.audiobookplayer.action.FORWARD"
         // Now Playing speed-cycle custom action (shared: phone Auto + Wear).

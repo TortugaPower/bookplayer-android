@@ -52,6 +52,8 @@ interface ImportService {
     val isImporting: Boolean
     val activeDownloadCount: Int
     val skippedItemsCount: Int
+    /** Media-server items left out of a staged stream import because the server reports no audio file for them. */
+    val skippedNoAudioCount: Int
     var showImportSheet: Boolean
 
     /** Filename currently being processed by [acceptImport]; null when idle. */
@@ -70,11 +72,17 @@ interface ImportService {
         providerId: String? = null,
         hostId: String? = null
     )
+    /**
+     * Stages media-server [items] as "virtual" (stream) imports. Each item's `originalFileName` must already
+     * carry the REAL extension hydrated from the server (`ExternalLibraryViewModel.prepareStreamImport`);
+     * [skippedWithoutAudio] is how many of the user's selection that hydration left out, shown on the sheet.
+     */
     fun startStreamImport(
         context: Context,
         items: List<ExternalLibraryItem>,
         providerName: String,
-        hostId: String?
+        hostId: String?,
+        skippedWithoutAudio: Int = 0
     )
     fun removeFile(importFile: ImportFile)
     fun clearImport()

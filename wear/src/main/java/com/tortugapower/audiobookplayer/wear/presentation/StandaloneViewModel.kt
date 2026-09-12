@@ -10,6 +10,8 @@ import com.tortugapower.audiobookplayer.logic.DownloadUnitStatus
 import com.tortugapower.audiobookplayer.logic.LibraryContentsSync
 import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
+import com.tortugapower.audiobookplayer.logic.sort.LibrarySortManager
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import com.tortugapower.audiobookplayer.wear.sync.WearSyncServiceHost
@@ -75,6 +77,7 @@ class StandaloneViewModel(
     private val libraryRepository: LibraryRepository,
     private val syncTaskRepository: SyncTaskRepository,
     private val path: String? = null,
+    private val librarySortManager: LibrarySortManager? = null,
 ) : ViewModel() {
 
     private val appContext get() = CoreContext.appContext
@@ -84,9 +87,22 @@ class StandaloneViewModel(
     private val itemsFlow =
         if (path == null) libraryRepository.getRootItems() else libraryRepository.getItemsInPath(path)
 
+    // Order is a VIEW transform, same as the phone's list: while this level's sort is automatic we
+    // order by the rule and ignore orderRank (the prefs arrive via the preference-fetch task into the
+    // watch's own DataStore). No manager (tests) ⇒ rank order.
+    private val sortedItemsFlow: Flow<List<LibraryItemEntity>> =
+        librarySortManager?.let { manager ->
+            combine(itemsFlow, manager.observeEffectiveSort(path)) { items, sort ->
+                when (sort) {
+                    is EffectiveSort.Automatic -> sort.sortType.sorted(items)
+                    EffectiveSort.Custom -> items
+                }
+            }
+        } ?: itemsFlow
+
     // Per-item download "units" (the book files), resolved off-main when the library changes and cached, so
     // a BOUND book's sub-book query doesn't re-run on every task/queue emission.
-    private val rowSources: Flow<List<RowSource>> = itemsFlow.map { items ->
+    private val rowSources: Flow<List<RowSource>> = sortedItemsFlow.map { items ->
         items.map { item ->
             val units = if (item.type == ItemType.FOLDER) {
                 emptyList()
@@ -136,6 +152,9 @@ class StandaloneViewModel(
 
     private fun enqueueFetch(force: Boolean) {
         viewModelScope.launch {
+            // Prefs ride along with the contents fetch (same open/refresh cadence the phone uses);
+            // the factory debounces to one pull per 30s per launch.
+            SyncTaskFactory.createFetchPreferencesTask(syncTaskRepository, force = force)
             SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path = path, force = force)
         }
     }

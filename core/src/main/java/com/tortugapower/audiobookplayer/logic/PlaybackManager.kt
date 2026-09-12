@@ -46,7 +46,9 @@ object PlaybackManager {
     // Cap the per-process "already attempted remote chapter fetch" dedup set (cleared on overflow).
     private const val REMOTE_ATTEMPT_CAP = 1000
 
-    val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    // Full-disk failures from progress/settings writes are recorded (storage state) instead of
+    // killing the process; every other exception still reaches the default handler.
+    val scope = CoroutineScope(Dispatchers.Main + SupervisorJob() + StorageMonitor.exceptionHandler { appContext })
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var player: Player? = null
         private set
@@ -206,7 +208,32 @@ object PlaybackManager {
     // System media-stream (device) volume as a 0..1 fraction, for the watch's crown volume indicator. Only
     // meaningful when device-volume control is enabled (the watch); stays 0 on the phone.
     private val _deviceVolume = MutableStateFlow(0f)
+    /** Media-stream volume as a 0..1 fraction for the watch's crown indicator; see [DeviceVolume]. */
     val deviceVolume: StateFlow<Float> = _deviceVolume.asStateFlow()
+    private var deviceVolumeControl: DeviceVolume? = null
+
+    private val _playbackBlockedByStorage = MutableStateFlow(false)
+    /**
+     * True after a play attempt was refused, or running playback stopped, because storage is full and
+     * progress could not be saved — the UI explains why. Cleared by [dismissStorageBlock] and when
+     * storage recovers (playback is not resumed automatically).
+     */
+    val playbackBlockedByStorage: StateFlow<Boolean> = _playbackBlockedByStorage.asStateFlow()
+
+    fun dismissStorageBlock() {
+        _playbackBlockedByStorage.value = false
+    }
+
+    /**
+     * Listening progress cannot be saved while the disk is full, so playback is refused rather than
+     * silently losing the user's place. Re-measures first, so a disk the user just freed isn't blocked
+     * by a stale reading.
+     */
+    private fun blockedByStorage(): Boolean {
+        val critical = appContext?.let { StorageMonitor.refresh(it).isCritical } ?: StorageMonitor.isCritical
+        if (critical) _playbackBlockedByStorage.value = true
+        return critical
+    }
 
     /**
      * Current playback position in WHOLE-BOOK ms — already inverted from the (possibly virtualized)
@@ -297,6 +324,35 @@ object PlaybackManager {
         this.appContext = appContext
         this.unknownAuthorLabel = unknownAuthorLabel
 
+        // Device (media-stream) volume for the watch crown. The platform volume broadcast is only
+        // observed while something collects [deviceVolume] — the phone never does.
+        val volumeControl = DeviceVolume(appContext) { _deviceVolume.value = it }
+        deviceVolumeControl = volumeControl
+        scope.launch {
+            _deviceVolume.subscriptionCount
+                .map { it > 0 }
+                .distinctUntilChanged()
+                .collect { observed -> if (observed) volumeControl.startObserving() else volumeControl.stopObserving() }
+        }
+
+        // Storage full mid-playback (a progress write just failed): stop, and say why. Recovery clears
+        // the explanation but leaves the player paused — the user decides when to resume.
+        scope.launch {
+            StorageMonitor.state
+                .map { it.isCritical }
+                .distinctUntilChanged()
+                .collect { critical ->
+                    if (critical) {
+                        if (player?.isPlaying == true || _isPlaying.value) {
+                            player?.pause()
+                            _playbackBlockedByStorage.value = true
+                        }
+                    } else {
+                        _playbackBlockedByStorage.value = false
+                    }
+                }
+        }
+
         // Seed the external-server header map eagerly (off the main thread), so the runBlocking
         // fallback inside getHeadersForUri stays a cold-restore edge case rather than the norm.
         scope.launch(Dispatchers.IO) {
@@ -341,16 +397,17 @@ object PlaybackManager {
             try {
                 val mediaController = controllerFuture?.get() ?: return@addListener
                 player = mediaController
-                // Seed the device-volume fraction (0 unless device-volume control is enabled, i.e. the watch).
-                _deviceVolume.value = deviceVolumeFraction(mediaController)
 
                 // Add listener once
                 mediaController.addListener(object : Player.Listener {
-                    override fun onDeviceVolumeChanged(volume: Int, muted: Boolean) {
-                        _deviceVolume.value = deviceVolumeFraction(mediaController)
-                    }
-
                     override fun onIsPlayingChanged(playing: Boolean) {
+                        // Play from a surface that bypasses PlaybackManager (notification, Auto, Wear,
+                        // Bluetooth): same rule — no playback while progress can't be saved.
+                        if (playing && StorageMonitor.isCritical) {
+                            mediaController.pause()
+                            _playbackBlockedByStorage.value = true
+                            return
+                        }
                         if (_isPlaying.value == playing) return
                         _isPlaying.value = playing
                         if (!playing) {
@@ -437,12 +494,14 @@ object PlaybackManager {
                                 // at its end and instantly cascade another STATE_ENDED.
                                 scope.launch {
                                     val current = _currentItem.value ?: return@launch
-                                    val db = AppDatabase.getDatabase(appContext)
-                                    val repository = RoomLibraryRepository(appContext, db.libraryDao())
-                                    var nextItem = repository.getAdjacentItem(current.uuid, next = true)
+                                    // The shared repository, not a bare inline one: adjacency must
+                                    // resolve through the instance carrying the effective-sort hook,
+                                    // or auto-advance walks rank order while the list shows the rule.
+                                    val libraryRepo = getRepository(appContext)
+                                    var nextItem = libraryRepo.getAdjacentItem(current.uuid, next = true)
                                     if (!autoplayRestartFinished) {
                                         while (nextItem != null && nextItem.isFinished) {
-                                            nextItem = repository.getAdjacentItem(nextItem.uuid, next = true)
+                                            nextItem = libraryRepo.getAdjacentItem(nextItem.uuid, next = true)
                                         }
                                     }
                                     if (nextItem != null) {
@@ -872,6 +931,7 @@ object PlaybackManager {
         isAutoplayTransition: Boolean = false,
     ) {
         lastLoadUserInitiated = autoplay
+        if (autoplay && blockedByStorage()) return
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
             _showPlayerScreen.value = true
@@ -1261,6 +1321,7 @@ object PlaybackManager {
     fun play() {
         val p = player ?: return
         if (isPlaying.value) return
+        if (blockedByStorage()) return
         if (p.playbackState == Player.STATE_IDLE) {
             p.prepare()
         } else if (p.playbackState == Player.STATE_ENDED) {
@@ -1488,32 +1549,17 @@ object PlaybackManager {
     }
 
     /**
-     * Crown volume (watch standalone): nudge the system media-stream (device) volume one step through the
-     * session player. No-op when device-volume control isn't enabled (the phone, see
-     * [com.tortugapower.audiobookplayer.service.MediaPlaybackService.deviceVolumeControlEnabled]) or before
-     * the controller connects, so the call is safe from any target. Main-thread only, like the other
-     * transport calls.
+     * Crown volume (watch standalone): nudge the system media-stream (device) volume one step. Goes to
+     * [AudioManager][android.media.AudioManager] through [DeviceVolume] — media3 1.10 stopped honouring
+     * device-volume commands sent through a `MediaController` for local playback. No-op before
+     * [initialize], so the call is safe from any target.
      */
-    fun increaseDeviceVolume() = adjustDeviceVolume(up = true)
-    fun decreaseDeviceVolume() = adjustDeviceVolume(up = false)
-
-    private fun adjustDeviceVolume(up: Boolean) {
-        val p = player ?: return
-        if (!p.isCommandAvailable(Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)) return
-        // No FLAG_SHOW_UI: on Wear that pops a full-screen system slider that grabs the crown. We adjust
-        // silently and render our own peripheral volume indicator ([deviceVolume]) on the now-playing screen.
-        if (up) p.increaseDeviceVolume(0) else p.decreaseDeviceVolume(0)
-    }
-
-    /** Current device (media-stream) volume as a 0..1 fraction, or 0 when the range is unknown/unsupported. */
-    private fun deviceVolumeFraction(p: Player): Float =
-        deviceVolumeFraction(p.deviceVolume, p.deviceInfo.minVolume, p.deviceInfo.maxVolume)
+    fun increaseDeviceVolume() { deviceVolumeControl?.increase() }
+    fun decreaseDeviceVolume() { deviceVolumeControl?.decrease() }
 
     /** Pure 0..1 mapping of [volume] within [[minVolume], [maxVolume]] (0 when the range is empty). Unit-tested. */
-    fun deviceVolumeFraction(volume: Int, minVolume: Int, maxVolume: Int): Float {
-        val range = maxVolume - minVolume
-        return if (range > 0) ((volume - minVolume).toFloat() / range).coerceIn(0f, 1f) else 0f
-    }
+    fun deviceVolumeFraction(volume: Int, minVolume: Int, maxVolume: Int): Float =
+        DeviceVolume.fractionOf(volume, minVolume, maxVolume)
 
     fun toggleVolumeBoost(context: Context) {
         scope.launch {

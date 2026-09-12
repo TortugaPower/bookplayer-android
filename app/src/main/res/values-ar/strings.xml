@@ -182,6 +182,8 @@
 
     <!-- Import -->
     <string name="import_title">استيراد</string>
+    <string name="import_no_audio_files_alert">العناصر المحددة لا تحتوي على ملفات صوتية لاستيرادها.</string>
+    <string name="import_skipped_no_audio_files">تم تخطي %1$d من العناصر لأنها لا تحتوي على ملفات صوتية</string>
     <string name="import_disclaimer">قد يستغرق نقل الملفات بعض الوقت، يرجى التأكد من اكتمال عدد الملفات قبل المتابعة.</string>
     <string name="import_files_count">%1$d ملفات</string>
 
@@ -295,6 +297,7 @@
     <string name="media_servers_anonymous_username">مجهول</string>
 
     <!-- Server Info Sheet -->
+    <string name="media_servers_rename_connection">إعادة تسمية الاتصال</string>
     <string name="media_servers_connection_details_title">تفاصيل الاتصال</string>
     <string name="media_servers_server_section_title">الخادم</string>
     <string name="media_servers_name_label">الاسم</string>
@@ -304,10 +307,30 @@
     <string name="media_servers_custom_headers_section_title">رؤوس مخصصة</string>
 
     <!-- Add Server Sheet -->
+    <string name="media_servers_address_scheme_label">نوع الاتصال</string>
+    <string name="media_servers_address_host_label">المضيف</string>
+    <string name="media_servers_address_port_label">المنفذ</string>
+    <string name="media_servers_name_section_title">الاسم</string>
+    <string name="media_servers_password_signin_button">اسم المستخدم وكلمة المرور</string>
+    <string name="media_servers_headers_detail_footer">تُرفق هذه الرؤوس بكل طلب يُرسل إلى هذا الخادم. ويمكن تعديلها من شاشة عنوان الخادم.</string>
+    <string name="media_servers_sso_button">تسجيل الدخول عبر SSO</string>
+    <string name="media_servers_quick_connect_button">استخدام Quick Connect</string>
+    <string name="media_servers_quick_connect_sheet_title">Quick Connect</string>
+    <string name="media_servers_quick_connect_retrieving_message">جارٍ طلب رمز من خادمك…</string>
+    <string name="media_servers_quick_connect_awaiting_message">أدخل هذا الرمز في شاشة Quick Connect على خادمك لتسجيل الدخول.</string>
+    <string name="media_servers_quick_connect_authenticating_message">جارٍ تسجيل دخولك…</string>
+    <string name="media_servers_quick_connect_code_label">رمز Quick Connect</string>
+    <string name="media_servers_quick_connect_copy_code">نسخ الرمز</string>
+    <string name="media_servers_quick_connect_instructions_title">كيفية إدخال الرمز</string>
+    <string name="media_servers_quick_connect_instruction_open">افتح %1$s في متصفحك.</string>
+    <string name="media_servers_quick_connect_instruction_sign_in">سجّل الدخول إلى حساب Jellyfin الخاص بك.</string>
+    <string name="media_servers_quick_connect_instruction_open_menu">افتح قائمة المستخدم واختر Quick Connect.</string>
+    <string name="media_servers_quick_connect_instruction_enter_code">اكتب الرمز الظاهر أعلاه وأكّد.</string>
+    <string name="media_servers_quick_connect_error_no_code">لم يُرجع خادم Jellyfin رمز Quick Connect. تأكد من تفعيل Quick Connect في لوحة تحكم الخادم.</string>
+    <string name="media_servers_quick_connect_error_generic">تعذّر إكمال Quick Connect. تحقق من تفعيل Quick Connect على خادمك وأعد المحاولة.</string>
+    <string name="media_servers_quick_connect_error_timeout">انتهى وقت انتظار إدخال الرمز. يُرجى المحاولة مرة أخرى.</string>
     <string name="media_servers_add_server_connect_button">اتصال</string>
     <string name="media_servers_add_server_sign_in_button">تسجيل الدخول</string>
-    <string name="media_servers_add_server_url_label">عنوان URL للخادم</string>
-    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">رؤوس HTTP مخصصة</string>
     <string name="media_servers_add_server_header_name_placeholder">اسم الرأس</string>
     <string name="media_servers_add_server_header_value_placeholder">قيمة الرأس</string>
@@ -315,7 +338,6 @@
     <string name="media_servers_add_server_headers_description">الرؤوس المضافة هنا مرفقة بكل طلب يرسل إلى هذا الخادم.</string>
     <string name="media_servers_add_server_username_placeholder">اسم المستخدم</string>
     <string name="media_servers_add_server_password_placeholder">كلمة المرور</string>
-    <string name="media_servers_add_server_connect_to_server">اتصل بخادم %1$s الخاص بك</string>
     <string name="media_servers_error_server_not_found">لم يتم العثور على الخادم</string>
     <string name="media_servers_error_failed_to_fetch_library">فشل جلب المكتبة</string>
     <string name="media_servers_error_session_expired">انتهت صلاحية جلستك لخادم %1$s. سجّل الدخول مرة أخرى للمتابعة.</string>

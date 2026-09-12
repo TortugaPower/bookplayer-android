@@ -57,7 +57,10 @@ object ThemeManager {
         darkQuaternarySystemFillHex = "459EEC",
     )
 
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(
+        Dispatchers.Main + SupervisorJob() +
+            StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull }
+    )
 
     var allThemes: List<BookPlayerThemeSpec> by mutableStateOf(emptyList())
         private set

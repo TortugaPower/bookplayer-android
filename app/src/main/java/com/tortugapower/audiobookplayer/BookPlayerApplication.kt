@@ -23,8 +23,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+import com.tortugapower.audiobookplayer.logic.StorageMonitor
 
 class BookPlayerApplication : Application(), ImageLoaderFactory {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main + StorageMonitor.exceptionHandler { this })
+
     companion object {
         lateinit var instance: BookPlayerApplication
             private set
@@ -52,9 +59,17 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
 
         // Provide :core with the app context + flavored BuildConfig before anything touches the network.
         com.tortugapower.audiobookplayer.core.CoreContext.init(this)
+        // Measure storage before anything can write: at zero bytes free the database can't open, and
+        // MainActivity shows the storage screen instead of the app (Sentry ANDROID-BOOKPLAYER-10/-12).
+        StorageMonitor.refresh(this)
         com.tortugapower.audiobookplayer.network.NetworkConstants.configure(
             baseUrl = BuildConfig.BASE_URL,
             googleClientId = BuildConfig.GOOGLE_CLIENT_ID
+        )
+        // How this install introduces itself to media servers (Jellyfin's MediaBrowser header).
+        com.tortugapower.audiobookplayer.network.ClientIdentity.configure(
+            appName = "BookPlayer",
+            appVersion = BuildConfig.VERSION_NAME,
         )
 
         // Global Initialization
@@ -76,6 +91,9 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             syncTaskRepository,
             accountRepository
         )
+        // Next/previous and end-of-book auto-advance follow the visible (effective) order.
+        // Property-wired: the manager depends on the repository, so this can't be a constructor arg.
+        baseLibraryRepository.effectiveSortResolver = librarySortManager::effectiveSort
 
         // Initialize Managers
         PlaybackManager.initialize(
@@ -97,7 +115,20 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
             TaskConcurrencyServiceHost.start(this)
         }
-        TaskConcurrencyServiceHost.start(this)
+        if (StorageMonitor.isCritical) {
+            android.util.Log.w("BookPlayerApplication", "Storage critically full; not starting the sync host")
+        } else {
+            TaskConcurrencyServiceHost.start(this)
+        }
+        // The engine holds all work while storage is critical; restart it when space is back.
+        appScope.launch {
+            StorageMonitor.state
+                .map { it.isCritical }
+                .distinctUntilChanged()
+                .drop(1)
+                .filter { critical -> !critical }
+                .collect { TaskConcurrencyServiceHost.start(this@BookPlayerApplication) }
+        }
 
         // Mirror playback state to a paired Wear watch (remote-controller mode).
         com.tortugapower.audiobookplayer.wear.WearRemotePublisher.initialize(this, database.libraryDao())
@@ -113,8 +144,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
 
     private fun initSentry(accountRepository: AccountRepository) {
         val dsn = BuildConfig.SENTRY_DSN
-        // Builds without a DSN (OSS contributors, fresh checkouts) are a graceful no-op.
-        if (dsn.isBlank()) return
+        // Builds without a DSN (OSS contributors, fresh checkouts) are a graceful no-op, and so are
+        // dev-flavor builds unless the developer opted in (SENTRY_REPORTING, see app/build.gradle.kts):
+        // emulator crash reproductions must not show up as production issues.
+        if (dsn.isBlank() || !BuildConfig.SENTRY_REPORTING) return
 
         SentryAndroid.init(this) { options ->
             options.dsn = dsn
@@ -139,8 +172,9 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
      * when signed out).
      */
     private fun bindUserToSentry(accountRepository: AccountRepository) {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        scope.launch {
+        // appScope carries the storage-aware handler: with the disk full the database may not open, and
+        // that must not take the process down at startup (Sentry ANDROID-BOOKPLAYER-10).
+        appScope.launch(Dispatchers.IO) {
             accountRepository.getAccountFlow().collect { account ->
                 if (account != null) {
                     Sentry.setUser(User().apply {

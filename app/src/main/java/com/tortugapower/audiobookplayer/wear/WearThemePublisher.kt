@@ -28,7 +28,10 @@ object WearThemePublisher {
     private const val TAG = "WearThemePublisher"
 
     private lateinit var appContext: Context
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO +
+            com.tortugapower.audiobookplayer.logic.StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull }
+    )
     private val dataClient by lazy { Wearable.getDataClient(appContext) }
 
     fun initialize(context: Context) {

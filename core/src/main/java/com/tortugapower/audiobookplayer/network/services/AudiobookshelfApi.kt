@@ -5,8 +5,23 @@ import retrofit2.Response
 import retrofit2.http.*
 
 interface AudiobookshelfApi {
+    // Unauthenticated reachability check — `{"success": true}`.
+    @GET("ping")
+    suspend fun ping(): Response<AudiobookshelfPingResponse>
+
+    // Unauthenticated capability probe: which sign-in methods the admin enabled (`authMethods`:
+    // "local", "openid") and the provider button label the web UI shows.
+    @GET("status")
+    suspend fun status(): Response<AudiobookshelfStatusResponse>
+
     @POST("login")
     suspend fun login(@Body request: AudiobookshelfLoginRequest): Response<AudiobookshelfLoginResponse>
+
+    // What the web client calls on startup with a token: the login-response shape (user + serverSettings)
+    // without credentials. SSO uses it to learn the server's name and stable id, which the OIDC
+    // exchange doesn't return.
+    @POST("api/authorize")
+    suspend fun authorize(@Header("Authorization") auth: String): Response<AudiobookshelfLoginResponse>
 
     // Revokes the session behind the supplied token.
     @POST("logout")
@@ -26,6 +41,16 @@ interface AudiobookshelfApi {
         @Query("include") include: String = "media"
     ): Response<AudiobookshelfItemsResponse>
 
+    /**
+     * Expanded items for exact ids, in one round-trip — list endpoints return MINIFIED items without
+     * `audioFiles`, and virtual import needs the REAL file extension.
+     */
+    @POST("api/items/batch/get")
+    suspend fun getItemsBatch(
+        @Header("Authorization") auth: String,
+        @Body request: AudiobookshelfBatchItemsRequest
+    ): Response<AudiobookshelfBatchItemsResponse>
+
     @PATCH("api/me/progress/{id}")
     suspend fun updateProgress(
         @Header("Authorization") auth: String,
@@ -33,6 +58,19 @@ interface AudiobookshelfApi {
         @Body request: AudiobookshelfProgressRequest
     ): Response<Unit>
 }
+
+data class AudiobookshelfPingResponse(
+    @SerializedName("success") val success: Boolean? = null
+)
+
+data class AudiobookshelfStatusResponse(
+    @SerializedName("authMethods") val authMethods: List<String>? = null,
+    @SerializedName("authFormData") val authFormData: AudiobookshelfAuthFormData? = null
+)
+
+data class AudiobookshelfAuthFormData(
+    @SerializedName("authOpenIDButtonText") val authOpenIDButtonText: String? = null
+)
 
 data class AudiobookshelfProgressRequest(
     @SerializedName("progress") val progress: Double,
@@ -51,6 +89,8 @@ data class AudiobookshelfLoginResponse(
 )
 
 data class AudiobookshelfUser(
+    // The account's id on this server — the identity connections de-duplicate on.
+    @SerializedName("id") val id: String? = null,
     @SerializedName("token") val token: String,
     @SerializedName("username") val username: String
 )
@@ -102,7 +142,17 @@ data class AudiobookshelfAudioFile(
 )
 
 data class AudiobookshelfFileMetadata(
-    @SerializedName("filename") val filename: String?
+    @SerializedName("filename") val filename: String?,
+    /** The file's extension WITH its leading dot, as the server reports it (`".m4b"`). */
+    @SerializedName("ext") val ext: String? = null
+)
+
+data class AudiobookshelfBatchItemsRequest(
+    @SerializedName("libraryItemIds") val libraryItemIds: List<String>
+)
+
+data class AudiobookshelfBatchItemsResponse(
+    @SerializedName("libraryItems") val libraryItems: List<AudiobookshelfItem>?
 )
 
 data class AudiobookshelfMetadata(

@@ -14,4 +14,11 @@
     <plurals name="library_bound_chapter_count">
         <item quantity="other">%1$d 章</item>
     </plurals>
+    <string name="media_servers_error_unauthorized">サインインできませんでした。ユーザ名とパスワードを確認してください。</string>
+    <string name="media_servers_error_unexpected_response">サーバからの予期しない応答</string>
+    <string name="media_servers_error_unexpected_response_with_code">サーバからの予期しない応答（コード: %1$d）</string>
+    <string name="media_servers_error_server_message">サーバが %1$d を返しました: %2$s</string>
+    <string name="media_servers_error_sso_requires_https">シングルサインオンには、サーバへの安全な（https）接続が必要です。</string>
+    <string name="media_servers_error_sso_no_code">IDプロバイダでのサインインは完了しましたが、認証コードが返されませんでした。通常、これはリクエストが拒否されたことを意味します。クライアントのグループ制限やアクセス制限を確認し、許可されているコールバックURLに次が含まれていることを確認してください:\n\n%1$s</string>
+    <string name="media_servers_error_sso_requires_chrome">シングルサインオンには、このデバイスの既定のブラウザとして Chrome 137 以降が必要です。</string>
 </resources>

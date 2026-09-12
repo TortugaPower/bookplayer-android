@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.tortugapower.audiobookplayer.database.dao.LibraryDao
+import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -70,5 +72,26 @@ class LibraryDaoTest {
 
         val recent = dao.getRecentPlayedItemsSync(50)
         assertEquals(listOf("2", "1"), recent.map { it.uuid })
+    }
+
+    // --- chapters written for a book that is gone (Sentry ANDROID-BOOKPLAYER-15) ---
+
+    private fun chapter(bookUuid: String, index: Int) =
+        ChapterEntity(bookUuid = bookUuid, title = "Chapter ${index + 1}", start = index * 100.0, duration = 100.0, index = index)
+
+    @Test fun replaceChaptersForBook_skipsWhenTheBookIsGone() = runBlocking {
+        // No library_items row for this uuid: the FOREIGN KEY would fail the insert. The DAO must
+        // notice inside the transaction and write nothing rather than throw.
+        dao.replaceChaptersForBook("deleted-book", listOf(chapter("deleted-book", 0), chapter("deleted-book", 1)))
+
+        assertEquals(0, dao.getChaptersForBook("deleted-book").first().size)
+    }
+
+    @Test fun replaceChaptersForBook_replacesForAnExistingBook() = runBlocking {
+        dao.insertItem(item("b1", "Dune", "Frank Herbert", "Dune.m4b"))
+        dao.replaceChaptersForBook("b1", listOf(chapter("b1", 0)))
+        dao.replaceChaptersForBook("b1", listOf(chapter("b1", 0), chapter("b1", 1), chapter("b1", 2)))
+
+        assertEquals(3, dao.getChaptersForBook("b1").first().size)
     }
 }

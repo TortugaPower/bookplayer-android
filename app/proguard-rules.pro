@@ -18,5 +18,11 @@
 # Compile-only GMS annotation referenced by play review-ktx bytecode; absent at runtime by design.
 -dontwarn com.google.android.gms.common.annotation.NoNullnessRewrite
 
+# Move every obfuscated class to the unnamed package: drops package-name strings from the DEX
+# (Play Console "Repackage Classes"; the AGP 9.1 default). Kept classes are untouched, so the
+# manifest components and Room's by-name lookups stay where they are — scripts/audit-mapping.sh
+# proves that on every CI build.
+-repackageclasses
+
 # If R8 reports missing classes on a future dependency bump, add the generated
 # missing_rules.txt suggestions here individually — never a blanket -dontwarn **.
