@@ -170,3 +170,20 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
 - Branch model (mirrors the iOS repo): **`main` is what's live on the Play Store**; **`develop` is
   the staging branch for the next release** — feature/fix PRs target `develop`, and a release is a
   PR from `develop` into `main` (then tag + bundles from `main`).
+- **Merging into `main` records a Sentry production deploy** for the current `versionName+versionCode`
+  (`.github/workflows/sentry-deploy.yml`). The signal is only reliable because of the standing rule:
+  merge the release PR **after** the store has published the build, never before.
+- **Crash fixes carry a Sentry trailer.** When a commit fixes a crash tracked in Sentry, put
+  `Fixes ANDROID-BOOKPLAYER-<id>` on its own line in the **commit body** (the short id is in the
+  Sentry issue URL; one id per line, or comma-separated after a single `Fixes`). `release.yml`
+  attaches each release's commits in Sentry, and Sentry's GitHub integration then marks the issue
+  *resolved in the release that actually ships the commit* — not the next one. Consequences:
+  - Put it in the fix commit itself, not only the PR description: PRs land as merge commits, so
+    the PR body never reaches git history.
+  - Never plain-"Resolve" an issue in the Sentry UI on this project — `1.0.0+14` stragglers reopen
+    it within hours. A fix that shipped without a trailer is backfilled with the REST call
+    `PUT /api/0/organizations/tortuga-power/issues/<id>/` and
+    `{"status":"resolved","statusDetails":{"inRelease":"com.tortugapower.audiobookplayer@X.Y.Z+code"}}`.
+  - The weekly crash-triage routine (Linear team `BKPLY`, label `Sentry`) reads these resolutions to
+    separate a regression from an old-build straggler; a missing trailer makes a fixed crash look
+    open forever.
