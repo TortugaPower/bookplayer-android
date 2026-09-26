@@ -1,13 +1,29 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "playback_settings")
+/**
+ * A preferences file that no longer parses (zero-filled or truncated, typically after a disk-full or
+ * interrupted write) is replaced with defaults instead of throwing `CorruptionException` on every
+ * launch until the user reinstalls (Sentry ANDROID-BOOKPLAYER-13). Losing playback settings is the
+ * lesser harm; `PlaybackSettingsCorruptionTest` pins this behaviour.
+ */
+private val playbackSettingsCorruptionHandler = ReplaceFileCorruptionHandler<Preferences> { cause ->
+    Log.w("PlaybackSettings", "playback_settings is corrupt; resetting to defaults", cause)
+    emptyPreferences()
+}
+
+val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "playback_settings",
+    corruptionHandler = playbackSettingsCorruptionHandler
+)
 
 object PlaybackSettingsManager {
     private val SPEED = floatPreferencesKey("playback_speed")

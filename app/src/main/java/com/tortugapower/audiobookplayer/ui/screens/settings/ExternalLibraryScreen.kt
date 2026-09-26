@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -78,7 +79,9 @@ fun ExternalLibraryScreen(
     onBack: () -> Unit,
     onItemClick: (ExternalLibraryItem) -> Unit,
     onActionStarted: () -> Unit = {},
-    onReauthRequested: () -> Unit = {}
+    onReauthRequested: () -> Unit = {},
+    /** Opens this server's Connection Details (read-only, with Log out) — iOS's gear menu inside a library. */
+    onShowConnectionDetails: () -> Unit = {}
 ) {
     val items by viewModel.items.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -100,10 +103,44 @@ fun ExternalLibraryScreen(
         }
     }
 
-    // iOS parity: expired session gets Connection Details/Cancel only — no Retry. The alert
-    // stays up until re-auth succeeds (retryAfterReauth clears the state), so dismissing the
-    // re-auth sheet without signing in lands back here instead of on a broken screen.
+    // Every other load failure while the library is still unresolved: Retry where it could help, Cancel
+    // to back out. No Connection Details path from here — a saved connection can't be edited beyond its
+    // name, so the sheet has nothing that fixes a load failure (an expired session has its own Sign In
+    // alert below). Once items are on screen a paging failure is just an alert with OK (iOS's errorAlert
+    // on the list views).
     val sessionExpiredServerName by viewModel.sessionExpiredServerName.collectAsState()
+    error?.let { loadError ->
+        if (sessionExpiredServerName == null) {
+            if (resolvedLibraryId == null) {
+                AlertDialog(
+                    onDismissRequest = onBack,
+                    title = { Text(stringResource(id = R.string.common_error)) },
+                    text = { Text(loadError.asString()) },
+                    confirmButton = {
+                        TextButton(onClick = { viewModel.reload() }) { Text(stringResource(id = R.string.common_retry)) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = onBack) { Text(stringResource(id = R.string.common_cancel)) }
+                    }
+                )
+            } else {
+                AlertDialog(
+                    onDismissRequest = viewModel::clearError,
+                    title = { Text(stringResource(id = R.string.common_error)) },
+                    text = { Text(loadError.asString()) },
+                    confirmButton = {
+                        TextButton(onClick = viewModel::clearError) { Text(stringResource(id = R.string.common_ok)) }
+                    }
+                )
+            }
+        }
+    }
+
+    // iOS parity: expired session gets Sign In/Cancel only — no Retry (it would hit the same 401).
+    // "Sign In", not "Connection Details": the button opens the connection flow at the address
+    // step, prefilled, not the read-only details sheet. The alert stays up until re-auth succeeds
+    // (retryAfterReauth clears the state), so dismissing the sheet without signing in lands back
+    // here instead of on a broken screen.
     sessionExpiredServerName?.let { expiredName ->
         AlertDialog(
             onDismissRequest = onBack,
@@ -111,7 +148,7 @@ fun ExternalLibraryScreen(
             text = { Text(stringResource(id = R.string.media_servers_error_session_expired, expiredName.ifBlank { serverName })) },
             confirmButton = {
                 TextButton(onClick = onReauthRequested) {
-                    Text(stringResource(id = R.string.media_servers_connection_details_title))
+                    Text(stringResource(id = R.string.media_servers_add_server_sign_in_button))
                 }
             },
             dismissButton = {
@@ -138,6 +175,8 @@ fun ExternalLibraryScreen(
     // Selection captured when Stream is tapped without a subscription, so the import can proceed
     // once the lite flow ends in a subscription.
     var pendingStreamItems by remember { mutableStateOf<List<ExternalLibraryItem>>(emptyList()) }
+    var showNoAudioAlert by remember { mutableStateOf(false) }
+    if (showNoAudioAlert) NoAudioFilesDialog(onDismiss = { showNoAudioAlert = false })
     var showLiteSheet by remember { mutableStateOf(false) }
     var showLiteAuthSheet by remember { mutableStateOf(false) }
     var showLitePaywall by remember { mutableStateOf(false) }
@@ -151,13 +190,24 @@ fun ExternalLibraryScreen(
         if (server == null) {
             android.widget.Toast.makeText(context, downloadFailedMessage, android.widget.Toast.LENGTH_SHORT).show()
         } else {
-            importViewModel.startStreamImport(
-                context = context,
-                items = itemsToStream,
-                providerName = server.type.name.lowercase(),
-                hostId = ExternalServiceUtils.stableHostId(server)
-            )
-            onActionStarted()
+            scope.launch {
+                // iOS parity: the selection is hydrated for its REAL file extensions first; items the
+                // server reports no audio file for are skipped, never guessed. A failure shows the
+                // library's error alert; a selection with nothing to import gets its own.
+                val selection = viewModel.prepareStreamImport(itemsToStream) ?: return@launch
+                if (selection.items.isEmpty()) {
+                    showNoAudioAlert = true
+                    return@launch
+                }
+                importViewModel.startStreamImport(
+                    context = context,
+                    items = selection.items,
+                    providerName = server.type.name.lowercase(),
+                    hostId = ExternalServiceUtils.stableHostId(server),
+                    skippedWithoutAudio = selection.skippedWithoutAudio
+                )
+                onActionStarted()
+            }
         }
     }
 
@@ -368,6 +418,10 @@ fun ExternalLibraryScreen(
                         IconButton(onClick = { isSearchActive = true }) {
                             Icon(Icons.Default.Search, contentDescription = stringResource(id = R.string.common_search))
                         }
+                        // iOS keeps Connection Details behind a gear menu on every library tab.
+                        IconButton(onClick = onShowConnectionDetails) {
+                            Icon(Icons.Default.Settings, contentDescription = stringResource(id = R.string.media_servers_connection_details_title))
+                        }
                     }
                 )
             }
@@ -399,12 +453,7 @@ fun ExternalLibraryScreen(
                     )
                 }
             } else if (error != null && items.isEmpty()) {
-                Text(
-                    text = error!!.asString(),
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.align(Alignment.Center).padding(16.dp),
-                    textAlign = TextAlign.Center
-                )
+                // The failure is up as an alert (Retry / Cancel); nothing to show behind it.
             } else if (resolvedLibraryId == null || (isLoading && items.isEmpty())) {
                 // Resolving libraries / picker pending / first page loading. Mirrors iOS keeping
                 // the browser disabled until a library is resolved.

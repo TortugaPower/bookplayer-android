@@ -31,7 +31,10 @@ object WearRemotePublisher {
 
     private lateinit var appContext: Context
     private lateinit var libraryDao: LibraryDao
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO +
+            com.tortugapower.audiobookplayer.logic.StorageMonitor.exceptionHandler { if (::appContext.isInitialized) appContext else null }
+    )
     private val dataClient by lazy { Wearable.getDataClient(appContext) }
 
     fun initialize(context: Context, libraryDao: LibraryDao) {

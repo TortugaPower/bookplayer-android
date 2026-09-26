@@ -16,6 +16,11 @@ import androidx.lifecycle.ViewModelProvider
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModelFactory
 import com.tortugapower.audiobookplayer.ui.screens.MainScreen
+import com.tortugapower.audiobookplayer.ui.components.StorageFullScreen
+import com.tortugapower.audiobookplayer.ui.components.openStorageSettings
+import com.tortugapower.audiobookplayer.logic.StorageMonitor
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerTheme
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.logic.PlayerUiSignals
@@ -28,11 +33,35 @@ import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
 
+    /** True while the storage gate is showing instead of the app (see onCreate). */
+    private var storageGateShown = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
 
         volumeControlStream = android.media.AudioManager.STREAM_MUSIC
+
+        // Storage critically full: the database can't be trusted to open (SQLite can't even size its
+        // WAL shared memory at zero bytes free — Sentry ANDROID-BOOKPLAYER-10), so nothing below may
+        // touch it. Show the storage screen instead, and start over once space is back.
+        if (StorageMonitor.refresh(this).isCritical) {
+            storageGateShown = true
+            splashScreen.setKeepOnScreenCondition { !ThemeManager.isReady }
+            enableEdgeToEdge()
+            ThemeManager.initialize(this)
+            setContent {
+                BookPlayerTheme {
+                    val storage by StorageMonitor.state.collectAsStateWithLifecycle()
+                    StorageFullScreen(
+                        state = storage,
+                        onRetry = { if (!StorageMonitor.refresh(this).isCritical) recreate() },
+                        onFreeUpSpace = { openStorageSettings(this) },
+                    )
+                }
+            }
+            return
+        }
 
         // Create the (activity-scoped) LibraryViewModel up front — MainScreen's viewModel() call returns
         // this same instance — so the OS splash can be held until the FIRST local library load is in hand.
@@ -74,8 +103,17 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Coming back from Settings after freeing space: re-measure; leave the gate if it's showing.
+        val critical = StorageMonitor.refresh(this).isCritical
+        if (storageGateShown && !critical) recreate()
+    }
+
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
+        // Imports write files and rows; while the gate is up there is nowhere to put them.
+        if (StorageMonitor.isCritical) return
         val uri = intent.data
         when {
             uri != null && uri.scheme == "bookplayer" -> handleDeepLink(uri)

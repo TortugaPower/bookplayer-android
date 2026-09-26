@@ -34,8 +34,8 @@ android {
         applicationId = "com.tortugapower.audiobookplayer"
         minSdk = 28
         targetSdk = 36
-        versionCode = 20
-        versionName = "1.1.3"
+        versionCode = 21
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -53,6 +53,10 @@ android {
                 "BASE_URL",
                 "\"${localProp("DEV_BASE_URL", "http://10.0.2.2:5003")}\""
             )
+            // Dev builds (emulators, local devices) stay out of Sentry unless a developer opts in with
+            // SENTRY_DEV_REPORTING=true in local.properties: crash reproductions and chaos runs were
+            // landing in the production issue list as fresh fingerprints.
+            buildConfigField("boolean", "SENTRY_REPORTING", (localProp("SENTRY_DEV_REPORTING") == "true").toString())
         }
         create("prod") {
             dimension = "env"
@@ -61,6 +65,7 @@ android {
                 "BASE_URL",
                 "\"${localProp("PROD_BASE_URL")}\""
             )
+            buildConfigField("boolean", "SENTRY_REPORTING", "true")
         }
     }
 
@@ -162,12 +167,12 @@ dependencies {
     implementation(libs.androidx.core.splashscreen)
 
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.browser) // Auth Tab: the SSO browser leg (AuthTabWebAuthenticator)
     implementation(libs.androidx.material.icons.extended)
 
     implementation(libs.gson)
     implementation(libs.retrofit) // app still uses retrofit2.Response directly (CoreProcessors, PlaybackManager)
     implementation(libs.retrofit.converter.gson) // CoreProcessors builds its own Retrofit for external servers
-    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.googleid)

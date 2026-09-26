@@ -185,6 +185,8 @@
 
     <!-- Import -->
     <string name="import_title">Importa</string>
+    <string name="import_no_audio_files_alert">Gli elementi selezionati non contengono file audio da importare.</string>
+    <string name="import_skipped_no_audio_files">%1$d elementi sono stati ignorati perché non contengono file audio</string>
     <string name="import_disclaimer">Il trasferimento dei file potrebbe richiedere del tempo, assicurati che il numero di file sia completo prima di procedere.</string>
     <string name="import_files_count">%1$d File</string>
 
@@ -283,6 +285,7 @@
     <string name="media_servers_anonymous_username">Anonimo</string>
 
     <!-- Server Info Sheet -->
+    <string name="media_servers_rename_connection">Rinomina connessione</string>
     <string name="media_servers_connection_details_title">Dettagli connessione</string>
     <string name="media_servers_server_section_title">SERVER</string>
     <string name="media_servers_name_label">Nome</string>
@@ -292,10 +295,30 @@
     <string name="media_servers_custom_headers_section_title">HEADER PERSONALIZZATI</string>
 
     <!-- Add Server Sheet -->
+    <string name="media_servers_address_scheme_label">Tipo di connessione</string>
+    <string name="media_servers_address_host_label">Host</string>
+    <string name="media_servers_address_port_label">Porta</string>
+    <string name="media_servers_name_section_title">NOME</string>
+    <string name="media_servers_password_signin_button">Nome utente e password</string>
+    <string name="media_servers_headers_detail_footer">Queste intestazioni vengono allegate a ogni richiesta inviata a questo server. Possono essere modificate dalla schermata dell\'indirizzo del server.</string>
+    <string name="media_servers_sso_button">Accedi con SSO</string>
+    <string name="media_servers_quick_connect_button">Usa Quick Connect</string>
+    <string name="media_servers_quick_connect_sheet_title">Quick Connect</string>
+    <string name="media_servers_quick_connect_retrieving_message">Richiesta di un codice al server…</string>
+    <string name="media_servers_quick_connect_awaiting_message">Inserisci questo codice nella schermata Quick Connect del tuo server per accedere.</string>
+    <string name="media_servers_quick_connect_authenticating_message">Accesso in corso…</string>
+    <string name="media_servers_quick_connect_code_label">Codice Quick Connect</string>
+    <string name="media_servers_quick_connect_copy_code">Copia codice</string>
+    <string name="media_servers_quick_connect_instructions_title">Come inserire il codice</string>
+    <string name="media_servers_quick_connect_instruction_open">Apri %1$s nel browser.</string>
+    <string name="media_servers_quick_connect_instruction_sign_in">Accedi al tuo account Jellyfin.</string>
+    <string name="media_servers_quick_connect_instruction_open_menu">Apri il menu utente e scegli Quick Connect.</string>
+    <string name="media_servers_quick_connect_instruction_enter_code">Digita il codice mostrato sopra e conferma.</string>
+    <string name="media_servers_quick_connect_error_no_code">Il server Jellyfin non ha restituito un codice Quick Connect. Verifica che Quick Connect sia attivo nel pannello del server.</string>
+    <string name="media_servers_quick_connect_error_generic">Quick Connect non è riuscito a completarsi. Verifica che Quick Connect sia attivo sul server e riprova.</string>
+    <string name="media_servers_quick_connect_error_timeout">Tempo scaduto in attesa dell’inserimento del codice. Riprova.</string>
     <string name="media_servers_add_server_connect_button">Connetti</string>
     <string name="media_servers_add_server_sign_in_button">Accedi</string>
-    <string name="media_servers_add_server_url_label">URL del server</string>
-    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">Intestazioni HTTP personalizzate</string>
     <string name="media_servers_add_server_header_name_placeholder">Nome header</string>
     <string name="media_servers_add_server_header_value_placeholder">Valore header</string>
@@ -303,7 +326,6 @@
     <string name="media_servers_add_server_headers_description">Gli header aggiunti qui vengono allegati a ogni richiesta inviata a questo server.</string>
     <string name="media_servers_add_server_username_placeholder">Nome utente</string>
     <string name="media_servers_add_server_password_placeholder">Password</string>
-    <string name="media_servers_add_server_connect_to_server">Connettiti al tuo server %1$s</string>
     <string name="media_servers_error_server_not_found">Server non trovato</string>
     <string name="media_servers_error_failed_to_fetch_library">Impossibile recuperare la libreria</string>
     <string name="media_servers_error_session_expired">La tua sessione per %1$s è scaduta. Accedi di nuovo per continuare.</string>

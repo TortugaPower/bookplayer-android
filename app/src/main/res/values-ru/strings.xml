@@ -185,6 +185,8 @@
 
     <!-- Import -->
     <string name="import_title">Импорт</string>
+    <string name="import_no_audio_files_alert">В выбранных элементах нет аудиофайлов для импорта.</string>
+    <string name="import_skipped_no_audio_files">%1$d элементов пропущено, так как в них нет аудиофайлов</string>
     <string name="import_disclaimer">Перенос файлов может занять некоторое время, пожалуйста, убедитесь, что количество файлов полное, прежде чем продолжать.</string>
     <string name="import_files_count">%1$d Файлов</string>
 
@@ -289,6 +291,7 @@
     <string name="media_servers_anonymous_username">Анонимный</string>
 
     <!-- Server Info Sheet -->
+    <string name="media_servers_rename_connection">Переименовать подключение</string>
     <string name="media_servers_connection_details_title">Детали подключения</string>
     <string name="media_servers_server_section_title">СЕРВЕР</string>
     <string name="media_servers_name_label">Имя</string>
@@ -298,10 +301,30 @@
     <string name="media_servers_custom_headers_section_title">ПОЛЬЗОВАТЕЛЬСКИЕ ЗАГОЛОВКИ</string>
 
     <!-- Add Server Sheet -->
+    <string name="media_servers_address_scheme_label">Тип соединения</string>
+    <string name="media_servers_address_host_label">Хост</string>
+    <string name="media_servers_address_port_label">Порт</string>
+    <string name="media_servers_name_section_title">ИМЯ</string>
+    <string name="media_servers_password_signin_button">Имя пользователя и пароль</string>
+    <string name="media_servers_headers_detail_footer">Эти заголовки прикрепляются к каждому запросу, отправляемому на этот сервер. Их можно изменить на экране адреса сервера.</string>
+    <string name="media_servers_sso_button">Войти через SSO</string>
+    <string name="media_servers_quick_connect_button">Использовать Quick Connect</string>
+    <string name="media_servers_quick_connect_sheet_title">Quick Connect</string>
+    <string name="media_servers_quick_connect_retrieving_message">Запрашиваем код у сервера…</string>
+    <string name="media_servers_quick_connect_awaiting_message">Введите этот код на экране Quick Connect вашего сервера, чтобы войти.</string>
+    <string name="media_servers_quick_connect_authenticating_message">Выполняется вход…</string>
+    <string name="media_servers_quick_connect_code_label">Код Quick Connect</string>
+    <string name="media_servers_quick_connect_copy_code">Скопировать код</string>
+    <string name="media_servers_quick_connect_instructions_title">Как ввести код</string>
+    <string name="media_servers_quick_connect_instruction_open">Откройте %1$s в браузере.</string>
+    <string name="media_servers_quick_connect_instruction_sign_in">Войдите в свою учётную запись Jellyfin.</string>
+    <string name="media_servers_quick_connect_instruction_open_menu">Откройте меню пользователя и выберите Quick Connect.</string>
+    <string name="media_servers_quick_connect_instruction_enter_code">Введите показанный выше код и подтвердите.</string>
+    <string name="media_servers_quick_connect_error_no_code">Сервер Jellyfin не вернул код Quick Connect. Убедитесь, что Quick Connect включён в панели управления сервера.</string>
+    <string name="media_servers_quick_connect_error_generic">Не удалось завершить Quick Connect. Убедитесь, что Quick Connect включён на сервере, и попробуйте снова.</string>
+    <string name="media_servers_quick_connect_error_timeout">Время ожидания ввода кода истекло. Попробуйте снова.</string>
     <string name="media_servers_add_server_connect_button">Подключиться</string>
     <string name="media_servers_add_server_sign_in_button">Войти</string>
-    <string name="media_servers_add_server_url_label">URL-адрес сервера</string>
-    <string name="media_servers_add_server_url_placeholder">https://jellyfin.example.com:8096</string>
     <string name="media_servers_add_server_custom_headers_label">Пользовательские HTTP-заголовки</string>
     <string name="media_servers_add_server_header_name_placeholder">Имя заголовка</string>
     <string name="media_servers_add_server_header_value_placeholder">Значение заголовка</string>
@@ -309,7 +332,6 @@
     <string name="media_servers_add_server_headers_description">Заголовки, добавленные здесь, прикрепляются к каждому запросу, отправляемому на этот сервер.</string>
     <string name="media_servers_add_server_username_placeholder">Имя пользователя</string>
     <string name="media_servers_add_server_password_placeholder">Пароль</string>
-    <string name="media_servers_add_server_connect_to_server">Подключитесь к вашему серверу %1$s</string>
     <string name="media_servers_error_server_not_found">Сервер не найден</string>
     <string name="media_servers_error_failed_to_fetch_library">Не удалось получить библиотеку</string>
     <string name="media_servers_error_session_expired">Ваша сессия для %1$s истекла. Войдите снова, чтобы продолжить.</string>

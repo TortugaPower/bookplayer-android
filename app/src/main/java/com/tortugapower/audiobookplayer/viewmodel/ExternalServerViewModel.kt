@@ -4,17 +4,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
-import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
-import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
-import com.tortugapower.audiobookplayer.network.ConnectionResult
 import com.tortugapower.audiobookplayer.network.ExternalServiceFactory
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/**
+ * The saved media servers for the Media Servers list. Adding and re-authenticating servers lives in
+ * [ConnectionFlowViewModel] (persistence through `ExternalServerSaver`); this only lists and deletes.
+ */
 class ExternalServerViewModel(private val repository: ExternalServerRepository) : ViewModel() {
     val servers: StateFlow<List<ExternalServerEntity>> = repository.allServers.stateIn(
         scope = viewModelScope,
@@ -22,62 +22,14 @@ class ExternalServerViewModel(private val repository: ExternalServerRepository) 
         initialValue = emptyList()
     )
 
-    /** Returns the persistence Job so callers that must sequence on the saved row can join() it. */
-    fun addServer(
-        name: String,
-        type: ExternalServiceType,
-        url: String,
-        username: String?,
-        token: String?,
-        headers: Map<String, String>?,
-        stableId: String? = null
-    ): kotlinx.coroutines.Job {
-        return viewModelScope.launch {
-            // Anonymous connects arrive as "" from the form; store null so the UI's
-            // `username ?: <anonymous>` fallbacks actually fire.
-            val normalizedUsername = username?.takeIf { it.isNotBlank() }
-
-            // Re-adding the same logical server + account (the natural response to an expired
-            // token) replaces the existing row — preserving its id — instead of accumulating
-            // duplicates. Different accounts on the same server stay separate. Mirrors iOS.
-            val urlKey = ExternalServiceUtils.canonicalServerKey(url)
-            val existing = repository.allServers.first().find {
-                it.type == type &&
-                    ExternalServiceUtils.canonicalServerKey(it.url) == urlKey &&
-                    it.username == normalizedUsername
-            }
-
-            val server = ExternalServerEntity(
-                id = existing?.id ?: 0,
-                name = name,
-                type = type,
-                url = url,
-                username = normalizedUsername,
-                token = token,
-                customHeaders = headers,
-                // Re-auth keeps the user's library choice, same as iOS.
-                selectedLibraryId = existing?.selectedLibraryId,
-                // Re-auth refreshes the server's self-reported stable id — but a connect whose
-                // info call happened to fail must not wipe a previously captured one.
-                stableId = stableId ?: existing?.stableId
-            )
-            if (existing != null) {
-                repository.updateServer(server)
-                // iOS parity: ABS revokes the replaced token on re-auth (POST /logout with the
-                // OLD Bearer); Jellyfin deliberately doesn't revoke on re-auth.
-                val existingToken = existing.token
-                if (type == ExternalServiceType.AUDIOBOOKSHELF &&
-                    existingToken != null && existingToken != token
-                ) {
-                    launch {
-                        ExternalServiceFactory.getService(type)
-                            .revokeToken(existing.url, existingToken, existing.customHeaders)
-                    }
-                }
-            } else {
-                repository.saveServer(server)
-            }
-        }
+    /**
+     * The one editable field of a saved connection: its display name. Everything else (address, account,
+     * headers) changes only through the connection flow, which re-validates against the server.
+     */
+    fun renameServer(server: ExternalServerEntity, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty() || trimmed == server.name) return
+        viewModelScope.launch { repository.updateServer(server.copy(name = trimmed)) }
     }
 
     fun deleteServer(server: ExternalServerEntity) {
@@ -91,17 +43,6 @@ class ExternalServerViewModel(private val repository: ExternalServerRepository) 
                 }
             }
         }
-    }
-
-    suspend fun testConnection(
-        type: ExternalServiceType,
-        url: String,
-        username: String?,
-        password: String?,
-        headers: Map<String, String>?
-    ): ConnectionResult {
-        val service = ExternalServiceFactory.getService(type)
-        return service.connect(url, username, password, headers)
     }
 }
 

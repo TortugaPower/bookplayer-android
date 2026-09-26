@@ -32,7 +32,7 @@ import android.graphics.drawable.BitmapDrawable
 
 class AudioWidgetLargeProvider : AppWidgetProvider() {
 
-    private val widgetScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val widgetScope = CoroutineScope(Dispatchers.Main + SupervisorJob() + com.tortugapower.audiobookplayer.logic.StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull })
 
     companion object {
         const val ACTION_PLAY_PAUSE = "com.tortugapower.audiobookplayer.widget.large.ACTION_PLAY_PAUSE"

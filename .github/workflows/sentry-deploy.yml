@@ -1,0 +1,43 @@
+# Sentry "published" marker — the Android equivalent of a deploy.
+#
+# In this repo `main` is what is live on the Play Store: the release PR develop→main is merged
+# only AFTER the store has published the build (that is the maintainer's standing discipline, and
+# it is what makes this signal reliable). So a push to main means "the current
+# versionName+versionCode is in users' hands", and this records that moment in Sentry as a
+# production deploy of the release the Sentry gradle plugin created at build time. The weekly
+# crash-triage routine reads deploys to know when a release went live, next to the ≥10-users
+# traffic gate.
+#
+# Idempotent: exits early when the release already has a production deploy. It fails only when
+# the release entry does not exist in Sentry — i.e. main moved without a release build behind it —
+# which is worth a red check.
+name: Sentry deploy marker
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy-marker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: tortuga-power
+      SENTRY_PROJECT: android-bookplayer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record production deploy for the current release
+        run: |
+          VN=$(sed -n 's/.*versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -1)
+          VC=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts | head -1)
+          RELEASE="com.tortugapower.audiobookplayer@${VN}+${VC}"
+          echo "release: $RELEASE"
+          if npx --yes @sentry/cli@2 releases deploys "$RELEASE" list 2>/dev/null | grep -q production; then
+            echo "production deploy already recorded for $RELEASE — nothing to do"
+            exit 0
+          fi
+          # finalize stamps dateReleased; the deploy is the signal the triage routine reads.
+          npx --yes @sentry/cli@2 releases finalize "$RELEASE"
+          npx --yes @sentry/cli@2 releases deploys "$RELEASE" new -e production

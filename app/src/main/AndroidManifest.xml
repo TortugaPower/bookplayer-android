@@ -21,6 +21,13 @@
             <action android:name="android.intent.action.SENDTO" />
             <data android:scheme="mailto" />
         </intent>
+        <!-- Custom Tabs providers, so CustomTabsClient can find a browser that supports Auth Tab (the
+             AudiobookShelf SSO browser leg). Deliberately no intent-filter for the SSO callback: Chrome
+             intercepts the audiobookshelf://oauth redirect inside the Auth Tab and returns it as an
+             activity result, so nothing on the device can claim it. -->
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
     </queries>
 
     <application

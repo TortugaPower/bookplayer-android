@@ -597,6 +597,13 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
 
             val body = response.body ?: return false
             val contentLength = body.contentLength()
+            // Refuse up front when the file can't fit with headroom to spare: a download that fills the
+            // disk takes the database down with it. The engine holds downloads until storage recovers.
+            if (contentLength > 0 && !StorageMonitor.hasRoomFor(context, contentLength)) {
+                StorageMonitor.noteTransferDoesNotFit(context, contentLength)
+                Log.w("DownloadFileProcessor", "⛔ Not enough storage for $relativePath ($contentLength bytes)")
+                return false
+            }
             var bytesRead = 0L
             var cancelled = false
 
@@ -634,6 +641,7 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
             Log.d("DownloadFileProcessor", "✅ Download complete: $relativePath")
             true
         } catch (e: Exception) {
+            StorageMonitor.reportFailure(context, e) // ENOSPC mid-write: the storage state holds further downloads
             Log.e("DownloadFileProcessor", "💥 Exception during download: ${e.message}", e)
             if (destFile.exists()) destFile.delete()
             SyncStatusManager.clearTaskProgress(taskId)

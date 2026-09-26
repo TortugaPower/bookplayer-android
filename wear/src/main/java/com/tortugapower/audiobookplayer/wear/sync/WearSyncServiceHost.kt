@@ -20,6 +20,8 @@ import com.tortugapower.audiobookplayer.logic.DownloadFileProcessor
 import com.tortugapower.audiobookplayer.logic.ExternalUpdateProcessor
 import com.tortugapower.audiobookplayer.logic.FetchContentsProcessor
 import com.tortugapower.audiobookplayer.logic.HardcoverProcessor
+import com.tortugapower.audiobookplayer.logic.PreferenceFetchProcessor
+import com.tortugapower.audiobookplayer.logic.PreferenceUploadProcessor
 import com.tortugapower.audiobookplayer.logic.MatchUuidsProcessor
 import com.tortugapower.audiobookplayer.logic.MetadataUploadProcessor
 import com.tortugapower.audiobookplayer.logic.MoveProcessor
@@ -120,6 +122,11 @@ class WearSyncServiceHost : Service() {
             DeleteExternalResourceProcessor(),
             SetExternalResourceToDownloadProcessor(),
             ExternalUpdateProcessor(this),
+            // Sticky-sort preferences: the fetch is the watch's active path (pull-only — nothing on
+            // the watch writes sort prefs); the upload processor is registered to keep processor-set
+            // parity with the phone, so a preference task can never sit unhandled in this queue.
+            PreferenceUploadProcessor(),
+            PreferenceFetchProcessor(this, repository),
         )
 
         taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)

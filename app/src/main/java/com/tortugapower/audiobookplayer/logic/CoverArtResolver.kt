@@ -1,7 +1,6 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.LruCache
 import com.tortugapower.audiobookplayer.database.dao.LibraryDao
@@ -41,7 +40,7 @@ object CoverArtResolver {
     private val noArtKeys = LruCache<String, Boolean>(NO_ART_CACHE_SIZE)
 
     private sealed interface ExtractResult {
-        class Found(val bytes: ByteArray) : ExtractResult
+        data object Saved : ExtractResult   // the candidate's cover was written into the store
         data object Empty : ExtractResult   // metadata read OK, but no embedded picture (definitive)
         data object Failed : ExtractResult  // exception / timeout / skipped (transient — do not negative-cache)
     }
@@ -85,16 +84,13 @@ object CoverArtResolver {
             android.util.Log.i("CoverArtResolver", "Folder ${item.uuid} cover search hit candidate cap (${candidates.size})")
         }
 
+        // Ensure Artworks/ exists — ArtworkManager opens a FileOutputStream on dest and would otherwise
+        // silently fail (→ cover never persists, remote re-streamed) on a fresh install.
+        dest.parentFile?.mkdirs()
         var allDefinitivelyEmpty = candidates.isNotEmpty()
         for (candidate in candidates) {
-            when (val result = extractFor(processedDir, candidate, includeRemote)) {
-                is ExtractResult.Found -> {
-                    // Ensure Artworks/ exists — ArtworkManager opens a FileOutputStream on dest and would
-                    // otherwise silently fail (→ cover never persists, remote re-streamed) on a fresh install.
-                    dest.parentFile?.mkdirs()
-                    ArtworkManager.saveEmbeddedArtwork(result.bytes, dest)
-                    return@withContext dest.takeIf { it.isFile }
-                }
+            when (extractFor(processedDir, candidate, includeRemote, dest)) {
+                ExtractResult.Saved -> return@withContext dest.takeIf { it.isFile }
                 ExtractResult.Empty -> Unit // this candidate has no art — try the next one
                 ExtractResult.Failed -> allDefinitivelyEmpty = false // transient/skipped — retry later
             }
@@ -106,14 +102,21 @@ object CoverArtResolver {
         null
     }
 
+    /**
+     * Write [item]'s embedded cover into [dest]. Extraction goes through [ArtworkManager], which locates
+     * the picture as a byte range and decodes it through a stream — never the cover-sized allocation
+     * `MediaMetadataRetriever.embeddedPicture` makes (fatal on a nearly full heap; ANDROID-BOOKPLAYER-17's
+     * neighbour) — while keeping "no art" (definitive) apart from a transient failure for the negative cache.
+     */
     private suspend fun extractFor(
         processedDir: String,
         item: LibraryItemEntity,
         includeRemote: Boolean,
+        dest: File,
     ): ExtractResult = when (
         val source = resolveArtworkSource(processedDir, item.relativePath, item.remoteURL) { File(it).isFile }
     ) {
-        is ArtworkSource.Local -> extractPicture(source.path, headers = null)
+        is ArtworkSource.Local -> ArtworkManager.saveEmbeddedArtwork(File(source.path), dest).toExtractResult()
         is ArtworkSource.Remote -> {
             if (!includeRemote) {
                 ExtractResult.Failed // don't block on the network here — the async prefetch handles remote
@@ -123,7 +126,7 @@ object CoverArtResolver {
                 val headers = PlaybackManager.getHeadersForUri(Uri.parse(source.url))
                 remoteSemaphore.withPermit {
                     withTimeoutOrNull(REMOTE_TIMEOUT_MS) {
-                        runInterruptible(Dispatchers.IO) { extractPicture(source.url, headers) }
+                        runInterruptible(Dispatchers.IO) { ArtworkManager.saveEmbeddedArtwork(source.url, headers, dest).toExtractResult() }
                     }
                 } ?: ExtractResult.Failed
             }
@@ -132,17 +135,10 @@ object CoverArtResolver {
         ArtworkSource.None -> ExtractResult.Failed
     }
 
-    private fun extractPicture(uri: String, headers: Map<String, String>?): ExtractResult {
-        val retriever = MediaMetadataRetriever()
-        return try {
-            if (headers != null) retriever.setDataSource(uri, headers) else retriever.setDataSource(uri)
-            val picture = retriever.embeddedPicture
-            if (picture != null) ExtractResult.Found(picture) else ExtractResult.Empty
-        } catch (e: Exception) {
-            ExtractResult.Failed
-        } finally {
-            try { retriever.release() } catch (_: Exception) {}
-        }
+    private fun ArtworkManager.EmbeddedArtwork.toExtractResult(): ExtractResult = when (this) {
+        ArtworkManager.EmbeddedArtwork.Saved -> ExtractResult.Saved
+        ArtworkManager.EmbeddedArtwork.None -> ExtractResult.Empty
+        ArtworkManager.EmbeddedArtwork.Failed -> ExtractResult.Failed
     }
 }
 

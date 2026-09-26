@@ -18,9 +18,20 @@ object VirtualImportManager {
     data class Result(val item: LibraryItemEntity, val alreadyImported: Boolean)
 
     /**
+     * The file name a virtual import is stored under: the item's title plus the REAL extension the server
+     * reported (with or without its leading dot) — `"<title>.<ext>"`, exactly as iOS names it, so the same
+     * server item gets the same `relativePath` on both platforms and sync sees one book, not two.
+     */
+    fun importFileName(title: String, extension: String): String = "$title.${extension.trimStart('.')}"
+
+    /**
      * Imports [externalItem] (whose `uuid` is the item's id on the integration server) as a
      * stream-only library entry. Idempotent: if a library item already links to this
      * provider/providerId pair (from a previous stream or download import), it is returned as-is.
+     *
+     * Returns null when [externalItem] carries no file name: the caller hydrates the REAL extension from
+     * the server ([importFileName]) and skips items without one. There is no fallback — a guessed ".mp3"
+     * on an m4b named the file wrong on every device that synced it.
      *
      * @param artworkPath value for the new item's `artworkURL` (local file or remote URL)
      * @param enqueueSyncTasks pass the caller's subscription check; tasks require an active tier
@@ -37,14 +48,13 @@ object VirtualImportManager {
         artworkPath: String? = null,
         enqueueSyncTasks: Boolean = true,
         isPro: Boolean = false
-    ): Result {
+    ): Result? {
         libraryDao.getExternalResourceByProvider(providerName, externalItem.uuid)?.let { resource ->
             libraryDao.getItemById(resource.libraryItemUuid)?.let { return Result(it, true) }
         }
 
-        val fileName = FilenameUtils.sanitizeFilename(
-            externalItem.originalFileName ?: "${externalItem.title}.mp3"
-        )
+        val originalFileName = externalItem.originalFileName?.takeIf { it.isNotBlank() } ?: return null
+        val fileName = FilenameUtils.sanitizeFilename(originalFileName)
         val uuid = UUID.randomUUID().toString()
 
         // relativePath is the item's unique "location" (root-level, so no '/'), and is also how

@@ -11,7 +11,7 @@ import okhttp3.Request
  * remote file fetched via HTTP `Range` requests (the m4b `moov` atom is often at EOF, so we locate it
  * with a few small ranged header reads and fetch only its body — never the whole audio).
  */
-interface SeekableByteSource {
+interface SeekableByteSource : java.io.Closeable {
     /** Total length in bytes, or <= 0 if unknown/unavailable (callers treat that as "can't parse"). */
     fun size(): Long
 
@@ -21,7 +21,7 @@ interface SeekableByteSource {
      */
     fun readAt(offset: Long, length: Int): ByteArray?
 
-    fun close()
+    override fun close()
 }
 
 /** Local-file source — behavior-identical to the extractor's previous direct `RandomAccessFile` use. */

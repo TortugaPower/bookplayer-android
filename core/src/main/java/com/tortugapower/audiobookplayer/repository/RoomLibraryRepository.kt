@@ -12,6 +12,7 @@ import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.core.R
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
+import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -34,6 +35,14 @@ class RoomLibraryRepository(
     syncTaskRepositoryProvider: (() -> SyncTaskRepository)? = null,
     private val timeProvider: () -> Long = { System.currentTimeMillis() }
 ) : LibraryRepository {
+
+    /**
+     * Optional hook resolving a location's effective sticky sort, wired by the host app once its
+     * [com.tortugapower.audiobookplayer.logic.sort.LibrarySortManager] exists (the manager depends
+     * on this repository, so a constructor dependency would be a cycle). Null ⇒ rank order,
+     * matching targets that have no sort preferences wired.
+     */
+    var effectiveSortResolver: (suspend (path: String?) -> EffectiveSort)? = null
 
     private val syncTaskRepository by lazy {
         syncTaskRepositoryProvider?.invoke()
@@ -450,7 +459,7 @@ class RoomLibraryRepository(
         return withContext(Dispatchers.IO) {
             val currentItem = libraryDao.getItemById(currentItemUuid) ?: return@withContext null
             val path = currentItem.relativePath?.substringBeforeLast('/', "") ?: ""
-            
+
             // Playable siblings are BOOKs and BOUND books (folders are containers, not playable), so
             // skip-to-next/previous works from a bound book too — not just standalone books.
             val siblings = if (path.isEmpty()) {
@@ -459,11 +468,22 @@ class RoomLibraryRepository(
                 libraryDao.getItemsInPathSync(path)
             }.filter { it.type == ItemType.BOOK || it.type == ItemType.BOUND }
 
-            val currentIndex = siblings.indexOfFirst { it.uuid == currentItemUuid }
+            // Next/previous must follow the order the user SEES: under an automatic sticky sort
+            // the list is rule-ordered at view time, so walking raw ranks here would jump to a
+            // different book than the visible neighbor. Sorting the playable subset by the same
+            // rule preserves its relative visible order.
+            val effectiveSort = effectiveSortResolver?.invoke(path.ifEmpty { null })
+            val orderedSiblings = if (effectiveSort is EffectiveSort.Automatic) {
+                effectiveSort.sortType.sorted(siblings)
+            } else {
+                siblings
+            }
+
+            val currentIndex = orderedSiblings.indexOfFirst { it.uuid == currentItemUuid }
             if (currentIndex == -1) return@withContext null
 
             val targetIndex = if (next) currentIndex + 1 else currentIndex - 1
-            resolveRemoteUrlInRuntime(siblings.getOrNull(targetIndex))
+            resolveRemoteUrlInRuntime(orderedSiblings.getOrNull(targetIndex))
         }
     }
 

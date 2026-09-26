@@ -23,5 +23,10 @@ data class ExternalServerEntity(
     // device with this server configured can resolve synced-down items. Null when never reported;
     // resolution then falls back to canonicalServerKey(url). NOT a credential: stays out of the
     // repository's encrypted()/decrypted() field set.
-    val stableId: String? = null
+    val stableId: String? = null,
+    // The account's id on the server (Jellyfin User.Id, ABS user.id), captured at sign-in. The
+    // identity a re-auth matches on so the same account replaces its row while a second account on
+    // the same server stays separate (iOS keys its store on url + userID). Null for rows saved
+    // before the column existed; those fall back to matching on username. Not a credential.
+    val userId: String? = null
 )

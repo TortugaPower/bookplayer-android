@@ -40,7 +40,7 @@ object ShortcutHelper {
     // Application-lifetime scope for fire-and-forget pin requests. Owning the scope here (instead of
     // taking the caller's) means a config change mid artwork-fetch can't cancel the request — a UI
     // scope such as rememberCoroutineScope() is cancelled and recreated on rotation.
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main + com.tortugapower.audiobookplayer.logic.StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull })
 
     fun getShortcutId(itemUuid: String): String = "shortcut_play_$itemUuid"
 

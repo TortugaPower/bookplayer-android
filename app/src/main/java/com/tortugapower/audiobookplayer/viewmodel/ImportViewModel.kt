@@ -13,6 +13,7 @@ class ImportViewModel(
     val isImporting get() = importService.isImporting
     val activeDownloadCount get() = importService.activeDownloadCount
     val skippedItemsCount get() = importService.skippedItemsCount
+    val skippedNoAudioCount get() = importService.skippedNoAudioCount
     val processingFileName get() = importService.processingFileName
     val importCompletion get() = importService.importCompletion
     var showImportSheet
@@ -38,6 +39,7 @@ class ImportViewModel(
         context: Context,
         items: List<com.tortugapower.audiobookplayer.model.ExternalLibraryItem>,
         providerName: String,
-        hostId: String?
-    ) = importService.startStreamImport(context, items, providerName, hostId)
+        hostId: String?,
+        skippedWithoutAudio: Int = 0
+    ) = importService.startStreamImport(context, items, providerName, hostId, skippedWithoutAudio)
 }

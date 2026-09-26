@@ -144,6 +144,17 @@ fun ImportSheet(viewModel: ImportViewModel, targetFolderPath: String? = null) {
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
+
+            if (viewModel.skippedNoAudioCount > 0) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = stringResource(R.string.import_skipped_no_audio_files, viewModel.skippedNoAudioCount),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
         }
     }
 }

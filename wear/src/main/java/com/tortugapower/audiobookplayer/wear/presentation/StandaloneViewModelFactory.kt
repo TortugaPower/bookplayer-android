@@ -16,6 +16,11 @@ class StandaloneViewModelFactory(
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         val app = application as WearApp
-        return StandaloneViewModel(app.libraryRepository, app.syncTaskRepository, path) as T
+        return StandaloneViewModel(
+            app.libraryRepository,
+            app.syncTaskRepository,
+            path,
+            app.librarySortManager,
+        ) as T
     }
 }

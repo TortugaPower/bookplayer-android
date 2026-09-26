@@ -34,10 +34,6 @@ import com.tortugapower.audiobookplayer.wear.presentation.MainActivity
 @OptIn(UnstableApi::class)
 class WearPlaybackService : MediaPlaybackService() {
 
-    // Let ExoPlayer own the watch's media-stream volume so the rotary crown can drive it during standalone
-    // playback (the crown calls PlaybackManager.increase/decreaseDeviceVolume). Off on the phone.
-    override val deviceVolumeControlEnabled: Boolean = true
-
     override fun onCreate() {
         super.onCreate()
         // Wear App Quality requirement ("Missing ongoing activity", 1.0.0 wear review): active playback
@@ -85,6 +81,11 @@ class WearPlaybackService : MediaPlaybackService() {
             action: String,
             extras: Bundle,
         ): Boolean = false
+
+        // media3 1.10+: the service creates the channel up front so a stale start Intent can still be
+        // answered with a foreground notification in time. Same channel as the default provider's.
+        override fun getNotificationChannelInfo(): MediaNotification.Provider.NotificationChannelInfo =
+            delegate.notificationChannelInfo
     }
 
     override fun createSessionActivity(): PendingIntent {

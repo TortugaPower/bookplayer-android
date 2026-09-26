@@ -7,7 +7,9 @@ import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 
 /**
  * The ordering brain for the library. Order is a VIEW transform, not stored state: while a location's
@@ -43,6 +45,32 @@ class LibrarySortManager(
     suspend fun effectiveSort(path: String?): EffectiveSort = sortStore.get(resolveLocation(path))
 
     fun observeEffectiveSort(location: SortLocation): Flow<EffectiveSort> = sortStore.observe(location)
+
+    /**
+     * The effective sort for [path] as a Flow: resolves the location once per collection, then
+     * follows the stored preference. The library screens combine this with their items Flow to
+     * apply the view transform — the phone's list and the Wear standalone library share this glue.
+     */
+    fun observeEffectiveSort(path: String?): Flow<EffectiveSort> = flow {
+        emitAll(sortStore.observe(resolveLocation(path)))
+    }
+
+    /**
+     * Applies [path]'s effective sort to [items] — the one-shot counterpart of the library screen's
+     * view transform, for suspend surfaces (Android Auto's browse tree).
+     */
+    suspend fun sortedForDisplay(path: String?, items: List<LibraryItemEntity>): List<LibraryItemEntity> =
+        when (val sort = effectiveSort(path)) {
+            is EffectiveSort.Automatic -> sort.sortType.sorted(items)
+            EffectiveSort.Custom -> items
+        }
+
+    /**
+     * Snapshot of every stored `library_sort:*` preference; emits on any change (rule picks,
+     * custom flips, remote preference fetches). Android Auto uses it to invalidate cached
+     * browse nodes when the sort changes mid-session.
+     */
+    fun observeSortPreferences(): Flow<Map<String, String>> = sortStore.observeAllPreferences()
 
     /**
      * User picked an automatic sort rule. Persist the preference only — the list re-derives its order

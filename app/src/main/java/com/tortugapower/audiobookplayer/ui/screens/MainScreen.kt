@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,6 +42,10 @@ import com.tortugapower.audiobookplayer.database.AppDatabase
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.repeatOnLifecycle
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.StorageMonitor
+import com.tortugapower.audiobookplayer.ui.components.StorageFullBanner
+import com.tortugapower.audiobookplayer.ui.components.StorageFullDialog
+import com.tortugapower.audiobookplayer.ui.components.openStorageSettings
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.logic.ReviewPromptManager
 import com.tortugapower.audiobookplayer.ui.components.findActivity
@@ -104,6 +109,26 @@ fun MainScreen() {
 
     val showPlayerScreen by PlaybackManager.showPlayerScreen.collectAsStateWithLifecycle()
     val currentPlaybackItem by PlaybackManager.currentItem.collectAsStateWithLifecycle()
+
+    // Storage: a banner while the disk is full (everything paused) or a transfer is waiting for space,
+    // and the explanation when playback was refused/stopped because progress can't be saved.
+    val storageState by StorageMonitor.state.collectAsStateWithLifecycle()
+    val playbackBlockedByStorage by PlaybackManager.playbackBlockedByStorage.collectAsStateWithLifecycle()
+    // While storage is short, re-measure every few seconds so freeing space in Settings clears the
+    // state on its own (the buttons remain for an immediate re-check).
+    LaunchedEffect(storageState.isCritical || storageState.transfersHeld) {
+        while (storageState.isCritical || storageState.transfersHeld) {
+            kotlinx.coroutines.delay(10_000)
+            StorageMonitor.refresh(context)
+        }
+    }
+    if (playbackBlockedByStorage) {
+        StorageFullDialog(
+            state = storageState,
+            onDismiss = { PlaybackManager.dismissStorageBlock() },
+            onFreeUpSpace = { openStorageSettings(context) },
+        )
+    }
 
     // Post-book-finish review prompt (iOS parity: PlayerViewModel.requestReview fires on .bookEnd
     // and on app-active-with-player-shown). Consume the armed flag only while the player is visible
@@ -179,6 +204,7 @@ fun MainScreen() {
 
 
     var showMediaServersFlow by remember { mutableStateOf(false) }
+    var mediaServersInitialType by remember { mutableStateOf<com.tortugapower.audiobookplayer.database.entities.ExternalServiceType?>(null) }
 
     // A synced-down media-server book whose server isn't configured on THIS device (configs are
     // per-device; only the stable hostId syncs): prompt to connect it, deep-linking into the
@@ -197,6 +223,7 @@ fun MainScreen() {
             confirmButton = {
                 TextButton(onClick = {
                     PlaybackManager.clearMissingExternalServer()
+                    mediaServersInitialType = providerType
                     showMediaServersFlow = true
                 }) {
                     Text(stringResource(id = R.string.external_server_missing_connect))
@@ -617,7 +644,11 @@ fun MainScreen() {
                         externalServerRepository = externalServerRepository,
                         externalLibraryRepository = externalLibraryRepository,
                         importViewModel = importViewModel,
-                        onDismiss = { showMediaServersFlow = false }
+                        onDismiss = {
+                            showMediaServersFlow = false
+                            mediaServersInitialType = null
+                        },
+                        initialAddServerType = mediaServersInitialType,
                     )
                 }
               }
@@ -627,7 +658,15 @@ fun MainScreen() {
                 if (miniPlayerVisible) {
                     MiniPlayer(modifier = Modifier.align(Alignment.BottomCenter))
                 }
-            }
+                            if (storageState.isCritical || storageState.transfersHeld) {
+                    StorageFullBanner(
+                        state = storageState,
+                        onFreeUpSpace = { openStorageSettings(context) },
+                        onRetry = { StorageMonitor.refresh(context) },
+                        modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding(),
+                    )
+                }
+}
         }
 
         PlayerScreen(viewModel = playerViewModel)

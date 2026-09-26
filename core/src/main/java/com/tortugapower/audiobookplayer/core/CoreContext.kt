@@ -11,6 +11,9 @@ object CoreContext {
     lateinit var appContext: Context
         private set
 
+    /** [appContext] if the host has initialized it, else null — for hooks that may run before [init]. */
+    val appContextOrNull: Context? get() = if (::appContext.isInitialized) appContext else null
+
     fun init(context: Context) { appContext = context.applicationContext }
 
     fun isInitialized(): Boolean = ::appContext.isInitialized

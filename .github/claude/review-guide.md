@@ -6,15 +6,20 @@ layout, and conventions before judging anything.
 
 ## How to review
 
-1. Get the diff: `gh pr diff <number>`. The PR branch is already checked out in the working directory.
+1. Read the unified diff the harness wrote for you; its path is in the task prompt. The PR branch is
+   already checked out in the working directory.
 2. **Do not review the diff in isolation.** For each non-trivial change, open the surrounding code and
    its **callers** with `Read`/`Grep`/`Glob` before forming an opinion. Diff-only opinions are not acceptable.
-3. Cross-check changes against `CLAUDE.md` conventions and the matching area (UI/Compose, ViewModel,
-   repository, Room, network, Media3 playback, billing).
+3. Cross-check changes against `CLAUDE.md` conventions and the matching area. For Compose UI, check state
+   hoisting, recomposition cost and accessibility. For ViewModels, check the StateFlow / coroutine-scope /
+   manual-DI conventions. For playback, follow the Media3 ExoPlayer and MediaSession path and what runs inside
+   the playback service. Repository, Room, network and billing code each have their own section below.
+   Behaviour should match the iOS app unless the PR says otherwise.
 4. **Module boundaries:** the codebase is split into `:core` (shared Compose-free, playback-capable library —
-   Media3 lives here) and `:app` (phone) + `:wear`. See "Module conventions" in `CLAUDE.md` — check the flags
-   in the module section below.
-4. Comment **only on lines changed by this PR**, in changed files. Skip everything in "what to skip".
+   Media3 lives here) and `:app` (phone) + `:wear`. `:core` never references `:app`, holds no Compose, and takes
+   config injected rather than read; for `:wear`, check the phone/watch split and what crosses the data layer.
+   See "Module conventions" in `CLAUDE.md` — check the flags in the module section below.
+5. Comment **only on lines changed by this PR**, in changed files. Skip everything in "what to skip".
 
 ## What to skip
 
@@ -83,9 +88,14 @@ layout, and conventions before judging anything.
 
 ## Reporting findings
 
-Your findings are consumed by an automated harness (it posts the comments, de-duplicates them across
-pushes, and resolves stale ones) — **do not post comments or create reviews yourself.** The exact JSON
-shape to emit is defined by the output contract in your system prompt.
+Your findings are consumed by an automated harness — **do not post comments or create reviews yourself.**
+It posts each finding as an inline comment, recognises a finding you reported on an earlier push and leaves
+that comment alone, and closes an earlier comment only when a second pass has judged it against the current
+code — fixed, no longer applicable, accepted by a maintainer, or a duplicate of something reported on this
+push. Nothing closes because you stopped mentioning it. A finding whose line the API will not accept as an
+inline anchor, and any finding past the inline cap, is listed in the summary comment rather than lost — but a
+finding with no usable line number at all is dropped, so tie every finding to a line this PR changed. The
+exact JSON shape to emit is defined by the output contract in your system prompt.
 
 - Report each issue with its severity, file, the **changed line** it applies to, and a concrete fix.
   Tie every finding to a line the PR actually changed.

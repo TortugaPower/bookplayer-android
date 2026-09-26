@@ -16,6 +16,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -52,8 +53,8 @@ class VirtualImportManagerTest {
             artworkPath = "/data/Artworks/abc.jpg"
         )
 
-        assertFalse(result.alreadyImported)
-        val saved = fakeDao.items[result.item.uuid]!!
+        assertFalse(result!!.alreadyImported)
+        val saved = fakeDao.items[result!!.item.uuid]!!
         assertNotEquals("jellyfin-item-1", saved.uuid)
         assertEquals("Book One", saved.title)
         assertEquals("Author One", saved.author)
@@ -92,7 +93,7 @@ class VirtualImportManagerTest {
         assertTrue(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE in jobTypes)
         assertTrue(SyncTaskFactory.JOB_UPLOAD_ARTWORK in jobTypes)
         val pipe = fakeSyncTasks.tasks.single { it.jobType == SyncTaskFactory.JOB_UPLOAD_STREAM_FILE }
-        assertEquals(result.item.uuid, pipe.taskID)
+        assertEquals(result!!.item.uuid, pipe.taskID)
         assertEquals(SyncTaskFactory.QUEUE_PIPE, pipe.queueKey)
         cover.delete()
         Unit
@@ -122,8 +123,8 @@ class VirtualImportManagerTest {
             fakeDao, fakeSyncTasks, serverItem(), providerName = "jellyfin", hostId = "3"
         )
 
-        assertTrue(second.alreadyImported)
-        assertEquals(first.item.uuid, second.item.uuid)
+        assertTrue(second!!.alreadyImported)
+        assertEquals(first!!.item.uuid, second!!.item.uuid)
         assertEquals(1, fakeDao.items.size)
         assertEquals(1, fakeDao.externalResources.size)
     }
@@ -141,24 +142,45 @@ class VirtualImportManagerTest {
             fakeDao, fakeSyncTasks, serverItem(), providerName = "jellyfin", hostId = "3"
         )
 
-        assertFalse(result.alreadyImported)
-        val relativePath = result.item.relativePath!!
+        assertFalse(result!!.alreadyImported)
+        val relativePath = result!!.item.relativePath!!
         assertNotEquals("Book One.m4b", relativePath)
         assertTrue(relativePath.startsWith("Book One-"))
         assertTrue(relativePath.endsWith(".m4b"))
         assertFalse(relativePath.contains('/'))
     }
 
+    /** iOS parity: no file name means no real extension, and an extension is never guessed. */
     @Test
-    fun importStreamItem_fallsBackToTitleWhenNoFileName_andSkipsTasksWhenNotSubscribed() = runBlocking {
+    fun importStreamItem_refusesAnItemWithoutAFileName_neverGuessingAnExtension() = runBlocking {
         val result = VirtualImportManager.importStreamItem(
             fakeDao, fakeSyncTasks, serverItem(fileName = null),
+            providerName = "audiobookshelf", hostId = null
+        )
+
+        assertNull(result)
+        assertTrue("nothing is inserted", fakeDao.items.isEmpty())
+        assertTrue(fakeDao.externalResources.isEmpty())
+        assertTrue(fakeSyncTasks.tasks.isEmpty())
+    }
+
+    @Test
+    fun importStreamItem_skipsTasksWhenNotSubscribed() = runBlocking {
+        val result = VirtualImportManager.importStreamItem(
+            fakeDao, fakeSyncTasks, serverItem(),
             providerName = "audiobookshelf", hostId = null,
             enqueueSyncTasks = false
         )
 
-        assertEquals("Book One.mp3", result.item.relativePath)
+        assertEquals("Book One.m4b", result!!.item.relativePath)
         assertTrue(fakeSyncTasks.tasks.isEmpty())
+    }
+
+    /** The iOS name — `<title>.<ext>` — so the same server item gets the same relativePath on both platforms. */
+    @Test
+    fun importFileName_isTitleDotExtension_droppingTheServersLeadingDot() {
+        assertEquals("Book One.m4b", VirtualImportManager.importFileName("Book One", "m4b"))
+        assertEquals("Book One.mp3", VirtualImportManager.importFileName("Book One", ".mp3"))
     }
 
     @Test
@@ -172,7 +194,7 @@ class VirtualImportManagerTest {
             fakeDao, fakeSyncTasks, serverItem(), providerName = "jellyfin", hostId = "3"
         )
 
-        assertEquals(5, result.item.orderRank)
+        assertEquals(5, result!!.item.orderRank)
     }
 
     private class FakeLibraryDao : LibraryDao {

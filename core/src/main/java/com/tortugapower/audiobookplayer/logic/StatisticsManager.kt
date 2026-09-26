@@ -7,6 +7,7 @@ import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.dao.StatisticsDao
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.PlaybackSessionEntity
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -24,11 +25,21 @@ object StatisticsManager {
     // PlaybackTickPolicy.PERSIST_INTERVAL_MS = 10s, so a live session never drifts this far).
     private const val STALE_SESSION_THRESHOLD_MS = 30_000L
 
+    /**
+     * Listening statistics are bookkeeping: a failed write (a constraint the guards below didn't foresee,
+     * a full disk) must never take playback — or the process — down with it. Uncaught exceptions in the
+     * statistics coroutines are logged here instead of reaching the thread's uncaught handler.
+     */
+    @VisibleForTesting
+    internal val exceptionHandler = CoroutineExceptionHandler { _, e ->
+        Log.e(TAG, "Statistics update failed; playback is unaffected", e)
+    }
+
     // Single-parallelism dispatcher so events are processed strictly in submission order —
     // a fast pause→play toggle must never run its play half before its pause half.
     @OptIn(ExperimentalCoroutinesApi::class)
     @VisibleForTesting
-    internal var scope = CoroutineScope(Dispatchers.IO.limitedParallelism(1) + SupervisorJob())
+    internal var scope = CoroutineScope(Dispatchers.IO.limitedParallelism(1) + SupervisorJob() + exceptionHandler)
 
     @VisibleForTesting
     internal var testDao: StatisticsDao? = null
@@ -57,7 +68,11 @@ object StatisticsManager {
                     authorName = item.author,
                     startTime = timeProvider()
                 )
-                val id = dao.insertSession(session)
+                val id = dao.startSession(session)
+                if (id == null) {
+                    Log.w(TAG, "Book ${item.uuid} is no longer in the library; not recording a session")
+                    return@launch
+                }
                 Log.d(TAG, "🚀 Started new session: $id for ${item.title}")
             } else {
                 // Stopped or item is null
