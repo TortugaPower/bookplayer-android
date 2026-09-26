@@ -8,9 +8,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.tortugapower.audiobookplayer.logic.ThemeManager
+import com.tortugapower.audiobookplayer.ui.rememberSafeUriHandler
 
 /**
  * Root theme wrapper. Resolves the active variant (system or manual), provides
@@ -34,7 +36,12 @@ fun BookPlayerTheme(content: @Composable () -> Unit) {
         }
     }
 
-    CompositionLocalProvider(LocalBookPlayerColors provides colors) {
+    // Every link in the app opens through a handler that cannot crash on a device with no browser (see
+    // SafeUriHandler). Installed here because this wraps every screen the phone app shows.
+    CompositionLocalProvider(
+        LocalBookPlayerColors provides colors,
+        LocalUriHandler provides rememberSafeUriHandler(),
+    ) {
         MaterialTheme(
             colorScheme = materialScheme,
             typography = Typography,
