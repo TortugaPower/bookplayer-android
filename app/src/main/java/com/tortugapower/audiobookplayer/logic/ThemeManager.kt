@@ -1,7 +1,6 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
-import android.content.Intent
 import android.appwidget.AppWidgetManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
