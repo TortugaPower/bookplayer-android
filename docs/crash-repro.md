@@ -206,6 +206,24 @@ say which service was promoting. Both promotion sites now leave an `fgs` breadcr
 (`TaskConcurrencyServiceHost` before `startForeground`, `AudioPlayerService.onUpdateNotification` when
 `startInForegroundRequired`). Nothing to fix until it recurs with a breadcrumb attached.
 
+### ANDROID-BOOKPLAYER-1P / -1R — tapping a link on a device with no browser
+
+`scripts/chaos/no-browser.sh`
+
+Disables Chrome (`pm disable-user`), the only `https` handler on a google_apis image, launches the app
+and taps Settings → "View project on GitHub". Compose's platform `UriHandler` rethrows the
+`ActivityNotFoundException` from `startActivity` as an `IllegalArgumentException("Can't open …")`, and
+nine call sites (Tip Jar contributors, Settings links, Account terms/privacy, Hardcover) used it bare.
+
+* Before: `FATAL EXCEPTION: main … IllegalArgumentException: Can't open https://github.com/TortugaPower/bookplayer-android`
+  and the process is gone (`pidof` empty). Same shape as the Sentry report, from a different link.
+* After: the process is alive and `NotificationService` logs a toast from the package ("No app on this
+  device can open links."; toast windows are not in the accessibility dump, so logcat is the check).
+  `BookPlayerTheme` installs `SafeUriHandler` as `LocalUriHandler`, so every
+  call site is covered without changing any of them. Unit test: `SafeUriHandlerTest`.
+* Verified 2026-09-11 on `bp-lowend-31` (Pixel 3a profile, API 31 — the report was a Pixel 3 on 12).
+  Re-enable Chrome afterwards: `adb shell pm enable com.android.chrome`.
+
 ### Not yet scripted
 
 | Issue | Planned recipe |

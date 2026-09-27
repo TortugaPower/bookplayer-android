@@ -12,6 +12,7 @@
     <string name="common_more">More</string>
     <string name="common_done">Done</string>
     <string name="common_ok">OK</string>
+    <string name="common_no_link_handler">No app on this device can open links.</string>
     <string name="common_error">Error</string>
     <string name="common_cancel">Cancel</string>
     <string name="common_share">Share</string>
