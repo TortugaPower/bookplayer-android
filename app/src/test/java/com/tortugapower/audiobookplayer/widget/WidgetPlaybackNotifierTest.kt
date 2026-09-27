@@ -92,6 +92,25 @@ class WidgetPlaybackNotifierTest {
     }
 
     @Test
+    fun rebuild_fromAnotherCaller_cancelsTheRebuildAlreadyInFlight() = runTest(dispatcher) {
+        placeWidget(7)
+        val completed = mutableListOf<Int>()
+        var started = 0
+        WidgetPlaybackNotifier.refresh = { _, _ ->
+            val n = ++started
+            delay(1_000)
+            completed += n
+        }
+
+        WidgetPlaybackNotifier.notify(context, itemChanged = true, isPlaying = true)
+        advanceTimeBy(10)
+        WidgetPlaybackNotifier.rebuild(context) // what a theme change does
+        advanceUntilIdle()
+
+        assertEquals(listOf(2), completed)
+    }
+
+    @Test
     fun bookChange_withNoWidgetPlaced_doesNothing() = runTest(dispatcher) {
         WidgetPlaybackNotifier.notify(context, itemChanged = true, isPlaying = false)
         advanceUntilIdle()

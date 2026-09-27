@@ -21,8 +21,9 @@ import kotlinx.coroutines.launch
  * a play/pause flip only patches the button in place — no DB query, artwork reload, or full RemoteViews
  * payload per tap.
  *
- * Both paths stay in-process. The rebuild calls [AudioWidgetLargeRenderer.refresh] rather than broadcasting
- * APPWIDGET_UPDATE at our own receiver — see the renderer for the vivo launch crash that ruled that out.
+ * Both paths stay in-process. The rebuild ([rebuild], shared with theme changes) calls
+ * [AudioWidgetLargeRenderer.refresh] rather than broadcasting APPWIDGET_UPDATE at our own receiver — see the
+ * renderer for the vivo launch crash that ruled that out.
  */
 object WidgetPlaybackNotifier {
     private val scope = CoroutineScope(
@@ -33,19 +34,30 @@ object WidgetPlaybackNotifier {
     @VisibleForTesting
     internal var refresh: suspend (Context, IntArray) -> Unit = AudioWidgetLargeRenderer::refresh
 
-    /** The in-flight rebuild; a newer book change cancels it so an older one can't land last. */
+    /** The in-flight rebuild; a newer one cancels it so an older rebuild can never land last. */
     private var refreshJob: Job? = null
+
+    /**
+     * Rebuilds every placed widget in-process — the one entry for playback and theme changes, so
+     * overlapping rebuilds coalesce instead of racing. Callable from any thread: the job bookkeeping
+     * runs on [scope]'s main dispatcher.
+     */
+    fun rebuild(context: Context) {
+        val largeIds = AppWidgetManager.getInstance(context).getAppWidgetIds(
+            ComponentName(context, AudioWidgetLargeProvider::class.java)
+        )
+        // No widgets placed — skip the rebuild (also covers the combine's cold-start emission).
+        if (largeIds.isEmpty()) return
+        scope.launch {
+            refreshJob?.cancel()
+            refreshJob = coroutineContext[Job]
+            refresh(context, largeIds)
+        }
+    }
 
     fun notify(context: Context, itemChanged: Boolean, isPlaying: Boolean) {
         if (itemChanged) {
-            val largeIds = AppWidgetManager.getInstance(context).getAppWidgetIds(
-                ComponentName(context, AudioWidgetLargeProvider::class.java)
-            )
-            // No widgets placed — skip the rebuild (also covers the combine's cold-start emission).
-            if (largeIds.isNotEmpty()) {
-                refreshJob?.cancel()
-                refreshJob = scope.launch { refresh(context, largeIds) }
-            }
+            rebuild(context)
         } else {
             AudioWidgetLargeProvider.pushPlayStateUpdate(context, isPlaying)
         }

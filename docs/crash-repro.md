@@ -145,9 +145,9 @@ the home screen it cold-starts the app and counts, in `dumpsys activity broadcas
 `WidgetPlaybackNotifierTest` pins that a book change rebuilds the placed ids through the renderer and
 sends no broadcast.
 
-Fix: the rendering moved verbatim into `AudioWidgetLargeRenderer`; playback (`WidgetPlaybackNotifier`)
-and theme changes (`ThemeManager.updateWidgets`) call `refresh` directly — no receiver, no
-`PendingResult`. The receiver keeps `goAsync()` for what genuinely arrives from outside (the launcher's
+Fix: the rendering moved verbatim into `AudioWidgetLargeRenderer`; playback and theme changes go
+through `WidgetPlaybackNotifier.rebuild`, which cancels a rebuild still in flight and calls `refresh`
+directly — no receiver, no `PendingResult`. The receiver keeps `goAsync()` for what genuinely arrives from outside (the launcher's
 `APPWIDGET_*`, the widget's tap PendingIntents) and its `finish()` now tolerates
 `IllegalStateException`; that guard only reaches the direct finish (the deferred one throws on the
 framework's thread), which is why the in-process path is the fix and the guard is the backstop.

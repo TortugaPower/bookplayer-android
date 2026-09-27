@@ -36,8 +36,9 @@ import kotlinx.coroutines.withContext
  * Builds a widget's RemoteViews from the current playback state and pushes it to the launcher.
  *
  * Shared by [AudioWidgetLargeProvider] (the launcher's APPWIDGET_UPDATE / OPTIONS_CHANGED
- * broadcasts) and by in-process callers — playback and theme changes — which call [refresh]
- * directly. Those used to broadcast APPWIDGET_UPDATE back at our own receiver, so every app start
+ * broadcasts) and by in-process callers — playback and theme changes, through
+ * [WidgetPlaybackNotifier.rebuild] — which call [refresh] directly. Those used to broadcast
+ * APPWIDGET_UPDATE back at our own receiver, so every app start
  * with a widget placed took a goAsync() PendingResult; on vivo's Funtouch 13 the framework finishes
  * that result on its own, our finish() then threw "Broadcast already finished", and the app crashed
  * on every launch until the user cleared its data (ANDROID-BOOKPLAYER-E / -F). A direct call has no
@@ -417,6 +418,8 @@ internal object AudioWidgetLargeRenderer {
             } else {
                 null
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             null
         }
@@ -474,7 +477,9 @@ internal object AudioWidgetLargeRenderer {
 
             val savedTitle = try {
                 PlaybackSettingsManager.getThemeTitle(context).first()
-            } catch(e: Exception) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
                 "Default / Dark"
             }
             loaded.firstOrNull { it.title == savedTitle } ?: loaded.firstOrNull() ?: ThemeManager.currentTheme
@@ -482,12 +487,24 @@ internal object AudioWidgetLargeRenderer {
 
         val useSystemMode = if (ThemeManager.isReady) ThemeManager.useSystemMode else {
             withContext(Dispatchers.IO) {
-                try { PlaybackSettingsManager.getUseSystemMode(context).first() } catch (e: Exception) { true }
+                try {
+                    PlaybackSettingsManager.getUseSystemMode(context).first()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    true
+                }
             }
         }
         val useDarkVariant = if (ThemeManager.isReady) ThemeManager.useDarkVariant else {
             withContext(Dispatchers.IO) {
-                try { PlaybackSettingsManager.getUseDarkVariant(context).first() } catch (e: Exception) { true }
+                try {
+                    PlaybackSettingsManager.getUseDarkVariant(context).first()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    true
+                }
             }
         }
 
