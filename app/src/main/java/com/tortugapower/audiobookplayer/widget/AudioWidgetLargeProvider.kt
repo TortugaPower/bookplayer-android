@@ -8,6 +8,7 @@ import android.widget.RemoteViews
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -89,6 +90,8 @@ class AudioWidgetLargeProvider : AppWidgetProvider() {
         widgetScope.launch {
             try {
                 block()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 android.util.Log.e("AudioWidgetLarge", "Widget work failed", e)
             } finally {

@@ -24,6 +24,7 @@ import com.tortugapower.audiobookplayer.widget.AudioWidgetLargeProvider.Companio
 import com.tortugapower.audiobookplayer.widget.AudioWidgetLargeProvider.Companion.ACTION_PLAY_PAUSE
 import com.tortugapower.audiobookplayer.widget.AudioWidgetLargeProvider.Companion.ACTION_REWIND
 import com.tortugapower.audiobookplayer.widget.AudioWidgetLargeProvider.Companion.EXTRA_BOOK_UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -49,15 +50,20 @@ internal object AudioWidgetLargeRenderer {
      * coroutine. A failed rebuild leaves the widget stale; it never takes the app down.
      */
     suspend fun refresh(context: Context, appWidgetIds: IntArray) {
+        // Render with the application context, as the receiver did: a caller's Activity must not be
+        // held by a process-wide scope, nor decide the widget's uiMode.
+        val appContext = context.applicationContext
         try {
-            val appWidgetManager = AppWidgetManager.getInstance(context)
+            val appWidgetManager = AppWidgetManager.getInstance(appContext)
             val currentBook = PlaybackManager.currentItem.value
             val isPlaying = PlaybackManager.isPlaying.value
-            val db = AppDatabase.getDatabase(context)
+            val db = AppDatabase.getDatabase(appContext)
             for (appWidgetId in appWidgetIds) {
                 val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
-                updateWidget(context, appWidgetManager, appWidgetId, options, db, currentBook, isPlaying)
+                updateWidget(appContext, appWidgetManager, appWidgetId, options, db, currentBook, isPlaying)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("AudioWidgetLarge", "Widget refresh failed", e)
         }
