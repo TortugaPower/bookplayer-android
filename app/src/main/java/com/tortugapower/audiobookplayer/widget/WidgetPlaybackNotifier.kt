@@ -43,15 +43,17 @@ object WidgetPlaybackNotifier {
      * runs on [scope]'s main dispatcher.
      */
     fun rebuild(context: Context) {
-        val largeIds = AppWidgetManager.getInstance(context).getAppWidgetIds(
-            ComponentName(context, AudioWidgetLargeProvider::class.java)
+        // Hold the application context, never a caller's Activity, for as long as the render runs.
+        val appContext = context.applicationContext
+        val largeIds = AppWidgetManager.getInstance(appContext).getAppWidgetIds(
+            ComponentName(appContext, AudioWidgetLargeProvider::class.java)
         )
         // No widgets placed — skip the rebuild (also covers the combine's cold-start emission).
         if (largeIds.isEmpty()) return
         scope.launch {
             refreshJob?.cancel()
             refreshJob = coroutineContext[Job]
-            refresh(context, largeIds)
+            refresh(appContext, largeIds)
         }
     }
 
