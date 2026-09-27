@@ -92,7 +92,7 @@ class LibraryViewModelTest {
         override suspend fun reorderItems(items: List<LibraryItemEntity>) {}
         override suspend fun updateArtworkSync(item: LibraryItemEntity) {}
         override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? = null
-        override suspend fun addBookmark(bookmark: BookmarkEntity): Long = 0L
+        override suspend fun addBookmark(bookmark: BookmarkEntity): Long? = 0L
         override suspend fun updateBookmark(bookmark: BookmarkEntity) {}
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) {}
         override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? = null

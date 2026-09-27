@@ -1513,6 +1513,7 @@ object PlaybackManager {
         val existing = repository.getBookmarkAtTime(item.uuid, timeSeconds)
         if (existing != null) return BookmarkOutcome.Existed(existing.time)
         repository.addBookmark(BookmarkEntity(bookUuid = item.uuid, time = timeSeconds))
+            ?: return BookmarkOutcome.Failed // the book vanished under the player; nothing was written
         return BookmarkOutcome.Created(timeSeconds)
     }
 

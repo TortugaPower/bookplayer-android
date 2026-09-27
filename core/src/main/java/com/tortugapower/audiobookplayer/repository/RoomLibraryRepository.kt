@@ -437,8 +437,8 @@ class RoomLibraryRepository(
     override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? =
         libraryDao.getBookmarkAtTime(bookUuid, time)
 
-    override suspend fun addBookmark(bookmark: BookmarkEntity): Long =
-        libraryDao.insertBookmark(bookmark)
+    override suspend fun addBookmark(bookmark: BookmarkEntity): Long? =
+        libraryDao.insertBookmarkIfBookExists(bookmark)
 
     override suspend fun updateBookmark(bookmark: BookmarkEntity) =
         libraryDao.updateBookmark(bookmark)

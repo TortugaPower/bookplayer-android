@@ -42,7 +42,7 @@ class SyncingLibraryRepositoryTest {
         override fun getExternalResourcesForBook(itemUuid: String): Flow<List<ExternalResourceEntity>> = emptyFlow()
 
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = emptyList()
-        override suspend fun getItemById(uuid: String): LibraryItemEntity? = null
+        override suspend fun getItemById(uuid: String): LibraryItemEntity? = itemById
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = itemsByPath[path]
         override suspend fun saveItem(item: LibraryItemEntity) {}
         override suspend fun updateItem(item: LibraryItemEntity) {}
@@ -63,7 +63,9 @@ class SyncingLibraryRepositoryTest {
         override suspend fun reorderItems(items: List<LibraryItemEntity>) {}
         override suspend fun updateArtworkSync(item: LibraryItemEntity) {}
         override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? = null
-        override suspend fun addBookmark(bookmark: BookmarkEntity): Long = 0L
+        var addBookmarkResult: Long? = 0L          // null = the book is gone, nothing written
+        var itemById: LibraryItemEntity? = null
+        override suspend fun addBookmark(bookmark: BookmarkEntity): Long? = addBookmarkResult
         override suspend fun updateBookmark(bookmark: BookmarkEntity) {}
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) {}
         override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? = null
@@ -322,4 +324,38 @@ class SyncingLibraryRepositoryTest {
         uuid = uuid, title = path, author = author, relativePath = path,
         type = ItemType.FOLDER, orderRank = 0,
     )
+
+    private fun book(uuid: String, path: String) = LibraryItemEntity(
+        uuid = uuid, title = "Dune", author = null, duration = 0.0, currentTime = 0.0,
+        percentCompleted = 0.0, relativePath = path, remoteURL = null, artworkURL = null,
+        originalFileName = null, orderRank = 0, isFinished = false, lastPlayDate = null,
+        parentFolderUuid = null, type = ItemType.BOOK
+    )
+
+    @Test
+    fun addBookmark_bookGone_writesNothingAndSchedulesNoSync() = runBlocking {
+        // ANDROID-BOOKPLAYER-23: the delegate reports the book vanished (null). No sync task may be
+        // created for a bookmark that does not exist, and the caller must see null, not an id.
+        val delegate = FakeLibraryRepository().apply { addBookmarkResult = null; itemById = book("gone", "gone.m4b") }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        val id = repository.addBookmark(BookmarkEntity(bookUuid = "gone", time = 12.0))
+
+        assertNull(id)
+        assertEquals(0, syncTaskRepository.tasks.size)
+    }
+
+    @Test
+    fun addBookmark_bookExists_whenSubscribed_schedulesSetBookmark() = runBlocking {
+        val delegate = FakeLibraryRepository().apply { addBookmarkResult = 7L; itemById = book("b1", "Dune.m4b") }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        val id = repository.addBookmark(BookmarkEntity(bookUuid = "b1", time = 12.0))
+
+        assertEquals(7L, id)
+        assertEquals(1, syncTaskRepository.tasks.size)
+        assertEquals(SyncTaskFactory.JOB_SET_BOOKMARK, syncTaskRepository.tasks[0].jobType)
+    }
 }

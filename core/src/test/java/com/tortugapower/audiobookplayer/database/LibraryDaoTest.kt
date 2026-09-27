@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.tortugapower.audiobookplayer.database.dao.LibraryDao
+import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
@@ -11,6 +12,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -93,5 +96,22 @@ class LibraryDaoTest {
         dao.replaceChaptersForBook("b1", listOf(chapter("b1", 0), chapter("b1", 1), chapter("b1", 2)))
 
         assertEquals(3, dao.getChaptersForBook("b1").first().size)
+    }
+
+    @Test fun insertBookmarkIfBookExists_skipsWhenTheBookIsGone() = runBlocking {
+        // No library_items row for this uuid: the FOREIGN KEY would fail the insert. The DAO must
+        // notice inside the transaction and write nothing rather than throw (ANDROID-BOOKPLAYER-23).
+        val id = dao.insertBookmarkIfBookExists(BookmarkEntity(bookUuid = "deleted-book", time = 12.0))
+
+        assertNull(id)
+        assertEquals(0, dao.getBookmarksForBook("deleted-book").first().size)
+    }
+
+    @Test fun insertBookmarkIfBookExists_insertsForAnExistingBook() = runBlocking {
+        dao.insertItem(item("b1", "Dune", "Frank Herbert", "Dune.m4b"))
+        val id = dao.insertBookmarkIfBookExists(BookmarkEntity(bookUuid = "b1", time = 12.0))
+
+        assertNotNull(id)
+        assertEquals(listOf(12.0), dao.getBookmarksForBook("b1").first().map { it.time })
     }
 }

@@ -89,7 +89,7 @@ class WearRootViewModelTest {
         override suspend fun updateArtworkSync(item: LibraryItemEntity) {}
         override fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>> = flowOf(emptyList())
         override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? = null
-        override suspend fun addBookmark(bookmark: BookmarkEntity): Long = 0L
+        override suspend fun addBookmark(bookmark: BookmarkEntity): Long? = 0L
         override suspend fun updateBookmark(bookmark: BookmarkEntity) {}
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) {}
         override fun getChaptersForBook(bookUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>> = flowOf(emptyList())
