@@ -10,6 +10,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerThemeSpec
 import com.tortugapower.audiobookplayer.widget.AudioWidgetLargeProvider
+import com.tortugapower.audiobookplayer.widget.AudioWidgetLargeRenderer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -122,15 +123,12 @@ object ThemeManager {
         }
     }
 
-    private fun updateWidgets(context: Context) {
-        val intent = Intent(context, AudioWidgetLargeProvider::class.java).apply {
-            action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-        }
+    /** In-process rebuild; never a broadcast at our own receiver (see AudioWidgetLargeRenderer). */
+    private suspend fun updateWidgets(context: Context) {
         val ids = AppWidgetManager.getInstance(context).getAppWidgetIds(
             android.content.ComponentName(context, AudioWidgetLargeProvider::class.java)
         )
-        intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
-        context.sendBroadcast(intent)
+        if (ids.isNotEmpty()) AudioWidgetLargeRenderer.refresh(context, ids)
     }
 
     private fun loadThemesFromAssets(context: Context): List<BookPlayerThemeSpec> {
