@@ -120,6 +120,39 @@ schedules no SET_BOOKMARK task for a bookmark that was never written, and both c
 (`PlayerViewModel.addBookmark`, `PlaybackManager.createBookmarkAtCurrentPosition` → `BookmarkOutcome.Failed`)
 treat null as "no bookmark" instead of confirming one.
 
+### ANDROID-BOOKPLAYER-E / -F — "Broadcast already finished" on every launch with a widget placed
+
+One bug under two fingerprints: `-E` throws in our `finally { pendingResult.finish() }`
+(`AudioWidgetLargeProvider.goAsyncLaunch`), `-F` inside the framework's own `QueuedWork` runnable
+that `finish()` defers to while a SharedPreferences `apply()` is pending — same `PendingResult`, same
+second `sendFinished`. Every event (20/20, 3 users) is a vivo on Funtouch 13 (V2146, V2109); the
+activity-shaped ones land 0.1–1.8 s after process start with nothing but lifecycle breadcrumbs, and
+one user crash-looped 13 times in two minutes, cleared the app's data (fresh Sentry user id) and
+crashed again. Nobody taps a widget 100 ms into a launch: the broadcast in flight was our own.
+`PlaybackManager`'s first `combine` emission (`itemChanged=true`) made `WidgetPlaybackNotifier`
+broadcast `APPWIDGET_UPDATE` at our own receiver whenever a widget was placed, so every process start
+took a `goAsync()` result — which that ROM finishes on its own before we do. The APK's only
+`PendingResult.finish()` callers are the receiver's two compiled `finally` paths (dexdump), so the
+second finish is not app code. The "one dispatch reaches `goAsync()` twice" theory is wrong:
+`super.onReceive` handles `APPWIDGET_*`, the `when` handles `ACTION_*`, disjoint — and a second
+`goAsync()` returns null (an NPE), not this.
+
+Not reproducible on a stock emulator (AOSP never finishes a `goAsync()` result behind the receiver's
+back), so `scripts/chaos/widget-self-broadcast.sh` demonstrates the trigger instead: with a widget on
+the home screen it cold-starts the app and counts, in `dumpsys activity broadcasts history`, the
+`APPWIDGET_UPDATE` broadcasts the app sent to its own provider. Before the fix: 1 per launch. After:
+0, and the launcher's `RemoteViews` still changed (the widget was rebuilt in-process). Unit-level:
+`WidgetPlaybackNotifierTest` pins that a book change rebuilds the placed ids through the renderer and
+sends no broadcast.
+
+Fix: the rendering moved verbatim into `AudioWidgetLargeRenderer`; playback and theme changes go
+through `WidgetPlaybackNotifier.rebuild`, which cancels a rebuild still in flight and calls `refresh`
+directly — no receiver, no `PendingResult`. The receiver keeps `goAsync()` for what genuinely arrives from outside (the launcher's
+`APPWIDGET_*`, the widget's tap PendingIntents) and its `finish()` now tolerates
+`IllegalStateException`; that guard only reaches the direct finish (the deferred one throws on the
+framework's thread), which is why the in-process path is the fix and the guard is the backstop.
+Acceptance: both issues quiet on the first release carrying this.
+
 ### ANDROID-BOOKPLAYER-1A — "Session ID must be unique" creating the playback service
 
 media3 keeps session ids in a process-wide registry and refuses a duplicate; the service used the
