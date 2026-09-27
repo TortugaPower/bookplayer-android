@@ -25,7 +25,7 @@ placed=$(widgets | grep -c AudioWidgetLargeProvider || true)
 [ "$placed" -gt 0 ] || { echo "no BookPlayer widget on the launcher — place one first"; exit 1; }
 
 # The RemoteViews identity the launcher holds for the first placed widget; a rebuild replaces it.
-views_hash() { widgets | grep -o 'views=[^ ]*' | head -1; }
+views_hash() { widgets | grep -o 'views=[^ ]*' | head -1 || true; }
 # One caller per APPWIDGET_UPDATE record. The dump strips an app-sent intent's component (the app has a
 # single provider anyway), so the caller line is what tells the app's own broadcasts from android's.
 update_callers() {

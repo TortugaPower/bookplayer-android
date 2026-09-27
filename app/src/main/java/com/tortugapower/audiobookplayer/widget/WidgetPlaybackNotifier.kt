@@ -8,6 +8,7 @@ import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.logic.StorageMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
@@ -32,6 +33,9 @@ object WidgetPlaybackNotifier {
     @VisibleForTesting
     internal var refresh: suspend (Context, IntArray) -> Unit = AudioWidgetLargeRenderer::refresh
 
+    /** The in-flight rebuild; a newer book change cancels it so an older one can't land last. */
+    private var refreshJob: Job? = null
+
     fun notify(context: Context, itemChanged: Boolean, isPlaying: Boolean) {
         if (itemChanged) {
             val largeIds = AppWidgetManager.getInstance(context).getAppWidgetIds(
@@ -39,7 +43,8 @@ object WidgetPlaybackNotifier {
             )
             // No widgets placed — skip the rebuild (also covers the combine's cold-start emission).
             if (largeIds.isNotEmpty()) {
-                scope.launch { refresh(context, largeIds) }
+                refreshJob?.cancel()
+                refreshJob = scope.launch { refresh(context, largeIds) }
             }
         } else {
             AudioWidgetLargeProvider.pushPlayStateUpdate(context, isPlaying)
