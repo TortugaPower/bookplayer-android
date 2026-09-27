@@ -123,6 +123,19 @@ interface LibraryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBookmark(bookmark: BookmarkEntity): Long
 
+    /**
+     * Insert a bookmark only while its book still exists. The player keeps its item in memory, and a
+     * sync pull can delete or replace the row underneath it (uuid churn); `bookmarks.bookUuid` is a
+     * FOREIGN KEY to `library_items`, so inserting then would fail the transaction and, unhandled,
+     * the process (Sentry ANDROID-BOOKPLAYER-23). Checked inside the same transaction, so it cannot
+     * race the delete. Returns the new row id, or null when the book is gone and nothing was written.
+     */
+    @Transaction
+    suspend fun insertBookmarkIfBookExists(bookmark: BookmarkEntity): Long? {
+        if (getItemById(bookmark.bookUuid) == null) return null
+        return insertBookmark(bookmark)
+    }
+
     @Update
     suspend fun updateBookmark(bookmark: BookmarkEntity)
 

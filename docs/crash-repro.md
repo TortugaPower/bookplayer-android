@@ -98,6 +98,28 @@ gone (`StatisticsDao.startSession` returns null, `replaceChaptersForBook` return
 coroutines additionally run under a `CoroutineExceptionHandler` — bookkeeping must never take
 playback down, whatever the DB throws (this also covers a full disk on the heartbeat write).
 
+### ANDROID-BOOKPLAYER-23 — FOREIGN KEY failure adding a bookmark for a vanished book
+
+The third `library_items` child writer, missed by the -19 / -15 fix: `bookmarks.bookUuid` references
+`library_items.uuid`, and `LibraryDao.insertBookmark` wrote without checking the parent. The player
+keeps its `LibraryItemEntity` in memory, so a sync pull that deletes or replaces the row (uuid churn)
+leaves "Create bookmark" pointing at a uuid that no longer exists. The in-app delete path cannot
+trigger it (`LibraryViewModel.deleteItem` stops playback first); the field event happened at book end,
+with the post-book review dialog up.
+
+`scripts/chaos/bookmark-vanished-book.sh` — imports the well-formed m4b fixture, opens it, makes a
+baseline bookmark, deletes the row with the image's `sqlite3` through `run-as` (the sync pull, minus
+the network), then taps "Create bookmark" again. Before the fix the process dies with
+`SQLiteConstraintException: FOREIGN KEY constraint failed` at `LibraryDao_Impl.insertBookmark`; after
+it, nothing is written and the player stays open. Unit-level: `LibraryDaoTest.insertBookmarkIfBookExists_*`
+and `SyncingLibraryRepositoryTest.addBookmark_bookGone_writesNothingAndSchedulesNoSync`.
+
+Fix: `LibraryDao.insertBookmarkIfBookExists` checks the parent row **inside the same transaction** and
+returns null when it is gone; `LibraryRepository.addBookmark` is nullable, the syncing repository
+schedules no SET_BOOKMARK task for a bookmark that was never written, and both callers
+(`PlayerViewModel.addBookmark`, `PlaybackManager.createBookmarkAtCurrentPosition` → `BookmarkOutcome.Failed`)
+treat null as "no bookmark" instead of confirming one.
+
 ### ANDROID-BOOKPLAYER-1A — "Session ID must be unique" creating the playback service
 
 media3 keeps session ids in a process-wide registry and refuses a duplicate; the service used the

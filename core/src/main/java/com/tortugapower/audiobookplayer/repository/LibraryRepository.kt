@@ -57,7 +57,8 @@ interface LibraryRepository {
 
     fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>>
     suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity?
-    suspend fun addBookmark(bookmark: BookmarkEntity): Long
+    /** Returns the new bookmark's id, or null when the book no longer exists and nothing was written. */
+    suspend fun addBookmark(bookmark: BookmarkEntity): Long?
     suspend fun updateBookmark(bookmark: BookmarkEntity)
     suspend fun deleteBookmark(bookmark: BookmarkEntity)
 

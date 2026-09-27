@@ -228,8 +228,9 @@ class SyncingLibraryRepository(
         }
     }
 
-    override suspend fun addBookmark(bookmark: BookmarkEntity): Long {
-        val id = delegate.addBookmark(bookmark)
+    override suspend fun addBookmark(bookmark: BookmarkEntity): Long? {
+        // Null means the book is gone and nothing was written: there is nothing to sync.
+        val id = delegate.addBookmark(bookmark) ?: return null
         if (isSubscribed()) {
             val item = delegate.getItemById(bookmark.bookUuid)
             item?.relativePath?.let { path ->

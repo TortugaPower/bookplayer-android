@@ -170,7 +170,7 @@ private class FakeLibraryRepository : LibraryRepository {
     override suspend fun updateArtworkSync(item: LibraryItemEntity) = error("unused")
     override fun getBookmarksForBook(bookUuid: String) = error("unused")
     override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): com.tortugapower.audiobookplayer.database.entities.BookmarkEntity? = error("unused")
-    override suspend fun addBookmark(bookmark: com.tortugapower.audiobookplayer.database.entities.BookmarkEntity): Long = error("unused")
+    override suspend fun addBookmark(bookmark: com.tortugapower.audiobookplayer.database.entities.BookmarkEntity): Long? = error("unused")
     override suspend fun updateBookmark(bookmark: com.tortugapower.audiobookplayer.database.entities.BookmarkEntity) = error("unused")
     override suspend fun deleteBookmark(bookmark: com.tortugapower.audiobookplayer.database.entities.BookmarkEntity) = error("unused")
     override fun getChaptersForBook(bookUuid: String) = error("unused")

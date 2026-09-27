@@ -229,7 +229,10 @@ class PlayerViewModel(
                     bookUuid = item.uuid,
                     time = currentTime
                 )
-                val id = repository.addBookmark(newBookmark)
+                // Null: the book vanished under the player (a sync pull replaced its row) and nothing
+                // was written, so there is no bookmark to confirm. Nothing watches for that pull, so
+                // the player keeps the stale item until the next play or restore.
+                val id = repository.addBookmark(newBookmark) ?: return@launch
                 currentBookmark = newBookmark.copy(id = id)
                 isExistingBookmark = false
                 showBookmarkConfirmation = true
