@@ -279,6 +279,13 @@ nine call sites (Tip Jar contributors, Settings links, Account terms/privacy, Ha
 * Verified 2026-09-11 on `bp-lowend-31` (Pixel 3a profile, API 31 — the report was a Pixel 3 on 12).
   Re-enable Chrome afterwards: `adb shell pm enable com.android.chrome`.
 
+Follow-up (the raw `startActivity` sites outside the wrapper): the four cast/Bluetooth shortcuts in `PlayerSheets`
+and `openStorageSettings` already catch and fall back; the share and debug-info launches go through
+`Intent.createChooser`, which resolves to the system picker and cannot throw. The one unguarded call was the
+single-mail-app support path — now `launchSupportEmail` (`logic/SupportInfo.kt`), which turns a composer that
+disappeared between resolving and starting into the same clipboard fallback iOS shows when `canSendMail()` is
+false; `LaunchSupportEmailTest` drives the real throw with Robolectric's `checkActivities(true)`.
+
 ### Not yet scripted
 
 | Issue | Planned recipe |

@@ -5,7 +5,6 @@ package com.tortugapower.audiobookplayer.ui.screens.settings
 import android.content.ClipData
 import android.content.Intent
 import android.os.Build
-import android.os.Parcelable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -28,6 +27,7 @@ import com.tortugapower.audiobookplayer.logic.ThemeManager
 import com.tortugapower.audiobookplayer.logic.buildDebugInformation
 import com.tortugapower.audiobookplayer.logic.buildSupportDebugInfo
 import com.tortugapower.audiobookplayer.logic.buildSupportEmailIntents
+import com.tortugapower.audiobookplayer.logic.launchSupportEmail
 import com.tortugapower.audiobookplayer.logic.writeSupportFile
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
@@ -101,20 +101,12 @@ fun SettingsScreen(
     fun sendSupportEmail() {
         // The build info rides as a build-info.txt attachment; the body is just the greeting.
         // buildSupportEmailIntents writes the file and builds the per-app intents off the main thread
-        // (attachment access is granted transiently via clipData — see its doc); we just launch the
-        // result. One match → composer directly; several → email-only picker; none → clipboard fallback.
+        // (attachment access is granted transiently via clipData — see its doc); launchSupportEmail
+        // starts the result. One match → composer directly; several → email-only picker; none, or a
+        // composer that is gone by the time it is started → clipboard fallback.
         scope.launch {
             val emailIntents = withContext(Dispatchers.IO) { buildSupportEmailIntents(context, account) }
-            when {
-                emailIntents.isEmpty() -> showEmailFallback = true
-                emailIntents.size == 1 -> context.startActivity(emailIntents.first())
-                else -> {
-                    val chooser = Intent.createChooser(emailIntents.first(), null)
-                    val rest = emailIntents.drop(1)
-                    chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, Array<Parcelable>(rest.size) { rest[it] })
-                    context.startActivity(chooser)
-                }
-            }
+            if (!launchSupportEmail(context, emailIntents)) showEmailFallback = true
         }
     }
 
