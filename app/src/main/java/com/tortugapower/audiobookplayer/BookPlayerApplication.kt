@@ -128,13 +128,9 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
             TaskConcurrencyServiceHost.start(this)
         }
-        if (StorageMonitor.isCritical) {
-            android.util.Log.w("BookPlayerApplication", "Storage critically full; not starting the sync host")
-        } else {
-            appScope.launch(Dispatchers.IO) {
-                if (SyncHostLaunchGate.shouldStart(syncTaskRepository::countActiveTasks)) {
-                    TaskConcurrencyServiceHost.start(this@BookPlayerApplication)
-                }
+        appScope.launch(Dispatchers.IO) {
+            if (SyncHostLaunchGate.shouldStart(StorageMonitor.isCritical, syncTaskRepository::countActiveTasks)) {
+                TaskConcurrencyServiceHost.start(this@BookPlayerApplication)
             }
         }
         // The engine holds all work while storage is critical; restart it when space is back.
