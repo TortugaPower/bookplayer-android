@@ -1,9 +1,10 @@
 package com.tortugapower.audiobookplayer.service
 
+import android.app.ActivityManager
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
@@ -96,11 +97,18 @@ class AudioPlayerService : MediaPlaybackService() {
         }
         super.onUpdateNotification(session, startInForegroundRequired)
         // media3 posts the promotion, so its outcome is only visible on the NEXT update: a service that is
-        // foreground now has had a promotion go through, which ends any refusal streak. Refusals exist on
-        // API 31+ only, where foregroundServiceType (API 29) is available.
-        if (startInForegroundRequired && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && foregroundServiceType != 0) {
+        // foreground now has had a promotion go through, which ends any refusal streak. The signal is
+        // ActivityManager's own record — `foregroundServiceType` keeps the last type after a demotion and
+        // reset the streak after every refusal (see ForegroundStartRefusals.isForeground).
+        if (startInForegroundRequired && isForegroundNow()) {
             foregroundStartRefusals.onPromoted()
         }
+    }
+
+    @Suppress("DEPRECATION") // getRunningServices still returns the caller's own services on O+, the only use here
+    private fun isForegroundNow(): Boolean {
+        val am = getSystemService(ActivityManager::class.java) ?: return false
+        return ForegroundStartRefusals.isForeground(am.getRunningServices(Int.MAX_VALUE), ComponentName(this, javaClass))
     }
 
     override fun onSessionReady() {

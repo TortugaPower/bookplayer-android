@@ -136,3 +136,13 @@ echo "FGS START: ${FGS_VERDICT:-not attempted}"
 echo "REFUSAL LOGGED: $([ "$REFUSAL" -gt 0 ] && echo yes || echo no)"
 echo "REPORTED BY APP: $([ "$REPORTED" -gt 0 ] && echo yes || echo no)   (ForegroundStartRefusals → handled Sentry event in prod)"
 echo "PROCESS: $([ "$ALIVE" -gt 0 ] && echo alive || echo gone)"
+
+# Refusal streak. media3 re-attempts the promotion on every notification update while the app keeps playing in
+# the background, so keep watching and print how ForegroundStartRefusals counted the refusals. One Sentry event
+# per streak means exactly ONE "occurrence 1" here; a streak that resets between refusals (the stale
+# foregroundServiceType signal shipped in 1.2.0's #124) reads "1, 1, 1, …" — every refusal its own event.
+WATCH=${STREAK_WATCH_S:-45}
+sleep "$WATCH"
+SEQ=$("$ADB" logcat -d -T "$SINCE" 2>/dev/null | grep -o 'foreground start refused (occurrence [0-9]*' | grep -o '[0-9]*$' | tr '\n' ',' | sed 's/,$//')
+FIRSTS=$(tr ',' '\n' <<< "$SEQ" | grep -c '^1$' || true)
+echo "STREAK (+${WATCH}s): occurrences=[$SEQ]  events (occurrence 1): $FIRSTS  → $([ "$FIRSTS" -le 1 ] && echo "one event per streak" || echo "STREAK RESET BETWEEN REFUSALS")"

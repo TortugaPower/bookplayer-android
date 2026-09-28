@@ -280,9 +280,10 @@ to reach the demoted state in 15 s instead of 10 min; the script then waits unti
 foreground and reads ActivityManager's verdict line. Measured: `direct` and `mediakey` (the app
 dispatching the key itself) → `Disallowed (DENIED)`, audio playing, no foreground service, no
 notification; `shellkey` (`input keyevent KEYCODE_MEDIA_PLAY`, the headset path) → `Allowed
-(TEMP_ALLOWED_WHILE_IN_USE)`. Rig gotchas: `pm clear` between runs; the sync host runs as a dataSync
-foreground service during playback even for a logged-out user and masks the refusal until it
-idle-stops; `cmd media_session dispatch` is broken on the API 31 image ("packageName may not be
+(TEMP_ALLOWED_WHILE_IN_USE)`. Rig gotchas: `pm clear` between runs; until #125 the sync host was started on every
+launch and its dataSync foreground service masked the refusal until it idle-stopped (the rig still waits
+for a quiet UID, since playback itself enqueues sync work); `cmd media_session dispatch` is broken on the
+API 31 image ("packageName may not be
 empty"); `adb shell date '+%m-%d %H:%M:%S.000'` must be quoted for the device shell; a demoted service
 record prints no `isForeground=` line at all. `bp-api36` needs 9.8 GB free for its userdata partition.
 
@@ -293,6 +294,17 @@ and reports the first of each streak as a handled Sentry event (`fgs.playback_co
 breadcrumb naming the watch command kind so the report says where the resume came from. Playback is left
 running: it is what the user asked for, and the next gesture restores the notification (`shellkey`
 measures that path as allowed). `REPORTED BY APP: yes` in the rig's output is the acceptance.
+
+Streak signal (fixed after 1.2.0): #124 ended a streak when `Service.getForegroundServiceType()` was
+non-zero on the next notification update. That field keeps the LAST type after media3 demotes the service
+(measured on API 31: `type=2` with ActivityManager's own record saying not foreground), so the streak reset
+after every refusal and each refused attempt became its own Sentry event — media3 re-attempts the
+promotion on every notification update while the app plays on in the background, eight events in ~90 s
+on the rig. The signal is now ActivityManager's `RunningServiceInfo.foreground` for our own service
+(`ForegroundStartRefusals.isForeground`). The rig prints the streak after its verdict
+(`STREAK: occurrences=[1,2,3,…] events (occurrence 1): 1`, `STREAK_WATCH_S` to lengthen the watch); the
+acceptance is one "occurrence 1" per streak. The rig's verdict alone (`REPORTED BY APP: yes`) had let the
+bug through: it proved a refusal was reported, not that repeats were de-duplicated.
 
 ### ANDROID-BOOKPLAYER-1E — "Bad notification for startForeground"
 
