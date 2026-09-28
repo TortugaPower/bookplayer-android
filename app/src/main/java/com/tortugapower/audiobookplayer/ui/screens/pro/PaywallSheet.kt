@@ -46,6 +46,11 @@ import com.tortugapower.audiobookplayer.logic.PurchaseFlowManager
  * @param offeringKeyword when the exact offering ids aren't found, offerings whose identifier
  *   contains this keyword (e.g. "lite") are offered instead — keeps the sheet working if the
  *   dashboard ids drift from the constants
+ * @param productKeyword hard filter on the PRODUCT ids this sheet may sell (pro sheet: "pro";
+ *   lite sheet: "lite"). The dashboard's offerings have mixed tiers before, and the 1.0.0
+ *   paywall sold a lite yearly from the Pro sheet because the offering-level lookup returns
+ *   whatever packages the offering carries — the tier a sheet sells must not depend on
+ *   dashboard config
  * @param fallbackToCurrentOffering whether to fall back to the RevenueCat `current` offering as a
  *   last resort. Must be false for non-default tiers: `current` points at the pro offering, so
  *   falling back would sell the wrong subscription.
@@ -59,6 +64,7 @@ fun PaywallSheet(
     monthlyOfferingId: String = PurchaseFlowManager.MONTHLY_OFFERING_ID,
     yearlyOfferingId: String = PurchaseFlowManager.YEARLY_OFFERING_ID,
     offeringKeyword: String? = null,
+    productKeyword: String = "pro",
     fallbackToCurrentOffering: Boolean = true,
     welcomeTitle: String = stringResource(R.string.pro_welcome_title),
     welcomeDescription: String = stringResource(R.string.pro_welcome_description),
@@ -95,7 +101,7 @@ fun PaywallSheet(
     LaunchedEffect(offerings) {
         if (selectedPackage == null) {
             selectedPackage = resolvePackages(
-                offerings, monthlyOfferingId, yearlyOfferingId, offeringKeyword, fallbackToCurrentOffering
+                offerings, monthlyOfferingId, yearlyOfferingId, offeringKeyword, productKeyword, fallbackToCurrentOffering
             ).firstOrNull()
         }
     }
@@ -150,7 +156,7 @@ fun PaywallSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             val allPackages = resolvePackages(
-                offerings, monthlyOfferingId, yearlyOfferingId, offeringKeyword, fallbackToCurrentOffering
+                offerings, monthlyOfferingId, yearlyOfferingId, offeringKeyword, productKeyword, fallbackToCurrentOffering
             )
 
             if (offerings != null && allPackages.isEmpty()) {
@@ -277,6 +283,7 @@ private fun resolvePackages(
     monthlyOfferingId: String,
     yearlyOfferingId: String,
     offeringKeyword: String?,
+    productKeyword: String,
     fallbackToCurrentOffering: Boolean
 ): List<Package> {
     if (offerings == null) return emptyList()
@@ -293,6 +300,13 @@ private fun resolvePackages(
     if (allPackages.isEmpty() && fallbackToCurrentOffering && offerings.current != null) {
         allPackages = offerings.current!!.availablePackages
     }
-    return allPackages
+    // Every branch above trusts an OFFERING to contain only this sheet's tier — dashboard
+    // config has violated that before (the 1.0.0 Pro sheet sold bookplayer.lite.yearly).
+    // The product id is the ground truth; never show a package this sheet doesn't sell.
+    return filterPackagesByProduct(allPackages, productKeyword)
 }
+
+/** Keeps only packages whose PRODUCT id carries [productKeyword] ("pro"/"lite"). */
+internal fun filterPackagesByProduct(packages: List<Package>, productKeyword: String): List<Package> =
+    packages.filter { it.product.id.contains(productKeyword, ignoreCase = true) }
 
