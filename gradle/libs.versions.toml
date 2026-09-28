@@ -45,9 +45,9 @@ billing = "8.3.0"
 # Play In-App Review (post-book-finish rating prompt; Play decides whether the dialog shows).
 playReview = "2.0.2"
 revenuecat = "9.29.1"
-sentry = "7.18.1"
+sentry = "8.58.0"
 # Gradle plugin only (R8 mapping upload); the runtime SDK stays pinned above.
-sentryPlugin = "4.14.1"
+sentryPlugin = "6.23.0"
 konfetti = "2.0.5"
 playServicesWearable = "18.2.0"
 # Matches the coroutines version resolved across the project (strictly 1.7.3).
