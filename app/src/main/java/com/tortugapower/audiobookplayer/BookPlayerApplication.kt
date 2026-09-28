@@ -6,6 +6,7 @@ import coil.ImageLoaderFactory
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.SyncHostLaunchGate
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.repository.AccountRepository
@@ -110,15 +111,20 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         )
         SubscriptionManager.initialize(this, accountRepository, syncTaskRepository, BuildConfig.REVENUECAT_API_KEY)
 
-        // Start background services. The sync host stops itself when idle (Android 15+ dataSync
-        // budget), so :core wakes it back up whenever a new sync task is enqueued.
+        // The sync host stops itself when idle (Android 15+ dataSync budget), and :core wakes it back up
+        // whenever a sync task is enqueued — so at launch it is started only for work left over from an
+        // earlier session (see SyncHostLaunchGate), never just to sit idle.
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
             TaskConcurrencyServiceHost.start(this)
         }
         if (StorageMonitor.isCritical) {
             android.util.Log.w("BookPlayerApplication", "Storage critically full; not starting the sync host")
         } else {
-            TaskConcurrencyServiceHost.start(this)
+            appScope.launch(Dispatchers.IO) {
+                if (SyncHostLaunchGate.shouldStart(syncTaskRepository::countActiveTasks)) {
+                    TaskConcurrencyServiceHost.start(this@BookPlayerApplication)
+                }
+            }
         }
         // The engine holds all work while storage is critical; restart it when space is back.
         appScope.launch {
