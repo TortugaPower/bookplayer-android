@@ -6,7 +6,9 @@ import coil.ImageLoaderFactory
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.SyncHostLaunchGate
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
+import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
@@ -110,15 +112,26 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         )
         SubscriptionManager.initialize(this, accountRepository, syncTaskRepository, BuildConfig.REVENUECAT_API_KEY)
 
-        // Start background services. The sync host stops itself when idle (Android 15+ dataSync
-        // budget), so :core wakes it back up whenever a new sync task is enqueued.
+        // Keep NetworkClient's auth token current with the signed-in account at the app level — as the
+        // watch does — so playback (presigned-URL refresh), account calls and sync all see it whether or
+        // not the sync host is running. Until the launch gate below, the host's unconditional start was
+        // what set the token for the whole process.
+        appScope.launch {
+            accountRepository.getAccountFlow().collect { account ->
+                NetworkClient.setToken(account?.apiToken)
+            }
+        }
+
+        // The sync host stops itself when idle (Android 15+ dataSync budget), and :core wakes it back up
+        // whenever a sync task is enqueued — so at launch it is started only for work left over from an
+        // earlier session (see SyncHostLaunchGate), never just to sit idle.
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
             TaskConcurrencyServiceHost.start(this)
         }
-        if (StorageMonitor.isCritical) {
-            android.util.Log.w("BookPlayerApplication", "Storage critically full; not starting the sync host")
-        } else {
-            TaskConcurrencyServiceHost.start(this)
+        appScope.launch(Dispatchers.IO) {
+            if (SyncHostLaunchGate.shouldStart(StorageMonitor.isCritical, syncTaskRepository::countActiveTasks)) {
+                TaskConcurrencyServiceHost.start(this@BookPlayerApplication)
+            }
         }
         // The engine holds all work while storage is critical; restart it when space is back.
         appScope.launch {

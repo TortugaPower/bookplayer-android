@@ -12,7 +12,6 @@ import androidx.core.app.NotificationCompat
 import com.tortugapower.audiobookplayer.MainActivity
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
-import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
@@ -173,14 +172,6 @@ class TaskConcurrencyServiceHost : Service() {
             runCatching { it.registerDefaultNetworkCallback(networkCallback) }
         }
 
-        // Observe account changes to update NetworkClient token
-        serviceScope.launch {
-            accountRepository.getAccountFlow().collect { account ->
-                Log.d(TAG, "👤 Account updated, setting NetworkClient token")
-                NetworkClient.setToken(account?.apiToken)
-            }
-        }
-
         // Observe active queues to update the notification — and to stop the service once work
         // dries up. Android 15+ gives dataSync services a 6h/day budget that burns on wall-clock
         // time, not work: an always-on "Idle" host exhausts it daily and gets killed mid-run
@@ -209,8 +200,8 @@ class TaskConcurrencyServiceHost : Service() {
         }
         // NOT_STICKY: a sticky null-intent restart arrives from the BACKGROUND, where dataSync
         // promotion is refused (budget/exemption) — it can only churn, never do useful work.
-        // Every real producer (app start, SyncEngineWaker on task enqueue, settings toggles)
-        // starts the service explicitly anyway.
+        // Every real producer (SyncEngineWaker on task enqueue, the launch gate for leftover
+        // PENDING/RUNNING tasks, settings toggles) starts the service explicitly anyway.
         return START_NOT_STICKY
     }
 
