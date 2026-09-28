@@ -143,6 +143,10 @@ echo "PROCESS: $([ "$ALIVE" -gt 0 ] && echo alive || echo gone)"
 # foregroundServiceType signal shipped in 1.2.0's #124) reads "1, 1, 1, …" — every refusal its own event.
 WATCH=${STREAK_WATCH_S:-45}
 sleep "$WATCH"
-SEQ=$("$ADB" logcat -d -T "$SINCE" 2>/dev/null | grep -o 'foreground start refused (occurrence [0-9]*' | grep -o '[0-9]*$' | tr '\n' ',' | sed 's/,$//')
+SEQ=$("$ADB" logcat -d -T "$SINCE" 2>/dev/null | grep -o 'foreground start refused (occurrence [0-9]*' | grep -o '[0-9]*$' | tr '\n' ',' | sed 's/,$//' || true)
 FIRSTS=$(tr ',' '\n' <<< "$SEQ" | grep -c '^1$' || true)
-echo "STREAK (+${WATCH}s): occurrences=[$SEQ]  events (occurrence 1): $FIRSTS  → $([ "$FIRSTS" -le 1 ] && echo "one event per streak" || echo "STREAK RESET BETWEEN REFUSALS")"
+if [ -z "$SEQ" ]; then
+  echo "STREAK (+${WATCH}s): no refusals (the promotion went through — expected for shellkey)"
+else
+  echo "STREAK (+${WATCH}s): occurrences=[$SEQ]  events (occurrence 1): $FIRSTS  → $([ "$FIRSTS" -le 1 ] && echo "one event per streak" || echo "STREAK RESET BETWEEN REFUSALS")"
+fi

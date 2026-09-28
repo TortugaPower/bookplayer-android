@@ -25,6 +25,9 @@ class ForegroundStartRefusals(
 ) {
     private var occurrences = 0
 
+    /** A refusal has happened since the last promotion — the only time a promotion check is worth its cost. */
+    val inStreak: Boolean get() = occurrences > 0
+
     /** media3's `Listener.onForegroundServiceStartNotAllowedException`. */
     fun onRefused(playbackContinued: Boolean) {
         occurrences += 1

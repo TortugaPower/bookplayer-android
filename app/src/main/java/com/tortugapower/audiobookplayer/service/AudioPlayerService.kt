@@ -99,8 +99,9 @@ class AudioPlayerService : MediaPlaybackService() {
         // media3 posts the promotion, so its outcome is only visible on the NEXT update: a service that is
         // foreground now has had a promotion go through, which ends any refusal streak. The signal is
         // ActivityManager's own record — `foregroundServiceType` keeps the last type after a demotion and
-        // reset the streak after every refusal (see ForegroundStartRefusals.isForeground).
-        if (startInForegroundRequired && isForegroundNow()) {
+        // reset the streak after every refusal (see ForegroundStartRefusals.isForeground). The binder call
+        // is only made while a streak is open; normal playback never pays for it.
+        if (startInForegroundRequired && foregroundStartRefusals.inStreak && isForegroundNow()) {
             foregroundStartRefusals.onPromoted()
         }
     }

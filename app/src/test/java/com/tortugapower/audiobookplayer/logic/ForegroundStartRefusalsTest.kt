@@ -24,6 +24,16 @@ class ForegroundStartRefusalsTest {
 
         assertEquals(listOf(1 to true, 2 to true, 1 to false), reports)
     }
+
+    @Test
+    fun inStreakOnlyBetweenARefusalAndTheNextPromotion() {
+        val refusals = ForegroundStartRefusals { _, _ -> }
+        assertFalse("nothing refused yet", refusals.inStreak)
+        refusals.onRefused(playbackContinued = true)
+        assertTrue(refusals.inStreak)
+        refusals.onPromoted()
+        assertFalse("a promotion closes the streak", refusals.inStreak)
+    }
 }
 
 /**
