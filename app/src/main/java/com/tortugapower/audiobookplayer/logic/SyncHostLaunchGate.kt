@@ -12,9 +12,12 @@ import android.util.Log
  * side effect, masking ANDROID-BOOKPLAYER-21 for that minute (any foreground service of ours lets the
  * playback service promote from the background). iOS runs its sync service only for an account.
  *
- * Storage is checked FIRST, before the queue is counted: while the volume is critical nothing may
- * touch the database (opening it can fail to size SQLite's shared memory on a full disk), the engine
- * holds all work anyway, and `BookPlayerApplication` restarts the host once space is back.
+ * Storage is checked FIRST, before the queue is counted: while the volume is critical the gate itself
+ * does not open the database for the count (opening it can fail to size SQLite's shared memory on a
+ * full disk, and the launch path should not add another such open), the engine holds all work anyway,
+ * and `BookPlayerApplication` restarts the host once space is back. This is a guarantee about the gate
+ * only — the app's account observers still open the account table at launch, on the storage-aware
+ * `appScope`, so a failed open there is recorded rather than fatal.
  */
 object SyncHostLaunchGate {
     private const val TAG = "SyncHostLaunchGate"
