@@ -173,14 +173,6 @@ class TaskConcurrencyServiceHost : Service() {
             runCatching { it.registerDefaultNetworkCallback(networkCallback) }
         }
 
-        // Observe account changes to update NetworkClient token
-        serviceScope.launch {
-            accountRepository.getAccountFlow().collect { account ->
-                Log.d(TAG, "👤 Account updated, setting NetworkClient token")
-                NetworkClient.setToken(account?.apiToken)
-            }
-        }
-
         // Observe active queues to update the notification — and to stop the service once work
         // dries up. Android 15+ gives dataSync services a 6h/day budget that burns on wall-clock
         // time, not work: an always-on "Idle" host exhausts it daily and gets killed mid-run

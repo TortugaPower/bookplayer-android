@@ -8,6 +8,7 @@ import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.SyncHostLaunchGate
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
+import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
@@ -110,6 +111,16 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             },
         )
         SubscriptionManager.initialize(this, accountRepository, syncTaskRepository, BuildConfig.REVENUECAT_API_KEY)
+
+        // Keep NetworkClient's auth token current with the signed-in account at the app level — as the
+        // watch does — so playback (presigned-URL refresh), account calls and sync all see it whether or
+        // not the sync host is running. Until the launch gate below, the host's unconditional start was
+        // what set the token for the whole process.
+        appScope.launch {
+            accountRepository.getAccountFlow().collect { account ->
+                NetworkClient.setToken(account?.apiToken)
+            }
+        }
 
         // The sync host stops itself when idle (Android 15+ dataSync budget), and :core wakes it back up
         // whenever a sync task is enqueued — so at launch it is started only for work left over from an
