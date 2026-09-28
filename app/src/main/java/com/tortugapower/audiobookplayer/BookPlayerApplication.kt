@@ -180,7 +180,12 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
     }
 
     /**
-     * Attach the signed-in account's id + email to outgoing Sentry events. Updates when the
+     * Attach the signed-in account to outgoing Sentry events as its RevenueCat app-user id — the
+     * server's `external_id`, which is also the storage prefix and the RevenueCat customer id, so
+     * support can reach the whole account (email, tier, library) from that one opaque key. The
+     * email itself never leaves the device: it is personal data Sentry does not need. Accounts
+     * persisted before the RevenueCat id was stored fall back to the local account id (the sign-in
+     * provider's subject, which the server's auth methods table also resolves). Updates when the
      * user signs in or out so crash reports always reflect the current identity (or anonymous
      * when signed out).
      */
@@ -191,8 +196,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             accountRepository.getAccountFlow().collect { account ->
                 if (account != null) {
                     Sentry.setUser(User().apply {
-                        id = account.id
-                        email = account.email
+                        id = account.revenuecatId ?: account.id
                     })
                 } else {
                     Sentry.setUser(null)
