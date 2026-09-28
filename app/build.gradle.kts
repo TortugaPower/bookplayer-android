@@ -129,8 +129,9 @@ android {
 }
 
 // Upload-only Sentry integration: ship the R8 mapping so release stack traces stay readable.
-// Everything else the plugin can do (bytecode instrumentation, SDK auto-install, source context)
-// is deliberately off — the runtime SDK stays the manually-initialized sentry-android dependency.
+// Everything else the plugin can do (bytecode instrumentation, its "runtime optimizations" rewrite
+// of the SDK's class-availability checks, SDK auto-install, source context) is deliberately off —
+// the runtime SDK stays the manually-initialized sentry-android dependency, unmodified.
 // Without SENTRY_AUTH_TOKEN (local.properties or env) the upload is skipped and builds stay green.
 sentry {
     org.set("tortuga-power")
@@ -142,6 +143,9 @@ sentry {
     includeSourceContext.set(false)
     ignoredBuildTypes.set(setOf("debug"))
     tracingInstrumentation {
+        enabled.set(false)
+    }
+    runtimeOptimizations {
         enabled.set(false)
     }
     autoInstallation {
