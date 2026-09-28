@@ -1,5 +1,7 @@
 package com.tortugapower.audiobookplayer.logic
 
+import android.app.ActivityManager
+import android.content.ComponentName
 import android.util.Log
 import io.sentry.Breadcrumb
 import io.sentry.Sentry
@@ -23,6 +25,9 @@ class ForegroundStartRefusals(
 ) {
     private var occurrences = 0
 
+    /** A refusal has happened since the last promotion — the only time a promotion check is worth its cost. */
+    val inStreak: Boolean get() = occurrences > 0
+
     /** media3's `Listener.onForegroundServiceStartNotAllowedException`. */
     fun onRefused(playbackContinued: Boolean) {
         occurrences += 1
@@ -34,8 +39,19 @@ class ForegroundStartRefusals(
         occurrences = 0
     }
 
-    private companion object {
-        const val TAG = "ForegroundStartRefusals"
+    companion object {
+        private const val TAG = "ForegroundStartRefusals"
+
+        /**
+         * Whether [self] is a foreground service right now, read from ActivityManager's own service record
+         * (`isForeground`). This is the signal that ends a streak — NOT `Service.getForegroundServiceType()`:
+         * that keeps returning the last type after media3 has demoted the service (measured on API 31 with
+         * `scripts/chaos/remote-resume-after-demotion.sh`), so a check on it "promoted" after every refusal
+         * and each refused attempt became its own Sentry event. `getRunningServices` is deprecated for
+         * listing other apps' services; for the caller's own services it is documented to keep working.
+         */
+        fun isForeground(services: List<ActivityManager.RunningServiceInfo>, self: ComponentName): Boolean =
+            services.any { it.service == self && it.foreground }
 
         fun reportToSentry(occurrence: Int, playbackContinued: Boolean) {
             Log.w(TAG, "foreground start refused (occurrence $occurrence, playback continued: $playbackContinued)")
