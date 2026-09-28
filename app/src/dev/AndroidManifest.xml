@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Dev flavor only: lets scripts/chaos drive a resume from a background process with no user
+             gesture behind it (ANDROID-BOOKPLAYER-21 rig). See DebugPlaybackReceiver. -->
+        <receiver
+            android:name=".debug.DebugPlaybackReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.tortugapower.audiobookplayer.debug.RESUME" />
+                <action android:name="com.tortugapower.audiobookplayer.debug.RESUME_VIA_MEDIA_KEY" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

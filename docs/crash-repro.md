@@ -253,6 +253,46 @@ Not reproducible on the emulator — its audioserver never stalls. The contract 
 release). Sanity check on a device or emulator: play, toggle *Volume boost* in settings a few times;
 `adb shell dumpsys media.audio_flinger | grep -i loudness` shows the effect attached to the session.
 
+### ANDROID-BOOKPLAYER-21 — foreground start refused on a resume without a user gesture
+
+`ForegroundServiceStartNotAllowedException` from media3's own `startForegroundService(self)` when it
+promotes `AudioPlayerService` after playback resumes in the background. Not an audio-focus story: a
+phone call is a *transient* loss, which ExoPlayer models as suppression with `playWhenReady` still
+true, so media3's engaged check stays true and the service stays foreground through the call. The
+failure needs, in this order: a real pause; media3's user-engaged timeout (`DEFAULT_FOREGROUND_SERVICE_TIMEOUT_MS`,
+10 minutes, also the maximum — `setForegroundServiceTimeoutMs` clamps), after which the next
+notification update calls `stopForeground` and the OS resets the record's allowance
+(`resetFgsRestrictionLocked`); a quiet UID — while the sync host is a foreground service, any
+foreground start of ours is allowed (`code:PROC_STATE_FGS`), and the host idle-stops ~60 s after its
+queues empty; and then a resume with no user gesture behind it. Android's own exemption list has no
+entry for media; what a headset press gets is `MediaSessionService.tempAllowlistTargetPkgIfPossible`,
+which allowlists the *target* of a key sent by *someone else* — never a package for a key it dispatched
+itself. In BookPlayer the gesture-less resumes are the watch's remote play (`WearCommandListenerService.play`
+→ `PlaybackManager.togglePlayPause()` from a Play-Services-bound listener) and, probably, Android Auto's
+controller commands. On media3 1.7 (1.1.3) the artwork-loaded retry crashed; media3 1.11 (1.2.0)
+catches both attempts and routes them to `MediaSessionService.Listener.onForegroundServiceStartNotAllowedException`,
+which the app does not implement: playback runs in a plain background service with no notification.
+
+`scripts/chaos/remote-resume-after-demotion.sh <mode>` on `bp-lowend-31` (dev build): the dev flavor
+adds `DebugPlaybackReceiver` (`src/dev`, an `am broadcast` resume with no gesture) and the
+`bookplayer_media_fgs_timeout_ms` global setting (`DebugKnobs`, read once in `AudioPlayerService.onCreate`)
+to reach the demoted state in 15 s instead of 10 min; the script then waits until nothing of ours is
+foreground and reads ActivityManager's verdict line. Measured: `direct` and `mediakey` (the app
+dispatching the key itself) → `Disallowed (DENIED)`, audio playing, no foreground service, no
+notification; `shellkey` (`input keyevent KEYCODE_MEDIA_PLAY`, the headset path) → `Allowed
+(TEMP_ALLOWED_WHILE_IN_USE)`. Rig gotchas: `pm clear` between runs; the sync host runs as a dataSync
+foreground service during playback even for a logged-out user and masks the refusal until it
+idle-stops; `cmd media_session dispatch` is broken on the API 31 image ("packageName may not be
+empty"); `adb shell date '+%m-%d %H:%M:%S.000'` must be quoted for the device shell; a demoted service
+record prints no `isForeground=` line at all. `bp-api36` needs 9.8 GB free for its userdata partition.
+
+Fix (the Pocket Casts shape, deliberately not a workaround of the OS): `AudioPlayerService` sets media3's
+`MediaSessionService.Listener`, and `ForegroundStartRefusals` counts the refusals since the last promotion
+and reports each as a handled Sentry event (`fgs.occurrence`, `fgs.playback_continued`), with a `wear`
+breadcrumb naming the watch command kind so the report says where the resume came from. Playback is left
+running: it is what the user asked for, and the next gesture restores the notification (`shellkey`
+measures that path as allowed). `REPORTED BY APP: yes` in the rig's output is the acceptance.
+
 ### ANDROID-BOOKPLAYER-1E — "Bad notification for startForeground"
 
 One TECNO (Android 12) report on 1.1.2; the breadcrumbs show only rapid background/foreground cycling.
