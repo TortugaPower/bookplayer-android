@@ -273,7 +273,7 @@ controller commands. On media3 1.7 (1.1.3) the artwork-loaded retry crashed; med
 catches both attempts and routes them to `MediaSessionService.Listener.onForegroundServiceStartNotAllowedException`,
 which the app does not implement: playback runs in a plain background service with no notification.
 
-`scripts/chaos/remote-resume-after-demotion.sh <mode>` on `bp-lowend-31` (dev build): the dev flavor
+`scripts/chaos/remote-resume-after-demotion.sh <mode>` on `bp-lowend-31` or `bp-api36` (dev build; same verdicts on API 31 and Android 16): the dev flavor
 adds `DebugPlaybackReceiver` (`src/dev`, an `am broadcast` resume with no gesture) and the
 `bookplayer_media_fgs_timeout_ms` global setting (`DebugKnobs`, read once in `AudioPlayerService.onCreate`)
 to reach the demoted state in 15 s instead of 10 min; the script then waits until nothing of ours is

@@ -6,7 +6,7 @@
 # Env:   ADB=/path/to/adb (default: adb on PATH)
 #
 # Needs the DEV build (the debug receiver and the timeout knob exist only in the dev flavor) on an
-# API 31+ emulator. Imports the fixture, plays it, pauses through the system (a media key), sends the
+# API 31+ emulator (measured on bp-lowend-31 / API 31 and bp-api36 / Android 16, same verdicts). Imports the fixture, plays it, pauses through the system (a media key), sends the
 # app to the background, waits past media3's foreground timeout (shortened here from 10 min to 15 s)
 # AND until the sync host has idle-stopped (while any service of ours is foreground, every foreground
 # start is allowed — the UID is already FGS — which is why the field failure needs a quiet app), then
@@ -60,18 +60,20 @@ tap() {
   done
   echo "no node matching '$1'"; return 1
 }
-# Playback state of our media session: 3 = playing, 2 = paused (dumpsys media_session).
-session_state() { "$ADB" shell dumpsys media_session | grep -A12 "$PKG/" | grep -o 'state=PlaybackState {state=[0-9]*' | head -1 | grep -o '[0-9]*$' || echo "?"; }
+# Playback state of our media session: 3 = playing, 2 = paused, 1 = stopped. API 31 prints `state=3`,
+# Android 16 prints `state=PLAYING(3)` — the number is read either way.
+session_state() { "$ADB" shell dumpsys media_session | grep -A12 "$PKG/" | grep -oE 'state=PlaybackState \{state=[A-Z_]*\(?[0-9]+' | head -1 | grep -oE '[0-9]+$' || echo "?"; }
 # The playback service's foreground flag, from the ActivityManager's own record. A demoted record prints
 # no isForeground line at all, so the record is cut at the next ServiceRecord before looking.
+# (Android 16 appends ` c:<pkg>` inside the record's braces, so the class name is matched on its own.)
 is_foreground() {
   "$ADB" shell dumpsys activity services "$PKG" | awk '
-    /\* ServiceRecord\{/ { inrec = ($0 ~ /AudioPlayerService\}/) }
+    /\* ServiceRecord\{/ { inrec = ($0 ~ /\.service\.AudioPlayerService/) }
     inrec && /isForeground=/ { sub(/.*isForeground=/, ""); sub(/ .*/, ""); print; found = 1; exit }
     END { if (!found) print "false" }'
 }
 # Every service of ours that is currently a foreground service (the sync host shows up here while it runs).
-foreground_services() { "$ADB" shell dumpsys activity services "$PKG" | awk '/\* ServiceRecord\{/ {n=$0; sub(/.*\//,"",n); sub(/\}.*/,"",n)} /isForeground=true/ {printf "%s ", n}'; }
+foreground_services() { "$ADB" shell dumpsys activity services "$PKG" | awk '/\* ServiceRecord\{/ {n=$0; sub(/.*\//,"",n); sub(/[ }].*/,"",n)} /isForeground=true/ {printf "%s ", n}'; }
 media_notification() { "$ADB" shell dumpsys notification --noredact 2>/dev/null | grep -c "pkg=$PKG" || true; }
 
 "$ADB" shell settings put global bookplayer_media_fgs_timeout_ms "$TIMEOUT_MS"
