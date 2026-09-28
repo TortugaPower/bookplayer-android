@@ -1,4 +1,4 @@
-package com.tortugapower.audiobookplayer.logic
+package com.tortugapower.audiobookplayer
 
 import io.sentry.SentryOptions
 import io.sentry.android.core.internal.threaddump.Lines
@@ -16,6 +16,12 @@ import java.io.StringReader
  * arrived in Sentry as `null.uf` and the uploaded mapping could not resolve them (the 1.2.0+21 ANR
  * ANDROID-BOOKPLAYER-2C is unreadable for exactly this reason). A default-package frame must keep its
  * bare class name as the module so symbolication can find it in the mapping.
+ *
+ * This deliberately reaches into Sentry's internal `threaddump` package, which carries no stability
+ * guarantee (the 7→8 bump already changed `parse()` from returning the threads to a `threads` getter).
+ * If it stops compiling on a later bump, re-check that the SDK still keeps bare class names for
+ * default-package frames (sentry-java 8.54.0 changelog: "Prevents inclusion of `null.` prefix before
+ * default-package class names…"), then adapt this test to the new API or remove it.
  */
 class SentryAnrThreadDumpTest {
 
