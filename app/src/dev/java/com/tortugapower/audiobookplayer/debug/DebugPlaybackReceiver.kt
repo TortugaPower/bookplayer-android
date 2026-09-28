@@ -33,12 +33,17 @@ class DebugPlaybackReceiver : BroadcastReceiver() {
                     if (!PlaybackManager.isPlaying.value) PlaybackManager.togglePlayPause()
                 } else {
                     // Cold process (the OS killed the app): the watch's "play this item" branch —
-                    // resolve off-main, load on main.
+                    // resolve off-main, load on main. goAsync() keeps the fresh process alive meanwhile.
+                    val pending = goAsync()
                     CoroutineScope(Dispatchers.IO).launch {
-                        val dao = AppDatabase.getDatabase(context.applicationContext).libraryDao()
-                        val item = dao.getRecentPlayedItemsSync(1).firstOrNull() ?: dao.getRootItemsSync().firstOrNull()
-                        if (item != null) withContext(Dispatchers.Main) {
-                            PlaybackManager.playItem(context.applicationContext, item)
+                        try {
+                            val dao = AppDatabase.getDatabase(context.applicationContext).libraryDao()
+                            val item = dao.getRecentPlayedItemsSync(1).firstOrNull() ?: dao.getRootItemsSync().firstOrNull()
+                            if (item != null) withContext(Dispatchers.Main) {
+                                PlaybackManager.playItem(context.applicationContext, item)
+                            }
+                        } finally {
+                            pending.finish()
                         }
                     }
                 }

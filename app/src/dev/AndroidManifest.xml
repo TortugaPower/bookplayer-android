@@ -3,9 +3,12 @@
     <application>
         <!-- Dev flavor only: lets scripts/chaos drive a resume from a background process with no user
              gesture behind it (ANDROID-BOOKPLAYER-21 rig). See DebugPlaybackReceiver. -->
+        <!-- Exported so `adb shell am broadcast` reaches it, but only for holders of DUMP: the shell user
+             has it, no third-party app can get it. -->
         <receiver
             android:name=".debug.DebugPlaybackReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="android.permission.DUMP">
             <intent-filter>
                 <action android:name="com.tortugapower.audiobookplayer.debug.RESUME" />
                 <action android:name="com.tortugapower.audiobookplayer.debug.RESUME_VIA_MEDIA_KEY" />

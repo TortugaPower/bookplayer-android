@@ -288,7 +288,8 @@ record prints no `isForeground=` line at all. `bp-api36` needs 9.8 GB free for i
 
 Fix (the Pocket Casts shape, deliberately not a workaround of the OS): `AudioPlayerService` sets media3's
 `MediaSessionService.Listener`, and `ForegroundStartRefusals` counts the refusals since the last promotion
-and reports each as a handled Sentry event (`fgs.occurrence`, `fgs.playback_continued`), with a `wear`
+and reports the first of each streak as a handled Sentry event (`fgs.playback_continued`; later refusals are
+`fgs` breadcrumbs), with a `wear`
 breadcrumb naming the watch command kind so the report says where the resume came from. Playback is left
 running: it is what the user asked for, and the next gesture restores the notification (`shellkey`
 measures that path as allowed). `REPORTED BY APP: yes` in the rig's output is the acceptance.

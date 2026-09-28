@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.util.Log
+import io.sentry.Breadcrumb
 import io.sentry.Sentry
 import io.sentry.SentryLevel
 
@@ -13,8 +14,9 @@ import io.sentry.SentryLevel
  * media key to itself — so, as Pocket Casts does, this counts and reports instead of working around
  * the OS: media3 already catches the exception, the audio the user asked for keeps playing in a plain
  * background service, and the next gesture (a headset press, opening the app) brings the notification
- * back. The report is a handled Sentry event, never a crash, carrying how many refusals in a row since
- * the last promotion and whether audio was still playing.
+ * back. The report is a handled Sentry event, never a crash: one per streak — media3 retries the
+ * promotion on every notification update while playing (chapter, metadata, artwork), so the later
+ * refusals of a streak become `fgs` breadcrumbs, which the next event carries with the streak length.
  */
 class ForegroundStartRefusals(
     private val report: (occurrence: Int, playbackContinued: Boolean) -> Unit = { o, p -> reportToSentry(o, p) },
@@ -37,9 +39,15 @@ class ForegroundStartRefusals(
 
         fun reportToSentry(occurrence: Int, playbackContinued: Boolean) {
             Log.w(TAG, "foreground start refused (occurrence $occurrence, playback continued: $playbackContinued)")
-            Sentry.captureMessage("Playback foreground start refused", SentryLevel.WARNING) { scope ->
-                scope.setTag("fgs.occurrence", occurrence.toString())
-                scope.setTag("fgs.playback_continued", playbackContinued.toString())
+            if (occurrence == 1) {
+                Sentry.captureMessage("Playback foreground start refused", SentryLevel.WARNING) { scope ->
+                    scope.setTag("fgs.playback_continued", playbackContinued.toString())
+                }
+            } else {
+                Sentry.addBreadcrumb(
+                    Breadcrumb.info("foreground start refused again (#$occurrence, playing=$playbackContinued)")
+                        .apply { category = "fgs" }
+                )
             }
         }
     }

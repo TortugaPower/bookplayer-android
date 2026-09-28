@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.service
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
@@ -94,9 +95,12 @@ class AudioPlayerService : MediaPlaybackService() {
             )
         }
         super.onUpdateNotification(session, startInForegroundRequired)
-        // Optimistic, as Pocket Casts does: media3 promotes asynchronously and reports a refusal through
-        // the listener, so a promotion that went through ends the refusal streak.
-        if (startInForegroundRequired) foregroundStartRefusals.onPromoted()
+        // media3 posts the promotion, so its outcome is only visible on the NEXT update: a service that is
+        // foreground now has had a promotion go through, which ends any refusal streak. Refusals exist on
+        // API 31+ only, where foregroundServiceType (API 29) is available.
+        if (startInForegroundRequired && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && foregroundServiceType != 0) {
+            foregroundStartRefusals.onPromoted()
+        }
     }
 
     override fun onSessionReady() {
