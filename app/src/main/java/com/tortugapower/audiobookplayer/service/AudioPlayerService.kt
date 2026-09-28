@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.service
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
@@ -11,6 +12,7 @@ import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
@@ -25,7 +27,9 @@ import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.debug.DebugKnobs
 import com.tortugapower.audiobookplayer.logic.CoverArtResolver
+import com.tortugapower.audiobookplayer.logic.ForegroundStartRefusals
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import io.sentry.Breadcrumb
 import io.sentry.Sentry
@@ -45,6 +49,24 @@ import kotlinx.coroutines.withContext
  * iOS CarPlay). Registered as the phone's `<service>` in the manifest.
  */
 class AudioPlayerService : MediaPlaybackService() {
+
+    private val foregroundStartRefusals = ForegroundStartRefusals()
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    override fun onCreate() {
+        super.onCreate()
+        // Dev builds only: scripts/chaos shorten media3's 10-minute foreground timeout to reach the
+        // demoted-while-paused state quickly (ANDROID-BOOKPLAYER-21 rig). Production returns null.
+        DebugKnobs.mediaForegroundTimeoutMs(this)?.let { setForegroundServiceTimeoutMs(it) }
+        // Android 12+ refuses the foreground start of a gesture-less resume once media3 has dropped the
+        // foreground (ANDROID-BOOKPLAYER-21). media3 catches the exception and reports it here; see
+        // ForegroundStartRefusals for why this is recorded rather than worked around.
+        setListener(object : MediaSessionService.Listener {
+            override fun onForegroundServiceStartNotAllowedException() {
+                foregroundStartRefusals.onRefused(playbackContinued = mediaSession?.player?.isPlaying == true)
+            }
+        })
+    }
 
     override fun createSessionActivity(): PendingIntent {
         val intent = Intent(this, MainActivity::class.java).apply {
@@ -73,6 +95,12 @@ class AudioPlayerService : MediaPlaybackService() {
             )
         }
         super.onUpdateNotification(session, startInForegroundRequired)
+        // media3 posts the promotion, so its outcome is only visible on the NEXT update: a service that is
+        // foreground now has had a promotion go through, which ends any refusal streak. Refusals exist on
+        // API 31+ only, where foregroundServiceType (API 29) is available.
+        if (startInForegroundRequired && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && foregroundServiceType != 0) {
+            foregroundStartRefusals.onPromoted()
+        }
     }
 
     override fun onSessionReady() {
