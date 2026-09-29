@@ -456,9 +456,12 @@ class StreamFileUploadProcessor(
             ?.let { ExternalServiceUtils.playbackHeaders(it, server.token, ExternalServiceUtils.sanitizeCustomHeaders(server.customHeaders)) }
 
         return try {
-            val getRequest = okhttp3.Request.Builder().url(sourceUrl)
-            headers?.forEach { (k, v) -> getRequest.addHeader(k, v) }
-            client.newCall(getRequest.build()).execute().use { response ->
+            // Headers ride only the hops that stay on the media server (a redirect elsewhere must not get
+            // them); newBuilder() shares the pipe client's connection pool.
+            val sourceClient = headers?.let {
+                client.newBuilder().addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(sourceUrl, it)).build()
+            } ?: client
+            sourceClient.newCall(okhttp3.Request.Builder().url(sourceUrl).build()).execute().use { response ->
                 val body = response.body
                 if (!response.isSuccessful || body == null) {
                     Log.e("StreamFileUploadProcessor", "❌ Source GET failed (${response.code}) for ${item.title}")
@@ -592,14 +595,17 @@ class DownloadFileProcessor(
         // Ensure parent directories exist
         destFile.parentFile?.mkdirs()
 
-        val client = okhttp3.OkHttpClient()
-
         return try {
-            val request = okhttp3.Request.Builder().url(remoteURL)
-            mediaServerHeaders(taskId, remoteURL)?.forEach { (k, v) -> request.addHeader(k, v) }
+            // Media-server headers ride only the hops that stay on that server: OkHttp would carry custom
+            // headers (often Cloudflare Access secrets) across a redirect to another host.
+            val client = okhttp3.OkHttpClient.Builder().apply {
+                mediaServerHeaders(taskId, remoteURL)?.let {
+                    addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(remoteURL, it))
+                }
+            }.build()
             // `use` closes the response on every path: the early returns below (error status, no room) would
             // otherwise leak the connection on each retry.
-            client.newCall(request.build()).execute().use { response ->
+            client.newCall(okhttp3.Request.Builder().url(remoteURL).build()).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.e("DownloadFileProcessor", "❌ Download failed: ${response.code}")
                     return false

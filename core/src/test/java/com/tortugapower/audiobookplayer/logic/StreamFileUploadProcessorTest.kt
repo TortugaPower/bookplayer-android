@@ -136,6 +136,28 @@ class StreamFileUploadProcessorTest {
         assertEquals("cf-id", get.getHeader("CF-Access-Client-Id"))
     }
 
+    // Custom headers (often Cloudflare Access secrets) survive a cross-host redirect in OkHttp; the source
+    // GET pins them to the media server's origin so another host never receives them.
+    @Test fun `a source redirect off the media server gets none of its headers`() = runBlocking {
+        val elsewhere = MockWebServer().apply { start() }
+        try {
+            insertStreamItem(); insertServer(mapOf("CF-Access-Client-Id" to "cf-id"))
+            server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", elsewhere.url("/cdn/book.m4b")))
+            elsewhere.enqueue(MockResponse().setBody("audio"))
+            server.enqueue(MockResponse())                            // S3 PUT
+
+            assertTrue(processor(putUrl = server.url("/s3-put").toString()).process(task()))
+
+            assertEquals("cf-id", server.takeRequest().getHeader("CF-Access-Client-Id"))
+            val redirected = elsewhere.takeRequest()
+            assertNull(redirected.getHeader("Authorization"))
+            assertNull(redirected.getHeader("CF-Access-Client-Id"))
+            assertEquals("audio", server.takeRequest().body.readUtf8())
+        } finally {
+            elsewhere.shutdown()
+        }
+    }
+
     @Test fun `unknown source length stages through cache and still PUTs a fixed-length body`() = runBlocking {
         insertStreamItem(); insertServer()
         val audio = "chunked-audio-payload"

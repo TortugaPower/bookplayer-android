@@ -5,6 +5,8 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import kotlinx.coroutines.flow.first
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Interceptor
 
 object ExternalServiceUtils {
     fun sanitizeUrl(url: String): String {
@@ -168,5 +170,24 @@ object ExternalServiceUtils {
         if (!url.startsWith(sanitizeUrl(server.url))) return null
         val type = serviceTypeFor(resource.providerName) ?: return null
         return playbackHeaders(type, server.token, sanitizeCustomHeaders(server.customHeaders))
+    }
+
+    /**
+     * A network interceptor that adds [headers] to each hop of a request only while it stays on [url]'s
+     * origin (scheme, host and port — the rule OkHttp applies to `Authorization` on redirects). OkHttp
+     * keeps every other header across a cross-host redirect, and custom headers are often Cloudflare
+     * Access secrets; playback pins its headers to the server's host the same way.
+     */
+    fun originPinnedHeaders(url: String, headers: Map<String, String>): Interceptor {
+        val origin = url.toHttpUrlOrNull()
+        return Interceptor { chain ->
+            val request = chain.request()
+            val sameOrigin = origin != null && request.url.scheme == origin.scheme &&
+                request.url.host == origin.host && request.url.port == origin.port
+            if (!sameOrigin) return@Interceptor chain.proceed(request)
+            val pinned = request.newBuilder()
+            headers.forEach { (name, value) -> pinned.header(name, value) }
+            chain.proceed(pinned.build())
+        }
     }
 }

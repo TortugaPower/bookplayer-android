@@ -146,6 +146,26 @@ class DownloadFileProcessorTest {
         assertFalse(OfflineDownloadManager.processedFile(context, relativePath).exists())
     }
 
+    // OkHttp drops Authorization on a cross-host redirect but keeps custom headers, which are often
+    // Cloudflare Access secrets: the headers are pinned to the media server's origin, hop by hop.
+    @Test fun `a redirect off the media server gets none of its headers`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setResponseCode(302).setHeader("Location", cloud.url("/elsewhere/book.m4b")))
+        cloud.enqueue(MockResponse().setBody("audio-bytes"))
+
+        val handled = processor().process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString()))
+
+        assertTrue(handled)
+        val first = mediaServer.takeRequest()
+        assertEquals("MediaBrowser Token=\"tok\"", first.getHeader("Authorization"))
+        assertEquals("cf-id", first.getHeader("CF-Access-Client-Id"))
+        val redirected = cloud.takeRequest()
+        assertEquals("/elsewhere/book.m4b", redirected.path)
+        assertNull(redirected.getHeader("Authorization"))
+        assertNull(redirected.getHeader("CF-Access-Client-Id"))
+        assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, relativePath).readText())
+    }
+
     @Test fun `cloud download of a media-server item goes out without media-server auth`() = runBlocking {
         insertJellyfinBook()
         cloud.enqueue(MockResponse().setBody("audio-bytes"))
