@@ -76,7 +76,9 @@ class SyncingLibraryRepository(
                             hostId = resource.hostId,
                             currentTime = currentTime,
                             percentCompleted = item.percentCompleted,
-                            isFinished = isFinished
+                            isFinished = isFinished,
+                            // Stamped by the delegate's updateItemProgress just above.
+                            lastPlayDate = item.lastPlayDate
                         )
                     }
                 }

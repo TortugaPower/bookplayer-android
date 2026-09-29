@@ -368,7 +368,9 @@ object SyncTaskFactory {
         hostId: String?,
         currentTime: Double,
         percentCompleted: Double,
-        isFinished: Boolean
+        isFinished: Boolean,
+        // Epoch ms of the save this push carries (the item's lastPlayDate); the server's "last played".
+        lastPlayDate: Long?
     ) {
         val taskId = "${libraryItemUuid}_${providerId}"
         val queueKey = providerName.lowercase()
@@ -379,7 +381,8 @@ object SyncTaskFactory {
             "hostId" to hostId,
             "currentTime" to currentTime,
             "percentCompleted" to percentCompleted,
-            "isFinished" to isFinished
+            "isFinished" to isFinished,
+            "lastPlayDate" to lastPlayDate
         )
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_EXTERNAL_UPDATE, taskId)
         if (existingTask != null) {

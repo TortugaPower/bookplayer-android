@@ -53,6 +53,18 @@ class SyncTaskFactoryTest {
 
     private fun payloadOf(task: SyncTaskEntity): Map<*, *> = Gson().fromJson(task.payload, Map::class.java)
 
+    // The media-server push carries the save's lastPlayDate in epoch MS; ExternalUpdateProcessor formats it
+    // as Jellyfin's LastPlayedDate, which iOS compares against its own play date before applying a position.
+    @Test fun externalUpdateTask_carriesLastPlayDateInMs() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createExternalUpdateTask(
+            repo, libraryItemUuid = "u1", providerName = "jellyfin", providerId = "jf-9", hostId = "srv-guid",
+            currentTime = 10.0, percentCompleted = 0.5, isFinished = false, lastPlayDate = 1_790_694_307_123L,
+        )
+        val payload = payloadOf(repo.saved!!)
+        assertEquals(1_790_694_307_123.0, payload["lastPlayDate"] as Double, 0.0)
+    }
+
     @Test fun updateTask_uploadsLastPlayDateInSeconds() = runBlocking {
         val repo = CapturingRepo()
         SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = 1_700_000_000_000L))

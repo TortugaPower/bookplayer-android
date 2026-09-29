@@ -85,8 +85,10 @@ interface JellyfinApi {
     suspend fun logout(
         @Header("Authorization") authHeader: String
     ): Response<Unit>
-    
-    @POST("Users/me/Items/{itemId}/UserData")
+
+    // The user is inferred from the token, as iOS's `updateItemUserData` does. The old `Users/me/...`
+    // route never worked: Jellyfin parses that segment as a user GUID and answers 400 for "me".
+    @POST("UserItems/{itemId}/UserData")
     suspend fun updateUserData(
         @Header("Authorization") authHeader: String,
         @Path("itemId") itemId: String,
@@ -97,7 +99,11 @@ interface JellyfinApi {
 data class JellyfinUserDataRequest(
     @SerializedName("PlaybackPositionTicks") val playbackPositionTicks: Long,
     @SerializedName("PlayedPercentage") val playedPercentage: Double?,
-    @SerializedName("Played") val played: Boolean
+    @SerializedName("Played") val played: Boolean,
+    // When this position was reached (ISO-8601, UTC). Jellyfin stores it only when a client sends it,
+    // and iOS applies a server position only when this date is newer than its own. Null is left out of
+    // the body (Gson skips nulls), so the server keeps the date it has.
+    @SerializedName("LastPlayedDate") val lastPlayedDate: String? = null
 )
 
 data class JellyfinSystemInfo(
