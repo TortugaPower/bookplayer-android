@@ -564,6 +564,12 @@ class DownloadFileProcessor(
     private val serverRepository: ExternalServerRepository =
         ExternalServerRepository(AppDatabase.getDatabase(context).externalServerDao()),
 ) : TaskProcessor {
+    companion object {
+        // One base client for every download (and retry); per-server variants derive via newBuilder(),
+        // which shares this client's connection pool and dispatcher threads.
+        private val baseHttpClient by lazy { okhttp3.OkHttpClient() }
+    }
+
     override suspend fun process(task: SyncTaskEntity): Boolean {
         val gson = Gson()
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
@@ -598,11 +604,9 @@ class DownloadFileProcessor(
         return try {
             // Media-server headers ride only the hops that stay on that server: OkHttp would carry custom
             // headers (often Cloudflare Access secrets) across a redirect to another host.
-            val client = okhttp3.OkHttpClient.Builder().apply {
-                mediaServerHeaders(taskId, remoteURL)?.let {
-                    addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(remoteURL, it))
-                }
-            }.build()
+            val client = mediaServerHeaders(taskId, remoteURL)?.let {
+                baseHttpClient.newBuilder().addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(remoteURL, it)).build()
+            } ?: baseHttpClient
             // `use` closes the response on every path: the early returns below (error status, no room) would
             // otherwise leak the connection on each retry.
             client.newCall(okhttp3.Request.Builder().url(remoteURL).build()).execute().use { response ->
