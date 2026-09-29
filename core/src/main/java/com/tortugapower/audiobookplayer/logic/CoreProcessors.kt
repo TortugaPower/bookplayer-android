@@ -996,7 +996,10 @@ class SetExternalResourceToDownloadProcessor : TaskProcessor {
 }
 
 class ExternalUpdateProcessor(
-    private val context: Context
+    private val context: Context,
+    // Through the repository, not the DAO (see process()). Overridable so tests can swap the Keystore cipher.
+    private val serverRepository: ExternalServerRepository =
+        ExternalServerRepository(AppDatabase.getDatabase(context).externalServerDao()),
 ) : TaskProcessor {
     private val gson = Gson()
 
@@ -1008,7 +1011,9 @@ class ExternalUpdateProcessor(
 
     private fun buildApiClient(sanitizedUrl: String, customHeaders: Map<String, String>?): retrofit2.Retrofit {
         val okHttpClientBuilder = baseHttpClient.newBuilder()
-        customHeaders?.forEach { (key, value) ->
+        // Sanitized like JellyfinService's client: a custom `Authorization` entry would replace the
+        // provider's own auth header, and an illegal name/value throws at request time.
+        ExternalServiceUtils.sanitizeCustomHeaders(customHeaders)?.forEach { (key, value) ->
             okHttpClientBuilder.addInterceptor { chain ->
                 val request = chain.request().newBuilder().header(key, value).build()
                 chain.proceed(request)
@@ -1034,34 +1039,6 @@ class ExternalUpdateProcessor(
         return permanent
     }
 
-    private fun getDeviceId(): String {
-        return try {
-            if (!com.tortugapower.audiobookplayer.core.CoreContext.isInitialized()) return "BookPlayerAndroidID"
-            val appCtx = com.tortugapower.audiobookplayer.core.CoreContext.appContext
-            val prefs = appCtx.getSharedPreferences("jellyfin_prefs", Context.MODE_PRIVATE)
-            var id = prefs.getString("device_id", null)
-            if (id == null) {
-                id = java.util.UUID.randomUUID().toString()
-                prefs.edit().putString("device_id", id).apply()
-            }
-            id
-        } catch (e: Exception) {
-            "BookPlayerAndroidID"
-        }
-    }
-
-    private fun getJellyfinAuthHeader(token: String? = null): String {
-        val device = "Android"
-        val deviceId = getDeviceId()
-        val client = "BookPlayer"
-        val version = "1.0.0"
-        var header = "MediaBrowser Client=\"$client\", Device=\"$device\", DeviceId=\"$deviceId\", Version=\"$version\""
-        if (token != null) {
-            header += ", Token=\"$token\""
-        }
-        return header
-    }
-
     override suspend fun process(task: SyncTaskEntity): Boolean {
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
@@ -1075,13 +1052,10 @@ class ExternalUpdateProcessor(
         val percentCompleted = (payload["percentCompleted"] as? Double) ?: 0.0
         val isFinished = (payload["isFinished"] as? Boolean) ?: false
 
-        val db = AppDatabase.getDatabase(context)
-
         // Resolve through THE shared resolver (stable-id contract + decrypted credentials): the
         // old inline rowid lookup read the DAO directly, so the token below was ciphertext and
         // the provider rejected it with 401; it also stopped matching once hostIds became
         // GUIDs/URL keys, silently discarding every progress push.
-        val serverRepository = com.tortugapower.audiobookplayer.repository.ExternalServerRepository(db.externalServerDao())
         val server = ExternalServiceUtils.serverForResource(
             serverRepository,
             com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity(
@@ -1121,7 +1095,7 @@ class ExternalUpdateProcessor(
                     val api = buildApiClient(sanitizedUrl, customHeaders)
                         .create(com.tortugapower.audiobookplayer.network.services.JellyfinApi::class.java)
 
-                    val authHeader = getJellyfinAuthHeader(token)
+                    val authHeader = com.tortugapower.audiobookplayer.network.services.JellyfinService.getAuthHeader(token)
                     val response = api.updateUserData(authHeader, providerId, requestBody)
                     handleResponse(providerName, response)
                 }
