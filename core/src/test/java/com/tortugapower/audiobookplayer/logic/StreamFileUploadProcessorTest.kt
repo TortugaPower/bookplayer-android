@@ -80,9 +80,9 @@ class StreamFileUploadProcessorTest {
         AppDatabase.getDatabase(context).externalServerDao(), fakeCipher,
     )
 
-    private suspend fun insertServer() {
+    private suspend fun insertServer(customHeaders: Map<String, String>? = null) {
         serverRepository().saveServer(
-            ExternalServerEntity(id = 1, name = "jf", type = ExternalServiceType.JELLYFIN, url = server.url("/").toString(), token = "tok", stableId = "srv-guid"),
+            ExternalServerEntity(id = 1, name = "jf", type = ExternalServiceType.JELLYFIN, url = server.url("/").toString(), token = "tok", stableId = "srv-guid", customHeaders = customHeaders),
         )
     }
 
@@ -120,6 +120,20 @@ class StreamFileUploadProcessorTest {
         assertEquals(ExternalResourceEntity.STATUS_DOWNLOADED, resource.syncStatus)
         // Progress reached 100% (the engine clears the key after process() returns).
         assertEquals(1.0, SyncStatusManager.taskProgress.value["row-1"]!!, 0.0001)
+    }
+
+    // A persisted illegal header (BOOKPLAYER-B: a Cyrillic name) throws on addHeader; unsanitized it
+    // failed every attempt and wedged the pipe. The legal custom header still rides along.
+    @Test fun `illegal custom headers are dropped instead of failing the source GET`() = runBlocking {
+        insertStreamItem(); insertServer(mapOf("Заголовок" to "x", "CF-Access-Client-Id" to "cf-id"))
+        server.enqueue(MockResponse().setBody("audio"))               // Jellyfin GET
+        server.enqueue(MockResponse())                                // S3 PUT
+
+        assertTrue(processor(putUrl = server.url("/s3-put").toString()).process(task()))
+
+        val get = server.takeRequest()
+        assertEquals("MediaBrowser Token=\"tok\"", get.getHeader("Authorization"))
+        assertEquals("cf-id", get.getHeader("CF-Access-Client-Id"))
     }
 
     @Test fun `unknown source length stages through cache and still PUTs a fixed-length body`() = runBlocking {

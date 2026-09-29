@@ -133,6 +133,19 @@ class DownloadFileProcessorTest {
         assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, relativePath).readText())
     }
 
+    // An expired token is now an ordinary failure: retryable (false), nothing written, and the response is
+    // closed (the processor reads it inside `use`) so repeated retries don't leak connections.
+    @Test fun `rejected media-server download is retryable and writes nothing`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setResponseCode(401).setBody("expired"))
+
+        val handled = processor().process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString()))
+
+        assertFalse(handled)
+        assertEquals(1, mediaServer.requestCount)
+        assertFalse(OfflineDownloadManager.processedFile(context, relativePath).exists())
+    }
+
     @Test fun `cloud download of a media-server item goes out without media-server auth`() = runBlocking {
         insertJellyfinBook()
         cloud.enqueue(MockResponse().setBody("audio-bytes"))

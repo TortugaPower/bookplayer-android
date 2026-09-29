@@ -449,10 +449,11 @@ class StreamFileUploadProcessor(
             Log.w("StreamFileUploadProcessor", "⚠️ No saved server can serve ${item.title} — will retry")
             return false
         }
-        // Header auth on top of the query token, like playback and the artwork backfill: newer ABS
-        // versions reject query-string tokens (401) and only accept the Authorization header.
+        // Header auth, like playback and the artwork backfill: the Jellyfin URL carries no token, and
+        // newer ABS versions reject query-string tokens (401). Custom headers are sanitized like the
+        // download's: a persisted illegal name/value throws on addHeader and would wedge the pipe.
         val headers = ExternalServiceUtils.serviceTypeFor(resource.providerName)
-            ?.let { ExternalServiceUtils.playbackHeaders(it, server.token, server.customHeaders) }
+            ?.let { ExternalServiceUtils.playbackHeaders(it, server.token, ExternalServiceUtils.sanitizeCustomHeaders(server.customHeaders)) }
 
         return try {
             val getRequest = okhttp3.Request.Builder().url(sourceUrl)
@@ -596,57 +597,60 @@ class DownloadFileProcessor(
         return try {
             val request = okhttp3.Request.Builder().url(remoteURL)
             mediaServerHeaders(taskId, remoteURL)?.forEach { (k, v) -> request.addHeader(k, v) }
-            val response = client.newCall(request.build()).execute()
-            if (!response.isSuccessful) {
-                Log.e("DownloadFileProcessor", "❌ Download failed: ${response.code}")
-                return false
-            }
-
-            val body = response.body ?: return false
-            val contentLength = body.contentLength()
-            // Refuse up front when the file can't fit with headroom to spare: a download that fills the
-            // disk takes the database down with it. The engine holds downloads until storage recovers.
-            if (contentLength > 0 && !StorageMonitor.hasRoomFor(context, contentLength)) {
-                StorageMonitor.noteTransferDoesNotFit(context, contentLength)
-                Log.w("DownloadFileProcessor", "⛔ Not enough storage for $relativePath ($contentLength bytes)")
-                return false
-            }
-            var bytesRead = 0L
-            var cancelled = false
-
-            body.byteStream().use { input: java.io.InputStream ->
-                FileOutputStream(destFile).use { output: FileOutputStream ->
-                    val buffer = ByteArray(8 * 1024)
-                    var read: Int
-                    while (input.read(buffer).also { read = it } != -1) {
-                        // Cooperative cancellation: abort mid-stream if the user cancelled this download.
-                        if (SyncStatusManager.isCancelRequested(taskId)) {
-                            cancelled = true
-                            break
-                        }
-                        output.write(buffer, 0, read)
-                        bytesRead += read
-                        if (contentLength > 0) {
-                            val progress = bytesRead.toDouble() / contentLength
-                            SyncStatusManager.updateTaskProgress(taskId, progress)
-                        }
-                    }
-                    output.flush()
+            // `use` closes the response on every path: the early returns below (error status, no room) would
+            // otherwise leak the connection on each retry.
+            client.newCall(request.build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e("DownloadFileProcessor", "❌ Download failed: ${response.code}")
+                    return false
                 }
-            }
 
-            SyncStatusManager.clearTaskProgress(taskId)
-            if (cancelled) {
-                Log.d("DownloadFileProcessor", "🚫 Download cancelled: $relativePath")
-                if (destFile.exists()) destFile.delete()
-                // Leave the cancel flag SET on purpose: TaskConcurrencyManager reads it on this false
-                // return to make the task terminal (delete, no retry) and then clears it. Clearing here
-                // would let the failure path re-queue the task and silently re-download it to completion.
-                return false
+                val body = response.body ?: return false
+                val contentLength = body.contentLength()
+                // Refuse up front when the file can't fit with headroom to spare: a download that fills the
+                // disk takes the database down with it. The engine holds downloads until storage recovers.
+                if (contentLength > 0 && !StorageMonitor.hasRoomFor(context, contentLength)) {
+                    StorageMonitor.noteTransferDoesNotFit(context, contentLength)
+                    Log.w("DownloadFileProcessor", "⛔ Not enough storage for $relativePath ($contentLength bytes)")
+                    return false
+                }
+                var bytesRead = 0L
+                var cancelled = false
+
+                body.byteStream().use { input: java.io.InputStream ->
+                    FileOutputStream(destFile).use { output: FileOutputStream ->
+                        val buffer = ByteArray(8 * 1024)
+                        var read: Int
+                        while (input.read(buffer).also { read = it } != -1) {
+                            // Cooperative cancellation: abort mid-stream if the user cancelled this download.
+                            if (SyncStatusManager.isCancelRequested(taskId)) {
+                                cancelled = true
+                                break
+                            }
+                            output.write(buffer, 0, read)
+                            bytesRead += read
+                            if (contentLength > 0) {
+                                val progress = bytesRead.toDouble() / contentLength
+                                SyncStatusManager.updateTaskProgress(taskId, progress)
+                            }
+                        }
+                        output.flush()
+                    }
+                }
+
+                SyncStatusManager.clearTaskProgress(taskId)
+                if (cancelled) {
+                    Log.d("DownloadFileProcessor", "🚫 Download cancelled: $relativePath")
+                    if (destFile.exists()) destFile.delete()
+                    // Leave the cancel flag SET on purpose: TaskConcurrencyManager reads it on this false
+                    // return to make the task terminal (delete, no retry) and then clears it. Clearing here
+                    // would let the failure path re-queue the task and silently re-download it to completion.
+                    return false
+                }
+                SyncStatusManager.clearCancel(taskId)
+                Log.d("DownloadFileProcessor", "✅ Download complete: $relativePath")
+                true
             }
-            SyncStatusManager.clearCancel(taskId)
-            Log.d("DownloadFileProcessor", "✅ Download complete: $relativePath")
-            true
         } catch (e: Exception) {
             StorageMonitor.reportFailure(context, e) // ENOSPC mid-write: the storage state holds further downloads
             Log.e("DownloadFileProcessor", "💥 Exception during download: ${e.message}", e)
