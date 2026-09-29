@@ -5,6 +5,8 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import kotlinx.coroutines.flow.first
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Interceptor
 
 object ExternalServiceUtils {
     fun sanitizeUrl(url: String): String {
@@ -136,16 +138,56 @@ object ExternalServiceUtils {
     }
 
     /**
-     * The provider's direct-download URL for [resource] on [server] (query-token auth, so it needs no
-     * extra headers), or null for an unknown provider. Pure counterpart of the URL rebuild in
-     * `resolveStreamingUrl`, also used to GET the source file for the stream-to-cloud pipe.
+     * The provider's direct-download URL for [resource] on [server], or null for an unknown provider.
+     * Pure counterpart of the URL rebuild in `resolveStreamingUrl`, also used to GET the source file for
+     * the stream-to-cloud pipe. The Jellyfin URL carries no token — Jellyfin 12 ignores `api_key`, and a
+     * URL token leaks into logs and the task table — so every request for it needs the provider's header
+     * auth: playback via PlaybackManager's host registry, the pipe and downloads via [downloadHeadersFor].
+     * ABS keeps its `token` query param; its consumers send the Bearer header on top of it.
      */
     fun downloadUrlFor(server: ExternalServerEntity, resource: ExternalResourceEntity): String? {
         val path = when (serviceTypeFor(resource.providerName)) {
-            ExternalServiceType.JELLYFIN -> "Items/${resource.providerId}/Download?api_key=${server.token ?: ""}"
+            ExternalServiceType.JELLYFIN -> "Items/${resource.providerId}/Download"
             ExternalServiceType.AUDIOBOOKSHELF -> "api/items/${resource.providerId}/download?token=${server.token ?: ""}"
             null -> return null
         }
         return "${sanitizeUrl(server.url)}$path"
+    }
+
+    /**
+     * The headers a download of [url] must carry when it comes from the saved server behind [resource]:
+     * the provider's Authorization header plus the user's custom headers, like playback and the pipe.
+     * The query token alone isn't enough — Jellyfin 12 rejects it (401), as do newer ABS versions.
+     * Null when [url] is anywhere else: a BookPlayer-cloud presigned URL must go out bare, since S3
+     * rejects a request that carries a second auth mechanism.
+     */
+    suspend fun downloadHeadersFor(
+        servers: ExternalServerRepository,
+        resource: ExternalResourceEntity,
+        url: String,
+    ): Map<String, String>? {
+        val server = serverForResource(servers, resource) ?: return null
+        if (!url.startsWith(sanitizeUrl(server.url))) return null
+        val type = serviceTypeFor(resource.providerName) ?: return null
+        return playbackHeaders(type, server.token, sanitizeCustomHeaders(server.customHeaders))
+    }
+
+    /**
+     * A network interceptor that adds [headers] to each hop of a request only while it stays on [url]'s
+     * origin (scheme, host and port — the rule OkHttp applies to `Authorization` on redirects). OkHttp
+     * keeps every other header across a cross-host redirect, and custom headers are often Cloudflare
+     * Access secrets; playback pins its headers to the server's host the same way.
+     */
+    fun originPinnedHeaders(url: String, headers: Map<String, String>): Interceptor {
+        val origin = url.toHttpUrlOrNull()
+        return Interceptor { chain ->
+            val request = chain.request()
+            val sameOrigin = origin != null && request.url.scheme == origin.scheme &&
+                request.url.host == origin.host && request.url.port == origin.port
+            if (!sameOrigin) return@Interceptor chain.proceed(request)
+            val pinned = request.newBuilder()
+            headers.forEach { (name, value) -> pinned.header(name, value) }
+            chain.proceed(pinned.build())
+        }
     }
 }

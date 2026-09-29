@@ -449,15 +449,19 @@ class StreamFileUploadProcessor(
             Log.w("StreamFileUploadProcessor", "⚠️ No saved server can serve ${item.title} — will retry")
             return false
         }
-        // Header auth on top of the query token, like playback and the artwork backfill: newer ABS
-        // versions reject query-string tokens (401) and only accept the Authorization header.
+        // Header auth, like playback and the artwork backfill: the Jellyfin URL carries no token, and
+        // newer ABS versions reject query-string tokens (401). Custom headers are sanitized like the
+        // download's: a persisted illegal name/value throws on addHeader and would wedge the pipe.
         val headers = ExternalServiceUtils.serviceTypeFor(resource.providerName)
-            ?.let { ExternalServiceUtils.playbackHeaders(it, server.token, server.customHeaders) }
+            ?.let { ExternalServiceUtils.playbackHeaders(it, server.token, ExternalServiceUtils.sanitizeCustomHeaders(server.customHeaders)) }
 
         return try {
-            val getRequest = okhttp3.Request.Builder().url(sourceUrl)
-            headers?.forEach { (k, v) -> getRequest.addHeader(k, v) }
-            client.newCall(getRequest.build()).execute().use { response ->
+            // Headers ride only the hops that stay on the media server (a redirect elsewhere must not get
+            // them); newBuilder() shares the pipe client's connection pool.
+            val sourceClient = headers?.let {
+                client.newBuilder().addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(sourceUrl, it)).build()
+            } ?: client
+            sourceClient.newCall(okhttp3.Request.Builder().url(sourceUrl).build()).execute().use { response ->
                 val body = response.body
                 if (!response.isSuccessful || body == null) {
                     Log.e("StreamFileUploadProcessor", "❌ Source GET failed (${response.code}) for ${item.title}")
@@ -553,7 +557,19 @@ class StreamFileUploadProcessor(
     }
 }
 
-class DownloadFileProcessor(private val context: Context) : TaskProcessor {
+class DownloadFileProcessor(
+    private val context: Context,
+    // Through the repository, not the DAO: stored credentials are encrypted at rest, and media-server
+    // downloads authenticate with this token. Overridable so tests can swap the Keystore cipher.
+    private val serverRepository: ExternalServerRepository =
+        ExternalServerRepository(AppDatabase.getDatabase(context).externalServerDao()),
+) : TaskProcessor {
+    companion object {
+        // One base client for every download (and retry); per-server variants derive via newBuilder(),
+        // which shares this client's connection pool and dispatcher threads.
+        private val baseHttpClient by lazy { okhttp3.OkHttpClient() }
+    }
+
     override suspend fun process(task: SyncTaskEntity): Boolean {
         val gson = Gson()
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
@@ -585,61 +601,66 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
         // Ensure parent directories exist
         destFile.parentFile?.mkdirs()
 
-        val client = okhttp3.OkHttpClient()
-        val request = okhttp3.Request.Builder().url(remoteURL).build()
-
         return try {
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Log.e("DownloadFileProcessor", "❌ Download failed: ${response.code}")
-                return false
-            }
-
-            val body = response.body ?: return false
-            val contentLength = body.contentLength()
-            // Refuse up front when the file can't fit with headroom to spare: a download that fills the
-            // disk takes the database down with it. The engine holds downloads until storage recovers.
-            if (contentLength > 0 && !StorageMonitor.hasRoomFor(context, contentLength)) {
-                StorageMonitor.noteTransferDoesNotFit(context, contentLength)
-                Log.w("DownloadFileProcessor", "⛔ Not enough storage for $relativePath ($contentLength bytes)")
-                return false
-            }
-            var bytesRead = 0L
-            var cancelled = false
-
-            body.byteStream().use { input: java.io.InputStream ->
-                FileOutputStream(destFile).use { output: FileOutputStream ->
-                    val buffer = ByteArray(8 * 1024)
-                    var read: Int
-                    while (input.read(buffer).also { read = it } != -1) {
-                        // Cooperative cancellation: abort mid-stream if the user cancelled this download.
-                        if (SyncStatusManager.isCancelRequested(taskId)) {
-                            cancelled = true
-                            break
-                        }
-                        output.write(buffer, 0, read)
-                        bytesRead += read
-                        if (contentLength > 0) {
-                            val progress = bytesRead.toDouble() / contentLength
-                            SyncStatusManager.updateTaskProgress(taskId, progress)
-                        }
-                    }
-                    output.flush()
+            // Media-server headers ride only the hops that stay on that server: OkHttp would carry custom
+            // headers (often Cloudflare Access secrets) across a redirect to another host.
+            val client = mediaServerHeaders(taskId, remoteURL)?.let {
+                baseHttpClient.newBuilder().addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(remoteURL, it)).build()
+            } ?: baseHttpClient
+            // `use` closes the response on every path: the early returns below (error status, no room) would
+            // otherwise leak the connection on each retry.
+            client.newCall(okhttp3.Request.Builder().url(remoteURL).build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e("DownloadFileProcessor", "❌ Download failed: ${response.code}")
+                    return false
                 }
-            }
 
-            SyncStatusManager.clearTaskProgress(taskId)
-            if (cancelled) {
-                Log.d("DownloadFileProcessor", "🚫 Download cancelled: $relativePath")
-                if (destFile.exists()) destFile.delete()
-                // Leave the cancel flag SET on purpose: TaskConcurrencyManager reads it on this false
-                // return to make the task terminal (delete, no retry) and then clears it. Clearing here
-                // would let the failure path re-queue the task and silently re-download it to completion.
-                return false
+                val body = response.body ?: return false
+                val contentLength = body.contentLength()
+                // Refuse up front when the file can't fit with headroom to spare: a download that fills the
+                // disk takes the database down with it. The engine holds downloads until storage recovers.
+                if (contentLength > 0 && !StorageMonitor.hasRoomFor(context, contentLength)) {
+                    StorageMonitor.noteTransferDoesNotFit(context, contentLength)
+                    Log.w("DownloadFileProcessor", "⛔ Not enough storage for $relativePath ($contentLength bytes)")
+                    return false
+                }
+                var bytesRead = 0L
+                var cancelled = false
+
+                body.byteStream().use { input: java.io.InputStream ->
+                    FileOutputStream(destFile).use { output: FileOutputStream ->
+                        val buffer = ByteArray(8 * 1024)
+                        var read: Int
+                        while (input.read(buffer).also { read = it } != -1) {
+                            // Cooperative cancellation: abort mid-stream if the user cancelled this download.
+                            if (SyncStatusManager.isCancelRequested(taskId)) {
+                                cancelled = true
+                                break
+                            }
+                            output.write(buffer, 0, read)
+                            bytesRead += read
+                            if (contentLength > 0) {
+                                val progress = bytesRead.toDouble() / contentLength
+                                SyncStatusManager.updateTaskProgress(taskId, progress)
+                            }
+                        }
+                        output.flush()
+                    }
+                }
+
+                SyncStatusManager.clearTaskProgress(taskId)
+                if (cancelled) {
+                    Log.d("DownloadFileProcessor", "🚫 Download cancelled: $relativePath")
+                    if (destFile.exists()) destFile.delete()
+                    // Leave the cancel flag SET on purpose: TaskConcurrencyManager reads it on this false
+                    // return to make the task terminal (delete, no retry) and then clears it. Clearing here
+                    // would let the failure path re-queue the task and silently re-download it to completion.
+                    return false
+                }
+                SyncStatusManager.clearCancel(taskId)
+                Log.d("DownloadFileProcessor", "✅ Download complete: $relativePath")
+                true
             }
-            SyncStatusManager.clearCancel(taskId)
-            Log.d("DownloadFileProcessor", "✅ Download complete: $relativePath")
-            true
         } catch (e: Exception) {
             StorageMonitor.reportFailure(context, e) // ENOSPC mid-write: the storage state holds further downloads
             Log.e("DownloadFileProcessor", "💥 Exception during download: ${e.message}", e)
@@ -651,6 +672,15 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
             // any stale one before enqueuing), so nothing leaks.
             false
         }
+    }
+
+    // Resolved per run, not stored in the payload: tokens stay out of the task table, and a re-auth's
+    // fresh token applies to an already-queued download. The resource pick mirrors externalStreamUrlFor.
+    private suspend fun mediaServerHeaders(uuid: String, url: String): Map<String, String>? {
+        val resource = AppDatabase.getDatabase(context).libraryDao().getExternalResourcesForBookSync(uuid)
+            .find { it.syncStatus == ExternalResourceEntity.STATUS_STREAM || it.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED }
+            ?: return null
+        return ExternalServiceUtils.downloadHeadersFor(serverRepository, resource, url)
     }
 
     override fun canHandle(jobType: String): Boolean {
@@ -996,7 +1026,10 @@ class SetExternalResourceToDownloadProcessor : TaskProcessor {
 }
 
 class ExternalUpdateProcessor(
-    private val context: Context
+    private val context: Context,
+    // Through the repository, not the DAO (see process()). Overridable so tests can swap the Keystore cipher.
+    private val serverRepository: ExternalServerRepository =
+        ExternalServerRepository(AppDatabase.getDatabase(context).externalServerDao()),
 ) : TaskProcessor {
     private val gson = Gson()
 
@@ -1008,7 +1041,9 @@ class ExternalUpdateProcessor(
 
     private fun buildApiClient(sanitizedUrl: String, customHeaders: Map<String, String>?): retrofit2.Retrofit {
         val okHttpClientBuilder = baseHttpClient.newBuilder()
-        customHeaders?.forEach { (key, value) ->
+        // Sanitized like JellyfinService's client: a custom `Authorization` entry would replace the
+        // provider's own auth header, and an illegal name/value throws at request time.
+        ExternalServiceUtils.sanitizeCustomHeaders(customHeaders)?.forEach { (key, value) ->
             okHttpClientBuilder.addInterceptor { chain ->
                 val request = chain.request().newBuilder().header(key, value).build()
                 chain.proceed(request)
@@ -1034,34 +1069,6 @@ class ExternalUpdateProcessor(
         return permanent
     }
 
-    private fun getDeviceId(): String {
-        return try {
-            if (!com.tortugapower.audiobookplayer.core.CoreContext.isInitialized()) return "BookPlayerAndroidID"
-            val appCtx = com.tortugapower.audiobookplayer.core.CoreContext.appContext
-            val prefs = appCtx.getSharedPreferences("jellyfin_prefs", Context.MODE_PRIVATE)
-            var id = prefs.getString("device_id", null)
-            if (id == null) {
-                id = java.util.UUID.randomUUID().toString()
-                prefs.edit().putString("device_id", id).apply()
-            }
-            id
-        } catch (e: Exception) {
-            "BookPlayerAndroidID"
-        }
-    }
-
-    private fun getJellyfinAuthHeader(token: String? = null): String {
-        val device = "Android"
-        val deviceId = getDeviceId()
-        val client = "BookPlayer"
-        val version = "1.0.0"
-        var header = "MediaBrowser Client=\"$client\", Device=\"$device\", DeviceId=\"$deviceId\", Version=\"$version\""
-        if (token != null) {
-            header += ", Token=\"$token\""
-        }
-        return header
-    }
-
     override suspend fun process(task: SyncTaskEntity): Boolean {
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
@@ -1075,13 +1082,10 @@ class ExternalUpdateProcessor(
         val percentCompleted = (payload["percentCompleted"] as? Double) ?: 0.0
         val isFinished = (payload["isFinished"] as? Boolean) ?: false
 
-        val db = AppDatabase.getDatabase(context)
-
         // Resolve through THE shared resolver (stable-id contract + decrypted credentials): the
         // old inline rowid lookup read the DAO directly, so the token below was ciphertext and
         // the provider rejected it with 401; it also stopped matching once hostIds became
         // GUIDs/URL keys, silently discarding every progress push.
-        val serverRepository = com.tortugapower.audiobookplayer.repository.ExternalServerRepository(db.externalServerDao())
         val server = ExternalServiceUtils.serverForResource(
             serverRepository,
             com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity(
@@ -1121,7 +1125,7 @@ class ExternalUpdateProcessor(
                     val api = buildApiClient(sanitizedUrl, customHeaders)
                         .create(com.tortugapower.audiobookplayer.network.services.JellyfinApi::class.java)
 
-                    val authHeader = getJellyfinAuthHeader(token)
+                    val authHeader = com.tortugapower.audiobookplayer.network.services.JellyfinService.getAuthHeader(token)
                     val response = api.updateUserData(authHeader, providerId, requestBody)
                     handleResponse(providerName, response)
                 }
