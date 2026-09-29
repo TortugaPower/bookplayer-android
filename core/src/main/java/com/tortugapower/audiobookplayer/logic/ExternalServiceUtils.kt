@@ -136,16 +136,37 @@ object ExternalServiceUtils {
     }
 
     /**
-     * The provider's direct-download URL for [resource] on [server] (query-token auth, so it needs no
-     * extra headers), or null for an unknown provider. Pure counterpart of the URL rebuild in
-     * `resolveStreamingUrl`, also used to GET the source file for the stream-to-cloud pipe.
+     * The provider's direct-download URL for [resource] on [server], or null for an unknown provider.
+     * Pure counterpart of the URL rebuild in `resolveStreamingUrl`, also used to GET the source file for
+     * the stream-to-cloud pipe. The Jellyfin URL carries no token — Jellyfin 12 ignores `api_key`, and a
+     * URL token leaks into logs and the task table — so every request for it needs the provider's header
+     * auth: playback via PlaybackManager's host registry, the pipe and downloads via [downloadHeadersFor].
+     * ABS keeps its `token` query param; its consumers send the Bearer header on top of it.
      */
     fun downloadUrlFor(server: ExternalServerEntity, resource: ExternalResourceEntity): String? {
         val path = when (serviceTypeFor(resource.providerName)) {
-            ExternalServiceType.JELLYFIN -> "Items/${resource.providerId}/Download?api_key=${server.token ?: ""}"
+            ExternalServiceType.JELLYFIN -> "Items/${resource.providerId}/Download"
             ExternalServiceType.AUDIOBOOKSHELF -> "api/items/${resource.providerId}/download?token=${server.token ?: ""}"
             null -> return null
         }
         return "${sanitizeUrl(server.url)}$path"
+    }
+
+    /**
+     * The headers a download of [url] must carry when it comes from the saved server behind [resource]:
+     * the provider's Authorization header plus the user's custom headers, like playback and the pipe.
+     * The query token alone isn't enough — Jellyfin 12 rejects it (401), as do newer ABS versions.
+     * Null when [url] is anywhere else: a BookPlayer-cloud presigned URL must go out bare, since S3
+     * rejects a request that carries a second auth mechanism.
+     */
+    suspend fun downloadHeadersFor(
+        servers: ExternalServerRepository,
+        resource: ExternalResourceEntity,
+        url: String,
+    ): Map<String, String>? {
+        val server = serverForResource(servers, resource) ?: return null
+        if (!url.startsWith(sanitizeUrl(server.url))) return null
+        val type = serviceTypeFor(resource.providerName) ?: return null
+        return playbackHeaders(type, server.token, sanitizeCustomHeaders(server.customHeaders))
     }
 }

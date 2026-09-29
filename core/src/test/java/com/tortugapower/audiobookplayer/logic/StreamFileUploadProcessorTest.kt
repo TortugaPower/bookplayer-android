@@ -101,9 +101,9 @@ class StreamFileUploadProcessorTest {
         assertTrue(handled)
         val get = server.takeRequest()
         assertEquals("GET", get.method)
-        // Query-token download URL derived from the saved server + resource...
-        assertEquals("/Items/jf-9/Download?api_key=tok", get.path)
-        // ...PLUS header auth, like playback: newer ABS versions 401 on query-string tokens.
+        // Download URL derived from the saved server + resource, with no token in it...
+        assertEquals("/Items/jf-9/Download", get.path)
+        // ...so the header carries the auth, like playback (Jellyfin 12 and newer ABS 401 on query tokens).
         assertEquals("MediaBrowser Token=\"tok\"", get.getHeader("Authorization"))
         val put = server.takeRequest()
         assertEquals("PUT", put.method)

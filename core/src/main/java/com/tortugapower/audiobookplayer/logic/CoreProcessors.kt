@@ -553,7 +553,13 @@ class StreamFileUploadProcessor(
     }
 }
 
-class DownloadFileProcessor(private val context: Context) : TaskProcessor {
+class DownloadFileProcessor(
+    private val context: Context,
+    // Through the repository, not the DAO: stored credentials are encrypted at rest, and media-server
+    // downloads authenticate with this token. Overridable so tests can swap the Keystore cipher.
+    private val serverRepository: ExternalServerRepository =
+        ExternalServerRepository(AppDatabase.getDatabase(context).externalServerDao()),
+) : TaskProcessor {
     override suspend fun process(task: SyncTaskEntity): Boolean {
         val gson = Gson()
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
@@ -586,10 +592,11 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
         destFile.parentFile?.mkdirs()
 
         val client = okhttp3.OkHttpClient()
-        val request = okhttp3.Request.Builder().url(remoteURL).build()
 
         return try {
-            val response = client.newCall(request).execute()
+            val request = okhttp3.Request.Builder().url(remoteURL)
+            mediaServerHeaders(taskId, remoteURL)?.forEach { (k, v) -> request.addHeader(k, v) }
+            val response = client.newCall(request.build()).execute()
             if (!response.isSuccessful) {
                 Log.e("DownloadFileProcessor", "❌ Download failed: ${response.code}")
                 return false
@@ -651,6 +658,15 @@ class DownloadFileProcessor(private val context: Context) : TaskProcessor {
             // any stale one before enqueuing), so nothing leaks.
             false
         }
+    }
+
+    // Resolved per run, not stored in the payload: tokens stay out of the task table, and a re-auth's
+    // fresh token applies to an already-queued download. The resource pick mirrors externalStreamUrlFor.
+    private suspend fun mediaServerHeaders(uuid: String, url: String): Map<String, String>? {
+        val resource = AppDatabase.getDatabase(context).libraryDao().getExternalResourcesForBookSync(uuid)
+            .find { it.syncStatus == ExternalResourceEntity.STATUS_STREAM || it.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED }
+            ?: return null
+        return ExternalServiceUtils.downloadHeadersFor(serverRepository, resource, url)
     }
 
     override fun canHandle(jobType: String): Boolean {

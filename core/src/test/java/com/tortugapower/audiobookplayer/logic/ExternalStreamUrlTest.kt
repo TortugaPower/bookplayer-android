@@ -22,9 +22,10 @@ class ExternalStreamUrlTest {
         syncStatus = ExternalResourceEntity.STATUS_STREAM, libraryItemUuid = "b1", hostId = "1",
     )
 
-    @Test fun `jellyfin download URL carries the api_key query token`() {
+    // No token in the URL: Jellyfin 12 ignores `api_key`, so consumers authenticate with the header.
+    @Test fun `jellyfin download URL carries no token`() {
         assertEquals(
-            "https://media.example.com/Items/item-9/Download?api_key=tok-1",
+            "https://media.example.com/Items/item-9/Download",
             ExternalServiceUtils.downloadUrlFor(server(ExternalServiceType.JELLYFIN), resource("jellyfin")),
         )
     }
@@ -38,7 +39,7 @@ class ExternalStreamUrlTest {
 
     @Test fun `trailing-slash server URL does not double the slash`() {
         assertEquals(
-            "https://media.example.com/Items/item-9/Download?api_key=tok-1",
+            "https://media.example.com/Items/item-9/Download",
             ExternalServiceUtils.downloadUrlFor(
                 server(ExternalServiceType.JELLYFIN, url = "https://media.example.com/"), resource("jellyfin"),
             ),

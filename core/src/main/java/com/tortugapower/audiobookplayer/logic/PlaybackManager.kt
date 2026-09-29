@@ -707,7 +707,7 @@ object PlaybackManager {
      * Best-effort audio file extension for picking the chapter parser, from most to least reliable:
      * the item's `relativePath`, then its `originalFileName` (set for external items whose relativePath
      * is null, e.g. AudiobookShelf), then the remote URL's last path segment with any query/fragment
-     * stripped. A streaming URL like `Items/<id>/Download?api_key=...` yields no extension → we fall
+     * stripped. A streaming URL like `Items/<id>/Download` yields no extension → we fall
      * through rather than mis-detecting. Pure (no Android APIs) so it's unit-tested. Lowercased, no dot.
      */
     internal fun audioExtensionFor(item: LibraryItemEntity, url: String): String {
