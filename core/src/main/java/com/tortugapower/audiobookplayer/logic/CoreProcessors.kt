@@ -1081,6 +1081,8 @@ class ExternalUpdateProcessor(
         val currentTime = (payload["currentTime"] as? Double) ?: 0.0
         val percentCompleted = (payload["percentCompleted"] as? Double) ?: 0.0
         val isFinished = (payload["isFinished"] as? Boolean) ?: false
+        // Absent on tasks queued before the date was sent; the push then leaves the server's date alone.
+        val lastPlayDate = (payload["lastPlayDate"] as? Double)?.toLong()
 
         // Resolve through THE shared resolver (stable-id contract + decrypted credentials): the
         // old inline rowid lookup read the DAO directly, so the token below was ciphertext and
@@ -1119,7 +1121,8 @@ class ExternalUpdateProcessor(
                     val requestBody = com.tortugapower.audiobookplayer.network.services.JellyfinUserDataRequest(
                         playbackPositionTicks = ticks,
                         playedPercentage = playedPercentage,
-                        played = played
+                        played = played,
+                        lastPlayedDate = lastPlayDate?.let { java.time.Instant.ofEpochMilli(it).toString() }
                     )
 
                     val api = buildApiClient(sanitizedUrl, customHeaders)
