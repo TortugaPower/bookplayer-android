@@ -481,4 +481,25 @@ class SyncingLibraryRepositoryTest {
         assertFalse(repository.syncBookmarksFromCloud(speedBook()))
         assertTrue(delegate.addedBookmarks.isEmpty())
     }
+
+    @Test
+    fun syncBookmarksFromCloud_dropsAStaleResponseWhenATaskWasQueuedMidRequest() = runBlocking {
+        // The user swipes a bookmark away (or edits a note) while the request is in flight: the local
+        // row is gone and a delete_bookmark task is pending by the time the response arrives.
+        val delegate = FakeLibraryRepository().apply { itemById = speedBook() }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val staleRows = listOf(serverRow(60.0, "deleted meanwhile"))
+        val fetcher = object : BookmarkSync.Fetcher {
+            override suspend fun fetch(relativePath: String, uuid: String): List<SyncableBookmark> {
+                syncTaskRepository.activeInSyncQueue = 1 // the delete_bookmark task lands during the request
+                return staleRows
+            }
+        }
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO), fetcher)
+
+        assertFalse(repository.syncBookmarksFromCloud(speedBook()))
+        // Merging the stale row would resurrect the deleted bookmark as a local-only copy.
+        assertTrue(delegate.addedBookmarks.isEmpty())
+        assertTrue(delegate.updatedBookmarks.isEmpty())
+    }
 }
