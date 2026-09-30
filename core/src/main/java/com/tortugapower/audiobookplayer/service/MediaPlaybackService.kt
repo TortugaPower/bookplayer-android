@@ -343,9 +343,12 @@ abstract class MediaPlaybackService : MediaLibraryService() {
         /**
          * Withhold the standard skip / relative-seek player commands so System UI can't replace our
          * custom rewind / fast-forward icons with its own skip-track glyphs. Everything else (play/pause,
-         * speed, volume, media-item changes) stays. Scrubbing (seek-in-current-item / seek-to-item) is
+         * speed, volume, media-item changes) stays. The scrubber's command (seek-in-current-item) is
          * additionally withheld from OS controllers while Progress Bar Seeking is off; the app's own
-         * controller always keeps it (the in-app seek bar is not what the setting is about).
+         * controller always keeps it (the in-app seek bar is not what the setting is about). Seek-to-item
+         * deliberately stays: in chapter context the session shows one playlist entry per chapter, and
+         * Android Auto's queue picks a chapter through it — iOS likewise disables only the scrubber
+         * (`changePlaybackPositionCommand`), never chapter selection.
          */
         fun playerCommandsFor(session: MediaSession, controller: MediaSession.ControllerInfo): Player.Commands {
             val builder = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
@@ -356,9 +359,7 @@ abstract class MediaPlaybackService : MediaLibraryService() {
                 .remove(Player.COMMAND_SEEK_BACK)
                 .remove(Player.COMMAND_SEEK_FORWARD)
             if (!remoteSeekEnabled && !isInAppController(session, controller)) {
-                builder
-                    .remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-                    .remove(Player.COMMAND_SEEK_TO_MEDIA_ITEM)
+                builder.remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
             }
             return builder.build()
         }
