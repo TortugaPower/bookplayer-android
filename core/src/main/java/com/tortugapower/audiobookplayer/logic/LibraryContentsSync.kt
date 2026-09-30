@@ -80,7 +80,9 @@ object LibraryContentsSync {
             isFinished = remote.isFinished,
             lastPlayDate = remote.lastPlayDateTimestamp?.let { (it * 1000).toLong() } ?: local?.lastPlayDate,
             parentFolderUuid = local?.parentFolderUuid,
-            type = type
+            type = type,
+            // Same rule as artwork/lastPlayDate: a server null must not wipe a speed set on this device.
+            speed = remote.speed ?: local?.speed
         )
 
         if (isNew) {

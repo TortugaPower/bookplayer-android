@@ -75,7 +75,9 @@ object SyncTaskFactory {
             // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
             // last_play_date never advances from Android, breaking cross-device "recently played".
             "lastPlayDateTimestamp" to item.lastPlayDate?.let { it / 1000 },
-            "type" to item.type.ordinal
+            "type" to item.type.ordinal,
+            // Per-book speed (iOS sends it on every metadata update); null is dropped by Gson.
+            "speed" to item.speed
         )
         enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_METADATA, item.uuid, payload)
     }
@@ -115,7 +117,9 @@ object SyncTaskFactory {
             // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
             // last_play_date never advances from Android, breaking cross-device "recently played".
             "lastPlayDateTimestamp" to (item.lastPlayDate?.let { it / 1000 } ?: if (clearedLastPlayDate) 0L else null),
-            "type" to item.type.ordinal
+            "type" to item.type.ordinal,
+            // Per-book speed (iOS sends it on every metadata update); null is dropped by Gson.
+            "speed" to item.speed
         )
 
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_UPDATE, item.uuid)

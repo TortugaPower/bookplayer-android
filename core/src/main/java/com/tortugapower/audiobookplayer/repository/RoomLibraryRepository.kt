@@ -446,6 +446,13 @@ class RoomLibraryRepository(
     override suspend fun deleteBookmark(bookmark: BookmarkEntity) =
         libraryDao.deleteBookmark(bookmark)
 
+    // Cloud-only behavior lives in SyncingLibraryRepository; the plain Room repository has no server.
+    override suspend fun syncBookmarksFromCloud(item: LibraryItemEntity): Boolean = false
+
+    override suspend fun updateItemSpeed(uuid: String, speed: Double) {
+        withContext(Dispatchers.IO) { libraryDao.updateItemSpeed(uuid, speed) }
+    }
+
     override fun getChaptersForBook(bookUuid: String) =
         libraryDao.getChaptersForBook(bookUuid)
 

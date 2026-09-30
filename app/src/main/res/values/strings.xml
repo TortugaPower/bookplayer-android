@@ -212,6 +212,9 @@
     <string name="player_bookmarks_title">Bookmarks</string>
     <string name="player_add_bookmark">Create bookmark</string>
     <string name="player_bookmarks_manual">Manual</string>
+    <string name="player_bookmark_edit_note">Edit note</string>
+    <string name="player_bookmark_delete">Delete bookmark</string>
+    <string name="player_bookmark_delete_title">Do you want to delete the bookmark at %1$s?</string>
     <string name="player_controls_title">Player Controls</string>
     <string name="player_set_speed">Set playback speed</string>
     <string name="player_speed_min">0.5</string>
