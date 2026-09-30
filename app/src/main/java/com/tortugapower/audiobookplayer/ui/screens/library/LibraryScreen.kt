@@ -66,6 +66,9 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
@@ -139,8 +142,9 @@ fun LibraryScreen(
         }
     }
 
-    // Fetch contents with throttle when path or account changes (e.g. login)
-    LaunchedEffect(currentPath, account) {
+    // One throttled contents fetch for the level on screen (60 s per level; skipped while sync jobs
+    // are queued — see createFetchContentsTask).
+    val fetchVisibleLevel: suspend () -> Unit = {
         val pathKey = currentPath ?: "root"
 
         if (canSyncLibrary) {
@@ -150,6 +154,19 @@ fun LibraryScreen(
                 }
             }
         }
+    }
+
+    // Fetch contents with throttle when path or account changes (e.g. login)
+    LaunchedEffect(currentPath, account) { fetchVisibleLevel() }
+
+    // iOS parity (scenePhase .active re-syncs the visible list): coming back to the foreground fetches
+    // the level on screen too, through the same throttle, so a change made on another device shows
+    // without navigating. It observes the PROCESS lifecycle, so an in-app screen change never counts as
+    // a return to the foreground. It does also fire once whenever this screen enters composition
+    // (addObserver replays ON_START to a new observer); that only repeats the LaunchedEffect above,
+    // and the shared per-level throttle absorbs it.
+    LifecycleEventEffect(Lifecycle.Event.ON_START, lifecycleOwner = ProcessLifecycleOwner.get()) {
+        scope.launch { fetchVisibleLevel() }
     }
     
     // Fetch data for the actual current path (used by dialogs and actions)

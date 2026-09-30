@@ -9,6 +9,7 @@ import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -137,5 +138,68 @@ class SyncTaskFactoryTest {
         val repo = CapturingRepo()
         SyncTaskFactory.createUploadMetadataTask(repo, item(lastPlayDateMs = null))
         assertEquals(50.0, (payloadOf(repo.saved!!)["percentCompleted"] as Number).toDouble(), 1e-9)
+    }
+
+    // MARK: - Preferences pull
+
+    /** A task store for the preferences pull: [uploadsQueued] preference pushes waiting, saved tasks pending. */
+    private class PreferencesRepo(private val uploadsQueued: Int = 0) : SyncTaskRepository {
+        val saved = mutableListOf<SyncTaskEntity>()
+        override suspend fun saveTask(task: SyncTaskEntity) { saved += task }
+        override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? =
+            saved.firstOrNull { it.jobType == jobType && it.taskID == taskId }
+        override suspend fun countActiveTasksByType(jobType: String): Int =
+            if (jobType == SyncTaskFactory.JOB_UPLOAD_PREFERENCE) uploadsQueued else 0
+        override fun getAllTasks(): Flow<List<SyncTaskEntity>> = TODO()
+        override suspend fun getPendingTasks(): List<SyncTaskEntity> = TODO()
+        override suspend fun getTasksByStatus(status: SyncTaskStatus): List<SyncTaskEntity> = TODO()
+        override suspend fun getTasksInQueueByStatus(queueKey: String, status: SyncTaskStatus): List<SyncTaskEntity> = TODO()
+        override suspend fun getActiveQueueKeys(): List<String> = TODO()
+        override suspend fun updateTask(task: SyncTaskEntity) = TODO()
+        override suspend fun deleteTask(task: SyncTaskEntity) = TODO()
+        override suspend fun clearCompletedTasks() = TODO()
+        override suspend fun resetRunningTasks() = TODO()
+        override suspend fun deleteAllTasks() = TODO()
+        override suspend fun getTaskById(id: String): SyncTaskEntity? = TODO()
+        override suspend fun countActiveTasks(): Int = TODO()
+        override suspend fun countActiveTasksInQueue(queueKey: String): Int = TODO()
+        override suspend fun migrateTaskUuid(oldUuid: String, newUuid: String) = TODO()
+    }
+
+    private var now = 5_000_000_000_000L
+
+    private fun <T> withTestClock(block: () -> T): T {
+        SyncStatusManager.resetFetchThrottles()
+        SyncStatusManager.clock = { now }
+        try {
+            return block()
+        } finally {
+            SyncStatusManager.clock = { System.currentTimeMillis() }
+            SyncStatusManager.resetFetchThrottles()
+        }
+    }
+
+    // A forced pull (app foreground, login, upgrade) skips the cooldown and the queued-upload check —
+    // the fetch processor still leaves every key with a queued upload alone.
+    @Test fun forcedPreferencesPull_runsInsideTheCooldownAndWithAnUploadQueued() = withTestClock {
+        runBlocking {
+            assertTrue(SyncTaskFactory.createFetchPreferencesTask(PreferencesRepo(), force = false))
+            now += 1_000
+            val repo = PreferencesRepo(uploadsQueued = 1)
+            assertTrue(SyncTaskFactory.createFetchPreferencesTask(repo, force = true))
+            assertEquals(1, repo.saved.size)
+        }
+    }
+
+    // Like iOS, where any successful pull restarts the cooldown: a library visit right after a forced
+    // pull doesn't pull again.
+    @Test fun forcedPreferencesPull_startsTheCooldown() = withTestClock {
+        runBlocking {
+            assertTrue(SyncTaskFactory.createFetchPreferencesTask(PreferencesRepo(), force = true))
+            now += 30_000
+            assertFalse(SyncTaskFactory.createFetchPreferencesTask(PreferencesRepo(), force = false))
+            now += 30_001
+            assertTrue(SyncTaskFactory.createFetchPreferencesTask(PreferencesRepo(), force = false))
+        }
     }
 }

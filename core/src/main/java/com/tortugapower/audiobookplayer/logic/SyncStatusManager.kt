@@ -94,6 +94,12 @@ object SyncStatusManager {
     // Debounce for pulling user preferences (sort rules) — same throttle as the contents fetch.
     private var lastFetchPreferencesTimestamp: Long = 0L
 
+    /** A forced pull just ran: start the cooldown so a regular pull right after it (a library visit) is skipped. */
+    @Synchronized
+    fun markFetchPreferences() {
+        lastFetchPreferencesTimestamp = clock()
+    }
+
     @Synchronized
     fun checkAndMarkFetchPreferences(): Boolean {
         val now = clock()

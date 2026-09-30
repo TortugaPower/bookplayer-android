@@ -1,12 +1,17 @@
 package com.tortugapower.audiobookplayer
 
 import android.app.Application
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.PreferencesPullTriggers
 import com.tortugapower.audiobookplayer.logic.SyncHostLaunchGate
+import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
@@ -120,6 +125,27 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             accountRepository.getAccountFlow().collect { account ->
                 NetworkClient.setToken(account?.apiToken)
             }
+        }
+
+        // iOS parity (PreferencesSyncService): pull the synced sort preferences past their cooldown
+        // whenever the app comes to the foreground (launch included), and whenever the signed-in account
+        // or its tier changes to one with cloud sync (login, free → LITE/PRO). The regular pull only runs
+        // on a library visit, so another device's sort change otherwise waited for one.
+        val forcePreferencesPull = {
+            appScope.launch(Dispatchers.IO) {
+                if (syncingLibraryRepository.isCloudSyncActive()) {
+                    SyncTaskFactory.createFetchPreferencesTask(syncTaskRepository, force = true)
+                }
+            }
+        }
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                forcePreferencesPull()
+            }
+        })
+        appScope.launch {
+            PreferencesPullTriggers.onSyncAccountChange(accountRepository.getAccountFlow())
+                .collect { forcePreferencesPull() }
         }
 
         // The sync host stops itself when idle (Android 15+ dataSync budget), and :core wakes it back up
