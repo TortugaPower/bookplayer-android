@@ -107,6 +107,20 @@ class ImportManagerDownloadTest {
         assertTrue(imported.isFileOnly)
     }
 
+    // The restore must keep the item's exact name, so it can't take a "-1" name: a copy of the same file
+    // already staged (or in flight) means it's on its way in — skip rather than truncate it.
+    @Test fun `a restore under the server's name never overwrites a copy already staged`() {
+        runBlocking { dao.insertItem(LibraryItemEntity(uuid = "b1", title = "Book", relativePath = "Book.m4b", type = ItemType.BOOK)) }
+        File(backupDir, "Book.m4b").writeText("staged")
+        server.enqueue(named("Book.m4b", Buffer().writeUtf8("new")))
+
+        download("download.mp3")
+
+        assertTrue(ImportManager.importedFiles.isEmpty())
+        assertEquals(1, ImportManager.skippedItemsCount)
+        assertEquals("staged", File(backupDir, "Book.m4b").readText())
+    }
+
     @Test fun `a server-chosen name never overwrites a file waiting in the import sheet`() {
         File(backupDir, "Book.m4b").writeText("staged")
         server.enqueue(named("Book.m4b", Buffer().writeUtf8("new")))

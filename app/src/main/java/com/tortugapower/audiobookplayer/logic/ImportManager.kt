@@ -264,10 +264,17 @@ object ImportManager : ImportService {
                                 }
                                 // Only the requested name was claimed (activeDownloadFileNames), so a name the
                                 // server chose gets a staging file of its own — never another download's, nor
-                                // one already waiting in the import sheet. A file-only restore keeps the item's
-                                // exact name.
-                                destFile = if (savedName == sanitizedFileName || isFileOnly) File(backupDir, savedName)
-                                    else reserveBackupFile(backupDir, savedName).also { savedName = it.name }
+                                // one already waiting in the import sheet. A file-only restore found through the
+                                // server's name must keep the item's exact name, so it is created atomically
+                                // instead: if it already exists, the same file is already on its way in.
+                                destFile = when {
+                                    savedName == sanitizedFileName -> File(backupDir, savedName)
+                                    isFileOnly -> File(backupDir, savedName).takeIf { it.createNewFile() } ?: run {
+                                        skippedAsDuplicate = true
+                                        return@use
+                                    }
+                                    else -> reserveBackupFile(backupDir, savedName).also { savedName = it.name }
+                                }
                                 response.body!!.byteStream().use { input ->
                                     FileOutputStream(destFile).use { output ->
                                         input.copyTo(output)
