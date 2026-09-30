@@ -161,8 +161,10 @@ fun LibraryScreen(
 
     // iOS parity (scenePhase .active re-syncs the visible list): coming back to the foreground fetches
     // the level on screen too, through the same throttle, so a change made on another device shows
-    // without navigating. The PROCESS lifecycle, not this screen's: returning from another screen
-    // inside the app isn't a return to the foreground.
+    // without navigating. It observes the PROCESS lifecycle, so an in-app screen change never counts as
+    // a return to the foreground. It does also fire once whenever this screen enters composition
+    // (addObserver replays ON_START to a new observer); that only repeats the LaunchedEffect above,
+    // and the shared per-level throttle absorbs it.
     LifecycleEventEffect(Lifecycle.Event.ON_START, lifecycleOwner = ProcessLifecycleOwner.get()) {
         scope.launch { fetchVisibleLevel() }
     }
