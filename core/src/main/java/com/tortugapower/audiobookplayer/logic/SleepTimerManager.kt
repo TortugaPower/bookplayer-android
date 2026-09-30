@@ -4,6 +4,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 
 object SleepTimerManager {
     private val scope = CoroutineScope(
@@ -35,7 +36,8 @@ object SleepTimerManager {
     }
 
     fun startTimerMillis(millis: Long) {
-        stopTimer()
+        rememberLastEnabled((millis / 1000L).toInt())
+        cancelInternal()
         _remainingMillis.value = millis
         _isActive.value = true
 
@@ -57,7 +59,8 @@ object SleepTimerManager {
      * is handled by [PlaybackManager]'s end-of-stream path calling [onBookEnded].
      */
     fun startTimerUntilEndOfChapter() {
-        stopTimer()
+        rememberLastEnabled(PlaybackSettingsManager.SLEEP_TIMER_END_OF_CHAPTER)
+        cancelInternal()
         val playable = PlaybackManager.currentPlayable.value ?: return
         val chapterIndex = playable.chapterIndexAt(PlaybackManager.currentWholeBookMs())
         if (chapterIndex < 0) return
@@ -113,7 +116,18 @@ object SleepTimerManager {
         _isActive.value = false
     }
 
+    /**
+     * The user turned the timer off (player sheet, watch, deep link). Recorded as the last-enabled
+     * value so the Auto Sleep Timer setting doesn't resurrect a timer the user explicitly cancelled —
+     * iOS parity: `setTimer(.off)` updates `lastActiveState`, a natural expiry (`reset()`) doesn't.
+     */
     fun stopTimer() {
+        rememberLastEnabled(PlaybackSettingsManager.SLEEP_TIMER_OFF)
+        cancelInternal()
+    }
+
+    /** Cancel whatever is running without touching the remembered last-enabled value. */
+    private fun cancelInternal() {
         timerJob?.cancel()
         timerJob = null
         _remainingMillis.value = 0
@@ -122,9 +136,29 @@ object SleepTimerManager {
 
     fun configureTimerWithSeconds(seconds: Int) {
         when {
-            seconds == -1 -> stopTimer()
-            seconds == -2 -> startTimerUntilEndOfChapter()
+            seconds == PlaybackSettingsManager.SLEEP_TIMER_OFF -> stopTimer()
+            seconds == PlaybackSettingsManager.SLEEP_TIMER_END_OF_CHAPTER -> startTimerUntilEndOfChapter()
             seconds > 0 -> startTimerMillis(seconds * 1000L)
         }
+    }
+
+    /**
+     * Auto Sleep Timer: re-arm the timer the user last set (iOS `SleepTimer.restartTimer()` →
+     * `setTimer(lastActiveState)`). A countdown restarts from its full duration, end-of-chapter re-arms
+     * on the chapter now playing; "off" is a no-op. Called by [PlaybackManager] on user-initiated plays
+     * only when the setting is on.
+     */
+    fun restartLastEnabledTimer() {
+        val context = com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull ?: return
+        scope.launch {
+            val last = PlaybackSettingsManager.getLastEnabledSleepTimer(context).first()
+            if (last == PlaybackSettingsManager.SLEEP_TIMER_OFF) return@launch
+            configureTimerWithSeconds(last)
+        }
+    }
+
+    private fun rememberLastEnabled(seconds: Int) {
+        val context = com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull ?: return
+        scope.launch(Dispatchers.IO) { PlaybackSettingsManager.setLastEnabledSleepTimer(context, seconds) }
     }
 }

@@ -135,6 +135,9 @@ interface LibraryDao {
         insertChapters(chapters)
     }
 
+    @Query("UPDATE library_items SET speed = :speed WHERE uuid = :uuid")
+    suspend fun updateItemSpeed(uuid: String, speed: Double)
+
     @Query("SELECT * FROM bookmarks WHERE bookUuid = :bookUuid ORDER BY time ASC")
     fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>>
 

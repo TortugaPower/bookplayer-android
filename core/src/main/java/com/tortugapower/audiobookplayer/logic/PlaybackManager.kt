@@ -29,6 +29,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -298,6 +300,16 @@ object PlaybackManager {
     // before the first flow emission doesn't briefly disable autoplay.
     private var autoplayLibrary = true
     private var autoplayRestartFinished = true
+    // Auto Sleep Timer (iOS `autoTimerEnabled`): re-arm the last-set sleep timer on user-initiated
+    // plays. Default OFF like the DataStore default.
+    private var autoSleepTimerEnabled = false
+    // Set by playItem for the auto-advance into the next book, cleared once that playback starts, so
+    // the auto sleep timer only reacts to plays the USER asked for (iOS: `if !autoPlayed`).
+    private var autoplayTransitionPending = false
+    // Global Speed Control (iOS `globalSpeedEnabled`, default OFF = each book keeps its own speed) is
+    // read straight from DataStore by each load path (speedFor / resolveSpeed).
+    private var speedPersistJob: Job? = null
+    private const val SPEED_PERSIST_DEBOUNCE_MS = 300L
     private val _isTransitioning = MutableStateFlow(false)
     val isTransitioning: StateFlow<Boolean> = _isTransitioning.asStateFlow()
     private var progressTrackerJob: kotlinx.coroutines.Job? = null
@@ -417,6 +429,7 @@ object PlaybackManager {
                         } else {
                             // Real playback has started — the load/buffering "queued" window is over.
                             playbackQueuedFlag = false
+                            autoplayTransitionPending = false
                             recomputeIsPlaying()
                             if (smartRewindEnabled) {
                                 applySmartRewind()
@@ -439,6 +452,12 @@ object PlaybackManager {
                         playWhenReadyFlag = playWhenReady
                         if (!playWhenReady) playbackQueuedFlag = false
                         recomputeIsPlaying()
+                        // Play INTENT from any surface (player, notification, Auto, Wear, Bluetooth) —
+                        // iOS restarts the last sleep timer in play(), not on the actual audio start,
+                        // so a rebuffer never re-arms it.
+                        if (shouldRestartAutoSleepTimer(playWhenReady, autoSleepTimerEnabled, autoplayTransitionPending)) {
+                            SleepTimerManager.restartLastEnabledTimer()
+                        }
                     }
 
                     override fun onPositionDiscontinuity(
@@ -568,10 +587,16 @@ object PlaybackManager {
         // Consolidate settings observation on background thread
         scope.launch(Dispatchers.IO) {
             launch {
+                // The stored speed is the GLOBAL / last-used speed. It only drives the player before a
+                // book is loaded; every load resolves the book's speed itself (resolveSpeed) and
+                // setPlaybackSpeed applies user changes directly, so the pref never fights a per-book
+                // speed nor races the launch restore.
                 PlaybackSettingsManager.getSpeed(appContext).collectLatest { speed ->
-                    _playbackSpeed.value = speed
-                    launch(Dispatchers.Main) { player?.setPlaybackSpeed(speed) }
+                    if (_currentItem.value == null) _playbackSpeed.value = speed
                 }
+            }
+            launch {
+                PlaybackSettingsManager.getAutoSleepTimer(appContext).collectLatest { autoSleepTimerEnabled = it }
             }
             launch {
                 PlaybackSettingsManager.getRewindInterval(appContext).collectLatest { _rewindInterval.value = it }
@@ -625,6 +650,37 @@ object PlaybackManager {
         isAutoplayTransition: Boolean,
         autoplayRestartFinished: Boolean,
     ): Boolean = (isFinished && (!isAutoplayTransition || autoplayRestartFinished)) || fromBeginning
+
+    /**
+     * Whether a play-intent transition should re-arm the last sleep timer: only a PLAY (not a pause),
+     * only with the Auto Sleep Timer setting on, and never for the auto-advance into the next book
+     * (iOS `handleAutoTimer` runs `if !autoPlayed`). Pure — pinned by AutoSleepTimerDecisionTest.
+     */
+    internal fun shouldRestartAutoSleepTimer(
+        playWhenReady: Boolean,
+        autoSleepTimerEnabled: Boolean,
+        isAutoplayTransition: Boolean,
+    ): Boolean = playWhenReady && autoSleepTimerEnabled && !isAutoplayTransition
+
+    /**
+     * The speed a book loads at (iOS `SpeedService.getSpeed`): the global/last-used speed when Global
+     * Speed Control is ON, else the book's own speed — falling back to the stored speed for a book that
+     * never had one set (so enabling per-book speed doesn't snap every existing book back to 1x).
+     * Non-positive values (unset / corrupt) mean "unset". Pure — pinned by SpeedResolutionTest.
+     */
+    internal fun resolveSpeed(globalSpeedControl: Boolean, itemSpeed: Double?, storedSpeed: Float): Float {
+        val fallback = if (storedSpeed > 0f) storedSpeed else 1.0f
+        if (globalSpeedControl) return fallback
+        val own = itemSpeed?.toFloat() ?: return fallback
+        return if (own > 0f) own else fallback
+    }
+
+    /** [resolveSpeed] straight from DataStore, so the launch restore can't race the pref collectors. */
+    private suspend fun speedFor(context: Context, item: LibraryItemEntity): Float = resolveSpeed(
+        PlaybackSettingsManager.getGlobalSpeedControl(context).first(),
+        item.speed,
+        PlaybackSettingsManager.getSpeed(context).first(),
+    )
 
     /**
      * Remote-streaming gate (iOS parity: `PlayerLoaderService.loadPlayer` throws `fileMissing`): a
@@ -936,6 +992,7 @@ object PlaybackManager {
         isAutoplayTransition: Boolean = false,
     ) {
         lastLoadUserInitiated = autoplay
+        autoplayTransitionPending = isAutoplayTransition
         if (autoplay && blockedByStorage()) return
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
@@ -1015,6 +1072,8 @@ object PlaybackManager {
 
             val mediaItems = buildMediaItems(playable, processedDir, headers)
             if (mediaItems.isNotEmpty()) {
+                // This book's speed (per-book unless Global Speed Control is on); applied below.
+                _playbackSpeed.value = speedFor(context, refreshedItem)
                 // Resolve the saved whole-book time into the player coordinate (file + offset) it maps to.
                 val local = if (isBound) {
                     playable.timeline.toLocal((refreshedItem.currentTime * 1000).toLong())
@@ -1176,7 +1235,10 @@ object PlaybackManager {
     suspend fun resolveSessionMediaItems(context: Context, path: String): SessionMediaItems? {
         val item = getRepository(context).getItemByPath(path) ?: return null
         if (_currentItem.value?.uuid != item.uuid) updateProgress(context, itemToUpdate = _currentItem.value)
-        if (item.isFinished) {
+        // A browse-play is a MANUAL tap, never an autoplay transition — same rule as playItem (a
+        // finished book restarts from 0:00 regardless of the autoplay-restart preference).
+        autoplayTransitionPending = false
+        if (shouldRestartFromZero(item.isFinished, fromBeginning = false, isAutoplayTransition = false, autoplayRestartFinished = autoplayRestartFinished)) {
             item.currentTime = 0.0; item.isFinished = false; item.percentCompleted = 0.0
             getRepository(context).updateItemProgress(item.uuid, 0.0, false)
         }
@@ -1194,6 +1256,7 @@ object PlaybackManager {
                     else BoundTimeline.PlayerPosition(0, (refreshedItem.currentTime * 1000).toLong())
         _positionMs.value = (refreshedItem.currentTime * 1000).toLong()
         PlaybackSettingsManager.setLastItemUuid(context, item.uuid)
+        _playbackSpeed.value = speedFor(context, refreshedItem)
         player?.setPlaybackSpeed(_playbackSpeed.value)
         applyVolume(_volumeBoost.value, _playbackVolume.value)
         return SessionMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
@@ -1245,6 +1308,7 @@ object PlaybackManager {
 
         val mediaItems = buildMediaItems(playable, processedDir)
         if (mediaItems.isNotEmpty()) {
+            val speed = speedFor(appContext, refreshedItem)
             // For a single BOOK the player offset is just the saved whole-book time.
             val local = if (isBound) {
                 playable.timeline.toLocal((refreshedItem.currentTime * 1000).toLong())
@@ -1260,7 +1324,8 @@ object PlaybackManager {
                 mediaController.prepare()
 
                 // Apply speed and volume
-                mediaController.setPlaybackSpeed(_playbackSpeed.value)
+                _playbackSpeed.value = speed
+                mediaController.setPlaybackSpeed(speed)
                 applyVolume(_volumeBoost.value, _playbackVolume.value)
 
                 // Finalize restoration
@@ -1479,7 +1544,7 @@ object PlaybackManager {
 
     /**
      * Step the playback speed to the next preset (wrapping), since Android Auto can't present a speed
-     * picker. Persists it (the settings collector applies it to the player). Returns the new speed.
+     * picker. Applied and persisted by [setPlaybackSpeed]. Returns the new speed.
      */
     fun cyclePlaybackSpeed(context: Context): Float {
         val next = nextSpeedPreset(_playbackSpeed.value)
@@ -1546,9 +1611,24 @@ object PlaybackManager {
         }
     }
 
+    /**
+     * Apply [speed] now and persist it: always as the global/last-used speed, and — like iOS's
+     * `SpeedService.setSpeed` — on the loaded book too, so it comes back at this speed when Global
+     * Speed Control is off (the row update syncs as a metadata update). Debounced: the speed slider
+     * calls this on every drag tick.
+     */
     fun setPlaybackSpeed(context: Context, speed: Float) {
-        scope.launch {
+        _playbackSpeed.value = speed
+        scope.launch(Dispatchers.Main) { player?.setPlaybackSpeed(speed) }
+        val item = _currentItem.value
+        speedPersistJob?.cancel()
+        speedPersistJob = scope.launch(Dispatchers.IO) {
+            delay(SPEED_PERSIST_DEBOUNCE_MS)
             PlaybackSettingsManager.setSpeed(context, speed)
+            if (item != null) {
+                item.speed = speed.toDouble()
+                getRepository(context).updateItemSpeed(item.uuid, speed.toDouble())
+            }
         }
     }
 
