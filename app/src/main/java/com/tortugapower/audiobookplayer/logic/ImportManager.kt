@@ -217,7 +217,7 @@ object ImportManager : ImportService {
                     return@launch
                 }
 
-                val destFile = File(backupDir, sanitizedFileName)
+                var destFile = File(backupDir, sanitizedFileName)
                 var newlyImportedFile: ImportFile? = null
 
                 try {
@@ -229,13 +229,33 @@ object ImportManager : ImportService {
                         val response = downloadClient.newCall(requestBuilder.build()).execute()
                         response.use { // Ensure response is closed
                             if (response.isSuccessful && response.body != null) {
+                                // The server's name beats our pre-request guess (an Audiobookshelf book
+                                // arrives as "<title>.zip", not "<title>.mp3"). A file-only re-download keeps
+                                // the existing item's name: the accept step finds that item by it.
+                                var savedName = if (isFileOnly) sanitizedFileName
+                                    else DownloadFileName.resolve(sanitizedFileName, response.header("Content-Disposition"))
+                                destFile = File(backupDir, savedName)
                                 response.body!!.byteStream().use { input ->
                                     FileOutputStream(destFile).use { output ->
                                         input.copyTo(output)
                                     }
                                 }
+                                if (!isFileOnly) {
+                                    val head = destFile.inputStream().use { stream ->
+                                        val buffer = ByteArray(4)
+                                        buffer.copyOf(maxOf(stream.read(buffer), 0))
+                                    }
+                                    val archiveName = DownloadFileName.archiveAware(savedName, head)
+                                    if (archiveName != savedName) {
+                                        val renamed = File(backupDir, archiveName)
+                                        if (destFile.renameTo(renamed)) {
+                                            destFile = renamed
+                                            savedName = archiveName
+                                        }
+                                    }
+                                }
                                 newlyImportedFile = ImportFile(
-                                    name = sanitizedFileName,
+                                    name = savedName,
                                     file = destFile,
                                     providerName = providerName,
                                     providerId = providerId,
