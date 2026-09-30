@@ -77,7 +77,7 @@ class LibraryViewModel(
      * - If the sync queue already has scheduled jobs we decline and signal [syncTasksBusy] instead of
      *   fetching, matching iOS's "sync tasks in progress" guard. File transfers (a separate queue) do NOT
      *   block a refresh — Android keeps them off the sync queue on purpose.
-     * - Otherwise we force past the 30s per-path throttle (a manual pull should always try) and wait for the
+     * - Otherwise we force past the 60 s per-path throttle (a manual pull should always try) and wait for the
      *   fetch task to drain, bounded by [REFRESH_TIMEOUT_MS] so a wedged task can't hang the indicator.
      */
     fun refresh(syncEnabled: Boolean) {

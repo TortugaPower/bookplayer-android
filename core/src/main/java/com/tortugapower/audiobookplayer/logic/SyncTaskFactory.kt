@@ -412,7 +412,7 @@ object SyncTaskFactory {
     /**
      * Pull the user's preferences from the server. Skipped (unless [force]) when we still have an
      * unsynced preference push queued — the local store is the source of truth, so a pull must never
-     * clobber a change we haven't sent yet. Debounced to one per 30s per launch, like fetch_contents.
+     * clobber a change we haven't sent yet. Debounced to one per 60 s per launch, like fetch_contents.
      */
     suspend fun createFetchPreferencesTask(repository: SyncTaskRepository, force: Boolean = false): Boolean {
         if (!force) {
