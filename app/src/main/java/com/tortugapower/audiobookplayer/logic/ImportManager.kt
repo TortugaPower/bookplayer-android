@@ -155,6 +155,18 @@ object ImportManager : ImportService {
         }
     }
 
+    /**
+     * A staging file nobody else holds, for a name only the server chose. `createNewFile` is atomic, so two
+     * downloads resolving to the same name can't share one, and a file already waiting in the import sheet
+     * is never truncated.
+     */
+    private fun reserveBackupFile(dir: File, name: String): File {
+        while (true) {
+            val candidate = ImportArchiveUtils.uniqueDestination(dir, name)
+            if (candidate.createNewFile()) return candidate
+        }
+    }
+
     override fun startDownload(
         context: Context,
         url: String,
@@ -209,6 +221,8 @@ object ImportManager : ImportService {
 
             val backupDir = File(context.filesDir, "BPBackup")
             if (!backupDir.exists()) backupDir.mkdirs()
+            // A server-chosen name this download claimed for a file-only restore; released in finally.
+            var claimedServerName: String? = null
 
             try {
                 if (!isFileOnly && libraryDao.existsWithFileName(sanitizedFileName)) {
@@ -217,8 +231,9 @@ object ImportManager : ImportService {
                     return@launch
                 }
 
-                val destFile = File(backupDir, sanitizedFileName)
+                var destFile = File(backupDir, sanitizedFileName)
                 var newlyImportedFile: ImportFile? = null
+                var skippedAsDuplicate = false
 
                 try {
                     withContext(Dispatchers.IO) {
@@ -229,13 +244,74 @@ object ImportManager : ImportService {
                         val response = downloadClient.newCall(requestBuilder.build()).execute()
                         response.use { // Ensure response is closed
                             if (response.isSuccessful && response.body != null) {
+                                // The server's name beats our pre-request guess (an Audiobookshelf book
+                                // arrives as "<title>.zip", not "<title>.mp3"). A file-only re-download keeps
+                                // the existing item's name: the accept step finds that item by it.
+                                var savedName = if (isFileOnly) sanitizedFileName
+                                    else DownloadFileName.resolve(sanitizedFileName, response.header("Content-Disposition"))
+                                if (savedName != sanitizedFileName && !ImportArchiveUtils.isArchive(savedName)) {
+                                    // The checks above ran on the requested name; repeat them on the file the
+                                    // server actually named, before copying its body. Archives are checked per
+                                    // extracted entry instead (expandArchives).
+                                    val existing = libraryDao.getItemByFileName(savedName)
+                                    if (existing != null) {
+                                        val relativePath = existing.relativePath
+                                        val processed = if (!relativePath.isNullOrEmpty()) File(processedDir, relativePath) else File(processedDir, savedName)
+                                        if (processed.exists()) {
+                                            skippedAsDuplicate = true
+                                            return@use
+                                        }
+                                        isFileOnly = true
+                                    }
+                                }
+                                // Only the requested name was claimed (activeDownloadFileNames), so a name the
+                                // server chose gets a staging file of its own — never another download's, nor
+                                // one already waiting in the import sheet. A file-only restore found through the
+                                // server's name must keep the item's exact name instead: it skips only when that
+                                // name is taken by something current (staged in the sheet, or claimed by a
+                                // download in flight) and claims it otherwise. A file merely left over in
+                                // BPBackup is replaced, as on the requested-name path.
+                                destFile = when {
+                                    savedName == sanitizedFileName -> File(backupDir, savedName)
+                                    isFileOnly -> {
+                                        val target = File(backupDir, savedName)
+                                        val name = savedName
+                                        val taken = withContext(Dispatchers.Main) {
+                                            importedFiles.any { it.file?.absolutePath == target.absolutePath } ||
+                                                !activeDownloadFileNames.add(name)
+                                        }
+                                        if (taken) {
+                                            skippedAsDuplicate = true
+                                            return@use
+                                        }
+                                        claimedServerName = name
+                                        target
+                                    }
+                                    else -> reserveBackupFile(backupDir, savedName).also { savedName = it.name }
+                                }
                                 response.body!!.byteStream().use { input ->
                                     FileOutputStream(destFile).use { output ->
                                         input.copyTo(output)
                                     }
                                 }
+                                if (!isFileOnly) {
+                                    val head = destFile.inputStream().use { stream ->
+                                        val buffer = ByteArray(4)
+                                        buffer.copyOf(maxOf(stream.read(buffer), 0))
+                                    }
+                                    val archiveName = DownloadFileName.archiveAware(savedName, head)
+                                    if (archiveName != savedName) {
+                                        val renamed = reserveBackupFile(backupDir, archiveName)
+                                        if (destFile.renameTo(renamed)) {
+                                            destFile = renamed
+                                            savedName = renamed.name
+                                        } else {
+                                            renamed.delete()
+                                        }
+                                    }
+                                }
                                 newlyImportedFile = ImportFile(
-                                    name = sanitizedFileName,
+                                    name = savedName,
                                     file = destFile,
                                     providerName = providerName,
                                     providerId = providerId,
@@ -247,6 +323,8 @@ object ImportManager : ImportService {
                             }
                         }
                     }
+
+                    if (skippedAsDuplicate) skippedItemsCount++
 
                     newlyImportedFile?.let { downloaded ->
                         // Media servers may return archives (e.g. Audiobookshelf zips multitrack
@@ -268,6 +346,7 @@ object ImportManager : ImportService {
                 }
             } finally {
                 activeDownloadFileNames.remove(sanitizedFileName)
+                claimedServerName?.let { activeDownloadFileNames.remove(it) }
                 activeDownloadCount--
                 if (activeDownloadCount == 0 && (importedFiles.isNotEmpty() || skippedItemsCount > 0)) {
                     showImportSheet = true
