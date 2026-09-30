@@ -18,8 +18,8 @@ class BookmarkSyncPlanTest {
     private fun local(id: Long, time: Double, note: String? = null, type: BookmarkType = BookmarkType.USER) =
         BookmarkEntity(id = id, bookUuid = "book", time = time, note = note, type = type)
 
-    private fun remote(time: Double, note: String? = null) =
-        SyncableBookmark(key = "book.mp3", time = time, note = note, uuid = "book")
+    private fun remote(time: Double, note: String? = null, active: Boolean? = null) =
+        SyncableBookmark(key = "book.mp3", time = time, note = note, active = active)
 
     @Test fun `a server row with no local match is inserted as a user bookmark`() {
         val plan = BookmarkSync.plan("book", emptyList(), listOf(remote(120.0, "Great line")))
@@ -74,6 +74,19 @@ class BookmarkSyncPlanTest {
 
         assertEquals(1, plan.toInsert.size)
         assertEquals(60.0, plan.toInsert[0].time, 0.0)
+        assertTrue(plan.toUpdate.isEmpty())
+    }
+
+    @Test fun `a soft-deleted server row is never inserted or applied`() {
+        // delete_bookmark is a soft delete (active=false). The server filters these already; if one
+        // ever slipped through, re-inserting it would undo the user's delete.
+        val plan = BookmarkSync.plan(
+            "book",
+            listOf(local(7, 120.0, note = "keep")),
+            listOf(remote(60.0, active = false), remote(120.0, note = "stale", active = false), remote(180.0, active = true))
+        )
+
+        assertEquals(listOf(180.0), plan.toInsert.map { it.time })
         assertTrue(plan.toUpdate.isEmpty())
     }
 }

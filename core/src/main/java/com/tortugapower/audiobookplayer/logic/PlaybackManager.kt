@@ -450,7 +450,11 @@ object PlaybackManager {
                     // through buffering. An explicit pause (playWhenReady=false) also cancels a queued play.
                     override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                         playWhenReadyFlag = playWhenReady
-                        if (!playWhenReady) playbackQueuedFlag = false
+                        if (!playWhenReady) {
+                            playbackQueuedFlag = false
+                            // A pause ends whatever transition was in flight.
+                            autoplayTransitionPending = false
+                        }
                         recomputeIsPlaying()
                         // Play INTENT from any surface (player, notification, Auto, Wear, Bluetooth) —
                         // iOS restarts the last sleep timer in play(), not on the actual audio start,
@@ -536,6 +540,7 @@ object PlaybackManager {
 
                     override fun onPlayerError(error: PlaybackException) {
                         playbackQueuedFlag = false
+                        autoplayTransitionPending = false
                         recomputeIsPlaying()
                         // A 401 on an external stream is already surfaced by its own re-auth alert
                         // (externalStreamAuthError, set by the auth data source before the player
@@ -992,8 +997,12 @@ object PlaybackManager {
         isAutoplayTransition: Boolean = false,
     ) {
         lastLoadUserInitiated = autoplay
-        autoplayTransitionPending = isAutoplayTransition
+        // Cleared again on every path where this load never reaches playback (storage/streaming
+        // block, nothing playable, player error, an explicit pause), so a stalled auto-advance can't
+        // keep the user's later play presses from re-arming the auto sleep timer.
+        autoplayTransitionPending = false
         if (autoplay && blockedByStorage()) return
+        autoplayTransitionPending = isAutoplayTransition
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
             _showPlayerScreen.value = true
@@ -1046,6 +1055,7 @@ object PlaybackManager {
         scope.launch(Dispatchers.Main) {
             if (remoteStreamingBlocked(context, item, processedDir)) {
                 playbackQueuedFlag = false
+                autoplayTransitionPending = false
                 recomputeIsPlaying()
                 _isTransitioning.value = false
                 // Same wording as iOS's BPPlayerError.fileMissing — deliberately does NOT suggest
@@ -1096,6 +1106,7 @@ object PlaybackManager {
                 // start, so no state transition would clear the queued intent. Clear it here so the button
                 // doesn't strand on "playing".
                 playbackQueuedFlag = false
+                autoplayTransitionPending = false
                 recomputeIsPlaying()
 
                 // Alerts only for USER-INITIATED plays (autoplay=true). The post-fetch
