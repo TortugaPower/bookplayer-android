@@ -108,17 +108,33 @@ class ImportManagerDownloadTest {
     }
 
     // The restore must keep the item's exact name, so it can't take a "-1" name: a copy of the same file
-    // already staged (or in flight) means it's on its way in — skip rather than truncate it.
-    @Test fun `a restore under the server's name never overwrites a copy already staged`() {
+    // already staged in the import sheet means it's on its way in — skip rather than truncate it.
+    @Test fun `a restore under the server's name never overwrites a copy staged in the sheet`() {
         runBlocking { dao.insertItem(LibraryItemEntity(uuid = "b1", title = "Book", relativePath = "Book.m4b", type = ItemType.BOOK)) }
-        File(backupDir, "Book.m4b").writeText("staged")
+        server.enqueue(named("Book.m4b", Buffer().writeUtf8("first")))
+        server.enqueue(named("Book.m4b", Buffer().writeUtf8("second")))
+
+        download("download.mp3")
+        download("download.mp3")
+
+        val staged = ImportManager.importedFiles.single()
+        assertEquals("Book.m4b", staged.name)
+        assertEquals("first", staged.file!!.readText())
+        assertEquals(1, ImportManager.skippedItemsCount)
+    }
+
+    // BPBackup keeps leftovers (the storage screen lists them as orphans); one must never block a restore.
+    @Test fun `a leftover file in the staging folder doesn't block a restore`() {
+        runBlocking { dao.insertItem(LibraryItemEntity(uuid = "b1", title = "Book", relativePath = "Book.m4b", type = ItemType.BOOK)) }
+        File(backupDir, "Book.m4b").writeText("leftover")
         server.enqueue(named("Book.m4b", Buffer().writeUtf8("new")))
 
         download("download.mp3")
 
-        assertTrue(ImportManager.importedFiles.isEmpty())
-        assertEquals(1, ImportManager.skippedItemsCount)
-        assertEquals("staged", File(backupDir, "Book.m4b").readText())
+        val imported = ImportManager.importedFiles.single()
+        assertEquals("Book.m4b", imported.name)
+        assertTrue(imported.isFileOnly)
+        assertEquals("new", imported.file!!.readText())
     }
 
     @Test fun `a server-chosen name never overwrites a file waiting in the import sheet`() {

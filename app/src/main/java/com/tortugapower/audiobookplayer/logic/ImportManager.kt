@@ -221,6 +221,8 @@ object ImportManager : ImportService {
 
             val backupDir = File(context.filesDir, "BPBackup")
             if (!backupDir.exists()) backupDir.mkdirs()
+            // A server-chosen name this download claimed for a file-only restore; released in finally.
+            var claimedServerName: String? = null
 
             try {
                 if (!isFileOnly && libraryDao.existsWithFileName(sanitizedFileName)) {
@@ -265,13 +267,25 @@ object ImportManager : ImportService {
                                 // Only the requested name was claimed (activeDownloadFileNames), so a name the
                                 // server chose gets a staging file of its own — never another download's, nor
                                 // one already waiting in the import sheet. A file-only restore found through the
-                                // server's name must keep the item's exact name, so it is created atomically
-                                // instead: if it already exists, the same file is already on its way in.
+                                // server's name must keep the item's exact name instead: it skips only when that
+                                // name is taken by something current (staged in the sheet, or claimed by a
+                                // download in flight) and claims it otherwise. A file merely left over in
+                                // BPBackup is replaced, as on the requested-name path.
                                 destFile = when {
                                     savedName == sanitizedFileName -> File(backupDir, savedName)
-                                    isFileOnly -> File(backupDir, savedName).takeIf { it.createNewFile() } ?: run {
-                                        skippedAsDuplicate = true
-                                        return@use
+                                    isFileOnly -> {
+                                        val target = File(backupDir, savedName)
+                                        val name = savedName
+                                        val taken = withContext(Dispatchers.Main) {
+                                            importedFiles.any { it.file?.absolutePath == target.absolutePath } ||
+                                                !activeDownloadFileNames.add(name)
+                                        }
+                                        if (taken) {
+                                            skippedAsDuplicate = true
+                                            return@use
+                                        }
+                                        claimedServerName = name
+                                        target
                                     }
                                     else -> reserveBackupFile(backupDir, savedName).also { savedName = it.name }
                                 }
@@ -332,6 +346,7 @@ object ImportManager : ImportService {
                 }
             } finally {
                 activeDownloadFileNames.remove(sanitizedFileName)
+                claimedServerName?.let { activeDownloadFileNames.remove(it) }
                 activeDownloadCount--
                 if (activeDownloadCount == 0 && (importedFiles.isNotEmpty() || skippedItemsCount > 0)) {
                     showImportSheet = true
