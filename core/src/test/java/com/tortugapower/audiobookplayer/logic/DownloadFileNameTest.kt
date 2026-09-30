@@ -48,6 +48,13 @@ class DownloadFileNameTest {
         assertNull(DownloadFileName.fromContentDisposition("attachment; filename*=UTF-8''%E6%9"))
     }
 
+    // A decoded %00 would make FileOutputStream throw, %0A would split a log line: fall back instead.
+    @Test fun `names with control characters are rejected`() {
+        assertNull(DownloadFileName.fromContentDisposition("attachment; filename*=UTF-8''a%00b.m4b"))
+        assertNull(DownloadFileName.fromContentDisposition("attachment; filename*=UTF-8''a%0Ab.m4b"))
+        assertEquals("Book.mp3", DownloadFileName.resolve("Book.mp3", "attachment; filename*=UTF-8''a%00b.m4b"))
+    }
+
     // MARK: - Choosing the saved name
 
     @Test fun `the server name beats the pre-request guess`() {

@@ -20,8 +20,9 @@ object DownloadFileName {
 
     /**
      * The file name in a Content-Disposition header (RFC 6266): the RFC 5987 `filename*` form first, then
-     * `filename`. Only the last path segment is kept, so a path in the header never becomes one on disk.
-     * Null when the header is absent or names no file.
+     * `filename`. Only the last path segment is kept, so a path in the header never becomes one on disk,
+     * and a name with control characters (a decoded %00 or %0A) is rejected. Null when the header is absent
+     * or names no usable file.
      */
     fun fromContentDisposition(header: String?): String? {
         if (header.isNullOrBlank()) return null
@@ -31,7 +32,8 @@ object DownloadFileName {
             percentDecode(match.groupValues[2].trim(), charset)
         } ?: QUOTED.find(header)?.groupValues?.get(1)?.replace(Regex("""\\(.)"""), "$1")
             ?: BARE.find(header)?.groupValues?.get(1)
-        return name?.substringAfterLast('/')?.substringAfterLast('\\')?.trim()?.takeIf { it.isNotEmpty() }
+        return name?.substringAfterLast('/')?.substringAfterLast('\\')?.trim()
+            ?.takeIf { candidate -> candidate.isNotEmpty() && candidate.none { it.isISOControl() } }
     }
 
     /**
