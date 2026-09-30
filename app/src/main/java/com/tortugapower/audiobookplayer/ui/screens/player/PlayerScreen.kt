@@ -107,9 +107,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
+import com.tortugapower.audiobookplayer.logic.VideoTracks.hasPlayableVideo
+import com.tortugapower.audiobookplayer.ui.components.LocalIsInPictureInPicture
 import androidx.media3.common.C
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -351,7 +352,10 @@ fun PlayerScreen(
         // Fullscreen only means something while a video is showing; drop it when the item
         // changes to an audio book so the next video doesn't open straight into fullscreen.
         LaunchedEffect(hasVideo) { if (!hasVideo) isFullscreen = false }
-        val fullscreenActive = isFullscreen && hasVideo
+        // A Picture-in-Picture window shows only the video: same layout as fullscreen, minus the
+        // overlay controls (the PiP window has its own).
+        val isInPip = LocalIsInPictureInPicture.current
+        val fullscreenActive = (isFullscreen || isInPip) && hasVideo
 
         // While the UI is stopped (screen off, app backgrounded) or the player sheet is gone,
         // nothing shows the frames — but the video track would stay selected and MediaCodec
@@ -541,6 +545,7 @@ fun PlayerScreen(
                             hasVideo = hasVideo,
                             isSheetVisible = !isHidden,
                             isFullscreen = fullscreenActive,
+                            showOverlayControls = !isInPip,
                             onToggleFullscreen = { isFullscreen = !isFullscreen },
                             onCastClick = { viewModel.toggleCastSheet() }
                         )
@@ -667,6 +672,7 @@ private fun PlayerArtwork(
     hasVideo: Boolean,
     isSheetVisible: Boolean = true,
     isFullscreen: Boolean = false,
+    showOverlayControls: Boolean = true,
     onToggleFullscreen: () -> Unit = {},
     onCastClick: () -> Unit = {}
 ) {
@@ -846,7 +852,7 @@ private fun PlayerArtwork(
         }
 
         AnimatedVisibility(
-            visible = !hasVideo || showControls,
+            visible = showOverlayControls && (!hasVideo || showControls),
             enter = fadeIn(animationSpec = tween(300)),
             exit = fadeOut(animationSpec = tween(300)),
             modifier = Modifier.align(Alignment.TopEnd)
@@ -880,25 +886,6 @@ private fun PlayerArtwork(
                 }
             }
         }
-    }
-}
-
-// Media3 exposes embedded cover art in some .mp4/.m4b audiobooks as a real (single-frame,
-// image-codec) video track. Treating those as video would swap the artwork for a PlayerView
-// and start the blur-capture loop on a plain audiobook, so only genuine motion-video codecs
-// count. Presence is checked rather than selection: the screen disables the video track type
-// while stopped/collapsed, and that must not read back as "no video".
-private val stillImageVideoMimeTypes = setOf(
-    MimeTypes.VIDEO_MJPEG,
-    "video/jpeg",
-    "video/png",
-    "video/bmp"
-)
-
-private fun Tracks.hasPlayableVideo(): Boolean = groups.any { group ->
-    group.type == C.TRACK_TYPE_VIDEO && (0 until group.length).any { i ->
-        val mime = group.getTrackFormat(i).sampleMimeType?.lowercase()
-        mime != null && MimeTypes.isVideo(mime) && mime !in stillImageVideoMimeTypes
     }
 }
 

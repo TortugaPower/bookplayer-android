@@ -227,4 +227,23 @@ object PlaybackSettingsManager {
     suspend fun setUploadUsingCellularData(context: Context, enabled: Boolean) {
         context.dataStore.edit { it[UPLOAD_USING_CELLULAR_DATA] = enabled }
     }
+
+    // Video playback (iOS feature/videoplayer: `videoBackgroundPlaybackEnabled` / `videoPictureInPictureEnabled`).
+    // Background ON (default): a video's audio keeps playing when the app leaves the foreground; OFF
+    // pauses it. Picture in Picture (default OFF) keeps the video visible in a small window when the
+    // user leaves the app from the player screen — only meaningful with background playback on.
+    private val VIDEO_BACKGROUND_PLAYBACK = booleanPreferencesKey("video_background_playback")
+    private val VIDEO_PICTURE_IN_PICTURE = booleanPreferencesKey("video_picture_in_picture")
+
+    fun getVideoBackgroundPlayback(context: Context): Flow<Boolean> =
+        context.dataStore.data.map { it[VIDEO_BACKGROUND_PLAYBACK] ?: true }
+    suspend fun setVideoBackgroundPlayback(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[VIDEO_BACKGROUND_PLAYBACK] = enabled }
+    }
+
+    fun getVideoPictureInPicture(context: Context): Flow<Boolean> =
+        context.dataStore.data.map { it[VIDEO_PICTURE_IN_PICTURE] ?: false }
+    suspend fun setVideoPictureInPicture(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[VIDEO_PICTURE_IN_PICTURE] = enabled }
+    }
 }

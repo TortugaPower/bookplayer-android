@@ -30,11 +30,64 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
+import android.app.PendingIntent
+import android.app.PictureInPictureParams
+import android.app.RemoteAction
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.graphics.drawable.Icon
+import android.os.Build
+import android.util.Rational
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
+import com.tortugapower.audiobookplayer.logic.PictureInPicturePolicy
+import com.tortugapower.audiobookplayer.ui.components.LocalIsInPictureInPicture
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 
 class MainActivity : ComponentActivity() {
 
     /** True while the storage gate is showing instead of the app (see onCreate). */
     private var storageGateShown = false
+
+    // --- Video playback settings (Settings → Player Controls → Video Playback) ---------------------
+    // Mirrors of the two prefs, kept current by observeVideoPlayback() so the lifecycle callbacks
+    // below can read them synchronously.
+    private var videoBackgroundPlayback = true
+    private var videoPictureInPicture = false
+    /** Whether leaving the app right now should shrink into a PiP window (PictureInPicturePolicy). */
+    private var pipEligible = false
+    private val isInPictureInPicture = MutableStateFlow(false)
+
+    /** The PiP window's rewind / play-pause / forward buttons come back as this broadcast. */
+    private val pipControlReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.getStringExtra(PictureInPicturePolicy.EXTRA_CONTROL)) {
+                PictureInPicturePolicy.CONTROL_PLAY_PAUSE -> PlaybackManager.togglePlayPause()
+                PictureInPicturePolicy.CONTROL_REWIND -> PlaybackManager.seekBackward()
+                PictureInPicturePolicy.CONTROL_FORWARD -> PlaybackManager.seekForward()
+            }
+        }
+    }
+
+    /** With background playback OFF, a playing video pauses when the WHOLE app leaves the foreground
+     *  (iOS: didEnterBackground). App-level, not activity-level: a file picker or the Auth Tab covering
+     *  this activity is not "leaving the app", and a PiP window keeps the activity started anyway. */
+    private val appBackgroundObserver = LifecycleEventObserver { _, event ->
+        if (event == Lifecycle.Event.ON_STOP &&
+            PictureInPicturePolicy.shouldPauseOnBackground(
+                videoBackgroundPlayback, PlaybackManager.hasVideo.value, PlaybackManager.isPlaying.value
+            )
+        ) {
+            PlaybackManager.pause()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -91,11 +144,120 @@ class MainActivity : ComponentActivity() {
             handleIntent(intent)
         }
 
+        ContextCompat.registerReceiver(
+            this, pipControlReceiver, IntentFilter(PictureInPicturePolicy.ACTION_PIP),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        ProcessLifecycleOwner.get().lifecycle.addObserver(appBackgroundObserver)
+        observeVideoPlayback()
+
         setContent {
             BookPlayerTheme {
-                MainScreen()
+                val pip by isInPictureInPicture.collectAsStateWithLifecycle()
+                CompositionLocalProvider(LocalIsInPictureInPicture provides pip) {
+                    MainScreen()
+                }
             }
         }
+    }
+
+    // --- Picture in Picture ----------------------------------------------------------------------
+
+    private fun pipSupported(): Boolean =
+        packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
+    /** Keep the PiP eligibility and params current so the OS can auto-enter (S+) or we can on leave. */
+    private fun observeVideoPlayback() {
+        lifecycleScope.launch {
+            combine(
+                PlaybackSettingsManager.getVideoBackgroundPlayback(this@MainActivity),
+                PlaybackSettingsManager.getVideoPictureInPicture(this@MainActivity),
+                PlaybackManager.hasVideo,
+                PlaybackManager.isPlaying,
+                PlaybackManager.showPlayerScreen,
+            ) { background, pip, hasVideo, playing, playerShown ->
+                videoBackgroundPlayback = background
+                videoPictureInPicture = pip
+                PictureInPicturePolicy.shouldEnter(
+                    supported = pipSupported(),
+                    pipEnabled = pip,
+                    backgroundPlaybackEnabled = background,
+                    hasVideo = hasVideo,
+                    isPlaying = playing,
+                    playerScreenVisible = playerShown,
+                )
+            }.collect { eligible ->
+                pipEligible = eligible
+                // Re-pushed on every change so the play/pause button and aspect ratio stay current
+                // while the PiP window is showing, too.
+                if (eligible || isInPictureInPicture.value) applyPictureInPictureParams(eligible)
+                else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && pipSupported()) {
+                    setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(false).build())
+                }
+            }
+        }
+    }
+
+    private fun buildPictureInPictureParams(autoEnter: Boolean): PictureInPictureParams {
+        val builder = PictureInPictureParams.Builder().setActions(pipActions())
+        val size = PlaybackManager.player?.videoSize
+        PictureInPicturePolicy.aspectRatio(size?.width ?: 0, size?.height ?: 0)?.let { (num, den) ->
+            builder.setAspectRatio(Rational(num, den))
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setAutoEnterEnabled(autoEnter)
+            builder.setSeamlessResizeEnabled(true)
+        }
+        return builder.build()
+    }
+
+    private fun applyPictureInPictureParams(autoEnter: Boolean) {
+        if (!pipSupported()) return
+        try {
+            setPictureInPictureParams(buildPictureInPictureParams(autoEnter))
+        } catch (e: IllegalStateException) {
+            // Activity not yet attached / already finishing; the next state change re-applies.
+            android.util.Log.w("MainActivity", "PiP params rejected", e)
+        }
+    }
+
+    /** Pre-Android 12 there is no auto-enter: shrink into PiP ourselves when the user leaves. */
+    @Suppress("DEPRECATION")
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && pipEligible && !isInPictureInPictureMode) {
+            try {
+                enterPictureInPictureMode(buildPictureInPictureParams(autoEnter = false))
+            } catch (e: IllegalStateException) {
+                android.util.Log.w("MainActivity", "Could not enter PiP", e)
+            }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        isInPictureInPicture.value = isInPictureInPictureMode
+    }
+
+    private fun pipActions(): List<RemoteAction> {
+        fun action(iconRes: Int, titleRes: Int, requestCode: Int, control: String): RemoteAction {
+            val intent = Intent(PictureInPicturePolicy.ACTION_PIP)
+                .setPackage(packageName)
+                .putExtra(PictureInPicturePolicy.EXTRA_CONTROL, control)
+            val pending = PendingIntent.getBroadcast(
+                this, requestCode, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val title = getString(titleRes)
+            return RemoteAction(Icon.createWithResource(this, iconRes), title, title, pending)
+        }
+        val playing = PlaybackManager.isPlaying.value
+        return listOf(
+            action(R.drawable.ic_pip_rewind, R.string.shortcut_rewind_title, 1, PictureInPicturePolicy.CONTROL_REWIND),
+            if (playing) action(R.drawable.ic_pause, R.string.player_pause, 2, PictureInPicturePolicy.CONTROL_PLAY_PAUSE)
+            else action(R.drawable.ic_play, R.string.player_play, 2, PictureInPicturePolicy.CONTROL_PLAY_PAUSE),
+            action(R.drawable.ic_pip_forward, R.string.shortcut_forward_title, 3, PictureInPicturePolicy.CONTROL_FORWARD),
+        )
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -198,8 +360,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // We don't necessarily want to release the player here if it should play in background,
-        // but for now let's keep it simple. Actually, the service handles the background.
+        // Playback itself lives in the service; only this activity's PiP/background hooks go.
+        if (!storageGateShown) {
+            ProcessLifecycleOwner.get().lifecycle.removeObserver(appBackgroundObserver)
+            unregisterReceiver(pipControlReceiver)
+        }
     }
 
     private fun setupDynamicShortcuts() {

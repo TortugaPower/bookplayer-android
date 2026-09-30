@@ -102,6 +102,8 @@ class PlayerViewModel(
     var listButtonOpens by mutableStateOf(PlaybackSettingsManager.LIST_OPENS_CHAPTERS)
     var useRemainingTime by mutableStateOf(true)
     var useChapterContext by mutableStateOf(true)
+    var videoBackgroundPlayback by mutableStateOf(true)
+    var videoPictureInPicture by mutableStateOf(false)
 
     init {
         // Load initial settings
@@ -150,6 +152,12 @@ class PlayerViewModel(
             }
             launch {
                 PlaybackSettingsManager.getUseChapterContext(context).collect { useChapterContext = it }
+            }
+            launch {
+                PlaybackSettingsManager.getVideoBackgroundPlayback(context).collect { videoBackgroundPlayback = it }
+            }
+            launch {
+                PlaybackSettingsManager.getVideoPictureInPicture(context).collect { videoPictureInPicture = it }
             }
         }
 
@@ -348,6 +356,8 @@ class PlayerViewModel(
             var listButtonOpensVal = PlaybackSettingsManager.LIST_OPENS_CHAPTERS
             var useRemainingTimeVal = true
             var useChapterContextVal = true
+            var videoBackgroundPlaybackVal = true
+            var videoPictureInPictureVal = false
 
             withContext(Dispatchers.IO) {
                 smartRewindVal = PlaybackSettingsManager.getSmartRewind(context).first()
@@ -363,6 +373,8 @@ class PlayerViewModel(
                 listButtonOpensVal = PlaybackSettingsManager.getListButtonOpens(context).first()
                 useRemainingTimeVal = PlaybackSettingsManager.getUseRemainingTime(context).first()
                 useChapterContextVal = PlaybackSettingsManager.getUseChapterContext(context).first()
+                videoBackgroundPlaybackVal = PlaybackSettingsManager.getVideoBackgroundPlayback(context).first()
+                videoPictureInPictureVal = PlaybackSettingsManager.getVideoPictureInPicture(context).first()
             }
 
             smartRewind = smartRewindVal
@@ -378,6 +390,8 @@ class PlayerViewModel(
             listButtonOpens = listButtonOpensVal
             useRemainingTime = useRemainingTimeVal
             useChapterContext = useChapterContextVal
+            videoBackgroundPlayback = videoBackgroundPlaybackVal
+            videoPictureInPicture = videoPictureInPictureVal
         }
     }
 
@@ -404,6 +418,16 @@ class PlayerViewModel(
     fun updateProgressBarSeeking(context: Context, enabled: Boolean) {
         progressBarSeeking = enabled
         viewModelScope.launch { PlaybackSettingsManager.setProgressBarSeeking(context, enabled) }
+    }
+
+    fun updateVideoBackgroundPlayback(context: Context, enabled: Boolean) {
+        videoBackgroundPlayback = enabled
+        viewModelScope.launch { PlaybackSettingsManager.setVideoBackgroundPlayback(context, enabled) }
+    }
+
+    fun updateVideoPictureInPicture(context: Context, enabled: Boolean) {
+        videoPictureInPicture = enabled
+        viewModelScope.launch { PlaybackSettingsManager.setVideoPictureInPicture(context, enabled) }
     }
 
     fun updateListButtonOpens(context: Context, value: String) {

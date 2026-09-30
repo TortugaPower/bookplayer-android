@@ -893,6 +893,8 @@ fun ExtendedControlsSheet(
                 listButtonOpens = viewModel.listButtonOpens,
                 useRemainingTime = viewModel.useRemainingTime,
                 useChapterContext = viewModel.useChapterContext,
+                videoBackgroundPlayback = viewModel.videoBackgroundPlayback,
+                videoPictureInPicture = viewModel.videoPictureInPicture,
                 onUpdateRewindInterval = { viewModel.updateRewindInterval(context, it) },
                 onUpdateForwardInterval = { viewModel.updateForwardInterval(context, it) },
                 onUpdateSmartRewind = { viewModel.updateSmartRewind(context, it) },
@@ -906,7 +908,9 @@ fun ExtendedControlsSheet(
                 onUpdateProgressBarSeeking = { viewModel.updateProgressBarSeeking(context, it) },
                 onUpdateListButtonOpens = { viewModel.updateListButtonOpens(context, it) },
                 onUpdateUseRemainingTime = { viewModel.updateUseRemainingTime(context, it) },
-                onUpdateUseChapterContext = { viewModel.updateUseChapterContext(context, it) }
+                onUpdateUseChapterContext = { viewModel.updateUseChapterContext(context, it) },
+                onUpdateVideoBackgroundPlayback = { viewModel.updateVideoBackgroundPlayback(context, it) },
+                onUpdateVideoPictureInPicture = { viewModel.updateVideoPictureInPicture(context, it) }
             )
         }
     }

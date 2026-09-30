@@ -8,6 +8,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.Tracks
+import com.tortugapower.audiobookplayer.logic.VideoTracks.hasPlayableVideo
 import com.tortugapower.audiobookplayer.core.R
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -290,6 +292,11 @@ object PlaybackManager {
     private val _useChapterContext = MutableStateFlow(false)
     val useChapterContext: StateFlow<Boolean> = _useChapterContext.asStateFlow()
 
+    /** Whether the loaded item carries a motion-video track (see [VideoTracks]). Drives the phone's
+     *  Picture-in-Picture eligibility and the "continue video audio in background" rule. */
+    private val _hasVideo = MutableStateFlow(false)
+    val hasVideo: StateFlow<Boolean> = _hasVideo.asStateFlow()
+
     private var lastPauseTime: Long = 0
     private var smartRewindEnabled = true
     private var smartRewindLimit = 30
@@ -409,6 +416,7 @@ object PlaybackManager {
             try {
                 val mediaController = controllerFuture?.get() ?: return@addListener
                 player = mediaController
+                _hasVideo.value = mediaController.currentTracks.hasPlayableVideo()
 
                 // Add listener once
                 mediaController.addListener(object : Player.Listener {
@@ -483,6 +491,10 @@ object PlaybackManager {
                         // A file boundary can also be a chapter boundary (classic one-file-per-chapter
                         // BOUND); refresh so the Now Playing title updates immediately, not next tick.
                         refreshCurrentChapterIndex()
+                    }
+
+                    override fun onTracksChanged(tracks: Tracks) {
+                        _hasVideo.value = tracks.hasPlayableVideo()
                     }
 
                     override fun onPlaybackStateChanged(state: Int) {

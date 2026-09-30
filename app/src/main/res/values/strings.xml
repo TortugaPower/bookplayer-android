@@ -261,6 +261,10 @@
     <string name="player_settings_progress_bar_seeking_desc">Enable seeking on the lock screen</string>
     <string name="player_settings_list_opens">Opens</string>
     <string name="player_settings_list_opens_desc">Adjust what the list button in the player screen opens</string>
+    <string name="player_settings_video_playback">Video Playback</string>
+    <string name="player_settings_video_background_playback">Continue Video Audio in Background</string>
+    <string name="player_settings_video_pip">Picture in Picture</string>
+    <string name="player_settings_video_playback_desc">Keep listening to a video\'s audio when you leave the app or lock the screen. Picture in Picture keeps the video in a small window when you leave the app from the player.</string>
     <string name="player_settings_progress_labels">Progress Labels</string>
     <string name="player_settings_use_remaining_time">Use Remaining Time</string>
     <string name="player_settings_use_chapter_context">Use Chapter Context</string>

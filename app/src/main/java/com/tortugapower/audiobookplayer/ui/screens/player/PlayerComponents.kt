@@ -163,6 +163,8 @@ fun PlayerControlsSettingsContent(
     listButtonOpens: String,
     useRemainingTime: Boolean,
     useChapterContext: Boolean,
+    videoBackgroundPlayback: Boolean,
+    videoPictureInPicture: Boolean,
     onUpdateRewindInterval: (Int) -> Unit,
     onUpdateForwardInterval: (Int) -> Unit,
     onUpdateSmartRewind: (Boolean) -> Unit,
@@ -177,6 +179,8 @@ fun PlayerControlsSettingsContent(
     onUpdateListButtonOpens: (String) -> Unit,
     onUpdateUseRemainingTime: (Boolean) -> Unit,
     onUpdateUseChapterContext: (Boolean) -> Unit,
+    onUpdateVideoBackgroundPlayback: (Boolean) -> Unit,
+    onUpdateVideoPictureInPicture: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -416,6 +420,34 @@ fun PlayerControlsSettingsContent(
         }
         Text(
             stringResource(R.string.player_settings_progress_labels_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 16.dp)
+        )
+
+        // Video playback (iOS VideoPlaybackSectionView): Picture in Picture is a sub-option of
+        // background playback, so it is disabled while background playback is off.
+        SettingsSectionLabel(stringResource(R.string.player_settings_video_playback))
+        Surface(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column {
+                SettingsRowToggle(stringResource(R.string.player_settings_video_background_playback), videoBackgroundPlayback) {
+                    onUpdateVideoBackgroundPlayback(it)
+                }
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                SettingsRowToggle(
+                    stringResource(R.string.player_settings_video_pip),
+                    videoPictureInPicture,
+                    enabled = videoBackgroundPlayback
+                ) {
+                    onUpdateVideoPictureInPicture(it)
+                }
+            }
+        }
+        Text(
+            stringResource(R.string.player_settings_video_playback_desc),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
             modifier = Modifier.padding(top = 8.dp, start = 8.dp, bottom = 32.dp)

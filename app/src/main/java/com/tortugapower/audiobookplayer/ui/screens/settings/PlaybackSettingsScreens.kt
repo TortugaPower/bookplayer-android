@@ -43,6 +43,8 @@ fun PlayerControlsSettingsScreen(
     val listButtonOpens by remember { PlaybackSettingsManager.getListButtonOpens(context) }.collectAsStateWithLifecycle(initialValue = PlaybackSettingsManager.LIST_OPENS_CHAPTERS)
     val useRemainingTime by remember { PlaybackSettingsManager.getUseRemainingTime(context) }.collectAsStateWithLifecycle(initialValue = true)
     val useChapterContext by remember { PlaybackSettingsManager.getUseChapterContext(context) }.collectAsStateWithLifecycle(initialValue = true)
+    val videoBackgroundPlayback by remember { PlaybackSettingsManager.getVideoBackgroundPlayback(context) }.collectAsStateWithLifecycle(initialValue = true)
+    val videoPictureInPicture by remember { PlaybackSettingsManager.getVideoPictureInPicture(context) }.collectAsStateWithLifecycle(initialValue = false)
 
     BookPlayerTabScaffold(
         title = stringResource(R.string.player_controls_title),
@@ -82,6 +84,8 @@ fun PlayerControlsSettingsScreen(
                 listButtonOpens = listButtonOpens,
                 useRemainingTime = useRemainingTime,
                 useChapterContext = useChapterContext,
+                videoBackgroundPlayback = videoBackgroundPlayback,
+                videoPictureInPicture = videoPictureInPicture,
                 onUpdateRewindInterval = { scope.launch { PlaybackSettingsManager.setRewindInterval(context, it) } },
                 onUpdateForwardInterval = { scope.launch { PlaybackSettingsManager.setForwardInterval(context, it) } },
                 onUpdateSmartRewind = { scope.launch { PlaybackSettingsManager.setSmartRewind(context, it) } },
@@ -95,7 +99,9 @@ fun PlayerControlsSettingsScreen(
                 onUpdateProgressBarSeeking = { scope.launch { PlaybackSettingsManager.setProgressBarSeeking(context, it) } },
                 onUpdateListButtonOpens = { scope.launch { PlaybackSettingsManager.setListButtonOpens(context, it) } },
                 onUpdateUseRemainingTime = { scope.launch { PlaybackSettingsManager.setUseRemainingTime(context, it) } },
-                onUpdateUseChapterContext = { scope.launch { PlaybackSettingsManager.setUseChapterContext(context, it) } }
+                onUpdateUseChapterContext = { scope.launch { PlaybackSettingsManager.setUseChapterContext(context, it) } },
+                onUpdateVideoBackgroundPlayback = { scope.launch { PlaybackSettingsManager.setVideoBackgroundPlayback(context, it) } },
+                onUpdateVideoPictureInPicture = { scope.launch { PlaybackSettingsManager.setVideoPictureInPicture(context, it) } }
             )
         }
     }
