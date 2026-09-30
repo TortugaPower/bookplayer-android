@@ -86,6 +86,14 @@ object BookmarkSync {
             Log.w(TAG, "Bookmark pull failed for ${item.title}", e)
             return false
         } ?: return false
+        // Re-check after the request: the list sheet starts this pull the moment it opens, so a delete
+        // or note edit made while the response was in flight is now a queued task, and the response is
+        // stale against it — merging would re-insert the deleted row (with no task, so it never syncs
+        // again) or overwrite the new note with the old one.
+        if (syncTaskRepository.countActiveTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0) {
+            Log.d(TAG, "⏭️ Dropping bookmark pull for ${item.title}: a sync task was queued mid-request")
+            return false
+        }
         // The book may have been deleted while the request was in flight (bookmarks FK-cascade on it).
         if (repository.getItemById(item.uuid) == null) return false
         val local = repository.getBookmarksForBook(item.uuid).first()
