@@ -4,6 +4,7 @@ import android.content.Context
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.logic.BookmarkSync
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -250,6 +251,19 @@ class SyncingLibraryRepository(
                 SyncTaskFactory.createSetBookmarkTask(syncTaskRepository, bookmark, item.title, path)
             }
         }
+    }
+
+    override suspend fun syncBookmarksFromCloud(item: LibraryItemEntity): Boolean {
+        if (!isSubscribed()) return false
+        // Merge through the plain delegate so server rows don't get echoed back as set_bookmark tasks.
+        return BookmarkSync.pull(delegate, syncTaskRepository, item)
+    }
+
+    override suspend fun updateItemSpeed(uuid: String, speed: Double) {
+        delegate.updateItemSpeed(uuid, speed)
+        if (!isSubscribed()) return
+        // Update tasks push a full snapshot (merged per uuid), so the fresh row carries the new speed.
+        delegate.getItemById(uuid)?.let { SyncTaskFactory.createUpdateTask(syncTaskRepository, it) }
     }
 
     override suspend fun deleteBookmark(bookmark: BookmarkEntity) {

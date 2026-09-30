@@ -85,6 +85,21 @@ object PlaybackSettingsManager {
         context.dataStore.edit { it[AUTO_SLEEP_TIMER] = enabled }
     }
 
+    // The sleep timer the user last SET (iOS parity: `lastEnabledTimer`), in the deep-link/watch
+    // encoding — -1 off, -2 end of chapter, >0 countdown seconds. Written by SleepTimerManager on
+    // every user-initiated set/off (never on a natural expiry), read back by the Auto Sleep Timer
+    // setting to re-arm it on the next play.
+    private val LAST_ENABLED_SLEEP_TIMER = intPreferencesKey("last_enabled_sleep_timer")
+
+    fun getLastEnabledSleepTimer(context: Context): Flow<Int> =
+        context.dataStore.data.map { it[LAST_ENABLED_SLEEP_TIMER] ?: SLEEP_TIMER_OFF }
+    suspend fun setLastEnabledSleepTimer(context: Context, seconds: Int) {
+        context.dataStore.edit { it[LAST_ENABLED_SLEEP_TIMER] = seconds }
+    }
+
+    const val SLEEP_TIMER_OFF = -1
+    const val SLEEP_TIMER_END_OF_CHAPTER = -2
+
     fun getQuickAction1(context: Context): Flow<Float> = context.dataStore.data.map { it[QUICK_ACTION_1] ?: 1.0f }
     suspend fun setQuickAction1(context: Context, speed: Float) {
         context.dataStore.edit { it[QUICK_ACTION_1] = speed }
