@@ -74,3 +74,19 @@ data class ItemConflict(
     @SerializedName("key") val key: String, // Maps to the local sent "uuid" (our key in the map)
     @SerializedName("uuid") val uuid: String // Maps to the authoritative server uuid
 )
+
+/**
+ * `GET /v1/library/bookmarks` (iOS `BookmarksResponse`): the server wraps the rows in a `bookmarks`
+ * object, it is NOT a bare array. Each row is `{title, key, note, time, active}` — `time` is the whole
+ * seconds the client uploaded (set_bookmark rounds), `key` the item's relativePath.
+ */
+data class BookmarksResponse(
+    @SerializedName("bookmarks") val bookmarks: List<SyncableBookmark>
+)
+
+data class SyncableBookmark(
+    @SerializedName("key") val key: String?,
+    @SerializedName("time") val time: Double,
+    @SerializedName("note") val note: String?,
+    @SerializedName("uuid") val uuid: String?
+)

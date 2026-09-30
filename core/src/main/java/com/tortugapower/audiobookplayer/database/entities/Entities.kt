@@ -28,7 +28,10 @@ data class LibraryItemEntity(
     var isFinished: Boolean = false,
     var lastPlayDate: Long? = null,
     var parentFolderUuid: String? = null,
-    var type: ItemType
+    var type: ItemType,
+    // Per-book playback speed (iOS parity: `LibraryItem.speed`, synced as `speed`). Used when the
+    // Global Speed Control setting is OFF; null = never set on this book → the last global speed applies.
+    var speed: Double? = null
 ) {
     @Ignore
     var externalResources: List<ExternalResourceEntity> = emptyList()

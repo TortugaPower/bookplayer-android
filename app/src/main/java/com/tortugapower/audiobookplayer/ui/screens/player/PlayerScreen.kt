@@ -305,7 +305,11 @@ fun PlayerScreen(
         AddNoteDialog(
             initialNote = viewModel.currentBookmark?.note ?: "",
             onConfirm = { viewModel.updateBookmarkNote(it) },
-            onDismiss = { viewModel.showAddNoteDialog = false }
+            onDismiss = { viewModel.dismissNoteDialog() },
+            title = stringResource(
+                if (viewModel.isEditingBookmarkNote) R.string.player_bookmark_edit_note
+                else R.string.player_add_note_title
+            )
         )
     }
 

@@ -138,4 +138,18 @@ class SyncTaskFactoryTest {
         SyncTaskFactory.createUploadMetadataTask(repo, item(lastPlayDateMs = null))
         assertEquals(50.0, (payloadOf(repo.saved!!)["percentCompleted"] as Number).toDouble(), 1e-9)
     }
+
+    @Test fun updateTask_carriesTheBookSpeed_whenSet() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null).apply { speed = 1.5 })
+        // Per-book speed (Global Speed Control off) rides the metadata update, as on iOS.
+        assertEquals(1.5, payloadOf(repo.saved!!)["speed"])
+    }
+
+    @Test fun updateTask_omitsSpeed_whenNeverSet() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null))
+        // A never-set speed must not push a 0/null that clears a speed set from another device.
+        assertTrue("speed" !in payloadOf(repo.saved!!))
+    }
 }
