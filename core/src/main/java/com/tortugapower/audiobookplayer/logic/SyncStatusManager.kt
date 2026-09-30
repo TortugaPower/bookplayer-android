@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.logic
 
+import androidx.annotation.VisibleForTesting
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,9 +28,12 @@ object SyncStatusManager {
     internal const val FETCH_THROTTLE_MS = 60_000L
 
     // Test seam for the fetch throttles (same idea as StorageMonitor.availableBytesProvider).
+    @VisibleForTesting
+    @Volatile
     internal var clock: () -> Long = { System.currentTimeMillis() }
 
     /** Tests only: forget every fetch timestamp, so a test clock can't leave a future stamp behind. */
+    @VisibleForTesting
     internal fun resetFetchThrottles() {
         _lastPathFetchTimestamps.value = emptyMap()
         synchronized(this) { lastFetchPreferencesTimestamp = 0L }
