@@ -105,4 +105,50 @@ class ExternalUpdateProcessorTest {
         val body = server.takeRequest().body.readUtf8()
         assertFalse(body, body.contains("LastPlayedDate"))
     }
+
+    // MARK: - AudiobookShelf
+
+    private fun absTask(lastPlayDate: String = ""","lastPlayDate":1790694307123""") = SyncTaskEntity(
+        id = "row-2", taskID = "book-2_abs-9", queueKey = "audiobookshelf",
+        jobType = SyncTaskFactory.JOB_EXTERNAL_UPDATE, position = 0,
+        payload = """{"uuid":"book-2","providerName":"audiobookshelf","providerId":"abs-9","hostId":"abs-guid","currentTime":30.0,"percentCompleted":0.1,"isFinished":false$lastPlayDate}""",
+    )
+
+    private suspend fun insertAbsServer() {
+        serverRepository().saveServer(
+            ExternalServerEntity(
+                id = 2, name = "abs", type = ExternalServiceType.AUDIOBOOKSHELF, url = server.url("/").toString(),
+                token = "abs-tok", stableId = "abs-guid",
+            ),
+        )
+    }
+
+    // Without lastUpdate ABS stamps the moment the push lands, so every position looked newer than the
+    // play that produced it; ABS keeps a client lastUpdate when it updates an existing entry.
+    @Test fun `audiobookshelf progress push carries the save's play date as lastUpdate`() = runBlocking {
+        insertAbsServer()
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        assertTrue(ExternalUpdateProcessor(context, serverRepository()).process(absTask()))
+
+        val push = server.takeRequest()
+        assertEquals("PATCH", push.method)
+        assertEquals("/api/me/progress/abs-9", push.path)
+        assertEquals("Bearer abs-tok", push.getHeader("Authorization"))
+        val body = push.body.readUtf8()
+        assertTrue(body, body.contains("\"lastUpdate\":1790694307123"))
+        assertTrue(body, body.contains("\"currentTime\":30.0"))
+    }
+
+    // A task queued before the date was recorded leaves lastUpdate out (ABS then stamps its own time),
+    // never a zero or invented value.
+    @Test fun `an audiobookshelf task without a play date leaves lastUpdate out of the body`() = runBlocking {
+        insertAbsServer()
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        assertTrue(ExternalUpdateProcessor(context, serverRepository()).process(absTask(lastPlayDate = "")))
+
+        val body = server.takeRequest().body.readUtf8()
+        assertFalse(body, body.contains("lastUpdate"))
+    }
 }
