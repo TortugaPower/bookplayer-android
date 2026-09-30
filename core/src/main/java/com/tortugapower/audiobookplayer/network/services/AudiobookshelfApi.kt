@@ -75,7 +75,11 @@ data class AudiobookshelfAuthFormData(
 data class AudiobookshelfProgressRequest(
     @SerializedName("progress") val progress: Double,
     @SerializedName("currentTime") val currentTime: Double,
-    @SerializedName("isFinished") val isFinished: Boolean
+    @SerializedName("isFinished") val isFinished: Boolean,
+    // When this position was reached (epoch ms), so ABS records our play time rather than the moment
+    // the push landed. ABS honors it when updating an existing entry; the first write for a book still
+    // takes the server's clock. Null is left out of the body (Gson skips nulls).
+    @SerializedName("lastUpdate") val lastUpdate: Long? = null
 )
 
 data class AudiobookshelfLoginRequest(

@@ -1081,7 +1081,8 @@ class ExternalUpdateProcessor(
         val currentTime = (payload["currentTime"] as? Double) ?: 0.0
         val percentCompleted = (payload["percentCompleted"] as? Double) ?: 0.0
         val isFinished = (payload["isFinished"] as? Boolean) ?: false
-        // Absent on tasks queued before the date was sent; the push then leaves the server's date alone.
+        // Absent on tasks queued before the date was sent; the push then omits it (Jellyfin keeps its own
+        // date, ABS stamps the time the push lands).
         val lastPlayDate = (payload["lastPlayDate"] as? Double)?.toLong()
 
         // Resolve through THE shared resolver (stable-id contract + decrypted credentials): the
@@ -1136,7 +1137,8 @@ class ExternalUpdateProcessor(
                     val requestBody = com.tortugapower.audiobookplayer.network.services.AudiobookshelfProgressRequest(
                         progress = percentCompleted,
                         currentTime = currentTime,
-                        isFinished = isFinished
+                        isFinished = isFinished,
+                        lastUpdate = lastPlayDate
                     )
 
                     val api = buildApiClient(sanitizedUrl, customHeaders)
