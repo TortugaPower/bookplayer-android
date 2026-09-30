@@ -12,7 +12,9 @@ import kotlinx.coroutines.flow.first
 class SyncingLibraryRepository(
     private val delegate: LibraryRepository,
     private val syncTaskRepository: SyncTaskRepository,
-    private val accountRepository: AccountRepository
+    private val accountRepository: AccountRepository,
+    // The bookmark-pull server call, injectable so the merge and its guards are testable offline.
+    private val bookmarkFetcher: BookmarkSync.Fetcher = BookmarkSync.networkFetcher
 ) : LibraryRepository by delegate {
 
     private suspend fun isSubscribed(): Boolean {
@@ -256,7 +258,7 @@ class SyncingLibraryRepository(
     override suspend fun syncBookmarksFromCloud(item: LibraryItemEntity): Boolean {
         if (!isSubscribed()) return false
         // Merge through the plain delegate so server rows don't get echoed back as set_bookmark tasks.
-        return BookmarkSync.pull(delegate, syncTaskRepository, item)
+        return BookmarkSync.pull(delegate, syncTaskRepository, item, bookmarkFetcher)
     }
 
     override suspend fun updateItemSpeed(uuid: String, speed: Double) {

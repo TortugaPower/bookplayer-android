@@ -8,6 +8,7 @@ import com.tortugapower.audiobookplayer.model.SyncableBookmark
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
 /**
@@ -21,12 +22,23 @@ import kotlinx.coroutines.flow.first
  *  - A server row matches a local USER bookmark on whole seconds: set_bookmark uploads `round(time)`
  *    and the server stores integers, while local times keep their fraction.
  *  - On a match the server note wins (it is the last pushed value); a blank server note means "no
- *    note". Otherwise the row is inserted as a USER bookmark. Nothing local is ever deleted.
+ *    note". Otherwise the row is inserted as a USER bookmark. Nothing local is ever deleted, and a
+ *    row the server marks inactive (a soft-deleted bookmark) is never inserted.
  */
 object BookmarkSync {
     private const val TAG = "BookmarkSync"
 
     data class Plan(val toInsert: List<BookmarkEntity>, val toUpdate: List<BookmarkEntity>)
+
+    /** The server call, as a seam: tests pass rows in; production goes through [NetworkClient]. Null = failed. */
+    fun interface Fetcher {
+        suspend fun fetch(relativePath: String, uuid: String): List<SyncableBookmark>?
+    }
+
+    val networkFetcher = Fetcher { relativePath, uuid ->
+        val response = NetworkClient.libraryApi.getBookmarks(relativePath, uuid)
+        response.takeIf { it.isSuccessful }?.body()?.bookmarks
+    }
 
     /** Pure merge decision over the local rows and the server rows. */
     fun plan(bookUuid: String, local: List<BookmarkEntity>, remote: List<SyncableBookmark>): Plan {
@@ -35,6 +47,9 @@ object BookmarkSync {
         val toUpdate = mutableListOf<BookmarkEntity>()
         val seenSeconds = mutableSetOf<Long>()
         for (row in remote) {
+            // A soft-deleted row (delete_bookmark sends active=false). The server filters these out
+            // already; skipping them here guarantees a bookmark deleted locally can't come back.
+            if (row.active == false) continue
             val seconds = Math.round(row.time)
             if (!seenSeconds.add(seconds)) continue // duplicate server row for the same second
             val note = row.note?.takeIf { it.isNotBlank() }
@@ -52,19 +67,25 @@ object BookmarkSync {
      * Fetch + merge for [item] through the PLAIN [repository] (not the syncing decorator, so merged rows
      * don't enqueue set_bookmark echoes). Returns true when the server was consulted and merged.
      */
-    suspend fun pull(repository: LibraryRepository, syncTaskRepository: SyncTaskRepository, item: LibraryItemEntity): Boolean {
+    suspend fun pull(
+        repository: LibraryRepository,
+        syncTaskRepository: SyncTaskRepository,
+        item: LibraryItemEntity,
+        fetcher: Fetcher = networkFetcher,
+    ): Boolean {
         val path = item.relativePath ?: return false
         if (syncTaskRepository.countActiveTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0) {
             Log.d(TAG, "⏭️ Skipping bookmark pull for ${item.title}: sync queue not empty")
             return false
         }
-        val response = try {
-            NetworkClient.libraryApi.getBookmarks(path, item.uuid)
+        val remote = try {
+            fetcher.fetch(path, item.uuid)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Bookmark pull failed for ${item.title}", e)
             return false
-        }
-        val remote = response.takeIf { it.isSuccessful }?.body()?.bookmarks ?: return false
+        } ?: return false
         // The book may have been deleted while the request was in flight (bookmarks FK-cascade on it).
         if (repository.getItemById(item.uuid) == null) return false
         val local = repository.getBookmarksForBook(item.uuid).first()

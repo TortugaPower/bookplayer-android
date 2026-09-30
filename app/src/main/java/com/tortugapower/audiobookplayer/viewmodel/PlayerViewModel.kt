@@ -294,6 +294,8 @@ class PlayerViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.syncBookmarksFromCloud(item)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e // the scope is going away; never swallow a cancellation
             } catch (e: Exception) {
                 android.util.Log.w("PlayerViewModel", "Bookmark refresh failed", e)
             }
