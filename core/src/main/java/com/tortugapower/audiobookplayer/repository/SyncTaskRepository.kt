@@ -2,6 +2,8 @@ package com.tortugapower.audiobookplayer.repository
 
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.logic.CodedFailure
+import com.tortugapower.audiobookplayer.logic.TaskPauseScope
 import kotlinx.coroutines.flow.Flow
 
 interface SyncTaskRepository {
@@ -24,6 +26,46 @@ interface SyncTaskRepository {
     /** Returns a task to pending after a failed run, changing only its status and error */
     suspend fun markTaskPending(id: String, errorMessage: String?) {
         getTaskById(id)?.let { updateTask(it.copy(status = SyncTaskStatus.PENDING, errorMessage = errorMessage)) }
+    }
+
+    // Parking (TaskPause, SyncTaskPicker). Room overrides these with targeted updates; the default
+    // bodies keep the simple test fakes working.
+
+    /** The lane's pending and parked tasks, in queue order */
+    suspend fun getQueueCandidates(queueKey: String): List<SyncTaskEntity> =
+        getTasksInQueueByStatus(queueKey, SyncTaskStatus.PENDING)
+
+    suspend fun hasAccountPause(): Boolean = false
+
+    /** Parks the task. False when the task is gone (removed meanwhile). */
+    suspend fun parkTask(id: String, scope: TaskPauseScope, failure: CodedFailure, pausedAt: Long): Boolean {
+        val task = getTaskById(id) ?: return false
+        updateTask(
+            task.copy(
+                status = SyncTaskStatus.FAILED, pauseScope = scope.name, errorCode = failure.code,
+                errorMessage = failure.message, httpStatus = failure.httpStatus, pausedAt = pausedAt,
+            )
+        )
+        return true
+    }
+
+    /** Returns a parked task to pending. Resuming one account pause resumes them all. */
+    suspend fun resumeTask(id: String) {
+        getTaskById(id)?.let {
+            updateTask(
+                it.copy(
+                    status = SyncTaskStatus.PENDING, pauseScope = null, errorCode = null,
+                    errorMessage = null, httpStatus = null, pausedAt = null,
+                )
+            )
+        }
+    }
+
+    /** Every parked task back to pending: the one automatic retry, at launch */
+    suspend fun resumeAllPaused() {}
+
+    suspend fun setSentryEventId(id: String, eventId: String) {
+        getTaskById(id)?.let { updateTask(it.copy(sentryEventId = eventId)) }
     }
     suspend fun deleteTask(task: SyncTaskEntity)
     suspend fun clearCompletedTasks()

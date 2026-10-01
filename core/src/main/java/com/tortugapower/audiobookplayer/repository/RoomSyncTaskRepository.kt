@@ -1,6 +1,8 @@
 package com.tortugapower.audiobookplayer.repository
 
 import com.tortugapower.audiobookplayer.database.dao.SyncTaskDao
+import com.tortugapower.audiobookplayer.logic.CodedFailure
+import com.tortugapower.audiobookplayer.logic.TaskPauseScope
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +48,31 @@ class RoomSyncTaskRepository(
 
     override suspend fun markTaskPending(id: String, errorMessage: String?) = withContext(Dispatchers.IO) {
         syncTaskDao.markTaskPending(id, errorMessage)
+    }
+
+    override suspend fun getQueueCandidates(queueKey: String): List<SyncTaskEntity> = withContext(Dispatchers.IO) {
+        syncTaskDao.getQueueCandidates(queueKey)
+    }
+
+    override suspend fun hasAccountPause(): Boolean = withContext(Dispatchers.IO) {
+        syncTaskDao.hasAccountPause()
+    }
+
+    override suspend fun parkTask(id: String, scope: TaskPauseScope, failure: CodedFailure, pausedAt: Long): Boolean =
+        withContext(Dispatchers.IO) {
+            syncTaskDao.parkTask(id, scope.name, failure.code, failure.message, failure.httpStatus, pausedAt) > 0
+        }
+
+    override suspend fun resumeTask(id: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.resumeTask(id)
+    }
+
+    override suspend fun resumeAllPaused() = withContext(Dispatchers.IO) {
+        syncTaskDao.resumeAllPaused()
+    }
+
+    override suspend fun setSentryEventId(id: String, eventId: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.setSentryEventId(id, eventId)
     }
 
     override suspend fun deleteTask(task: SyncTaskEntity) = withContext(Dispatchers.IO) {

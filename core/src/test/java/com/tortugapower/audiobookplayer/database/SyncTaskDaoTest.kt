@@ -111,4 +111,63 @@ class SyncTaskDaoTest {
         assertEquals("new-uuid", stored.taskID)
         assertEquals("""{"uuid":"new-uuid"}""", stored.payload)
     }
+
+    @Test fun parkTask_setsThePause_andThePendingReadsSkipIt() = runBlocking {
+        dao.insertAtEnd(task("a", "item-a"))
+        dao.insertAtEnd(task("b", "item-b"))
+        dao.insertAtEnd(task("c", "item-c"))
+        dao.markTaskRunning("c")
+
+        assertEquals(1, dao.parkTask("b", "LANE", "item_not_found", "Item not found", 404, 5L))
+
+        val parked = dao.getTaskById("b")!!
+        assertEquals(SyncTaskStatus.FAILED, parked.status)
+        assertEquals("LANE", parked.pauseScope)
+        assertEquals("item_not_found", parked.errorCode)
+        assertEquals("Item not found", parked.errorMessage)
+        assertEquals(404, parked.httpStatus)
+        assertEquals(5L, parked.pausedAt)
+        assertEquals(listOf("a"), pendingIds())
+        assertEquals("the running task isn't a candidate", listOf("a", "b"), dao.getQueueCandidates("sync").map { it.id })
+        assertEquals(0, dao.parkTask("gone", "TASK", "item_not_found", "m", 404, 5L))
+    }
+
+    @Test fun resumeTask_clearsThePause_butKeepsTheSentryEvent() = runBlocking {
+        dao.insertAtEnd(task("a", "item-a"))
+        dao.parkTask("a", "TASK", "invalid_request", "Bad", 422, 5L)
+        dao.setSentryEventId("a", "evt-1")
+
+        dao.resumeTask("a")
+
+        val resumed = dao.getTaskById("a")!!
+        assertEquals(SyncTaskStatus.PENDING, resumed.status)
+        assertEquals(listOf(null, null, null, null, null), listOf(resumed.pauseScope, resumed.errorCode, resumed.errorMessage, resumed.httpStatus, resumed.pausedAt))
+        assertEquals("evt-1", resumed.sentryEventId)
+    }
+
+    /** Account pauses share one cause: resuming one resumes them all, and nothing else */
+    @Test fun resumeTask_onAnAccountPause_resumesEveryAccountPause() = runBlocking {
+        listOf("a", "b", "c").forEach { dao.insertAtEnd(task(it, "item-$it")) }
+        dao.parkTask("a", "ACCOUNT", "not_subscribed", "m", 400, 5L)
+        dao.parkTask("b", "ACCOUNT", "not_subscribed", "m", 400, 5L)
+        dao.parkTask("c", "TASK", "invalid_request", "m", 422, 5L)
+        assertEquals(true, dao.hasAccountPause())
+
+        dao.resumeTask("a")
+
+        assertEquals(false, dao.hasAccountPause())
+        assertEquals(listOf("a", "b"), pendingIds())
+        assertEquals("TASK", dao.getTaskById("c")!!.pauseScope)
+    }
+
+    @Test fun resumeAllPaused_returnsEveryParkedTaskToPending() = runBlocking {
+        listOf("a", "b").forEach { dao.insertAtEnd(task(it, "item-$it")) }
+        dao.parkTask("a", "LANE", "item_not_found", "m", 404, 5L)
+        dao.parkTask("b", "TASK", "invalid_request", "m", 422, 5L)
+
+        dao.resumeAllPaused()
+
+        assertEquals(listOf("a", "b"), pendingIds())
+        assertEquals(listOf(null, null), listOf("a", "b").map { dao.getTaskById(it)!!.pauseScope })
+    }
 }
