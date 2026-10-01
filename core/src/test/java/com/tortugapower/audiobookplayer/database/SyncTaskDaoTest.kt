@@ -170,4 +170,17 @@ class SyncTaskDaoTest {
         assertEquals(listOf("a", "b"), pendingIds())
         assertEquals(listOf(null, null), listOf("a", "b").map { dao.getTaskById(it)!!.pauseScope })
     }
+
+    /** A merge rewrites a queued task's payload only while it's pending */
+    @Test fun updatePendingPayload_skipsATaskThatStartedOrParked() = runBlocking {
+        listOf("p", "r", "f").forEach { dao.insertAtEnd(task(it, "item-$it")) }
+        dao.markTaskRunning("r")
+        dao.parkTask("f", "TASK", "invalid_request", "m", 422, 5L)
+
+        assertEquals(1, dao.updatePendingPayload("p", """{"v":2}"""))
+        assertEquals(0, dao.updatePendingPayload("r", """{"v":2}"""))
+        assertEquals(0, dao.updatePendingPayload("f", """{"v":2}"""))
+        assertEquals("""{"v":2}""", dao.getTaskById("p")!!.payload)
+        assertEquals("{}", dao.getTaskById("r")!!.payload)
+    }
 }

@@ -155,6 +155,11 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             TaskConcurrencyServiceHost.start(this)
         }
         appScope.launch(Dispatchers.IO) {
+            // The one automatic retry of parked tasks, each launch. Before the gate counts the queue: a
+            // queue holding only parked tasks has nothing pending until they're resumed. Not while
+            // storage is critical: the gate avoids opening the database then, and the engine would hold
+            // the work anyway (the next launch retries).
+            if (!StorageMonitor.isCritical) syncTaskRepository.resumeAllPaused()
             if (SyncHostLaunchGate.shouldStart(StorageMonitor.isCritical, syncTaskRepository::countActiveTasks)) {
                 TaskConcurrencyServiceHost.start(this@BookPlayerApplication)
             }

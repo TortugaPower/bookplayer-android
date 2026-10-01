@@ -129,7 +129,7 @@ class WearSyncServiceHost : Service() {
             PreferenceFetchProcessor(this, repository),
         )
 
-        taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)
+        taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors, parkingEnabled = false)
         taskConcurrencyManager.startProcessing()
 
         connectivityManager = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager

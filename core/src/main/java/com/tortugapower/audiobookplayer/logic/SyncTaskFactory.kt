@@ -119,10 +119,8 @@ object SyncTaskFactory {
         )
 
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_UPDATE, item.uuid)
-        if (existingTask != null) {
-            val updatedTask = existingTask.copy(payload = gson.toJson(payload))
+        if (existingTask != null && repository.updatePendingTaskPayload(existingTask, gson.toJson(payload))) {
             android.util.Log.d("SyncTaskFactory", "🔄 Merging update task for item: ${item.uuid}")
-            repository.updateTask(updatedTask)
         } else {
             enqueue(repository, QUEUE_SYNC, JOB_UPDATE, item.uuid, payload)
         }
@@ -177,10 +175,10 @@ object SyncTaskFactory {
             // Check if it's the same bookmark ID by looking at the existing payload
             val existingPayloadType = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
             val existingPayload: Map<String, Any?> = gson.fromJson(existingTask.payload, existingPayloadType)
-            if (existingPayload["bookmarkId"] == bookmark.id.toString()) {
-                val updatedTask = existingTask.copy(payload = gson.toJson(payload))
+            if (existingPayload["bookmarkId"] == bookmark.id.toString() &&
+                repository.updatePendingTaskPayload(existingTask, gson.toJson(payload))
+            ) {
                 android.util.Log.d("SyncTaskFactory", "🔄 Merging set_bookmark task for bookmark: ${bookmark.id}")
-                repository.updateTask(updatedTask)
                 return
             }
         }
@@ -387,10 +385,8 @@ object SyncTaskFactory {
             "lastPlayDate" to lastPlayDate
         )
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_EXTERNAL_UPDATE, taskId)
-        if (existingTask != null) {
-            val updatedTask = existingTask.copy(payload = gson.toJson(payload))
+        if (existingTask != null && repository.updatePendingTaskPayload(existingTask, gson.toJson(payload))) {
             android.util.Log.d("SyncTaskFactory", "🔄 Merging external update task for $taskId in queue $queueKey")
-            repository.updateTask(updatedTask)
         } else {
             enqueue(repository, queueKey, JOB_EXTERNAL_UPDATE, taskId, payload)
         }
@@ -404,9 +400,7 @@ object SyncTaskFactory {
     suspend fun createUploadPreferenceTask(repository: SyncTaskRepository, key: String, value: String) {
         val payload = mapOf("key" to key, "value" to value)
         val existing = repository.getPendingTaskByTypeAndTaskId(JOB_UPLOAD_PREFERENCE, key)
-        if (existing != null) {
-            repository.updateTask(existing.copy(payload = gson.toJson(payload)))
-        } else {
+        if (existing == null || !repository.updatePendingTaskPayload(existing, gson.toJson(payload))) {
             enqueue(repository, QUEUE_PREFERENCES, JOB_UPLOAD_PREFERENCE, key, payload)
         }
     }

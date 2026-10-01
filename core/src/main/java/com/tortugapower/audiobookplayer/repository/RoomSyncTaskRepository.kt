@@ -50,6 +50,11 @@ class RoomSyncTaskRepository(
         syncTaskDao.markTaskPending(id, errorMessage)
     }
 
+    override suspend fun updatePendingTaskPayload(task: SyncTaskEntity, payload: String): Boolean =
+        withContext(Dispatchers.IO) {
+            syncTaskDao.updatePendingPayload(task.id, payload) > 0
+        }
+
     override suspend fun getQueueCandidates(queueKey: String): List<SyncTaskEntity> = withContext(Dispatchers.IO) {
         syncTaskDao.getQueueCandidates(queueKey)
     }

@@ -76,4 +76,36 @@ class SyncTaskPickerTest {
         assertEquals(TaskPause(TaskPauseScope.LANE, "item_not_found", "Item not found", 404, 5L, "evt"), task.pause)
         assertNull(pending("b").pause)
     }
+
+    private fun inLane(task: SyncTaskEntity, lane: String) = task.copy(queueKey = lane)
+
+    /** A worker started for a blocked lane would pick nothing, and its start keeps the sync service awake */
+    @Test fun lanesWithWork_skipsALaneBlockedBehindAPark() {
+        val tasks = listOf(
+            inLane(parked("m", "LANE"), SyncTaskFactory.QUEUE_SYNC),
+            inLane(pending("u", SyncTaskFactory.JOB_UPDATE), SyncTaskFactory.QUEUE_SYNC),
+            inLane(pending("d", SyncTaskFactory.JOB_DOWNLOAD_FILE), SyncTaskFactory.QUEUE_FILE),
+        )
+        assertEquals(listOf(SyncTaskFactory.QUEUE_FILE), SyncTaskPicker.lanesWithWork(tasks))
+    }
+
+    @Test fun lanesWithWork_underAnAccountPause_keepsOnlyLanesWithNonServerWork() {
+        val tasks = listOf(
+            inLane(parked("a", "ACCOUNT"), SyncTaskFactory.QUEUE_SYNC),
+            inLane(pending("s"), SyncTaskFactory.QUEUE_SYNC),
+            inLane(pending("up", SyncTaskFactory.JOB_UPLOAD_FILE), SyncTaskFactory.QUEUE_FILE),
+            inLane(pending("dl", SyncTaskFactory.JOB_DOWNLOAD_FILE), SyncTaskFactory.QUEUE_FILE),
+            inLane(pending("p", SyncTaskFactory.JOB_EXTERNAL_UPDATE), "jellyfin"),
+            inLane(pending("pref", SyncTaskFactory.JOB_UPLOAD_PREFERENCE), SyncTaskFactory.QUEUE_PREFERENCES),
+        )
+        assertEquals(listOf(SyncTaskFactory.QUEUE_FILE, "jellyfin"), SyncTaskPicker.lanesWithWork(tasks))
+    }
+
+    @Test fun lanesWithWork_ignoresLanesWithOnlyParkedOrRunningTasks() {
+        val tasks = listOf(
+            inLane(parked("t", "TASK", SyncTaskFactory.JOB_UPDATE), SyncTaskFactory.QUEUE_SYNC),
+            inLane(pending("r").copy(status = SyncTaskStatus.RUNNING), SyncTaskFactory.QUEUE_FILE),
+        )
+        assertEquals(emptyList<String>(), SyncTaskPicker.lanesWithWork(tasks))
+    }
 }

@@ -43,6 +43,21 @@ object SyncTaskPicker {
         SyncTaskFactory.QUEUE_PIPE,
     )
 
+    /**
+     * The lanes with something to run, from every queued task in queue order: a worker started for a
+     * blocked lane would pick nothing and retire, and its brief start keeps the sync service from
+     * stopping when idle (playback merges progress into the sync lane every few seconds).
+     */
+    fun lanesWithWork(tasks: List<SyncTaskEntity>): List<String> {
+        val accountHeld = tasks.any { it.pauseScope == TaskPauseScope.ACCOUNT.name }
+        return tasks.filter { it.status == SyncTaskStatus.PENDING }.map { it.queueKey }.distinct().filter { lane ->
+            val candidates = tasks.filter {
+                it.queueKey == lane && (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.FAILED)
+            }
+            runnable(lane, candidates, accountHeld).isNotEmpty()
+        }
+    }
+
     fun runnable(lane: String, candidates: List<SyncTaskEntity>, accountHeld: Boolean): List<SyncTaskEntity> {
         if (accountHeld && lane in serverLanes) return emptyList()
         val runnable = mutableListOf<SyncTaskEntity>()

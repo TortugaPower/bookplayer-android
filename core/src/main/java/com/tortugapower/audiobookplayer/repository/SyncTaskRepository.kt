@@ -28,6 +28,15 @@ interface SyncTaskRepository {
         getTaskById(id)?.let { updateTask(it.copy(status = SyncTaskStatus.PENDING, errorMessage = errorMessage)) }
     }
 
+    /**
+     * Merges into a queued task by rewriting only its payload, while it's still pending. False once it
+     * has started or parked: queue a new task then, so the change still goes out.
+     */
+    suspend fun updatePendingTaskPayload(task: SyncTaskEntity, payload: String): Boolean {
+        updateTask(task.copy(payload = payload))
+        return true
+    }
+
     // Parking (TaskPause, SyncTaskPicker). Room overrides these with targeted updates; the default
     // bodies keep the simple test fakes working.
 

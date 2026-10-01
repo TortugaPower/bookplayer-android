@@ -16,7 +16,10 @@ class TaskConcurrencyManager(
     private val repository: SyncTaskRepository,
     private val accountRepository: com.tortugapower.audiobookplayer.repository.AccountRepository,
     private val processors: List<TaskProcessor>,
-    private var maxQueues: Int = 3
+    private var maxQueues: Int = 3,
+    // Off on the watch: it has no Queued Tasks screen to show or retry a parked task, so a coded
+    // failure there drops the task instead (SyncFailurePolicy)
+    private val parkingEnabled: Boolean = true,
 ) : TaskConcurrencyService {
 
     // A full disk turns the engine's own bookkeeping writes into SQLiteFullException; those are
@@ -63,14 +66,11 @@ class TaskConcurrencyManager(
             
             Log.d(TAG, "📡 Starting queue worker manager...")
             
-            // Watch for all pending tasks to know which queues need workers
+            // Watch the queue to know which lanes need workers: only lanes with something runnable
+            // (getAllTasks is in queue order)
             repository.getAllTasks().collect { tasks ->
                 if (!isProcessing) return@collect
-                
-                val pendingTasks = tasks.filter { it.status == SyncTaskStatus.PENDING }
-                val activeQueueKeys = pendingTasks.map { it.queueKey }.distinct()
-                
-                for (queueKey in activeQueueKeys) {
+                for (queueKey in SyncTaskPicker.lanesWithWork(tasks)) {
                     startQueueWorkerIfAbsent(queueKey)
                 }
             }
@@ -92,7 +92,13 @@ class TaskConcurrencyManager(
                         // Re-fetch the next runnable pending task for this queue. File uploads are
                         // SKIPPED (not the whole queue) while held on cellular, so a user-triggered
                         // download sharing this queue still runs; the skipped uploads wait for Wi-Fi.
-                        val pending = repository.getTasksInQueueByStatus(queueKey, SyncTaskStatus.PENDING)
+                        // What the lane may run, in order: parked tasks are skipped or stop the lane, and an
+                        // account pause holds the BookPlayer-server work (read per pick: any lane can park one)
+                        val pending = SyncTaskPicker.runnable(
+                            queueKey,
+                            repository.getQueueCandidates(queueKey),
+                            repository.hasAccountPause(),
+                        )
                         // Storage: nothing runs while the disk is critically full (every task ends in a
                         // DB write), and file downloads wait while a transfer is known not to fit. The
                         // host is restarted when storage recovers (see the app's StorageMonitor observer).
@@ -153,9 +159,7 @@ class TaskConcurrencyManager(
     fun requestWorkerScan() {
         if (!isProcessing) return
         serviceScope.launch {
-            repository.getPendingTasks()
-                .map { it.queueKey }
-                .distinct()
+            SyncTaskPicker.lanesWithWork(repository.getAllTasks().first())
                 .forEach { queueKey -> startQueueWorkerIfAbsent(queueKey) }
         }
     }
@@ -218,9 +222,45 @@ class TaskConcurrencyManager(
                 false
             }
         } catch (e: Exception) {
-            Log.e(TAG, "💥 Task threw exception: ${task.jobType}. Retrying...", e)
-            repository.markTaskPending(task.id, e.message ?: "Unknown error")
-            false
+            // A cancelled worker (the host stopping) leaves the task RUNNING for resetRunningTasks;
+            // a cancellation the processor raised itself (a timeout) is an ordinary failure
+            currentCoroutineContext().ensureActive()
+            handleFailure(task, e)
         }
+    }
+
+    /**
+     * Retries, parks or drops a task whose processor threw, per [SyncFailurePolicy]. Returns true when the
+     * worker may move straight on (the task is parked or gone), false for the usual retry delay.
+     */
+    private suspend fun handleFailure(task: SyncTaskEntity, error: Exception): Boolean {
+        val failure = SyncFailurePolicy.codedFailure(error)
+        return when (val action = SyncFailurePolicy.action(error, task.jobType, parkingEnabled)) {
+            SyncFailureAction.Retry -> {
+                Log.e(TAG, "💥 Task threw exception: ${task.jobType}. Retrying...", error)
+                repository.markTaskPending(task.id, error.message ?: "Unknown error")
+                false
+            }
+            is SyncFailureAction.Park -> {
+                park(task, action.scope, requireNotNull(failure))
+                true
+            }
+            // Every server lane holds behind it until the launch retry or the user's Retry
+            SyncFailureAction.VerifyAccount -> {
+                park(task, TaskPauseScope.ACCOUNT, requireNotNull(failure))
+                true
+            }
+            SyncFailureAction.Drop -> {
+                Log.w(TAG, "🗑️ ${task.jobType} task ${task.id} failed with ${failure?.code}; nowhere to park it. Discarding.")
+                repository.deleteTask(task)
+                true
+            }
+        }
+    }
+
+    // The code only: the API's message names files
+    private suspend fun park(task: SyncTaskEntity, scope: TaskPauseScope, failure: CodedFailure) {
+        Log.w(TAG, "⏸️ Parking ${task.jobType} task ${task.id} (${scope.name}): failed with ${failure.code}")
+        repository.parkTask(task.id, scope, failure, System.currentTimeMillis())
     }
 }

@@ -122,6 +122,10 @@ interface SyncTaskDao {
     @Query("SELECT * FROM sync_tasks WHERE jobType = :jobType AND taskID = :taskId AND status = 'PENDING' LIMIT 1")
     suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity?
 
+    /** Rewrites a queued task's payload while it's still pending: 0 once it has started or parked */
+    @Query("UPDATE sync_tasks SET payload = :payload WHERE id = :id AND status = 'PENDING'")
+    suspend fun updatePendingPayload(id: String, payload: String): Int
+
     @Query("UPDATE sync_tasks SET taskID = :taskId, payload = :payload WHERE id = :id")
     suspend fun updateTaskUuidFields(id: String, taskId: String, payload: String)
 
