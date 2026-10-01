@@ -30,7 +30,7 @@ class RoomSyncTaskRepository(
     }
 
     override suspend fun saveTask(task: SyncTaskEntity) = withContext(Dispatchers.IO) {
-        syncTaskDao.insertTask(task)
+        syncTaskDao.insertAtEnd(task)
         // The sync foreground service stops itself when idle (dataSync budget, Android 15+);
         // every new task must be able to bring it back up.
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.notifyWorkEnqueued()
@@ -38,6 +38,14 @@ class RoomSyncTaskRepository(
 
     override suspend fun updateTask(task: SyncTaskEntity) = withContext(Dispatchers.IO) {
         syncTaskDao.updateTask(task)
+    }
+
+    override suspend fun markTaskRunning(id: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.markTaskRunning(id)
+    }
+
+    override suspend fun markTaskPending(id: String, errorMessage: String?) = withContext(Dispatchers.IO) {
+        syncTaskDao.markTaskPending(id, errorMessage)
     }
 
     override suspend fun deleteTask(task: SyncTaskEntity) = withContext(Dispatchers.IO) {
@@ -77,33 +85,6 @@ class RoomSyncTaskRepository(
     }
 
     override suspend fun migrateTaskUuid(oldUuid: String, newUuid: String) = withContext(Dispatchers.IO) {
-        val affectedTasks = syncTaskDao.findTasksByUuid(oldUuid)
-        for (task in affectedTasks) {
-            var updated = false
-            var newTaskId = task.taskID
-            if (task.taskID == oldUuid) {
-                newTaskId = newUuid
-                updated = true
-            }
-            
-            var newPayload = task.payload
-            if (task.payload.contains(oldUuid)) {
-                newPayload = task.payload.replace(oldUuid, newUuid)
-                updated = true
-            }
-            
-            if (updated) {
-                // Determine the new primary key (jobType + newTaskId)
-                val newId = "${task.jobType}_$newTaskId"
-                
-                // Use a transaction-like sequence: delete old, insert updated
-                syncTaskDao.deleteTask(task)
-                syncTaskDao.insertTask(task.copy(
-                    id = newId,
-                    taskID = newTaskId,
-                    payload = newPayload
-                ))
-            }
-        }
+        syncTaskDao.migrateTaskUuid(oldUuid, newUuid)
     }
 }

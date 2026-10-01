@@ -917,11 +917,13 @@ class MatchUuidsProcessor(
                 
                 Log.d("MatchUuidsProcessor", "⚔️ Conflict found: local=$oldUuid server=$newUuid. Resolving...")
                 
-                // 1. Migrate Database Records (Item, Chapters, Bookmarks)
-                libraryDao.migrateItemUuid(oldUuid, newUuid)
-                
-                // 2. Migrate Pending Tasks
-                repository.migrateTaskUuid(oldUuid, newUuid)
+                // The item and everything that points at it, then its queued tasks. Neither when
+                // another local item already has the server's uuid: that conflict can't be adopted.
+                if (libraryDao.migrateItemUuid(oldUuid, newUuid)) {
+                    repository.migrateTaskUuid(oldUuid, newUuid)
+                } else {
+                    Log.w("MatchUuidsProcessor", "Another local item already has $newUuid; keeping $oldUuid")
+                }
             }
 
             return true

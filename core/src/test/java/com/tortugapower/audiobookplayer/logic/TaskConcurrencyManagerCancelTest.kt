@@ -91,6 +91,8 @@ private class RecordingSyncTaskRepository : SyncTaskRepository {
     override suspend fun updateTask(task: SyncTaskEntity) {
         if (task.status == SyncTaskStatus.PENDING) reQueuedToPending = true
     }
+    override suspend fun markTaskRunning(id: String) {}
+    override suspend fun markTaskPending(id: String, errorMessage: String?) { reQueuedToPending = true }
     override suspend fun deleteTask(task: SyncTaskEntity) { deleted += task }
     override fun getAllTasks(): Flow<List<SyncTaskEntity>> = emptyFlow()
     override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = null

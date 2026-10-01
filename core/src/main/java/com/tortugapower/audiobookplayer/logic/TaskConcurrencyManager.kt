@@ -180,18 +180,17 @@ class TaskConcurrencyManager(
     internal suspend fun executeTask(task: SyncTaskEntity): Boolean {
         Log.d(TAG, "🚀 Executing task: ${task.jobType} [ID: ${task.id}, Attempt: ${task.attempts + 1}]")
         
+        // Targeted writes, here and after the run: a whole-row update from this copy would undo
+        // whatever changed the task meanwhile (a uuid migration from the sync lane, saved upload state)
         val updatedTask = task.copy(status = SyncTaskStatus.RUNNING, attempts = task.attempts + 1)
-        repository.updateTask(updatedTask)
+        repository.markTaskRunning(task.id)
 
         val processor = processors.find { it.canHandle(task.jobType) }
         
         if (processor == null) {
             val errorMsg = "No processor found for job type: ${task.jobType}"
             Log.e(TAG, "⚠️ Task stalled: $errorMsg. Retrying later...")
-            repository.updateTask(updatedTask.copy(
-                status = SyncTaskStatus.PENDING,
-                errorMessage = errorMsg
-            ))
+            repository.markTaskPending(task.id, errorMsg)
             return false
         }
 
@@ -214,18 +213,12 @@ class TaskConcurrencyManager(
                 false
             } else {
                 Log.w(TAG, "⚠️ Task failed (processor returned false): ${task.jobType}. Retrying...")
-                repository.updateTask(updatedTask.copy(
-                    status = SyncTaskStatus.PENDING,
-                    errorMessage = "Processor returned failure"
-                ))
+                repository.markTaskPending(task.id, "Processor returned failure")
                 false
             }
         } catch (e: Exception) {
             Log.e(TAG, "💥 Task threw exception: ${task.jobType}. Retrying...", e)
-            repository.updateTask(updatedTask.copy(
-                status = SyncTaskStatus.PENDING,
-                errorMessage = e.message ?: "Unknown error"
-            ))
+            repository.markTaskPending(task.id, e.message ?: "Unknown error")
             false
         }
     }

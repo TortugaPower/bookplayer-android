@@ -395,6 +395,10 @@ class RoomLibraryRepositoryTest {
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) = TODO()
         override suspend fun updateChaptersUuid(oldUuid: String, newUuid: String) = TODO()
         override suspend fun updateBookmarksUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun updateExternalResourcesUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun updatePlaybackSessionsUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun updateCompletionsUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun updateChildrenParentUuid(oldUuid: String, newUuid: String) = TODO()
         override suspend fun getItemByFileName(fileName: String): LibraryItemEntity? =
             items.values.find { it.originalFileName == fileName }
         // updateItemProgress probes for a linked hardcover resource inside a catch(Exception);

@@ -12,6 +12,19 @@ interface SyncTaskRepository {
     suspend fun getActiveQueueKeys(): List<String>
     suspend fun saveTask(task: SyncTaskEntity)
     suspend fun updateTask(task: SyncTaskEntity)
+
+    /**
+     * Marks a task running for one more attempt. Only the status and attempt count change: a write
+     * made to the task since it was read (a uuid migration, saved upload state) stays.
+     */
+    suspend fun markTaskRunning(id: String) {
+        getTaskById(id)?.let { updateTask(it.copy(status = SyncTaskStatus.RUNNING, attempts = it.attempts + 1)) }
+    }
+
+    /** Returns a task to pending after a failed run, changing only its status and error */
+    suspend fun markTaskPending(id: String, errorMessage: String?) {
+        getTaskById(id)?.let { updateTask(it.copy(status = SyncTaskStatus.PENDING, errorMessage = errorMessage)) }
+    }
     suspend fun deleteTask(task: SyncTaskEntity)
     suspend fun clearCompletedTasks()
     suspend fun resetRunningTasks()

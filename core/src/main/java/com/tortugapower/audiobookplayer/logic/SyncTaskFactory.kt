@@ -443,7 +443,7 @@ object SyncTaskFactory {
             taskID = taskId,
             queueKey = queueKey,
             jobType = jobType,
-            position = 0, // Position management can be added if strict ordering is needed beyond createdAt
+            position = 0, // assigned at insert (SyncTaskDao.insertAtEnd): a lane runs in stored order
             payload = gson.toJson(payload)
         )
         android.util.Log.d("SyncTaskFactory", "📝 Enqueuing task: $jobType into $queueKey queue [TaskID: $taskId]")
