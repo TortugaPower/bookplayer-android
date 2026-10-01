@@ -50,4 +50,16 @@ class ApiErrorTest {
     @Test fun aCodeWithoutAMessage_stillParks() {
         assertEquals(CodedFailure("uuid_conflict", "", 409), ApiError.parse("""{"error":"uuid_conflict"}""", 409).codedFailure())
     }
+
+    @Test fun throwIfCoded_isNullOnSuccess_throwsACodedFailure_andReturnsAnUncodedOne() {
+        assertNull(Response.success(Unit).throwIfCoded())
+
+        val thrown = runCatching { errorResponse(409, """{"message":"m","error":"uuid_conflict"}""").throwIfCoded() }
+            .exceptionOrNull() as? com.tortugapower.audiobookplayer.logic.CodedFailureException
+        assertEquals(CodedFailure("uuid_conflict", "m", 409), thrown?.failure)
+
+        val uncoded = errorResponse(500, """{"message":"Internal error"}""").throwIfCoded()
+        assertEquals("Internal error", uncoded?.message)
+        assertEquals("""{"message":"Internal error"}""", uncoded?.rawBody)
+    }
 }

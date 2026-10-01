@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.network
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.tortugapower.audiobookplayer.logic.CodedFailure
+import com.tortugapower.audiobookplayer.logic.CodedFailureException
 import retrofit2.Response
 
 /**
@@ -40,4 +41,17 @@ data class ApiError(
             return ApiError(message = message, code = code, httpStatus = httpStatus, rawBody = rawBody)
         }
     }
+}
+
+/**
+ * For a BookPlayer API response: null when it succeeded. Otherwise throws the [CodedFailure] the API
+ * sent, or returns the uncoded envelope for the caller's log and retry. The error body is read here,
+ * so log [ApiError.rawBody] rather than reading it again. Only for the BookPlayer API: a media-server,
+ * S3 or Hardcover body can carry an `error` field of its own.
+ */
+fun Response<*>.throwIfCoded(): ApiError? {
+    if (isSuccessful) return null
+    val error = ApiError.parse(this)
+    error.codedFailure()?.let { throw CodedFailureException(it) }
+    return error
 }

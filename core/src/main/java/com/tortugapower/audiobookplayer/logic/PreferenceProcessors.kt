@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
+import com.tortugapower.audiobookplayer.network.throwIfCoded
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -49,6 +50,7 @@ class PreferenceUploadProcessor(
         val key = payload["key"] as? String ?: return true // malformed → drop
         val value = payload["value"] as? String ?: return true
         val response = api.setPreferences(buildPreferencePushBody(key, value))
+        response.throwIfCoded()
         return response.isSuccessful
     }
 }
@@ -69,6 +71,7 @@ class PreferenceFetchProcessor(
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
         val response = api.getPreferences(prefix = SortLocation.KEY_PREFIX)
+        response.throwIfCoded()
         if (!response.isSuccessful) return false
         val entries = response.body()?.entries ?: emptyList()
         val store = DataStorePreferencesStore(context)
