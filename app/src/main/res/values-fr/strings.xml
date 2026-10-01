@@ -437,4 +437,9 @@
     <string name="settings_disable_autolock">Désactiver le verrouillage automatique</string>
     <string name="settings_autolock_only_on_power">Uniquement lorsque connecté à l\'alimentation</string>
     <string name="settings_autolock_desc">Empêcher l\'appareil de se verrouiller sur l\'écran du lecteur.</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">Serveur non connecté</string>
+    <string name="external_server_missing_message">Ce livre est diffusé depuis votre serveur %1$s. Connectez-le sur cet appareil pour lire le livre.</string>
+    <string name="external_server_missing_message_address">Ce livre est diffusé depuis votre serveur %1$s à l\'adresse %2$s. Ajoutez ce serveur sur cet appareil pour lire le livre.</string>
+    <string name="external_server_missing_connect">Connecter</string>
 </resources>

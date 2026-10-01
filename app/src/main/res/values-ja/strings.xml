@@ -435,4 +435,9 @@
     <string name="settings_disable_autolock">自動ロックを無効化</string>
     <string name="settings_autolock_only_on_power">電源接続時のみ</string>
     <string name="settings_autolock_desc">プレーヤー画面でデバイスがロックされるのを防ぎます。</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">サーバーが接続されていません</string>
+    <string name="external_server_missing_message">この本は %1$s サーバーからストリーミングされます。本を再生するには、このデバイスでサーバーに接続してください。</string>
+    <string name="external_server_missing_message_address">この本は %2$s の %1$s サーバーからストリーミングされます。本を再生するには、このデバイスにそのサーバーを追加してください。</string>
+    <string name="external_server_missing_connect">接続</string>
 </resources>

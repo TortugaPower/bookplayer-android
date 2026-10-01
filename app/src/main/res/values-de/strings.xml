@@ -437,4 +437,9 @@
     <string name="settings_disable_autolock">Automatische Sperre deaktivieren</string>
     <string name="settings_autolock_only_on_power">Nur bei Stromverbindung</string>
     <string name="settings_autolock_desc">Verhindert, dass das Gerät auf dem Player-Bildschirm gesperrt wird.</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">Server nicht verbunden</string>
+    <string name="external_server_missing_message">Dieses Buch wird von Ihrem %1$s-Server gestreamt. Verbinden Sie ihn auf diesem Gerät, um das Buch abzuspielen.</string>
+    <string name="external_server_missing_message_address">Dieses Buch wird von Ihrem %1$s-Server unter %2$s gestreamt. Fügen Sie diesen Server auf diesem Gerät hinzu, um das Buch abzuspielen.</string>
+    <string name="external_server_missing_connect">Verbinden</string>
 </resources>

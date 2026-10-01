@@ -92,7 +92,7 @@ data class PendingServer(
     val url: String,
     /** Jellyfin: the public `ServerName`. AudiobookShelf: the host (iOS parity — `/ping` carries no name; the login response does). */
     val serverName: String,
-    /** The server's self-reported id when the probe can see it (Jellyfin public info `Id`); ABS only reports it at login. */
+    /** The server's self-reported id when the probe can see it (Jellyfin public info `Id`); always null for ABS, which has none. */
     val stableId: String?,
     val capabilities: ServerCapabilities,
 )
@@ -150,10 +150,11 @@ sealed class SsoResult {
 
 sealed class ConnectionResult {
     /**
-     * [stableId] is the server's SELF-REPORTED unique id (Jellyfin `/System/Info` `Id`,
-     * AudiobookShelf login `serverSettings.id`) — the cross-device half of the hostId contract
-     * (`hostId := stableId ?: canonicalServerKey(url)`). Null when the server didn't report one
-     * (old versions, info call failed): callers fall back to the canonical URL key.
+     * [stableId] is the server's SELF-REPORTED unique id (Jellyfin `/System/Info` `Id`) — the
+     * cross-device half of the hostId contract (`hostId := stableId ?: canonicalServerKey(url)`).
+     * Null when the server didn't report one (old versions, info call failed): callers fall back to
+     * the canonical URL key. Always null for AudiobookShelf: it has no instance id (its
+     * `serverSettings.id` is the same constant on every server).
      *
      * [userId] is the account's id on the server (Jellyfin `User.Id`, AudiobookShelf `user.id`) — the
      * identity connections are de-duplicated on, so two accounts on one server stay separate and a

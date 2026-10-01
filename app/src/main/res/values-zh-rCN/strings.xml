@@ -435,4 +435,9 @@
     <string name="settings_disable_autolock">禁用自动锁定</string>
     <string name="settings_autolock_only_on_power">仅在连接电源时</string>
     <string name="settings_autolock_desc">在播放器界面时，防止设备自动锁定。</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">服务器未连接</string>
+    <string name="external_server_missing_message">此书从您的 %1$s 服务器串流播放。请在此设备上连接该服务器以播放此书。</string>
+    <string name="external_server_missing_message_address">此书从您位于 %2$s 的 %1$s 服务器串流播放。请在此设备上添加该服务器以播放此书。</string>
+    <string name="external_server_missing_connect">连接</string>
 </resources>

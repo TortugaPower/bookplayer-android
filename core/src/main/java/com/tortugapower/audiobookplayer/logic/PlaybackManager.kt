@@ -117,11 +117,12 @@ object PlaybackManager {
 
     // Set when the user tries to PLAY an external (media-server) item and no locally-configured
     // server matches its hostId — the cross-device case: the book synced down, the server config
-    // didn't (configs are per-device). Carries the provider type for the dialog copy; the UI
-    // offers a jump to Media Servers settings. Only ever set from playItem's nothing-playable
-    // branch — never from launch restore or speculative URL refreshes.
-    private val _missingExternalServer = MutableStateFlow<com.tortugapower.audiobookplayer.database.entities.ExternalServiceType?>(null)
-    val missingExternalServer: StateFlow<com.tortugapower.audiobookplayer.database.entities.ExternalServiceType?> = _missingExternalServer.asStateFlow()
+    // didn't (configs are per-device). Carries the provider type and, when the hostId is one, the
+    // server's address for the dialog copy; the UI offers a jump to Media Servers settings. Only
+    // ever set from playItem's nothing-playable branch — never from launch restore or speculative
+    // URL refreshes.
+    private val _missingExternalServer = MutableStateFlow<ExternalServiceUtils.MissingServer?>(null)
+    val missingExternalServer: StateFlow<ExternalServiceUtils.MissingServer?> = _missingExternalServer.asStateFlow()
 
     fun clearMissingExternalServer() {
         _missingExternalServer.value = null
@@ -531,9 +532,9 @@ object PlaybackManager {
                                 val processedDir = File(appContext.filesDir, "Processed")
                                 // Cross-device media-server book with no matching local server:
                                 // the connect-your-server prompt, never the generic error.
-                                val missingType = missingExternalServerType(appContext, currentItem, processedDir)
-                                if (missingType != null) {
-                                    _missingExternalServer.value = missingType
+                                val missing = missingExternalServerPrompt(appContext, currentItem, processedDir)
+                                if (missing != null) {
+                                    _missingExternalServer.value = missing
                                     return@launch
                                 }
                                 val lastSource = determineLastTriedSource(appContext, currentItem, processedDir)
@@ -1043,9 +1044,9 @@ object PlaybackManager {
                 if (autoplay) {
                     // Cross-device external item with no matching local server: show the
                     // connect-your-server prompt INSTEAD of the generic error (never both).
-                    val missingType = missingExternalServerType(context, refreshedItem, processedDir)
-                    if (missingType != null) {
-                        _missingExternalServer.value = missingType
+                    val missing = missingExternalServerPrompt(context, refreshedItem, processedDir)
+                    if (missing != null) {
+                        _missingExternalServer.value = missing
                     } else {
                         val lastSource = determineLastTriedSource(context, refreshedItem, processedDir)
                         val message = context.getString(R.string.playback_error_cannot_play, lastSource)
@@ -1088,23 +1089,23 @@ object PlaybackManager {
     }
 
     /**
-     * The provider type to prompt "connect your server" for, or null when this isn't that case.
+     * The server to prompt "connect your server" for, or null when this isn't that case.
      * True exactly when the item is a media-server item (non-hardcover resource), has no local
      * audio, and [ExternalServiceUtils.serverForResource] resolves no configured server for its
      * hostId — i.e. playback failed BECAUSE the server this book streams from isn't set up on
      * this device.
      */
-    private suspend fun missingExternalServerType(
+    private suspend fun missingExternalServerPrompt(
         context: Context,
         item: LibraryItemEntity,
         processedDir: File,
-    ): com.tortugapower.audiobookplayer.database.entities.ExternalServiceType? = withContext(Dispatchers.IO) {
+    ): ExternalServiceUtils.MissingServer? = withContext(Dispatchers.IO) {
         val hasLocalFile = item.relativePath?.let { File(processedDir, it).exists() } == true
         val servers = com.tortugapower.audiobookplayer.repository.ExternalServerRepository(
             AppDatabase.getDatabase(context).externalServerDao()
         )
         // Pure decision lives in ExternalServiceUtils (testable without this singleton).
-        ExternalServiceUtils.missingServerPromptType(
+        ExternalServiceUtils.missingServerPrompt(
             servers, item.externalResources, hasLocalFile,
             hasRemoteUrl = !item.remoteURL.isNullOrEmpty(),
         )

@@ -101,9 +101,8 @@ class AudiobookshelfService : ExternalService, SsoCapable {
                 val body = response.body()!!
                 val token = body.user.token
                 val serverName = body.serverSettings?.serverName ?: "Audiobookshelf"
-                // serverSettings.id is the ABS instance's stable id (hostId contract) — rides the
-                // login response, no extra request.
-                ConnectionResult.Success(token = token, name = serverName, stableId = body.serverSettings?.id, userId = body.user.id)
+                // No stableId: ABS has no instance id, so its hostId is the canonical URL key (as on iOS).
+                ConnectionResult.Success(token = token, name = serverName, stableId = null, userId = body.user.id)
             } else if (response.code() == 401) {
                 ConnectionError.Unauthorized.toFailure()
             } else {
@@ -129,9 +128,9 @@ class AudiobookshelfService : ExternalService, SsoCapable {
             is AbsOidcFlow.Outcome.Success -> {
                 val credentials = outcome.credentials
                 // The exchange returns only the user. `/api/authorize` with the fresh token yields the
-                // login-response shape, so the row gets the server's real name and its stable id (the
-                // cross-device hostId contract) exactly like a password sign-in. Best-effort: a failure
-                // degrades to the host as the name and no stable id, which is what iOS stores.
+                // login-response shape, so the row gets the server's real name exactly like a password
+                // sign-in. Best-effort: a failure degrades to the host as the name, which is what iOS
+                // stores.
                 val settings = try {
                     getApi(url, headers).authorize(getAuthHeader(credentials.token)).takeIf { it.isSuccessful }?.body()?.serverSettings
                 } catch (e: CancellationException) {
@@ -143,7 +142,7 @@ class AudiobookshelfService : ExternalService, SsoCapable {
                     ConnectionResult.Success(
                         token = credentials.token,
                         name = settings?.serverName ?: ServerAddress.parse(url)?.host ?: url,
-                        stableId = settings?.id,
+                        stableId = null,
                         userId = credentials.userId,
                         userName = credentials.userName,
                     )

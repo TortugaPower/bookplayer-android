@@ -56,9 +56,28 @@ class ServerResolutionTest {
     }
 
     @Test fun `matches by stable id case-insensitively`() = runBlocking {
-        save(ExternalServiceType.AUDIOBOOKSHELF, "https://abs.example.com", "ABC-DEF-123")
-        val hit = ExternalServiceUtils.serverForResource(servers, resource("audiobookshelf", "abc-def-123"))
+        save(ExternalServiceType.JELLYFIN, "https://jf.example.com", "ABC-DEF-123")
+        val hit = ExternalServiceUtils.serverForResource(servers, resource("jellyfin", "abc-def-123"))
         assertEquals("ABC-DEF-123", hit?.stableId)
+    }
+
+    // ABS has no instance id, so two ABS servers on one device are told apart by URL alone.
+    @Test fun `two abs servers each resolve their own url-keyed imports`() = runBlocking {
+        val home = save(ExternalServiceType.AUDIOBOOKSHELF, "http://10.0.2.2:58378", stableId = null, name = "home")
+        val family = save(ExternalServiceType.AUDIOBOOKSHELF, "http://10.0.2.2:58379/", stableId = null, name = "family")
+        for (server in listOf(home, family)) {
+            val hit = ExternalServiceUtils.serverForResource(
+                servers, resource("audiobookshelf", ExternalServiceUtils.stableHostId(server))
+            )
+            assertEquals(server.id, hit?.id)
+        }
+    }
+
+    // Imports from 1.1.3 until the fix carry "server-settings", the same value on every ABS server.
+    // It names no server, so it resolves to none — even with a single ABS server saved.
+    @Test fun `the old abs settings id resolves to no server`() = runBlocking {
+        save(ExternalServiceType.AUDIOBOOKSHELF, "https://abs.example.com", stableId = null)
+        assertNull(ExternalServiceUtils.serverForResource(servers, resource("audiobookshelf", "server-settings")))
     }
 
     @Test fun `falls back to canonical url key for guid-less servers`() = runBlocking {
@@ -104,20 +123,35 @@ class ServerResolutionTest {
         // No local file, no cloud copy, no matching server -> prompt with the provider type.
         assertEquals(
             ExternalServiceType.AUDIOBOOKSHELF,
-            ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = false, hasRemoteUrl = false)
+            ExternalServiceUtils.missingServerPrompt(servers, unresolved, hasLocalFile = false, hasRemoteUrl = false)?.type
         )
         // Local audio present -> never prompt, playback has a source.
-        assertNull(ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = true, hasRemoteUrl = false))
+        assertNull(ExternalServiceUtils.missingServerPrompt(servers, unresolved, hasLocalFile = true, hasRemoteUrl = false))
         // A cloud copy (stream-to-cloud piped) -> generic error territory, not this prompt.
-        assertNull(ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = false, hasRemoteUrl = true))
+        assertNull(ExternalServiceUtils.missingServerPrompt(servers, unresolved, hasLocalFile = false, hasRemoteUrl = true))
         // Hardcover-only resources are not media servers -> not this prompt's case.
         assertNull(
-            ExternalServiceUtils.missingServerPromptType(
+            ExternalServiceUtils.missingServerPrompt(
                 servers, listOf(resource("hardcover", null)), hasLocalFile = false, hasRemoteUrl = false
             )
         )
         // A configured matching server -> no prompt (playback proceeds/streams).
         save(ExternalServiceType.AUDIOBOOKSHELF, "https://abs.example.com", "foreign-guid")
-        assertNull(ExternalServiceUtils.missingServerPromptType(servers, unresolved, hasLocalFile = false, hasRemoteUrl = false))
+        assertNull(ExternalServiceUtils.missingServerPrompt(servers, unresolved, hasLocalFile = false, hasRemoteUrl = false))
+    }
+
+    // The dialog names the server to add when the hostId is an address; an id means nothing to the
+    // user, so the generic copy stays.
+    @Test fun `prompt carries the address only for address hostIds`() = runBlocking {
+        suspend fun addressFor(providerName: String, hostId: String) = ExternalServiceUtils.missingServerPrompt(
+            servers, listOf(resource(providerName, hostId)), hasLocalFile = false, hasRemoteUrl = false,
+        )?.address
+
+        assertEquals("http://10.0.2.2:58379", addressFor("audiobookshelf", "http://10.0.2.2:58379"))
+        // Jellyfin books carry an address when the server never reported its id.
+        assertEquals("https://jf.example.com:8920", addressFor("jellyfin", "https://jf.example.com:8920"))
+        assertNull(addressFor("jellyfin", "82f33a82610b4869879615f9c6cb1ece"))
+        assertNull(addressFor("audiobookshelf", "server-settings"))
+        assertNull(addressFor("audiobookshelf", "1"))
     }
 }

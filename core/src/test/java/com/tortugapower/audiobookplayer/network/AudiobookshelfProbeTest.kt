@@ -28,7 +28,7 @@ class AudiobookshelfProbeTest {
 
     private var ping: MockResponse = MockResponse().setBody("""{"success":true}""")
     private var status: MockResponse = MockResponse().setBody("""{"authMethods":["local","openid"],"authFormData":{"authOpenIDButtonText":"Login with Pocket ID"}}""")
-    private var login: MockResponse = MockResponse().setBody("""{"user":{"id":"usr_1","username":"gianni","token":"tok"},"serverSettings":{"id":"srv-guid","serverName":"Home"}}""")
+    private var login: MockResponse = MockResponse().setBody("""{"user":{"id":"usr_1","username":"gianni","token":"tok"},"serverSettings":{"id":"server-settings","serverName":"Home"}}""")
 
     @Before fun setUp() {
         server.dispatcher = object : Dispatcher() {
@@ -116,7 +116,7 @@ class AudiobookshelfProbeTest {
         val result = runBlocking { service.connect(url(), " gianni ", "pw ") } as ConnectionResult.Success
         assertEquals("tok", result.token)
         assertEquals("usr_1", result.userId)
-        assertEquals("srv-guid", result.stableId)
+        assertNull("serverSettings.id is the same constant on every ABS server", result.stableId)
         assertEquals("Home", result.name)
 
         val loginRequest = generateSequence { server.takeRequest(1, java.util.concurrent.TimeUnit.SECONDS) }.first { it.path == "/login" }

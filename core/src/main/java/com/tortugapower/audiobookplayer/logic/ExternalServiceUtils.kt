@@ -98,8 +98,8 @@ object ExternalServiceUtils {
     /**
      * The saved server that can serve [resource], by the stable hostId contract. Candidates are
      * limited to the resource's provider type, then matched by the server's self-reported stable
-     * id (case-insensitive — Jellyfin reports lowercase hex, ABS a UUID), then by canonical URL
-     * key (covers servers that never reported an id, and URL-fallback hostIds). No other
+     * id (case-insensitive — Jellyfin reports lowercase hex; ABS has no id), then by canonical
+     * URL key (covers ABS, servers that never reported an id, and URL-fallback hostIds). No other
      * fallback: null means "this device has no matching server configured", which playback turns
      * into the connect-your-server prompt. The single resolution used by streaming-URL rebuild,
      * artwork backfill, the stream-to-cloud pipe, and external progress push, so "which server
@@ -116,25 +116,37 @@ object ExternalServiceUtils {
     }
 
     /**
-     * The provider type to prompt "connect your server" for, or null when this isn't that case:
-     * the item is a media-server item (has a non-hardcover resource), has no local audio, and no
+     * What the connect-your-server dialog needs: the provider type for its copy, and the address
+     * the book was imported from when its hostId is one (ABS always; Jellyfin when the server never
+     * reported an id) so the user knows which server to add. Null for an id-shaped hostId, which
+     * means nothing to the user.
+     */
+    data class MissingServer(val type: ExternalServiceType, val address: String?)
+
+    /**
+     * The server to prompt "connect your server" for, or null when this isn't that case: the
+     * item is a media-server item (has a non-hardcover resource), has no local audio, and no
      * configured server resolves its hostId — i.e. the book synced down but the server config
      * (per-device) didn't. The pure decision behind PlaybackManager's connect-your-server dialog,
      * extracted here so it's testable without the playback singleton.
      */
-    suspend fun missingServerPromptType(
+    suspend fun missingServerPrompt(
         servers: ExternalServerRepository,
         resources: List<ExternalResourceEntity>,
         hasLocalFile: Boolean,
         hasRemoteUrl: Boolean,
-    ): ExternalServiceType? {
+    ): MissingServer? {
         // Any other playback source disqualifies the prompt: local audio, or a cloud copy
         // (stream-to-cloud piped items keep a BookPlayer remoteURL — a transient failure there
         // must show the generic error, not "connect your server").
         if (hasLocalFile || hasRemoteUrl) return null
         val resource = resources.firstOrNull { it.providerName != "hardcover" } ?: return null
         if (serverForResource(servers, resource) != null) return null
-        return serviceTypeFor(resource.providerName)
+        val type = serviceTypeFor(resource.providerName) ?: return null
+        val address = resource.hostId?.takeIf {
+            it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+        }
+        return MissingServer(type, address)
     }
 
     /**

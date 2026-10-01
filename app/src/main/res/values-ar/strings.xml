@@ -449,4 +449,9 @@
     <string name="settings_disable_autolock">تعطيل القفل التلقائي</string>
     <string name="settings_autolock_only_on_power">فقط عند التوصيل بالطاقة</string>
     <string name="settings_autolock_desc">منع الجهاز من القفل عندما تكون في شاشة المشغل.</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">الخادم غير متصل</string>
+    <string name="external_server_missing_message">يتم بث هذا الكتاب من خادم %1$s الخاص بك. اتصل به على هذا الجهاز لتشغيل الكتاب.</string>
+    <string name="external_server_missing_message_address">يتم بث هذا الكتاب من خادم %1$s الخاص بك على العنوان %2$s. أضف هذا الخادم على هذا الجهاز لتشغيل الكتاب.</string>
+    <string name="external_server_missing_connect">اتصال</string>
 </resources>

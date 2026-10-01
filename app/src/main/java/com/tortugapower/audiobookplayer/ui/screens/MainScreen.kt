@@ -211,7 +211,8 @@ fun MainScreen() {
     // Media Servers flow. Emitted only from a real play attempt, mutually exclusive with the
     // generic playback error.
     val missingExternalServer by PlaybackManager.missingExternalServer.collectAsStateWithLifecycle()
-    missingExternalServer?.let { providerType ->
+    missingExternalServer?.let { missing ->
+        val providerType = missing.type
         val providerName = when (providerType) {
             com.tortugapower.audiobookplayer.database.entities.ExternalServiceType.JELLYFIN -> "Jellyfin"
             com.tortugapower.audiobookplayer.database.entities.ExternalServiceType.AUDIOBOOKSHELF -> "Audiobookshelf"
@@ -219,7 +220,12 @@ fun MainScreen() {
         AlertDialog(
             onDismissRequest = { PlaybackManager.clearMissingExternalServer() },
             title = { Text(stringResource(id = R.string.external_server_missing_title)) },
-            text = { Text(stringResource(id = R.string.external_server_missing_message, providerName)) },
+            text = {
+                Text(
+                    missing.address?.let { stringResource(id = R.string.external_server_missing_message_address, providerName, it) }
+                        ?: stringResource(id = R.string.external_server_missing_message, providerName)
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     PlaybackManager.clearMissingExternalServer()
