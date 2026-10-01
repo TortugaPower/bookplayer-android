@@ -76,15 +76,8 @@ class AuthViewModel(
      * silently dropped the server's guidance (e.g. "an account with this email already exists")
      * and surfaced a bare status code instead.
      */
-    private fun <T> parseServerError(response: retrofit2.Response<T>): Pair<String?, String?> {
-        val raw = runCatching { response.errorBody()?.string() }.getOrNull() ?: return null to null
-        return runCatching {
-            val obj = gson.fromJson(raw, com.google.gson.JsonObject::class.java)
-            val message = obj.get("message")?.takeIf { it.isJsonPrimitive }?.asString
-            val code = obj.get("error")?.takeIf { it.isJsonPrimitive }?.asString
-            message to code
-        }.getOrDefault(null to null)
-    }
+    private fun <T> parseServerError(response: retrofit2.Response<T>): Pair<String?, String?> =
+        com.tortugapower.audiobookplayer.network.ApiError.parse(response).let { it.message to it.code }
 
     fun onEmailContinue(context: Context) {
         validationError = null
