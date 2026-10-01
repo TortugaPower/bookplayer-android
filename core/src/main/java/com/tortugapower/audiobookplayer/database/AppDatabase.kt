@@ -28,7 +28,7 @@ import androidx.room.TypeConverters
         ExternalServerEntity::class,
         ExternalResourceEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 @TypeConverters(MapConverter::class)
@@ -235,6 +235,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Parking: a task the server can never accept stops with the reason, instead of
+                // retrying every 5 seconds forever (SyncFailurePolicy). All nullable: no task is parked.
+                db.execSQL("ALTER TABLE sync_tasks ADD COLUMN pauseScope TEXT")
+                db.execSQL("ALTER TABLE sync_tasks ADD COLUMN errorCode TEXT")
+                db.execSQL("ALTER TABLE sync_tasks ADD COLUMN httpStatus INTEGER")
+                db.execSQL("ALTER TABLE sync_tasks ADD COLUMN pausedAt INTEGER")
+                db.execSQL("ALTER TABLE sync_tasks ADD COLUMN sentryEventId TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -242,7 +254,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "bookplayer.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                 .build()
                 INSTANCE = instance
                 instance

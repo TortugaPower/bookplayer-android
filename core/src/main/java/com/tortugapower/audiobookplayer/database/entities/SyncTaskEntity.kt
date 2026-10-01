@@ -18,5 +18,14 @@ data class SyncTaskEntity(
     val status: SyncTaskStatus = SyncTaskStatus.PENDING,
     val createdAt: Long = System.currentTimeMillis(),
     val errorMessage: String? = null,
-    val attempts: Int = 0
+    val attempts: Int = 0,
+    // Set while the task is parked on a coded failure (SyncFailurePolicy); errorMessage then holds the
+    // API's message. The scope is a TaskPauseScope name, kept as text so a value this build doesn't
+    // know reads as no pause rather than failing the row.
+    val pauseScope: String? = null,
+    val errorCode: String? = null,
+    val httpStatus: Int? = null,
+    val pausedAt: Long? = null,
+    /** The Sentry event that reported this task's pause: a pause is reported once */
+    val sentryEventId: String? = null,
 )
