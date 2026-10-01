@@ -18,11 +18,11 @@ data class ExternalServerEntity(
     val customHeaders: Map<String, String>? = null,
     // Which of the server's libraries the user browses; null = not chosen yet (service default).
     val selectedLibraryId: String? = null,
-    // The server's SELF-REPORTED unique id, captured at connect/re-auth (Jellyfin System/Info Id,
-    // ABS serverSettings.id). Cross-device stable — written as external resources' hostId so any
-    // device with this server configured can resolve synced-down items. Null when never reported;
-    // resolution then falls back to canonicalServerKey(url). NOT a credential: stays out of the
-    // repository's encrypted()/decrypted() field set.
+    // The server's SELF-REPORTED unique id, captured at connect/re-auth (Jellyfin System/Info Id).
+    // Cross-device stable — written as external resources' hostId so any device with this server
+    // configured can resolve synced-down items. Null when never reported, and always for ABS (no
+    // instance id); resolution then falls back to canonicalServerKey(url). NOT a credential: stays
+    // out of the repository's encrypted()/decrypted() field set.
     val stableId: String? = null,
     // The account's id on the server (Jellyfin User.Id, ABS user.id), captured at sign-in. The
     // identity a re-auth matches on so the same account replaces its row while a second account on

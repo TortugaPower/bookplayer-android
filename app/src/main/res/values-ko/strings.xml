@@ -435,4 +435,9 @@
     <string name="settings_disable_autolock">자동 잠금 해제</string>
     <string name="settings_autolock_only_on_power">전원이 연결된 경우에만</string>
     <string name="settings_autolock_desc">재생기 화면에서 화면이 잠기는 것을 방지합니다.</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">서버가 연결되지 않음</string>
+    <string name="external_server_missing_message">이 도서는 %1$s 서버에서 스트리밍됩니다. 도서를 재생하려면 이 기기에서 서버에 연결하세요.</string>
+    <string name="external_server_missing_message_address">이 도서는 %2$s에 있는 %1$s 서버에서 스트리밍됩니다. 도서를 재생하려면 이 기기에 해당 서버를 추가하세요.</string>
+    <string name="external_server_missing_connect">연결</string>
 </resources>

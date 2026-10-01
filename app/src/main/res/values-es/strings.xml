@@ -437,4 +437,9 @@
     <string name="settings_disable_autolock">Desactivar bloqueo automático</string>
     <string name="settings_autolock_only_on_power">Solo si está conectado a la corriente</string>
     <string name="settings_autolock_desc">Evitar que el dispositivo se bloquee cuando se encuentra en la pantalla de reproducción.</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">Servidor no conectado</string>
+    <string name="external_server_missing_message">Este libro se transmite desde tu servidor %1$s. Conéctalo en este dispositivo para reproducir el libro.</string>
+    <string name="external_server_missing_message_address">Este libro se transmite desde tu servidor %1$s en %2$s. Añade ese servidor en este dispositivo para reproducir el libro.</string>
+    <string name="external_server_missing_connect">Conectar</string>
 </resources>

@@ -99,10 +99,10 @@ data class AudiobookshelfUser(
     @SerializedName("username") val username: String
 )
 
+// Deliberately no `id`: ABS reports the constant "server-settings" there on every instance (it's
+// the settings row's key), so it can't tell two servers apart. ABS has no instance id at all.
 data class AudiobookshelfServerSettings(
-    @SerializedName("serverName") val serverName: String?,
-    // The ABS instance's unique id — the cross-device stable server identity (hostId contract).
-    @SerializedName("id") val id: String? = null
+    @SerializedName("serverName") val serverName: String?
 )
 
 data class AudiobookshelfLibrariesResponse(

@@ -437,4 +437,9 @@
     <string name="settings_disable_autolock">ऑटो लॉक अक्षम करें</string>
     <string name="settings_autolock_only_on_power">केवल पावर से कनेक्ट होने पर</string>
     <string name="settings_autolock_desc">प्लेयर स्क्रीन पर होने पर डिवाइस को लॉक होने से रोकें।</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">सर्वर कनेक्ट नहीं है</string>
+    <string name="external_server_missing_message">यह पुस्तक आपके %1$s सर्वर से स्ट्रीम होती है। पुस्तक चलाने के लिए इसे इस डिवाइस पर कनेक्ट करें।</string>
+    <string name="external_server_missing_message_address">यह पुस्तक %2$s पर मौजूद आपके %1$s सर्वर से स्ट्रीम होती है। पुस्तक चलाने के लिए उस सर्वर को इस डिवाइस पर जोड़ें।</string>
+    <string name="external_server_missing_connect">कनेक्ट करें</string>
 </resources>

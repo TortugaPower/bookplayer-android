@@ -437,4 +437,9 @@
     <string name="settings_disable_autolock">Disattiva blocco automatico</string>
     <string name="settings_autolock_only_on_power">Solo sotto carica</string>
     <string name="settings_autolock_desc">Impedisce il blocco del dispositivo quando si è nella schermata del lettore.</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">Server non connesso</string>
+    <string name="external_server_missing_message">Questo libro viene riprodotto in streaming dal tuo server %1$s. Connettilo su questo dispositivo per riprodurre il libro.</string>
+    <string name="external_server_missing_message_address">Questo libro viene riprodotto in streaming dal tuo server %1$s all\'indirizzo %2$s. Aggiungi quel server su questo dispositivo per riprodurre il libro.</string>
+    <string name="external_server_missing_connect">Connetti</string>
 </resources>
