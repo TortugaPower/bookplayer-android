@@ -143,6 +143,65 @@ class TaskConcurrencyManagerParkingTest {
         assertFalse(asked)
     }
 
+    private class Reported(val task: SyncTaskEntity, val pause: TaskPause)
+
+    /**
+     * Runs [jobType] failing with [code] and returns the report the async hook got: awaited when one is
+     * [expected], otherwise null after a short wait. An account rejection decides after its RevenueCat
+     * read, so that wait starts once the read has run; nothing is launched for other parks.
+     */
+    private fun reported(
+        code: String,
+        expected: Boolean,
+        jobType: String = SyncTaskFactory.JOB_MOVE,
+        parkingEnabled: Boolean = true,
+        entitlement: Boolean? = null,
+        task: SyncTaskEntity = task(jobType),
+    ): Reported? = runBlocking {
+        val report = CompletableDeferred<Reported>()
+        val verified = CompletableDeferred<Unit>()
+        val manager = TaskConcurrencyManager(
+            ApplicationProvider.getApplicationContext(), RecordingRepository(), NoAccountRepository(),
+            listOf(ThrowingProcessor(jobType) { throw coded(code) }), parkingEnabled = parkingEnabled,
+            verifySyncEntitlement = { verified.complete(Unit); entitlement },
+            onTaskPaused = { t, p -> report.complete(Reported(t, p)) },
+        )
+        manager.executeTask(task)
+        if (expected) {
+            withTimeout(5_000) { report.await() }
+        } else {
+            if (code in SyncFailurePolicy.accountCodes) withTimeout(5_000) { verified.await() }
+            delay(200)
+            report.takeIf { it.isCompleted }?.await()
+        }
+    }
+
+    @Test fun aPark_isReported_withTheTasksEarlierReport() {
+        val report = requireNotNull(
+            reported("item_not_found", expected = true, task = task(SyncTaskFactory.JOB_MOVE).copy(sentryEventId = "earlier"))
+        )
+        assertEquals("row-move", report.task.id)
+        assertEquals(TaskPauseScope.LANE, report.pause.scope)
+        assertEquals("item_not_found", report.pause.errorCode)
+        assertEquals(404, report.pause.httpStatus)
+        assertEquals("earlier", report.pause.sentryEventId)
+    }
+
+    @Test fun aTooLargeBook_isntReported() {
+        assertNull(reported(SyncFailurePolicy.FILE_TOO_LARGE, expected = false, jobType = SyncTaskFactory.JOB_UPLOAD_FILE))
+    }
+
+    /** iOS: inactive runs the lapse path; active or unknown means the server disagrees with RevenueCat */
+    @Test fun anAccountRejection_isReportedUnlessRevenueCatSaysInactive() {
+        assertNull(reported("not_subscribed", expected = false, entitlement = false))
+        assertEquals(TaskPauseScope.ACCOUNT, reported("not_subscribed", expected = true, entitlement = true)?.pause?.scope)
+        assertEquals(TaskPauseScope.ACCOUNT, reported("not_subscribed", expected = true, entitlement = null)?.pause?.scope)
+    }
+
+    @Test fun aDroppedTask_isntReported() {
+        assertNull(reported("item_not_found", expected = false, parkingEnabled = false))
+    }
+
     @Test fun withParkingOff_aCodedFailureDropsTheTask() {
         val (result, repo) = run(SyncTaskFactory.JOB_MOVE, parkingEnabled = false) { throw coded("item_not_found") }
 

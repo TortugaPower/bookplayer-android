@@ -9,6 +9,7 @@ import android.util.Log
 import io.sentry.Breadcrumb
 import io.sentry.Sentry
 import androidx.core.app.NotificationCompat
+import com.tortugapower.audiobookplayer.BookPlayerApplication
 import com.tortugapower.audiobookplayer.MainActivity
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
@@ -166,6 +167,7 @@ class TaskConcurrencyServiceHost : Service() {
         taskConcurrencyManager = TaskConcurrencyManager(
             this, repository, accountRepository, processors,
             verifySyncEntitlement = { SubscriptionManager.refreshSyncEntitlement() },
+            onTaskPaused = BookPlayerApplication.instance.syncPauseReporter::report,
         )
         Log.d(TAG, "🚀 Triggering taskConcurrencyManager.startProcessing()")
         taskConcurrencyManager.startProcessing()

@@ -11,6 +11,7 @@ import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PreferencesPullTriggers
 import com.tortugapower.audiobookplayer.logic.SyncHostLaunchGate
+import com.tortugapower.audiobookplayer.logic.SyncPauseReporter
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.SyncTaskPicker
 import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
@@ -46,6 +47,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         lateinit var instance: BookPlayerApplication
             private set
     }
+
+    /** Reports parked sync tasks to Sentry, once each. Set in [onCreate]. */
+    lateinit var syncPauseReporter: SyncPauseReporter
+        private set
 
     /** Library sort brain: sort actions + preference push/pull. Set in [onCreate]. */
     lateinit var librarySortManager: LibrarySortManager
@@ -87,6 +92,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         val baseLibraryRepository = RoomLibraryRepository(this, database.libraryDao())
         val syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
         val accountRepository = RoomAccountRepository(database.accountDao())
+        syncPauseReporter = SyncPauseReporter(syncTaskRepository)
         
         val syncingLibraryRepository = SyncingLibraryRepository(
             baseLibraryRepository,

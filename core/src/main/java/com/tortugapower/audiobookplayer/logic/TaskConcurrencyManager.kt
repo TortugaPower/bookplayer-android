@@ -23,6 +23,9 @@ class TaskConcurrencyManager(
     // A fresh RevenueCat read after the API rejects the account (true active, false inactive, null
     // unreachable). Updating the tier runs the lapse path when it's inactive.
     private val verifySyncEntitlement: suspend () -> Boolean? = { null },
+    // Told about a park worth reporting, off the worker (the target reports it; :core never
+    // initializes Sentry). The pause carries the task's earlier report, if any.
+    private val onTaskPaused: suspend (task: SyncTaskEntity, pause: TaskPause) -> Unit = { _, _ -> },
 ) : TaskConcurrencyService {
 
     // A full disk turns the engine's own bookkeeping writes into SQLiteFullException; those are
@@ -256,16 +259,19 @@ class TaskConcurrencyManager(
                 false
             }
             is SyncFailureAction.Park -> {
-                park(task, action.scope, requireNotNull(failure))
+                val pause = park(task, action.scope, requireNotNull(failure))
+                if (pause != null && failure.code != SyncFailurePolicy.FILE_TOO_LARGE) reportPause(task, pause)
                 true
             }
             // Every server lane holds behind it until the launch retry or the user's Retry. Off the
-            // worker, RevenueCat is read fresh: an inactive answer updates the tier (the lapse path)
+            // worker, RevenueCat is read fresh: an inactive answer updates the tier (the lapse path).
+            // Active, or the check failed: the server disagrees with RevenueCat, so it's reported.
             SyncFailureAction.VerifyAccount -> {
-                park(task, TaskPauseScope.ACCOUNT, requireNotNull(failure))
+                val pause = park(task, TaskPauseScope.ACCOUNT, requireNotNull(failure))
                 serviceScope.launch {
                     val active = verifySyncEntitlement()
                     Log.w(TAG, "Account rejected by the API; RevenueCat says sync is ${active ?: "unknown"}")
+                    if (pause != null && active != false) onTaskPaused(task, pause)
                 }
                 true
             }
@@ -283,9 +289,17 @@ class TaskConcurrencyManager(
         return { jobType -> TaskAccessPolicy.canExecuteTask(tier, jobType) }
     }
 
-    // The code only: the API's message names files
-    private suspend fun park(task: SyncTaskEntity, scope: TaskPauseScope, failure: CodedFailure) {
+    /** The stored pause, or null when the task is gone (removed meanwhile) */
+    private suspend fun park(task: SyncTaskEntity, scope: TaskPauseScope, failure: CodedFailure): TaskPause? {
+        // The code only: the API's message names files
         Log.w(TAG, "⏸️ Parking ${task.jobType} task ${task.id} (${scope.name}): failed with ${failure.code}")
-        repository.parkTask(task.id, scope, failure, System.currentTimeMillis())
+        val pausedAt = System.currentTimeMillis()
+        if (!repository.parkTask(task.id, scope, failure, pausedAt)) return null
+        // A resume keeps the report's event id, so a task parked again carries it
+        return TaskPause(scope, failure.code, failure.message, failure.httpStatus, pausedAt, task.sentryEventId)
+    }
+
+    private fun reportPause(task: SyncTaskEntity, pause: TaskPause) {
+        serviceScope.launch { onTaskPaused(task, pause) }
     }
 }

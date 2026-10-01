@@ -46,6 +46,9 @@ object SyncFailurePolicy {
     /** Codes about the account, not the task */
     val accountCodes = setOf("not_subscribed", "tier_required")
 
+    /** A book over the upload limit: the app's own limit, not a failure, so its park isn't reported */
+    const val FILE_TOO_LARGE = "file_too_large"
+
     /** Jobs that never call the BookPlayer API: their own failure handling stands */
     private val nonServerJobs = setOf(
         SyncTaskFactory.JOB_EXTERNAL_UPDATE,
