@@ -188,10 +188,11 @@ class TaskConcurrencyManager(
         val processor = processors.find { it.canHandle(task.jobType) }
         
         if (processor == null) {
-            val errorMsg = "No processor found for job type: ${task.jobType}"
-            Log.e(TAG, "⚠️ Task stalled: $errorMsg. Retrying later...")
-            repository.markTaskPending(task.id, errorMsg)
-            return false
+            // Every processor is registered when the host starts, so this is a job type this build no
+            // longer runs (a retired job left in the queue by an older version): it can never succeed
+            Log.w(TAG, "🗑️ No processor for job type ${task.jobType}. Discarding.")
+            repository.deleteTask(updatedTask)
+            return true
         }
 
         return try {

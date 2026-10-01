@@ -804,8 +804,10 @@ class ArtworkUploadProcessor(private val context: Context) : TaskProcessor {
         
         val localFile = File(localPath)
         if (!localFile.exists()) {
-            Log.e("ArtworkUploadProcessor", "❌ Local artwork file not found at $localPath")
-            return false
+            // Gone for good (a cleared cache, a deleted book): retrying would hold the file queue,
+            // downloads included, forever
+            Log.w("ArtworkUploadProcessor", "Local artwork file not found at $localPath; dropping the upload")
+            return true
         }
 
         // 1. Request signed URL (uploaded = false)
@@ -894,7 +896,14 @@ class DeleteBookmarkProcessor : TaskProcessor {
 
 class MatchUuidsProcessor(
     private val context: Context,
-    private val repository: SyncTaskRepository
+    private val repository: SyncTaskRepository,
+    // Seams for tests: the global Retrofit client and database can't be pointed elsewhere
+    private val matchUuids: suspend (Map<String, Any?>) -> retrofit2.Response<MatchUuidsResponse> = { params ->
+        NetworkClient.libraryApi.matchUuids(params)
+    },
+    private val libraryDao: () -> com.tortugapower.audiobookplayer.database.dao.LibraryDao = {
+        AppDatabase.getDatabase(context).libraryDao()
+    },
 ) : TaskProcessor {
     private val gson = Gson()
 
@@ -903,33 +912,34 @@ class MatchUuidsProcessor(
         val payload: Map<String, Map<String, String>> = gson.fromJson(task.payload, payloadType)
         val items = payload["items"] ?: return true // Nothing to match
 
-        val response = NetworkClient.libraryApi.matchUuids(payload)
-        
-        if (response.isSuccessful && response.body() != null) {
-            val result = response.body()!!
-            val database = AppDatabase.getDatabase(context)
-            val libraryDao = database.libraryDao()
-
-            // Handle conflicts
-            result.conflicts.forEach { conflict ->
-                val oldUuid = conflict.key
-                val newUuid = conflict.uuid
-                
-                Log.d("MatchUuidsProcessor", "⚔️ Conflict found: local=$oldUuid server=$newUuid. Resolving...")
-                
-                // The item and everything that points at it, then its queued tasks. Neither when
-                // another local item already has the server's uuid: that conflict can't be adopted.
-                if (libraryDao.migrateItemUuid(oldUuid, newUuid)) {
-                    repository.migrateTaskUuid(oldUuid, newUuid)
-                } else {
-                    Log.w("MatchUuidsProcessor", "Another local item already has $newUuid; keeping $oldUuid")
-                }
-            }
-
-            return true
+        // New tasks hold at most MATCH_UUIDS_MAX_ITEMS, but one queued by an older build can hold more
+        // than the API accepts in a request. A retry after a failed chunk re-sends the earlier ones:
+        // their conflicts are already applied, and applying them again changes nothing.
+        for (chunk in items.entries.chunked(SyncTaskFactory.MATCH_UUIDS_MAX_ITEMS)) {
+            val response = matchUuids(mapOf("items" to chunk.associate { it.key to it.value }))
+            val result = response.body()
+            if (!response.isSuccessful || result == null) return false
+            applyConflicts(result.conflicts)
         }
-        
-        return false
+        return true
+    }
+
+    private suspend fun applyConflicts(conflicts: List<ItemConflict>) {
+        val libraryDao = libraryDao()
+        conflicts.forEach { conflict ->
+            val oldUuid = conflict.key
+            val newUuid = conflict.uuid
+
+            Log.d("MatchUuidsProcessor", "⚔️ Conflict found: local=$oldUuid server=$newUuid. Resolving...")
+
+            // The item and everything that points at it, then its queued tasks. Neither when
+            // another local item already has the server's uuid: that conflict can't be adopted.
+            if (libraryDao.migrateItemUuid(oldUuid, newUuid)) {
+                repository.migrateTaskUuid(oldUuid, newUuid)
+            } else {
+                Log.w("MatchUuidsProcessor", "Another local item already has $newUuid; keeping $oldUuid")
+            }
+        }
     }
 
     override fun canHandle(jobType: String): Boolean {

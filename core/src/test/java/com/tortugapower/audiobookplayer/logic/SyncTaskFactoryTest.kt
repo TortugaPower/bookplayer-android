@@ -23,7 +23,8 @@ class SyncTaskFactoryTest {
     /** Captures the enqueued task; forces the new-task path (no pending task to merge into). */
     private class CapturingRepo : SyncTaskRepository {
         var saved: SyncTaskEntity? = null
-        override suspend fun saveTask(task: SyncTaskEntity) { saved = task }
+        val savedAll = mutableListOf<SyncTaskEntity>()
+        override suspend fun saveTask(task: SyncTaskEntity) { saved = task; savedAll += task }
         override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = null
         override fun getAllTasks(): Flow<List<SyncTaskEntity>> = TODO()
         override suspend fun getPendingTasks(): List<SyncTaskEntity> = TODO()
@@ -201,5 +202,24 @@ class SyncTaskFactoryTest {
             now += 30_001
             assertTrue(SyncTaskFactory.createFetchPreferencesTask(PreferencesRepo(), force = false))
         }
+    }
+
+    // The API rejects more than 1,000 match items with an uncoded 400, which would retry forever
+    @Test fun matchUuidsTask_isSplitIntoTasksOfAtMost1000Items() = runBlocking {
+        val repo = CapturingRepo()
+        val items = (1..2_500).associate { "Book $it.m4b" to "uuid-$it" }
+
+        SyncTaskFactory.createMatchUuidsTask(repo, items)
+
+        val chunks = repo.savedAll.map { (payloadOf(it)["items"] as Map<*, *>) }
+        assertEquals(listOf(1_000, 1_000, 500), chunks.map { it.size })
+        assertEquals(items, chunks.flatMap { chunk -> chunk.entries.map { it.key to it.value } }.toMap())
+        assertEquals(3, repo.savedAll.map { it.taskID }.toSet().size)
+    }
+
+    @Test fun matchUuidsTask_withNoItems_queuesNothing() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createMatchUuidsTask(repo, emptyMap())
+        assertTrue(repo.savedAll.isEmpty())
     }
 }
