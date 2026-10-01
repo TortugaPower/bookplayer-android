@@ -48,22 +48,44 @@ object SyncTaskPicker {
      * blocked lane would pick nothing and retire, and its brief start keeps the sync service from
      * stopping when idle (playback merges progress into the sync lane every few seconds).
      */
-    fun lanesWithWork(tasks: List<SyncTaskEntity>): List<String> {
+    fun lanesWithWork(tasks: List<SyncTaskEntity>, canRun: (jobType: String) -> Boolean = { true }): List<String> {
         val accountHeld = tasks.any { it.pauseScope == TaskPauseScope.ACCOUNT.name }
         return tasks.filter { it.status == SyncTaskStatus.PENDING }.map { it.queueKey }.distinct().filter { lane ->
             val candidates = tasks.filter {
                 it.queueKey == lane && (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.FAILED)
             }
-            runnable(lane, candidates, accountHeld).isNotEmpty()
+            runnable(lane, candidates, accountHeld, canRun).isNotEmpty()
         }
     }
 
-    fun runnable(lane: String, candidates: List<SyncTaskEntity>, accountHeld: Boolean): List<SyncTaskEntity> {
+    /**
+     * Whether a freshly started engine would start a worker, for the launch gate: [lanesWithWork] over
+     * the queue as the engine sees it once it has reset the RUNNING rows a killed process left behind.
+     * Work held by the tier doesn't count, so a lapsed account's queue doesn't start the sync service
+     * on every launch to sit idle.
+     */
+    fun hasStartableWork(tasks: List<SyncTaskEntity>, canRun: (jobType: String) -> Boolean): Boolean {
+        val asStarted = tasks.map { if (it.status == SyncTaskStatus.RUNNING) it.copy(status = SyncTaskStatus.PENDING) else it }
+        return lanesWithWork(asStarted, canRun).isNotEmpty()
+    }
+
+    /**
+     * [canRun] is the account's tier policy (TaskAccessPolicy): a task the tier can't run is held, not
+     * dropped, so it goes out once the subscription is back. A tier allows all of a lane's structural
+     * jobs or none of them, so holding one never runs a later one out of order.
+     */
+    fun runnable(
+        lane: String,
+        candidates: List<SyncTaskEntity>,
+        accountHeld: Boolean,
+        canRun: (jobType: String) -> Boolean = { true },
+    ): List<SyncTaskEntity> {
         if (accountHeld && lane in serverLanes) return emptyList()
         val runnable = mutableListOf<SyncTaskEntity>()
         for (task in candidates) {
             if (task.status == SyncTaskStatus.PENDING) {
                 if (accountHeld && UploadDataPolicy.isFileUploadJob(task.jobType)) continue
+                if (!canRun(task.jobType)) continue
                 runnable += task
                 continue
             }

@@ -142,6 +142,26 @@ object SubscriptionManager {
         })
     }
 
+    /**
+     * A fresh read of the sync entitlement, for an account rejection from the API (iOS
+     * `refreshSyncEntitlement`): true when PRO or LITE is active, false when neither is, null when
+     * RevenueCat can't be reached. The tier is updated like on any read, so an inactive answer runs the
+     * lapse path.
+     */
+    suspend fun refreshSyncEntitlement(): Boolean? {
+        if (!Purchases.isConfigured) return null
+        val info = try {
+            Purchases.sharedInstance.awaitCustomerInfo(CacheFetchPolicy.FETCH_CURRENT)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Couldn't refresh the sync entitlement: ${e.message}")
+            return null
+        }
+        updateAccountTier(info)
+        return info.entitlements["pro"]?.isActive == true || info.entitlements["lite"]?.isActive == true
+    }
+
     // Invoked from RevenueCat SDK callbacks and by the purchase/tip flows (in :app) after a purchase.
     // `_managementUrl` is a StateFlow, so its write is thread-safe regardless of the calling thread.
     fun updateAccountTier(customerInfo: CustomerInfo) {

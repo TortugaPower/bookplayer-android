@@ -9,11 +9,13 @@ import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -113,6 +115,32 @@ class TaskConcurrencyManagerParkingTest {
             val (_, repo) = run(SyncTaskFactory.JOB_MOVE, parkingEnabled = parking) { throw coded("not_subscribed") }
             assertEquals(TaskPauseScope.ACCOUNT, repo.parked.single().scope)
         }
+    }
+
+    /** iOS `verifySyncEntitlement`: an inactive answer updates the tier, which runs the lapse path */
+    @Test fun anAccountRejection_readsTheEntitlementFresh() = runBlocking {
+        val verified = CompletableDeferred<Unit>()
+        val manager = TaskConcurrencyManager(
+            ApplicationProvider.getApplicationContext(), RecordingRepository(), NoAccountRepository(),
+            listOf(ThrowingProcessor(SyncTaskFactory.JOB_MOVE) { throw coded("not_subscribed") }),
+            verifySyncEntitlement = { verified.complete(Unit); false },
+        )
+
+        assertTrue(manager.executeTask(task(SyncTaskFactory.JOB_MOVE)))
+        withTimeout(5_000) { verified.await() }
+    }
+
+    @Test fun aParkThatIsntTheAccounts_doesntAskRevenueCat() = runBlocking {
+        var asked = false
+        val manager = TaskConcurrencyManager(
+            ApplicationProvider.getApplicationContext(), RecordingRepository(), NoAccountRepository(),
+            listOf(ThrowingProcessor(SyncTaskFactory.JOB_MOVE) { throw coded("item_not_found") }),
+            verifySyncEntitlement = { asked = true; true },
+        )
+
+        manager.executeTask(task(SyncTaskFactory.JOB_MOVE))
+        delay(200)
+        assertFalse(asked)
     }
 
     @Test fun withParkingOff_aCodedFailureDropsTheTask() {

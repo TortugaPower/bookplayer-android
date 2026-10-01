@@ -1,9 +1,12 @@
 package com.tortugapower.audiobookplayer.logic
 
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SyncTaskPickerTest {
@@ -99,6 +102,47 @@ class SyncTaskPickerTest {
             inLane(pending("pref", SyncTaskFactory.JOB_UPLOAD_PREFERENCE), SyncTaskFactory.QUEUE_PREFERENCES),
         )
         assertEquals(listOf(SyncTaskFactory.QUEUE_FILE, "jellyfin"), SyncTaskPicker.lanesWithWork(tasks))
+    }
+
+    /** A lapse holds what the tier can't run instead of dropping it */
+    @Test fun tasksTheTierCantRun_areHeld_andTheRestOfTheLaneRuns() {
+        val litePolicy = { jobType: String -> TaskAccessPolicy.canExecuteTask(AccountTier.LITE, jobType) }
+        val candidates = listOf(
+            pending("upload", SyncTaskFactory.JOB_UPLOAD_FILE),
+            pending("download", SyncTaskFactory.JOB_DOWNLOAD_FILE),
+        )
+        assertEquals(
+            listOf("download"),
+            SyncTaskPicker.runnable(SyncTaskFactory.QUEUE_FILE, candidates, accountHeld = false, canRun = litePolicy).map { it.id },
+        )
+    }
+
+    @Test fun lanesWithWork_skipsALaneTheTierHoldsEntirely() {
+        val freePolicy = { jobType: String -> TaskAccessPolicy.canExecuteTask(AccountTier.FREE, jobType) }
+        val tasks = listOf(
+            inLane(pending("s", SyncTaskFactory.JOB_UPDATE), SyncTaskFactory.QUEUE_SYNC),
+            inLane(pending("p", SyncTaskFactory.JOB_EXTERNAL_UPDATE), "jellyfin"),
+        )
+        assertEquals(listOf("jellyfin"), SyncTaskPicker.lanesWithWork(tasks, freePolicy))
+    }
+
+    /** The launch gate: a lapsed account's held queue doesn't start the sync service every launch */
+    @Test fun hasStartableWork_isFalseForAQueueTheTierHolds() {
+        val freePolicy = { jobType: String -> TaskAccessPolicy.canExecuteTask(AccountTier.FREE, jobType) }
+        val proPolicy = { jobType: String -> TaskAccessPolicy.canExecuteTask(AccountTier.PRO, jobType) }
+        val tasks = listOf(
+            inLane(pending("s", SyncTaskFactory.JOB_UPDATE), SyncTaskFactory.QUEUE_SYNC),
+            inLane(pending("u", SyncTaskFactory.JOB_UPLOAD_FILE), SyncTaskFactory.QUEUE_FILE),
+        )
+        assertFalse(SyncTaskPicker.hasStartableWork(tasks, freePolicy))
+        assertTrue(SyncTaskPicker.hasStartableWork(tasks, proPolicy))
+    }
+
+    /** The engine resets a killed process's RUNNING rows to PENDING when it starts */
+    @Test fun hasStartableWork_countsARunningRowLeftByAKilledProcess() {
+        val tasks = listOf(inLane(pending("r").copy(status = SyncTaskStatus.RUNNING), SyncTaskFactory.QUEUE_SYNC))
+        assertTrue(SyncTaskPicker.hasStartableWork(tasks) { true })
+        assertFalse(SyncTaskPicker.hasStartableWork(listOf(inLane(parked("t", "TASK"), SyncTaskFactory.QUEUE_SYNC))) { true })
     }
 
     @Test fun lanesWithWork_ignoresLanesWithOnlyParkedOrRunningTasks() {

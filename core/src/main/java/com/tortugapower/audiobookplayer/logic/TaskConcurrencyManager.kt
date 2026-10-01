@@ -20,6 +20,9 @@ class TaskConcurrencyManager(
     // Off on the watch: it has no Queued Tasks screen to show or retry a parked task, so a coded
     // failure there drops the task instead (SyncFailurePolicy)
     private val parkingEnabled: Boolean = true,
+    // A fresh RevenueCat read after the API rejects the account (true active, false inactive, null
+    // unreachable). Updating the tier runs the lapse path when it's inactive.
+    private val verifySyncEntitlement: suspend () -> Boolean? = { null },
 ) : TaskConcurrencyService {
 
     // A full disk turns the engine's own bookkeeping writes into SQLiteFullException; those are
@@ -59,18 +62,26 @@ class TaskConcurrencyManager(
         if (isProcessing) return
         isProcessing = true
         
-        serviceScope.launch {
+        collectorJob = serviceScope.launch {
             // Reset any tasks that were left in RUNNING state (e.g., from a crash)
             Log.d(TAG, "🧹 Resetting hung RUNNING tasks to PENDING...")
             repository.resetRunningTasks()
             
             Log.d(TAG, "📡 Starting queue worker manager...")
             
+            // A tier change can release work held by the tier policy (a subscription back after a lapse);
+            // the task list doesn't re-emit for it
+            launch {
+                accountRepository.getAccountFlow().map { it?.tier }.distinctUntilChanged().drop(1).collect {
+                    requestWorkerScan()
+                }
+            }
+
             // Watch the queue to know which lanes need workers: only lanes with something runnable
             // (getAllTasks is in queue order)
             repository.getAllTasks().collect { tasks ->
                 if (!isProcessing) return@collect
-                for (queueKey in SyncTaskPicker.lanesWithWork(tasks)) {
+                for (queueKey in SyncTaskPicker.lanesWithWork(tasks, tierPolicy())) {
                     startQueueWorkerIfAbsent(queueKey)
                 }
             }
@@ -98,6 +109,7 @@ class TaskConcurrencyManager(
                             queueKey,
                             repository.getQueueCandidates(queueKey),
                             repository.hasAccountPause(),
+                            tierPolicy(),
                         )
                         // Storage: nothing runs while the disk is critically full (every task ends in a
                         // DB write), and file downloads wait while a transfer is known not to fit. The
@@ -129,6 +141,8 @@ class TaskConcurrencyManager(
                         break
                     }
 
+                    // The pick already held what the tier can't run (a lapse keeps the tasks for when the
+                    // subscription is back); re-checked here against the account read just above
                     if (isHardcoverQueue || TaskAccessPolicy.canExecuteTask(account?.tier, task.jobType)) {
                         val success = executeTask(task)
                         if (!success) {
@@ -138,8 +152,8 @@ class TaskConcurrencyManager(
                             delay(300) // Small breather between tasks
                         }
                     } else {
-                        Log.w(TAG, "🚫 Policy restricted task ${task.jobType} for queue $queueKey. Discarding.")
-                        repository.deleteTask(task)
+                        Log.w(TAG, "🚫 Tier holds ${task.jobType} for queue $queueKey. Worker retiring.")
+                        break
                     }
                 }
             } finally {
@@ -159,7 +173,7 @@ class TaskConcurrencyManager(
     fun requestWorkerScan() {
         if (!isProcessing) return
         serviceScope.launch {
-            SyncTaskPicker.lanesWithWork(repository.getAllTasks().first())
+            SyncTaskPicker.lanesWithWork(repository.getAllTasks().first(), tierPolicy())
                 .forEach { queueKey -> startQueueWorkerIfAbsent(queueKey) }
         }
     }
@@ -245,9 +259,14 @@ class TaskConcurrencyManager(
                 park(task, action.scope, requireNotNull(failure))
                 true
             }
-            // Every server lane holds behind it until the launch retry or the user's Retry
+            // Every server lane holds behind it until the launch retry or the user's Retry. Off the
+            // worker, RevenueCat is read fresh: an inactive answer updates the tier (the lapse path)
             SyncFailureAction.VerifyAccount -> {
                 park(task, TaskPauseScope.ACCOUNT, requireNotNull(failure))
+                serviceScope.launch {
+                    val active = verifySyncEntitlement()
+                    Log.w(TAG, "Account rejected by the API; RevenueCat says sync is ${active ?: "unknown"}")
+                }
                 true
             }
             SyncFailureAction.Drop -> {
@@ -256,6 +275,12 @@ class TaskConcurrencyManager(
                 true
             }
         }
+    }
+
+    /** The tier's task policy, read now (TaskAccessPolicy; hardcover and media-server jobs always run) */
+    private suspend fun tierPolicy(): (String) -> Boolean {
+        val tier = accountRepository.getAccount()?.tier
+        return { jobType -> TaskAccessPolicy.canExecuteTask(tier, jobType) }
     }
 
     // The code only: the API's message names files

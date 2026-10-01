@@ -12,6 +12,8 @@ import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PreferencesPullTriggers
 import com.tortugapower.audiobookplayer.logic.SyncHostLaunchGate
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.logic.SyncTaskPicker
+import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
@@ -33,6 +35,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import com.tortugapower.audiobookplayer.logic.StorageMonitor
 
@@ -160,7 +163,16 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             // storage is critical: the gate avoids opening the database then, and the engine would hold
             // the work anyway (the next launch retries).
             if (!StorageMonitor.isCritical) syncTaskRepository.resumeAllPaused()
-            if (SyncHostLaunchGate.shouldStart(StorageMonitor.isCritical, syncTaskRepository::countActiveTasks)) {
+            val hasStartableWork: suspend () -> Boolean = {
+                // The count first: most launches have an empty queue and skip loading it
+                syncTaskRepository.countActiveTasks() > 0 && run {
+                    val tier = accountRepository.getAccount()?.tier
+                    SyncTaskPicker.hasStartableWork(syncTaskRepository.getAllTasks().first()) {
+                        TaskAccessPolicy.canExecuteTask(tier, it)
+                    }
+                }
+            }
+            if (SyncHostLaunchGate.shouldStart(StorageMonitor.isCritical, hasStartableWork)) {
                 TaskConcurrencyServiceHost.start(this@BookPlayerApplication)
             }
         }

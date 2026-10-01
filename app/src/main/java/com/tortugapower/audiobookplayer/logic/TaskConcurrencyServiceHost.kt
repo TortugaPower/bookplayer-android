@@ -163,7 +163,10 @@ class TaskConcurrencyServiceHost : Service() {
             PreferenceFetchProcessor(this, repository)
         )
 
-        taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)
+        taskConcurrencyManager = TaskConcurrencyManager(
+            this, repository, accountRepository, processors,
+            verifySyncEntitlement = { SubscriptionManager.refreshSyncEntitlement() },
+        )
         Log.d(TAG, "🚀 Triggering taskConcurrencyManager.startProcessing()")
         taskConcurrencyManager.startProcessing()
 
