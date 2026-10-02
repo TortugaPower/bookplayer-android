@@ -746,10 +746,11 @@ object PlaybackManager {
                     if (remoteChapterAttempts.size >= REMOTE_ATTEMPT_CAP) remoteChapterAttempts.clear()
                     remoteChapterAttempts.add(sub.uuid)                                             // false: attempted this session
                 }
-                // One lookup for the lot: a streamed volume's books share their server item.
-                val resolved = repo.resolveStreamingUrls(pending)
+                // Playback has just resolved and saved these URLs: only books still without one are looked
+                // up (one lookup for the lot — a streamed volume's books share their server item).
+                repo.resolveStreamingUrls(pending.filter { it.remoteURL.isNullOrEmpty() })
                 var extractedAny = false
-                for (sub in resolved) {
+                for (sub in pending) {
                     val url = sub.remoteURL?.takeIf { it.isNotEmpty() } ?: continue
                     val ext = audioExtensionFor(sub, url)
                     val headers = getHeadersForUri(android.net.Uri.parse(url))
