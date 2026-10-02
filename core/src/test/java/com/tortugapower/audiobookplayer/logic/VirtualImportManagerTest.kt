@@ -295,6 +295,7 @@ class VirtualImportManagerTest {
         override suspend fun getExternalResource(itemUuid: String, provider: String): ExternalResourceEntity? =
             externalResources.find { it.libraryItemUuid == itemUuid && it.providerName == provider }
 
+        override suspend fun markExternalResourceFileProcessed(id: Long): Unit = TODO()
         override fun getRootItems(): Flow<List<LibraryItemEntity>> = TODO()
         override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = TODO()
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = TODO()

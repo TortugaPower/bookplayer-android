@@ -255,8 +255,8 @@ object SyncTaskFactory {
 
     /**
      * Queues the book's file upload from the sync lane, after the tasks ahead of it there (iOS
-     * `externalResourceToDownload`): for a media-server book, whose registration never asks for its file,
-     * once it's registered again. No server call of its own.
+     * `externalResourceToDownload`): for a streamed media-server book, whose registration never asks for its
+     * file, once it's downloaded ([DownloadFileProcessor]) or registered again. No server call of its own.
      */
     suspend fun createQueueFileUploadTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
         val payload = mapOf(

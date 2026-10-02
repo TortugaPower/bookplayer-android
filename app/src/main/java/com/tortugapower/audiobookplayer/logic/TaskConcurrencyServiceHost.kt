@@ -154,7 +154,7 @@ class TaskConcurrencyServiceHost : Service() {
             ArtworkUploadProcessor(this),
             DeleteBookmarkProcessor(),
             SetBookmarkProcessor(),
-            DownloadFileProcessor(this),
+            DownloadFileProcessor(this, syncTasks = repository),
             MatchUuidsProcessor(this, repository),
             HardcoverProcessor(this),
             UploadExternalResourceProcessor(),

@@ -17,6 +17,7 @@ import com.tortugapower.audiobookplayer.network.throwIfCoded
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -553,6 +554,8 @@ class DownloadFileProcessor(
     /** The file's playing time in seconds, or null when it can't be read */
     private val durationOf: (File) -> Double? = ::readDurationSeconds,
     private val onFailedForGood: (uuid: String, title: String) -> Unit = SyncStatusManager::notifyDownloadFailed,
+    /** Where a streamed book's upload is queued once it's downloaded: the phone's queue. The watch uploads nothing, as on iOS. */
+    private val syncTasks: SyncTaskRepository? = null,
 ) : TaskProcessor {
     companion object {
         // One base client for every download (and retry); per-server variants derive via newBuilder(),
@@ -720,6 +723,8 @@ class DownloadFileProcessor(
                 moved = true
                 SyncStatusManager.clearCancel(taskId)
                 Log.d("DownloadFileProcessor", "✅ Download complete: $relativePath")
+                // The file is in place: a stopped worker mustn't leave it downloaded but never queued to upload
+                owner?.let { withContext(NonCancellable) { queueUploadAfterDownload(taskId, it) } }
                 true
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -764,6 +769,31 @@ class DownloadFileProcessor(
         SyncStatusManager.clearCancel(uuid)
         onFailedForGood(uuid, title)
         return true
+    }
+
+    /**
+     * A streamed book's file goes to the cloud once it's downloaded (iOS `finalizeDownloadedFile`): its
+     * registration never asked for it, and the media server held it meanwhile. Queued from the sync lane,
+     * after the tasks ahead of it there, by a task that checks the tier and the file. Never fails the
+     * download, which is already in place: a book whose upload couldn't be queued still streams.
+     */
+    private suspend fun queueUploadAfterDownload(uuid: String, owner: MediaServerStreams.Owner) {
+        val syncTasks = syncTasks ?: return
+        // The server marks the link "downloaded" once the book's file has reached the cloud
+        if (owner.resource.syncStatus != ExternalResourceEntity.STATUS_STREAM) return
+        try {
+            val dao = AppDatabase.getDatabase(context).libraryDao()
+            val book = dao.getItemById(uuid) ?: return
+            // Like iOS, on the book's own link; a volume's link stands for the whole item
+            if (owner.item.uuid == uuid) dao.markExternalResourceFileProcessed(owner.resource.id)
+            if (syncTasks.hasQueuedTask(SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD, uuid) ||
+                syncTasks.hasQueuedTask(SyncTaskFactory.JOB_UPLOAD_FILE, uuid)
+            ) return
+            SyncTaskFactory.createQueueFileUploadTask(syncTasks, book)
+        } catch (e: Exception) {
+            StorageMonitor.reportFailure(context, e)
+            Log.e("DownloadFileProcessor", "Couldn't queue the upload of downloaded $uuid", e)
+        }
     }
 
     private fun sweepPartsOnce() {

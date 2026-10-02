@@ -10,7 +10,9 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
+import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.TokenCipher
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -107,10 +109,16 @@ class DownloadFileProcessorTest {
         )
     }
 
+    private val syncTasks by lazy { RoomSyncTaskRepository(AppDatabase.getDatabase(context).syncTaskDao()) }
+
     private fun processor(
         durationOf: (File) -> Double? = { null },
         failures: MutableList<String> = mutableListOf(),
-    ) = DownloadFileProcessor(context, serverRepository(), durationOf = durationOf, onFailedForGood = { _, title -> failures += title })
+        queuesUploads: Boolean = false,
+    ) = DownloadFileProcessor(
+        context, serverRepository(), durationOf = durationOf, onFailedForGood = { _, title -> failures += title },
+        syncTasks = syncTasks.takeIf { queuesUploads },
+    )
 
     @Test fun `container download task is dropped as done, not retried`() = runBlocking {
         AppDatabase.getDatabase(context).libraryDao()
@@ -498,5 +506,89 @@ class DownloadFileProcessorTest {
         )
         assertTrue(processor(failures = failures).process(noPath))
         assertEquals(listOf("No Path"), failures)
+    }
+
+    // ---- After a download: a streamed book's file goes to the cloud (iOS finalizeDownloadedFile) ----
+
+    private suspend fun queuedUploads() = syncTasks.getAllTasks().first().filter { it.jobType == SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD }
+
+    private suspend fun linkOf(uuid: String) = AppDatabase.getDatabase(context).libraryDao().getExternalResourcesForBookSync(uuid).single()
+
+    @Test fun `a streamed book's download queues its upload from the sync lane and marks its link`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor(queuesUploads = true).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        val queued = queuedUploads().single()
+        assertEquals(uuid, queued.taskID)
+        assertEquals(SyncTaskFactory.QUEUE_SYNC, queued.queueKey)
+        assertTrue(linkOf(uuid).processedFile)
+        // The link still streams: the server says when the file reached the cloud
+        assertEquals(ExternalResourceEntity.STATUS_STREAM, linkOf(uuid).syncStatus)
+    }
+
+    @Test fun `a volume's book queues its upload and leaves the volume's link alone`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor(queuesUploads = true).process(childDownloadTask(mediaServer.url("/api/items/abs-1/file/222").toString())))
+
+        assertEquals(listOf(childUuid), queuedUploads().map { it.taskID })
+        assertFalse(linkOf("abs-vol").processedFile)
+    }
+
+    /** The watch registers no queue for it: it uploads nothing, as on iOS */
+    @Test fun `the watch queues no upload`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor().process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertTrue(queuedUploads().isEmpty())
+        assertFalse(linkOf(uuid).processedFile)
+    }
+
+    @Test fun `a cloud book's download queues nothing`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor(queuesUploads = true).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertTrue(syncTasks.getAllTasks().first().isEmpty())
+    }
+
+    @Test fun `a download that fails for good queues nothing`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setResponseCode(401))
+
+        assertTrue(processor(queuesUploads = true).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertTrue(queuedUploads().isEmpty())
+        assertFalse(linkOf(uuid).processedFile)
+    }
+
+    /** The server marks the link "downloaded" once the book's file is in the cloud */
+    @Test fun `a book whose file is already in the cloud queues nothing`() = runBlocking {
+        insertJellyfinBook()
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        dao.insertExternalResource(linkOf(uuid).copy(syncStatus = ExternalResourceEntity.STATUS_DOWNLOADED))
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor(queuesUploads = true).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertTrue(queuedUploads().isEmpty())
+    }
+
+    @Test fun `downloading a book again doesn't queue a second upload`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+        val task = bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())
+
+        assertTrue(processor(queuesUploads = true).process(task))
+        assertTrue(processor(queuesUploads = true).process(task))
+
+        assertEquals(1, queuedUploads().size)
     }
 }

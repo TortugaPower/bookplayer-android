@@ -372,6 +372,7 @@ class RoomLibraryRepositoryTest {
             return items.values.filter { it.relativePath?.startsWith(path) == true }
         }
 
+        override suspend fun markExternalResourceFileProcessed(id: Long): Unit = TODO()
         override fun getRootItems(): Flow<List<LibraryItemEntity>> = TODO()
         override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = TODO()
         override suspend fun getRootItemsSync(): List<LibraryItemEntity> = TODO()
