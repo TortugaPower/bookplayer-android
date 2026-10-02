@@ -523,7 +523,7 @@ class LibraryViewModel(
         }
     }
 
-    /** iOS-parity "Delete folder only": contents move back to the library root, folder row goes. */
+    /** iOS-parity "Delete folder only": contents move up into the folder's parent, folder row goes. */
     fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -535,7 +535,7 @@ class LibraryViewModel(
     }
 
     private val _folderNotDeleted = MutableStateFlow<Int?>(null)
-    /** Set when a folder-only delete was refused: how many of its items have names taken at the root. */
+    /** Set when a folder-only delete was refused: how many of its items have names taken in its parent. */
     val folderNotDeleted: StateFlow<Int?> = _folderNotDeleted.asStateFlow()
 
     fun clearFolderNotDeleted() {

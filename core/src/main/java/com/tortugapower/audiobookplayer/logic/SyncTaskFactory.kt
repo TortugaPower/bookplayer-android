@@ -137,7 +137,7 @@ object SyncTaskFactory {
 
     /**
      * iOS-parity shallow folder delete ("Delete folder only"): tells the server to move the
-     * folder's contents back to the library root and drop the folder row
+     * folder's contents up into its parent (the root for a top-level folder) and drop the folder row
      * (DELETE /v1/library/folder_in_out — the same endpoint iOS's shallowDelete job hits).
      */
     suspend fun createShallowDeleteTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
