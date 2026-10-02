@@ -516,7 +516,11 @@ object ImportManager : ImportService {
                             importDirectory(
                                 context, libraryDao, syncTaskRepository, importFile,
                                 baseDir, targetFolderPath, currentMaxRank, isSubscribed, isPro
-                            )?.let { createdItems.add(it) }
+                            )?.let { item ->
+                                createdItems.add(item)
+                                // A downloaded media-server volume is matched once, like a streamed one.
+                                if (item.type == ItemType.BOUND) enqueueHardcoverAutoMatch(context, syncTaskRepository, item.uuid)
+                            }
                         } else if (importFile.isFileOnly) {
                             val existingItem = libraryDao.getItemByFileName(importFile.name)
                             if (existingItem != null) {
@@ -613,7 +617,9 @@ object ImportManager : ImportService {
     /**
      * Imports a staged directory (an archive's top-level folder) as a single FOLDER item whose
      * contents move with it: audio files inside become BOOK children, nested directories become
-     * nested FOLDERs. Returns the created folder item.
+     * nested FOLDERs. Returns the created folder item. A directory carrying a media-server item's
+     * tags is that item's books ([stageMediaServerDownload]): it becomes a BOUND volume with the
+     * item's link, like a streamed volume.
      */
     @androidx.annotation.VisibleForTesting
     internal suspend fun importDirectory(
@@ -628,18 +634,25 @@ object ImportManager : ImportService {
         isPro: Boolean
     ): LibraryItemEntity? {
         val sourceDir = importFile.file ?: return null
-        val destDir = ImportArchiveUtils.uniqueDestination(baseDir, importFile.name)
+        // Free in the library too: a streamed volume of the same title has no folder on disk, and two
+        // items (and their books) at one path would mix.
+        val destDir = ImportArchiveUtils.uniqueDirectory(baseDir, importFile.name) { name ->
+            libraryDao.getItemByPath(if (basePath == null) name else "$basePath/$name") != null
+        }
         if (!sourceDir.renameTo(destDir)) {
             sourceDir.copyRecursively(destDir, overwrite = false)
             sourceDir.deleteRecursively()
         }
 
         val folderPath = if (basePath == null) destDir.name else "$basePath/${destDir.name}"
+        val providerName = importFile.providerName?.takeIf { it.isNotBlank() }
+        val providerId = importFile.providerId?.takeIf { it.isNotBlank() }
+        val isVolume = providerName != null && providerId != null
         val folderItem = LibraryItemEntity(
             uuid = java.util.UUID.randomUUID().toString(),
             title = destDir.name,
             relativePath = folderPath,
-            type = ItemType.FOLDER,
+            type = if (isVolume) ItemType.BOUND else ItemType.FOLDER,
             orderRank = orderRank
         )
         libraryDao.insertItem(folderItem)
@@ -647,11 +660,13 @@ object ImportManager : ImportService {
             SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, folderItem)
         }
 
-        // Media-server provenance (e.g. an Audiobookshelf multitrack zip) links to the folder.
-        if (!importFile.providerName.isNullOrBlank() && !importFile.providerId.isNullOrBlank()) {
+        importDirectoryContents(context, libraryDao, syncTaskRepository, destDir, folderPath, isSubscribed, isPro)
+
+        if (providerName != null && providerId != null) {
+            // After the volume and its books: the server files the link under the volume.
             val externalResource = ExternalResourceEntity(
-                providerName = importFile.providerName,
-                providerId = importFile.providerId,
+                providerName = providerName,
+                providerId = providerId,
                 syncStatus = ExternalResourceEntity.STATUS_SYNCED,
                 libraryItemUuid = folderItem.uuid,
                 hostId = importFile.hostId
@@ -661,8 +676,6 @@ object ImportManager : ImportService {
                 SyncTaskFactory.createUploadExternalResourceTask(syncTaskRepository, externalResource)
             }
         }
-
-        importDirectoryContents(context, libraryDao, syncTaskRepository, destDir, folderPath, isSubscribed, isPro)
 
         // Roll up duration / "N Files" label onto the new folder (and any ancestors). The child
         // path form is what refreshParentMetadata walks up from.
@@ -766,7 +779,8 @@ object ImportManager : ImportService {
      * silently. On success, only the temp dir's top level is enumerated (hidden entries skipped,
      * no descent) and appended to the queue — so an archive nested at another archive's top
      * level is extracted the same way, and only audio files, directories, and archives are
-     * staged. Directories stage as single entries and later import as one folder item.
+     * staged. Directories stage as single entries and later import as one folder item. A
+     * media-server download's archive is the exception ([stageMediaServerDownload]).
      */
     @androidx.annotation.VisibleForTesting
     internal suspend fun expandArchives(
@@ -801,10 +815,13 @@ object ImportManager : ImportService {
                 continue
             }
 
+            if (!entry.providerName.isNullOrBlank() && !entry.providerId.isNullOrBlank()) {
+                result += stageMediaServerDownload(tempDir, entry, backupDir, processedDir, libraryDao)
+                tempDir.deleteRecursively()
+                continue
+            }
+
             val topLevel = ImportArchiveUtils.topLevelEntries(tempDir)
-            // Provider tags (media-server downloads) only stay meaningful when the archive maps
-            // to a single library item — e.g. an Audiobookshelf multitrack zip with one root folder.
-            val inheritTags = topLevel.size == 1
             topLevel.forEach { extractedEntry ->
                 if (!extractedEntry.isDirectory &&
                     !ImportArchiveUtils.isArchive(extractedEntry.name) &&
@@ -817,27 +834,81 @@ object ImportManager : ImportService {
                     extractedEntry.copyRecursively(dest, overwrite = false)
                     extractedEntry.deleteRecursively()
                 }
-                // Re-import of an offloaded book: restore its file instead of creating a new item
-                // (same staging check startImport applies to direct picks).
-                val isFileOnly = !dest.isDirectory && run {
-                    val existingItem = libraryDao.getItemByFileName(dest.name)
-                    existingItem != null &&
-                        !File(processedDir, existingItem.relativePath ?: dest.name).exists()
-                }
-                queue.addLast(
-                    ImportFile(
-                        name = dest.name,
-                        file = dest,
-                        providerName = if (inheritTags) entry.providerName else null,
-                        providerId = if (inheritTags) entry.providerId else null,
-                        hostId = if (inheritTags) entry.hostId else null,
-                        isFileOnly = isFileOnly
-                    )
-                )
+                queue.addLast(ImportFile(name = dest.name, file = dest, isFileOnly = isOffloadedRestore(dest, processedDir, libraryDao)))
             }
             tempDir.deleteRecursively()
         }
         return result
+    }
+
+    /**
+     * A media-server item's download zip ([archive]'s tags), extracted at [tempDir]. AudiobookShelf zips the
+     * item's folder with no root folder: one file, a file and its cover, the tracks, or disc subfolders. Only
+     * the audio files matter, wherever they sit in it.
+     * - One: the item's book, staged with the item's tags so it gets its link. Unless its name matches an
+     *   offloaded book ([isOffloadedRestore]), which it restores instead, keeping that book's links (decided: an
+     *   edge case, and importing it again then makes a new linked book).
+     * - Several: the item's books, staged as one directory named after the archive that carries the item's
+     *   tags, so it imports as a linked volume ([importDirectory]). The books are flattened into it, named
+     *   like a streamed volume's ([VirtualImportManager.volumeChildFileNames]: `Disc 1/01.mp3` ->
+     *   `Disc 1 - 01.mp3`). Inside a directory, they're never matched to an offloaded book by name: a
+     *   generic track name (`01.mp3`) would fill another item's book.
+     */
+    private suspend fun stageMediaServerDownload(
+        tempDir: File,
+        archive: ImportFile,
+        backupDir: File,
+        processedDir: File,
+        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
+    ): List<ImportFile> {
+        val files = tempDir.walkTopDown()
+            .onEnter { it == tempDir || (!it.isHidden && !it.name.startsWith(".") && it.name != "__MACOSX") }
+            .filter { it.isFile && !it.name.startsWith(".") }
+            .toList()
+        // AudiobookShelf doesn't serve archives as audio: an archive inside the item's folder isn't one of its books.
+        files.count { ImportArchiveUtils.isArchive(it.name) }.takeIf { it > 0 }?.let { skipped ->
+            android.util.Log.w("ImportManager", "Skipping $skipped archive(s) inside ${archive.name}: only its audio files are the item's books")
+        }
+        val audio = files
+            .filter { ImportArchiveUtils.isAudioFile(it.name) }
+            .map { it to it.relativeTo(tempDir).invariantSeparatorsPath }
+            .sortedWith(compareBy(ImportArchiveUtils.naturalOrderComparator) { it.second })
+            .toList()
+        if (audio.isEmpty()) return emptyList()
+
+        if (audio.size == 1) {
+            val dest = ImportArchiveUtils.uniqueDestination(backupDir, audio.single().first.name)
+            moveFile(audio.single().first, dest)
+            return listOf(
+                archive.copy(name = dest.name, file = dest, isFileOnly = isOffloadedRestore(dest, processedDir, libraryDao))
+            )
+        }
+
+        val volumeDir = ImportArchiveUtils.uniqueDirectory(backupDir, ImportArchiveUtils.stripExtension(archive.name)).apply { mkdirs() }
+        val names = VirtualImportManager.volumeChildFileNames(audio.map { it.second })
+        audio.forEachIndexed { index, (file, _) -> moveFile(file, File(volumeDir, names[index])) }
+        return listOf(archive.copy(name = volumeDir.name, file = volumeDir, isFileOnly = false))
+    }
+
+    private fun moveFile(source: File, dest: File) {
+        if (!source.renameTo(dest)) {
+            source.copyTo(dest)
+            source.delete()
+        }
+    }
+
+    /**
+     * Re-import of an offloaded book: restore its file instead of creating a new item (same staging check
+     * startImport applies to direct picks).
+     */
+    private suspend fun isOffloadedRestore(
+        dest: File,
+        processedDir: File,
+        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
+    ): Boolean {
+        if (dest.isDirectory) return false
+        val existingItem = libraryDao.getItemByFileName(dest.name) ?: return false
+        return !File(processedDir, existingItem.relativePath ?: dest.name).exists()
     }
 
     private suspend fun enqueueHardcoverAutoMatch(

@@ -168,6 +168,18 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     media-server link, with one book per file named by its flattened path inside the item's folder
     (`VirtualImportManager.volumeChildFileNames`: `Disc 1/01.mp3` → `Disc 1 - 01.mp3`; a name two paths
     flatten to gets `-2` on the later one, and lookups rebuild the names the same way to match them).
+  - **A media-server download lands like a stream import.** The browse-screen Download saves the item's
+    file, or, for ABS, a zip of the item's folder with no root folder (`ImportManager.expandArchives` →
+    `stageMediaServerDownload`). Only its audio files count, so a `cover.jpg` doesn't make a second item.
+    - One audio file is the item's book and carries the link (`synced`).
+    - Several are staged as one directory named after the download, carrying the item's tags, so
+      `importDirectory` creates a **volume** with the link. Its books are flattened, named like a
+      streamed volume's (`volumeChildFileNames`).
+    - Inside that directory the books are never matched to an offloaded book by name: generic track
+      names would fill another item's book. A second download of the same item is a second volume
+      (`Title-1`, `ImportArchiveUtils.uniqueDirectory`). The name must also be free in the library: a
+      streamed volume of that title has no folder on disk, and the paths would collide.
+    - Zips the user imports keep their folders, and an untagged folder stays a FOLDER.
   - **Stream URLs are looked up at play/download time** (`MediaServerStreams`, behind
     `LibraryRepository.externalStreamUrl(s)For`). Jellyfin serves an item from one URL
     (`ExternalServiceUtils.downloadUrlFor`). ABS serves raw audio only per file: its item download is a
