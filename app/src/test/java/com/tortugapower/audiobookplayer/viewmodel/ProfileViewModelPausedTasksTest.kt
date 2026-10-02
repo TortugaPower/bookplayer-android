@@ -9,6 +9,7 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.SyncEngineWaker
 import com.tortugapower.audiobookplayer.logic.SyncFailurePolicy
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.logic.UploadHandBack
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import kotlinx.coroutines.Dispatchers
@@ -65,7 +66,7 @@ class ProfileViewModelPausedTasksTest {
     @Test fun retry_resumesTheTask_andWakesTheEngine() = runBlocking {
         db.syncTaskDao().insertTask(parked("t", "item_not_found"))
 
-        viewModel.retryPausedTask("t")
+        viewModel.retryPausedTask(requireNotNull(db.syncTaskDao().getTaskById("t")))
 
         until { db.syncTaskDao().getTaskById("t")?.status == SyncTaskStatus.PENDING }
         val resumed = requireNotNull(db.syncTaskDao().getTaskById("t"))
@@ -93,5 +94,18 @@ class ProfileViewModelPausedTasksTest {
 
         assertEquals(listOf("t"), report.queuedTasks.map { it.id })
         assertTrue(report.library.isEmpty())
+    }
+
+    /** An upload's Retry asks for the book again: it may be registered again this session */
+    @Test fun retryingAnUpload_allowsAnotherRegistration() = runBlocking {
+        val book = "book-for-retry"
+        val upload = parked("u", "item_not_found", SyncTaskFactory.JOB_UPLOAD_FILE).copy(taskID = book, payload = """{"uuid":"$book"}""")
+        db.syncTaskDao().insertTask(upload)
+        UploadHandBack.claim(book)
+
+        viewModel.retryPausedTask(upload)
+
+        assertTrue("released", UploadHandBack.claim(book))
+        UploadHandBack.release(book)
     }
 }

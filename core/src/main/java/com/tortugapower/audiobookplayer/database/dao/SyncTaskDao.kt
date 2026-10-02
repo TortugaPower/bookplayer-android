@@ -151,6 +151,10 @@ interface SyncTaskDao {
     )
     suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity?
 
+    /** Moves every [jobType] task to [queueKey]: returns how many moved */
+    @Query("UPDATE sync_tasks SET queueKey = :queueKey WHERE jobType = :jobType AND queueKey != :queueKey")
+    suspend fun moveToLane(jobType: String, queueKey: String): Int
+
     /** Writes a task's payload whatever its status: 0 when it's gone */
     @Query("UPDATE sync_tasks SET payload = :payload WHERE id = :id")
     suspend fun saveTaskPayload(id: String, payload: String): Int

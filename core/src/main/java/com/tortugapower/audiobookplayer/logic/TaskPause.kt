@@ -41,6 +41,7 @@ object SyncTaskPicker {
         SyncTaskFactory.QUEUE_SYNC,
         SyncTaskFactory.QUEUE_PREFERENCES,
         SyncTaskFactory.QUEUE_PIPE,
+        SyncTaskFactory.QUEUE_UPLOAD,
     )
 
     /**

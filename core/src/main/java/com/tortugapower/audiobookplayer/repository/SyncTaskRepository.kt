@@ -75,6 +75,12 @@ interface SyncTaskRepository {
     /** Every parked task back to pending: the one automatic retry, when the app is opened. Returns how many. */
     suspend fun resumeAllPaused(): Int = 0
 
+    /** Moves every [jobType] task to [queueKey] (an older build queued it elsewhere) */
+    suspend fun moveToLane(jobType: String, queueKey: String) {
+        getTasksByStatus(SyncTaskStatus.PENDING).filter { it.jobType == jobType && it.queueKey != queueKey }
+            .forEach { updateTask(it.copy(queueKey = queueKey)) }
+    }
+
     /**
      * Writes a running upload's multipart state into its stored payload, the rest untouched (a uuid
      * migration meanwhile is kept). False when the task is gone: cleared by a sign-out or a lapse, so stop.

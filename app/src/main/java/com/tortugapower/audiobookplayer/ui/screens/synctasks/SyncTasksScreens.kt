@@ -54,6 +54,7 @@ import kotlinx.coroutines.withContext
 private fun laneName(queueKey: String): String = when (queueKey.lowercase()) {
     SyncTaskFactory.QUEUE_SYNC -> stringResource(R.string.sync_queue_sync)
     SyncTaskFactory.QUEUE_FILE -> stringResource(R.string.sync_queue_file)
+    SyncTaskFactory.QUEUE_UPLOAD -> stringResource(R.string.sync_queue_upload)
     SyncTaskFactory.QUEUE_PIPE -> stringResource(R.string.sync_queue_pipe)
     SyncTaskFactory.QUEUE_PREFERENCES -> stringResource(R.string.sync_queue_preferences)
     SyncTaskFactory.QUEUE_HARDCOVER -> stringResource(R.string.sync_queue_hardcover)
@@ -65,6 +66,7 @@ private fun laneName(queueKey: String): String = when (queueKey.lowercase()) {
 private fun laneIcon(queueKey: String): ImageVector = when (queueKey.lowercase()) {
     SyncTaskFactory.QUEUE_SYNC -> Icons.Default.CloudSync
     SyncTaskFactory.QUEUE_FILE -> Icons.Default.SwapVert
+    SyncTaskFactory.QUEUE_UPLOAD -> Icons.Default.CloudUpload
     SyncTaskFactory.QUEUE_PIPE -> Icons.Default.CloudUpload
     SyncTaskFactory.QUEUE_PREFERENCES -> Icons.Default.Tune
     SyncTaskFactory.QUEUE_HARDCOVER -> Icons.AutoMirrored.Filled.MenuBook
@@ -156,7 +158,7 @@ fun QueuedTasksScreen(
                             QueuedTaskRow(
                                 task = task,
                                 progress = progressMap[task.id],
-                                onRetry = { viewModel.retryPausedTask(task.id) },
+                                onRetry = { viewModel.retryPausedTask(task) },
                                 onReport = { report(task) },
                                 onDismiss = { viewModel.dismissPausedTask(task) },
                             )
@@ -277,6 +279,8 @@ private fun QueuedTaskRow(
         SyncTaskFactory.JOB_UPLOAD_ARTWORK -> Icons.Default.Image to stringResource(R.string.sync_task_upload_artwork)
         SyncTaskFactory.JOB_FETCH_CONTENTS -> Icons.Default.Refresh to stringResource(R.string.sync_task_fetch_library)
         SyncTaskFactory.JOB_UPLOAD_FILE -> Icons.Default.Upload to stringResource(R.string.sync_task_upload_audio)
+        // The step that queues the upload once the book is registered: shown as the upload it leads to
+        SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD -> Icons.Default.Upload to stringResource(R.string.sync_task_upload_audio)
         SyncTaskFactory.JOB_UPLOAD_STREAM_FILE -> Icons.Default.CloudUpload to stringResource(R.string.sync_task_upload_stream_file)
         SyncTaskFactory.JOB_DOWNLOAD_FILE -> Icons.Default.Download to stringResource(R.string.sync_task_download_audio)
         SyncTaskFactory.JOB_SYNC_IDENTIFIERS -> Icons.Default.Person to stringResource(R.string.sync_task_sync_identifiers)

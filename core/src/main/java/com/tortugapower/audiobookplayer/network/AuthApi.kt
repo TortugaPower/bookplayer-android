@@ -62,10 +62,8 @@ object NetworkClient {
         // Report our backend's failed responses (5xx) to Sentry. Everything is EXPLICIT so the
         // scope is executable, not comment-enforced: captureFailedRequests defaulted to false in
         // Sentry 6.x and true in 7.x (a future major bump must not silently change behavior), and
-        // failedRequestTargets pins capture to our API host even though this Retrofit also
-        // exposes an absolute-@Url endpoint (LibraryApi.uploadFile) that could someday carry
-        // presigned-S3 traffic. Third-party (Jellyfin/ABS/Hardcover/GitHub) and S3 transfer
-        // clients elsewhere stay uninstrumented. On targets that never init Sentry (wear), this
+        // failedRequestTargets pins capture to our API host. Third-party (Jellyfin/ABS/Hardcover/
+        // GitHub) and S3 transfer clients (S3Transfer) are separate and stay uninstrumented. On targets that never init Sentry (wear), this
         // binds to NoOpHub and is inert.
         .addInterceptor(
             io.sentry.okhttp.SentryOkHttpInterceptor(

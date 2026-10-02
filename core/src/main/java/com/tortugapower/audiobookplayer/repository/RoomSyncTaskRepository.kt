@@ -109,6 +109,11 @@ class RoomSyncTaskRepository(
         syncTaskDao.countActiveTasksInQueue(queueKey)
     }
 
+    override suspend fun moveToLane(jobType: String, queueKey: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.moveToLane(jobType, queueKey)
+        Unit
+    }
+
     override suspend fun saveUploadState(id: String, state: MultipartUploadState): Boolean = withContext(Dispatchers.IO) {
         syncTaskDao.saveUploadState(id, state)
     }

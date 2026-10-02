@@ -41,6 +41,8 @@ import java.util.concurrent.atomic.AtomicLong
  *   forgotten and the server's code parks the task.
  * - A part refused or failing [MultipartUpload.PART_ATTEMPTS] times in one run, a 5xx, or no network:
  *   a plain retry, which resumes from S3's list.
+ * - `item_not_found`: the server lost the book, so it's registered again ([UploadHandBack]), once per
+ *   book per process, and this task ends; the registration queues a new upload.
  * - Any other coded answer reaches the engine, which parks the task (or verifies the account).
  * - Uploads held to Wi-Fi (checked after every part and every few seconds while parts are in flight,
  *   since the network can change mid-part): the in-flight parts are cancelled and [UploadsHeldException]
@@ -58,12 +60,30 @@ class MultipartUploadProcessor(
     private val onProgress: (taskId: String, fraction: Double) -> Unit = SyncStatusManager::updateTaskProgress,
     /** How often the Wi-Fi hold is checked while waiting on parts in flight */
     private val holdCheckIntervalMs: Long = 5_000,
+    /** Registers the book again after `item_not_found` ([UploadHandBack.reRegister]); false when it's gone */
+    private val reRegister: suspend (uuid: String) -> Boolean = { false },
 ) : TaskProcessor {
 
     override fun canHandle(jobType: String): Boolean = jobType == SyncTaskFactory.JOB_UPLOAD_FILE
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
         val uuid = UploadFilePayload.uuid(task.payload) ?: return dropped(task, "it names no book")
+        return try {
+            upload(task, uuid)
+        } catch (e: CodedFailureException) {
+            if (e.failure.code != ITEM_NOT_FOUND || !UploadHandBack.claim(uuid)) throw e
+            // Ends this task either way: the registration's answer queues a fresh upload, or the book is
+            // gone on this device too and there's nothing left to upload
+            if (reRegister(uuid)) {
+                Log.w(TAG, "Upload ${task.id}: the server lost the book, registering it again")
+            } else {
+                Log.w(TAG, "Dropping upload ${task.id}: the book is gone on the server and on this device")
+            }
+            true
+        }
+    }
+
+    private suspend fun upload(task: SyncTaskEntity, uuid: String): Boolean {
         val file = bookFile(uuid) ?: return dropped(task, "the book has no file on this device")
         val fileSize = file.length()
         // The API refuses an empty file, and there's nothing to back up
@@ -329,6 +349,7 @@ class MultipartUploadProcessor(
     companion object {
         private const val TAG = "MultipartUpload"
         const val UPLOAD_NOT_FOUND = "upload_not_found"
+        const val ITEM_NOT_FOUND = "item_not_found"
         const val INVALID_PARTS = "invalid_parts"
         const val PARTS_MISSING = "parts_missing"
 
@@ -346,6 +367,9 @@ class MultipartUploadProcessor(
                         ?.takeIf { it.isFile }
                 },
                 holdUploads = { UploadDataPolicy.shouldHoldUploads(appContext) },
+                reRegister = { uuid ->
+                    UploadHandBack.reRegister(AppDatabase.getDatabase(appContext).libraryDao(), repository, uuid)
+                },
             )
         }
     }

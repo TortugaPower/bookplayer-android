@@ -26,6 +26,7 @@ import com.tortugapower.audiobookplayer.logic.MatchUuidsProcessor
 import com.tortugapower.audiobookplayer.logic.MetadataUploadProcessor
 import com.tortugapower.audiobookplayer.logic.MoveProcessor
 import com.tortugapower.audiobookplayer.logic.MultipartUploadProcessor
+import com.tortugapower.audiobookplayer.logic.QueueFileUploadProcessor
 import com.tortugapower.audiobookplayer.logic.RenameFolderProcessor
 import com.tortugapower.audiobookplayer.logic.SetBookmarkProcessor
 import com.tortugapower.audiobookplayer.logic.SetExternalResourceToDownloadProcessor
@@ -107,6 +108,7 @@ class WearSyncServiceHost : Service() {
             SyncIdentifiersProcessor(this, repository),
             MetadataUploadProcessor(this, repository),
             MultipartUploadProcessor.create(this, repository),
+            QueueFileUploadProcessor.create(this, repository),
             StreamFileUploadProcessor(this, repository),
             UpdateProcessor(),
             MoveProcessor(),

@@ -14,6 +14,9 @@ import com.tortugapower.audiobookplayer.logic.SyncEngineWaker
 import com.tortugapower.audiobookplayer.logic.SyncFailurePolicy
 import com.tortugapower.audiobookplayer.logic.SyncPauseReport
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
+import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.logic.UploadFilePayload
+import com.tortugapower.audiobookplayer.logic.UploadHandBack
 import com.tortugapower.audiobookplayer.logic.pause
 import com.tortugapower.audiobookplayer.logic.groupedByLane
 import com.tortugapower.audiobookplayer.network.NetworkClient
@@ -141,10 +144,16 @@ class ProfileViewModel(
         PlaybackManager.enforceRemoteStreamingGate(com.tortugapower.audiobookplayer.core.CoreContext.appContext)
     }
 
-    /** The user's Retry: back to pending (one account pause resumes them all), and the engine is woken */
-    fun retryPausedTask(id: String) {
+    /**
+     * The user's Retry: back to pending (one account pause resumes them all), and the engine is woken. An
+     * upload's Retry asks for the book again: it may be registered again even if it already was this session.
+     */
+    fun retryPausedTask(task: SyncTaskEntity) {
+        if (task.jobType == SyncTaskFactory.JOB_UPLOAD_FILE) {
+            UploadFilePayload.uuid(task.payload)?.let(UploadHandBack::release)
+        }
         viewModelScope.launch {
-            syncTaskRepository.resumeTask(id)
+            syncTaskRepository.resumeTask(task.id)
             SyncEngineWaker.notifyWorkEnqueued()
         }
     }

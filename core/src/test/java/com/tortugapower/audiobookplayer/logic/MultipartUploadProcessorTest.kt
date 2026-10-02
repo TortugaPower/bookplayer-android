@@ -113,6 +113,7 @@ class MultipartUploadProcessorTest {
         put: suspend (Sent) -> Int = { 200 },
         progress: MutableList<Double> = mutableListOf(),
         holdCheckIntervalMs: Long = 5_000,
+        reRegister: suspend (String) -> Boolean = { false },
     ) = MultipartUploadProcessor(
         repository = repository,
         bookFile = { bookFile },
@@ -121,6 +122,7 @@ class MultipartUploadProcessorTest {
         putPart = { url, _, offset, length, onBytes -> put(Sent(url, offset, length)).also { if (it in 200..299) onBytes(length) } },
         onProgress = { _, fraction -> synchronized(progress) { progress += fraction } },
         holdCheckIntervalMs = holdCheckIntervalMs,
+        reRegister = reRegister,
     )
 
     @Test fun aFreshUpload_startsSendsEveryRangeAndCompletes() = runBlocking {
@@ -274,9 +276,9 @@ class MultipartUploadProcessorTest {
     }
 
     @Test fun anotherCodedAnswer_reachesTheEngine_andAnUncodedOneRetries() = runBlocking {
-        val notFound = ScriptedApi().apply { startAnswers = ArrayDeque(listOf<Response<StartUploadResponse>>(coded(404, "item_not_found"))) }
-        val failure = runCatching { processor(notFound, PayloadRepository(task().payload), file(10)).process(task()) }.exceptionOrNull()
-        assertEquals("item_not_found", (failure as CodedFailureException).failure.code)
+        val refused = ScriptedApi().apply { startAnswers = ArrayDeque(listOf<Response<StartUploadResponse>>(coded(422, "invalid_request"))) }
+        val failure = runCatching { processor(refused, PayloadRepository(task().payload), file(10)).process(task()) }.exceptionOrNull()
+        assertEquals("invalid_request", (failure as CodedFailureException).failure.code)
 
         val serverError = ScriptedApi().apply { urlsAnswer = { Response.error(500, "".toResponseBody()) } }
         val retry = runCatching { processor(serverError, PayloadRepository(task().payload), file(10)).process(task()) }.exceptionOrNull()
@@ -339,5 +341,33 @@ class MultipartUploadProcessorTest {
         assertTrue(processor(api, PayloadRepository(task().payload), file(20), put = put).process(task()))
         assertTrue("peak ${peak.get()}", peak.get() <= MultipartUpload.WINDOW)
         assertEquals(20, api.completes.single().partCount)
+    }
+
+    /** The server lost the book: registered again once per book (iOS hand-back), then it parks as usual */
+    @Test fun itemNotFound_registersTheBookAgainOnce() = runBlocking {
+        val registered = mutableListOf<String>()
+        fun notFound() = ScriptedApi().apply { startAnswers = ArrayDeque(listOf<Response<StartUploadResponse>>(coded(404, "item_not_found"))) }
+        try {
+            val first = processor(notFound(), PayloadRepository(task().payload), file(10), reRegister = { registered += it; true }).process(task())
+            assertTrue("this task ends; the registration queues a new upload", first)
+            assertEquals(listOf(uuid), registered)
+
+            val second = runCatching {
+                processor(notFound(), PayloadRepository(task().payload), file(10), reRegister = { registered += it; true }).process(task())
+            }.exceptionOrNull()
+            assertEquals("item_not_found", (second as CodedFailureException).failure.code)
+            assertEquals("not registered twice", 1, registered.size)
+        } finally {
+            UploadHandBack.release(uuid)
+        }
+    }
+
+    @Test fun itemNotFound_forABookGoneHereToo_dropsTheUpload() = runBlocking {
+        val api = ScriptedApi().apply { startAnswers = ArrayDeque(listOf<Response<StartUploadResponse>>(coded(404, "item_not_found"))) }
+        try {
+            assertTrue(processor(api, PayloadRepository(task().payload), file(10), reRegister = { false }).process(task()))
+        } finally {
+            UploadHandBack.release(uuid)
+        }
     }
 }

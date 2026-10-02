@@ -100,7 +100,7 @@ class StorageOffloadTest {
             AppDatabase.getDatabase(context).syncTaskDao()
         )
         com.tortugapower.audiobookplayer.logic.SyncTaskFactory.createUploadFileTask(
-            syncTaskRepository, dao.getItemById("child1")!!, remotePath = "Series/Part 1.mp3"
+            syncTaskRepository, dao.getItemById("child1")!!
         )
 
         assertEquals(true, com.tortugapower.audiobookplayer.logic.hasQueuedUploadTask(syncTaskRepository, repository, folder))

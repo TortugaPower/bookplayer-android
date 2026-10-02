@@ -144,6 +144,7 @@ class TaskConcurrencyServiceHost : Service() {
             SyncIdentifiersProcessor(this, repository),
             MetadataUploadProcessor(this, repository),
             MultipartUploadProcessor.create(this, repository),
+            QueueFileUploadProcessor.create(this, repository),
             StreamFileUploadProcessor(this, repository),
             UpdateProcessor(),
             MoveProcessor(),
