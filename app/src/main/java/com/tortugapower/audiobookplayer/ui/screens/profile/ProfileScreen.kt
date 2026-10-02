@@ -21,6 +21,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,6 +67,7 @@ fun ProfileScreen(
     val totalPlaytime by viewModel.totalPlaytime.collectAsStateWithLifecycle()
     val mostListenedBookArtwork by viewModel.mostListenedBookArtwork.collectAsStateWithLifecycle()
     val pendingTasksCount by viewModel.pendingTasksCount.collectAsStateWithLifecycle()
+    val pausedTasksCount by viewModel.pausedTasksCount.collectAsStateWithLifecycle()
     val lastSyncTimestamp by viewModel.lastSyncTimestamp.collectAsStateWithLifecycle()
 
     var showProSheet by remember { mutableStateOf(false) }
@@ -181,19 +184,31 @@ fun ProfileScreen(
 
         // Queued Tasks Button
         if (account != null && (account!!.tier == AccountTier.PRO || account!!.tier == AccountTier.LITE)) {
+            // Turns into a warning while a parked task needs the user; not by colour alone, so TalkBack
+            // hears it on the entry's one actionable node
+            val needsAttention = pausedTasksCount > 0
+            val attention = stringResource(R.string.sync_tasks_need_attention_voiceover)
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 24.dp)
                     .clickable { onNavigateToQueuedTasks() }
+                    .semantics { if (needsAttention) stateDescription = attention }
             ) {
-                Text(
-                    text = stringResource(R.string.queued_sync_tasks_title, pendingTasksCount),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Medium
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val color = if (needsAttention) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    if (needsAttention) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(
+                        text = stringResource(R.string.queued_sync_tasks_title, pendingTasksCount),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = color,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
                 if (lastSyncTimestamp != null) {
                     Text(
                         text = stringResource(R.string.last_sync_title, lastSyncTimestamp!!.formatSyncTime()),

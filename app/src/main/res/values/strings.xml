@@ -558,6 +558,14 @@
     <string name="sync_tasks_empty_title">No queued tasks</string>
     <string name="sync_tasks_empty_description">All your sync tasks are up to date.</string>
     <string name="sync_paused_lane_title">Paused: a task needs your attention</string>
+    <string name="sync_task_retry_button">Retry</string>
+    <string name="sync_task_report_button">Report</string>
+    <string name="sync_task_dismiss_button">Dismiss</string>
+    <string name="sync_task_paused_voiceover">Paused: %s</string>
+    <string name="sync_task_action_voiceover">%1$s, %2$s</string>
+    <string name="sync_tasks_need_attention_voiceover">Needs attention</string>
+    <string name="upload_file_too_large_message">Larger than 10 GB, so it stays on this device and isn\'t backed up.</string>
+    <string name="sync_report_email_body">Hello, a sync task in BookPlayer is paused and needs help. The report is attached.</string>
     <string name="hardcover_popular_on">Popular on Hardcover</string>
     <string name="hardcover_search_placeholder">Search books…</string>
 

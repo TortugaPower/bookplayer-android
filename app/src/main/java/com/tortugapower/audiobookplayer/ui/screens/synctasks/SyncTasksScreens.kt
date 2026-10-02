@@ -21,7 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -32,10 +34,20 @@ import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.QueuedTaskSection
+import com.tortugapower.audiobookplayer.logic.SyncFailurePolicy
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.logic.TaskPause
+import com.tortugapower.audiobookplayer.logic.buildSyncPauseReportIntents
+import com.tortugapower.audiobookplayer.logic.launchSyncPauseReport
+import com.tortugapower.audiobookplayer.logic.pause
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
 import com.tortugapower.audiobookplayer.viewmodel.ProfileViewModel
+import android.util.Log
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 private fun laneName(queueKey: String): String = when (queueKey.lowercase()) {
@@ -73,6 +85,30 @@ fun QueuedTasksScreen(
     // Null while the queue is first read: nothing is drawn rather than an empty state that isn't true
     val sections = viewModel.queuedTaskSections.collectAsState().value
     val progressMap by viewModel.taskProgress.collectAsState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // A second Report tap while the first one's report is being built is ignored
+    var buildingReport by remember { mutableStateOf(false) }
+    val report: (SyncTaskEntity) -> Unit = { task ->
+        if (!buildingReport) {
+            buildingReport = true
+            scope.launch {
+                try {
+                    val pauseReport = viewModel.pauseReport(task)
+                    val intents = withContext(Dispatchers.IO) { buildSyncPauseReportIntents(context, pauseReport) }
+                    launchSyncPauseReport(context, intents)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // A full disk or an unreadable database: no report rather than a crash (iOS logs too).
+                    // The type only: the report's paths aren't for logs
+                    Log.w("QueuedTasksScreen", "Couldn't build the sync report: ${e.javaClass.simpleName}")
+                } finally {
+                    buildingReport = false
+                }
+            }
+        }
+    }
     // Stored inverted on purpose: a lane that appears while the screen is open starts expanded
     var collapsedLanes by rememberSaveable { mutableStateOf(emptySet<String>()) }
 
@@ -115,7 +151,13 @@ fun QueuedTasksScreen(
                     if (expanded) {
                         // Lazily laid out row by row: a first sync can queue thousands of tasks
                         items(section.tasks, key = { it.id }) { task ->
-                            QueuedTaskRow(task, progressMap[task.id])
+                            QueuedTaskRow(
+                                task = task,
+                                progress = progressMap[task.id],
+                                onRetry = { viewModel.retryPausedTask(task.id) },
+                                onReport = { report(task) },
+                                onDismiss = { viewModel.dismissPausedTask(task) },
+                            )
                         }
                     }
                 }
@@ -205,9 +247,19 @@ private fun LaneHeader(
     }
 }
 
-/** One task: its type icon, label and the item it touches, its error if any, live progress while it runs */
+/**
+ * One task: its type icon, label and the item it touches, its error if any, live progress while it
+ * runs. A parked task says why it stopped and offers Retry and Report, or Dismiss for a book over the
+ * upload limit (retrying can't make it smaller, and there's nothing to report).
+ */
 @Composable
-private fun QueuedTaskRow(task: SyncTaskEntity, progress: Double?) {
+private fun QueuedTaskRow(
+    task: SyncTaskEntity,
+    progress: Double?,
+    onRetry: () -> Unit,
+    onReport: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val payload = remember(task.payload) {
         try { com.google.gson.Gson().fromJson(task.payload, Map::class.java) } catch (e: Exception) { emptyMap<String, Any>() }
     }
@@ -244,53 +296,98 @@ private fun QueuedTaskRow(task: SyncTaskEntity, progress: Double?) {
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val iconTint = if (task.status == SyncTaskStatus.FAILED || task.errorMessage != null) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant
+        val pause = task.pause
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val iconTint = if (task.status == SyncTaskStatus.FAILED || task.errorMessage != null) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant
 
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier
-                    .size(32.dp)
-                    .background(iconTint.copy(alpha = 0.1f), CircleShape)
-                    .padding(6.dp)
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                Icon(
+                    imageVector = if (pause != null) Icons.Default.Warning else icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .background(iconTint.copy(alpha = 0.1f), CircleShape)
+                        .padding(6.dp)
                 )
-                val errorMessage = task.errorMessage
-                if (errorMessage != null) {
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = errorMessage,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.Red,
+                        text = title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    val errorMessage = task.errorMessage
+                    // A parked task's message is shown in full below
+                    if (errorMessage != null && pause == null) {
+                        Text(
+                            text = errorMessage,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Red,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                if (task.status == SyncTaskStatus.RUNNING) {
+                    Spacer(modifier = Modifier.width(16.dp))
+                    if (progress != null && progress > 0.0) {
+                        LinearProgressIndicator(
+                            progress = { progress.toFloat() },
+                            modifier = Modifier.width(64.dp).height(4.dp),
+                        )
+                    } else {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    }
                 }
             }
-
-            if (task.status == SyncTaskStatus.RUNNING) {
-                Spacer(modifier = Modifier.width(16.dp))
-                if (progress != null && progress > 0.0) {
-                    LinearProgressIndicator(
-                        progress = { progress.toFloat() },
-                        modifier = Modifier.width(64.dp).height(4.dp),
-                    )
-                } else {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                }
+            if (pause != null) {
+                PausedDetails(pause, itemTitle = title, onRetry = onRetry, onReport = onReport, onDismiss = onDismiss)
             }
         }
+    }
+}
+
+@Composable
+private fun PausedDetails(
+    pause: TaskPause,
+    itemTitle: String,
+    onRetry: () -> Unit,
+    onReport: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // The app's own refusal is worded by the app, in the user's language; a server pause shows the
+    // server's message
+    val isTooLarge = pause.errorCode == SyncFailurePolicy.FILE_TOO_LARGE
+    val message = if (isTooLarge) stringResource(R.string.upload_file_too_large_message) else pause.message.ifBlank { pause.errorCode }
+    val spokenMessage = stringResource(R.string.sync_task_paused_voiceover, message)
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text = message,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier
+            .padding(start = 48.dp)
+            .semantics { contentDescription = spokenMessage },
+    )
+    Row(modifier = Modifier.padding(start = 40.dp)) {
+        if (isTooLarge) {
+            PausedAction(stringResource(R.string.sync_task_dismiss_button), itemTitle, onDismiss)
+        } else {
+            PausedAction(stringResource(R.string.sync_task_retry_button), itemTitle, onRetry)
+            PausedAction(stringResource(R.string.sync_task_report_button), itemTitle, onReport)
+        }
+    }
+}
+
+/** TalkBack hears which item the action is for: several rows can be parked at once */
+@Composable
+private fun PausedAction(label: String, itemTitle: String, onClick: () -> Unit) {
+    val spoken = stringResource(R.string.sync_task_action_voiceover, label, itemTitle)
+    TextButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = spoken }) {
+        Text(label)
     }
 }
