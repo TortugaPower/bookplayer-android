@@ -12,6 +12,7 @@ import com.tortugapower.audiobookplayer.network.SessionExpiredException
 import com.tortugapower.audiobookplayer.network.StreamFile
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Playable media-server URLs, looked up when items are about to play or download.
@@ -25,6 +26,12 @@ import kotlinx.coroutines.CancellationException
  * streamed volume, the volume's. Items sharing an owner cost one lookup together.
  */
 object MediaServerStreams {
+
+    /**
+     * A lookup sits on the playback path: an unreachable server (a home server away from home) must fall
+     * through to the cloud copy quickly instead of waiting out the HTTP client's connect + read timeouts.
+     */
+    private const val LOOKUP_TIMEOUT_MS = 5_000L
 
     /** The item holding the media-server link that streams a book, and that link. */
     data class Owner(val item: LibraryItemEntity, val resource: ExternalResourceEntity)
@@ -40,6 +47,7 @@ object MediaServerStreams {
         libraryDao: LibraryDao,
         servers: ExternalServerRepository,
         serviceFor: (ExternalServiceType) -> ExternalService = ExternalServiceFactory::getService,
+        timeoutMs: Long = LOOKUP_TIMEOUT_MS,
     ): Lookup {
         val membersByOwner = LinkedHashMap<String, Pair<Owner, MutableList<LibraryItemEntity>>>()
         // A volume's books share their parent and siblings: read each once per lookup, not once per book.
@@ -57,8 +65,17 @@ object MediaServerStreams {
             val members = allMembers.filterNot { it.uuid == owner.item.uuid && owner.item.type == ItemType.BOUND }
             if (members.isEmpty()) continue
             val server = ExternalServiceUtils.serverForResource(servers, owner.resource) ?: continue
+            val service = serviceFor(server.type)
             val files = try {
-                serviceFor(server.type).getStreamFiles(server.url, server.token.orEmpty(), owner.resource.providerId, server.customHeaders)
+                // A timeout is a lookup that failed, not one the service answered with "one URL per item".
+                val answer = withTimeoutOrNull(timeoutMs) {
+                    Answer(service.getStreamFiles(server.url, server.token.orEmpty(), owner.resource.providerId, server.customHeaders))
+                }
+                if (answer == null) {
+                    Log.w("MediaServerStreams", "Timed out looking up the files of ${owner.resource.providerId}")
+                    continue
+                }
+                answer.files
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SessionExpiredException) {
@@ -104,6 +121,8 @@ object MediaServerStreams {
             resource?.let { Owner(parent.item.also { it.externalResources = parent.externalResources }, it) }
         }
     }
+
+    private class Answer(val files: List<StreamFile>?)
 
     private fun streams(resource: ExternalResourceEntity): Boolean =
         (resource.syncStatus == ExternalResourceEntity.STATUS_STREAM || resource.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED) &&

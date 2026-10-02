@@ -411,10 +411,18 @@ class StreamFileUploadProcessor(
             return true
         }
 
-        val putUrl = fetchPutUrl(uuid) ?: return false
-
         val relativePath = item.relativePath
         val localFile = relativePath?.let { OfflineDownloadManager.processedFile(context, it) }
+        // AudiobookShelf has no whole-item audio to copy (its item download is a zip for any book in a folder:
+        // ExternalServiceUtils.downloadUrlFor): unless the file was downloaded meanwhile, there's nothing to pipe.
+        if (ExternalServiceUtils.serviceTypeFor(resource.providerName) == ExternalServiceType.AUDIOBOOKSHELF &&
+            localFile?.isFile != true
+        ) {
+            Log.d("StreamFileUploadProcessor", "🧹 No audio file to copy for ${item.title} (AudiobookShelf) — dropping pipe task")
+            return true
+        }
+
+        val putUrl = fetchPutUrl(uuid) ?: return false
         val transferred = withContext(Dispatchers.IO) {
             if (localFile?.isFile == true) {
                 // The user downloaded the file in the meantime — upload the local copy instead of

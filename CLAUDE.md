@@ -176,7 +176,11 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     URL, with no token in the URL (auth rides the headers). A volume's books find their file through the
     volume's link (by name, else position), one lookup per volume. A copy of a URL (a download task's
     payload, a sub-book's saved `remoteURL`) can go stale, so a download whose ABS URL 404s is looked up
-    once more in the same run. Don't resolve URLs speculatively: each ABS lookup is a request.
+    once more in the same run. Don't resolve URLs speculatively: each ABS lookup is a request. A lookup
+    gives up after 5 s (`MediaServerStreams.LOOKUP_TIMEOUT_MS`), so an unreachable home server falls
+    through to the cloud copy instead of waiting out the HTTP timeouts. ABS has nothing for the PRO
+    stream-to-cloud pipe to copy, so `StreamFileUploadProcessor` drops an ABS task unless the book was
+    downloaded meanwhile.
 
 ## Git
 

@@ -18,7 +18,9 @@ import com.tortugapower.audiobookplayer.network.SessionExpiredException
 import com.tortugapower.audiobookplayer.network.StreamFile
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import com.tortugapower.audiobookplayer.repository.TokenCipher
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -51,10 +53,12 @@ class MediaServerStreamsTest {
         val files = mutableMapOf<String, List<StreamFile>>()
         val lookups = mutableListOf<String>()
         var rejectToken = false
+        var stall = false
 
         override suspend fun getStreamFiles(url: String, token: String, itemId: String, headers: Map<String, String>?): List<StreamFile>? {
             if (type == ExternalServiceType.JELLYFIN) return null
             lookups += itemId
+            if (stall) awaitCancellation()
             if (rejectToken) throw SessionExpiredException()
             return files[itemId].orEmpty()
         }
@@ -205,6 +209,23 @@ class MediaServerStreamsTest {
         insert(LibraryItemEntity(uuid = "j1", title = "Jelly", relativePath = "Jelly.m4b", type = ItemType.BOOK), "jellyfin", "jf-9", "jf-guid")
 
         assertEquals(mapOf("j1" to "https://jf.example.com/Items/jf-9/Download"), lookUp("j1").urls)
+    }
+
+    // The lookup sits on the playback path: a server that doesn't answer must not hold it up.
+    @Test fun `a server that doesn't answer in time gives no URL`() = runBlocking {
+        insert(LibraryItemEntity(uuid = "b1", title = "Charlie", relativePath = "Charlie.m4b", type = ItemType.BOOK), "audiobookshelf", "abs-1", absHost)
+        insert(LibraryItemEntity(uuid = "j1", title = "Jelly", relativePath = "Jelly.m4b", type = ItemType.BOOK), "jellyfin", "jf-9", "jf-guid")
+        abs.stall = true
+
+        val items = listOf(loaded("b1"), loaded("j1"))
+        // Without its own limit the lookup would wait forever: fail instead of hanging.
+        val lookup = withTimeout(5_000) {
+            MediaServerStreams.lookUp(items, db.libraryDao(), servers, ::serviceFor, timeoutMs = 50)
+        }
+
+        // The stalled server is skipped, the other still answers.
+        assertEquals(mapOf("j1" to "https://jf.example.com/Items/jf-9/Download"), lookup.urls)
+        assertFalse(lookup.sessionExpired)
     }
 
     @Test fun `a rejected token is reported as an expired session`() = runBlocking {

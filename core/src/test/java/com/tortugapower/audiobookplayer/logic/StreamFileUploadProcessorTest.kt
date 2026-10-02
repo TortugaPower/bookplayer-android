@@ -58,12 +58,12 @@ class StreamFileUploadProcessorTest {
         payload = """{"uuid":"$uuid","title":"Book One","relativePath":"$relativePath"}""",
     )
 
-    private suspend fun insertStreamItem(hostId: String? = "srv-guid") {
+    private suspend fun insertStreamItem(hostId: String? = "srv-guid", providerName: String = "jellyfin") {
         val dao = AppDatabase.getDatabase(context).libraryDao()
         dao.insertItemWithExternalResource(
             LibraryItemEntity(uuid = uuid, title = "Book One", relativePath = relativePath, type = ItemType.BOOK),
             ExternalResourceEntity(
-                providerName = "jellyfin", providerId = "jf-9",
+                providerName = providerName, providerId = "jf-9",
                 syncStatus = ExternalResourceEntity.STATUS_STREAM, libraryItemUuid = uuid, hostId = hostId,
             ),
         )
@@ -206,6 +206,29 @@ class StreamFileUploadProcessorTest {
         val repo = RecordingSyncTaskRepository()
         assertTrue(processor(repo, putUrl = "unused").process(task()))
         assertTrue(repo.saved.isEmpty())
+    }
+
+    // AudiobookShelf serves no whole-item audio (a book in a folder downloads as a zip): retrying could never
+    // find a source, so the task goes before asking for an upload URL.
+    @Test fun `an AudiobookShelf book that isn't on the device is dropped`() = runBlocking {
+        insertStreamItem(providerName = "audiobookshelf")
+        var askedForUrl = false
+        val processor = StreamFileUploadProcessor(context, RecordingSyncTaskRepository(), fetchPutUrl = { askedForUrl = true; null }, serverRepository = serverRepository())
+
+        assertTrue(processor.process(task()))
+
+        assertFalse(askedForUrl)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test fun `an AudiobookShelf book downloaded meanwhile still uploads its local file`() = runBlocking {
+        insertStreamItem(providerName = "audiobookshelf")
+        OfflineDownloadManager.processedFile(context, relativePath).apply { parentFile?.mkdirs(); writeText("local-bytes") }
+        server.enqueue(MockResponse())
+
+        assertTrue(processor(putUrl = server.url("/s3-put").toString()).process(task()))
+
+        assertEquals("local-bytes", server.takeRequest().body.readUtf8())
     }
 
     @Test fun `no presigned URL yet is a retryable failure`() = runBlocking {
