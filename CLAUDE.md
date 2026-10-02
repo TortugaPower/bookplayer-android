@@ -181,7 +181,8 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     or several files imported as one book) is dropped, not retried: the file queue is serial, and a lookup
     reports that apart from a failed one (`MediaServerStreams.Lookup.noFile`). Don't resolve URLs speculatively: each ABS lookup is a request. A lookup
     gives up after 5 s (`MediaServerStreams.LOOKUP_TIMEOUT_MS`), so an unreachable home server falls
-    through to the cloud copy instead of waiting out the HTTP timeouts. A server that times out, can't be
+    through to the cloud copy instead of waiting out the HTTP timeouts; a background download's lookup
+    (`DownloadFileProcessor`) waits 30 s, since nobody is waiting on it. A server that times out, can't be
     reached or rejects the token is skipped for the rest of that lookup, so a folder of single books
     waits once, not once per book. ABS has nothing for the PRO
     stream-to-cloud pipe to copy, so `StreamFileUploadProcessor` drops an ABS task unless the book was

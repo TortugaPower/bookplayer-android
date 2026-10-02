@@ -579,6 +579,10 @@ class DownloadFileProcessor(
 
         // ABS's whole-item download (`api/items/{id}/download`), which older builds queued as a book's URL.
         private val LEGACY_ABS_ITEM_DOWNLOAD = Regex("""/api/items/[^/?]+/download(\?|$)""")
+
+        // Nobody waits on a background download, unlike playback (MediaServerStreams' 5 s cap): give a slow home
+        // server the HTTP client's own timeouts, or it times out on every run and holds up the file queue.
+        private const val LOOKUP_TIMEOUT_MS = 30_000L
     }
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
@@ -732,7 +736,7 @@ class DownloadFileProcessor(
         val dao = AppDatabase.getDatabase(context).libraryDao()
         val row = dao.getItemByIdWithResources(uuid) ?: return null
         val item = row.item.also { it.externalResources = row.externalResources }
-        return MediaServerStreams.lookUp(listOf(item), dao, serverRepository)
+        return MediaServerStreams.lookUp(listOf(item), dao, serverRepository, timeoutMs = LOOKUP_TIMEOUT_MS)
     }
 
     /**

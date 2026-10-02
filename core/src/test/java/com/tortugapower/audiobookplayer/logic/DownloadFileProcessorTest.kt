@@ -319,6 +319,17 @@ class DownloadFileProcessorTest {
         assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, childPath).readText())
     }
 
+    // Playback gives up on a lookup after 5 s; a background download waits for a slow server.
+    @Test fun `a download's lookup waits longer than playback's`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setBody(expandedItem).setHeadersDelay(6, java.util.concurrent.TimeUnit.SECONDS))
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor().process(childDownloadTask("")))
+
+        assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, childPath).readText())
+    }
+
     @Test fun `a task queued without a URL looks it up`() = runBlocking {
         insertStreamedVolume()
         mediaServer.enqueue(MockResponse().setBody(expandedItem))
