@@ -83,10 +83,12 @@ data class AudiobookshelfAuthFormData(
     @SerializedName("authOpenIDButtonText") val authOpenIDButtonText: String? = null
 )
 
+// No `isFinished`, like iOS: ABS reads a payload's `progress` only when it carries no `isFinished`
+// (MediaProgress.applyProgressUpdate), so sending one kept the percentage at 0. A finished book reaches
+// ABS as progress 1, without the finished flag.
 data class AudiobookshelfProgressRequest(
     @SerializedName("progress") val progress: Double,
     @SerializedName("currentTime") val currentTime: Double,
-    @SerializedName("isFinished") val isFinished: Boolean,
     // When this position was reached (epoch ms), so ABS records our play time rather than the moment
     // the push landed. ABS honors it when updating an existing entry; the first write for a book still
     // takes the server's clock. Null is left out of the body (Gson skips nulls).

@@ -1164,7 +1164,6 @@ class ExternalUpdateProcessor(
                     val requestBody = com.tortugapower.audiobookplayer.network.services.AudiobookshelfProgressRequest(
                         progress = percentCompleted,
                         currentTime = currentTime,
-                        isFinished = isFinished,
                         lastUpdate = lastPlayDate
                     )
 
