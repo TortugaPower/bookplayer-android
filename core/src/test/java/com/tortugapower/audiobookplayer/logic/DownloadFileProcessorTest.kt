@@ -83,7 +83,7 @@ class DownloadFileProcessorTest {
         payload = """{"uuid":"$uuid","title":"Book One","relativePath":"$relativePath","remoteURL":"$remoteURL"}""",
     )
 
-    // Reversible stand-in for the Keystore cipher (same pattern as StreamFileUploadProcessorTest) — the
+    // Reversible stand-in for the Keystore cipher — the
     // stored row is ciphertext, and the download must authenticate with the DECRYPTED token.
     private val fakeCipher = object : TokenCipher {
         override fun encrypt(plaintext: String) = "ENC($plaintext)"

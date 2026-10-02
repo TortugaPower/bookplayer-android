@@ -14,11 +14,10 @@ import kotlinx.coroutines.flow.first
  */
 object UploadDataPolicy {
 
-    /** Upload jobs that move real bytes (audio files, artwork, stream-to-cloud transfers). */
+    /** Upload jobs that move real bytes (audio files, artwork). */
     private val METERED_HELD_JOBS = setOf(
         SyncTaskFactory.JOB_UPLOAD_FILE,
         SyncTaskFactory.JOB_UPLOAD_ARTWORK,
-        SyncTaskFactory.JOB_UPLOAD_STREAM_FILE,
     )
 
     fun isFileUploadJob(jobType: String): Boolean = jobType in METERED_HELD_JOBS

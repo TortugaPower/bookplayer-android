@@ -222,7 +222,6 @@
     <string name="sync_task_hardcover_auto_match">Emparejamiento automático de Hardcover</string>
     <string name="sync_task_hardcover_update_status">Actualizar estado de Hardcover</string>
     <string name="sync_task_external_update">Actualización de estado externo</string>
-    <string name="sync_task_set_external_resource_to_download">Estado de descarga de recurso externo</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">RESUMEN</string>

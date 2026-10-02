@@ -385,7 +385,6 @@
     <string name="sync_task_upload_artwork">Upload Artwork</string>
     <string name="sync_task_fetch_library">Fetch Library</string>
     <string name="sync_task_upload_audio">Upload Audio</string>
-    <string name="sync_task_upload_stream_file">Upload Stream to Cloud</string>
     <string name="sync_task_download_audio">Download Audio</string>
     <string name="sync_task_sync_identifiers">Sync Identifiers</string>
     <string name="sync_task_match_library_ids">Match Library IDs</string>
@@ -419,7 +418,6 @@
     <string name="sync_task_hardcover_auto_match">Hardcover Auto-Match</string>
     <string name="sync_task_hardcover_update_status">Update Hardcover Status</string>
     <string name="sync_task_external_update">External Status Update</string>
-    <string name="sync_task_set_external_resource_to_download">Download External Resource Status</string>
 
     <string name="profile_week">Week</string>
     <string name="profile_daily_average">Daily Average</string>
@@ -551,7 +549,6 @@
     <string name="sync_queue_sync">Sync Tasks</string>
     <string name="sync_queue_file">File Tasks</string>
     <string name="sync_queue_upload">File Uploads</string>
-    <string name="sync_queue_pipe">Cloud Upload Tasks</string>
     <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
     <string name="sync_queue_jellyfin">Jellyfin</string>
     <string name="sync_queue_hardcover">Hardcover</string>

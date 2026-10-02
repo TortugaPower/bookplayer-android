@@ -81,6 +81,12 @@ interface SyncTaskRepository {
             .forEach { updateTask(it.copy(queueKey = queueKey)) }
     }
 
+    /** Turns an older build's [from] tasks into pending [to] tasks in [queueKey], payload and place kept */
+    suspend fun convertTasks(from: String, to: String, queueKey: String) {}
+
+    /** Removes every task of a job this build no longer runs */
+    suspend fun deleteAllTasksOfType(jobType: String) {}
+
     /**
      * Writes a running upload's multipart state into its stored payload, the rest untouched (a uuid
      * migration meanwhile is kept). False when the task is gone: cleared by a sign-out or a lapse, so stop.

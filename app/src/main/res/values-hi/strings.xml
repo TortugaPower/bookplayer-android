@@ -219,7 +219,6 @@
     <string name="sync_task_hardcover_auto_match">हार्डकवर ऑटो-मैच</string>
     <string name="sync_task_hardcover_update_status">हार्डकवर स्थिति अपडेट करें</string>
     <string name="sync_task_external_update">बाहरी स्थिति अपडेट</string>
-    <string name="sync_task_set_external_resource_to_download">बाहरी संसाधन डाउनलोड स्थिति</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">अवलोकन</string>

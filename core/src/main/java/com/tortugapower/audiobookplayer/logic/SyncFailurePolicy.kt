@@ -71,7 +71,6 @@ object SyncFailurePolicy {
         SyncTaskFactory.JOB_MATCH_UUIDS,
         SyncTaskFactory.JOB_UPLOAD_EXTERNAL_RESOURCE,
         SyncTaskFactory.JOB_DELETE_EXTERNAL_RESOURCE,
-        SyncTaskFactory.JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD,
     )
 
     /** null for anything uncoded (network, 5xx, cancellation): those keep retrying */

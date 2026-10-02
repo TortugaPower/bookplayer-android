@@ -13,6 +13,7 @@ import org.junit.Assert.assertEquals
 import com.tortugapower.audiobookplayer.logic.UploadFilePayload
 import com.tortugapower.audiobookplayer.logic.MultipartUploadState
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -198,6 +199,33 @@ class SyncTaskDaoTest {
         assertEquals(1, dao.countActiveTasksInQueue("sync"))
         assertEquals(2, dao.countQueuedTasksInQueue("sync"))
         assertEquals(1, dao.countPausedTasksInQueue("sync"))
+    }
+
+    /** 1.2's pipe tasks become the step that queues the book's upload; their confirmations go */
+    @Test fun retiredPipeTasks_areConvertedInPlace_orDeleted() = runBlocking {
+        dao.insertAtEnd(task("register", "a", jobType = "upload_metadata"))
+        dao.insertAtEnd(task("pipe", "a", jobType = "upload_stream_file", payload = """{"uuid":"a","title":"A","relativePath":"A.m4b"}""").copy(queueKey = "pipe"))
+        dao.insertAtEnd(task("parked-pipe", "b", jobType = "upload_stream_file").copy(queueKey = "pipe", sentryEventId = "evt"))
+        dao.parkTask("parked-pipe", "TASK", "item_not_found", "Item not found", 404, 5L)
+        dao.insertAtEnd(task("confirm", "c", jobType = "set_external_resource_to_download"))
+        dao.insertAtEnd(task("confirm-running", "d", jobType = "set_external_resource_to_download").copy(status = SyncTaskStatus.RUNNING))
+
+        assertEquals(2, dao.convertTasks("upload_stream_file", "queue_file_upload", "sync"))
+        assertEquals(2, dao.deleteAllTasksOfType("set_external_resource_to_download"))
+
+        val converted = dao.getTaskById("pipe")!!
+        assertEquals("queue_file_upload", converted.jobType)
+        assertEquals("sync", converted.queueKey)
+        assertEquals("""{"uuid":"a","title":"A","relativePath":"A.m4b"}""", converted.payload)
+        val unparked = dao.getTaskById("parked-pipe")!!
+        assertEquals(SyncTaskStatus.PENDING, unparked.status)
+        assertNull(unparked.pauseScope)
+        assertNull(unparked.errorCode)
+        assertNull(unparked.errorMessage)
+        assertNull(unparked.sentryEventId)
+        // Still behind the book's registration
+        assertEquals(listOf("register", "pipe", "parked-pipe"), pendingIds())
+        assertEquals(0, dao.convertTasks("upload_stream_file", "queue_file_upload", "sync"))
     }
 
     @Test fun deletePendingTasksOfType_leavesRunningAndOtherJobs() = runBlocking {

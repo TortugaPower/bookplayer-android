@@ -155,6 +155,20 @@ interface SyncTaskDao {
     @Query("UPDATE sync_tasks SET queueKey = :queueKey WHERE jobType = :jobType AND queueKey != :queueKey")
     suspend fun moveToLane(jobType: String, queueKey: String): Int
 
+    /**
+     * Turns every [from] task into a pending [to] task in [queueKey], keeping its payload and place in the
+     * queue; a park or error it carried was the old job's. Returns how many.
+     */
+    @Query(
+        "UPDATE sync_tasks SET jobType = :to, queueKey = :queueKey, status = 'PENDING', errorMessage = NULL, " +
+            "pauseScope = NULL, errorCode = NULL, httpStatus = NULL, pausedAt = NULL, sentryEventId = NULL WHERE jobType = :from"
+    )
+    suspend fun convertTasks(from: String, to: String, queueKey: String): Int
+
+    /** Removes every [jobType] task, whatever its state: returns how many */
+    @Query("DELETE FROM sync_tasks WHERE jobType = :jobType")
+    suspend fun deleteAllTasksOfType(jobType: String): Int
+
     /** Writes a task's payload whatever its status: 0 when it's gone */
     @Query("UPDATE sync_tasks SET payload = :payload WHERE id = :id")
     suspend fun saveTaskPayload(id: String, payload: String): Int

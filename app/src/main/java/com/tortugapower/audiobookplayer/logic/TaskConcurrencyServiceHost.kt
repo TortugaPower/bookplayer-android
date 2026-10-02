@@ -145,7 +145,6 @@ class TaskConcurrencyServiceHost : Service() {
             MetadataUploadProcessor(this, repository),
             MultipartUploadProcessor.create(this, repository),
             QueueFileUploadProcessor.create(this, repository),
-            StreamFileUploadProcessor(this, repository),
             UpdateProcessor(),
             MoveProcessor(),
             DeleteProcessor(),
@@ -159,7 +158,6 @@ class TaskConcurrencyServiceHost : Service() {
             HardcoverProcessor(this),
             UploadExternalResourceProcessor(),
             DeleteExternalResourceProcessor(),
-            SetExternalResourceToDownloadProcessor(),
             ExternalUpdateProcessor(this),
             PreferenceUploadProcessor(),
             PreferenceFetchProcessor(this, repository)

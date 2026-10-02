@@ -6,16 +6,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pins the tier gating for S3-bound uploads: PRO-only for file, artwork, and the stream-to-cloud
- * pipe (LITE is DB-only sync — the engine DELETES a policy-restricted task, so a wrong `true` here
- * uploads a LITE user's file, and a wrong `false` silently discards a PRO pipe).
+ * Pins the tier gating for S3-bound uploads: PRO-only for files and artwork (LITE is DB-only sync — a
+ * wrong `true` here uploads a LITE user's file).
  */
 class TaskAccessPolicyTest {
 
     private val uploadJobs = listOf(
         SyncTaskFactory.JOB_UPLOAD_FILE,
         SyncTaskFactory.JOB_UPLOAD_ARTWORK,
-        SyncTaskFactory.JOB_UPLOAD_STREAM_FILE,
     )
 
     @Test fun `only PRO can run S3 upload jobs`() {
@@ -24,6 +22,14 @@ class TaskAccessPolicyTest {
             assertFalse(job, TaskAccessPolicy.canExecuteTask(AccountTier.LITE, job))
             assertFalse(job, TaskAccessPolicy.canExecuteTask(AccountTier.PLUS, job))
             assertFalse(job, TaskAccessPolicy.canExecuteTask(AccountTier.FREE, job))
+            assertFalse(job, TaskAccessPolicy.canExecuteTask(null, job))
+        }
+    }
+
+    /** Held until the engine's start converts or drops them: never discarded by a worker for having no processor */
+    @Test fun `retired pipe jobs never run as they are`() {
+        listOf(SyncTaskFactory.RETIRED_JOB_UPLOAD_STREAM_FILE, SyncTaskFactory.RETIRED_JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD).forEach { job ->
+            AccountTier.entries.forEach { tier -> assertFalse("$job on $tier", TaskAccessPolicy.canExecuteTask(tier, job)) }
             assertFalse(job, TaskAccessPolicy.canExecuteTask(null, job))
         }
     }

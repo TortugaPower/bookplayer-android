@@ -102,7 +102,7 @@ object ExternalServiceUtils {
      * URL key (covers ABS, servers that never reported an id, and URL-fallback hostIds). No other
      * fallback: null means "this device has no matching server configured", which playback turns
      * into the connect-your-server prompt. The single resolution used by streaming-URL rebuild,
-     * artwork backfill, the stream-to-cloud pipe, and external progress push, so "which server
+     * downloads, artwork backfill, and external progress push, so "which server
      * owns this item" can't drift between them. Takes the [ExternalServerRepository] — never the
      * DAO — because stored credentials are encrypted at rest: a DAO-read server carries a
      * ciphertext token, which media servers reject with 401.
@@ -137,8 +137,9 @@ object ExternalServiceUtils {
         hasRemoteUrl: Boolean,
     ): MissingServer? {
         // Any other playback source disqualifies the prompt: local audio, or a cloud copy
-        // (stream-to-cloud piped items keep a BookPlayer remoteURL — a transient failure there
-        // must show the generic error, not "connect your server").
+        // (a streamed book whose file is in the cloud — uploaded after a download, or piped by 1.2 —
+        // keeps a BookPlayer remoteURL: a transient failure there must show the generic error, not
+        // "connect your server").
         if (hasLocalFile || hasRemoteUrl) return null
         val resource = resources.firstOrNull { it.providerName != "hardcover" } ?: return null
         if (serverForResource(servers, resource) != null) return null
@@ -151,12 +152,11 @@ object ExternalServiceUtils {
 
     /**
      * The provider's whole-item audio URL for [resource] on [server], or null when it has none: what a
-     * Jellyfin book streams from ([MediaServerStreams]) and the stream-to-cloud pipe copies. AudiobookShelf
-     * has none — its item download is a zip for any book in a folder — so its books stream per file
-     * ([MediaServerStreams]) and the pipe finds no source for them. The Jellyfin URL carries no token —
-     * Jellyfin 12 ignores `api_key`, and a URL token leaks into logs and the task table — so every request
-     * for it needs the provider's header auth: playback via PlaybackManager's host registry, the pipe and
-     * downloads via [downloadHeadersFor].
+     * Jellyfin book streams and downloads from ([MediaServerStreams]). AudiobookShelf has none — its item
+     * download is a zip for any book in a folder — so its books stream per file ([MediaServerStreams]).
+     * The Jellyfin URL carries no token — Jellyfin 12 ignores `api_key`, and a URL token leaks into logs
+     * and the task table — so every request for it needs the provider's header auth: playback via
+     * PlaybackManager's host registry, downloads via [downloadHeadersFor].
      */
     fun downloadUrlFor(server: ExternalServerEntity, resource: ExternalResourceEntity): String? {
         val path = when (serviceTypeFor(resource.providerName)) {
@@ -168,7 +168,7 @@ object ExternalServiceUtils {
 
     /**
      * The headers a download of [url] must carry when it comes from the saved server behind [resource]:
-     * the provider's Authorization header plus the user's custom headers, like playback and the pipe.
+     * the provider's Authorization header plus the user's custom headers, like playback.
      * The query token alone isn't enough — Jellyfin 12 rejects it (401), as do newer ABS versions.
      * Null when [url] is anywhere else: a BookPlayer-cloud presigned URL must go out bare, since S3
      * rejects a request that carries a second auth mechanism.

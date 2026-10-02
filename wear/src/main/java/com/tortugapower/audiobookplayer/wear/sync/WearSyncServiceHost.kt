@@ -29,9 +29,7 @@ import com.tortugapower.audiobookplayer.logic.MultipartUploadProcessor
 import com.tortugapower.audiobookplayer.logic.QueueFileUploadProcessor
 import com.tortugapower.audiobookplayer.logic.RenameFolderProcessor
 import com.tortugapower.audiobookplayer.logic.SetBookmarkProcessor
-import com.tortugapower.audiobookplayer.logic.SetExternalResourceToDownloadProcessor
 import com.tortugapower.audiobookplayer.logic.ShallowDeleteProcessor
-import com.tortugapower.audiobookplayer.logic.StreamFileUploadProcessor
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.SyncIdentifiersProcessor
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyManager
@@ -109,7 +107,6 @@ class WearSyncServiceHost : Service() {
             MetadataUploadProcessor(this, repository),
             MultipartUploadProcessor.create(this, repository),
             QueueFileUploadProcessor.create(this, repository),
-            StreamFileUploadProcessor(this, repository),
             UpdateProcessor(),
             MoveProcessor(),
             DeleteProcessor(),
@@ -123,7 +120,6 @@ class WearSyncServiceHost : Service() {
             HardcoverProcessor(this),
             UploadExternalResourceProcessor(),
             DeleteExternalResourceProcessor(),
-            SetExternalResourceToDownloadProcessor(),
             ExternalUpdateProcessor(this),
             // Sticky-sort preferences: the fetch is the watch's active path (pull-only — nothing on
             // the watch writes sort prefs); the upload processor is registered to keep processor-set

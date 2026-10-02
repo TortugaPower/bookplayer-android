@@ -39,7 +39,7 @@ class ExternalUpdateProcessorTest {
 
     @After fun tearDown() = server.shutdown()
 
-    // Reversible stand-in for the Keystore cipher (same pattern as StreamFileUploadProcessorTest) — the
+    // Reversible stand-in for the Keystore cipher — the
     // stored row is ciphertext, and the push must authenticate with the DECRYPTED token.
     private val fakeCipher = object : TokenCipher {
         override fun encrypt(plaintext: String) = "ENC($plaintext)"

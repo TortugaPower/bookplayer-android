@@ -115,8 +115,8 @@ object OfflineDownloadManager {
     private suspend fun freshUrlFor(libraryRepository: LibraryRepository, book: LibraryItemEntity, externalUrl: String?): LibraryItemEntity {
         // Media-server-first: a resolvable Jellyfin/ABS server keeps its own URL (LAN speed, zero S3
         // egress). Only when NO saved server can serve the item (e.g. a second device that never
-        // configured one) fall through to the presigned refresh — that's how a piped stream item
-        // downloads from its BookPlayer cloud copy. The lookup both resolves the URL and acts as the
+        // configured one) fall through to the presigned refresh — that's how a streamed book whose file
+        // is in the cloud downloads from it. The lookup both resolves the URL and acts as the
         // guard (callers already skip books whose file is local, so no local-file short-circuit needed).
         if (externalUrl != null) {
             book.remoteURL = externalUrl
