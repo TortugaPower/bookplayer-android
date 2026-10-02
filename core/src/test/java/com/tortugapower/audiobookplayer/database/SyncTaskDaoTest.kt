@@ -10,6 +10,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import com.tortugapower.audiobookplayer.logic.UploadFilePayload
+import com.tortugapower.audiobookplayer.logic.MultipartUploadState
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -230,5 +234,24 @@ class SyncTaskDaoTest {
         dao.insertAtEnd(task("other", "another-book", jobType = "update"))
 
         assertEquals("newer", dao.getPendingTaskByTypeAndTaskId("update", "book")?.id)
+    }
+
+    /**
+     * An upload saves its multipart state while it runs, into the STORED payload: a uuid migration from
+     * the sync lane meanwhile is kept (iOS writes only the state fields too)
+     */
+    @Test fun saveUploadState_keepsAUuidMigratedWhileTheUploadRan() = runBlocking {
+        dao.insertAtEnd(task("up", "local-uuid", jobType = "upload_file", payload = """{"uuid":"local-uuid","title":"Dune"}"""))
+        dao.markTaskRunning("up")
+        dao.migrateTaskUuid("local-uuid", "server-uuid")
+
+        assertTrue(dao.saveUploadState("up", MultipartUploadState(uploadId = "u1", partSize = 5, fileSize = 9)))
+        assertFalse(dao.saveUploadState("gone", MultipartUploadState()))
+
+        val saved = dao.getTaskById("up")!!
+        assertEquals("server-uuid", UploadFilePayload.uuid(saved.payload))
+        assertEquals(MultipartUploadState(uploadId = "u1", partSize = 5, fileSize = 9), UploadFilePayload.state(saved.payload))
+        assertEquals(SyncTaskStatus.RUNNING, saved.status)
+        assertEquals(1, saved.attempts)
     }
 }

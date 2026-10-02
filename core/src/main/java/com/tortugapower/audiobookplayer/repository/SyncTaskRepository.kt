@@ -3,7 +3,9 @@ package com.tortugapower.audiobookplayer.repository
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.CodedFailure
+import com.tortugapower.audiobookplayer.logic.MultipartUploadState
 import com.tortugapower.audiobookplayer.logic.TaskPauseScope
+import com.tortugapower.audiobookplayer.logic.UploadFilePayload
 import kotlinx.coroutines.flow.Flow
 
 interface SyncTaskRepository {
@@ -72,6 +74,16 @@ interface SyncTaskRepository {
 
     /** Every parked task back to pending: the one automatic retry, when the app is opened. Returns how many. */
     suspend fun resumeAllPaused(): Int = 0
+
+    /**
+     * Writes a running upload's multipart state into its stored payload, the rest untouched (a uuid
+     * migration meanwhile is kept). False when the task is gone: cleared by a sign-out or a lapse, so stop.
+     */
+    suspend fun saveUploadState(id: String, state: MultipartUploadState): Boolean {
+        val task = getTaskById(id) ?: return false
+        updateTask(task.copy(payload = UploadFilePayload.withState(task.payload, state)))
+        return true
+    }
 
     /**
      * The lane's tasks still to go through, parked ones included: what blocks a library fetch, since a
