@@ -447,6 +447,9 @@ class DownloadFileProcessor(
             // otherwise leak the connection on each retry.
             httpResponse.use { response ->
                 if (!response.isSuccessful) {
+                    // Every error answer drops the download for good, temporary ones (429, 5xx) included: a
+                    // decision, as on iOS (BPTaskDownloadDelegate fails any status from 400 up). A retry would hold
+                    // up the serial file lane behind it; the alert says so, and tapping download asks afresh.
                     // A 401 from the media server itself is its sign-in, not the file (ABS answers 403 for an
                     // item this user can't open)
                     val signedOutOf = owner?.takeIf {
@@ -556,6 +559,9 @@ class DownloadFileProcessor(
             "its duration can't be read"
         }
         if (actual.isNaN() || actual.isInfinite()) return null
+        // A length that's read and short fails even with every announced byte, as on iOS: a decision. A misread
+        // (a VBR MP3 without a Xing header, against a length from the media server or iOS) repeats on every
+        // attempt; rejections are logged on the device only, as on iOS.
         if (expected - actual > durationTolerance(expected)) return "it plays ${actual}s of ${expected}s"
         return null
     }
@@ -594,7 +600,9 @@ class DownloadFileProcessor(
      */
     private suspend fun queueUploadAfterDownload(uuid: String, owner: MediaServerStreams.Owner) {
         val syncTasks = syncTasks ?: return
-        // The server marks the link "downloaded" once the book's file has reached the cloud
+        // The server marks the link "downloaded" once the book's file has reached the cloud. Offloading turns it
+        // back to "stream" on this device, so downloading it again queues the upload again: its start finds the
+        // file in S3 and answers "exists" (MultipartUploadService.startUpload), one call and no bytes.
         if (owner.resource.syncStatus != ExternalResourceEntity.STATUS_STREAM) return
         try {
             val dao = AppDatabase.getDatabase(context).libraryDao()
