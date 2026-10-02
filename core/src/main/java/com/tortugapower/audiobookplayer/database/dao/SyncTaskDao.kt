@@ -91,12 +91,12 @@ interface SyncTaskDao {
         if (getTaskById(id)?.pauseScope == "ACCOUNT") resumeAccountPauses() else resumeParkedTask(id)
     }
 
-    /** Every parked task back to pending: the one automatic retry, at launch */
+    /** Every parked task back to pending: the one automatic retry, when the app is opened */
     @Query(
         "UPDATE sync_tasks SET status = 'PENDING', pauseScope = NULL, errorCode = NULL, errorMessage = NULL, " +
             "httpStatus = NULL, pausedAt = NULL WHERE pauseScope IS NOT NULL"
     )
-    suspend fun resumeAllPaused()
+    suspend fun resumeAllPaused(): Int
 
     @Query("UPDATE sync_tasks SET sentryEventId = :eventId WHERE id = :id")
     suspend fun setSentryEventId(id: String, eventId: String)

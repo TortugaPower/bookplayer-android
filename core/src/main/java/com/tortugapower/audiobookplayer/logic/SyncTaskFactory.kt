@@ -221,8 +221,9 @@ object SyncTaskFactory {
     suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?, force: Boolean = false, canDelete: Boolean = true): Boolean {
         if (!force) {
             // Only fetch if the sync queue is empty to avoid desyncs with local actions: a parked task
-            // counts, since the listing would undo a change the server never got
-            if (repository.countQueuedTasksInQueue(QUEUE_SYNC) > 0) {
+            // counts, since the listing would undo a change the server never got. An account pause in any
+            // lane holds the sync lane too, so a fetch queued now would only wait.
+            if (repository.countQueuedTasksInQueue(QUEUE_SYNC) > 0 || repository.hasAccountPause()) {
                 android.util.Log.d("SyncTaskFactory", "⏭️ Skipping fetch_contents: sync queue not empty")
                 return false
             }

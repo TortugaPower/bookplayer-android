@@ -70,8 +70,8 @@ interface SyncTaskRepository {
         }
     }
 
-    /** Every parked task back to pending: the one automatic retry, at launch */
-    suspend fun resumeAllPaused() {}
+    /** Every parked task back to pending: the one automatic retry, when the app is opened. Returns how many. */
+    suspend fun resumeAllPaused(): Int = 0
 
     /**
      * The lane's tasks still to go through, parked ones included: what blocks a library fetch, since a

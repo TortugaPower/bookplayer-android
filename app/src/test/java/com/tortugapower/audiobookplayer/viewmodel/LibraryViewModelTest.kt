@@ -129,6 +129,7 @@ class LibraryViewModelTest {
             tasks.value.count { it.queueKey == queueKey && (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING || it.pauseScope != null) }
         override suspend fun countPausedTasksInQueue(queueKey: String): Int =
             tasks.value.count { it.queueKey == queueKey && it.pauseScope != null }
+        override suspend fun hasAccountPause(): Boolean = tasks.value.any { it.pauseScope == "ACCOUNT" }
         override suspend fun countActiveTasksByType(jobType: String): Int =
             tasks.value.count { it.jobType == jobType && (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING) }
         override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? =
@@ -242,6 +243,31 @@ class LibraryViewModelTest {
 
         assertEquals(listOf(true), busy)
         assertTrue(syncRepo.tasks.value.none { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS })
+    }
+
+    /** An account pause in another lane holds the sync lane too: the refresh says paused, queues nothing */
+    @Test fun refresh_underAnAccountPauseInAnotherLane_signalsPaused() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        syncRepo.saveTask(
+            SyncTaskEntity(
+                id = "pref", taskID = "library_sort:root", queueKey = SyncTaskFactory.QUEUE_PREFERENCES,
+                jobType = SyncTaskFactory.JOB_UPLOAD_PREFERENCE, position = 0, payload = "{}",
+                status = SyncTaskStatus.FAILED, pauseScope = "ACCOUNT", errorCode = "not_subscribed",
+            ),
+        )
+        val model = modelWith(syncRepo = syncRepo)
+
+        val busy = mutableListOf<Boolean>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            model.syncTasksBusy.collect { busy += it }
+        }
+
+        model.refresh(syncEnabled = true)
+        runCurrent()
+
+        assertEquals(listOf(true), busy)
+        assertTrue(syncRepo.tasks.value.none { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS })
+        assertFalse(model.isRefreshing.value)
     }
 
     // Row download state end to end: only queued/running download tasks flip isDownloading — other job

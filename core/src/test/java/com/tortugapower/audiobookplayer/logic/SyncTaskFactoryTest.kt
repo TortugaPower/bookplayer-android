@@ -250,4 +250,13 @@ class SyncTaskFactoryTest {
         SyncTaskFactory.createUploadPreferenceTask(repo, "library_sort:root", "fileName")
         assertEquals(listOf(SyncTaskFactory.JOB_UPLOAD_PREFERENCE to "library_sort:root"), superseded)
     }
+
+    /** An account pause in any lane holds the sync lane: a fetch queued then would only wait */
+    @Test fun fetchContents_unforced_isSkippedUnderAnAccountPause() = runBlocking {
+        val repo = object : SyncTaskRepository by CapturingRepo() {
+            override suspend fun countQueuedTasksInQueue(queueKey: String): Int = 0
+            override suspend fun hasAccountPause(): Boolean = true
+        }
+        assertEquals(false, SyncTaskFactory.createFetchContentsTask(repo, "Some folder"))
+    }
 }

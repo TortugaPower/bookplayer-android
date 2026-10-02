@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
@@ -83,8 +84,9 @@ fun QueuedTasksScreen(
     onBack: () -> Unit,
 ) {
     // Null while the queue is first read: nothing is drawn rather than an empty state that isn't true
-    val sections = viewModel.queuedTaskSections.collectAsState().value
-    val progressMap by viewModel.taskProgress.collectAsState()
+    // Lifecycle-aware, so the queue isn't regrouped while the app is in the background
+    val sections = viewModel.queuedTaskSections.collectAsStateWithLifecycle().value
+    val progressMap by viewModel.taskProgress.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // A second Report tap while the first one's report is being built is ignored

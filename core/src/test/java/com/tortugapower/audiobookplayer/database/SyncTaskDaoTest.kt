@@ -165,7 +165,7 @@ class SyncTaskDaoTest {
         dao.parkTask("a", "LANE", "item_not_found", "m", 404, 5L)
         dao.parkTask("b", "TASK", "invalid_request", "m", 422, 5L)
 
-        dao.resumeAllPaused()
+        assertEquals("how many resumed", 2, dao.resumeAllPaused())
 
         assertEquals(listOf("a", "b"), pendingIds())
         assertEquals(listOf(null, null), listOf("a", "b").map { dao.getTaskById(it)!!.pauseScope })

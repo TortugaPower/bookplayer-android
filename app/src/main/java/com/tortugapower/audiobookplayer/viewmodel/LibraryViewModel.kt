@@ -90,8 +90,12 @@ class LibraryViewModel(
             try {
                 if (!syncEnabled) return@launch
 
-                if (syncTaskRepository.countQueuedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0) {
-                    _syncTasksBusy.tryEmit(syncTaskRepository.countPausedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0)
+                // An account pause in any lane holds the sync lane too: a fetch queued now would never start
+                val accountHeld = syncTaskRepository.hasAccountPause()
+                if (accountHeld || syncTaskRepository.countQueuedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0) {
+                    _syncTasksBusy.tryEmit(
+                        accountHeld || syncTaskRepository.countPausedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0
+                    )
                     return@launch
                 }
 

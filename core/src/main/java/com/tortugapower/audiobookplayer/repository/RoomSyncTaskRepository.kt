@@ -72,7 +72,7 @@ class RoomSyncTaskRepository(
         syncTaskDao.resumeTask(id)
     }
 
-    override suspend fun resumeAllPaused() = withContext(Dispatchers.IO) {
+    override suspend fun resumeAllPaused(): Int = withContext(Dispatchers.IO) {
         syncTaskDao.resumeAllPaused()
     }
 
