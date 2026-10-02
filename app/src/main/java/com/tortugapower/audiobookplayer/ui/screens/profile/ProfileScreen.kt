@@ -189,14 +189,14 @@ fun ProfileScreen(
                     .clickable { onNavigateToQueuedTasks() }
             ) {
                 Text(
-                    text = "Queued sync tasks ($pendingTasksCount)",
+                    text = stringResource(R.string.queued_sync_tasks_title, pendingTasksCount),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
                 )
                 if (lastSyncTimestamp != null) {
                     Text(
-                        text = "Last sync: ${lastSyncTimestamp!!.formatSyncTime()}",
+                        text = stringResource(R.string.last_sync_title, lastSyncTimestamp!!.formatSyncTime()),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )

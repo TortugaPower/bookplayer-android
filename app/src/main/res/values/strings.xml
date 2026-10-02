@@ -545,6 +545,19 @@
     <string name="sync_queue_file">File Tasks</string>
     <string name="sync_queue_pipe">Cloud Upload Tasks</string>
     <string name="sync_queue_audiobookshelf">Audiobookshelf</string>
+    <string name="sync_queue_jellyfin">Jellyfin</string>
+    <string name="sync_queue_hardcover">Hardcover</string>
+    <string name="sync_queue_preferences">Preferences</string>
+    <string name="queued_tasks_title">Queued Tasks</string>
+    <string name="queued_tasks_lane_expanded">Expanded</string>
+    <string name="queued_tasks_lane_collapsed">Collapsed</string>
+    <string name="queued_tasks_lane_expand">Show tasks</string>
+    <string name="queued_tasks_lane_collapse">Hide tasks</string>
+    <string name="queued_sync_tasks_title">Queued sync tasks (%d)</string>
+    <string name="last_sync_title">Last sync: %s</string>
+    <string name="sync_tasks_empty_title">No queued tasks</string>
+    <string name="sync_tasks_empty_description">All your sync tasks are up to date.</string>
+    <string name="sync_paused_lane_title">Paused: a task needs your attention</string>
     <string name="hardcover_popular_on">Popular on Hardcover</string>
     <string name="hardcover_search_placeholder">Search books…</string>
 

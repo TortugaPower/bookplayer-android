@@ -8,8 +8,10 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.ListeningStatsCalculator
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.QueuedTaskSection
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
+import com.tortugapower.audiobookplayer.logic.groupedByLane
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
@@ -59,6 +61,16 @@ class ProfileViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    /**
+     * The Queued Tasks screen's lanes, grouped off the main thread (a first sync can queue thousands).
+     * Null until the queue is first read, so the screen never shows an empty queue that isn't; read from
+     * Room directly, since [syncTasks] starts with a placeholder empty list.
+     */
+    val queuedTaskSections: StateFlow<List<QueuedTaskSection>?> = syncTaskRepository.getAllTasks()
+        .map { it.groupedByLane() }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val pendingTasksCount: StateFlow<Int> = syncTasks.map { tasks ->
         tasks.count { it.status != SyncTaskStatus.COMPLETED }
@@ -118,11 +130,5 @@ class ProfileViewModel(
         // still-valid presigned URL — and, because the media service outlives an app swipe, would
         // even resume on the next launch without re-entering any gated load path.
         PlaybackManager.enforceRemoteStreamingGate(com.tortugapower.audiobookplayer.core.CoreContext.appContext)
-    }
-
-    fun deleteAllTasks() {
-        viewModelScope.launch {
-            syncTaskRepository.deleteAllTasks()
-        }
     }
 }

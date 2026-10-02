@@ -145,6 +145,23 @@ class SyncTaskPickerTest {
         assertFalse(SyncTaskPicker.hasStartableWork(listOf(inLane(parked("t", "TASK"), SyncTaskFactory.QUEUE_SYNC))) { true })
     }
 
+    /** What the Queued Tasks screen calls paused: the same stop the picker makes, at the same row */
+    @Test fun blockedLanes_followsThePicker() {
+        val running = inLane(pending("r").copy(status = SyncTaskStatus.RUNNING), SyncTaskFactory.QUEUE_SYNC)
+        val lanePark = inLane(parked("m", "LANE"), SyncTaskFactory.QUEUE_SYNC)
+        val taskPark = inLane(parked("t", "TASK", SyncTaskFactory.JOB_UPDATE), SyncTaskFactory.QUEUE_SYNC)
+        assertEquals(emptySet<String>(), SyncTaskPicker.blockedLanes(listOf(running, lanePark)))
+        assertEquals(setOf(SyncTaskFactory.QUEUE_SYNC), SyncTaskPicker.blockedLanes(listOf(taskPark, lanePark)))
+        assertEquals(emptySet<String>(), SyncTaskPicker.blockedLanes(listOf(taskPark)))
+
+        val accountHeld = listOf(
+            inLane(parked("a", "ACCOUNT", SyncTaskFactory.JOB_UPLOAD_FILE), SyncTaskFactory.QUEUE_FILE),
+            inLane(pending("s"), SyncTaskFactory.QUEUE_SYNC),
+            inLane(pending("d", SyncTaskFactory.JOB_DOWNLOAD_FILE), SyncTaskFactory.QUEUE_FILE),
+        )
+        assertEquals(setOf(SyncTaskFactory.QUEUE_SYNC), SyncTaskPicker.blockedLanes(accountHeld))
+    }
+
     @Test fun lanesWithWork_ignoresLanesWithOnlyParkedOrRunningTasks() {
         val tasks = listOf(
             inLane(parked("t", "TASK", SyncTaskFactory.JOB_UPDATE), SyncTaskFactory.QUEUE_SYNC),

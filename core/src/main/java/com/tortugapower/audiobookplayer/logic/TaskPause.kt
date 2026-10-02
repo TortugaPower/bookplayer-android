@@ -59,6 +59,24 @@ object SyncTaskPicker {
     }
 
     /**
+     * The lanes that can't make progress until a parked task is resumed (iOS `QueueCounts.blockedQueueKeys`),
+     * from every queued task in queue order: every server lane while a task holds the account, and a lane
+     * whose next task to act on is one parked with its lane. Like [runnable], the tasks ahead of it still
+     * run, and tasks parked alone (or with the account) are skipped.
+     */
+    fun blockedLanes(tasks: List<SyncTaskEntity>): Set<String> {
+        val accountHeld = tasks.any { it.pauseScope == TaskPauseScope.ACCOUNT.name }
+        return tasks.groupBy { it.queueKey }.filter { (lane, rows) ->
+            if (accountHeld && lane in serverLanes) return@filter true
+            val head = rows.firstOrNull {
+                it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING ||
+                    it.pause?.scope == TaskPauseScope.LANE
+            }
+            head?.pause?.scope == TaskPauseScope.LANE
+        }.keys
+    }
+
+    /**
      * Whether a freshly started engine would start a worker, for the launch gate: [lanesWithWork] over
      * the queue as the engine sees it once it has reset the RUNNING rows a killed process left behind.
      * Work held by the tier doesn't count, so a lapsed account's queue doesn't start the sync service
