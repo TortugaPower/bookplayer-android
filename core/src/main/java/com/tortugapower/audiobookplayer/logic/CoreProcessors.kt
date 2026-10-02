@@ -276,6 +276,9 @@ class MetadataUploadProcessor(
             // S3 already holds the book: told it's synced, for a tier that uploads files
             return if (tier == AccountTier.PRO) confirmSynced(item) else true
         }
+        // A media-server book's file goes up only when its download finishes (the download-finished hook
+        // queues it), as on iOS: one already downloaded when it's registered isn't backfilled, by design.
+        // The media server still has its file.
         if (isMediaServerBook) {
             Log.d("MetadataUploadProcessor", "⏭️ Media-server book: its file goes up once it's downloaded")
             return true

@@ -188,6 +188,9 @@ class MultipartUploadProcessor(
                                 } catch (e: CancellationException) {
                                     throw e
                                 } catch (e: Exception) {
+                                    // The type tells a changed or truncated file from a flaky network; the
+                                    // message and URL stay out (a presigned URL names the file)
+                                    Log.w(TAG, "Upload $taskId: part $part failed with ${e.javaClass.simpleName}")
                                     null
                                 }
                                 events.send(PartEvent.Finished(part, status))
