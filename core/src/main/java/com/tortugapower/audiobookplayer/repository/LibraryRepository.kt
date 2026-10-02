@@ -83,9 +83,17 @@ interface LibraryRepository {
     suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity>
 
     /**
-     * The media-server download URL for [item]'s stream/downloaded external resource, or null when no
-     * saved server can serve it (no resource, server removed, or a device that never configured one).
-     * Null is the signal to fall back to the BookPlayer cloud copy — media-server-first, cloud second.
+     * The media-server URL [item] plays from, or null when no saved server can serve it (no media-server
+     * link, server removed, or a device that never configured one). Null is the signal to fall back to the
+     * BookPlayer cloud copy — media-server-first, cloud second. May ask the server (see [MediaServerStreams]).
      */
     suspend fun externalStreamUrlFor(item: LibraryItemEntity): String?
+
+    /**
+     * [externalStreamUrlFor] for several items, keyed by uuid (items no server can serve are absent): a
+     * streamed volume's books cost one server lookup together. [onSessionExpired] runs when a server
+     * rejected its stored token.
+     */
+    suspend fun externalStreamUrlsFor(items: List<LibraryItemEntity>, onSessionExpired: (() -> Unit)? = null): Map<String, String> =
+        items.mapNotNull { item -> externalStreamUrlFor(item)?.let { item.uuid to it } }.toMap()
 }

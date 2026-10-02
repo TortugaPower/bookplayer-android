@@ -11,6 +11,8 @@ import com.tortugapower.audiobookplayer.network.ProbeResult
 import com.tortugapower.audiobookplayer.network.ServerCapabilities
 import com.tortugapower.audiobookplayer.network.SsoCapable
 import com.tortugapower.audiobookplayer.network.SsoResult
+import com.tortugapower.audiobookplayer.network.StreamFile
+import com.tortugapower.audiobookplayer.network.StreamImportInfo
 import com.tortugapower.audiobookplayer.network.WebAuthenticator
 import com.tortugapower.audiobookplayer.network.OkHttpOidcClient
 import com.tortugapower.audiobookplayer.logic.AbsOidcFlow
@@ -172,7 +174,10 @@ class AudiobookshelfService : ExternalService, SsoCapable {
             }
     }
 
-    override suspend fun getFileExtensions(url: String, token: String, ids: List<String>, headers: Map<String, String>?): Map<String, String> {
+    override suspend fun getFileExtensions(url: String, token: String, ids: List<String>, headers: Map<String, String>?): Map<String, String> =
+        getStreamImportInfo(url, token, ids, headers).mapValues { (_, info) -> info.extension }
+
+    override suspend fun getStreamImportInfo(url: String, token: String, ids: List<String>, headers: Map<String, String>?): Map<String, StreamImportInfo> {
         if (ids.isEmpty()) return emptyMap()
         val api = getApi(url, headers)
         val response = api.getItemsBatch(getAuthHeader(token), AudiobookshelfBatchItemsRequest(ids))
@@ -181,7 +186,11 @@ class AudiobookshelfService : ExternalService, SsoCapable {
             throw Exception("Audiobookshelf API error fetching items: ${response.code()} ${response.message()}")
         }
         return response.body()!!.libraryItems.orEmpty()
-            .mapNotNull { item -> fileExtension(item)?.let { item.id to it } }
+            .mapNotNull { item ->
+                val extension = fileExtension(item) ?: return@mapNotNull null
+                val files = streamFiles(item.id, item).takeIf { it.size > 1 }.orEmpty()
+                item.id to StreamImportInfo(extension, files)
+            }
             .toMap()
     }
 
@@ -255,6 +264,16 @@ class AudiobookshelfService : ExternalService, SsoCapable {
         return "${sanitizedUrl}api/items/${item.uuid}/download"
     }
 
+    override suspend fun getStreamFiles(url: String, token: String, itemId: String, headers: Map<String, String>?): List<StreamFile>? {
+        val response = getApi(url, headers).getItemExpanded(getAuthHeader(token), itemId)
+        if (response.code() == 401 || response.code() == 403) throw com.tortugapower.audiobookplayer.network.SessionExpiredException()
+        if (response.code() == 404) return emptyList()
+        if (!response.isSuccessful || response.body() == null) {
+            throw Exception("Audiobookshelf API error fetching item: ${response.code()} ${response.message()}")
+        }
+        return streamFiles(itemId, response.body()!!)
+    }
+
     override suspend fun getThumbnailUrl(url: String, token: String, item: LibraryItemEntity): String? {
         val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
         // We can't easily check coverPath here without a full item fetch,
@@ -271,6 +290,25 @@ class AudiobookshelfService : ExternalService, SsoCapable {
     }
 
     companion object {
+        /**
+         * [item]'s playable files. The path is built from the track's `ino` against the saved server URL
+         * rather than taken from the track's `contentUrl`: that one is absolute from the server root and
+         * carried the router base path in older versions, so joining it to a URL with a subpath breaks.
+         * Tracks only carry `ino` since ABS 2.18, so older servers' is read off the `contentUrl` (`…/file/<ino>`,
+         * since 2.3 — before that ABS had no per-file route).
+         */
+        fun streamFiles(itemId: String, item: AudiobookshelfItem): List<StreamFile> =
+            item.media?.tracks.orEmpty().sortedBy { it.index }.mapNotNull { track ->
+                val ino = track.ino?.takeIf { it.isNotBlank() }
+                    ?: track.contentUrl?.substringAfterLast("/file/", "")?.substringBefore('?')?.takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                StreamFile(
+                    path = "api/items/$itemId/file/$ino",
+                    name = track.metadata?.relPath?.takeIf { it.isNotBlank() } ?: track.metadata?.filename.orEmpty(),
+                    duration = track.duration ?: 0.0,
+                )
+            }
+
         /**
          * The REAL extension of the item's first audio file (lowest index), without the leading dot the
          * server includes; the file name's extension when `ext` is missing. Null when the item has no audio

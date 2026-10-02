@@ -575,11 +575,15 @@ class DownloadFileProcessor(
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
 
-        val remoteURL = payload["remoteURL"] as? String
         val relativePath = payload["relativePath"] as? String
         val taskId = task.taskID
+        // The book's media-server link, if it streams from one: its own, or its streamed volume's.
+        val owner = mediaServerOwner(taskId)
+        // An ABS file URL can't be relied on to still work by the time the task runs (a file's id changes
+        // when the file is replaced), and a lookup that failed at enqueue leaves none: ask the server again.
+        var remoteURL = (payload["remoteURL"] as? String).orEmpty().ifEmpty { owner?.let { freshMediaServerUrl(taskId) }.orEmpty() }
 
-        if (remoteURL.isNullOrEmpty() || relativePath.isNullOrEmpty()) {
+        if (remoteURL.isEmpty() || relativePath.isNullOrEmpty()) {
             Log.e("DownloadFileProcessor", "❌ Missing remoteURL or relativePath")
             return false
         }
@@ -602,14 +606,19 @@ class DownloadFileProcessor(
         destFile.parentFile?.mkdirs()
 
         return try {
-            // Media-server headers ride only the hops that stay on that server: OkHttp would carry custom
-            // headers (often Cloudflare Access secrets) across a redirect to another host.
-            val client = mediaServerHeaders(taskId, remoteURL)?.let {
-                baseHttpClient.newBuilder().addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(remoteURL, it)).build()
-            } ?: baseHttpClient
+            var httpResponse = execute(owner, remoteURL)
+            if (httpResponse.code == 404 && owner != null) {
+                // The file moved on the server since the URL was looked up: one fresh lookup, one retry.
+                val fresh = freshMediaServerUrl(taskId)
+                if (fresh != null && fresh != remoteURL) {
+                    httpResponse.close()
+                    remoteURL = fresh
+                    httpResponse = execute(owner, remoteURL)
+                }
+            }
             // `use` closes the response on every path: the early returns below (error status, no room) would
             // otherwise leak the connection on each retry.
-            client.newCall(okhttp3.Request.Builder().url(remoteURL).build()).execute().use { response ->
+            httpResponse.use { response ->
                 if (!response.isSuccessful) {
                     Log.e("DownloadFileProcessor", "❌ Download failed: ${response.code}")
                     return false
@@ -674,13 +683,31 @@ class DownloadFileProcessor(
         }
     }
 
-    // Resolved per run, not stored in the payload: tokens stay out of the task table, and a re-auth's
-    // fresh token applies to an already-queued download. The resource pick mirrors externalStreamUrlFor.
-    private suspend fun mediaServerHeaders(uuid: String, url: String): Map<String, String>? {
-        val resource = AppDatabase.getDatabase(context).libraryDao().getExternalResourcesForBookSync(uuid)
-            .find { it.syncStatus == ExternalResourceEntity.STATUS_STREAM || it.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED }
-            ?: return null
-        return ExternalServiceUtils.downloadHeadersFor(serverRepository, resource, url)
+    /**
+     * GETs [url]; media-server headers ride only the hops that stay on that server (OkHttp would carry custom
+     * headers, often Cloudflare Access secrets, across a redirect to another host). They're resolved per run,
+     * not stored in the payload: tokens stay out of the task table, and a re-auth's fresh token applies to an
+     * already-queued download.
+     */
+    private suspend fun execute(owner: MediaServerStreams.Owner?, url: String): okhttp3.Response {
+        val headers = owner?.let { ExternalServiceUtils.downloadHeadersFor(serverRepository, it.resource, url) }
+        val client = headers?.let {
+            baseHttpClient.newBuilder().addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(url, it)).build()
+        } ?: baseHttpClient
+        return client.newCall(okhttp3.Request.Builder().url(url).build()).execute()
+    }
+
+    private suspend fun mediaServerOwner(uuid: String): MediaServerStreams.Owner? {
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        val row = dao.getItemByIdWithResources(uuid) ?: return null
+        return MediaServerStreams.owner(row.item.also { it.externalResources = row.externalResources }, dao)
+    }
+
+    private suspend fun freshMediaServerUrl(uuid: String): String? {
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        val row = dao.getItemByIdWithResources(uuid) ?: return null
+        val item = row.item.also { it.externalResources = row.externalResources }
+        return MediaServerStreams.lookUp(listOf(item), dao, serverRepository).urls[uuid]
     }
 
     override fun canHandle(jobType: String): Boolean {

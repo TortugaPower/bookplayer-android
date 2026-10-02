@@ -51,6 +51,17 @@ interface AudiobookshelfApi {
         @Body request: AudiobookshelfBatchItemsRequest
     ): Response<AudiobookshelfBatchItemsResponse>
 
+    /**
+     * One expanded item: its playable `tracks`, which list responses leave out. Asked when a stream is
+     * about to play or download (see [AudiobookshelfService.getStreamFiles]).
+     */
+    @GET("api/items/{id}")
+    suspend fun getItemExpanded(
+        @Header("Authorization") auth: String,
+        @Path("id") itemId: String,
+        @Query("expanded") expanded: Int = 1
+    ): Response<AudiobookshelfItem>
+
     @PATCH("api/me/progress/{id}")
     suspend fun updateProgress(
         @Header("Authorization") auth: String,
@@ -134,7 +145,20 @@ data class AudiobookshelfMedia(
     @SerializedName("metadata") val metadata: AudiobookshelfMetadata?,
     @SerializedName("duration") val duration: Double?,
     @SerializedName("coverPath") val coverPath: String?,
-    @SerializedName("audioFiles") val audioFiles: List<AudiobookshelfAudioFile>?
+    @SerializedName("audioFiles") val audioFiles: List<AudiobookshelfAudioFile>?,
+    // Only on expanded items: the files ABS plays, in order (excluded audio files are left out).
+    @SerializedName("tracks") val tracks: List<AudiobookshelfTrack>? = null
+)
+
+data class AudiobookshelfTrack(
+    @SerializedName("index") val index: Int,
+    // The file's id on the server: its inode, so it changes whenever the file is replaced. On tracks since
+    // ABS 2.18; earlier versions only carry it at the end of [contentUrl].
+    @SerializedName("ino") val ino: String? = null,
+    @SerializedName("duration") val duration: Double?,
+    // `[<router base path>]/api/items/<id>/file/<ino>` since ABS 2.3.
+    @SerializedName("contentUrl") val contentUrl: String? = null,
+    @SerializedName("metadata") val metadata: AudiobookshelfFileMetadata?
 )
 
 data class AudiobookshelfAudioFile(
@@ -148,7 +172,9 @@ data class AudiobookshelfAudioFile(
 data class AudiobookshelfFileMetadata(
     @SerializedName("filename") val filename: String?,
     /** The file's extension WITH its leading dot, as the server reports it (`".m4b"`). */
-    @SerializedName("ext") val ext: String? = null
+    @SerializedName("ext") val ext: String? = null,
+    /** The file's path inside the item's folder (`"Disc 1/01.mp3"`); unique within the item, unlike [filename]. */
+    @SerializedName("relPath") val relPath: String? = null
 )
 
 data class AudiobookshelfBatchItemsRequest(

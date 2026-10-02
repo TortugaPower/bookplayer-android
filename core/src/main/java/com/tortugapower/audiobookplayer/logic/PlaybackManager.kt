@@ -738,16 +738,19 @@ object PlaybackManager {
                 } else {
                     listOf(item)
                 }
-                var extractedAny = false
-                for (sub in targets) {
+                val pending = targets.filter { sub ->
                     val rp = sub.relativePath
-                    if (rp != null && File(processedDir, rp).exists()) continue           // downloaded → local path handles it
-                    if (repo.getChaptersForBook(sub.uuid).first().isNotEmpty()) continue  // already have chapters
+                    if (rp != null && File(processedDir, rp).exists()) return@filter false          // downloaded → local path handles it
+                    if (repo.getChaptersForBook(sub.uuid).first().isNotEmpty()) return@filter false // already have chapters
                     // Bound the per-process dedup set (clear on overflow — a re-attempt is harmless).
                     if (remoteChapterAttempts.size >= REMOTE_ATTEMPT_CAP) remoteChapterAttempts.clear()
-                    if (!remoteChapterAttempts.add(sub.uuid)) continue                    // attempted this session
-                    val resolved = repo.resolveStreamingUrl(sub)
-                    val url = resolved.remoteURL?.takeIf { it.isNotEmpty() } ?: continue
+                    remoteChapterAttempts.add(sub.uuid)                                             // false: attempted this session
+                }
+                // One lookup for the lot: a streamed volume's books share their server item.
+                val resolved = repo.resolveStreamingUrls(pending)
+                var extractedAny = false
+                for (sub in resolved) {
+                    val url = sub.remoteURL?.takeIf { it.isNotEmpty() } ?: continue
                     val ext = audioExtensionFor(sub, url)
                     val headers = getHeadersForUri(android.net.Uri.parse(url))
                     val chapters = ChapterExtractionService.extractChapterEntitiesRemote(
@@ -1041,7 +1044,8 @@ object PlaybackManager {
                 // hostId E2E: a fresh sign-in on a second device auto-loaded a media-server book
                 // and alerted before the user touched anything). A real tap on the same book
                 // retries with autoplay=true and surfaces the right dialog then.
-                if (autoplay) {
+                // A rejected token is already surfaced by its own alert (reportLookupAuthError).
+                if (autoplay && !_externalStreamAuthError.value) {
                     // Cross-device external item with no matching local server: show the
                     // connect-your-server prompt INSTEAD of the generic error (never both).
                     val missing = missingExternalServerPrompt(context, refreshedItem, processedDir)
@@ -1569,6 +1573,28 @@ object PlaybackManager {
         }
     }
 
+    /**
+     * Saves each not-downloaded sub-book's media-server URL, in one lookup per streamed volume: buildBound
+     * reads sub-books back from the database. Local-only (the URL is never synced). Unlike
+     * [LibraryRepository.resolveStreamingUrls], a server rejecting its token raises the session alert.
+     * Returns the uuids that got one.
+     */
+    private suspend fun saveSubStreams(context: Context, repo: LibraryRepository, subItems: List<LibraryItemEntity>, processedDir: File): Set<String> {
+        val remote = subItems.filter { sub -> sub.relativePath?.let { File(processedDir, it).isFile } != true }
+        val urls = repo.externalStreamUrlsFor(remote, ::reportLookupAuthError)
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        urls.forEach { (uuid, url) -> dao.updateRemoteURL(uuid, url) }
+        return urls.keys
+    }
+
+    /**
+     * A media server rejected its stored token while looking up what to stream: the same alert as a
+     * stream answering 401, for user-initiated loads only (silent loads never alert).
+     */
+    private fun reportLookupAuthError() {
+        if (lastLoadUserInitiated) reportExternalStreamAuthError()
+    }
+
     private suspend fun refreshRemoteUrlsIfNecessary(context: Context, item: LibraryItemEntity, isBound: Boolean, processedDir: File): LibraryItemEntity {
         val repo = getRepository(context)
         val isLocal = if (isBound) {
@@ -1590,37 +1616,34 @@ object PlaybackManager {
             // First resolve external server stream URLs (Jellyfin/Audiobookshelf). One lookup serves
             // both purposes: a non-null URL IS the "a saved server can serve this" signal the
             // media-server-first branch below keys on (no second server read + token decrypt).
-            val externalUrl = repo.externalStreamUrlFor(item)
+            val externalUrl = repo.externalStreamUrlsFor(listOf(item), ::reportLookupAuthError)[item.uuid]
             val resolvedItem = item.also { if (externalUrl != null) it.remoteURL = externalUrl }
 
             try {
                 if (isBound) {
-                    // Bounded so a slow/unreachable server can't hang playback (OkHttp also has timeouts).
-                    val response = kotlinx.coroutines.withTimeoutOrNull(CONTENTS_FETCH_TIMEOUT_MS) {
-                        NetworkClient.libraryApi.getContents(resolvedItem.relativePath ?: "")
+                    val volumePath = resolvedItem.relativePath ?: ""
+                    // Bounded so a slow/unreachable server can't hang playback (OkHttp also has timeouts). A
+                    // failure here must not stop the media-server step below: a LAN server still plays.
+                    val body = try {
+                        kotlinx.coroutines.withTimeoutOrNull(CONTENTS_FETCH_TIMEOUT_MS) {
+                            NetworkClient.libraryApi.getContents(volumePath)
+                        }?.takeIf { it.isSuccessful }?.body()
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        android.util.Log.e("PlaybackManager", "❌ Failed to fetch bound item contents: ${e.message}")
+                        null
                     }
-                    if (response != null && response.isSuccessful && response.body() != null) {
-                        val body = response.body()!!
-                        val subItems = repo.getItemsInPathSync(resolvedItem.relativePath ?: "")
-                        val resolvedSubItems = repo.resolveStreamingUrls(subItems)
+                    if (body != null && repo.isCloudSyncActive()) {
                         // Offloaded bound book whose sub-items were never fetched: insert the missing ones
                         // (subscribed accounts only) so buildBound has a timeline to build. Reuses the same
                         // upsert as the background contents-sync task.
-                        val syncActive = repo.isCloudSyncActive()
-                        val dao = if (syncActive) AppDatabase.getDatabase(context).libraryDao() else null
+                        val dao = AppDatabase.getDatabase(context).libraryDao()
+                        val known = repo.getItemsInPathSync(volumePath)
                         val generatedUuids = mutableSetOf<String>()
                         val upsertedPaths = mutableSetOf<String>()
                         body.content.forEach { remoteSub ->
-                            val localSub = resolvedSubItems.find { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }
-                            if (localSub != null) {
-                                if (!remoteSub.remoteURL.isNullOrEmpty()) {
-                                    localSub.remoteURL = remoteSub.remoteURL
-                                    if (!remoteSub.artworkURL.isNullOrEmpty()) {
-                                        localSub.artworkURL = remoteSub.artworkURL
-                                    }
-                                    repo.updateItem(localSub)
-                                }
-                            } else if (dao != null) {
+                            if (known.none { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }) {
                                 // skipParentUpdate: recomputing the parent chain once per sub-item is
                                 // O(items × siblings) DB round-trips during playback load AND transiently
                                 // rewrites the playing bound book's own progress fields mid-load. One
@@ -1630,16 +1653,25 @@ object PlaybackManager {
                                 upsertedPaths.add(remoteSub.relativePath)
                             }
                         }
-                        if (dao != null && upsertedPaths.isNotEmpty()) {
+                        if (upsertedPaths.isNotEmpty()) {
                             LibraryContentsSync.updateParentFoldersBatch(dao, upsertedPaths)
                         }
-                        android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
-                    } else {
-                        // Fallback: save resolved sub-book URLs to DB
-                        val subItems = repo.getItemsInPathSync(resolvedItem.relativePath ?: "")
-                        val resolvedSubItems = repo.resolveStreamingUrls(subItems)
-                        resolvedSubItems.forEach { repo.updateItem(it) }
                     }
+                    val subItems = repo.getItemsInPathSync(volumePath)
+                    val streamed = saveSubStreams(context, repo, subItems, processedDir)
+                    // Media-server-first, as for single books: the cloud copy only for sub-books no saved
+                    // server can serve.
+                    body?.content?.forEach { remoteSub ->
+                        val localSub = subItems.find { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }
+                        if (localSub != null && localSub.uuid !in streamed && !remoteSub.remoteURL.isNullOrEmpty()) {
+                            localSub.remoteURL = remoteSub.remoteURL
+                            if (!remoteSub.artworkURL.isNullOrEmpty()) {
+                                localSub.artworkURL = remoteSub.artworkURL
+                            }
+                            repo.updateItem(localSub)
+                        }
+                    }
+                    android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
                 } else if (!resolvedItem.remoteURL.isNullOrEmpty()) {
                     // Media-server-first: refresh the BookPlayer presigned URL only when no saved
                     // Jellyfin/ABS server can serve the item — that's how a piped stream item plays from

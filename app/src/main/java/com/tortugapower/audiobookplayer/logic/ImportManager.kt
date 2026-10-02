@@ -390,7 +390,8 @@ object ImportManager : ImportService {
                             providerId = providerId,
                             hostId = hostId,
                             streamEntity = item.entity,
-                            artworkHeaders = item.customHeaders
+                            artworkHeaders = item.customHeaders,
+                            streamFiles = item.streamFiles
                         )
                     )
                 }
@@ -497,7 +498,8 @@ object ImportManager : ImportService {
                             hostId = importFile.hostId,
                             artworkPath = artworkPath ?: streamEntity.artworkURL,
                             enqueueSyncTasks = isSubscribed,
-                            isPro = isPro
+                            isPro = isPro,
+                            files = importFile.streamFiles
                         )
                         if (result == null) {
                             // No file name to store it under — staging hydrates the real extension, so

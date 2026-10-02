@@ -150,12 +150,12 @@ object ExternalServiceUtils {
     }
 
     /**
-     * The provider's direct-download URL for [resource] on [server], or null for an unknown provider.
-     * Pure counterpart of the URL rebuild in `resolveStreamingUrl`, also used to GET the source file for
-     * the stream-to-cloud pipe. The Jellyfin URL carries no token — Jellyfin 12 ignores `api_key`, and a
-     * URL token leaks into logs and the task table — so every request for it needs the provider's header
-     * auth: playback via PlaybackManager's host registry, the pipe and downloads via [downloadHeadersFor].
-     * ABS keeps its `token` query param; its consumers send the Bearer header on top of it.
+     * The provider's whole-item download URL for [resource] on [server], or null for an unknown provider.
+     * What a Jellyfin book streams from ([MediaServerStreams]); AudiobookShelf streams per file instead (its
+     * item download is a zip for any book in a folder), so its branch only serves the stream-to-cloud pipe.
+     * The Jellyfin URL carries no token — Jellyfin 12 ignores `api_key`, and a URL token leaks into logs and
+     * the task table — so every request for it needs the provider's header auth: playback via
+     * PlaybackManager's host registry, the pipe and downloads via [downloadHeadersFor].
      */
     fun downloadUrlFor(server: ExternalServerEntity, resource: ExternalResourceEntity): String? {
         val path = when (serviceTypeFor(resource.providerName)) {

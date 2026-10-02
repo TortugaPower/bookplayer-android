@@ -20,7 +20,9 @@ data class ImportFile(
     val hostId: String? = null,
     val isFileOnly: Boolean = false,
     val streamEntity: LibraryItemEntity? = null,
-    val artworkHeaders: Map<String, String>? = null
+    val artworkHeaders: Map<String, String>? = null,
+    /** A stream import's audio files when the item has several: it's imported as a volume of them. */
+    val streamFiles: List<com.tortugapower.audiobookplayer.network.StreamFile> = emptyList()
 ) {
     val isStream: Boolean get() = streamEntity != null
 

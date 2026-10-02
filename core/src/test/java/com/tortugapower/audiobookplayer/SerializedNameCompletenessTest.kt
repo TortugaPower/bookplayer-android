@@ -51,6 +51,7 @@ import com.tortugapower.audiobookplayer.network.PreferenceEntryDto
 import com.tortugapower.audiobookplayer.network.PreferencesResponse
 import com.tortugapower.audiobookplayer.network.services.AudiobookshelfAudioFile
 import com.tortugapower.audiobookplayer.network.services.AudiobookshelfFileMetadata
+import com.tortugapower.audiobookplayer.network.services.AudiobookshelfTrack
 import com.tortugapower.audiobookplayer.network.services.AudiobookshelfItem
 import com.tortugapower.audiobookplayer.network.services.AudiobookshelfItemsResponse
 import com.tortugapower.audiobookplayer.network.services.AudiobookshelfLibrariesResponse
@@ -142,6 +143,7 @@ class SerializedNameCompletenessTest {
         AudiobookshelfMedia::class.java,
         AudiobookshelfAudioFile::class.java,
         AudiobookshelfFileMetadata::class.java,
+        AudiobookshelfTrack::class.java,
         AudiobookshelfMetadata::class.java,
         // network/services/JellyfinApi.kt
         JellyfinUserDataRequest::class.java,
