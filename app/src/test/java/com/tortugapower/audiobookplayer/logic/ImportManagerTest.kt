@@ -125,6 +125,15 @@ class ImportManagerTest {
         assertEquals(listOf("Disc 1 - 01.mp3", "Disc 2 - 01.mp3"), result.single().file!!.list()!!.sorted())
     }
 
+    // AudiobookShelf doesn't serve archives as audio: one in the item's folder isn't one of its books.
+    @Test fun `an archive inside a downloaded item isn't one of its books`() = runBlocking {
+        val result = ImportManager.expandArchives(
+            context, listOf(downloadZip("Foxtrot.zip", mapOf("01.mp3" to "a", "02.mp3" to "b", "extras.zip" to "zip"))), db.libraryDao(),
+        )
+
+        assertEquals(listOf("01.mp3", "02.mp3"), result.single().file!!.list()!!.sorted())
+    }
+
     @Test fun `a downloaded item's one file in a subfolder keeps its own name and link`() = runBlocking {
         val result = ImportManager.expandArchives(context, listOf(downloadZip("Hotel.zip", mapOf("CD1/Hotel.m4b" to "a"))), db.libraryDao())
 

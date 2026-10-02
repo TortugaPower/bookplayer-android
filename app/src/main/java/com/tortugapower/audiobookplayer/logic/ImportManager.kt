@@ -645,7 +645,9 @@ object ImportManager : ImportService {
         }
 
         val folderPath = if (basePath == null) destDir.name else "$basePath/${destDir.name}"
-        val isVolume = !importFile.providerName.isNullOrBlank() && !importFile.providerId.isNullOrBlank()
+        val providerName = importFile.providerName?.takeIf { it.isNotBlank() }
+        val providerId = importFile.providerId?.takeIf { it.isNotBlank() }
+        val isVolume = providerName != null && providerId != null
         val folderItem = LibraryItemEntity(
             uuid = java.util.UUID.randomUUID().toString(),
             title = destDir.name,
@@ -660,11 +662,11 @@ object ImportManager : ImportService {
 
         importDirectoryContents(context, libraryDao, syncTaskRepository, destDir, folderPath, isSubscribed, isPro)
 
-        if (isVolume) {
+        if (providerName != null && providerId != null) {
             // After the volume and its books: the server files the link under the volume.
             val externalResource = ExternalResourceEntity(
-                providerName = importFile.providerName!!,
-                providerId = importFile.providerId!!,
+                providerName = providerName,
+                providerId = providerId,
                 syncStatus = ExternalResourceEntity.STATUS_SYNCED,
                 libraryItemUuid = folderItem.uuid,
                 hostId = importFile.hostId
@@ -857,9 +859,16 @@ object ImportManager : ImportService {
         processedDir: File,
         libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
     ): List<ImportFile> {
-        val audio = tempDir.walkTopDown()
+        val files = tempDir.walkTopDown()
             .onEnter { it == tempDir || (!it.isHidden && !it.name.startsWith(".") && it.name != "__MACOSX") }
-            .filter { it.isFile && !it.name.startsWith(".") && ImportArchiveUtils.isAudioFile(it.name) }
+            .filter { it.isFile && !it.name.startsWith(".") }
+            .toList()
+        // AudiobookShelf doesn't serve archives as audio: an archive inside the item's folder isn't one of its books.
+        files.count { ImportArchiveUtils.isArchive(it.name) }.takeIf { it > 0 }?.let { skipped ->
+            android.util.Log.w("ImportManager", "Skipping $skipped archive(s) inside ${archive.name}: only its audio files are the item's books")
+        }
+        val audio = files
+            .filter { ImportArchiveUtils.isAudioFile(it.name) }
             .map { it to it.relativeTo(tempDir).invariantSeparatorsPath }
             .sortedWith(compareBy(ImportArchiveUtils.naturalOrderComparator) { it.second })
             .toList()
