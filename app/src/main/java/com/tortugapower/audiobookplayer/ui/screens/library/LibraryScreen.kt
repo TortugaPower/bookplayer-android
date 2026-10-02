@@ -370,7 +370,7 @@ fun LibraryScreen(
         )
     }
 
-    // iOS parity: a folder-only delete is refused when an item in it has a name taken at the root.
+    // iOS parity: a folder-only delete is refused when an item in it has a name taken in its parent.
     val folderNotDeleted by libraryViewModel.folderNotDeleted.collectAsState()
     folderNotDeleted?.let { count ->
         AlertDialog(

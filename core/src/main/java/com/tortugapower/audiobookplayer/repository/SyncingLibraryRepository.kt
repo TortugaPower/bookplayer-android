@@ -155,7 +155,7 @@ class SyncingLibraryRepository(
         val parents = parentPathsOf(listOf(folder))
         delegate.shallowDeleteFolder(context, folder)
         if (isSubscribed()) {
-            // ONE task: the server performs the move-children-to-root + folder removal atomically
+            // ONE task: the server performs the move-children-to-parent + folder removal atomically
             // (folder_in_out), exactly like iOS's shallowDelete job — no per-child move tasks.
             SyncTaskFactory.createShallowDeleteTask(syncTaskRepository, folder)
             pushParentFolderMetadata(parents)

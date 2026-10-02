@@ -20,7 +20,7 @@ import java.io.File
 
 /**
  * Pins the iOS-parity shallow folder delete ("Delete folder only"): direct children — including a
- * sub-container and its descendants' DB paths — move back to the library root with their files,
+ * sub-container and its descendants' DB paths — move up into the folder's parent with their files,
  * the folder row and directory disappear, and nothing else is deleted.
  */
 @RunWith(RobolectricTestRunner::class)

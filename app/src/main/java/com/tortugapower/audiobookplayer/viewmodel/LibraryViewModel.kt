@@ -535,7 +535,7 @@ class LibraryViewModel(
     }
 
     private val _folderNotDeleted = MutableStateFlow<Int?>(null)
-    /** Set when a folder-only delete was refused: how many of its items have names taken at the root. */
+    /** Set when a folder-only delete was refused: how many of its items have names taken in its parent. */
     val folderNotDeleted: StateFlow<Int?> = _folderNotDeleted.asStateFlow()
 
     fun clearFolderNotDeleted() {
