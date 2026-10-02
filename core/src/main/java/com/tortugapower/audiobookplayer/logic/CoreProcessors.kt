@@ -609,7 +609,11 @@ class DownloadFileProcessor(
         val isLegacyAbsItemUrl = owner?.resource?.providerName.equals("audiobookshelf", ignoreCase = true) &&
             LEGACY_ABS_ITEM_DOWNLOAD.containsMatchIn(payloadUrl)
         var remoteURL = payloadUrl.takeUnless { isLegacyAbsItemUrl }.orEmpty()
-            .ifEmpty { owner?.let { freshMediaServerUrl(taskId) }.orEmpty() }
+        if (remoteURL.isEmpty() && owner != null) {
+            val lookup = lookUpFile(taskId)
+            if (lookup != null && taskId in lookup.noFile) return dropWithoutFile(relativePath)
+            remoteURL = lookup?.urls?.get(taskId).orEmpty()
+        }
 
         if (remoteURL.isEmpty() || relativePath.isNullOrEmpty()) {
             Log.e("DownloadFileProcessor", "❌ Missing remoteURL or relativePath")
@@ -629,7 +633,9 @@ class DownloadFileProcessor(
                 // The file moved on the server since the URL was looked up: one fresh lookup, one retry. Closed
                 // first, so a lookup that throws can't leak it; a closed response still reports its 404 below.
                 httpResponse.close()
-                val fresh = freshMediaServerUrl(taskId)
+                val lookup = lookUpFile(taskId)
+                if (lookup != null && taskId in lookup.noFile) return dropWithoutFile(relativePath)
+                val fresh = lookup?.urls?.get(taskId)
                 if (fresh != null && fresh != remoteURL) {
                     remoteURL = fresh
                     httpResponse = execute(owner, remoteURL)
@@ -722,11 +728,20 @@ class DownloadFileProcessor(
         return MediaServerStreams.owner(row.item.also { it.externalResources = row.externalResources }, dao)
     }
 
-    private suspend fun freshMediaServerUrl(uuid: String): String? {
+    private suspend fun lookUpFile(uuid: String): MediaServerStreams.Lookup? {
         val dao = AppDatabase.getDatabase(context).libraryDao()
         val row = dao.getItemByIdWithResources(uuid) ?: return null
         val item = row.item.also { it.externalResources = row.externalResources }
-        return MediaServerStreams.lookUp(listOf(item), dao, serverRepository).urls[uuid]
+        return MediaServerStreams.lookUp(listOf(item), dao, serverRepository)
+    }
+
+    /**
+     * Done, not retried: the server answered and has no file for this book, and every retry would hold up the
+     * serial file queue behind it. Unreachable servers and rejected tokens stay retryable.
+     */
+    private fun dropWithoutFile(relativePath: String?): Boolean {
+        Log.w("DownloadFileProcessor", "🧹 The server has no file for $relativePath — dropping download task")
+        return true
     }
 
     override fun canHandle(jobType: String): Boolean {

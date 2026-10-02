@@ -126,13 +126,24 @@ class MediaServerStreamsTest {
 
         assertEquals(mapOf("b1" to "https://abs.example.com/sub/api/items/abs-1/file/470"), lookup.urls)
         assertFalse(lookup.sessionExpired)
+        assertTrue(lookup.noFile.isEmpty())
     }
 
     @Test fun `a multi-file item imported as one book has no file of its own to play`() = runBlocking {
         insert(LibraryItemEntity(uuid = "b1", title = "Foxtrot", relativePath = "Foxtrot.mp3", type = ItemType.BOOK), "audiobookshelf", "abs-2", absHost)
         abs.files["abs-2"] = listOf(file("abs-2", "1", "01.mp3"), file("abs-2", "2", "02.mp3"))
 
-        assertTrue(lookUp("b1").urls.isEmpty())
+        val lookup = lookUp("b1")
+
+        assertTrue(lookup.urls.isEmpty())
+        // The server answered: asking again won't give it a file.
+        assertEquals(setOf("b1"), lookup.noFile)
+    }
+
+    @Test fun `an item the server no longer has has no file`() = runBlocking {
+        insert(LibraryItemEntity(uuid = "b1", title = "Charlie", relativePath = "Charlie.m4b", type = ItemType.BOOK), "audiobookshelf", "abs-gone", absHost)
+
+        assertEquals(setOf("b1"), lookUp("b1").noFile)
     }
 
     @Test fun `a streamed volume's books share one lookup and each plays its own file`() = runBlocking {
@@ -254,6 +265,8 @@ class MediaServerStreamsTest {
         // The stalled server is skipped, the other still answers.
         assertEquals(mapOf("j1" to "https://jf.example.com/Items/jf-9/Download"), lookup.urls)
         assertFalse(lookup.sessionExpired)
+        // A lookup that failed says nothing about the file.
+        assertTrue(lookup.noFile.isEmpty())
     }
 
     // A folder of single books is one lookup per book: a server that's down costs one wait, not one per book.
@@ -269,7 +282,9 @@ class MediaServerStreamsTest {
         abs.stall = false
         abs.unreachable = true
         abs.lookups.clear()
-        assertTrue(lookUp("b1", "b2").urls.isEmpty())
+        val lookup = lookUp("b1", "b2")
+        assertTrue(lookup.urls.isEmpty())
+        assertTrue(lookup.noFile.isEmpty())
         assertEquals(listOf("abs-1"), abs.lookups)
     }
 
@@ -282,6 +297,7 @@ class MediaServerStreamsTest {
 
         assertTrue(lookup.sessionExpired)
         assertTrue(lookup.urls.isEmpty())
+        assertTrue(lookup.noFile.isEmpty())
         // The token is the server's, not the item's: the second book isn't asked for.
         assertEquals(listOf("abs-1"), abs.lookups)
     }

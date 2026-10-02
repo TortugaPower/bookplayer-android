@@ -40,8 +40,10 @@ object MediaServerStreams {
     /**
      * URLs keyed by item uuid; items no saved server can serve are absent. [sessionExpired] is true when a
      * server rejected the stored token, so playback can say so instead of reporting a generic failure.
+     * [noFile] holds the items whose server answered but has no file for them (the item is gone, or has
+     * several files but was imported as one book): asking again won't change that, unlike a failed lookup.
      */
-    data class Lookup(val urls: Map<String, String>, val sessionExpired: Boolean)
+    data class Lookup(val urls: Map<String, String>, val sessionExpired: Boolean, val noFile: Set<String>)
 
     suspend fun lookUp(
         items: List<LibraryItemEntity>,
@@ -60,6 +62,7 @@ object MediaServerStreams {
         }
 
         val urls = mutableMapOf<String, String>()
+        val noFile = mutableSetOf<String>()
         var sessionExpired = false
         // Servers that timed out, couldn't be reached or rejected the token: their other items would fail
         // the same way, one wait each (a folder of single books is one lookup per book).
@@ -101,6 +104,7 @@ object MediaServerStreams {
                 if (members.any { it.uuid == owner.item.uuid }) {
                     ExternalServiceUtils.downloadUrlFor(server, owner.resource)?.let { urls[owner.item.uuid] = it }
                 }
+                members.filterNot { it.uuid in urls }.forEach { noFile += it.uuid }
                 continue
             }
             val base = ExternalServiceUtils.sanitizeUrl(server.url)
@@ -114,10 +118,10 @@ object MediaServerStreams {
                 } else {
                     fileForChild(member, owner.item, files, childNames, libraryDao, siblingsByVolume)
                 }
-                file?.let { urls[member.uuid] = base + it.path }
+                if (file != null) urls[member.uuid] = base + file.path else noFile += member.uuid
             }
         }
-        return Lookup(urls, sessionExpired)
+        return Lookup(urls, sessionExpired, noFile)
     }
 
     /**
