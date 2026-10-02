@@ -115,12 +115,21 @@ class UploadSchedulingTest {
         fun task(jobType: String, payload: String = "{}") = SyncTaskEntity(
             id = jobType, taskID = "b", queueKey = SyncTaskFactory.QUEUE_SYNC, jobType = jobType, position = 0, payload = payload,
         )
-        assertTrue(leadsToBookUpload(task(SyncTaskFactory.JOB_UPLOAD_FILE), isMediaServerBook = false))
-        assertTrue(leadsToBookUpload(task(SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD), isMediaServerBook = true))
+        assertTrue(leadsToBookUpload(task(SyncTaskFactory.JOB_UPLOAD_FILE), isStreamed = false))
+        assertTrue(leadsToBookUpload(task(SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD), isStreamed = true))
         val bookRegistration = task(SyncTaskFactory.JOB_UPLOAD_METADATA, """{"type":${ItemType.BOOK.ordinal}}""")
-        assertTrue(leadsToBookUpload(bookRegistration, isMediaServerBook = false))
-        assertFalse("a media-server book's registration never asks for its file", leadsToBookUpload(bookRegistration, isMediaServerBook = true))
-        assertFalse(leadsToBookUpload(task(SyncTaskFactory.JOB_UPLOAD_METADATA, """{"type":${ItemType.FOLDER.ordinal}}"""), isMediaServerBook = false))
-        assertFalse(leadsToBookUpload(task(SyncTaskFactory.JOB_UPDATE), isMediaServerBook = false))
+        assertTrue(leadsToBookUpload(bookRegistration, isStreamed = false))
+        assertFalse("a streamed book's registration never asks for its file", leadsToBookUpload(bookRegistration, isStreamed = true))
+        assertFalse(leadsToBookUpload(task(SyncTaskFactory.JOB_UPLOAD_METADATA, """{"type":${ItemType.FOLDER.ordinal}}"""), isStreamed = false))
+        assertFalse(leadsToBookUpload(task(SyncTaskFactory.JOB_UPDATE), isStreamed = false))
+    }
+
+    @Test fun reRegister_aBrowserDownloadedBook_queuesNoSeparateUpload() = runBlocking {
+        db.libraryDao().insertItem(book("b4"))
+        db.libraryDao().insertExternalResource(ExternalResourceEntity(providerName = "jellyfin", providerId = "j4", syncStatus = ExternalResourceEntity.STATUS_SYNCED, libraryItemUuid = "b4"))
+
+        assertTrue(UploadHandBack.reRegister(db.libraryDao(), repository, "b4"))
+
+        assertTrue("its registration's answer queues the upload", queued().none { it.jobType == SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD })
     }
 }

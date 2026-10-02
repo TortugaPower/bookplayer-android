@@ -30,10 +30,9 @@ suspend fun hasQueuedUploadTask(
     return syncTaskRepository.getAllTasks().first().any { task ->
         if (task.taskID !in uuids) return@any false
         // Read only for a registration, the one case it changes
-        val isMediaServerBook = task.jobType == SyncTaskFactory.JOB_UPLOAD_METADATA &&
-            repository.getExternalResourcesForBook(task.taskID).first()
-                .any { ExternalServiceUtils.serviceTypeFor(it.providerName) != null }
-        leadsToBookUpload(task, isMediaServerBook)
+        val isStreamed = task.jobType == SyncTaskFactory.JOB_UPLOAD_METADATA &&
+            repository.isStreamedMediaServerBook(task.taskID)
+        leadsToBookUpload(task, isStreamed)
     }
 }
 
@@ -79,9 +78,13 @@ suspend fun removeLocalFile(context: Context, repository: LibraryRepository, ite
         // for subscribers, "audio not on this device" for free/signed-out) instead of vanishing
         // until the next fetch happens to re-insert it. Nothing is ever deleted server-side from
         // here (plain repository — no delete task).
-        if (extResources.isNotEmpty()) {
-            // External items also clear relativePath and revert their resource to "stream": their
-            // playback URL is rebuilt from hostId+providerId, not the path.
+        if (item.type == ItemType.BOOK && extResources.any(MediaServerStreams::streams)) {
+            // Streamed books also clear relativePath and revert their resource to "stream": their
+            // playback URL is rebuilt from hostId+providerId, not the path. Only a book with its OWN
+            // streamed link: a book downloaded from the media-server browser (a "synced" link) or one with
+            // only a Hardcover link is a plain book and keeps its path; a volume's book is matched to its
+            // file by that path; and a streamed volume has no file of its own, while its path is how its
+            // books find their media-server link.
             item.relativePath = null
             repository.updateItem(item)
             extResources.forEach { resource ->

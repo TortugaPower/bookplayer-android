@@ -222,8 +222,8 @@ class SyncIdentifiersProcessor(
  * (`LibraryItemSyncOperation.handleUploadJob`). The answer's `url` only means "the server needs the
  * bytes": a book never goes to it, and a PRO account's book queues a multipart upload instead
  * ([MultipartUploadProcessor]), which marks it synced once S3 assembles it. LITE never uploads files,
- * so its books stay unsynced. A media-server book's file goes up only once it's downloaded, so its
- * registration queues nothing. A folder or bound book has no bytes: a PRO account's empty PUT to the url,
+ * so its books stay unsynced. A streamed media-server book's file goes up only once it's downloaded,
+ * so its registration queues nothing. A folder or bound book has no bytes: a PRO account's empty PUT to the url,
  * if one came, then the server is told it's synced, on every tier. Branches on the item's type: a PRO
  * container gets a url too.
  */
@@ -270,17 +270,16 @@ class MetadataUploadProcessor(
             return confirmSynced(item)
         }
 
-        val isMediaServerBook = libraryDao().getExternalResourcesForBookSync(item.uuid)
-            .any { ExternalServiceUtils.serviceTypeFor(it.providerName) != null }
         if (url == null) {
             // S3 already holds the book: told it's synced, for a tier that uploads files
             return if (tier == AccountTier.PRO) confirmSynced(item) else true
         }
-        // A media-server book's file goes up only when its download finishes (the download-finished hook
-        // queues it), as on iOS: one already downloaded when it's registered isn't backfilled, by design.
-        // The media server still has its file.
-        if (isMediaServerBook) {
-            Log.d("MetadataUploadProcessor", "⏭️ Media-server book: its file goes up once it's downloaded")
+        // A streamed media-server book's file goes up only when its download finishes (the download-finished
+        // hook queues it), as on iOS: one already downloaded when it's registered isn't backfilled, by
+        // design. The media server still has its file. A book downloaded from the media-server browser
+        // isn't streamed and uploads like any local book.
+        if (MediaServerStreams.isStreamed(item.uuid, libraryDao())) {
+            Log.d("MetadataUploadProcessor", "⏭️ Streamed media-server book: its file goes up once it's downloaded")
             return true
         }
         val file = item.relativePath?.let { OfflineDownloadManager.processedFile(context, it) }
@@ -691,11 +690,8 @@ class DownloadFileProcessor(
         return client.newCall(okhttp3.Request.Builder().url(url).build()).execute()
     }
 
-    private suspend fun mediaServerOwner(uuid: String): MediaServerStreams.Owner? {
-        val dao = AppDatabase.getDatabase(context).libraryDao()
-        val row = dao.getItemByIdWithResources(uuid) ?: return null
-        return MediaServerStreams.owner(row.item.also { it.externalResources = row.externalResources }, dao)
-    }
+    private suspend fun mediaServerOwner(uuid: String): MediaServerStreams.Owner? =
+        MediaServerStreams.ownerOf(uuid, AppDatabase.getDatabase(context).libraryDao())
 
     private suspend fun lookUpFile(uuid: String): MediaServerStreams.Lookup? {
         val dao = AppDatabase.getDatabase(context).libraryDao()

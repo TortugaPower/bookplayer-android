@@ -301,4 +301,33 @@ class MediaServerStreamsTest {
         // The token is the server's, not the item's: the second book isn't asked for.
         assertEquals(listOf("abs-1"), abs.lookups)
     }
+
+    /**
+     * A streamed book (its own link or its volume's, streaming or downloaded since) uploads only after a
+     * download; a book downloaded from the media-server browser keeps a `synced` link and is a plain book
+     */
+    @Test fun isStreamed_coversStreamedBooksAndVolumeChildren_notBrowserDownloads() = runBlocking {
+        val dao = db.libraryDao()
+        suspend fun book(uuid: String, path: String, status: String?, provider: String = "jellyfin", type: ItemType = ItemType.BOOK) {
+            dao.insertItem(LibraryItemEntity(uuid = uuid, title = uuid, relativePath = path, type = type))
+            if (status != null) {
+                dao.insertExternalResource(ExternalResourceEntity(providerName = provider, providerId = "p-$uuid", syncStatus = status, libraryItemUuid = uuid))
+            }
+        }
+        book("streaming", "Streaming.m4b", ExternalResourceEntity.STATUS_STREAM)
+        book("downloaded", "Downloaded.m4b", ExternalResourceEntity.STATUS_DOWNLOADED, provider = "audiobookshelf")
+        book("import", "Import.m4b", ExternalResourceEntity.STATUS_SYNCED)
+        book("hardcover", "Hardcover.m4b", ExternalResourceEntity.STATUS_STREAM, provider = "hardcover")
+        book("plain", "Plain.m4b", null)
+        book("volume", "Volume", ExternalResourceEntity.STATUS_STREAM, provider = "audiobookshelf", type = ItemType.BOUND)
+        book("child", "Volume/Disc 1 - 01.mp3", null)
+
+        assertTrue(MediaServerStreams.isStreamed("streaming", dao))
+        assertTrue(MediaServerStreams.isStreamed("downloaded", dao))
+        assertTrue("a volume's book streams through its volume", MediaServerStreams.isStreamed("child", dao))
+        assertFalse("a browser download is a plain local book", MediaServerStreams.isStreamed("import", dao))
+        assertFalse(MediaServerStreams.isStreamed("hardcover", dao))
+        assertFalse(MediaServerStreams.isStreamed("plain", dao))
+        assertFalse(MediaServerStreams.isStreamed("missing", dao))
+    }
 }

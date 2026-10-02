@@ -140,9 +140,25 @@ object MediaServerStreams {
             .also { parents[parentPath] = it }
     }
 
+    /**
+     * Whether the book with [uuid] streams from a media server ([owner]: its own link or its volume's,
+     * streamed or downloaded since). Its file reaches the cloud only once it's downloaded (the
+     * download-finished hook), never from its registration (iOS `mediaServerProviderName`). A book
+     * downloaded from the media-server browser is a plain local book even when it keeps a link to its
+     * server, and uploads like one.
+     */
+    suspend fun isStreamed(uuid: String, libraryDao: LibraryDao): Boolean = ownerOf(uuid, libraryDao) != null
+
+    /** [owner] for the item with [uuid], its links loaded here: the one entry point for "what streams it" */
+    suspend fun ownerOf(uuid: String, libraryDao: LibraryDao): Owner? {
+        val withResources = libraryDao.getItemByIdWithResources(uuid) ?: return null
+        return owner(withResources.item.also { it.externalResources = withResources.externalResources }, libraryDao)
+    }
+
     private class Answer(val files: List<StreamFile>?)
 
-    private fun streams(resource: ExternalResourceEntity): Boolean =
+    /** A media-server link that streams its item, or streamed it before a download */
+    fun streams(resource: ExternalResourceEntity): Boolean =
         (resource.syncStatus == ExternalResourceEntity.STATUS_STREAM || resource.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED) &&
             ExternalServiceUtils.serviceTypeFor(resource.providerName) != null
 
