@@ -54,6 +54,23 @@ object UploadHandBack {
     }
 }
 
+/**
+ * Whether a queued task is part of getting a book's file to S3 (iOS `pendingBookUploads`): the upload
+ * itself, the sync-lane step that queues it, or a book's registration, whose answer queues it (also the
+ * gap after `item_not_found`, while the book is registered again). Removing the book's file before then
+ * loses the only copy. A media-server book's registration never asks for its file (it goes up once it's
+ * downloaded, and the media server keeps it meanwhile), so it doesn't count.
+ */
+fun leadsToBookUpload(task: SyncTaskEntity, isMediaServerBook: Boolean): Boolean = when (task.jobType) {
+    SyncTaskFactory.JOB_UPLOAD_FILE, SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD -> true
+    SyncTaskFactory.JOB_UPLOAD_METADATA -> !isMediaServerBook && registeredType(task.payload) == ItemType.BOOK.ordinal
+    else -> false
+}
+
+private fun registeredType(payload: String): Int? = runCatching {
+    com.google.gson.JsonParser.parseString(payload).asJsonObject.get("type")?.asInt
+}.getOrNull()
+
 /** Whether the book's file upload should be queued: a PRO account's book with its file on this device */
 internal fun shouldUploadFile(tier: AccountTier?, item: LibraryItemEntity, file: File?): Boolean =
     tier == AccountTier.PRO && item.type == ItemType.BOOK && file?.isFile == true

@@ -109,4 +109,25 @@ class StorageOffloadTest {
         dao.insertItem(other)
         assertEquals(false, com.tortugapower.audiobookplayer.logic.hasQueuedUploadTask(syncTaskRepository, repository, other))
     }
+
+    /**
+     * iOS `pendingBookUploads`: a book's registration (its answer queues the upload, also the gap after
+     * item_not_found) and the step that queues a media-server book's upload count too; a media-server
+     * book's registration doesn't, since it never asks for the file
+     */
+    @Test fun `every step on the way to the cloud trips the warning`() = runBlocking {
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        val syncTaskRepository = com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository(AppDatabase.getDatabase(context).syncTaskDao())
+        val book = seedBookWithFile("reg1", "Registered.mp3", remoteURL = null)
+        com.tortugapower.audiobookplayer.logic.SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, book)
+        assertEquals(true, com.tortugapower.audiobookplayer.logic.hasQueuedUploadTask(syncTaskRepository, repository, book))
+
+        val streamed = seedBookWithFile("ms1", "Streamed.mp3", remoteURL = null)
+        dao.insertExternalResource(ExternalResourceEntity(providerName = "jellyfin", providerId = "j1", syncStatus = "downloaded", libraryItemUuid = "ms1"))
+        com.tortugapower.audiobookplayer.logic.SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, streamed)
+        assertEquals(false, com.tortugapower.audiobookplayer.logic.hasQueuedUploadTask(syncTaskRepository, repository, streamed))
+
+        com.tortugapower.audiobookplayer.logic.SyncTaskFactory.createQueueFileUploadTask(syncTaskRepository, streamed)
+        assertEquals(true, com.tortugapower.audiobookplayer.logic.hasQueuedUploadTask(syncTaskRepository, repository, streamed))
+    }
 }

@@ -110,4 +110,17 @@ class UploadSchedulingTest {
         assertEquals(SyncTaskFactory.QUEUE_UPLOAD, upload.queueKey)
         assertFalse("no presigned URL in the payload", upload.payload.contains("remotePath"))
     }
+
+    @Test fun whatCountsAsABookStillOnItsWayToTheCloud() {
+        fun task(jobType: String, payload: String = "{}") = SyncTaskEntity(
+            id = jobType, taskID = "b", queueKey = SyncTaskFactory.QUEUE_SYNC, jobType = jobType, position = 0, payload = payload,
+        )
+        assertTrue(leadsToBookUpload(task(SyncTaskFactory.JOB_UPLOAD_FILE), isMediaServerBook = false))
+        assertTrue(leadsToBookUpload(task(SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD), isMediaServerBook = true))
+        val bookRegistration = task(SyncTaskFactory.JOB_UPLOAD_METADATA, """{"type":${ItemType.BOOK.ordinal}}""")
+        assertTrue(leadsToBookUpload(bookRegistration, isMediaServerBook = false))
+        assertFalse("a media-server book's registration never asks for its file", leadsToBookUpload(bookRegistration, isMediaServerBook = true))
+        assertFalse(leadsToBookUpload(task(SyncTaskFactory.JOB_UPLOAD_METADATA, """{"type":${ItemType.FOLDER.ordinal}}"""), isMediaServerBook = false))
+        assertFalse(leadsToBookUpload(task(SyncTaskFactory.JOB_UPDATE), isMediaServerBook = false))
+    }
 }

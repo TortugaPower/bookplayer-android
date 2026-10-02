@@ -13,10 +13,11 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Whether [item] still has a queued/running upload task — removing its file(s) would destroy the
- * only copy before it reaches the cloud, so callers show the iOS-parity Warning dialog first
+ * Whether [item]'s file is still on its way to the cloud ([leadsToBookUpload]: the upload, the step
+ * that queues it, or the book's registration) — removing its file(s) would destroy the only copy
+ * before it reaches the cloud, so callers show the iOS-parity Warning dialog first
  * (`sync_tasks_item_upload_queued`). Containers offload recursively ([removeLocalFile] deletes the
- * whole directory), and upload tasks are keyed by the BOOK's uuid — so the check covers every
+ * whole directory), and these tasks are keyed by the BOOK's uuid — so the check covers every
  * descendant book, not just the item's own uuid. Shared by Storage Management and the library's
  * "Remove from device" option.
  */
@@ -26,8 +27,13 @@ suspend fun hasQueuedUploadTask(
     item: LibraryItemEntity
 ): Boolean {
     val uuids = repository.getDescendantBooks(item).mapTo(mutableSetOf()) { it.uuid } + item.uuid
-    return syncTaskRepository.getAllTasks().first().any {
-        it.jobType == SyncTaskFactory.JOB_UPLOAD_FILE && it.taskID in uuids
+    return syncTaskRepository.getAllTasks().first().any { task ->
+        if (task.taskID !in uuids) return@any false
+        // Read only for a registration, the one case it changes
+        val isMediaServerBook = task.jobType == SyncTaskFactory.JOB_UPLOAD_METADATA &&
+            repository.getExternalResourcesForBook(task.taskID).first()
+                .any { ExternalServiceUtils.serviceTypeFor(it.providerName) != null }
+        leadsToBookUpload(task, isMediaServerBook)
     }
 }
 
