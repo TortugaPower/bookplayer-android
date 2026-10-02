@@ -845,7 +845,9 @@ object ImportManager : ImportService {
      * A media-server item's download zip ([archive]'s tags), extracted at [tempDir]. AudiobookShelf zips the
      * item's folder with no root folder: one file, a file and its cover, the tracks, or disc subfolders. Only
      * the audio files matter, wherever they sit in it.
-     * - One: the item's book, staged with the item's tags so it gets its link.
+     * - One: the item's book, staged with the item's tags so it gets its link. Unless its name matches an
+     *   offloaded book ([isOffloadedRestore]), which it restores instead, keeping that book's links (decided: an
+     *   edge case, and importing it again then makes a new linked book).
      * - Several: the item's books, staged as one directory named after the archive that carries the item's
      *   tags, so it imports as a linked volume ([importDirectory]). The books are flattened into it, named
      *   like a streamed volume's ([VirtualImportManager.volumeChildFileNames]: `Disc 1/01.mp3` ->

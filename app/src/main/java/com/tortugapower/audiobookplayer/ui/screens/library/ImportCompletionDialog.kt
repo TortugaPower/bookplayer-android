@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.ImportCompletion
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
 
@@ -75,7 +76,7 @@ fun ImportCompletionDialog(
             title = stringResource(R.string.library_create_folder_title),
             label = stringResource(R.string.library_folder_name_label),
             initialValue = completion.suggestedName,
-            existingNames = destinationFolders.map { it.title },
+            existingNames = newFolderTakenNames(completion, destinationFolders),
             onConfirm = { name ->
                 libraryViewModel.createFolderAndMoveItems(context, name, completion.items, completion.basePath)
                 onDismiss()
@@ -187,6 +188,14 @@ fun ImportCompletionDialog(
         confirmButton = {}
     )
 }
+
+/**
+ * Names a new folder at the insertion level can't take: the other folders there, and what was just imported.
+ * A downloaded volume sits at its own name's path (the suggested name), and a folder at that path would
+ * have the volume moved into itself.
+ */
+internal fun newFolderTakenNames(completion: ImportCompletion, destinationFolders: List<LibraryItemEntity>): List<String> =
+    destinationFolders.map { it.title } + completion.items.mapNotNull { it.relativePath?.substringAfterLast('/') }
 
 @Composable
 private fun CompletionOption(text: String, enabled: Boolean = true, onClick: () -> Unit) {
