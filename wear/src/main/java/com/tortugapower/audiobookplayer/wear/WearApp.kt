@@ -133,6 +133,10 @@ class WearApp : Application() {
             }
         }
 
+        // The one automatic retry of parked tasks, each launch. The watch parks only on the account
+        // (it drops other coded failures), so this is what resumes them.
+        appScope.launch(kotlinx.coroutines.Dispatchers.IO) { syncTaskRepository.resumeAllPaused() }
+
         // The sync host stops itself when idle (Android 15+ dataSync budget); wake it when new
         // work is enqueued. start() no-ops while running and swallows background-start refusals.
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {

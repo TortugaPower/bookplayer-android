@@ -23,7 +23,8 @@ class SyncTaskFactoryTest {
     /** Captures the enqueued task; forces the new-task path (no pending task to merge into). */
     private class CapturingRepo : SyncTaskRepository {
         var saved: SyncTaskEntity? = null
-        override suspend fun saveTask(task: SyncTaskEntity) { saved = task }
+        val savedAll = mutableListOf<SyncTaskEntity>()
+        override suspend fun saveTask(task: SyncTaskEntity) { saved = task; savedAll += task }
         override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = null
         override fun getAllTasks(): Flow<List<SyncTaskEntity>> = TODO()
         override suspend fun getPendingTasks(): List<SyncTaskEntity> = TODO()
@@ -201,5 +202,61 @@ class SyncTaskFactoryTest {
             now += 30_001
             assertTrue(SyncTaskFactory.createFetchPreferencesTask(PreferencesRepo(), force = false))
         }
+    }
+
+    // The API rejects more than 1,000 match items with an uncoded 400, which would retry forever
+    @Test fun matchUuidsTask_isSplitIntoTasksOfAtMost1000Items() = runBlocking {
+        val repo = CapturingRepo()
+        val items = (1..2_500).associate { "Book $it.m4b" to "uuid-$it" }
+
+        SyncTaskFactory.createMatchUuidsTask(repo, items)
+
+        val chunks = repo.savedAll.map { (payloadOf(it)["items"] as Map<*, *>) }
+        assertEquals(listOf(1_000, 1_000, 500), chunks.map { it.size })
+        assertEquals(items, chunks.flatMap { chunk -> chunk.entries.map { it.key to it.value } }.toMap())
+        assertEquals(3, repo.savedAll.map { it.taskID }.toSet().size)
+    }
+
+    @Test fun matchUuidsTask_withNoItems_queuesNothing() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createMatchUuidsTask(repo, emptyMap())
+        assertTrue(repo.savedAll.isEmpty())
+    }
+
+    /** A parked sync task blocks the throttled listing: it would undo a change the server never got */
+    @Test fun fetchContents_unforced_isSkippedWhileASyncTaskIsParked() = runBlocking {
+        val repo = object : SyncTaskRepository by CapturingRepo() {
+            override suspend fun countActiveTasksInQueue(queueKey: String): Int = 0
+            override suspend fun countQueuedTasksInQueue(queueKey: String): Int = 1
+        }
+        assertEquals(false, SyncTaskFactory.createFetchContentsTask(repo, "Some folder"))
+    }
+
+    @Test fun preferencesPull_unforced_isSkippedWhileAnUploadIsParked() = runBlocking {
+        val repo = object : SyncTaskRepository by CapturingRepo() {
+            override suspend fun countActiveTasksByType(jobType: String): Int = 0
+            override suspend fun countQueuedTasksByType(jobType: String): Int = 1
+        }
+        assertEquals(false, SyncTaskFactory.createFetchPreferencesTask(repo))
+    }
+
+    /** Resumed later, the parked push would send the older value over the new one */
+    @Test fun aNewPreferencePush_supersedesTheKeysParkedOne() = runBlocking {
+        val superseded = mutableListOf<Pair<String, String>>()
+        val capturing = CapturingRepo()
+        val repo = object : SyncTaskRepository by capturing {
+            override suspend fun deleteParkedTasks(jobType: String, taskId: String) { superseded += jobType to taskId }
+        }
+        SyncTaskFactory.createUploadPreferenceTask(repo, "library_sort:root", "fileName")
+        assertEquals(listOf(SyncTaskFactory.JOB_UPLOAD_PREFERENCE to "library_sort:root"), superseded)
+    }
+
+    /** An account pause in any lane holds the sync lane: a fetch queued then would only wait */
+    @Test fun fetchContents_unforced_isSkippedUnderAnAccountPause() = runBlocking {
+        val repo = object : SyncTaskRepository by CapturingRepo() {
+            override suspend fun countQueuedTasksInQueue(queueKey: String): Int = 0
+            override suspend fun hasAccountPause(): Boolean = true
+        }
+        assertEquals(false, SyncTaskFactory.createFetchContentsTask(repo, "Some folder"))
     }
 }

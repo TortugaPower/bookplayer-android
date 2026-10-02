@@ -146,19 +146,42 @@ interface LibraryDao {
     @Delete
     suspend fun deleteBookmark(bookmark: BookmarkEntity)
 
+    /**
+     * Gives the item [oldUuid] the server's [newUuid]. The new row is stored first and every row that
+     * points at the item moves to it before the old row is deleted: foreign keys are enforced, so
+     * repointing first fails, and deleting first cascades the item's chapters, bookmarks, external
+     * resources and listening sessions away. Returns false, changing nothing, when another item
+     * already has [newUuid]; true otherwise, including when there's no local item to move (so a retry
+     * after the item moved still moves its queued tasks).
+     */
     @Transaction
-    suspend fun migrateItemUuid(oldUuid: String, newUuid: String) {
-        val item = getItemById(oldUuid) ?: return
-        
-        // 1. Update Chapters to the new UUID
-        updateChaptersUuid(oldUuid, newUuid)
-        // 2. Update Bookmarks to the new UUID
-        updateBookmarksUuid(oldUuid, newUuid)
-        // 3. Delete old item
-        deleteItem(item)
-        // 4. Insert new item with new UUID
+    suspend fun migrateItemUuid(oldUuid: String, newUuid: String): Boolean {
+        if (oldUuid == newUuid) return true
+        val item = getItemById(oldUuid) ?: return true
+        if (getItemById(newUuid) != null) return false
+
         insertItem(item.copy(uuid = newUuid))
+        updateChaptersUuid(oldUuid, newUuid)
+        updateBookmarksUuid(oldUuid, newUuid)
+        updateExternalResourcesUuid(oldUuid, newUuid)
+        updatePlaybackSessionsUuid(oldUuid, newUuid)
+        updateCompletionsUuid(oldUuid, newUuid)
+        updateChildrenParentUuid(oldUuid, newUuid)
+        deleteItem(item)
+        return true
     }
+
+    @Query("UPDATE external_resources SET libraryItemUuid = :newUuid WHERE libraryItemUuid = :oldUuid")
+    suspend fun updateExternalResourcesUuid(oldUuid: String, newUuid: String)
+
+    @Query("UPDATE playback_sessions SET bookUuid = :newUuid WHERE bookUuid = :oldUuid")
+    suspend fun updatePlaybackSessionsUuid(oldUuid: String, newUuid: String)
+
+    @Query("UPDATE book_completions SET bookUuid = :newUuid WHERE bookUuid = :oldUuid")
+    suspend fun updateCompletionsUuid(oldUuid: String, newUuid: String)
+
+    @Query("UPDATE library_items SET parentFolderUuid = :newUuid WHERE parentFolderUuid = :oldUuid")
+    suspend fun updateChildrenParentUuid(oldUuid: String, newUuid: String)
 
     @Query("UPDATE chapters SET bookUuid = :newUuid WHERE bookUuid = :oldUuid")
     suspend fun updateChaptersUuid(oldUuid: String, newUuid: String)

@@ -9,9 +9,13 @@ import coil.ImageLoaderFactory
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.ParkedTaskRetry
 import com.tortugapower.audiobookplayer.logic.PreferencesPullTriggers
 import com.tortugapower.audiobookplayer.logic.SyncHostLaunchGate
+import com.tortugapower.audiobookplayer.logic.SyncPauseReporter
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.logic.SyncTaskPicker
+import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
@@ -33,6 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import com.tortugapower.audiobookplayer.logic.StorageMonitor
 
@@ -43,6 +48,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         lateinit var instance: BookPlayerApplication
             private set
     }
+
+    /** Reports parked sync tasks to Sentry, once each. Set in [onCreate]. */
+    lateinit var syncPauseReporter: SyncPauseReporter
+        private set
 
     /** Library sort brain: sort actions + preference push/pull. Set in [onCreate]. */
     lateinit var librarySortManager: LibrarySortManager
@@ -84,6 +93,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         val baseLibraryRepository = RoomLibraryRepository(this, database.libraryDao())
         val syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
         val accountRepository = RoomAccountRepository(database.accountDao())
+        syncPauseReporter = SyncPauseReporter(syncTaskRepository)
         
         val syncingLibraryRepository = SyncingLibraryRepository(
             baseLibraryRepository,
@@ -138,9 +148,15 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
                 }
             }
         }
+        // The one automatic retry of parked tasks, when the app is first opened in this process
+        val parkedTaskRetry = ParkedTaskRetry(
+            resumeAllPaused = syncTaskRepository::resumeAllPaused,
+            wakeEngine = { com.tortugapower.audiobookplayer.logic.SyncEngineWaker.notifyWorkEnqueued() },
+        )
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 forcePreferencesPull()
+                appScope.launch(Dispatchers.IO) { parkedTaskRetry.onForeground(StorageMonitor.isCritical) }
             }
         })
         appScope.launch {
@@ -155,7 +171,17 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             TaskConcurrencyServiceHost.start(this)
         }
         appScope.launch(Dispatchers.IO) {
-            if (SyncHostLaunchGate.shouldStart(StorageMonitor.isCritical, syncTaskRepository::countActiveTasks)) {
+            // Parked tasks don't count: they're retried when the app is opened (ParkedTaskRetry)
+            val hasStartableWork: suspend () -> Boolean = {
+                // The count first: most launches have an empty queue and skip loading it
+                syncTaskRepository.countActiveTasks() > 0 && run {
+                    val tier = accountRepository.getAccount()?.tier
+                    SyncTaskPicker.hasStartableWork(syncTaskRepository.getAllTasks().first()) {
+                        TaskAccessPolicy.canExecuteTask(tier, it)
+                    }
+                }
+            }
+            if (SyncHostLaunchGate.shouldStart(StorageMonitor.isCritical, hasStartableWork)) {
                 TaskConcurrencyServiceHost.start(this@BookPlayerApplication)
             }
         }

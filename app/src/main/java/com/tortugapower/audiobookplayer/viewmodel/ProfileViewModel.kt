@@ -8,8 +8,14 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.ListeningStatsCalculator
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.QueuedTaskSection
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
+import com.tortugapower.audiobookplayer.logic.SyncEngineWaker
+import com.tortugapower.audiobookplayer.logic.SyncFailurePolicy
+import com.tortugapower.audiobookplayer.logic.SyncPauseReport
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
+import com.tortugapower.audiobookplayer.logic.pause
+import com.tortugapower.audiobookplayer.logic.groupedByLane
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
@@ -17,6 +23,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class ProfileViewModel(
     private val accountRepository: AccountRepository,
@@ -59,6 +66,20 @@ class ProfileViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    /**
+     * The Queued Tasks screen's lanes, grouped off the main thread (a first sync can queue thousands).
+     * Null until the queue is first read, so the screen never shows an empty queue that isn't; read from
+     * Room directly, since [syncTasks] starts with a placeholder empty list.
+     */
+    val queuedTaskSections: StateFlow<List<QueuedTaskSection>?> = syncTaskRepository.getAllTasks()
+        .map { it.groupedByLane() }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** Parked tasks across every lane: the Profile entry turns into a warning while any need the user */
+    val pausedTasksCount: StateFlow<Int> = syncTasks.map { tasks -> tasks.count { it.pause != null } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val pendingTasksCount: StateFlow<Int> = syncTasks.map { tasks ->
         tasks.count { it.status != SyncTaskStatus.COMPLETED }
@@ -120,9 +141,28 @@ class ProfileViewModel(
         PlaybackManager.enforceRemoteStreamingGate(com.tortugapower.audiobookplayer.core.CoreContext.appContext)
     }
 
-    fun deleteAllTasks() {
+    /** The user's Retry: back to pending (one account pause resumes them all), and the engine is woken */
+    fun retryPausedTask(id: String) {
         viewModelScope.launch {
-            syncTaskRepository.deleteAllTasks()
+            syncTaskRepository.resumeTask(id)
+            SyncEngineWaker.notifyWorkEnqueued()
         }
+    }
+
+    /** Only a book over the upload limit can be dismissed: retrying can't make it smaller */
+    fun dismissPausedTask(task: SyncTaskEntity) {
+        if (task.pause?.errorCode != SyncFailurePolicy.FILE_TOO_LARGE) return
+        viewModelScope.launch { syncTaskRepository.deleteTask(task) }
+    }
+
+    /** What Report sends for [task], read now from the queue, the library and the account */
+    suspend fun pauseReport(task: SyncTaskEntity): SyncPauseReport = withContext(Dispatchers.IO) {
+        SyncPauseReport(
+            pausedTask = task,
+            queuedTasks = syncTaskRepository.getAllTasks().first(),
+            library = libraryDao.getAllItemsSync().mapNotNull { item -> item.relativePath?.let { it to item.uuid } },
+            appVersion = SyncPauseReport.appVersion(accountRepository.getAccount()?.tier),
+            device = SyncPauseReport.device(),
+        )
     }
 }

@@ -108,7 +108,8 @@ private const val FolderNavDurationMillis = 400
 fun LibraryScreen(
     importViewModel: ImportViewModel = viewModel(),
     viewModel: LibraryViewModel? = null,
-    onNavigateToMediaServers: () -> Unit = {}
+    onNavigateToMediaServers: () -> Unit = {},
+    onNavigateToQueuedTasks: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -134,11 +135,20 @@ fun LibraryScreen(
     val isRefreshing by libraryViewModel.isRefreshing.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val syncTasksBusyMessage = stringResource(R.string.library_sync_tasks_busy)
+    val syncPausedMessage = stringResource(R.string.sync_paused_alert_title)
+    val viewTasksLabel = stringResource(R.string.sync_tasks_view_title)
+    val openQueuedTasks by rememberUpdatedState(onNavigateToQueuedTasks)
     // A pull-to-refresh that lands while sync jobs are queued is declined (see LibraryViewModel.refresh);
-    // surface that as a transient note rather than silently doing nothing.
+    // surface that as a transient note rather than silently doing nothing, with the way to the queue (iOS
+    // offers "View tasks" too). A parked task means the queue won't drain on its own.
     LaunchedEffect(Unit) {
-        libraryViewModel.syncTasksBusy.collect {
-            snackbarHostState.showSnackbar(syncTasksBusyMessage)
+        libraryViewModel.syncTasksBusy.collect { paused ->
+            val result = snackbarHostState.showSnackbar(
+                message = if (paused) syncPausedMessage else syncTasksBusyMessage,
+                actionLabel = viewTasksLabel,
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) openQueuedTasks()
         }
     }
 

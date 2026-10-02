@@ -49,8 +49,9 @@ object LibraryContentsSync {
                 if (localByPath != null && localByPath.uuid != uuid) {
                     // Conflict found: same path, different UUID. Server wins.
                     Log.d("LibraryContentsSync", "⚔️ Path conflict for '${remote.title}': local=${localByPath.uuid} server=$uuid. Migrating...")
-                    libraryDao.migrateItemUuid(localByPath.uuid, uuid!!)
-                    syncTaskRepository?.migrateTaskUuid(localByPath.uuid, uuid!!)
+                    if (libraryDao.migrateItemUuid(localByPath.uuid, uuid!!)) {
+                        syncTaskRepository?.migrateTaskUuid(localByPath.uuid, uuid!!)
+                    }
                 }
             }
         }

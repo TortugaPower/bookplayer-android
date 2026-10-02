@@ -79,7 +79,6 @@ import com.tortugapower.audiobookplayer.ui.screens.settings.AutoplaySettingsScre
 import com.tortugapower.audiobookplayer.ui.screens.settings.AutolockSettingsScreen
 import com.tortugapower.audiobookplayer.repository.ExternalLibraryRepository
 import com.tortugapower.audiobookplayer.ui.screens.synctasks.QueuedTasksScreen
-import com.tortugapower.audiobookplayer.ui.screens.synctasks.TaskDetailScreen
 import com.tortugapower.audiobookplayer.ui.screens.themes.ThemesScreen
 import com.tortugapower.audiobookplayer.ui.screens.tipjar.TipJarScreen
 import com.tortugapower.audiobookplayer.viewmodel.*
@@ -308,7 +307,8 @@ fun MainScreen() {
                         LibraryScreen(
                             viewModel = libraryViewModel,
                             importViewModel = importViewModel,
-                            onNavigateToMediaServers = { showMediaServersFlow = true }
+                            onNavigateToMediaServers = { showMediaServersFlow = true },
+                            onNavigateToQueuedTasks = { navController.navigate("queuedTasks") },
                         ) 
                     }
                     composable(Screen.Profile.route) { 
@@ -342,15 +342,6 @@ fun MainScreen() {
                         QueuedTasksScreen(
                             viewModel = profileViewModel,
                             onBack = { navController.popBackStack() },
-                            onNavigateToQueue = { queueKey -> navController.navigate("taskDetail/$queueKey") }
-                        )
-                    }
-                    composable("taskDetail/{queueKey}") { backStackEntry ->
-                        val queueKey = backStackEntry.arguments?.getString("queueKey") ?: ""
-                        TaskDetailScreen(
-                            viewModel = profileViewModel,
-                            queueKey = queueKey,
-                            onBack = { navController.popBackStack() }
                         )
                     }
                     

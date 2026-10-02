@@ -12,6 +12,7 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.model.*
 import com.tortugapower.audiobookplayer.model.ArtworkResponse
 import com.tortugapower.audiobookplayer.network.NetworkClient
+import com.tortugapower.audiobookplayer.network.throwIfCoded
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +40,7 @@ class FetchContentsProcessor(
         val normalizedPath = if (path.endsWith("/")) path.removeSuffix("/") else path
         
         val response = NetworkClient.libraryApi.getContents(path)
+        response.throwIfCoded()
         
         if (response.isSuccessful && response.body() != null) {
             val contents = response.body()!!
@@ -165,6 +167,7 @@ class SyncIdentifiersProcessor(
 ) : TaskProcessor {
     override suspend fun process(task: SyncTaskEntity): Boolean {
         val response = NetworkClient.libraryApi.getSyncedIdentifiers()
+        response.throwIfCoded()
         
         if (response.isSuccessful) {
             val remotePaths = response.body()?.content?.toSet() ?: emptySet()
@@ -224,6 +227,7 @@ class MetadataUploadProcessor(
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
 
         val response = NetworkClient.libraryApi.uploadMetadata(payload)
+        val error = response.throwIfCoded()
         
         if (response.isSuccessful && response.body() != null) {
             val uploadResponse = response.body()!!
@@ -258,7 +262,7 @@ class MetadataUploadProcessor(
             }
             return true
         } else {
-            Log.e("MetadataUploadProcessor", "❌ Metadata upload failed: ${response.code()} ${response.errorBody()?.string()}")
+            Log.e("MetadataUploadProcessor", "❌ Metadata upload failed: ${response.code()} ${error?.rawBody}")
         }
         return false
     }
@@ -761,6 +765,7 @@ class UpdateProcessor : TaskProcessor {
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
 
         val response = NetworkClient.libraryApi.updateMetadata(payload)
+        response.throwIfCoded()
         return response.isSuccessful
     }
 
@@ -783,6 +788,7 @@ class MoveProcessor : TaskProcessor {
         )
 
         val response = NetworkClient.libraryApi.moveItem(mappedPayload)
+        response.throwIfCoded()
         return response.isSuccessful
     }
 
@@ -804,6 +810,7 @@ class DeleteProcessor : TaskProcessor {
         )
 
         val response = NetworkClient.libraryApi.deleteItem(mappedPayload)
+        response.throwIfCoded()
         return response.isSuccessful
     }
 
@@ -825,6 +832,7 @@ class ShallowDeleteProcessor : TaskProcessor {
                 "uuid" to payload["uuid"]
             )
         )
+        response.throwIfCoded()
         return response.isSuccessful
     }
 
@@ -847,6 +855,7 @@ class RenameFolderProcessor : TaskProcessor {
         )
 
         val response = NetworkClient.libraryApi.renameFolder(mappedPayload)
+        response.throwIfCoded()
         return response.isSuccessful
     }
 
@@ -869,8 +878,10 @@ class ArtworkUploadProcessor(private val context: Context) : TaskProcessor {
         
         val localFile = File(localPath)
         if (!localFile.exists()) {
-            Log.e("ArtworkUploadProcessor", "❌ Local artwork file not found at $localPath")
-            return false
+            // Gone for good (a cleared cache, a deleted book): retrying would hold the file queue,
+            // downloads included, forever
+            Log.w("ArtworkUploadProcessor", "Local artwork file not found at $localPath; dropping the upload")
+            return true
         }
 
         // 1. Request signed URL (uploaded = false)
@@ -882,6 +893,7 @@ class ArtworkUploadProcessor(private val context: Context) : TaskProcessor {
         )
 
         val initialResponse = NetworkClient.libraryApi.uploadArtwork(initialPayload)
+        initialResponse.throwIfCoded()
         if (!initialResponse.isSuccessful) {
             Log.e("ArtworkUploadProcessor", "❌ Failed to get signed artwork URL")
             return false
@@ -918,6 +930,7 @@ class ArtworkUploadProcessor(private val context: Context) : TaskProcessor {
         )
 
         val finalResponse = NetworkClient.libraryApi.uploadArtwork(finalPayload)
+        finalResponse.throwIfCoded()
         if (!finalResponse.isSuccessful) {
             Log.e("ArtworkUploadProcessor", "❌ Failed to confirm artwork upload completion")
             return false
@@ -949,6 +962,7 @@ class DeleteBookmarkProcessor : TaskProcessor {
         )
 
         val response = NetworkClient.libraryApi.setBookmark(mappedPayload)
+        response.throwIfCoded()
         return response.isSuccessful
     }
 
@@ -959,7 +973,14 @@ class DeleteBookmarkProcessor : TaskProcessor {
 
 class MatchUuidsProcessor(
     private val context: Context,
-    private val repository: SyncTaskRepository
+    private val repository: SyncTaskRepository,
+    // Seams for tests: the global Retrofit client and database can't be pointed elsewhere
+    private val matchUuids: suspend (Map<String, Any?>) -> retrofit2.Response<MatchUuidsResponse> = { params ->
+        NetworkClient.libraryApi.matchUuids(params)
+    },
+    private val libraryDao: () -> com.tortugapower.audiobookplayer.database.dao.LibraryDao = {
+        AppDatabase.getDatabase(context).libraryDao()
+    },
 ) : TaskProcessor {
     private val gson = Gson()
 
@@ -968,31 +989,35 @@ class MatchUuidsProcessor(
         val payload: Map<String, Map<String, String>> = gson.fromJson(task.payload, payloadType)
         val items = payload["items"] ?: return true // Nothing to match
 
-        val response = NetworkClient.libraryApi.matchUuids(payload)
-        
-        if (response.isSuccessful && response.body() != null) {
-            val result = response.body()!!
-            val database = AppDatabase.getDatabase(context)
-            val libraryDao = database.libraryDao()
-
-            // Handle conflicts
-            result.conflicts.forEach { conflict ->
-                val oldUuid = conflict.key
-                val newUuid = conflict.uuid
-                
-                Log.d("MatchUuidsProcessor", "⚔️ Conflict found: local=$oldUuid server=$newUuid. Resolving...")
-                
-                // 1. Migrate Database Records (Item, Chapters, Bookmarks)
-                libraryDao.migrateItemUuid(oldUuid, newUuid)
-                
-                // 2. Migrate Pending Tasks
-                repository.migrateTaskUuid(oldUuid, newUuid)
-            }
-
-            return true
+        // New tasks hold at most MATCH_UUIDS_MAX_ITEMS, but one queued by an older build can hold more
+        // than the API accepts in a request. A retry after a failed chunk re-sends the earlier ones:
+        // their conflicts are already applied, and applying them again changes nothing.
+        for (chunk in items.entries.chunked(SyncTaskFactory.MATCH_UUIDS_MAX_ITEMS)) {
+            val response = matchUuids(mapOf("items" to chunk.associate { it.key to it.value }))
+            response.throwIfCoded()
+            val result = response.body()
+            if (!response.isSuccessful || result == null) return false
+            applyConflicts(result.conflicts)
         }
-        
-        return false
+        return true
+    }
+
+    private suspend fun applyConflicts(conflicts: List<ItemConflict>) {
+        val libraryDao = libraryDao()
+        conflicts.forEach { conflict ->
+            val oldUuid = conflict.key
+            val newUuid = conflict.uuid
+
+            Log.d("MatchUuidsProcessor", "⚔️ Conflict found: local=$oldUuid server=$newUuid. Resolving...")
+
+            // The item and everything that points at it, then its queued tasks. Neither when
+            // another local item already has the server's uuid: that conflict can't be adopted.
+            if (libraryDao.migrateItemUuid(oldUuid, newUuid)) {
+                repository.migrateTaskUuid(oldUuid, newUuid)
+            } else {
+                Log.w("MatchUuidsProcessor", "Another local item already has $newUuid; keeping $oldUuid")
+            }
+        }
     }
 
     override fun canHandle(jobType: String): Boolean {
@@ -1019,6 +1044,7 @@ class SetBookmarkProcessor : TaskProcessor {
         )
 
         val response = NetworkClient.libraryApi.setBookmark(mappedPayload)
+        response.throwIfCoded()
         return response.isSuccessful
     }
 
@@ -1036,7 +1062,7 @@ class UploadExternalResourceProcessor : TaskProcessor {
 
         val response = NetworkClient.libraryApi.uploadExternalResource(payload)
         if (!response.isSuccessful) {
-            val errBody = response.errorBody()?.string()
+            val errBody = response.throwIfCoded()?.rawBody
             Log.e("UploadExternalResourceProcessor", "🛑 Server returned error code ${response.code()}: $errBody")
             return false
         }
@@ -1057,7 +1083,7 @@ class DeleteExternalResourceProcessor : TaskProcessor {
 
         val response = NetworkClient.libraryApi.deleteExternalResource(payload)
         if (!response.isSuccessful) {
-            val errBody = response.errorBody()?.string()
+            val errBody = response.throwIfCoded()?.rawBody
             Log.e("DeleteExternalResourceProcessor", "🛑 Server returned error code ${response.code()}: $errBody")
             return false
         }
@@ -1078,7 +1104,7 @@ class SetExternalResourceToDownloadProcessor : TaskProcessor {
 
         val response = NetworkClient.libraryApi.setExternalResourceToDownload(payload)
         if (!response.isSuccessful) {
-            val errBody = response.errorBody()?.string()
+            val errBody = response.throwIfCoded()?.rawBody
             Log.e("SetExternalResourceToDownloadProcessor", "🛑 Server returned error code ${response.code()}: $errBody")
             return false
         }

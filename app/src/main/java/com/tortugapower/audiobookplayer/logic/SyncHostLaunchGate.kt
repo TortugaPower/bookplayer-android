@@ -4,8 +4,8 @@ import android.util.Log
 
 /**
  * Whether the sync host should be started at app launch: only for work left over from an earlier
- * session — a PENDING task, or a RUNNING one a killed process left behind (the engine resets those
- * when it starts). Everything enqueued from here on wakes the host itself (`SyncEngineWaker`: the
+ * session that the engine would start — a PENDING task, or a RUNNING one a killed process left behind
+ * (the engine resets those when it starts), and not one the account's tier holds after a lapse. Everything enqueued from here on wakes the host itself (`SyncEngineWaker`: the
  * library's fetch, imports, downloads), so an unconditional start only ever promoted a dataSync
  * foreground service to sit "Idle" for a minute — on every launch, for every user, including
  * logged-out ones with nothing to sync — burning the Android 15 dataSync budget for nothing and, as a
@@ -24,14 +24,14 @@ object SyncHostLaunchGate {
 
     /**
      * @param storageCritical `StorageMonitor.isCritical` at launch.
-     * @param activeTasks counts PENDING + RUNNING tasks (`SyncTaskRepository.countActiveTasks`); not
-     *   invoked while storage is critical.
+     * @param hasStartableWork whether the queue holds work the engine would start
+     *   (`SyncTaskPicker.hasStartableWork`); not invoked while storage is critical.
      */
-    suspend fun shouldStart(storageCritical: Boolean, activeTasks: suspend () -> Int): Boolean {
+    suspend fun shouldStart(storageCritical: Boolean, hasStartableWork: suspend () -> Boolean): Boolean {
         if (storageCritical) {
             Log.w(TAG, "Storage critically full; not starting the sync host")
             return false
         }
-        return activeTasks() > 0
+        return hasStartableWork()
     }
 }

@@ -1,6 +1,8 @@
 package com.tortugapower.audiobookplayer.repository
 
 import com.tortugapower.audiobookplayer.database.dao.SyncTaskDao
+import com.tortugapower.audiobookplayer.logic.CodedFailure
+import com.tortugapower.audiobookplayer.logic.TaskPauseScope
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +32,7 @@ class RoomSyncTaskRepository(
     }
 
     override suspend fun saveTask(task: SyncTaskEntity) = withContext(Dispatchers.IO) {
-        syncTaskDao.insertTask(task)
+        syncTaskDao.insertAtEnd(task)
         // The sync foreground service stops itself when idle (dataSync budget, Android 15+);
         // every new task must be able to bring it back up.
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.notifyWorkEnqueued()
@@ -38,6 +40,44 @@ class RoomSyncTaskRepository(
 
     override suspend fun updateTask(task: SyncTaskEntity) = withContext(Dispatchers.IO) {
         syncTaskDao.updateTask(task)
+    }
+
+    override suspend fun markTaskRunning(id: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.markTaskRunning(id)
+    }
+
+    override suspend fun markTaskPending(id: String, errorMessage: String?) = withContext(Dispatchers.IO) {
+        syncTaskDao.markTaskPending(id, errorMessage)
+    }
+
+    override suspend fun updatePendingTaskPayload(task: SyncTaskEntity, payload: String): Boolean =
+        withContext(Dispatchers.IO) {
+            syncTaskDao.updatePendingPayload(task.id, payload) > 0
+        }
+
+    override suspend fun getQueueCandidates(queueKey: String): List<SyncTaskEntity> = withContext(Dispatchers.IO) {
+        syncTaskDao.getQueueCandidates(queueKey)
+    }
+
+    override suspend fun hasAccountPause(): Boolean = withContext(Dispatchers.IO) {
+        syncTaskDao.hasAccountPause()
+    }
+
+    override suspend fun parkTask(id: String, scope: TaskPauseScope, failure: CodedFailure, pausedAt: Long): Boolean =
+        withContext(Dispatchers.IO) {
+            syncTaskDao.parkTask(id, scope.name, failure.code, failure.message, failure.httpStatus, pausedAt) > 0
+        }
+
+    override suspend fun resumeTask(id: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.resumeTask(id)
+    }
+
+    override suspend fun resumeAllPaused(): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.resumeAllPaused()
+    }
+
+    override suspend fun setSentryEventId(id: String, eventId: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.setSentryEventId(id, eventId)
     }
 
     override suspend fun deleteTask(task: SyncTaskEntity) = withContext(Dispatchers.IO) {
@@ -68,6 +108,30 @@ class RoomSyncTaskRepository(
         syncTaskDao.countActiveTasksInQueue(queueKey)
     }
 
+    override suspend fun countQueuedTasksInQueue(queueKey: String): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.countQueuedTasksInQueue(queueKey)
+    }
+
+    override suspend fun countPausedTasksInQueue(queueKey: String): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.countPausedTasksInQueue(queueKey)
+    }
+
+    override suspend fun countQueuedTasksByType(jobType: String): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.countQueuedTasksByType(jobType)
+    }
+
+    override suspend fun hasQueuedTask(jobType: String, taskId: String): Boolean = withContext(Dispatchers.IO) {
+        syncTaskDao.hasQueuedTask(jobType, taskId)
+    }
+
+    override suspend fun deleteParkedTasks(jobType: String, taskId: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.deleteParkedTasks(jobType, taskId)
+    }
+
+    override suspend fun deletePendingTasksOfType(jobType: String): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.deletePendingTasksOfType(jobType)
+    }
+
     override suspend fun countActiveTasksByType(jobType: String): Int = withContext(Dispatchers.IO) {
         syncTaskDao.countActiveTasksByType(jobType)
     }
@@ -77,33 +141,6 @@ class RoomSyncTaskRepository(
     }
 
     override suspend fun migrateTaskUuid(oldUuid: String, newUuid: String) = withContext(Dispatchers.IO) {
-        val affectedTasks = syncTaskDao.findTasksByUuid(oldUuid)
-        for (task in affectedTasks) {
-            var updated = false
-            var newTaskId = task.taskID
-            if (task.taskID == oldUuid) {
-                newTaskId = newUuid
-                updated = true
-            }
-            
-            var newPayload = task.payload
-            if (task.payload.contains(oldUuid)) {
-                newPayload = task.payload.replace(oldUuid, newUuid)
-                updated = true
-            }
-            
-            if (updated) {
-                // Determine the new primary key (jobType + newTaskId)
-                val newId = "${task.jobType}_$newTaskId"
-                
-                // Use a transaction-like sequence: delete old, insert updated
-                syncTaskDao.deleteTask(task)
-                syncTaskDao.insertTask(task.copy(
-                    id = newId,
-                    taskID = newTaskId,
-                    payload = newPayload
-                ))
-            }
-        }
+        syncTaskDao.migrateTaskUuid(oldUuid, newUuid)
     }
 }

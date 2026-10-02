@@ -119,10 +119,8 @@ object SyncTaskFactory {
         )
 
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_UPDATE, item.uuid)
-        if (existingTask != null) {
-            val updatedTask = existingTask.copy(payload = gson.toJson(payload))
+        if (existingTask != null && repository.updatePendingTaskPayload(existingTask, gson.toJson(payload))) {
             android.util.Log.d("SyncTaskFactory", "🔄 Merging update task for item: ${item.uuid}")
-            repository.updateTask(updatedTask)
         } else {
             enqueue(repository, QUEUE_SYNC, JOB_UPDATE, item.uuid, payload)
         }
@@ -177,10 +175,10 @@ object SyncTaskFactory {
             // Check if it's the same bookmark ID by looking at the existing payload
             val existingPayloadType = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
             val existingPayload: Map<String, Any?> = gson.fromJson(existingTask.payload, existingPayloadType)
-            if (existingPayload["bookmarkId"] == bookmark.id.toString()) {
-                val updatedTask = existingTask.copy(payload = gson.toJson(payload))
+            if (existingPayload["bookmarkId"] == bookmark.id.toString() &&
+                repository.updatePendingTaskPayload(existingTask, gson.toJson(payload))
+            ) {
                 android.util.Log.d("SyncTaskFactory", "🔄 Merging set_bookmark task for bookmark: ${bookmark.id}")
-                repository.updateTask(updatedTask)
                 return
             }
         }
@@ -222,8 +220,10 @@ object SyncTaskFactory {
 
     suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?, force: Boolean = false, canDelete: Boolean = true): Boolean {
         if (!force) {
-            // Only fetch if the sync queue is empty to avoid desyncs with local actions
-            if (repository.countActiveTasksInQueue(QUEUE_SYNC) > 0) {
+            // Only fetch if the sync queue is empty to avoid desyncs with local actions: a parked task
+            // counts, since the listing would undo a change the server never got. An account pause in any
+            // lane holds the sync lane too, so a fetch queued now would only wait.
+            if (repository.countQueuedTasksInQueue(QUEUE_SYNC) > 0 || repository.hasAccountPause()) {
                 android.util.Log.d("SyncTaskFactory", "⏭️ Skipping fetch_contents: sync queue not empty")
                 return false
             }
@@ -280,17 +280,19 @@ object SyncTaskFactory {
         enqueue(repository, QUEUE_FILE, JOB_DOWNLOAD_FILE, item.uuid, payload)
     }
 
+    /** The API answers more items than this with an uncoded 400 (its MAX_RECORDS_LIMIT) */
+    const val MATCH_UUIDS_MAX_ITEMS = 1_000
+
     suspend fun createMatchUuidsTask(repository: SyncTaskRepository, items: Map<String, String>) {
-        if (items.isEmpty()) return
-        
-        // items is a map of relativePath -> generatedUuid
-        val payload = mapOf(
-            "items" to items
-        )
-        
-        // Use a unique ID for this task to avoid duplicates if multiple fetches generate IDs
-        val taskId = "match_${java.util.UUID.randomUUID().toString().take(8)}"
-        enqueue(repository, QUEUE_SYNC, JOB_MATCH_UUIDS, taskId, payload)
+        // items is a map of relativePath -> generatedUuid, sent as tasks of at most MATCH_UUIDS_MAX_ITEMS
+        items.entries.chunked(MATCH_UUIDS_MAX_ITEMS).forEach { chunk ->
+            val payload = mapOf(
+                "items" to chunk.associate { it.key to it.value }
+            )
+            // Use a unique ID for this task to avoid duplicates if multiple fetches generate IDs
+            val taskId = "match_${java.util.UUID.randomUUID().toString().take(8)}"
+            enqueue(repository, QUEUE_SYNC, JOB_MATCH_UUIDS, taskId, payload)
+        }
     }
 
     suspend fun createHardcoverAutoMatchTask(repository: SyncTaskRepository, itemUuid: String) {
@@ -385,10 +387,8 @@ object SyncTaskFactory {
             "lastPlayDate" to lastPlayDate
         )
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_EXTERNAL_UPDATE, taskId)
-        if (existingTask != null) {
-            val updatedTask = existingTask.copy(payload = gson.toJson(payload))
+        if (existingTask != null && repository.updatePendingTaskPayload(existingTask, gson.toJson(payload))) {
             android.util.Log.d("SyncTaskFactory", "🔄 Merging external update task for $taskId in queue $queueKey")
-            repository.updateTask(updatedTask)
         } else {
             enqueue(repository, queueKey, JOB_EXTERNAL_UPDATE, taskId, payload)
         }
@@ -397,28 +397,28 @@ object SyncTaskFactory {
     /**
      * Push one preference level (root or a folder) to the server. Keyed by the preference key so
      * rapid changes to the same level coalesce onto a single pending task (last write wins) — the
-     * same merge [createUpdateTask] uses for items.
+     * same merge [createUpdateTask] uses for items. A parked push of the same key is superseded:
+     * resumed later, it would send the older value over this one.
      */
     suspend fun createUploadPreferenceTask(repository: SyncTaskRepository, key: String, value: String) {
+        repository.deleteParkedTasks(JOB_UPLOAD_PREFERENCE, key)
         val payload = mapOf("key" to key, "value" to value)
         val existing = repository.getPendingTaskByTypeAndTaskId(JOB_UPLOAD_PREFERENCE, key)
-        if (existing != null) {
-            repository.updateTask(existing.copy(payload = gson.toJson(payload)))
-        } else {
+        if (existing == null || !repository.updatePendingTaskPayload(existing, gson.toJson(payload))) {
             enqueue(repository, QUEUE_PREFERENCES, JOB_UPLOAD_PREFERENCE, key, payload)
         }
     }
 
     /**
      * Pull the user's preferences from the server. Skipped (unless [force]) when we still have an
-     * unsynced preference push queued — the local store is the source of truth, so a pull must never
-     * clobber a change we haven't sent yet. Debounced to one per 60 s per launch, like fetch_contents.
+     * unsynced preference push queued, parked ones included — the local store is the source of truth,
+     * so a pull must never clobber a change we haven't sent yet. Debounced to one per 60 s per launch, like fetch_contents.
      * A [force]d pull (app foreground, login, upgrade — iOS parity) skips both checks and starts the
      * cooldown itself; PreferenceFetchProcessor still leaves every key with a queued upload alone.
      */
     suspend fun createFetchPreferencesTask(repository: SyncTaskRepository, force: Boolean = false): Boolean {
         if (!force) {
-            if (repository.countActiveTasksByType(JOB_UPLOAD_PREFERENCE) > 0) return false
+            if (repository.countQueuedTasksByType(JOB_UPLOAD_PREFERENCE) > 0) return false
             if (!SyncStatusManager.checkAndMarkFetchPreferences()) return false
         } else {
             SyncStatusManager.markFetchPreferences()
@@ -443,7 +443,7 @@ object SyncTaskFactory {
             taskID = taskId,
             queueKey = queueKey,
             jobType = jobType,
-            position = 0, // Position management can be added if strict ordering is needed beyond createdAt
+            position = 0, // assigned at insert (SyncTaskDao.insertAtEnd): a lane runs in stored order
             payload = gson.toJson(payload)
         )
         android.util.Log.d("SyncTaskFactory", "📝 Enqueuing task: $jobType into $queueKey queue [TaskID: $taskId]")

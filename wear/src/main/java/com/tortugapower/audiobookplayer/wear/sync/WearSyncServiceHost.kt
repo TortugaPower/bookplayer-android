@@ -30,6 +30,7 @@ import com.tortugapower.audiobookplayer.logic.SetBookmarkProcessor
 import com.tortugapower.audiobookplayer.logic.SetExternalResourceToDownloadProcessor
 import com.tortugapower.audiobookplayer.logic.ShallowDeleteProcessor
 import com.tortugapower.audiobookplayer.logic.StreamFileUploadProcessor
+import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.SyncIdentifiersProcessor
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyManager
 import com.tortugapower.audiobookplayer.logic.UpdateProcessor
@@ -129,7 +130,11 @@ class WearSyncServiceHost : Service() {
             PreferenceFetchProcessor(this, repository),
         )
 
-        taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)
+        taskConcurrencyManager = TaskConcurrencyManager(
+            this, repository, accountRepository, processors,
+            parkingEnabled = false,
+            verifySyncEntitlement = { SubscriptionManager.refreshSyncEntitlement() },
+        )
         taskConcurrencyManager.startProcessing()
 
         connectivityManager = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
