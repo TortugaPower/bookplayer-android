@@ -132,7 +132,7 @@ object VirtualImportManager {
     /**
      * An item made of several audio files, as a volume (what the Download path's placement prompt calls
      * "Create a volume"): a BOUND item named after the title, holding the media-server link, with one book
-     * per file named by [volumeChildFileName], in the server's order. Each book plays its own file, looked up
+     * per file named by [volumeChildFileNames], in the server's order. Each book plays its own file, looked up
      * through the volume's link ([MediaServerStreams]). Root-level, like single-book stream imports.
      */
     private suspend fun importStreamVolume(

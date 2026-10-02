@@ -1638,61 +1638,43 @@ object PlaybackManager {
 
             try {
                 if (isBound) {
-                    val volumePath = resolvedItem.relativePath ?: ""
-                    // Bounded so a slow/unreachable server can't hang playback (OkHttp also has timeouts). A
-                    // failure here must not stop the media-server step below: a LAN server still plays.
-                    val body = try {
-                        kotlinx.coroutines.withTimeoutOrNull(CONTENTS_FETCH_TIMEOUT_MS) {
-                            NetworkClient.libraryApi.getContents(volumePath)
-                        }?.takeIf { it.isSuccessful }?.body()
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        android.util.Log.e("PlaybackManager", "❌ Failed to fetch bound item contents: ${e.message}")
-                        null
-                    }
-                    if (body != null && repo.isCloudSyncActive()) {
-                        // Offloaded bound book whose sub-items were never fetched: insert the missing ones
-                        // (subscribed accounts only) so buildBound has a timeline to build. Reuses the same
-                        // upsert as the background contents-sync task.
-                        val dao = AppDatabase.getDatabase(context).libraryDao()
-                        val known = repo.getItemsInPathSync(volumePath)
-                        val generatedUuids = mutableSetOf<String>()
-                        val upsertedPaths = mutableSetOf<String>()
-                        body.content.forEach { remoteSub ->
-                            if (known.none { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }) {
-                                // skipParentUpdate: recomputing the parent chain once per sub-item is
-                                // O(items × siblings) DB round-trips during playback load AND transiently
-                                // rewrites the playing bound book's own progress fields mid-load. One
-                                // batch recompute below covers every inserted item (same shape as
-                                // FetchContentsProcessor).
-                                LibraryContentsSync.upsertItem(dao, null, remoteSub, generatedUuids, skipParentUpdate = true)
-                                upsertedPaths.add(remoteSub.relativePath)
+                    val dao = AppDatabase.getDatabase(context).libraryDao()
+                    cloudServed = VolumeUrlRefresh(
+                        // Bounded so a slow/unreachable server can't hang playback (OkHttp also has timeouts).
+                        fetchContents = { path ->
+                            kotlinx.coroutines.withTimeoutOrNull(CONTENTS_FETCH_TIMEOUT_MS) {
+                                NetworkClient.libraryApi.getContents(path)
+                            }?.takeIf { it.isSuccessful }?.body()
+                        },
+                        insertMissing = { path, contents ->
+                            // Offloaded bound book whose sub-items were never fetched: insert the missing ones
+                            // (subscribed accounts only) so buildBound has a timeline to build. Reuses the same
+                            // upsert as the background contents-sync task.
+                            if (repo.isCloudSyncActive()) {
+                                val known = repo.getItemsInPathSync(path)
+                                val generatedUuids = mutableSetOf<String>()
+                                val upsertedPaths = mutableSetOf<String>()
+                                contents.content.forEach { remoteSub ->
+                                    if (known.none { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }) {
+                                        // skipParentUpdate: recomputing the parent chain once per sub-item is
+                                        // O(items × siblings) DB round-trips during playback load AND transiently
+                                        // rewrites the playing bound book's own progress fields mid-load. One
+                                        // batch recompute below covers every inserted item (same shape as
+                                        // FetchContentsProcessor).
+                                        LibraryContentsSync.upsertItem(dao, null, remoteSub, generatedUuids, skipParentUpdate = true)
+                                        upsertedPaths.add(remoteSub.relativePath)
+                                    }
+                                }
+                                if (upsertedPaths.isNotEmpty()) {
+                                    LibraryContentsSync.updateParentFoldersBatch(dao, upsertedPaths)
+                                }
                             }
-                        }
-                        if (upsertedPaths.isNotEmpty()) {
-                            LibraryContentsSync.updateParentFoldersBatch(dao, upsertedPaths)
-                        }
-                    }
-                    val subItems = repo.getItemsInPathSync(volumePath)
-                    val streamed = saveSubStreams(context, repo, subItems, processedDir, onSessionExpired)
-                    // Media-server-first, as for single books: the cloud copy only for sub-books no saved
-                    // server can serve.
-                    val cloudFilled = mutableSetOf<String>()
-                    body?.content?.forEach { remoteSub ->
-                        val localSub = subItems.find { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }
-                        if (localSub != null && localSub.uuid !in streamed && !remoteSub.remoteURL.isNullOrEmpty()) {
-                            localSub.remoteURL = remoteSub.remoteURL
-                            if (!remoteSub.artworkURL.isNullOrEmpty()) {
-                                localSub.artworkURL = remoteSub.artworkURL
-                            }
-                            repo.updateItem(localSub)
-                            cloudFilled += localSub.uuid
-                        }
-                    }
-                    cloudServed = subItems
-                        .filter { sub -> sub.relativePath?.let { File(processedDir, it).isFile } != true && sub.uuid !in streamed }
-                        .all { it.uuid in cloudFilled }
+                        },
+                        booksIn = { path -> repo.getItemsInPathSync(path) },
+                        saveStreams = { books -> saveSubStreams(context, repo, books, processedDir, onSessionExpired) },
+                        saveBook = { book -> repo.updateItem(book) },
+                        isDownloaded = { book -> book.relativePath?.let { File(processedDir, it).isFile } == true },
+                    ).refresh(resolvedItem.relativePath ?: "")
                     android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
                 } else if (!resolvedItem.remoteURL.isNullOrEmpty()) {
                     // Media-server-first: refresh the BookPlayer presigned URL only when no saved
@@ -1727,7 +1709,7 @@ object PlaybackManager {
                 repo.updateItem(resolvedItem)
                 android.util.Log.e("PlaybackManager", "❌ Failed to refresh remote URL(s): ${e.message}")
             }
-            if (userInitiated && lookupRejected && !cloudServed) reportExternalStreamAuthError()
+            if (reportsStreamAuthError(userInitiated, lookupRejected, cloudServed)) reportExternalStreamAuthError()
         }
         return repo.getItemById(item.uuid) ?: item
     }

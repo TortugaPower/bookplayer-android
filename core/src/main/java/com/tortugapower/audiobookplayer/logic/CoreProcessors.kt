@@ -610,7 +610,7 @@ class DownloadFileProcessor(
         // A task queued before ABS books streamed per file carries the item download URL instead, a zip for
         // any book in a folder (and an old token): ask the server for the file.
         val payloadUrl = (payload["remoteURL"] as? String).orEmpty()
-        val isLegacyAbsItemUrl = owner?.resource?.providerName.equals("audiobookshelf", ignoreCase = true) &&
+        val isLegacyAbsItemUrl = owner?.let { ExternalServiceUtils.serviceTypeFor(it.resource.providerName) } == ExternalServiceType.AUDIOBOOKSHELF &&
             LEGACY_ABS_ITEM_DOWNLOAD.containsMatchIn(payloadUrl)
         var remoteURL = payloadUrl.takeUnless { isLegacyAbsItemUrl }.orEmpty()
         if (remoteURL.isEmpty() && owner != null) {
