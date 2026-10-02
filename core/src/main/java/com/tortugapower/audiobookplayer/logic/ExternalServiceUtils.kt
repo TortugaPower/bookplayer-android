@@ -5,6 +5,7 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import kotlinx.coroutines.flow.first
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 
@@ -194,12 +195,14 @@ object ExternalServiceUtils {
         val origin = url.toHttpUrlOrNull()
         return Interceptor { chain ->
             val request = chain.request()
-            val sameOrigin = origin != null && request.url.scheme == origin.scheme &&
-                request.url.host == origin.host && request.url.port == origin.port
-            if (!sameOrigin) return@Interceptor chain.proceed(request)
+            if (!sameOrigin(request.url, origin)) return@Interceptor chain.proceed(request)
             val pinned = request.newBuilder()
             headers.forEach { (name, value) -> pinned.header(name, value) }
             chain.proceed(pinned.build())
         }
     }
+
+    /** Whether [url] is on [origin]'s scheme, host and port */
+    fun sameOrigin(url: HttpUrl, origin: HttpUrl?): Boolean =
+        origin != null && url.scheme == origin.scheme && url.host == origin.host && url.port == origin.port
 }

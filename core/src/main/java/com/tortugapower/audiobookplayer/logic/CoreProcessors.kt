@@ -21,6 +21,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
@@ -330,7 +331,7 @@ class DownloadFileProcessor(
         ExternalServerRepository(AppDatabase.getDatabase(context).externalServerDao()),
     /** The file's playing time in seconds, or null when it can't be read */
     private val durationOf: (File) -> Double? = ::readDurationSeconds,
-    private val onFailedForGood: (uuid: String, title: String) -> Unit = SyncStatusManager::notifyDownloadFailed,
+    private val onFailedForGood: (SyncStatusManager.DownloadFailure) -> Unit = SyncStatusManager::notifyDownloadFailed,
     /** Where a streamed book's upload is queued once it's downloaded: the phone's queue. The watch uploads nothing, as on iOS. */
     private val syncTasks: SyncTaskRepository? = null,
 ) : TaskProcessor {
@@ -408,10 +409,11 @@ class DownloadFileProcessor(
             // A server that didn't answer is a connection problem: the next run asks again. One that answered
             // with an error, rejected the token or isn't saved on this device drops it, as the download would.
             if (taskId in lookup.unreachable) return false
-            remoteURL = lookup.urls[taskId] ?: return failedForGood(
-                taskId, title,
-                if (lookup.sessionExpired) "its server rejected the token" else "its server answered with an error or isn't saved",
-            )
+            remoteURL = lookup.urls[taskId] ?: return if (lookup.sessionExpired) {
+                failedForGood(taskId, title, "its server rejected the token", expiredServer = serverName(owner))
+            } else {
+                failedForGood(taskId, title, "its server answered with an error or isn't saved")
+            }
         }
 
         if (remoteURL.isEmpty() || relativePath.isNullOrEmpty()) {
@@ -445,7 +447,12 @@ class DownloadFileProcessor(
             // otherwise leak the connection on each retry.
             httpResponse.use { response ->
                 if (!response.isSuccessful) {
-                    return failedForGood(taskId, title, "HTTP ${response.code}")
+                    // A 401 from the media server itself is its sign-in, not the file (ABS answers 403 for an
+                    // item this user can't open)
+                    val signedOutOf = owner?.takeIf {
+                        response.code == 401 && ExternalServiceUtils.sameOrigin(response.request.url, remoteURL.toHttpUrlOrNull())
+                    }
+                    return failedForGood(taskId, title, "HTTP ${response.code}", expiredServer = signedOutOf?.let { serverName(it) })
                 }
 
                 val body = response.body ?: return false
@@ -556,12 +563,26 @@ class DownloadFileProcessor(
      * Ends the task without retrying: every retry would hold up the serial file queue behind it, and tapping
      * download again asks afresh. The library says so once.
      */
-    private fun failedForGood(uuid: String, title: String, why: String): Boolean {
+    private fun failedForGood(uuid: String, title: String, why: String, expiredServer: String? = null): Boolean {
         Log.w("DownloadFileProcessor", "🧹 Dropping download $uuid: $why")
         SyncStatusManager.clearTaskProgress(uuid)
         SyncStatusManager.clearCancel(uuid)
-        onFailedForGood(uuid, title)
+        onFailedForGood(SyncStatusManager.DownloadFailure(uuid, title, expiredServer))
         return true
+    }
+
+    /**
+     * The saved server's name, for the message to sign in to it again: its address when it has no name (a
+     * Jellyfin probe can store a blank one). Null if it can't be read, which leaves the plain message.
+     */
+    private suspend fun serverName(owner: MediaServerStreams.Owner): String? = try {
+        ExternalServiceUtils.serverForResource(serverRepository, owner.resource)
+            ?.let { server -> server.name.ifBlank { ServerAddress.parse(server.url)?.host ?: server.url } }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w("DownloadFileProcessor", "Couldn't read the server to name it", e)
+        null
     }
 
     /**

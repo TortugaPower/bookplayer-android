@@ -26,15 +26,19 @@ object SyncStatusManager {
     fun isCancelRequested(taskId: String): Boolean = _cancelRequests.value.contains(taskId)
     fun clearCancel(taskId: String) { _cancelRequests.update { it - taskId } }
 
-    /** A download that failed for good and was dropped (iOS's download error): the library says so once */
-    data class DownloadFailure(val uuid: String, val title: String)
+    /**
+     * A download that failed for good and was dropped (iOS's download error): the library says so once.
+     * [expiredServer] names the media server that rejected the sign-in: trying again won't help until the
+     * user signs in again, so the library says that instead.
+     */
+    data class DownloadFailure(val uuid: String, val title: String, val expiredServer: String? = null)
 
     private val _downloadFailures = MutableSharedFlow<DownloadFailure>(extraBufferCapacity = 8)
     /** One event per dropped download; nothing is replayed to a screen that wasn't showing */
     val downloadFailures: SharedFlow<DownloadFailure> = _downloadFailures.asSharedFlow()
 
-    fun notifyDownloadFailed(uuid: String, title: String) {
-        _downloadFailures.tryEmit(DownloadFailure(uuid, title))
+    fun notifyDownloadFailed(failure: DownloadFailure) {
+        _downloadFailures.tryEmit(failure)
     }
 
     // How often one library level's contents (and the sort-preferences pull that rides the same cadence)

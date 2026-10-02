@@ -115,8 +115,10 @@ class DownloadFileProcessorTest {
         durationOf: (File) -> Double? = { null },
         failures: MutableList<String> = mutableListOf(),
         queuesUploads: Boolean = false,
+        expiredServers: MutableList<String?> = mutableListOf(),
     ) = DownloadFileProcessor(
-        context, serverRepository(), durationOf = durationOf, onFailedForGood = { _, title -> failures += title },
+        context, serverRepository(), durationOf = durationOf,
+        onFailedForGood = { failures += it.title; expiredServers += it.expiredServer },
         syncTasks = syncTasks.takeIf { queuesUploads },
     )
 
@@ -146,18 +148,72 @@ class DownloadFileProcessorTest {
         assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, relativePath).readText())
     }
 
-    /** A rejected token is an HTTP error answer: dropped with a message, as on iOS (signing in again, then tap) */
+    /** A rejected token is an HTTP error answer: dropped, and the message names the server to sign in to again */
     @Test fun `a rejected media-server download is dropped with a message and writes nothing`() = runBlocking {
         insertJellyfinBook()
         mediaServer.enqueue(MockResponse().setResponseCode(401).setBody("expired"))
         val failures = mutableListOf<String>()
+        val expiredServers = mutableListOf<String?>()
 
-        val handled = processor(failures = failures).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString()))
+        val handled = processor(failures = failures, expiredServers = expiredServers)
+            .process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString()))
 
         assertTrue(handled)
         assertEquals(listOf("Book One"), failures)
+        assertEquals(listOf("jf"), expiredServers)
         assertEquals(1, mediaServer.requestCount)
         assertFalse(OfflineDownloadManager.processedFile(context, relativePath).exists())
+    }
+
+    /** A server saved without a name (a Jellyfin probe can store a blank one) is named by its address */
+    @Test fun `a server with no name is named by its address`() = runBlocking {
+        insertJellyfinBook()
+        serverRepository().saveServer(
+            ExternalServerEntity(
+                id = 1, name = "", type = ExternalServiceType.JELLYFIN, url = mediaServer.url("/").toString(),
+                token = "tok", stableId = "srv-guid",
+            ),
+        )
+        mediaServer.enqueue(MockResponse().setResponseCode(401))
+        val expiredServers = mutableListOf<String?>()
+
+        assertTrue(processor(expiredServers = expiredServers).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertEquals(listOf<String?>(mediaServer.hostName), expiredServers)
+    }
+
+    /** ABS answers 403 for an item this user can't open: that's not the sign-in */
+    @Test fun `a media server's 403 is an ordinary drop`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setResponseCode(403))
+        val expiredServers = mutableListOf<String?>()
+
+        assertTrue(processor(expiredServers = expiredServers).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertEquals(listOf<String?>(null), expiredServers)
+    }
+
+    /** A 401 from wherever a redirect led isn't the media server's sign-in */
+    @Test fun `a 401 after a redirect off the media server is an ordinary drop`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setResponseCode(302).setHeader("Location", cloud.url("/elsewhere/book.m4b")))
+        cloud.enqueue(MockResponse().setResponseCode(401))
+        val expiredServers = mutableListOf<String?>()
+
+        assertTrue(processor(expiredServers = expiredServers).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertEquals(listOf<String?>(null), expiredServers)
+    }
+
+    /** A lookup the server refused with 401 names it too */
+    @Test fun `a lookup whose token is rejected names the server`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setResponseCode(401))
+        val expiredServers = mutableListOf<String?>()
+
+        assertTrue(processor(expiredServers = expiredServers).process(childDownloadTask("")))
+
+        assertEquals(listOf("abs"), expiredServers)
     }
 
     // OkHttp drops Authorization on a cross-host redirect but keeps custom headers, which are often
@@ -373,9 +429,11 @@ class DownloadFileProcessorTest {
         mediaServer.enqueue(MockResponse().setResponseCode(502))
         val failures = mutableListOf<String>()
 
-        assertTrue(processor(failures = failures).process(childDownloadTask("")))
+        val expiredServers = mutableListOf<String?>()
+        assertTrue(processor(failures = failures, expiredServers = expiredServers).process(childDownloadTask("")))
 
         assertEquals(listOf("01"), failures)
+        assertEquals(listOf<String?>(null), expiredServers)
         assertEquals(1, mediaServer.requestCount)
     }
 
@@ -507,8 +565,10 @@ class DownloadFileProcessorTest {
         insertCloudBook(duration = 0.0)
         cloud.enqueue(MockResponse().setResponseCode(403))
         val failures = mutableListOf<String>()
-        assertTrue(processor(failures = failures).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+        val expiredServers = mutableListOf<String?>()
+        assertTrue(processor(failures = failures, expiredServers = expiredServers).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
         assertEquals(1, failures.size)
+        assertEquals("an expired presigned link isn't a media-server sign-in", listOf<String?>(null), expiredServers)
     }
 
     @Test fun `a dropped connection retries and keeps nothing`() = runBlocking {

@@ -146,17 +146,23 @@ fun LibraryScreen(
     val openQueuedTasks by rememberUpdatedState(onNavigateToQueuedTasks)
     // A download that failed for good was dropped (DownloadFileProcessor): say so, as iOS's alert does. A run
     // of them (a volume's books on a server that answers with an error) shares one snackbar, not one each.
-    val downloadIncompleteFormat = stringResource(R.string.download_incomplete_error)
     val resources = LocalResources.current
     LaunchedEffect(Unit) {
-        val titles = Channel<String>(Channel.UNLIMITED)
-        launch { SyncStatusManager.downloadFailures.collect { titles.send(it.title) } }
-        for (first in titles) {
+        val failures = Channel<SyncStatusManager.DownloadFailure>(Channel.UNLIMITED)
+        launch { SyncStatusManager.downloadFailures.collect { failures.send(it) } }
+        for (first in failures) {
             delay(DownloadFailuresGatherMillis)
-            val more = generateSequence { titles.tryReceive().getOrNull() }.count()
+            val run = listOf(first) + generateSequence { failures.tryReceive().getOrNull() }
+            // A server that rejected the sign-in is named once: trying again won't help until the user signs in
+            run.mapNotNull { it.expiredServer }.distinct().forEach { server ->
+                snackbarHostState.showSnackbar(resources.getString(R.string.media_servers_error_session_expired, server))
+            }
+            val titles = run.filter { it.expiredServer == null }.map { it.title }
+            if (titles.isEmpty()) continue
+            val more = titles.size - 1
             snackbarHostState.showSnackbar(
-                if (more == 0) downloadIncompleteFormat.format(first)
-                else resources.getQuantityString(R.plurals.download_incomplete_error_several, more, first, more)
+                if (more == 0) resources.getString(R.string.download_incomplete_error, titles.first())
+                else resources.getQuantityString(R.plurals.download_incomplete_error_several, more, titles.first(), more)
             )
         }
     }
