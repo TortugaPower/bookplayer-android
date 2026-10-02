@@ -61,6 +61,13 @@ class AudiobookshelfStreamFilesTest {
         runBlocking { service.getStreamFiles(url(), "tok", "abs-1") }
     }
 
+    // ABS answers 403 when this user may not access the item (a restricted library or tag): the session is fine.
+    @Test fun `an item the user may not access isn't an expired session`() {
+        server.enqueue(MockResponse().setResponseCode(403))
+        val error = runCatching { runBlocking { service.getStreamFiles(url(), "tok", "abs-1") } }.exceptionOrNull()
+        assertTrue(error != null && error !is SessionExpiredException)
+    }
+
     // ABS 2.3–2.17 tracks (AudioTrack.toJSON) carry no `ino`; it's only at the end of `contentUrl`, which also
     // starts with the router base path.
     @Test fun `older servers' tracks give their file id through the content URL`() = runBlocking {

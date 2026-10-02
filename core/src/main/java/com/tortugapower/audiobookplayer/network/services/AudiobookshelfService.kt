@@ -266,7 +266,9 @@ class AudiobookshelfService : ExternalService, SsoCapable {
 
     override suspend fun getStreamFiles(url: String, token: String, itemId: String, headers: Map<String, String>?): List<StreamFile>? {
         val response = getApi(url, headers).getItemExpanded(getAuthHeader(token), itemId)
-        if (response.code() == 401 || response.code() == 403) throw com.tortugapower.audiobookplayer.network.SessionExpiredException()
+        // Only 401 means the token is dead: a 403 here is this user not being allowed this item (ABS's item
+        // middleware, checkCanAccessLibraryItem), which says nothing about the session or the server's other items.
+        if (response.code() == 401) throw com.tortugapower.audiobookplayer.network.SessionExpiredException()
         if (response.code() == 404) return emptyList()
         if (!response.isSuccessful || response.body() == null) {
             throw Exception("Audiobookshelf API error fetching item: ${response.code()} ${response.message()}")
