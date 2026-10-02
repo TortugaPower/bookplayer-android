@@ -86,6 +86,37 @@ import com.tortugapower.audiobookplayer.ui.screens.themes.ThemesScreen
 import com.tortugapower.audiobookplayer.ui.screens.tipjar.TipJarScreen
 import com.tortugapower.audiobookplayer.viewmodel.*
 
+/**
+ * A download dropped for good (DownloadFileProcessor) interrupts wherever the user is, as iOS's alert does: a
+ * dialog is its own window, over the player and the media-server sheet alike. Failures that come in while it's
+ * open join it, and OK clears what it showed. Reads the failures itself, so a new one recomposes only this.
+ */
+@Composable
+private fun DownloadFailureAlert() {
+    val downloadFailures by SyncStatusManager.downloadFailures.collectAsStateWithLifecycle()
+    if (downloadFailures.isEmpty()) return
+    val summary = remember(downloadFailures) { DownloadFailureSummary.of(downloadFailures) }
+    val incomplete = summary.incompleteTitles.firstOrNull()?.let { first ->
+        val more = summary.incompleteTitles.size - 1
+        if (more == 0) stringResource(id = R.string.download_incomplete_error, first)
+        else pluralStringResource(R.plurals.download_incomplete_error_several, more, first, more)
+    }
+    val lines = summary.expiredServers.map { stringResource(id = R.string.media_servers_error_session_expired, it) } +
+        listOfNotNull(incomplete)
+    val shown = downloadFailures
+    val dismiss = { SyncStatusManager.dismissDownloadFailures(shown) }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text(stringResource(id = R.string.common_error)) },
+        text = { Text(lines.joinToString("\n\n")) },
+        confirmButton = {
+            TextButton(onClick = dismiss) {
+                Text(stringResource(id = R.string.common_ok))
+            }
+        }
+    )
+}
+
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
@@ -180,32 +211,7 @@ fun MainScreen() {
         )
     }
 
-    // A download dropped for good (DownloadFileProcessor) interrupts wherever the user is, as iOS's alert does:
-    // a dialog is its own window, over the player and the media-server sheet alike. Failures that come in
-    // while it's open join it, and OK clears what it showed.
-    val downloadFailures by SyncStatusManager.downloadFailures.collectAsStateWithLifecycle()
-    if (downloadFailures.isNotEmpty()) {
-        val summary = DownloadFailureSummary.of(downloadFailures)
-        val incomplete = summary.incompleteTitles.firstOrNull()?.let { first ->
-            val more = summary.incompleteTitles.size - 1
-            if (more == 0) stringResource(id = R.string.download_incomplete_error, first)
-            else pluralStringResource(R.plurals.download_incomplete_error_several, more, first, more)
-        }
-        val lines = summary.expiredServers.map { stringResource(id = R.string.media_servers_error_session_expired, it) } +
-            listOfNotNull(incomplete)
-        val shown = downloadFailures
-        val dismiss = { SyncStatusManager.dismissDownloadFailures(shown) }
-        AlertDialog(
-            onDismissRequest = dismiss,
-            title = { Text(stringResource(id = R.string.common_error)) },
-            text = { Text(lines.joinToString("\n\n")) },
-            confirmButton = {
-                TextButton(onClick = dismiss) {
-                    Text(stringResource(id = R.string.common_ok))
-                }
-            }
-        )
-    }
+    DownloadFailureAlert()
 
     val profileViewModel: ProfileViewModel = viewModel(
         factory = ProfileViewModelFactory(
