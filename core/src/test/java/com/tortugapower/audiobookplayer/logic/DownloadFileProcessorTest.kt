@@ -241,6 +241,18 @@ class DownloadFileProcessorTest {
         assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, childPath).readText())
     }
 
+    // The 404 is closed before the lookup: when the lookup finds nothing new, its status still decides the retry.
+    @Test fun `a 404 whose lookup finds nothing new is retryable and writes nothing`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setResponseCode(404))
+        mediaServer.enqueue(MockResponse().setResponseCode(404))      // the item is gone from the server too
+
+        assertFalse(processor().process(childDownloadTask(mediaServer.url("/api/items/abs-1/file/111").toString())))
+
+        assertEquals(2, mediaServer.requestCount)
+        assertFalse(OfflineDownloadManager.processedFile(context, childPath).exists())
+    }
+
     @Test fun `a container task is dropped before any lookup`() = runBlocking {
         insertStreamedVolume()
 

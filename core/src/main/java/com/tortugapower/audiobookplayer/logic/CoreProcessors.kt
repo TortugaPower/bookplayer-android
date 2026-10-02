@@ -626,10 +626,11 @@ class DownloadFileProcessor(
         return try {
             var httpResponse = execute(owner, remoteURL)
             if (httpResponse.code == 404 && owner != null) {
-                // The file moved on the server since the URL was looked up: one fresh lookup, one retry.
+                // The file moved on the server since the URL was looked up: one fresh lookup, one retry. Closed
+                // first, so a lookup that throws can't leak it; a closed response still reports its 404 below.
+                httpResponse.close()
                 val fresh = freshMediaServerUrl(taskId)
                 if (fresh != null && fresh != remoteURL) {
-                    httpResponse.close()
                     remoteURL = fresh
                     httpResponse = execute(owner, remoteURL)
                 }

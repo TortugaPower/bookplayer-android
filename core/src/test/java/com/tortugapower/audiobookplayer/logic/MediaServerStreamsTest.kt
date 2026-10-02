@@ -210,6 +210,20 @@ class MediaServerStreamsTest {
         assertEquals(1, dao.siblingReads)
     }
 
+    // Every play of a volume asks for its books: a plain cloud volume (no server link) must not cost a read per book.
+    @Test fun `a volume with no server link is read once per lookup too`() = runBlocking {
+        insert(LibraryItemEntity(uuid = "vol", title = "Golf", relativePath = "Golf", type = ItemType.BOUND))
+        (0..2).forEach { i ->
+            insert(LibraryItemEntity(uuid = "c$i", title = "$i", relativePath = "Golf/0$i.mp3", orderRank = i, type = ItemType.BOOK))
+        }
+        val dao = CountingDao(db.libraryDao())
+
+        val lookup = MediaServerStreams.lookUp(listOf("c0", "c1", "c2").map { loaded(it) }, dao, servers, ::serviceFor)
+
+        assertTrue(lookup.urls.isEmpty())
+        assertEquals(1, dao.parentReads)
+    }
+
     @Test fun `books in a plain folder don't borrow the folder's link`() = runBlocking {
         insert(LibraryItemEntity(uuid = "dir", title = "Foxtrot", relativePath = "Foxtrot", type = ItemType.FOLDER), "audiobookshelf", "abs-5", absHost)
         insert(LibraryItemEntity(uuid = "c0", title = "01", relativePath = "Foxtrot/01.mp3", originalFileName = "01.mp3", type = ItemType.BOOK))

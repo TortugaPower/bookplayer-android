@@ -128,11 +128,12 @@ object MediaServerStreams {
     suspend fun owner(item: LibraryItemEntity, libraryDao: LibraryDao, parents: MutableMap<String, Owner?> = mutableMapOf()): Owner? {
         item.externalResources.find(::streams)?.let { return Owner(item, it) }
         val parentPath = item.relativePath?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() } ?: return null
-        return parents.getOrPut(parentPath) {
-            val parent = libraryDao.getItemByPathWithResources(parentPath)
-            val resource = parent?.takeIf { it.item.type == ItemType.BOUND }?.externalResources?.find(::streams)
-            resource?.let { Owner(parent.item.also { it.externalResources = parent.externalResources }, it) }
-        }
+        // Not getOrPut: it would read again for a cached "no owner" (every book of a plain cloud volume).
+        if (parentPath in parents) return parents[parentPath]
+        val parent = libraryDao.getItemByPathWithResources(parentPath)
+        val resource = parent?.takeIf { it.item.type == ItemType.BOUND }?.externalResources?.find(::streams)
+        return resource?.let { Owner(parent.item.also { it.externalResources = parent.externalResources }, it) }
+            .also { parents[parentPath] = it }
     }
 
     private class Answer(val files: List<StreamFile>?)
