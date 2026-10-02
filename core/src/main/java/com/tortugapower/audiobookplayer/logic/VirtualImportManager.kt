@@ -26,12 +26,17 @@ object VirtualImportManager {
     fun importFileName(title: String, extension: String): String = "$title.${extension.trimStart('.')}"
 
     /**
-     * The name a streamed volume's child is stored under: the file's path inside the server item's folder,
-     * flattened (`"Disc 1/01.mp3"` -> `"Disc 1 - 01.mp3"`) since a volume holds books, not folders. Also how
-     * [MediaServerStreams] finds the file a child plays.
+     * The names a streamed volume's children are stored under, one per file in the server's order: each
+     * file's path inside the server item's folder, flattened (`"Disc 1/01.mp3"` -> `"Disc 1 - 01.mp3"`) since
+     * a volume holds books, not folders. Two paths that flatten to one name get `-2`, `-3` on the later ones.
+     * Also how [MediaServerStreams] finds the file a child plays.
      */
-    fun volumeChildFileName(relPath: String): String =
-        FilenameUtils.sanitizeFilename(relPath.split('/', '\\').filter { it.isNotBlank() }.joinToString(" - "))
+    fun volumeChildFileNames(relPaths: List<String>): List<String> {
+        val used = mutableSetOf<String>()
+        return relPaths.map { relPath ->
+            uniqueName(FilenameUtils.sanitizeFilename(relPath.split('/', '\\').filter { it.isNotBlank() }.joinToString(" - ")), used)
+        }
+    }
 
     /**
      * Imports [externalItem] (whose `uuid` is the item's id on the integration server) as a
@@ -157,9 +162,9 @@ object VirtualImportManager {
             orderRank = (libraryDao.getMaxRootOrderRank() ?: -1) + 1,
             type = ItemType.BOUND
         )
-        val usedNames = mutableSetOf<String>()
+        val names = volumeChildFileNames(files.map { it.name })
         val books = files.mapIndexed { index, file ->
-            val name = uniqueName(volumeChildFileName(file.name), usedNames)
+            val name = names[index]
             LibraryItemEntity(
                 uuid = UUID.randomUUID().toString(),
                 title = name.substringBeforeLast('.'),

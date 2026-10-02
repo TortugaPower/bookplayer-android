@@ -10,8 +10,6 @@ import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.io.File
 
 /** One book file's download status — pure inputs to the per-row aggregation, shared by phone and Wear. */
@@ -66,7 +64,8 @@ object OfflineDownloadManager {
             else -> emptyList()
         }
 
-    private val enqueueLock = Mutex()
+    /** Books a [startDownload] is queuing right now. */
+    private val enqueuing = mutableSetOf<String>()
 
     /**
      * Enqueue a download task for each not-yet-local BOOK file of [item] (resolving each file's streaming
@@ -77,23 +76,31 @@ object OfflineDownloadManager {
         libraryRepository: LibraryRepository,
         syncTaskRepository: SyncTaskRepository,
         item: LibraryItemEntity,
-    ) = enqueueLock.withLock {
-        // Snapshot the queue once to dedup against files that are already PENDING or RUNNING (not just
-        // PENDING like getPendingTaskByTypeAndTaskId) — so a re-enqueue can't duplicate an in-flight
-        // download regardless of any UI gating. The lock holds a second tap until this one has queued its
-        // tasks: the URL lookups below take network time, and its snapshot must see them.
-        val activeTasks = syncTaskRepository.getAllTasks().first()
-        val books = downloadUnits(libraryRepository, item).filter { book ->
-            !isFileDownloaded(context, book.relativePath) && !isTaskActive(activeTasks, book.uuid)
+    ) {
+        // The URL lookups below take network time before the tasks exist: claim the books first, so a second
+        // tap meanwhile skips them instead of queuing them twice. Other books aren't held up.
+        val claimed = downloadUnits(libraryRepository, item).let { units ->
+            synchronized(enqueuing) { units.filter { enqueuing.add(it.uuid) } }
         }
-        // One lookup for the lot: a streamed volume's books share their server item.
-        val externalUrls = libraryRepository.externalStreamUrlsFor(books)
-        books.forEach { book ->
-            // A fresh download must never inherit a stale cancel flag (e.g. a prior cancel that raced a
-            // just-completed/failed download and left the flag set): clear it before enqueuing, so this
-            // task's first read-loop iteration doesn't abort itself.
-            SyncStatusManager.clearCancel(book.uuid)
-            SyncTaskFactory.createDownloadFileTask(syncTaskRepository, freshUrlFor(libraryRepository, book, externalUrls[book.uuid]))
+        try {
+            // Snapshot the queue once to dedup against files that are already PENDING or RUNNING (not just
+            // PENDING like getPendingTaskByTypeAndTaskId) — so a re-enqueue can't duplicate an in-flight
+            // download regardless of any UI gating.
+            val activeTasks = syncTaskRepository.getAllTasks().first()
+            val books = claimed.filter { book ->
+                !isFileDownloaded(context, book.relativePath) && !isTaskActive(activeTasks, book.uuid)
+            }
+            // One lookup for the lot: a streamed volume's books share their server item.
+            val externalUrls = libraryRepository.externalStreamUrlsFor(books)
+            books.forEach { book ->
+                // A fresh download must never inherit a stale cancel flag (e.g. a prior cancel that raced a
+                // just-completed/failed download and left the flag set): clear it before enqueuing, so this
+                // task's first read-loop iteration doesn't abort itself.
+                SyncStatusManager.clearCancel(book.uuid)
+                SyncTaskFactory.createDownloadFileTask(syncTaskRepository, freshUrlFor(libraryRepository, book, externalUrls[book.uuid]))
+            }
+        } finally {
+            synchronized(enqueuing) { claimed.forEach { enqueuing.remove(it.uuid) } }
         }
     }
 

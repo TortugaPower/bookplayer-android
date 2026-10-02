@@ -104,13 +104,15 @@ object MediaServerStreams {
                 continue
             }
             val base = ExternalServiceUtils.sanitizeUrl(server.url)
+            // The names the volume's books were imported under, rebuilt from the server's current files.
+            val childNames by lazy { VirtualImportManager.volumeChildFileNames(files.map { it.name }) }
             for (member in members) {
                 val file = if (member.uuid == owner.item.uuid) {
                     // A book plays one file. A multi-file item imported as a single book (before volumes)
                     // has no file of its own to play.
                     files.singleOrNull()
                 } else {
-                    fileForChild(member, owner.item, files, libraryDao, siblingsByVolume)
+                    fileForChild(member, owner.item, files, childNames, libraryDao, siblingsByVolume)
                 }
                 file?.let { urls[member.uuid] = base + it.path }
             }
@@ -147,11 +149,12 @@ object MediaServerStreams {
         child: LibraryItemEntity,
         volume: LibraryItemEntity,
         files: List<StreamFile>,
+        childNames: List<String>,
         libraryDao: LibraryDao,
         siblingsByVolume: MutableMap<String, List<LibraryItemEntity>>,
     ): StreamFile? {
         val childName = child.originalFileName ?: child.relativePath?.substringAfterLast('/')
-        files.firstOrNull { VirtualImportManager.volumeChildFileName(it.name) == childName }?.let { return it }
+        files.getOrNull(childNames.indexOf(childName))?.let { return it }
         val volumePath = volume.relativePath ?: return null
         val siblings = siblingsByVolume.getOrPut(volumePath) {
             libraryDao.getItemsInPathSync(volumePath).filter { it.type == ItemType.BOOK }.sortedBy { it.orderRank }

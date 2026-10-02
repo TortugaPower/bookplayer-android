@@ -166,7 +166,8 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     one (`import_no_audio_files_alert` / the skipped count on the import sheet). An ABS item made of
     several audio files imports as a **volume**: a BOUND item named after the title, holding the
     media-server link, with one book per file named by its flattened path inside the item's folder
-    (`VirtualImportManager.volumeChildFileName`: `Disc 1/01.mp3` → `Disc 1 - 01.mp3`).
+    (`VirtualImportManager.volumeChildFileNames`: `Disc 1/01.mp3` → `Disc 1 - 01.mp3`; a name two paths
+    flatten to gets `-2` on the later one, and lookups rebuild the names the same way to match them).
   - **Stream URLs are looked up at play/download time** (`MediaServerStreams`, behind
     `LibraryRepository.externalStreamUrl(s)For`). Jellyfin serves an item from one URL
     (`ExternalServiceUtils.downloadUrlFor`). ABS serves raw audio only per file: its item download is a

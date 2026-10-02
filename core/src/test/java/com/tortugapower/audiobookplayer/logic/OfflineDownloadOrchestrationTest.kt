@@ -85,6 +85,21 @@ class OfflineDownloadOrchestrationTest {
         assertEquals(1, syncRepo.saved.size)
     }
 
+    @Test fun `a slow lookup for one book doesn't hold up a tap on another`() = runBlocking {
+        val syncRepo = FakeSyncTaskRepository()
+        val repo = FakeLibraryRepository(lookupDelayMs = 500, slowUuids = setOf(uuid))
+        val other = LibraryItemEntity(uuid = "other-uuid", title = "B", relativePath = "folder/other.m4b", type = ItemType.BOOK)
+
+        val slow = launch { OfflineDownloadManager.startDownload(context, repo, syncRepo, book()) }
+        kotlinx.coroutines.yield()
+        OfflineDownloadManager.startDownload(context, repo, syncRepo, other)
+
+        // The other book was queued while the slow lookup was still waiting.
+        assertEquals(listOf("other-uuid"), syncRepo.saved.map { it.taskID })
+        slow.join()
+        assertEquals(listOf("other-uuid", uuid), syncRepo.saved.map { it.taskID })
+    }
+
     @Test fun `cancelDownload deletes a PENDING task and requests cancel (covers the pending-to-running race)`() = runBlocking {
         val pending = downloadTask(SyncTaskStatus.PENDING)
         val syncRepo = FakeSyncTaskRepository(pending = pending)
@@ -160,11 +175,11 @@ private class FakeSyncTaskRepository(private val pending: SyncTaskEntity? = null
 }
 
 /** Identity resolveStreamingUrl (BOOK downloadUnits never touches the other methods). */
-private class FakeLibraryRepository(private val lookupDelayMs: Long = 0) : LibraryRepository {
+private class FakeLibraryRepository(private val lookupDelayMs: Long = 0, private val slowUuids: Set<String>? = null) : LibraryRepository {
     override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
     override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
     override suspend fun externalStreamUrlsFor(items: List<LibraryItemEntity>, onSessionExpired: (() -> Unit)?): Map<String, String> {
-        kotlinx.coroutines.delay(lookupDelayMs)
+        if (slowUuids == null || items.any { it.uuid in slowUuids }) kotlinx.coroutines.delay(lookupDelayMs)
         return emptyMap()
     }
     override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) = error("unused")

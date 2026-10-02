@@ -137,9 +137,7 @@ class MediaServerStreamsTest {
 
     @Test fun `a streamed volume's books share one lookup and each plays its own file`() = runBlocking {
         insert(LibraryItemEntity(uuid = "vol", title = "Foxtrot", relativePath = "Foxtrot", type = ItemType.BOUND), "audiobookshelf", "abs-3", absHost)
-        val names = listOf("Disc 1/01.mp3", "Disc 2/01.mp3")
-        names.forEachIndexed { i, relPath ->
-            val name = VirtualImportManager.volumeChildFileName(relPath)
+        VirtualImportManager.volumeChildFileNames(listOf("Disc 1/01.mp3", "Disc 2/01.mp3")).forEachIndexed { i, name ->
             insert(LibraryItemEntity(uuid = "c$i", title = name, relativePath = "Foxtrot/$name", originalFileName = name, orderRank = i, type = ItemType.BOOK))
         }
         // Server order differs from the children's: matching goes by name, not position.
@@ -150,6 +148,20 @@ class MediaServerStreamsTest {
         assertEquals(listOf("abs-3"), abs.lookups)
         assertEquals("https://abs.example.com/sub/api/items/abs-3/file/11", lookup.urls["c0"])
         assertEquals("https://abs.example.com/sub/api/items/abs-3/file/22", lookup.urls["c1"])
+    }
+
+    // Two paths that flatten to one name: the later book was imported with a suffix, and finds its file by it
+    // even when the server item gained a file (so position means nothing).
+    @Test fun `a book named with a collision suffix still finds its file by name`() = runBlocking {
+        insert(LibraryItemEntity(uuid = "vol", title = "Foxtrot", relativePath = "Foxtrot", type = ItemType.BOUND), "audiobookshelf", "abs-7", absHost)
+        insert(LibraryItemEntity(uuid = "c0", title = "Part - 01", relativePath = "Foxtrot/Part - 01.mp3", originalFileName = "Part - 01.mp3", orderRank = 0, type = ItemType.BOOK))
+        insert(LibraryItemEntity(uuid = "c1", title = "Part - 01-2", relativePath = "Foxtrot/Part - 01-2.mp3", originalFileName = "Part - 01-2.mp3", orderRank = 1, type = ItemType.BOOK))
+        abs.files["abs-7"] = listOf(file("abs-7", "1", "Part/01.mp3"), file("abs-7", "2", "Part - 01.mp3"), file("abs-7", "3", "Part/02.mp3"))
+
+        val lookup = lookUp("c0", "c1")
+
+        assertEquals("https://abs.example.com/sub/api/items/abs-7/file/1", lookup.urls["c0"])
+        assertEquals("https://abs.example.com/sub/api/items/abs-7/file/2", lookup.urls["c1"])
     }
 
     @Test fun `a volume asked for itself costs no lookup`() = runBlocking {
