@@ -1615,8 +1615,9 @@ object PlaybackManager {
         if (!isLocal) {
             // First resolve external server stream URLs (Jellyfin/Audiobookshelf). One lookup serves
             // both purposes: a non-null URL IS the "a saved server can serve this" signal the
-            // media-server-first branch below keys on (no second server read + token decrypt).
-            val externalUrl = repo.externalStreamUrlsFor(listOf(item), ::reportLookupAuthError)[item.uuid]
+            // media-server-first branch below keys on (no second server read + token decrypt). A bound
+            // book has no file of its own: its sub-books are resolved below.
+            val externalUrl = if (isBound) null else repo.externalStreamUrlsFor(listOf(item), ::reportLookupAuthError)[item.uuid]
             val resolvedItem = item.also { if (externalUrl != null) it.remoteURL = externalUrl }
 
             try {

@@ -49,7 +49,10 @@ object MediaServerStreams {
 
         val urls = mutableMapOf<String, String>()
         var sessionExpired = false
-        for ((owner, members) in membersByOwner.values) {
+        for ((owner, allMembers) in membersByOwner.values) {
+            // A volume has no file of its own: asked for itself, there's nothing to look up.
+            val members = allMembers.filterNot { it.uuid == owner.item.uuid && owner.item.type == ItemType.BOUND }
+            if (members.isEmpty()) continue
             val server = ExternalServiceUtils.serverForResource(servers, owner.resource) ?: continue
             val files = try {
                 serviceFor(server.type).getStreamFiles(server.url, server.token.orEmpty(), owner.resource.providerId, server.customHeaders)

@@ -577,16 +577,6 @@ class DownloadFileProcessor(
 
         val relativePath = payload["relativePath"] as? String
         val taskId = task.taskID
-        // The book's media-server link, if it streams from one: its own, or its streamed volume's.
-        val owner = mediaServerOwner(taskId)
-        // An ABS file URL can't be relied on to still work by the time the task runs (a file's id changes
-        // when the file is replaced), and a lookup that failed at enqueue leaves none: ask the server again.
-        var remoteURL = (payload["remoteURL"] as? String).orEmpty().ifEmpty { owner?.let { freshMediaServerUrl(taskId) }.orEmpty() }
-
-        if (remoteURL.isEmpty() || relativePath.isNullOrEmpty()) {
-            Log.e("DownloadFileProcessor", "❌ Missing remoteURL or relativePath")
-            return false
-        }
 
         // Container tasks are unrunnable by definition (a BOUND/FOLDER has no backing file — its stored
         // remoteURL 404s), so drop them as done instead of blocking the serial file queue with infinite
@@ -596,6 +586,17 @@ class DownloadFileProcessor(
         if (itemType != null && itemType != ItemType.BOOK) {
             Log.w("DownloadFileProcessor", "🧹 Dropping container download task ($itemType): $relativePath")
             return true
+        }
+
+        // The book's media-server link, if it streams from one: its own, or its streamed volume's.
+        val owner = mediaServerOwner(taskId)
+        // An ABS file URL can't be relied on to still work by the time the task runs (a file's id changes
+        // when the file is replaced), and a lookup that failed at enqueue leaves none: ask the server again.
+        var remoteURL = (payload["remoteURL"] as? String).orEmpty().ifEmpty { owner?.let { freshMediaServerUrl(taskId) }.orEmpty() }
+
+        if (remoteURL.isEmpty() || relativePath.isNullOrEmpty()) {
+            Log.e("DownloadFileProcessor", "❌ Missing remoteURL or relativePath")
+            return false
         }
 
         val processedDir = File(context.filesDir, "Processed")

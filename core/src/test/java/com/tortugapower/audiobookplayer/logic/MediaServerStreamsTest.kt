@@ -146,6 +146,14 @@ class MediaServerStreamsTest {
         assertEquals("https://abs.example.com/sub/api/items/abs-3/file/22", lookup.urls["c1"])
     }
 
+    @Test fun `a volume asked for itself costs no lookup`() = runBlocking {
+        insert(LibraryItemEntity(uuid = "vol", title = "Foxtrot", relativePath = "Foxtrot", type = ItemType.BOUND), "audiobookshelf", "abs-3", absHost)
+        abs.files["abs-3"] = listOf(file("abs-3", "11", "01.mp3"), file("abs-3", "22", "02.mp3"))
+
+        assertTrue(lookUp("vol").urls.isEmpty())
+        assertTrue(abs.lookups.isEmpty())
+    }
+
     @Test fun `a book whose name matches no file takes the file at its position`() = runBlocking {
         insert(LibraryItemEntity(uuid = "vol", title = "Foxtrot", relativePath = "Foxtrot", type = ItemType.BOUND), "audiobookshelf", "abs-4", absHost)
         insert(LibraryItemEntity(uuid = "c0", title = "a", relativePath = "Foxtrot/renamed-a.mp3", originalFileName = "renamed-a.mp3", orderRank = 0, type = ItemType.BOOK))

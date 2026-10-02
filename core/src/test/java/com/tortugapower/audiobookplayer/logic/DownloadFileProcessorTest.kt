@@ -241,6 +241,21 @@ class DownloadFileProcessorTest {
         assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, childPath).readText())
     }
 
+    @Test fun `a container task is dropped before any lookup`() = runBlocking {
+        insertStreamedVolume()
+
+        val handled = processor().process(
+            SyncTaskEntity(
+                id = "row-abs-vol", taskID = "abs-vol", queueKey = SyncTaskFactory.QUEUE_FILE,
+                jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0,
+                payload = """{"uuid":"abs-vol","title":"Foxtrot","relativePath":"Foxtrot","remoteURL":""}""",
+            )
+        )
+
+        assertTrue(handled)
+        assertEquals(0, mediaServer.requestCount)
+    }
+
     @Test fun `a task queued without a URL looks it up`() = runBlocking {
         insertStreamedVolume()
         mediaServer.enqueue(MockResponse().setBody(expandedItem))
