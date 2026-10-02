@@ -167,6 +167,31 @@ class MediaServerStreamsTest {
         assertTrue(lookUp("c1").urls.isEmpty())
     }
 
+    /** Counts the volume reads a lookup makes. */
+    private class CountingDao(private val dao: com.tortugapower.audiobookplayer.database.dao.LibraryDao) :
+        com.tortugapower.audiobookplayer.database.dao.LibraryDao by dao {
+        var parentReads = 0
+        var siblingReads = 0
+        override suspend fun getItemByPathWithResources(path: String) = dao.getItemByPathWithResources(path).also { parentReads++ }
+        override suspend fun getItemsInPathSync(path: String) = dao.getItemsInPathSync(path).also { siblingReads++ }
+    }
+
+    @Test fun `a volume's books read their volume and siblings once per lookup`() = runBlocking {
+        insert(LibraryItemEntity(uuid = "vol", title = "Foxtrot", relativePath = "Foxtrot", type = ItemType.BOUND), "audiobookshelf", "abs-6", absHost)
+        (0..2).forEach { i ->
+            // Renamed books: every one falls back to its position.
+            insert(LibraryItemEntity(uuid = "c$i", title = "$i", relativePath = "Foxtrot/renamed-$i.mp3", originalFileName = "renamed-$i.mp3", orderRank = i, type = ItemType.BOOK))
+        }
+        abs.files["abs-6"] = (0..2).map { file("abs-6", "$it", "0$it.mp3") }
+        val dao = CountingDao(db.libraryDao())
+
+        val lookup = MediaServerStreams.lookUp(listOf("c0", "c1", "c2").map { loaded(it) }, dao, servers, ::serviceFor)
+
+        assertEquals(3, lookup.urls.size)
+        assertEquals(1, dao.parentReads)
+        assertEquals(1, dao.siblingReads)
+    }
+
     @Test fun `books in a plain folder don't borrow the folder's link`() = runBlocking {
         insert(LibraryItemEntity(uuid = "dir", title = "Foxtrot", relativePath = "Foxtrot", type = ItemType.FOLDER), "audiobookshelf", "abs-5", absHost)
         insert(LibraryItemEntity(uuid = "c0", title = "01", relativePath = "Foxtrot/01.mp3", originalFileName = "01.mp3", type = ItemType.BOOK))

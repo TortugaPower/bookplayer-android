@@ -1598,7 +1598,8 @@ object PlaybackManager {
 
     /**
      * [userInitiated]: a media server rejecting its stored token while looking up what to stream raises the
-     * same alert as a stream answering 401 — only for loads the user started (silent loads never alert).
+     * same alert as a stream answering 401 — only for loads the user started (silent loads never alert), and
+     * only when nothing else can play the book (a cloud copy plays regardless).
      */
     private suspend fun refreshRemoteUrlsIfNecessary(
         context: Context,
@@ -1607,7 +1608,10 @@ object PlaybackManager {
         processedDir: File,
         userInitiated: Boolean
     ): LibraryItemEntity {
-        val onSessionExpired: (() -> Unit)? = if (userInitiated) ::reportExternalStreamAuthError else null
+        var lookupRejected = false
+        val onSessionExpired: () -> Unit = { lookupRejected = true }
+        // Whether the BookPlayer cloud copy covers what the media server couldn't.
+        var cloudServed = false
         val repo = getRepository(context)
         val isLocal = if (isBound) {
             val subItems = repo.getItemsInPathSync(item.relativePath ?: "")
@@ -1674,6 +1678,7 @@ object PlaybackManager {
                     val streamed = saveSubStreams(context, repo, subItems, processedDir, onSessionExpired)
                     // Media-server-first, as for single books: the cloud copy only for sub-books no saved
                     // server can serve.
+                    val cloudFilled = mutableSetOf<String>()
                     body?.content?.forEach { remoteSub ->
                         val localSub = subItems.find { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }
                         if (localSub != null && localSub.uuid !in streamed && !remoteSub.remoteURL.isNullOrEmpty()) {
@@ -1682,8 +1687,12 @@ object PlaybackManager {
                                 localSub.artworkURL = remoteSub.artworkURL
                             }
                             repo.updateItem(localSub)
+                            cloudFilled += localSub.uuid
                         }
                     }
+                    cloudServed = subItems
+                        .filter { sub -> sub.relativePath?.let { File(processedDir, it).isFile } != true && sub.uuid !in streamed }
+                        .all { it.uuid in cloudFilled }
                     android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
                 } else if (!resolvedItem.remoteURL.isNullOrEmpty()) {
                     // Media-server-first: refresh the BookPlayer presigned URL only when no saved
@@ -1705,6 +1714,7 @@ object PlaybackManager {
                                     resolvedItem.artworkURL = remoteItem.artworkURL
                                 }
                                 repo.updateItem(resolvedItem)
+                                cloudServed = true
                                 android.util.Log.d("PlaybackManager", "✅ Refreshed remote URL for single item: ${resolvedItem.title}")
                             }
                         }
@@ -1717,6 +1727,7 @@ object PlaybackManager {
                 repo.updateItem(resolvedItem)
                 android.util.Log.e("PlaybackManager", "❌ Failed to refresh remote URL(s): ${e.message}")
             }
+            if (userInitiated && lookupRejected && !cloudServed) reportExternalStreamAuthError()
         }
         return repo.getItemById(item.uuid) ?: item
     }

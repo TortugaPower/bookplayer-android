@@ -42,8 +42,11 @@ object MediaServerStreams {
         serviceFor: (ExternalServiceType) -> ExternalService = ExternalServiceFactory::getService,
     ): Lookup {
         val membersByOwner = LinkedHashMap<String, Pair<Owner, MutableList<LibraryItemEntity>>>()
+        // A volume's books share their parent and siblings: read each once per lookup, not once per book.
+        val parents = mutableMapOf<String, Owner?>()
+        val siblingsByVolume = mutableMapOf<String, List<LibraryItemEntity>>()
         for (item in items) {
-            val owner = owner(item, libraryDao) ?: continue
+            val owner = owner(item, libraryDao, parents) ?: continue
             membersByOwner.getOrPut(owner.item.uuid) { owner to mutableListOf() }.second.add(item)
         }
 
@@ -79,7 +82,7 @@ object MediaServerStreams {
                     // has no file of its own to play.
                     files.singleOrNull()
                 } else {
-                    fileForChild(member, owner.item, files, libraryDao)
+                    fileForChild(member, owner.item, files, libraryDao, siblingsByVolume)
                 }
                 file?.let { urls[member.uuid] = base + it.path }
             }
@@ -89,15 +92,17 @@ object MediaServerStreams {
 
     /**
      * The media-server link that streams [item] (or streamed it before a download): its own, or the one on
-     * the BOUND volume it sits in. [item]'s own links must be loaded (`externalResources`).
+     * the BOUND volume it sits in. [item]'s own links must be loaded (`externalResources`). [parents] caches
+     * the answer per parent path across calls.
      */
-    suspend fun owner(item: LibraryItemEntity, libraryDao: LibraryDao): Owner? {
+    suspend fun owner(item: LibraryItemEntity, libraryDao: LibraryDao, parents: MutableMap<String, Owner?> = mutableMapOf()): Owner? {
         item.externalResources.find(::streams)?.let { return Owner(item, it) }
         val parentPath = item.relativePath?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() } ?: return null
-        val parent = libraryDao.getItemByPathWithResources(parentPath) ?: return null
-        if (parent.item.type != ItemType.BOUND) return null
-        val resource = parent.externalResources.find(::streams) ?: return null
-        return Owner(parent.item.also { it.externalResources = parent.externalResources }, resource)
+        return parents.getOrPut(parentPath) {
+            val parent = libraryDao.getItemByPathWithResources(parentPath)
+            val resource = parent?.takeIf { it.item.type == ItemType.BOUND }?.externalResources?.find(::streams)
+            resource?.let { Owner(parent.item.also { it.externalResources = parent.externalResources }, it) }
+        }
     }
 
     private fun streams(resource: ExternalResourceEntity): Boolean =
@@ -108,12 +113,19 @@ object MediaServerStreams {
      * The file a volume's [child] plays: the one its name was made from at import, else the file at the
      * child's position when the volume and the item have the same number of files.
      */
-    private suspend fun fileForChild(child: LibraryItemEntity, volume: LibraryItemEntity, files: List<StreamFile>, libraryDao: LibraryDao): StreamFile? {
+    private suspend fun fileForChild(
+        child: LibraryItemEntity,
+        volume: LibraryItemEntity,
+        files: List<StreamFile>,
+        libraryDao: LibraryDao,
+        siblingsByVolume: MutableMap<String, List<LibraryItemEntity>>,
+    ): StreamFile? {
         val childName = child.originalFileName ?: child.relativePath?.substringAfterLast('/')
         files.firstOrNull { VirtualImportManager.volumeChildFileName(it.name) == childName }?.let { return it }
-        val siblings = libraryDao.getItemsInPathSync(volume.relativePath ?: return null)
-            .filter { it.type == ItemType.BOOK }
-            .sortedBy { it.orderRank }
+        val volumePath = volume.relativePath ?: return null
+        val siblings = siblingsByVolume.getOrPut(volumePath) {
+            libraryDao.getItemsInPathSync(volumePath).filter { it.type == ItemType.BOOK }.sortedBy { it.orderRank }
+        }
         if (siblings.size != files.size) return null
         return files.getOrNull(siblings.indexOfFirst { it.uuid == child.uuid })
     }
