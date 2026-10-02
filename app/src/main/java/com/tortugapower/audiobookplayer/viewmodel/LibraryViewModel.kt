@@ -523,7 +523,7 @@ class LibraryViewModel(
         }
     }
 
-    /** iOS-parity "Delete folder only": contents move back to the library root, folder row goes. */
+    /** iOS-parity "Delete folder only": contents move up into the folder's parent, folder row goes. */
     fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             try {

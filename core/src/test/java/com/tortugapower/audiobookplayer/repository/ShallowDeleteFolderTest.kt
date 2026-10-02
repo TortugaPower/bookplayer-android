@@ -93,6 +93,44 @@ class ShallowDeleteFolderTest {
         assertEquals("Series/Foxtrot", db.libraryDao().getItemById("child")!!.relativePath)
     }
 
+    // iOS parity, and what the server's folder_in_out does: the contents go up into the folder's parent, not the
+    // root, or this device's library and the server's would disagree.
+    @Test fun `a folder inside another sends its contents up into that folder`() = runBlocking {
+        seed("shelf", "Shelf", ItemType.FOLDER)
+        val folder = seed("f", "Shelf/Series", ItemType.FOLDER)
+        seed("b1", "Shelf/Series/Book One.mp3", ItemType.BOOK, withFile = true)
+        seed("v", "Shelf/Series/Volume", ItemType.BOUND)
+        seed("b2", "Shelf/Series/Volume/Part 1.mp3", ItemType.BOOK, withFile = true)
+
+        repository.shallowDeleteFolder(context, folder)
+
+        assertNull(db.libraryDao().getItemById("f"))
+        assertEquals("Shelf/Book One.mp3", db.libraryDao().getItemById("b1")!!.relativePath)
+        assertEquals("Shelf/Volume", db.libraryDao().getItemById("v")!!.relativePath)
+        assertEquals("Shelf/Volume/Part 1.mp3", db.libraryDao().getItemById("b2")!!.relativePath)
+        assertTrue(File(File(context.filesDir, "Processed"), "Shelf/Book One.mp3").isFile)
+        // The parent now holds them: its count is recomputed.
+        assertEquals("2", db.libraryDao().getItemById("shelf")!!.author)
+    }
+
+    @Test fun `a name taken in the parent refuses the delete, one taken only at the root doesn't`() = runBlocking {
+        seed("root", "Book One.mp3", ItemType.BOOK, withFile = true)
+        seed("shelf", "Shelf", ItemType.FOLDER)
+        seed("sibling", "Shelf/Book Two.mp3", ItemType.BOOK, withFile = true)
+        val clashing = seed("f1", "Shelf/Clashing", ItemType.FOLDER)
+        seed("c1", "Shelf/Clashing/Book Two.mp3", ItemType.BOOK, withFile = true)
+
+        assertTrue(runCatching { repository.shallowDeleteFolder(context, clashing) }.exceptionOrNull() is NameTakenException)
+        assertEquals("Shelf/Clashing/Book Two.mp3", db.libraryDao().getItemById("c1")!!.relativePath)
+
+        val fine = seed("f2", "Shelf/Fine", ItemType.FOLDER)
+        seed("c2", "Shelf/Fine/Book One.mp3", ItemType.BOOK, withFile = true)
+        repository.shallowDeleteFolder(context, fine)
+
+        assertEquals("Shelf/Book One.mp3", db.libraryDao().getItemById("c2")!!.relativePath)
+        assertEquals("root", File(File(context.filesDir, "Processed"), "Book One.mp3").readText())
+    }
+
     @Test fun `children move to root, sub-container descendants keep coherent paths, folder is gone`() = runBlocking {
         val folder = seed("f", "Series", ItemType.FOLDER)
         seed("b1", "Series/Book One.mp3", ItemType.BOOK, withFile = true)

@@ -86,10 +86,12 @@ interface LibraryRepository {
     suspend fun saveExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity)
     suspend fun deleteExternalResource(itemUuid: String, provider: String)
     /**
-     * iOS-parity "Delete folder only" (shallow delete): moves the folder's DIRECT children back to
-     * the library root (files + DB paths, descendants of moved sub-containers rewritten), then
-     * deletes the now-empty folder row and its directory. The server is informed separately
-     * (JOB_DELETE_SHALLOW → DELETE /v1/library/folder_in_out) by the syncing wrapper.
+     * iOS-parity "Delete folder only" (shallow delete): moves the folder's DIRECT children up into
+     * its parent, the root for a top-level folder (files + DB paths, descendants of moved
+     * sub-containers rewritten), then deletes the now-empty folder row and its directory. Refused
+     * with [NameTakenException] when a child's name is taken there. The server is informed
+     * separately (JOB_DELETE_SHALLOW → DELETE /v1/library/folder_in_out, which moves them up the same
+     * way) by the syncing wrapper.
      */
     suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity)
 

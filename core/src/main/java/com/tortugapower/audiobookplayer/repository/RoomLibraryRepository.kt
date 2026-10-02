@@ -319,16 +319,22 @@ class RoomLibraryRepository(
             val folderPath = folder.relativePath ?: return@withContext
             val processedDir = File(context.filesDir, "Processed")
 
-            // Move DIRECT children back to the library root. moveItems handles files, the child rows, and
-            // descendant-path rewriting for moved sub-containers.
+            // Move DIRECT children up into the folder's parent (the root for a top-level folder), as iOS does
+            // (moveItems inside item.parentFolder) and as the server's folder_in_out does (moveFilesUp): the
+            // root would leave this device's library out of step with the server's. moveItems handles files,
+            // the child rows, and descendant-path rewriting for moved sub-containers.
+            val parentPath = folderPath.substringBeforeLast('/', "").takeIf { it.isNotEmpty() }
             val children = libraryDao.getItemsInPathSync(folderPath)
-            // iOS parity: a child whose name is taken at the root refuses the whole delete. Moved anyway, it
+            // iOS parity: a child whose name is taken in the parent refuses the whole delete. Moved anyway, it
             // would land on that item (a file move replaces the other book's audio); left behind, it would be
             // deleted with the folder.
-            val taken = children.count { nameTaken(it, it.relativePath!!.substringAfterLast('/'), processedDir) }
+            val taken = children.count { child ->
+                val name = child.relativePath!!.substringAfterLast('/')
+                nameTaken(child, if (parentPath == null) name else "$parentPath/$name", processedDir)
+            }
             if (taken > 0) throw NameTakenException(taken)
             // Nothing is taken, so nothing stays behind (barring a race, which keeps the folder).
-            val notMoved = moveItems(context, children, targetFolderPath = null)
+            val notMoved = moveItems(context, children, targetFolderPath = parentPath)
             if (notMoved.isNotEmpty()) throw NameTakenException(notMoved.size)
 
             // The folder is now empty: remove its directory and its row.
