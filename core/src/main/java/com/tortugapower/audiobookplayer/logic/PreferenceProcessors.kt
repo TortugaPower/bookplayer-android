@@ -77,10 +77,10 @@ class PreferenceFetchProcessor(
         val store = DataStorePreferencesStore(context)
         entries.forEach { entry ->
             if (!entry.key.startsWith(SortLocation.KEY_PREFIX)) return@forEach
-            // A key with a queued upload has a LOCAL value newer than the server's — writing the
-            // pulled value would revert the user's just-made choice until the next pull (the
-            // enqueue-time guard can't help once this fetch is already sitting in the queue).
-            if (syncTaskRepository.getPendingTaskByTypeAndTaskId(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, entry.key) != null) {
+            // A key with a queued upload (parked ones included) has a LOCAL value newer than the
+            // server's — writing the pulled value would revert the user's just-made choice until the
+            // next pull (the enqueue-time guard can't help once this fetch is already sitting in the queue).
+            if (syncTaskRepository.hasQueuedTask(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, entry.key)) {
                 return@forEach
             }
             val value = parsePulledSortValue(entry.value) ?: return@forEach

@@ -81,4 +81,51 @@ class TaskConcurrencyManagerTierHoldTest {
             manager.stopProcessing()
         }
     }
+
+    /** The user's decision: a lapse holds sync tasks but drops queued downloads, so the row goes back to its cloud state */
+    @Test fun aLapse_dropsQueuedDownloads_butKeepsSyncTasks() = runBlocking {
+        val repository = RoomSyncTaskRepository(db.syncTaskDao())
+        repository.saveTask(
+            SyncTaskEntity(
+                id = "download-1", taskID = "book", queueKey = SyncTaskFactory.QUEUE_FILE,
+                jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0, payload = "{}",
+            )
+        )
+        repository.saveTask(
+            SyncTaskEntity(
+                id = "update-1", taskID = "book", queueKey = SyncTaskFactory.QUEUE_SYNC,
+                jobType = SyncTaskFactory.JOB_UPDATE, position = 0, payload = "{}",
+            )
+        )
+        val manager = TaskConcurrencyManager(context, repository, TierAccountRepository(AccountTier.FREE), listOf(RecordingProcessor()))
+
+        manager.startProcessing()
+        try {
+            withTimeout(5_000) { while (db.syncTaskDao().getTaskById("download-1") != null) delay(20) }
+            assertEquals(listOf("update-1"), db.syncTaskDao().getAllTasksSync().map { it.id })
+        } finally {
+            manager.stopProcessing()
+        }
+    }
+
+    /** No account read (signed out, or unreadable) is no lapse: nothing is dropped */
+    @Test fun withNoAccount_queuedDownloadsStay() = runBlocking {
+        val repository = RoomSyncTaskRepository(db.syncTaskDao())
+        repository.saveTask(
+            SyncTaskEntity(
+                id = "download-1", taskID = "book", queueKey = SyncTaskFactory.QUEUE_FILE,
+                jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0, payload = "{}",
+            )
+        )
+        val accounts = TierAccountRepository(AccountTier.FREE).apply { account.value = null }
+        val manager = TaskConcurrencyManager(context, repository, accounts, listOf(RecordingProcessor()))
+
+        manager.startProcessing()
+        try {
+            delay(500)
+            assertEquals(listOf("download-1"), db.syncTaskDao().getAllTasksSync().map { it.id })
+        } finally {
+            manager.stopProcessing()
+        }
+    }
 }

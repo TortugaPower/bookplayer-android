@@ -306,6 +306,8 @@
     <string name="library_delete_folder_warning">\n\nNote: Deleting a folder will also delete all of its contents.</string>
     <string name="library_empty_message">Your library is empty</string>
     <string name="library_sync_tasks_busy">Waiting for sync tasks to finish</string>
+    <string name="sync_paused_alert_title">Sync is paused until a queued task is resolved</string>
+    <string name="sync_tasks_view_title">View tasks</string>
     <string name="library_jump_to_start">Jump to start</string>
     <string name="library_cancel_download">Cancel download</string>
     <string name="library_remove_from_device">Remove from device</string>

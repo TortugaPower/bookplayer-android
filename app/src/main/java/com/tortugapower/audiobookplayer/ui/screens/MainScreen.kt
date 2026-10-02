@@ -307,7 +307,8 @@ fun MainScreen() {
                         LibraryScreen(
                             viewModel = libraryViewModel,
                             importViewModel = importViewModel,
-                            onNavigateToMediaServers = { showMediaServersFlow = true }
+                            onNavigateToMediaServers = { showMediaServersFlow = true },
+                            onNavigateToQueuedTasks = { navController.navigate("queuedTasks") },
                         ) 
                     }
                     composable(Screen.Profile.route) { 

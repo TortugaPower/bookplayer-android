@@ -108,6 +108,30 @@ class RoomSyncTaskRepository(
         syncTaskDao.countActiveTasksInQueue(queueKey)
     }
 
+    override suspend fun countQueuedTasksInQueue(queueKey: String): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.countQueuedTasksInQueue(queueKey)
+    }
+
+    override suspend fun countPausedTasksInQueue(queueKey: String): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.countPausedTasksInQueue(queueKey)
+    }
+
+    override suspend fun countQueuedTasksByType(jobType: String): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.countQueuedTasksByType(jobType)
+    }
+
+    override suspend fun hasQueuedTask(jobType: String, taskId: String): Boolean = withContext(Dispatchers.IO) {
+        syncTaskDao.hasQueuedTask(jobType, taskId)
+    }
+
+    override suspend fun deleteParkedTasks(jobType: String, taskId: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.deleteParkedTasks(jobType, taskId)
+    }
+
+    override suspend fun deletePendingTasksOfType(jobType: String): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.deletePendingTasksOfType(jobType)
+    }
+
     override suspend fun countActiveTasksByType(jobType: String): Int = withContext(Dispatchers.IO) {
         syncTaskDao.countActiveTasksByType(jobType)
     }

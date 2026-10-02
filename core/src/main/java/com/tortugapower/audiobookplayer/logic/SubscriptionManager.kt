@@ -191,6 +191,12 @@ object SubscriptionManager {
             if (account != null && account.tier != tier) {
                 Log.d(TAG, "Persisting new tier: $tier for account: ${account.email}")
                 accountRepository?.saveAccount(account.copy(tier = tier))
+
+                // The lapse path drops queued downloads (see TaskConcurrencyManager.dropDownloadsTheTierCantRun):
+                // here too, since the sync service may not be running to do it
+                if (!TaskAccessPolicy.canExecuteTask(tier, SyncTaskFactory.JOB_DOWNLOAD_FILE)) {
+                    syncTaskRepository?.deletePendingTasksOfType(SyncTaskFactory.JOB_DOWNLOAD_FILE)
+                }
                 
                 // Trigger account-wide identifier sync on subscription activation
                 if (tier == AccountTier.PRO || tier == AccountTier.LITE) {

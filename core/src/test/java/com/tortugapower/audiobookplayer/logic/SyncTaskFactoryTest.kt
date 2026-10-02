@@ -222,4 +222,32 @@ class SyncTaskFactoryTest {
         SyncTaskFactory.createMatchUuidsTask(repo, emptyMap())
         assertTrue(repo.savedAll.isEmpty())
     }
+
+    /** A parked sync task blocks the throttled listing: it would undo a change the server never got */
+    @Test fun fetchContents_unforced_isSkippedWhileASyncTaskIsParked() = runBlocking {
+        val repo = object : SyncTaskRepository by CapturingRepo() {
+            override suspend fun countActiveTasksInQueue(queueKey: String): Int = 0
+            override suspend fun countQueuedTasksInQueue(queueKey: String): Int = 1
+        }
+        assertEquals(false, SyncTaskFactory.createFetchContentsTask(repo, "Some folder"))
+    }
+
+    @Test fun preferencesPull_unforced_isSkippedWhileAnUploadIsParked() = runBlocking {
+        val repo = object : SyncTaskRepository by CapturingRepo() {
+            override suspend fun countActiveTasksByType(jobType: String): Int = 0
+            override suspend fun countQueuedTasksByType(jobType: String): Int = 1
+        }
+        assertEquals(false, SyncTaskFactory.createFetchPreferencesTask(repo))
+    }
+
+    /** Resumed later, the parked push would send the older value over the new one */
+    @Test fun aNewPreferencePush_supersedesTheKeysParkedOne() = runBlocking {
+        val superseded = mutableListOf<Pair<String, String>>()
+        val capturing = CapturingRepo()
+        val repo = object : SyncTaskRepository by capturing {
+            override suspend fun deleteParkedTasks(jobType: String, taskId: String) { superseded += jobType to taskId }
+        }
+        SyncTaskFactory.createUploadPreferenceTask(repo, "library_sort:root", "fileName")
+        assertEquals(listOf(SyncTaskFactory.JOB_UPLOAD_PREFERENCE to "library_sort:root"), superseded)
+    }
 }

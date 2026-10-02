@@ -63,9 +63,12 @@ class LibraryViewModel(
     /** True while a pull-to-refresh fetch is in flight — drives the list's refresh indicator. */
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
-    private val _syncTasksBusy = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    /** Emits when a refresh is declined because sync jobs are already scheduled (UI shows a transient note). */
-    val syncTasksBusy: SharedFlow<Unit> = _syncTasksBusy.asSharedFlow()
+    private val _syncTasksBusy = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
+    /**
+     * Emits when a refresh is declined because sync jobs are already queued (UI shows a transient note):
+     * true when one of them is parked, so the queue won't drain until the user resolves it.
+     */
+    val syncTasksBusy: SharedFlow<Boolean> = _syncTasksBusy.asSharedFlow()
 
     /**
      * Manual library refresh (pull-to-refresh), mirroring iOS `ItemListViewModel.refreshListState`:
@@ -74,9 +77,10 @@ class LibraryViewModel(
      *
      * - [syncEnabled] is the caller's tier gate (PRO/LITE). When false we no-op silently, like iOS's
      *   `guard syncService.isActive`.
-     * - If the sync queue already has scheduled jobs we decline and signal [syncTasksBusy] instead of
-     *   fetching, matching iOS's "sync tasks in progress" guard. File transfers (a separate queue) do NOT
-     *   block a refresh — Android keeps them off the sync queue on purpose.
+     * - If the sync queue already has scheduled jobs, parked ones included, we decline and signal
+     *   [syncTasksBusy] instead of fetching, matching iOS's "sync tasks in progress" / "sync is paused"
+     *   guard: the listing would undo local changes the server never got. File transfers (a separate
+     *   queue) do NOT block a refresh — Android keeps them off the sync queue on purpose.
      * - Otherwise we force past the 60 s per-path throttle (a manual pull should always try) and wait for the
      *   fetch task to drain, bounded by [REFRESH_TIMEOUT_MS] so a wedged task can't hang the indicator.
      */
@@ -86,8 +90,8 @@ class LibraryViewModel(
             try {
                 if (!syncEnabled) return@launch
 
-                if (syncTaskRepository.countActiveTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0) {
-                    _syncTasksBusy.tryEmit(Unit)
+                if (syncTaskRepository.countQueuedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0) {
+                    _syncTasksBusy.tryEmit(syncTaskRepository.countPausedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0)
                     return@launch
                 }
 

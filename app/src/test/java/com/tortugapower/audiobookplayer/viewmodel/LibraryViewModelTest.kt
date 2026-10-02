@@ -125,6 +125,10 @@ class LibraryViewModelTest {
         override suspend fun countActiveTasks(): Int = tasks.value.count { it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING }
         override suspend fun countActiveTasksInQueue(queueKey: String): Int =
             tasks.value.count { it.queueKey == queueKey && (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING) }
+        override suspend fun countQueuedTasksInQueue(queueKey: String): Int =
+            tasks.value.count { it.queueKey == queueKey && (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING || it.pauseScope != null) }
+        override suspend fun countPausedTasksInQueue(queueKey: String): Int =
+            tasks.value.count { it.queueKey == queueKey && it.pauseScope != null }
         override suspend fun countActiveTasksByType(jobType: String): Int =
             tasks.value.count { it.jobType == jobType && (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING) }
         override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? =
@@ -203,18 +207,41 @@ class LibraryViewModelTest {
         )
         val model = modelWith(syncRepo = syncRepo)
 
-        val busy = mutableListOf<Unit>()
+        val busy = mutableListOf<Boolean>()
         // UNDISPATCHED so the collector subscribes synchronously before refresh emits (SharedFlow, no replay).
         backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            model.syncTasksBusy.collect { busy += Unit }
+            model.syncTasksBusy.collect { busy += it }
         }
 
         model.refresh(syncEnabled = true)
         runCurrent()
 
-        assertEquals(1, busy.size)
+        assertEquals("busy, not paused", listOf(false), busy)
         assertTrue(syncRepo.tasks.value.none { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS })
         assertFalse(model.isRefreshing.value)
+    }
+
+    /** A parked sync task blocks the refresh too, and the note says sync is paused (iOS) */
+    @Test fun refresh_withAParkedSyncTask_signalsPausedAndSkipsFetch() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        syncRepo.saveTask(
+            SyncTaskEntity(
+                id = "t1", taskID = "book", queueKey = SyncTaskFactory.QUEUE_SYNC, jobType = "move",
+                position = 0, payload = "{}", status = SyncTaskStatus.FAILED, pauseScope = "LANE", errorCode = "item_not_found",
+            ),
+        )
+        val model = modelWith(syncRepo = syncRepo)
+
+        val busy = mutableListOf<Boolean>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            model.syncTasksBusy.collect { busy += it }
+        }
+
+        model.refresh(syncEnabled = true)
+        runCurrent()
+
+        assertEquals(listOf(true), busy)
+        assertTrue(syncRepo.tasks.value.none { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS })
     }
 
     // Row download state end to end: only queued/running download tasks flip isDownloading — other job

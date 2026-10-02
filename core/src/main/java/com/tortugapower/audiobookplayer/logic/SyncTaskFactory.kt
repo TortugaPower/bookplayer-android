@@ -220,8 +220,9 @@ object SyncTaskFactory {
 
     suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?, force: Boolean = false, canDelete: Boolean = true): Boolean {
         if (!force) {
-            // Only fetch if the sync queue is empty to avoid desyncs with local actions
-            if (repository.countActiveTasksInQueue(QUEUE_SYNC) > 0) {
+            // Only fetch if the sync queue is empty to avoid desyncs with local actions: a parked task
+            // counts, since the listing would undo a change the server never got
+            if (repository.countQueuedTasksInQueue(QUEUE_SYNC) > 0) {
                 android.util.Log.d("SyncTaskFactory", "⏭️ Skipping fetch_contents: sync queue not empty")
                 return false
             }
@@ -395,9 +396,11 @@ object SyncTaskFactory {
     /**
      * Push one preference level (root or a folder) to the server. Keyed by the preference key so
      * rapid changes to the same level coalesce onto a single pending task (last write wins) — the
-     * same merge [createUpdateTask] uses for items.
+     * same merge [createUpdateTask] uses for items. A parked push of the same key is superseded:
+     * resumed later, it would send the older value over this one.
      */
     suspend fun createUploadPreferenceTask(repository: SyncTaskRepository, key: String, value: String) {
+        repository.deleteParkedTasks(JOB_UPLOAD_PREFERENCE, key)
         val payload = mapOf("key" to key, "value" to value)
         val existing = repository.getPendingTaskByTypeAndTaskId(JOB_UPLOAD_PREFERENCE, key)
         if (existing == null || !repository.updatePendingTaskPayload(existing, gson.toJson(payload))) {
@@ -407,14 +410,14 @@ object SyncTaskFactory {
 
     /**
      * Pull the user's preferences from the server. Skipped (unless [force]) when we still have an
-     * unsynced preference push queued — the local store is the source of truth, so a pull must never
-     * clobber a change we haven't sent yet. Debounced to one per 60 s per launch, like fetch_contents.
+     * unsynced preference push queued, parked ones included — the local store is the source of truth,
+     * so a pull must never clobber a change we haven't sent yet. Debounced to one per 60 s per launch, like fetch_contents.
      * A [force]d pull (app foreground, login, upgrade — iOS parity) skips both checks and starts the
      * cooldown itself; PreferenceFetchProcessor still leaves every key with a queued upload alone.
      */
     suspend fun createFetchPreferencesTask(repository: SyncTaskRepository, force: Boolean = false): Boolean {
         if (!force) {
-            if (repository.countActiveTasksByType(JOB_UPLOAD_PREFERENCE) > 0) return false
+            if (repository.countQueuedTasksByType(JOB_UPLOAD_PREFERENCE) > 0) return false
             if (!SyncStatusManager.checkAndMarkFetchPreferences()) return false
         } else {
             SyncStatusManager.markFetchPreferences()

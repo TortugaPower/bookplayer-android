@@ -35,7 +35,7 @@ class TaskConcurrencyManagerParkingTest {
 
     private class Parked(val id: String, val scope: TaskPauseScope, val failure: CodedFailure)
 
-    private class RecordingRepository : SyncTaskRepository {
+    private class RecordingRepository(private val pendingTaskIds: Set<String> = emptySet()) : SyncTaskRepository {
         val parked = mutableListOf<Parked>()
         val deleted = mutableListOf<String>()
         val requeued = mutableListOf<String>()
@@ -60,7 +60,8 @@ class TaskConcurrencyManagerParkingTest {
         override suspend fun countActiveTasks(): Int = error("unused")
         override suspend fun countActiveTasksInQueue(queueKey: String): Int = error("unused")
         override suspend fun countActiveTasksByType(jobType: String): Int = error("unused")
-        override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = null
+        override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? =
+            if (taskId in pendingTaskIds) SyncTaskEntity(id = "newer", taskID = taskId, queueKey = "q", jobType = jobType, position = 1, payload = "{}") else null
         override suspend fun migrateTaskUuid(oldUuid: String, newUuid: String) = error("unused")
     }
 
@@ -200,6 +201,23 @@ class TaskConcurrencyManagerParkingTest {
 
     @Test fun aDroppedTask_isntReported() {
         assertNull(reported("item_not_found", expected = false, parkingEnabled = false))
+    }
+
+    /** Pushed while this one ran, the newer value would be overwritten by this one's launch retry */
+    @Test fun aPreferencePushWithANewerOneQueued_isSupersededNotParked() = runBlocking {
+        val repo = RecordingRepository(pendingTaskIds = setOf("item"))
+        val manager = TaskConcurrencyManager(
+            ApplicationProvider.getApplicationContext(), repo, NoAccountRepository(),
+            listOf(ThrowingProcessor(SyncTaskFactory.JOB_UPLOAD_PREFERENCE) { throw coded("invalid_request") }),
+        )
+
+        assertTrue(manager.executeTask(task(SyncTaskFactory.JOB_UPLOAD_PREFERENCE)))
+        assertEquals(listOf("row-upload_preference"), repo.deleted)
+        assertTrue(repo.parked.isEmpty())
+
+        // Alone, it parks as usual
+        val (_, alone) = run(SyncTaskFactory.JOB_UPLOAD_PREFERENCE) { throw coded("invalid_request") }
+        assertEquals(TaskPauseScope.TASK, alone.parked.single().scope)
     }
 
     @Test fun withParkingOff_aCodedFailureDropsTheTask() {

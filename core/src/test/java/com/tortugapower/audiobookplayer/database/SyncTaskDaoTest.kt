@@ -183,4 +183,52 @@ class SyncTaskDaoTest {
         assertEquals("""{"v":2}""", dao.getTaskById("p")!!.payload)
         assertEquals("{}", dao.getTaskById("r")!!.payload)
     }
+
+    /** What blocks a library fetch counts the parked too; the active count (the engine's) doesn't */
+    @Test fun queuedAndPausedCounts_includeParkedTasks() = runBlocking {
+        dao.insertTask(task("p", "a"))
+        dao.insertTask(task("parked", "b").copy(status = SyncTaskStatus.FAILED, pauseScope = "LANE", errorCode = "item_not_found"))
+        dao.insertTask(task("failed-unparked", "c").copy(status = SyncTaskStatus.FAILED))
+        dao.insertTask(task("other-lane", "d").copy(queueKey = "file"))
+
+        assertEquals(1, dao.countActiveTasksInQueue("sync"))
+        assertEquals(2, dao.countQueuedTasksInQueue("sync"))
+        assertEquals(1, dao.countPausedTasksInQueue("sync"))
+    }
+
+    @Test fun deletePendingTasksOfType_leavesRunningAndOtherJobs() = runBlocking {
+        dao.insertTask(task("queued", "a", jobType = "download_file").copy(queueKey = "file"))
+        dao.insertTask(task("running", "b", jobType = "download_file").copy(queueKey = "file", status = SyncTaskStatus.RUNNING))
+        dao.insertTask(task("upload", "c", jobType = "upload_file").copy(queueKey = "file"))
+
+        assertEquals(1, dao.deletePendingTasksOfType("download_file"))
+        assertEquals(setOf("running", "upload"), dao.getAllTasks().first().map { it.id }.toSet())
+    }
+
+    /** A parked preference push is a change the server never got: pulls must leave its key alone */
+    @Test fun parkedUploads_countAsQueued_andAreRemovedOnlyByKey() = runBlocking {
+        val parked = task("parked", "library_sort:root", jobType = "upload_preference").copy(
+            queueKey = "preferences", status = SyncTaskStatus.FAILED, pauseScope = "TASK", errorCode = "invalid_request",
+        )
+        dao.insertTask(parked)
+        dao.insertTask(task("other", "library_sort:folder", jobType = "upload_preference").copy(queueKey = "preferences"))
+
+        assertEquals(1, dao.countActiveTasksByType("upload_preference"))
+        assertEquals(2, dao.countQueuedTasksByType("upload_preference"))
+        assertEquals(true, dao.hasQueuedTask("upload_preference", "library_sort:root"))
+        assertEquals(false, dao.hasQueuedTask("upload_preference", "library_sort:missing"))
+
+        dao.deleteParkedTasks("upload_preference", "library_sort:folder") // not parked: kept
+        dao.deleteParkedTasks("upload_preference", "library_sort:root")
+        assertEquals(listOf("other"), dao.getAllTasks().first().map { it.id })
+    }
+
+    /** A merge lands in the task that runs last, so the newest value is the one the server ends on */
+    @Test fun thePendingTaskForAKey_isTheNewest() = runBlocking {
+        dao.insertAtEnd(task("older", "book", jobType = "update"))
+        dao.insertAtEnd(task("newer", "book", jobType = "update"))
+        dao.insertAtEnd(task("other", "another-book", jobType = "update"))
+
+        assertEquals("newer", dao.getPendingTaskByTypeAndTaskId("update", "book")?.id)
+    }
 }

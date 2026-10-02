@@ -84,6 +84,9 @@ class TaskConcurrencyManager(
             // (getAllTasks is in queue order)
             repository.getAllTasks().collect { tasks ->
                 if (!isProcessing) return@collect
+                if (tasks.any { it.jobType == SyncTaskFactory.JOB_DOWNLOAD_FILE && it.status == SyncTaskStatus.PENDING }) {
+                    dropDownloadsTheTierCantRun()
+                }
                 for (queueKey in SyncTaskPicker.lanesWithWork(tasks, tierPolicy())) {
                     startQueueWorkerIfAbsent(queueKey)
                 }
@@ -176,6 +179,7 @@ class TaskConcurrencyManager(
     fun requestWorkerScan() {
         if (!isProcessing) return
         serviceScope.launch {
+            dropDownloadsTheTierCantRun()
             SyncTaskPicker.lanesWithWork(repository.getAllTasks().first(), tierPolicy())
                 .forEach { queueKey -> startQueueWorkerIfAbsent(queueKey) }
         }
@@ -259,6 +263,16 @@ class TaskConcurrencyManager(
                 false
             }
             is SyncFailureAction.Park -> {
+                // A newer push of the same preference was queued while this one ran: resumed later, this
+                // older value would overwrite it, so it's superseded rather than parked (the enqueue-time
+                // supersede can't see a push that was still running)
+                if (task.jobType == SyncTaskFactory.JOB_UPLOAD_PREFERENCE &&
+                    repository.getPendingTaskByTypeAndTaskId(task.jobType, task.taskID) != null
+                ) {
+                    Log.w(TAG, "🗑️ ${task.jobType} task ${task.id} failed with ${failure?.code}; a newer push supersedes it")
+                    repository.deleteTask(task)
+                    return true
+                }
                 val pause = park(task, action.scope, requireNotNull(failure))
                 if (pause != null && failure.code != SyncFailurePolicy.FILE_TOO_LARGE) reportPause(task, pause)
                 true
@@ -287,6 +301,20 @@ class TaskConcurrencyManager(
     private suspend fun tierPolicy(): (String) -> Boolean {
         val tier = accountRepository.getAccount()?.tier
         return { jobType -> TaskAccessPolicy.canExecuteTask(tier, jobType) }
+    }
+
+    /**
+     * A lapse holds sync tasks but drops queued downloads (the user's decision): they're transfers the user
+     * started, not changes the server needs, and a held cloud download's signed URL would have expired by
+     * the time the subscription is back. The row goes back to its cloud state, to tap again. Only with an
+     * account read: a missing one (signed out, or unreadable) is no lapse.
+     */
+    private suspend fun dropDownloadsTheTierCantRun() {
+        val tier = accountRepository.getAccount()?.tier ?: return
+        if (!TaskAccessPolicy.canExecuteTask(tier, SyncTaskFactory.JOB_DOWNLOAD_FILE)) {
+            val dropped = repository.deletePendingTasksOfType(SyncTaskFactory.JOB_DOWNLOAD_FILE)
+            if (dropped > 0) Log.w(TAG, "🗑️ Dropped $dropped queued download(s) the $tier tier can't run")
+        }
     }
 
     /** The stored pause, or null when the task is gone (removed meanwhile) */

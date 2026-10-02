@@ -73,6 +73,31 @@ interface SyncTaskRepository {
     /** Every parked task back to pending: the one automatic retry, at launch */
     suspend fun resumeAllPaused() {}
 
+    /**
+     * The lane's tasks still to go through, parked ones included: what blocks a library fetch, since a
+     * listing would undo local changes the server never got (iOS counts the parked too)
+     */
+    suspend fun countQueuedTasksInQueue(queueKey: String): Int = countActiveTasksInQueue(queueKey)
+
+    suspend fun countPausedTasksInQueue(queueKey: String): Int = 0
+
+    /** Like [countQueuedTasksInQueue], by job type: a parked upload is still a change the server never got */
+    suspend fun countQueuedTasksByType(jobType: String): Int = countActiveTasksByType(jobType)
+
+    /** Whether a task for [taskId] is still to go through (queued, running or parked) */
+    suspend fun hasQueuedTask(jobType: String, taskId: String): Boolean =
+        getPendingTaskByTypeAndTaskId(jobType, taskId) != null
+
+    /** Removes [taskId]'s parked tasks of [jobType]: a newer one supersedes them */
+    suspend fun deleteParkedTasks(jobType: String, taskId: String) {}
+
+    /** Removes the queued (not yet running) tasks of [jobType]. Returns how many. */
+    suspend fun deletePendingTasksOfType(jobType: String): Int {
+        val pending = getTasksByStatus(SyncTaskStatus.PENDING).filter { it.jobType == jobType }
+        pending.forEach { deleteTask(it) }
+        return pending.size
+    }
+
     suspend fun setSentryEventId(id: String, eventId: String) {
         getTaskById(id)?.let { updateTask(it.copy(sentryEventId = eventId)) }
     }

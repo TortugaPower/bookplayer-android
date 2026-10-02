@@ -113,13 +113,40 @@ interface SyncTaskDao {
     @Query("SELECT COUNT(*) FROM sync_tasks WHERE jobType = :jobType AND (status = 'PENDING' OR status = 'RUNNING')")
     suspend fun countActiveTasksByType(jobType: String): Int
 
+    @Query("SELECT COUNT(*) FROM sync_tasks WHERE jobType = :jobType AND (status = 'PENDING' OR status = 'RUNNING' OR pauseScope IS NOT NULL)")
+    suspend fun countQueuedTasksByType(jobType: String): Int
+
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM sync_tasks WHERE jobType = :jobType AND taskID = :taskId " +
+            "AND (status = 'PENDING' OR status = 'RUNNING' OR pauseScope IS NOT NULL))"
+    )
+    suspend fun hasQueuedTask(jobType: String, taskId: String): Boolean
+
+    @Query("DELETE FROM sync_tasks WHERE jobType = :jobType AND taskID = :taskId AND pauseScope IS NOT NULL")
+    suspend fun deleteParkedTasks(jobType: String, taskId: String)
+
     @Query("SELECT COUNT(*) FROM sync_tasks WHERE status = 'PENDING' OR status = 'RUNNING'")
     suspend fun countActiveTasks(): Int
 
     @Query("SELECT COUNT(*) FROM sync_tasks WHERE queueKey = :queueKey AND (status = 'PENDING' OR status = 'RUNNING')")
     suspend fun countActiveTasksInQueue(queueKey: String): Int
 
-    @Query("SELECT * FROM sync_tasks WHERE jobType = :jobType AND taskID = :taskId AND status = 'PENDING' LIMIT 1")
+    @Query("SELECT COUNT(*) FROM sync_tasks WHERE queueKey = :queueKey AND (status = 'PENDING' OR status = 'RUNNING' OR pauseScope IS NOT NULL)")
+    suspend fun countQueuedTasksInQueue(queueKey: String): Int
+
+    @Query("SELECT COUNT(*) FROM sync_tasks WHERE queueKey = :queueKey AND pauseScope IS NOT NULL")
+    suspend fun countPausedTasksInQueue(queueKey: String): Int
+
+    @Query("DELETE FROM sync_tasks WHERE jobType = :jobType AND status = 'PENDING'")
+    suspend fun deletePendingTasksOfType(jobType: String): Int
+
+    // The newest, the one that runs last (iOS merges into the last too): a task that failed and went back
+    // to pending sits ahead of one created meanwhile, so merging into the oldest would let the middle
+    // value run last and win
+    @Query(
+        "SELECT * FROM sync_tasks WHERE jobType = :jobType AND taskID = :taskId AND status = 'PENDING' " +
+            "ORDER BY position DESC, rowid DESC LIMIT 1"
+    )
     suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity?
 
     /** Rewrites a queued task's payload while it's still pending: 0 once it has started or parked */
