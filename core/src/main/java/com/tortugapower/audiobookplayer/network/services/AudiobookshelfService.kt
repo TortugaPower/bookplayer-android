@@ -17,7 +17,6 @@ import com.tortugapower.audiobookplayer.network.WebAuthenticator
 import com.tortugapower.audiobookplayer.network.OkHttpOidcClient
 import com.tortugapower.audiobookplayer.logic.AbsOidcFlow
 import kotlinx.coroutines.CancellationException
-import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -29,15 +28,11 @@ class AudiobookshelfService : ExternalService, SsoCapable {
     private fun getApi(url: String, headers: Map<String, String>? = null): AudiobookshelfApi {
         val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
 
-        val okHttpClientBuilder = OkHttpClient.Builder()
-        ExternalServiceUtils.sanitizeCustomHeaders(headers)?.forEach { (key, value) ->
-            okHttpClientBuilder.addInterceptor(Interceptor { chain ->
-                val original = chain.request()
-                val requestBuilder = original.newBuilder().header(key, value)
-                chain.proceed(requestBuilder.build())
-            })
-        }
-        val okHttpClient = okHttpClientBuilder.build()
+        // Derived from one base client so calls share its connection pool (a file lookup runs on every play).
+        // Custom headers (often Cloudflare Access secrets) ride only the hops that stay on the server.
+        val okHttpClient = ExternalServiceUtils.sanitizeCustomHeaders(headers)?.takeIf { it.isNotEmpty() }
+            ?.let { baseHttpClient.newBuilder().addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(sanitizedUrl, it)).build() }
+            ?: baseHttpClient
 
         return Retrofit.Builder()
             .client(okHttpClient)
@@ -292,6 +287,8 @@ class AudiobookshelfService : ExternalService, SsoCapable {
     }
 
     companion object {
+        private val baseHttpClient by lazy { OkHttpClient() }
+
         /**
          * [item]'s playable files. The path is built from the track's `ino` against the saved server URL
          * rather than taken from the track's `contentUrl`: that one is absolute from the server root and

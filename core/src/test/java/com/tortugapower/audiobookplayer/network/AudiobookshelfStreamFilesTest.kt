@@ -6,6 +6,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -66,6 +67,24 @@ class AudiobookshelfStreamFilesTest {
         server.enqueue(MockResponse().setResponseCode(403))
         val error = runCatching { runBlocking { service.getStreamFiles(url(), "tok", "abs-1") } }.exceptionOrNull()
         assertTrue(error != null && error !is SessionExpiredException)
+    }
+
+    // Custom headers are often Cloudflare Access secrets: OkHttp keeps them across a cross-host redirect.
+    @Test fun `a redirect off the server gets none of its headers`() = runBlocking {
+        val elsewhere = MockWebServer().apply { start() }
+        try {
+            server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", elsewhere.url("/item")))
+            elsewhere.enqueue(MockResponse().setBody(item))
+
+            service.getStreamFiles(url(), "tok", "abs-1", mapOf("CF-Access-Client-Id" to "cf"))
+
+            assertEquals("cf", server.takeRequest().getHeader("CF-Access-Client-Id"))
+            val redirected = elsewhere.takeRequest()
+            assertNull(redirected.getHeader("CF-Access-Client-Id"))
+            assertNull(redirected.getHeader("Authorization"))
+        } finally {
+            elsewhere.shutdown()
+        }
     }
 
     // ABS 2.3–2.17 tracks (AudioTrack.toJSON) carry no `ino`; it's only at the end of `contentUrl`, which also
