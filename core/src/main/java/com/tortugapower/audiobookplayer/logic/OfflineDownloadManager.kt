@@ -197,12 +197,11 @@ object OfflineDownloadManager {
         if (totalUnits <= 0) 0f else ((downloadedUnits + inProgressSum) / totalUnits).toFloat().coerceIn(0f, 1f)
 
     /**
-     * Whether a unit counts as a whole downloaded file in the aggregate (pure, unit-tested). File
-     * existence alone is NOT enough: [DownloadFileProcessor] streams straight into the final Processed
-     * path, so a partially-written file already "exists" while its task runs — counting it would add a
-     * whole unit AND its live fraction to [downloadProgressFraction], making a 2-file bound book's ring
-     * jump to 50% and fill once per file. A unit is downloaded only once its file exists and its task is
-     * gone. Shared by the phone library rows and the Wear standalone library.
+     * Whether a unit counts as a whole downloaded file in the aggregate (pure, unit-tested). A file in
+     * Processed is whole ([DownloadFileProcessor] writes elsewhere and moves it there once it passes its
+     * checks), but its task outlives the move by the rest of the run: a unit is downloaded only once its
+     * file exists and its task is gone, so a row never counts one unit as both downloaded and in flight.
+     * Shared by the phone library rows and the Wear standalone library.
      */
     fun unitDownloaded(fileExists: Boolean, taskActive: Boolean): Boolean = fileExists && !taskActive
 

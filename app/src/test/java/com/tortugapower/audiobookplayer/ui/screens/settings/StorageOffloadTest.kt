@@ -103,7 +103,7 @@ class StorageOffloadTest {
         assertNotNull(com.tortugapower.audiobookplayer.logic.MediaServerStreams.ownerOf("v1c1", dao))
     }
 
-    @Test fun `external book offload clears the path and reverts the resource to stream`() = runBlocking {
+    @Test fun `a streamed book offload keeps its path and reverts the resource to stream`() = runBlocking {
         val item = seedBookWithFile("b3", "Jellyfin Book.m4b", remoteURL = null)
         AppDatabase.getDatabase(context).libraryDao().insertExternalResource(
             ExternalResourceEntity(
@@ -116,8 +116,8 @@ class StorageOffloadTest {
 
         val row = AppDatabase.getDatabase(context).libraryDao().getItemById("b3")
         assertNotNull(row)
-        // External items rebuild their URL from hostId+providerId, so the dead path is cleared…
-        assertNull(row!!.relativePath)
+        // Its path is its identity on the server, and where a new download goes (as on iOS)…
+        assertEquals("Jellyfin Book.m4b", row!!.relativePath)
         // …and the resource reverts to stream-only.
         val resource = AppDatabase.getDatabase(context).libraryDao().getExternalResourcesForBookSync("b3").single()
         assertEquals(ExternalResourceEntity.STATUS_STREAM, resource.syncStatus)

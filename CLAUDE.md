@@ -191,7 +191,9 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     payload, a sub-book's saved `remoteURL`) can go stale, so a download whose ABS URL 404s is looked up
     once more in the same run. A download whose server answered without a file for it (the item is gone,
     or several files imported as one book) is dropped, not retried: the file queue is serial, and a lookup
-    reports that apart from a failed one (`MediaServerStreams.Lookup.noFile`). Don't resolve URLs speculatively: each ABS lookup is a request. A lookup
+    reports that apart from a failed one (`MediaServerStreams.Lookup.noFile`). Only a server that didn't answer
+    (`Lookup.unreachable`) leaves a download to retry; one that answered with an error, rejected the token or
+    isn't saved drops it, as the download's own error answer would. Don't resolve URLs speculatively: each ABS lookup is a request. A lookup
     gives up after 5 s (`MediaServerStreams.LOOKUP_TIMEOUT_MS`), so an unreachable home server falls
     through to the cloud copy instead of waiting out the HTTP timeouts; a background download's lookup
     (`DownloadFileProcessor`) waits 30 s, since nobody is waiting on it. A server that times out, can't be

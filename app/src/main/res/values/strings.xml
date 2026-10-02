@@ -306,6 +306,11 @@
     <string name="library_delete_folder_warning">\n\nNote: Deleting a folder will also delete all of its contents.</string>
     <string name="library_empty_message">Your library is empty</string>
     <string name="library_sync_tasks_busy">Waiting for sync tasks to finish</string>
+    <string name="download_incomplete_error">%1$s: The download was incomplete. Please try again.</string>
+    <plurals name="download_incomplete_error_several">
+        <item quantity="one">%1$s and %2$d more: The downloads were incomplete. Please try again.</item>
+        <item quantity="other">%1$s and %2$d more: The downloads were incomplete. Please try again.</item>
+    </plurals>
     <string name="sync_paused_alert_title">Sync is paused until a queued task is resolved</string>
     <string name="sync_tasks_view_title">View tasks</string>
     <string name="library_jump_to_start">Jump to start</string>

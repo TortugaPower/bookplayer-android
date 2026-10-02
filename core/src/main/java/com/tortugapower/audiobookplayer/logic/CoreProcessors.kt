@@ -17,10 +17,13 @@ import com.tortugapower.audiobookplayer.network.throwIfCoded
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import java.io.FileOutputStream
 import kotlinx.coroutines.flow.first
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
@@ -529,12 +532,27 @@ class StreamFileUploadProcessor(
     }
 }
 
+/**
+ * Downloads a book's file into `Processed/`, from BookPlayer cloud or the book's media server, and checks
+ * it before it counts as downloaded (iOS `BPTaskDownloadDelegate` + `SyncService.verifyDownloadedFile`):
+ * the bytes go to a temp file, which must hold as many bytes as the response announced and play at
+ * least the book's stored duration (less 2 s or 2%, whichever is more), and only then is it moved into
+ * place. A file that never finished is never in `Processed/`, where it would count as downloaded,
+ * play half, or be uploaded.
+ *
+ * A download that fails for good (an HTTP error answer, a server with no file for the book, a file that
+ * fails the checks) is dropped, and the library says so once ([SyncStatusManager.notifyDownloadFailed]);
+ * tapping download again asks afresh. A connection problem retries, as before.
+ */
 class DownloadFileProcessor(
     private val context: Context,
     // Through the repository, not the DAO: stored credentials are encrypted at rest, and media-server
     // downloads authenticate with this token. Overridable so tests can swap the Keystore cipher.
     private val serverRepository: ExternalServerRepository =
         ExternalServerRepository(AppDatabase.getDatabase(context).externalServerDao()),
+    /** The file's playing time in seconds, or null when it can't be read */
+    private val durationOf: (File) -> Double? = ::readDurationSeconds,
+    private val onFailedForGood: (uuid: String, title: String) -> Unit = SyncStatusManager::notifyDownloadFailed,
 ) : TaskProcessor {
     companion object {
         // One base client for every download (and retry); per-server variants derive via newBuilder(),
@@ -547,6 +565,29 @@ class DownloadFileProcessor(
         // Nobody waits on a background download, unlike playback (MediaServerStreams' 5 s cap): give a slow home
         // server the HTTP client's own timeouts, or it times out on every run and holds up the file queue.
         private const val LOOKUP_TIMEOUT_MS = 30_000L
+
+        /** Where a download is written until it passes its checks (same volume as `Processed/`, for the move) */
+        internal const val PARTS_DIR = "Downloading"
+
+        // Downloads run one at a time (the file lane), so before this process's first one no part file is
+        // being written: anything there was left by a process that died mid-download
+        internal val partsSwept = AtomicBoolean(false)
+
+        /** iOS's tolerance: a file may play this much shorter than the stored duration */
+        internal fun durationTolerance(expected: Double): Double = maxOf(2.0, expected * 0.02)
+
+        private fun readDurationSeconds(file: File): Double? {
+            val retriever = android.media.MediaMetadataRetriever()
+            return try {
+                retriever.setDataSource(file.absolutePath)
+                retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull()?.div(1000.0)
+            } catch (e: Exception) {
+                null
+            } finally {
+                runCatching { retriever.release() }
+            }
+        }
     }
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
@@ -556,14 +597,15 @@ class DownloadFileProcessor(
 
         val relativePath = payload["relativePath"] as? String
         val taskId = task.taskID
+        val book = AppDatabase.getDatabase(context).libraryDao().getItemById(taskId)
+        val title = book?.title ?: (payload["title"] as? String).orEmpty()
 
         // Container tasks are unrunnable by definition (a BOUND/FOLDER has no backing file — its stored
         // remoteURL 404s), so drop them as done instead of blocking the serial file queue with infinite
         // retries. Legacy taps used to enqueue the container itself; downloads go through
         // [OfflineDownloadManager], which fans a container out into its BOOK files.
-        val itemType = AppDatabase.getDatabase(context).libraryDao().getItemById(taskId)?.type
-        if (itemType != null && itemType != ItemType.BOOK) {
-            Log.w("DownloadFileProcessor", "🧹 Dropping container download task ($itemType): $relativePath")
+        if (book != null && book.type != ItemType.BOOK) {
+            Log.w("DownloadFileProcessor", "🧹 Dropping container download task (${book.type}): $relativePath")
             return true
         }
 
@@ -578,31 +620,38 @@ class DownloadFileProcessor(
             LEGACY_ABS_ITEM_DOWNLOAD.containsMatchIn(payloadUrl)
         var remoteURL = payloadUrl.takeUnless { isLegacyAbsItemUrl }.orEmpty()
         if (remoteURL.isEmpty() && owner != null) {
-            val lookup = lookUpFile(taskId)
-            if (lookup != null && taskId in lookup.noFile) return dropWithoutFile(relativePath)
-            remoteURL = lookup?.urls?.get(taskId).orEmpty()
+            val lookup = lookUpFile(taskId) ?: return false
+            if (taskId in lookup.noFile) return failedForGood(taskId, title, "the server has no file for it")
+            // A server that didn't answer is a connection problem: the next run asks again. One that answered
+            // with an error, rejected the token or isn't saved on this device drops it, as the download would.
+            if (taskId in lookup.unreachable) return false
+            remoteURL = lookup.urls[taskId] ?: return failedForGood(
+                taskId, title,
+                if (lookup.sessionExpired) "its server rejected the token" else "its server answered with an error or isn't saved",
+            )
         }
 
         if (remoteURL.isEmpty() || relativePath.isNullOrEmpty()) {
-            Log.e("DownloadFileProcessor", "❌ Missing remoteURL or relativePath")
-            return false
+            return failedForGood(taskId, title, "it has no URL or path to download to")
         }
 
-        val processedDir = File(context.filesDir, "Processed")
-        if (!processedDir.exists()) processedDir.mkdirs()
-        val destFile = File(processedDir, relativePath)
-
-        // Ensure parent directories exist
-        destFile.parentFile?.mkdirs()
+        val destFile = OfflineDownloadManager.processedFile(context, relativePath)
+        val partsDir = File(context.filesDir, PARTS_DIR)
+        sweepPartsOnce()
+        var partFile: File? = null
+        var moved = false
 
         return try {
+            partsDir.mkdirs()
+            // A name of its own per run: a cancelled run's read can still be writing its part when the next starts
+            val part = File.createTempFile("${task.id}-", ".part", partsDir).also { partFile = it }
             var httpResponse = execute(owner, remoteURL)
             if (httpResponse.code == 404 && owner != null) {
                 // The file moved on the server since the URL was looked up: one fresh lookup, one retry. Closed
                 // first, so a lookup that throws can't leak it; a closed response still reports its 404 below.
                 httpResponse.close()
                 val lookup = lookUpFile(taskId)
-                if (lookup != null && taskId in lookup.noFile) return dropWithoutFile(relativePath)
+                if (lookup != null && taskId in lookup.noFile) return failedForGood(taskId, title, "the server has no file for it")
                 val fresh = lookup?.urls?.get(taskId)
                 if (fresh != null && fresh != remoteURL) {
                     remoteURL = fresh
@@ -613,8 +662,7 @@ class DownloadFileProcessor(
             // otherwise leak the connection on each retry.
             httpResponse.use { response ->
                 if (!response.isSuccessful) {
-                    Log.e("DownloadFileProcessor", "❌ Download failed: ${response.code}")
-                    return false
+                    return failedForGood(taskId, title, "HTTP ${response.code}")
                 }
 
                 val body = response.body ?: return false
@@ -630,10 +678,12 @@ class DownloadFileProcessor(
                 var cancelled = false
 
                 body.byteStream().use { input: java.io.InputStream ->
-                    FileOutputStream(destFile).use { output: FileOutputStream ->
+                    FileOutputStream(part).use { output: FileOutputStream ->
                         val buffer = ByteArray(8 * 1024)
                         var read: Int
                         while (input.read(buffer).also { read = it } != -1) {
+                            // The host stopping cancels the worker: stop writing now, not at the end of the file
+                            currentCoroutineContext().ensureActive()
                             // Cooperative cancellation: abort mid-stream if the user cancelled this download.
                             if (SyncStatusManager.isCancelRequested(taskId)) {
                                 cancelled = true
@@ -653,27 +703,72 @@ class DownloadFileProcessor(
                 SyncStatusManager.clearTaskProgress(taskId)
                 if (cancelled) {
                     Log.d("DownloadFileProcessor", "🚫 Download cancelled: $relativePath")
-                    if (destFile.exists()) destFile.delete()
                     // Leave the cancel flag SET on purpose: TaskConcurrencyManager reads it on this false
                     // return to make the task terminal (delete, no retry) and then clears it. Clearing here
                     // would let the failure path re-queue the task and silently re-download it to completion.
                     return false
                 }
+                // Fewer bytes than announced (more is fine, as on iOS; an unknown length can't be checked)
+                if (contentLength > 0 && bytesRead < contentLength) {
+                    return failedForGood(taskId, title, "it ended at $bytesRead of $contentLength bytes")
+                }
+                failedCheck(part, book?.duration)?.let { reason -> return failedForGood(taskId, title, reason) }
+
+                destFile.parentFile?.mkdirs()
+                destFile.delete()
+                if (!part.renameTo(destFile)) throw java.io.IOException("Couldn't move the download into place")
+                moved = true
                 SyncStatusManager.clearCancel(taskId)
                 Log.d("DownloadFileProcessor", "✅ Download complete: $relativePath")
                 true
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // A stopped worker leaves the task RUNNING for resetRunningTasks
+            SyncStatusManager.clearTaskProgress(taskId)
+            throw e
         } catch (e: Exception) {
             StorageMonitor.reportFailure(context, e) // ENOSPC mid-write: the storage state holds further downloads
             Log.e("DownloadFileProcessor", "💥 Exception during download: ${e.message}", e)
-            if (destFile.exists()) destFile.delete()
             SyncStatusManager.clearTaskProgress(taskId)
             // Deliberately don't clear the cancel flag here: if a cancel raced this exception, leaving it
             // set lets TaskConcurrencyManager treat the task as terminal (no retry) instead of re-queuing
             // and re-downloading. With no cancel pending the flag isn't set anyway (startDownload clears
             // any stale one before enqueuing), so nothing leaks.
             false
+        } finally {
+            // Every way out but the move leaves a part no later run can use
+            if (!moved) partFile?.delete()
         }
+    }
+
+    /**
+     * Why the downloaded [file] doesn't hold the book, or null when it does: it must play at least the stored
+     * [expected] duration less [durationTolerance] (a longer file is fine). Without a stored duration there's
+     * nothing to check against; a file that can't be read when there is one is rejected, as on iOS.
+     */
+    private fun failedCheck(file: File, expected: Double?): String? {
+        if (expected == null || expected <= 0) return null
+        val actual = durationOf(file) ?: return "its duration can't be read"
+        if (actual.isNaN() || actual.isInfinite()) return null
+        if (expected - actual > durationTolerance(expected)) return "it plays ${actual}s of ${expected}s"
+        return null
+    }
+
+    /**
+     * Ends the task without retrying: every retry would hold up the serial file queue behind it, and tapping
+     * download again asks afresh. The library says so once.
+     */
+    private fun failedForGood(uuid: String, title: String, why: String): Boolean {
+        Log.w("DownloadFileProcessor", "🧹 Dropping download $uuid: $why")
+        SyncStatusManager.clearTaskProgress(uuid)
+        SyncStatusManager.clearCancel(uuid)
+        onFailedForGood(uuid, title)
+        return true
+    }
+
+    private fun sweepPartsOnce() {
+        if (!partsSwept.compareAndSet(false, true)) return
+        File(context.filesDir, PARTS_DIR).listFiles()?.forEach { it.delete() }
     }
 
     /**
@@ -698,15 +793,6 @@ class DownloadFileProcessor(
         val row = dao.getItemByIdWithResources(uuid) ?: return null
         val item = row.item.also { it.externalResources = row.externalResources }
         return MediaServerStreams.lookUp(listOf(item), dao, serverRepository, timeoutMs = LOOKUP_TIMEOUT_MS)
-    }
-
-    /**
-     * Done, not retried: the server answered and has no file for this book, and every retry would hold up the
-     * serial file queue behind it. Unreachable servers and rejected tokens stay retryable.
-     */
-    private fun dropWithoutFile(relativePath: String?): Boolean {
-        Log.w("DownloadFileProcessor", "🧹 The server has no file for $relativePath — dropping download task")
-        return true
     }
 
     override fun canHandle(jobType: String): Boolean {

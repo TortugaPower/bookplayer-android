@@ -79,14 +79,10 @@ suspend fun removeLocalFile(context: Context, repository: LibraryRepository, ite
         // until the next fetch happens to re-insert it. Nothing is ever deleted server-side from
         // here (plain repository — no delete task).
         if (item.type == ItemType.BOOK && extResources.any(MediaServerStreams::streams)) {
-            // Streamed books also clear relativePath and revert their resource to "stream": their
-            // playback URL is rebuilt from hostId+providerId, not the path. Only a book with its OWN
-            // streamed link: a book downloaded from the media-server browser (a "synced" link) or one with
-            // only a Hardcover link is a plain book and keeps its path; a volume's book is matched to its
-            // file by that path; and a streamed volume has no file of its own, while its path is how its
-            // books find their media-server link.
-            item.relativePath = null
-            repository.updateItem(item)
+            // A streamed book reverts its resource to "stream": it plays from its media server again. It
+            // keeps its path, as on iOS: that's its identity on the server, a never-downloaded streamed book
+            // has one too, and a download needs it to know where the file goes. Only a book with its OWN
+            // streamed link: a browser download ("synced") or a Hardcover-linked book is a plain book.
             extResources.forEach { resource ->
                 if (resource.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED) {
                     // Through the DAO (REPLACE): repository.saveExternalResource early-returns when a
@@ -95,7 +91,7 @@ suspend fun removeLocalFile(context: Context, repository: LibraryRepository, ite
                 }
             }
         }
-        // Cloud/local rows keep relativePath untouched — it's the item's identity on the server and
-        // in the play/download paths; the row's "not downloaded" state is pure disk truth.
+        // Every row keeps relativePath untouched — it's the item's identity on the server and in the
+        // play/download paths; the row's "not downloaded" state is pure disk truth.
     }
 }

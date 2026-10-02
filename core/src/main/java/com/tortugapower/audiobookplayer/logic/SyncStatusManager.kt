@@ -1,8 +1,11 @@
 package com.tortugapower.audiobookplayer.logic
 
 import androidx.annotation.VisibleForTesting
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -22,6 +25,17 @@ object SyncStatusManager {
     fun requestCancel(taskId: String) { _cancelRequests.update { it + taskId } }
     fun isCancelRequested(taskId: String): Boolean = _cancelRequests.value.contains(taskId)
     fun clearCancel(taskId: String) { _cancelRequests.update { it - taskId } }
+
+    /** A download that failed for good and was dropped (iOS's download error): the library says so once */
+    data class DownloadFailure(val uuid: String, val title: String)
+
+    private val _downloadFailures = MutableSharedFlow<DownloadFailure>(extraBufferCapacity = 8)
+    /** One event per dropped download; nothing is replayed to a screen that wasn't showing */
+    val downloadFailures: SharedFlow<DownloadFailure> = _downloadFailures.asSharedFlow()
+
+    fun notifyDownloadFailed(uuid: String, title: String) {
+        _downloadFailures.tryEmit(DownloadFailure(uuid, title))
+    }
 
     // How often one library level's contents (and the sort-preferences pull that rides the same cadence)
     // may be fetched: 60 s, matching iOS's per-level list sync throttle.
