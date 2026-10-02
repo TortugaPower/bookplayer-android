@@ -544,6 +544,10 @@ class RoomLibraryRepository(
         return item
     }
 
+    override suspend fun isStreamedMediaServerBook(uuid: String): Boolean = withContext(Dispatchers.IO) {
+        MediaServerStreams.isStreamed(uuid, libraryDao)
+    }
+
     override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? =
         externalStreamUrlsFor(listOf(item))[item.uuid]
 

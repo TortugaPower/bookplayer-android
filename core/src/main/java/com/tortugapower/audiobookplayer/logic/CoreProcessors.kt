@@ -17,10 +17,15 @@ import com.tortugapower.audiobookplayer.network.throwIfCoded
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import java.io.FileOutputStream
 import kotlinx.coroutines.flow.first
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
@@ -222,8 +227,8 @@ class SyncIdentifiersProcessor(
  * (`LibraryItemSyncOperation.handleUploadJob`). The answer's `url` only means "the server needs the
  * bytes": a book never goes to it, and a PRO account's book queues a multipart upload instead
  * ([MultipartUploadProcessor]), which marks it synced once S3 assembles it. LITE never uploads files,
- * so its books stay unsynced. A media-server book's file goes up only once it's downloaded, so its
- * registration queues nothing. A folder or bound book has no bytes: a PRO account's empty PUT to the url,
+ * so its books stay unsynced. A streamed media-server book's file goes up only once it's downloaded,
+ * so its registration queues nothing. A folder or bound book has no bytes: a PRO account's empty PUT to the url,
  * if one came, then the server is told it's synced, on every tier. Branches on the item's type: a PRO
  * container gets a url too.
  */
@@ -270,17 +275,16 @@ class MetadataUploadProcessor(
             return confirmSynced(item)
         }
 
-        val isMediaServerBook = libraryDao().getExternalResourcesForBookSync(item.uuid)
-            .any { ExternalServiceUtils.serviceTypeFor(it.providerName) != null }
         if (url == null) {
             // S3 already holds the book: told it's synced, for a tier that uploads files
             return if (tier == AccountTier.PRO) confirmSynced(item) else true
         }
-        // A media-server book's file goes up only when its download finishes (the download-finished hook
-        // queues it), as on iOS: one already downloaded when it's registered isn't backfilled, by design.
-        // The media server still has its file.
-        if (isMediaServerBook) {
-            Log.d("MetadataUploadProcessor", "⏭️ Media-server book: its file goes up once it's downloaded")
+        // A streamed media-server book's file goes up only when its download finishes (the download-finished
+        // hook queues it), as on iOS: one already downloaded when it's registered isn't backfilled, by
+        // design. The media server still has its file. A book downloaded from the media-server browser
+        // isn't streamed and uploads like any local book.
+        if (MediaServerStreams.isStreamed(item.uuid, libraryDao())) {
+            Log.d("MetadataUploadProcessor", "⏭️ Streamed media-server book: its file goes up once it's downloaded")
             return true
         }
         val file = item.relativePath?.let { OfflineDownloadManager.processedFile(context, it) }
@@ -307,235 +311,29 @@ class MetadataUploadProcessor(
 }
 
 /**
- * PRO stream-to-cloud pipe: uploads a stream-only import's source file from the user's media server
- * (Jellyfin/ABS) into BookPlayer cloud, streaming GET→PUT so nothing lands in local storage. Follows
- * the API's `external_set` contract end to end: request a fresh presigned PUT URL per attempt (never
- * stored — presigned URLs expire, and a frozen one would make every retry fail), transfer, then
- * confirm with `{uploaded: true}` — which server-side flips the resource to "downloaded" and the item
- * to synced=true atomically, so other devices fetch a remoteURL and can play/download the cloud copy
- * when the media server isn't configured there (media-server-first stays: URL resolution prefers the
- * provider whenever a saved server matches).
+ * Downloads a book's file into `Processed/`, from BookPlayer cloud or the book's media server, and checks
+ * it before it counts as downloaded (iOS `BPTaskDownloadDelegate` + `SyncService.verifyDownloadedFile`):
+ * the bytes go to a temp file, which must hold as many bytes as the response announced and play at
+ * least the book's stored duration (less 2 s or 2%, whichever is more), and only then is it moved into
+ * place. A text answer (a proxy's login or error page) is never the book, and a length Android's reader
+ * can't measure passes when every announced byte arrived. A file that never finished is never in
+ * `Processed/`, where it would count as downloaded, play half, or be uploaded.
  *
- * Runs on its own [SyncTaskFactory.QUEUE_PIPE] queue — an unreachable home server retrying forever
- * must not block the serial file queue's downloads/uploads.
+ * A download that fails for good (an HTTP error answer, a server with no file for the book, a file that
+ * fails the checks) is dropped, and the app says so once ([SyncStatusManager.notifyDownloadFailed]);
+ * tapping download again asks afresh. A connection problem retries, as before.
  */
-class StreamFileUploadProcessor(
-    private val context: Context,
-    private val repository: SyncTaskRepository,
-    // Test seam (NetworkClient's Retrofit is a lazily-built global that can't point at a MockWebServer
-    // once initialized): returns the presigned PUT URL, or null when the request failed (→ retry —
-    // this also covers the window before the import's metadata task has landed the item server-side).
-    private val fetchPutUrl: suspend (uuid: String) -> String? = { uuid ->
-        val response = NetworkClient.libraryApi.setExternalResourceToDownload(mapOf("uuid" to uuid))
-        if (response.isSuccessful) {
-            response.body()?.url?.takeIf { it.isNotBlank() }
-        } else {
-            Log.e("StreamFileUploadProcessor", "❌ external_set URL request failed: ${response.code()} ${response.errorBody()?.string()}")
-            null
-        }
-    },
-    // Through the repository, not the DAO: stored credentials are encrypted at rest, and the source
-    // GET authenticates with this token. Overridable so tests can swap the Keystore cipher.
-    private val serverRepository: ExternalServerRepository =
-        ExternalServerRepository(AppDatabase.getDatabase(context).externalServerDao()),
-) : TaskProcessor {
-    private val gson = Gson()
-
-    // Shared: pipes run serially within their queue, and each OkHttpClient owns its own connection
-    // pool + dispatcher threads. Generous read/write timeouts — a single stalled read on a slow home
-    // server doesn't mean the multi-GB transfer is dead.
-    private val client by lazy {
-        okhttp3.OkHttpClient.Builder()
-            .connectTimeout(java.time.Duration.ofSeconds(30))
-            .readTimeout(java.time.Duration.ofMinutes(2))
-            .writeTimeout(java.time.Duration.ofMinutes(2))
-            .build()
-    }
-
-    override suspend fun process(task: SyncTaskEntity): Boolean {
-        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
-        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
-        val uuid = payload["uuid"] as? String
-        if (uuid == null) {
-            // Malformed payloads only come from factory bugs; retrying can never heal one.
-            Log.e("StreamFileUploadProcessor", "❌ Missing uuid in payload — dropping task")
-            return true
-        }
-
-        val libraryDao = AppDatabase.getDatabase(context).libraryDao()
-        val item = libraryDao.getItemById(uuid)
-        if (item == null) {
-            Log.w("StreamFileUploadProcessor", "🧹 Item $uuid no longer exists — dropping pipe task")
-            return true
-        }
-        val resource = libraryDao.getExternalResourcesForBookSync(uuid)
-            .find { it.syncStatus == ExternalResourceEntity.STATUS_STREAM }
-        if (resource == null) {
-            // Already piped (status flipped to "downloaded") or no longer stream-linked: nothing to do.
-            Log.d("StreamFileUploadProcessor", "🧹 No stream resource for ${item.title} — dropping pipe task")
-            return true
-        }
-
-        val relativePath = item.relativePath
-        val localFile = relativePath?.let { OfflineDownloadManager.processedFile(context, it) }
-        // AudiobookShelf has no whole-item audio to copy (its item download is a zip for any book in a folder:
-        // ExternalServiceUtils.downloadUrlFor): unless the file was downloaded meanwhile, there's nothing to pipe.
-        if (ExternalServiceUtils.serviceTypeFor(resource.providerName) == ExternalServiceType.AUDIOBOOKSHELF &&
-            localFile?.isFile != true
-        ) {
-            Log.d("StreamFileUploadProcessor", "🧹 No audio file to copy for ${item.title} (AudiobookShelf) — dropping pipe task")
-            return true
-        }
-
-        val putUrl = fetchPutUrl(uuid) ?: return false
-        val transferred = withContext(Dispatchers.IO) {
-            if (localFile?.isFile == true) {
-                // The user downloaded the file in the meantime — upload the local copy instead of
-                // re-streaming it through the media server.
-                putFile(localFile, mediaTypeFor(relativePath), putUrl)
-            } else {
-                pipeFromServer(item, resource, putUrl, task.id)
-            }
-        }
-        if (!transferred) return false
-
-        // Durable confirm (its own task, so it survives process death after the transfer): the server
-        // flips the resource to "downloaded" + the item to synced=true atomically. Mirror the flip
-        // locally so this device is consistent before its next fetch echoes it back.
-        SyncTaskFactory.createSetExternalResourceToDownloadTask(repository, uuid, uploaded = true)
-        libraryDao.insertExternalResource(resource.copy(syncStatus = ExternalResourceEntity.STATUS_DOWNLOADED))
-        Log.d("StreamFileUploadProcessor", "✅ Piped stream item to cloud: ${item.title}")
-        return true
-    }
-
-    private suspend fun pipeFromServer(
-        item: LibraryItemEntity,
-        resource: ExternalResourceEntity,
-        putUrl: String,
-        progressKey: String
-    ): Boolean {
-        val server = ExternalServiceUtils.serverForResource(serverRepository, resource)
-        val sourceUrl = server?.let { ExternalServiceUtils.downloadUrlFor(it, resource) }
-        if (server == null || sourceUrl == null) {
-            // Retry (not terminal): the server may be re-added, and TaskAccessPolicy already discards
-            // the task on downgrade — this must not delete a pipe that's just temporarily unservable.
-            Log.w("StreamFileUploadProcessor", "⚠️ No saved server can serve ${item.title} — will retry")
-            return false
-        }
-        // Header auth, like playback and the artwork backfill: the Jellyfin URL carries no token, and
-        // newer ABS versions reject query-string tokens (401). Custom headers are sanitized like the
-        // download's: a persisted illegal name/value throws on addHeader and would wedge the pipe.
-        val headers = ExternalServiceUtils.serviceTypeFor(resource.providerName)
-            ?.let { ExternalServiceUtils.playbackHeaders(it, server.token, ExternalServiceUtils.sanitizeCustomHeaders(server.customHeaders)) }
-
-        return try {
-            // Headers ride only the hops that stay on the media server (a redirect elsewhere must not get
-            // them); newBuilder() shares the pipe client's connection pool.
-            val sourceClient = headers?.let {
-                client.newBuilder().addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(sourceUrl, it)).build()
-            } ?: client
-            sourceClient.newCall(okhttp3.Request.Builder().url(sourceUrl).build()).execute().use { response ->
-                val body = response.body
-                if (!response.isSuccessful || body == null) {
-                    Log.e("StreamFileUploadProcessor", "❌ Source GET failed (${response.code}) for ${item.title}")
-                    return false
-                }
-                val mediaType = mediaTypeFor(item.relativePath)
-                val length = body.contentLength()
-                if (length >= 0) {
-                    putStream(body, length, mediaType, putUrl, progressKey)
-                } else {
-                    // S3 rejects chunked PUTs (Content-Length is required on presigned uploads), so an
-                    // unknown-length body — rare, both providers serve static files — stages through
-                    // the cache dir instead of piping directly.
-                    stageAndPut(body, mediaType, putUrl)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("StreamFileUploadProcessor", "💥 Exception piping ${item.title}: ${e.message}", e)
-            false
-        }
-    }
-
-    /** Streams the GET body into the PUT as it downloads, publishing progress per 8 KB chunk. */
-    private fun putStream(
-        source: okhttp3.ResponseBody,
-        length: Long,
-        mediaType: okhttp3.MediaType?,
-        putUrl: String,
-        progressKey: String
-    ): Boolean {
-        val requestBody = object : okhttp3.RequestBody() {
-            override fun contentType() = mediaType
-            override fun contentLength() = length
-            // The body wraps a live network stream that can't be replayed — this stops OkHttp from
-            // silently retrying the PUT with an already-consumed source.
-            override fun isOneShot() = true
-            override fun writeTo(sink: okio.BufferedSink) {
-                var bytesRead = 0L
-                val buffer = ByteArray(8 * 1024)
-                source.byteStream().use { input ->
-                    var read: Int
-                    while (input.read(buffer).also { read = it } != -1) {
-                        sink.write(buffer, 0, read)
-                        bytesRead += read
-                        if (length > 0) {
-                            SyncStatusManager.updateTaskProgress(progressKey, bytesRead.toDouble() / length)
-                        }
-                    }
-                }
-            }
-        }
-        return executePut(putUrl, requestBody)
-    }
-
-    /** Unknown-length fallback: stage the body to cache, then PUT the file with a real length. */
-    private fun stageAndPut(source: okhttp3.ResponseBody, mediaType: okhttp3.MediaType?, putUrl: String): Boolean {
-        val tempFile = File(context.cacheDir, "pipe-${java.util.UUID.randomUUID()}")
-        return try {
-            source.byteStream().use { input ->
-                FileOutputStream(tempFile).use { output -> input.copyTo(output) }
-            }
-            executePut(putUrl, tempFile.asRequestBody(mediaType))
-        } finally {
-            tempFile.delete()
-        }
-    }
-
-    private fun putFile(file: File, mediaType: okhttp3.MediaType?, putUrl: String): Boolean {
-        Log.d("StreamFileUploadProcessor", "📦 Local file exists — uploading it instead of piping")
-        return executePut(putUrl, file.asRequestBody(mediaType))
-    }
-
-    private fun executePut(putUrl: String, requestBody: okhttp3.RequestBody): Boolean {
-        val response = client.newCall(
-            okhttp3.Request.Builder().url(putUrl).put(requestBody).build()
-        ).execute()
-        response.use {
-            if (!it.isSuccessful) {
-                Log.e("StreamFileUploadProcessor", "❌ Cloud PUT failed with code: ${it.code}")
-            }
-            return it.isSuccessful
-        }
-    }
-
-    private fun mediaTypeFor(relativePath: String?) = when (relativePath?.substringAfterLast('.')?.lowercase()) {
-        "mp3" -> "audio/mpeg"
-        "m4a", "m4b" -> "audio/mp4"
-        else -> "application/octet-stream"
-    }.toMediaTypeOrNull()
-
-    override fun canHandle(jobType: String): Boolean {
-        return jobType == SyncTaskFactory.JOB_UPLOAD_STREAM_FILE
-    }
-}
-
 class DownloadFileProcessor(
     private val context: Context,
     // Through the repository, not the DAO: stored credentials are encrypted at rest, and media-server
     // downloads authenticate with this token. Overridable so tests can swap the Keystore cipher.
     private val serverRepository: ExternalServerRepository =
         ExternalServerRepository(AppDatabase.getDatabase(context).externalServerDao()),
+    /** The file's playing time in seconds, or null when it can't be read */
+    private val durationOf: (File) -> Double? = ::readDurationSeconds,
+    private val onFailedForGood: (SyncStatusManager.DownloadFailure) -> Unit = SyncStatusManager::notifyDownloadFailed,
+    /** Where a streamed book's upload is queued once it's downloaded: the phone's queue. The watch uploads nothing, as on iOS. */
+    private val syncTasks: SyncTaskRepository? = null,
 ) : TaskProcessor {
     companion object {
         // One base client for every download (and retry); per-server variants derive via newBuilder(),
@@ -548,6 +346,32 @@ class DownloadFileProcessor(
         // Nobody waits on a background download, unlike playback (MediaServerStreams' 5 s cap): give a slow home
         // server the HTTP client's own timeouts, or it times out on every run and holds up the file queue.
         private const val LOOKUP_TIMEOUT_MS = 30_000L
+
+        /** Where a download is written until it passes its checks (same volume as `Processed/`, for the move) */
+        internal const val PARTS_DIR = "Downloading"
+
+        // Downloads run one at a time (the file lane), so before this process's first one no part file is
+        // being written: anything there was left by a process that died mid-download
+        internal val partsSwept = AtomicBoolean(false)
+
+        /** `application/` types that are text, never audio: a server's error or login page */
+        private val TEXT_APPLICATION_SUBTYPES = setOf("json", "xml", "xhtml+xml")
+
+        /** iOS's tolerance: a file may play this much shorter than the stored duration */
+        internal fun durationTolerance(expected: Double): Double = maxOf(2.0, expected * 0.02)
+
+        private fun readDurationSeconds(file: File): Double? {
+            val retriever = android.media.MediaMetadataRetriever()
+            return try {
+                retriever.setDataSource(file.absolutePath)
+                retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull()?.div(1000.0)
+            } catch (e: Exception) {
+                null
+            } finally {
+                runCatching { retriever.release() }
+            }
+        }
     }
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
@@ -557,14 +381,15 @@ class DownloadFileProcessor(
 
         val relativePath = payload["relativePath"] as? String
         val taskId = task.taskID
+        val book = AppDatabase.getDatabase(context).libraryDao().getItemById(taskId)
+        val title = book?.title ?: (payload["title"] as? String).orEmpty()
 
         // Container tasks are unrunnable by definition (a BOUND/FOLDER has no backing file — its stored
         // remoteURL 404s), so drop them as done instead of blocking the serial file queue with infinite
         // retries. Legacy taps used to enqueue the container itself; downloads go through
         // [OfflineDownloadManager], which fans a container out into its BOOK files.
-        val itemType = AppDatabase.getDatabase(context).libraryDao().getItemById(taskId)?.type
-        if (itemType != null && itemType != ItemType.BOOK) {
-            Log.w("DownloadFileProcessor", "🧹 Dropping container download task ($itemType): $relativePath")
+        if (book != null && book.type != ItemType.BOOK) {
+            Log.w("DownloadFileProcessor", "🧹 Dropping container download task (${book.type}): $relativePath")
             return true
         }
 
@@ -579,31 +404,39 @@ class DownloadFileProcessor(
             LEGACY_ABS_ITEM_DOWNLOAD.containsMatchIn(payloadUrl)
         var remoteURL = payloadUrl.takeUnless { isLegacyAbsItemUrl }.orEmpty()
         if (remoteURL.isEmpty() && owner != null) {
-            val lookup = lookUpFile(taskId)
-            if (lookup != null && taskId in lookup.noFile) return dropWithoutFile(relativePath)
-            remoteURL = lookup?.urls?.get(taskId).orEmpty()
+            val lookup = lookUpFile(taskId) ?: return false
+            if (taskId in lookup.noFile) return failedForGood(taskId, title, "the server has no file for it")
+            // A server that didn't answer is a connection problem: the next run asks again. One that answered
+            // with an error, rejected the token or isn't saved on this device drops it, as the download would.
+            if (taskId in lookup.unreachable) return false
+            remoteURL = lookup.urls[taskId] ?: return if (lookup.sessionExpired) {
+                failedForGood(taskId, title, "its server rejected the token", expiredServer = serverName(owner))
+            } else {
+                failedForGood(taskId, title, "its server answered with an error or isn't saved")
+            }
         }
 
         if (remoteURL.isEmpty() || relativePath.isNullOrEmpty()) {
-            Log.e("DownloadFileProcessor", "❌ Missing remoteURL or relativePath")
-            return false
+            return failedForGood(taskId, title, "it has no URL or path to download to")
         }
 
-        val processedDir = File(context.filesDir, "Processed")
-        if (!processedDir.exists()) processedDir.mkdirs()
-        val destFile = File(processedDir, relativePath)
-
-        // Ensure parent directories exist
-        destFile.parentFile?.mkdirs()
+        val destFile = OfflineDownloadManager.processedFile(context, relativePath)
+        val partsDir = File(context.filesDir, PARTS_DIR)
+        sweepPartsOnce()
+        var partFile: File? = null
+        var moved = false
 
         return try {
+            partsDir.mkdirs()
+            // A name of its own per run: a cancelled run's read can still be writing its part when the next starts
+            val part = File.createTempFile("${task.id}-", ".part", partsDir).also { partFile = it }
             var httpResponse = execute(owner, remoteURL)
             if (httpResponse.code == 404 && owner != null) {
                 // The file moved on the server since the URL was looked up: one fresh lookup, one retry. Closed
                 // first, so a lookup that throws can't leak it; a closed response still reports its 404 below.
                 httpResponse.close()
                 val lookup = lookUpFile(taskId)
-                if (lookup != null && taskId in lookup.noFile) return dropWithoutFile(relativePath)
+                if (lookup != null && taskId in lookup.noFile) return failedForGood(taskId, title, "the server has no file for it")
                 val fresh = lookup?.urls?.get(taskId)
                 if (fresh != null && fresh != remoteURL) {
                     remoteURL = fresh
@@ -614,8 +447,15 @@ class DownloadFileProcessor(
             // otherwise leak the connection on each retry.
             httpResponse.use { response ->
                 if (!response.isSuccessful) {
-                    Log.e("DownloadFileProcessor", "❌ Download failed: ${response.code}")
-                    return false
+                    // Every error answer drops the download for good, temporary ones (429, 5xx) included: a
+                    // decision, as on iOS (BPTaskDownloadDelegate fails any status from 400 up). A retry would hold
+                    // up the serial file lane behind it; the alert says so, and tapping download asks afresh.
+                    // A 401 from the media server itself is its sign-in, not the file (ABS answers 403 for an
+                    // item this user can't open)
+                    val signedOutOf = owner?.takeIf {
+                        response.code == 401 && ExternalServiceUtils.sameOrigin(response.request.url, remoteURL.toHttpUrlOrNull())
+                    }
+                    return failedForGood(taskId, title, "HTTP ${response.code}", expiredServer = signedOutOf?.let { serverName(it) })
                 }
 
                 val body = response.body ?: return false
@@ -631,10 +471,12 @@ class DownloadFileProcessor(
                 var cancelled = false
 
                 body.byteStream().use { input: java.io.InputStream ->
-                    FileOutputStream(destFile).use { output: FileOutputStream ->
+                    FileOutputStream(part).use { output: FileOutputStream ->
                         val buffer = ByteArray(8 * 1024)
                         var read: Int
                         while (input.read(buffer).also { read = it } != -1) {
+                            // The host stopping cancels the worker: stop writing now, not at the end of the file
+                            currentCoroutineContext().ensureActive()
                             // Cooperative cancellation: abort mid-stream if the user cancelled this download.
                             if (SyncStatusManager.isCancelRequested(taskId)) {
                                 cancelled = true
@@ -654,27 +496,132 @@ class DownloadFileProcessor(
                 SyncStatusManager.clearTaskProgress(taskId)
                 if (cancelled) {
                     Log.d("DownloadFileProcessor", "🚫 Download cancelled: $relativePath")
-                    if (destFile.exists()) destFile.delete()
                     // Leave the cancel flag SET on purpose: TaskConcurrencyManager reads it on this false
                     // return to make the task terminal (delete, no retry) and then clears it. Clearing here
                     // would let the failure path re-queue the task and silently re-download it to completion.
                     return false
                 }
+                // Fewer bytes than announced (more is fine, as on iOS; an unknown length can't be checked)
+                if (contentLength > 0 && bytesRead < contentLength) {
+                    return failedForGood(taskId, title, "it ended at $bytesRead of $contentLength bytes")
+                }
+                // Text in its place (a proxy's login or error page) is never the book, whatever is stored for it:
+                // kept, a streamed book's would even go up to the cloud as its file
+                val type = body.contentType()
+                if (type != null && (type.type == "text" || (type.type == "application" && type.subtype in TEXT_APPLICATION_SUBTYPES))) {
+                    return failedForGood(taskId, title, "the server answered with $type instead of audio")
+                }
+                // Every announced byte arrived: a length Android's reader can't measure (a format it doesn't
+                // know, though the player does) isn't a sign of a cut file
+                failedCheck(part, book?.duration, trustUnreadable = contentLength > 0)?.let { reason -> return failedForGood(taskId, title, reason) }
+
+                destFile.parentFile?.mkdirs()
+                destFile.delete()
+                if (!part.renameTo(destFile)) throw java.io.IOException("Couldn't move the download into place")
+                moved = true
                 SyncStatusManager.clearCancel(taskId)
                 Log.d("DownloadFileProcessor", "✅ Download complete: $relativePath")
+                // The file is in place: a stopped worker mustn't leave it downloaded but never queued to upload
+                owner?.let { withContext(NonCancellable) { queueUploadAfterDownload(taskId, it) } }
                 true
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // A stopped worker leaves the task RUNNING for resetRunningTasks
+            SyncStatusManager.clearTaskProgress(taskId)
+            throw e
         } catch (e: Exception) {
             StorageMonitor.reportFailure(context, e) // ENOSPC mid-write: the storage state holds further downloads
             Log.e("DownloadFileProcessor", "💥 Exception during download: ${e.message}", e)
-            if (destFile.exists()) destFile.delete()
             SyncStatusManager.clearTaskProgress(taskId)
             // Deliberately don't clear the cancel flag here: if a cancel raced this exception, leaving it
             // set lets TaskConcurrencyManager treat the task as terminal (no retry) instead of re-queuing
             // and re-downloading. With no cancel pending the flag isn't set anyway (startDownload clears
             // any stale one before enqueuing), so nothing leaks.
             false
+        } finally {
+            // Every way out but the move leaves a part no later run can use
+            if (!moved) partFile?.delete()
         }
+    }
+
+    /**
+     * Why the downloaded [file] doesn't hold the book, or null when it does: it must play at least the stored
+     * [expected] duration less [durationTolerance] (a longer file is fine). Without a stored duration there's
+     * nothing to check against. A file whose length can't be read when there is one is rejected, as on iOS,
+     * unless [trustUnreadable]: Android's reader knows fewer formats than its player.
+     */
+    private fun failedCheck(file: File, expected: Double?, trustUnreadable: Boolean): String? {
+        if (expected == null || expected <= 0) return null
+        val actual = durationOf(file) ?: return if (trustUnreadable) {
+            Log.w("DownloadFileProcessor", "Kept ${file.name} with every announced byte, though its length can't be read")
+            null
+        } else {
+            "its duration can't be read"
+        }
+        if (actual.isNaN() || actual.isInfinite()) return null
+        // A length that's read and short fails even with every announced byte, as on iOS: a decision. A misread
+        // (a VBR MP3 without a Xing header, against a length from the media server or iOS) repeats on every
+        // attempt; rejections are logged on the device only, as on iOS.
+        if (expected - actual > durationTolerance(expected)) return "it plays ${actual}s of ${expected}s"
+        return null
+    }
+
+    /**
+     * Ends the task without retrying: every retry would hold up the serial file queue behind it, and tapping
+     * download again asks afresh. The app says so once.
+     */
+    private fun failedForGood(uuid: String, title: String, why: String, expiredServer: String? = null): Boolean {
+        Log.w("DownloadFileProcessor", "🧹 Dropping download $uuid: $why")
+        SyncStatusManager.clearTaskProgress(uuid)
+        SyncStatusManager.clearCancel(uuid)
+        onFailedForGood(SyncStatusManager.DownloadFailure(uuid, title, expiredServer))
+        return true
+    }
+
+    /**
+     * The saved server's name, for the message to sign in to it again: its address when it has no name (a
+     * Jellyfin probe can store a blank one). Null if it can't be read, which leaves the plain message.
+     */
+    private suspend fun serverName(owner: MediaServerStreams.Owner): String? = try {
+        ExternalServiceUtils.serverForResource(serverRepository, owner.resource)
+            ?.let { server -> server.name.ifBlank { ServerAddress.parse(server.url)?.host ?: server.url } }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w("DownloadFileProcessor", "Couldn't read the server to name it", e)
+        null
+    }
+
+    /**
+     * A streamed book's file goes to the cloud once it's downloaded (iOS `finalizeDownloadedFile`): its
+     * registration never asked for it, and the media server held it meanwhile. Queued from the sync lane,
+     * after the tasks ahead of it there, by a task that checks the tier and the file. Never fails the
+     * download, which is already in place: a book whose upload couldn't be queued still streams.
+     */
+    private suspend fun queueUploadAfterDownload(uuid: String, owner: MediaServerStreams.Owner) {
+        val syncTasks = syncTasks ?: return
+        // The server marks the link "downloaded" once the book's file has reached the cloud. Offloading turns it
+        // back to "stream" on this device, so downloading it again queues the upload again: its start finds the
+        // file in S3 and answers "exists" (MultipartUploadService.startUpload), one call and no bytes.
+        if (owner.resource.syncStatus != ExternalResourceEntity.STATUS_STREAM) return
+        try {
+            val dao = AppDatabase.getDatabase(context).libraryDao()
+            val book = dao.getItemById(uuid) ?: return
+            // Like iOS, on the book's own link; a volume's link stands for the whole item
+            if (owner.item.uuid == uuid) dao.markExternalResourceFileProcessed(owner.resource.id)
+            if (syncTasks.hasQueuedTask(SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD, uuid) ||
+                syncTasks.hasQueuedTask(SyncTaskFactory.JOB_UPLOAD_FILE, uuid)
+            ) return
+            SyncTaskFactory.createQueueFileUploadTask(syncTasks, book)
+        } catch (e: Exception) {
+            StorageMonitor.reportFailure(context, e)
+            Log.e("DownloadFileProcessor", "Couldn't queue the upload of downloaded $uuid", e)
+        }
+    }
+
+    private fun sweepPartsOnce() {
+        if (!partsSwept.compareAndSet(false, true)) return
+        File(context.filesDir, PARTS_DIR).listFiles()?.forEach { it.delete() }
     }
 
     /**
@@ -691,26 +638,14 @@ class DownloadFileProcessor(
         return client.newCall(okhttp3.Request.Builder().url(url).build()).execute()
     }
 
-    private suspend fun mediaServerOwner(uuid: String): MediaServerStreams.Owner? {
-        val dao = AppDatabase.getDatabase(context).libraryDao()
-        val row = dao.getItemByIdWithResources(uuid) ?: return null
-        return MediaServerStreams.owner(row.item.also { it.externalResources = row.externalResources }, dao)
-    }
+    private suspend fun mediaServerOwner(uuid: String): MediaServerStreams.Owner? =
+        MediaServerStreams.ownerOf(uuid, AppDatabase.getDatabase(context).libraryDao())
 
     private suspend fun lookUpFile(uuid: String): MediaServerStreams.Lookup? {
         val dao = AppDatabase.getDatabase(context).libraryDao()
         val row = dao.getItemByIdWithResources(uuid) ?: return null
         val item = row.item.also { it.externalResources = row.externalResources }
         return MediaServerStreams.lookUp(listOf(item), dao, serverRepository, timeoutMs = LOOKUP_TIMEOUT_MS)
-    }
-
-    /**
-     * Done, not retried: the server answered and has no file for this book, and every retry would hold up the
-     * serial file queue behind it. Unreachable servers and rejected tokens stay retryable.
-     */
-    private fun dropWithoutFile(relativePath: String?): Boolean {
-        Log.w("DownloadFileProcessor", "🧹 The server has no file for $relativePath — dropping download task")
-        return true
     }
 
     override fun canHandle(jobType: String): Boolean {
@@ -1053,27 +988,6 @@ class DeleteExternalResourceProcessor : TaskProcessor {
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_DELETE_EXTERNAL_RESOURCE
-    }
-}
-
-class SetExternalResourceToDownloadProcessor : TaskProcessor {
-    private val gson = Gson()
-
-    override suspend fun process(task: SyncTaskEntity): Boolean {
-        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
-        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
-
-        val response = NetworkClient.libraryApi.setExternalResourceToDownload(payload)
-        if (!response.isSuccessful) {
-            val errBody = response.throwIfCoded()?.rawBody
-            Log.e("SetExternalResourceToDownloadProcessor", "🛑 Server returned error code ${response.code()}: $errBody")
-            return false
-        }
-        return true
-    }
-
-    override fun canHandle(jobType: String): Boolean {
-        return jobType == SyncTaskFactory.JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD
     }
 }
 

@@ -17,9 +17,6 @@ object SyncTaskFactory {
     // User preferences (library sort rules) sync on their own serial queue, independent of item sync
     // and file transfers, so a pref push/pull never waits behind (or blocks) library operations.
     const val QUEUE_PREFERENCES = "preferences"
-    // Stream-to-cloud pipes get their own queue: the transfer depends on a third-party media server
-    // being reachable, so it must never wedge the serial "file" queue that downloads/uploads share.
-    const val QUEUE_PIPE = "pipe"
 
     /**
      * Book file uploads, a lane of their own (iOS `uploadFile`): an hour-long upload never holds up the
@@ -45,13 +42,16 @@ object SyncTaskFactory {
     const val JOB_MATCH_UUIDS = "match_uuids"
     const val JOB_HARDCOVER_AUTO_MATCH = "hardcover_auto_match"
     const val JOB_HARDCOVER_UPDATE_STATUS = "hardcover_update_status"
-    const val JOB_UPLOAD_STREAM_FILE = "upload_stream_file"
     const val JOB_UPLOAD_EXTERNAL_RESOURCE = "upload_external_resource"
     const val JOB_DELETE_EXTERNAL_RESOURCE = "delete_external_resource"
-    const val JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD = "set_external_resource_to_download"
     const val JOB_EXTERNAL_UPDATE = "external_update"
     const val JOB_UPLOAD_PREFERENCE = "upload_preference"
     const val JOB_FETCH_PREFERENCES = "fetch_preferences"
+
+    // Retired with 1.2's stream-to-cloud pipe: the engine converts or drops what an older build queued
+    // (TaskConcurrencyManager.startProcessing)
+    const val RETIRED_JOB_UPLOAD_STREAM_FILE = "upload_stream_file"
+    const val RETIRED_JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD = "set_external_resource_to_download"
 
     suspend fun createSyncIdentifiersTask(repository: SyncTaskRepository): Boolean {
         if (!SyncStatusManager.checkAndMarkSyncIdentifiers()) return false
@@ -255,8 +255,8 @@ object SyncTaskFactory {
 
     /**
      * Queues the book's file upload from the sync lane, after the tasks ahead of it there (iOS
-     * `externalResourceToDownload`): for a media-server book, whose registration never asks for its file,
-     * once it's registered again. No server call of its own.
+     * `externalResourceToDownload`): for a streamed media-server book, whose registration never asks for its
+     * file, once it's downloaded ([DownloadFileProcessor]) or registered again. No server call of its own.
      */
     suspend fun createQueueFileUploadTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
         val payload = mapOf(
@@ -265,23 +265,6 @@ object SyncTaskFactory {
             "relativePath" to item.relativePath,
         )
         enqueue(repository, QUEUE_SYNC, JOB_QUEUE_FILE_UPLOAD, item.uuid, payload)
-    }
-
-    /**
-     * PRO follow-up to a stream import: pipe the item's source file from its media server into
-     * BookPlayer cloud ([StreamFileUploadProcessor]). No presigned URL in the payload on purpose —
-     * the processor fetches a fresh one per attempt (`external_set`), because a frozen URL expires
-     * and would make every retry fail.
-     */
-    suspend fun createUploadStreamFileTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
-        if (repository.getPendingTaskByTypeAndTaskId(JOB_UPLOAD_STREAM_FILE, item.uuid) != null) return
-
-        val payload = mapOf(
-            "uuid" to item.uuid,
-            "title" to item.title,
-            "relativePath" to item.relativePath
-        )
-        enqueue(repository, QUEUE_PIPE, JOB_UPLOAD_STREAM_FILE, item.uuid, payload)
     }
 
     suspend fun createDownloadFileTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
@@ -359,21 +342,6 @@ object SyncTaskFactory {
             "hostId" to externalResource.hostId
         )
         enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_EXTERNAL_RESOURCE, taskId, payload)
-    }
-
-    suspend fun createSetExternalResourceToDownloadTask(
-        repository: SyncTaskRepository,
-        uuid: String,
-        uploaded: Boolean
-    ) {
-        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD, uuid)
-        if (existing != null) return
-
-        val payload = mapOf(
-            "uuid" to uuid,
-            "uploaded" to uploaded
-        )
-        enqueue(repository, QUEUE_SYNC, JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD, uuid, payload)
     }
 
     suspend fun createExternalUpdateTask(

@@ -55,6 +55,7 @@ class MediaServerStreamsTest {
         var rejectToken = false
         var stall = false
         var unreachable = false
+        var answerError: Exception? = null
 
         override suspend fun getStreamFiles(url: String, token: String, itemId: String, headers: Map<String, String>?): List<StreamFile>? {
             if (type == ExternalServiceType.JELLYFIN) return null
@@ -62,6 +63,7 @@ class MediaServerStreamsTest {
             if (stall) awaitCancellation()
             if (unreachable) throw java.net.ConnectException("Failed to connect")
             if (rejectToken) throw SessionExpiredException()
+            answerError?.let { throw it }
             return files[itemId].orEmpty()
         }
 
@@ -265,8 +267,9 @@ class MediaServerStreamsTest {
         // The stalled server is skipped, the other still answers.
         assertEquals(mapOf("j1" to "https://jf.example.com/Items/jf-9/Download"), lookup.urls)
         assertFalse(lookup.sessionExpired)
-        // A lookup that failed says nothing about the file.
+        // A lookup that failed says nothing about the file, and asking later may work.
         assertTrue(lookup.noFile.isEmpty())
+        assertEquals(setOf("b1"), lookup.unreachable)
     }
 
     // A folder of single books is one lookup per book: a server that's down costs one wait, not one per book.
@@ -276,8 +279,11 @@ class MediaServerStreamsTest {
 
         abs.stall = true
         val items = listOf(loaded("b1"), loaded("b2"))
-        assertTrue(MediaServerStreams.lookUp(items, db.libraryDao(), servers, ::serviceFor, timeoutMs = 50).urls.isEmpty())
+        val stalled = MediaServerStreams.lookUp(items, db.libraryDao(), servers, ::serviceFor, timeoutMs = 50)
+        assertTrue(stalled.urls.isEmpty())
         assertEquals(listOf("abs-1"), abs.lookups)
+        // The book never asked for is as unreachable as the one that was.
+        assertEquals(setOf("b1", "b2"), stalled.unreachable)
 
         abs.stall = false
         abs.unreachable = true
@@ -285,7 +291,24 @@ class MediaServerStreamsTest {
         val lookup = lookUp("b1", "b2")
         assertTrue(lookup.urls.isEmpty())
         assertTrue(lookup.noFile.isEmpty())
+        assertEquals(setOf("b1", "b2"), lookup.unreachable)
         assertEquals(listOf("abs-1"), abs.lookups)
+    }
+
+    // A server that answered, if with an error (a proxy in front of a home server that's off) or a page that
+    // isn't JSON (its login page: an IOException from the converter), was reached.
+    @Test fun `a server that answers with an error isn't unreachable`() = runBlocking {
+        insert(LibraryItemEntity(uuid = "b1", title = "Charlie", relativePath = "Charlie.m4b", type = ItemType.BOOK), "audiobookshelf", "abs-1", absHost)
+        for (error in listOf(Exception("Audiobookshelf API error fetching item: 502"), com.google.gson.stream.MalformedJsonException("<html>"))) {
+            abs.answerError = error
+
+            val lookup = lookUp("b1")
+
+            assertTrue(lookup.urls.isEmpty())
+            assertTrue(lookup.noFile.isEmpty())
+            assertTrue("$error", lookup.unreachable.isEmpty())
+            assertFalse(lookup.sessionExpired)
+        }
     }
 
     @Test fun `a rejected token is reported as an expired session`() = runBlocking {
@@ -298,7 +321,37 @@ class MediaServerStreamsTest {
         assertTrue(lookup.sessionExpired)
         assertTrue(lookup.urls.isEmpty())
         assertTrue(lookup.noFile.isEmpty())
+        assertTrue(lookup.unreachable.isEmpty())
         // The token is the server's, not the item's: the second book isn't asked for.
         assertEquals(listOf("abs-1"), abs.lookups)
+    }
+
+    /**
+     * A streamed book (its own link or its volume's, streaming or downloaded since) uploads only after a
+     * download; a book downloaded from the media-server browser keeps a `synced` link and is a plain book
+     */
+    @Test fun isStreamed_coversStreamedBooksAndVolumeChildren_notBrowserDownloads() = runBlocking {
+        val dao = db.libraryDao()
+        suspend fun book(uuid: String, path: String, status: String?, provider: String = "jellyfin", type: ItemType = ItemType.BOOK) {
+            dao.insertItem(LibraryItemEntity(uuid = uuid, title = uuid, relativePath = path, type = type))
+            if (status != null) {
+                dao.insertExternalResource(ExternalResourceEntity(providerName = provider, providerId = "p-$uuid", syncStatus = status, libraryItemUuid = uuid))
+            }
+        }
+        book("streaming", "Streaming.m4b", ExternalResourceEntity.STATUS_STREAM)
+        book("downloaded", "Downloaded.m4b", ExternalResourceEntity.STATUS_DOWNLOADED, provider = "audiobookshelf")
+        book("import", "Import.m4b", ExternalResourceEntity.STATUS_SYNCED)
+        book("hardcover", "Hardcover.m4b", ExternalResourceEntity.STATUS_STREAM, provider = "hardcover")
+        book("plain", "Plain.m4b", null)
+        book("volume", "Volume", ExternalResourceEntity.STATUS_STREAM, provider = "audiobookshelf", type = ItemType.BOUND)
+        book("child", "Volume/Disc 1 - 01.mp3", null)
+
+        assertTrue(MediaServerStreams.isStreamed("streaming", dao))
+        assertTrue(MediaServerStreams.isStreamed("downloaded", dao))
+        assertTrue("a volume's book streams through its volume", MediaServerStreams.isStreamed("child", dao))
+        assertFalse("a browser download is a plain local book", MediaServerStreams.isStreamed("import", dao))
+        assertFalse(MediaServerStreams.isStreamed("hardcover", dao))
+        assertFalse(MediaServerStreams.isStreamed("plain", dao))
+        assertFalse(MediaServerStreams.isStreamed("missing", dao))
     }
 }

@@ -19,7 +19,6 @@ class SyncFailurePolicyTest {
             SyncTaskFactory.JOB_DELETE, SyncTaskFactory.JOB_DELETE_SHALLOW, SyncTaskFactory.JOB_SET_BOOKMARK,
             SyncTaskFactory.JOB_DELETE_BOOKMARK, SyncTaskFactory.JOB_MATCH_UUIDS,
             SyncTaskFactory.JOB_UPLOAD_EXTERNAL_RESOURCE, SyncTaskFactory.JOB_DELETE_EXTERNAL_RESOURCE,
-            SyncTaskFactory.JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD,
         ).forEach {
             assertEquals(it, SyncFailureAction.Park(TaskPauseScope.LANE), SyncFailurePolicy.action(coded("item_not_found"), it, parkingEnabled = true))
         }
@@ -31,7 +30,7 @@ class SyncFailurePolicyTest {
             SyncTaskFactory.JOB_UPDATE, SyncTaskFactory.JOB_UPLOAD_ARTWORK, SyncTaskFactory.JOB_UPLOAD_FILE,
             SyncTaskFactory.JOB_DOWNLOAD_FILE, SyncTaskFactory.JOB_SYNC_IDENTIFIERS,
             SyncTaskFactory.JOB_UPLOAD_PREFERENCE,
-            SyncTaskFactory.JOB_UPLOAD_STREAM_FILE, "some_future_job",
+            SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD, "some_future_job",
         ).forEach {
             assertEquals(it, SyncFailureAction.Park(TaskPauseScope.TASK), SyncFailurePolicy.action(coded("invalid_request"), it, parkingEnabled = true))
         }

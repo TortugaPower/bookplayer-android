@@ -204,6 +204,10 @@ interface LibraryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity)
 
+    /** Records that the link's file is on this device, touching nothing else on the row */
+    @Query("UPDATE external_resources SET processedFile = 1 WHERE id = :id")
+    suspend fun markExternalResourceFileProcessed(id: Long)
+
     /**
      * Insert a library item together with its external resource atomically — a failure in the second
      * insert must not leave an orphaned item without its backing resource (a stream item without its

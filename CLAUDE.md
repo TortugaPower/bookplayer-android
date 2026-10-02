@@ -205,14 +205,20 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     payload, a sub-book's saved `remoteURL`) can go stale, so a download whose ABS URL 404s is looked up
     once more in the same run. A download whose server answered without a file for it (the item is gone,
     or several files imported as one book) is dropped, not retried: the file queue is serial, and a lookup
-    reports that apart from a failed one (`MediaServerStreams.Lookup.noFile`). Don't resolve URLs speculatively: each ABS lookup is a request. A lookup
+    reports that apart from a failed one (`MediaServerStreams.Lookup.noFile`). Only a server that didn't answer
+    (`Lookup.unreachable`) leaves a download to retry; one that answered with an error, rejected the token or
+    isn't saved drops it, as the download's own error answer would. Don't resolve URLs speculatively: each ABS lookup is a request. A lookup
     gives up after 5 s (`MediaServerStreams.LOOKUP_TIMEOUT_MS`), so an unreachable home server falls
     through to the cloud copy instead of waiting out the HTTP timeouts; a background download's lookup
     (`DownloadFileProcessor`) waits 30 s, since nobody is waiting on it. A server that times out, can't be
     reached or rejects the token is skipped for the rest of that lookup, so a folder of single books
-    waits once, not once per book. ABS has nothing for the PRO
-    stream-to-cloud pipe to copy, so `StreamFileUploadProcessor` drops an ABS task unless the book was
-    downloaded meanwhile.
+    waits once, not once per book.
+  - **A streamed book's file reaches the cloud only through a download** (iOS parity). Its registration
+    never asks for the file (`MediaServerStreams.isStreamed`: its own link, or its streamed volume's), and
+    once `DownloadFileProcessor` has verified and moved the file into place, the phone queues the upload
+    from the sync lane (`queue_file_upload`, which checks PRO and the file). The watch uploads nothing.
+    1.2's stream-to-cloud pipe (`upload_stream_file`, server route `external_set`) is gone: the engine
+    turns queued pipe tasks into that step at start and drops their confirmations.
 
 ## Git
 

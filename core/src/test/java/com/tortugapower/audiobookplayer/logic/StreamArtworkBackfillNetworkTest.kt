@@ -49,7 +49,7 @@ class StreamArtworkBackfillNetworkTest {
         File(context.filesDir, "Artworks").deleteRecursively()
     }
 
-    // Reversible stand-in for the Keystore cipher (same pattern as StreamFileUploadProcessorTest) — the
+    // Reversible stand-in for the Keystore cipher — the
     // stored row is ciphertext, and the cover request must authenticate with the DECRYPTED token.
     private val fakeCipher = object : TokenCipher {
         override fun encrypt(plaintext: String) = "ENC($plaintext)"

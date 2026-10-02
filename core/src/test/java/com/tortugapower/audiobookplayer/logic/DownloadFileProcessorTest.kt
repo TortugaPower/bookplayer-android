@@ -10,7 +10,9 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
+import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.TokenCipher
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -57,6 +59,7 @@ class DownloadFileProcessorTest {
         mediaServer.shutdown()
         cloud.shutdown()
         StorageMonitor.availableBytesProvider = { ctx -> android.os.StatFs(ctx.filesDir.path).availableBytes }
+        StorageMonitor.resetForTest()
         OfflineDownloadManager.processedFile(context, relativePath).delete()
         OfflineDownloadManager.processedFile(context, childPath).delete()
     }
@@ -80,7 +83,7 @@ class DownloadFileProcessorTest {
         payload = """{"uuid":"$uuid","title":"Book One","relativePath":"$relativePath","remoteURL":"$remoteURL"}""",
     )
 
-    // Reversible stand-in for the Keystore cipher (same pattern as StreamFileUploadProcessorTest) — the
+    // Reversible stand-in for the Keystore cipher — the
     // stored row is ciphertext, and the download must authenticate with the DECRYPTED token.
     private val fakeCipher = object : TokenCipher {
         override fun encrypt(plaintext: String) = "ENC($plaintext)"
@@ -106,7 +109,18 @@ class DownloadFileProcessorTest {
         )
     }
 
-    private fun processor() = DownloadFileProcessor(context, serverRepository())
+    private val syncTasks by lazy { RoomSyncTaskRepository(AppDatabase.getDatabase(context).syncTaskDao()) }
+
+    private fun processor(
+        durationOf: (File) -> Double? = { null },
+        failures: MutableList<String> = mutableListOf(),
+        queuesUploads: Boolean = false,
+        expiredServers: MutableList<String?> = mutableListOf(),
+    ) = DownloadFileProcessor(
+        context, serverRepository(), durationOf = durationOf,
+        onFailedForGood = { failures += it.title; expiredServers += it.expiredServer },
+        syncTasks = syncTasks.takeIf { queuesUploads },
+    )
 
     @Test fun `container download task is dropped as done, not retried`() = runBlocking {
         AppDatabase.getDatabase(context).libraryDao()
@@ -134,17 +148,72 @@ class DownloadFileProcessorTest {
         assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, relativePath).readText())
     }
 
-    // An expired token is now an ordinary failure: retryable (false), nothing written, and the response is
-    // closed (the processor reads it inside `use`) so repeated retries don't leak connections.
-    @Test fun `rejected media-server download is retryable and writes nothing`() = runBlocking {
+    /** A rejected token is an HTTP error answer: dropped, and the message names the server to sign in to again */
+    @Test fun `a rejected media-server download is dropped with a message and writes nothing`() = runBlocking {
         insertJellyfinBook()
         mediaServer.enqueue(MockResponse().setResponseCode(401).setBody("expired"))
+        val failures = mutableListOf<String>()
+        val expiredServers = mutableListOf<String?>()
 
-        val handled = processor().process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString()))
+        val handled = processor(failures = failures, expiredServers = expiredServers)
+            .process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString()))
 
-        assertFalse(handled)
+        assertTrue(handled)
+        assertEquals(listOf("Book One"), failures)
+        assertEquals(listOf("jf"), expiredServers)
         assertEquals(1, mediaServer.requestCount)
         assertFalse(OfflineDownloadManager.processedFile(context, relativePath).exists())
+    }
+
+    /** A server saved without a name (a Jellyfin probe can store a blank one) is named by its address */
+    @Test fun `a server with no name is named by its address`() = runBlocking {
+        insertJellyfinBook()
+        serverRepository().saveServer(
+            ExternalServerEntity(
+                id = 1, name = "", type = ExternalServiceType.JELLYFIN, url = mediaServer.url("/").toString(),
+                token = "tok", stableId = "srv-guid",
+            ),
+        )
+        mediaServer.enqueue(MockResponse().setResponseCode(401))
+        val expiredServers = mutableListOf<String?>()
+
+        assertTrue(processor(expiredServers = expiredServers).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertEquals(listOf<String?>(mediaServer.hostName), expiredServers)
+    }
+
+    /** ABS answers 403 for an item this user can't open: that's not the sign-in */
+    @Test fun `a media server's 403 is an ordinary drop`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setResponseCode(403))
+        val expiredServers = mutableListOf<String?>()
+
+        assertTrue(processor(expiredServers = expiredServers).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertEquals(listOf<String?>(null), expiredServers)
+    }
+
+    /** A 401 from wherever a redirect led isn't the media server's sign-in */
+    @Test fun `a 401 after a redirect off the media server is an ordinary drop`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setResponseCode(302).setHeader("Location", cloud.url("/elsewhere/book.m4b")))
+        cloud.enqueue(MockResponse().setResponseCode(401))
+        val expiredServers = mutableListOf<String?>()
+
+        assertTrue(processor(expiredServers = expiredServers).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertEquals(listOf<String?>(null), expiredServers)
+    }
+
+    /** A lookup the server refused with 401 names it too */
+    @Test fun `a lookup whose token is rejected names the server`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setResponseCode(401))
+        val expiredServers = mutableListOf<String?>()
+
+        assertTrue(processor(expiredServers = expiredServers).process(childDownloadTask("")))
+
+        assertEquals(listOf("abs"), expiredServers)
     }
 
     // OkHttp drops Authorization on a cross-host redirect but keeps custom headers, which are often
@@ -241,13 +310,13 @@ class DownloadFileProcessorTest {
         assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, childPath).readText())
     }
 
-    // The 404 is closed before the lookup: when the lookup fails, the 404 still decides the retry.
-    @Test fun `a 404 whose lookup fails is retryable and writes nothing`() = runBlocking {
+    /** The 404 stands when the lookup can't say where the file went (it's closed first): an HTTP error answer, dropped */
+    @Test fun `a 404 whose lookup fails is dropped and writes nothing`() = runBlocking {
         insertStreamedVolume()
         mediaServer.enqueue(MockResponse().setResponseCode(404))
-        mediaServer.enqueue(MockResponse().setResponseCode(500))      // the lookup fails: try again later
+        mediaServer.enqueue(MockResponse().setResponseCode(500))      // the lookup fails
 
-        assertFalse(processor().process(childDownloadTask(mediaServer.url("/api/items/abs-1/file/111").toString())))
+        assertTrue(processor().process(childDownloadTask(mediaServer.url("/api/items/abs-1/file/111").toString())))
 
         assertEquals(2, mediaServer.requestCount)
         assertFalse(OfflineDownloadManager.processedFile(context, childPath).exists())
@@ -340,5 +409,296 @@ class DownloadFileProcessorTest {
         assertTrue(handled)
         assertEquals("/api/items/abs-1?expanded=1", mediaServer.takeRequest().path)
         assertEquals("/api/items/abs-1/file/222", mediaServer.takeRequest().path)
+    }
+
+    /** A server that doesn't answer is a connection problem: the next run asks again */
+    @Test fun `a lookup the server doesn't answer retries`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AT_START))
+        val failures = mutableListOf<String>()
+
+        assertFalse(processor(failures = failures).process(childDownloadTask("")))
+
+        assertTrue("not a failure for good", failures.isEmpty())
+        assertFalse(OfflineDownloadManager.processedFile(context, childPath).exists())
+    }
+
+    /** A server that answers the lookup with an error is dropped, as its download's own error answer would be */
+    @Test fun `a lookup the server answers with an error is dropped with a message`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setResponseCode(502))
+        val failures = mutableListOf<String>()
+
+        val expiredServers = mutableListOf<String?>()
+        assertTrue(processor(failures = failures, expiredServers = expiredServers).process(childDownloadTask("")))
+
+        assertEquals(listOf("01"), failures)
+        assertEquals(listOf<String?>(null), expiredServers)
+        assertEquals(1, mediaServer.requestCount)
+    }
+
+    /** A proxy's login page in front of the server answered too: dropped, as iOS drops the page it downloads */
+    @Test fun `a lookup answered with a page that isn't JSON is dropped with a message`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setBody("<html>sign in</html>"))
+        val failures = mutableListOf<String>()
+
+        assertTrue(processor(failures = failures).process(childDownloadTask("")))
+
+        assertEquals(listOf("01"), failures)
+        assertEquals(1, mediaServer.requestCount)
+    }
+
+    /** Every way out but the move clears its part, the early returns included */
+    @Test fun `a download held for storage leaves no part file`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setBody("audio-bytes"))
+        StorageMonitor.availableBytesProvider = { 0L }
+
+        assertFalse(processor().process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertTrue(partsDir().listFiles().isNullOrEmpty())
+    }
+
+    // ---- Verification (iOS BPTaskDownloadDelegate + SyncService.verifyDownloadedFile) ----
+
+    private suspend fun insertCloudBook(duration: Double) {
+        AppDatabase.getDatabase(context).libraryDao().insertItem(
+            LibraryItemEntity(uuid = uuid, title = "Book One", relativePath = relativePath, type = ItemType.BOOK, duration = duration)
+        )
+    }
+
+    private fun partsDir() = File(context.filesDir, DownloadFileProcessor.PARTS_DIR)
+
+    @Test fun `a verified download is moved into place, leaving no part file`() = runBlocking {
+        insertCloudBook(duration = 600.0)
+        cloud.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor(durationOf = { 595.0 }).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, relativePath).readText())
+        assertTrue(partsDir().listFiles().isNullOrEmpty())
+    }
+
+    /** Shorter than the stored duration by more than max(2 s, 2%): dropped with a message, nothing kept */
+    @Test fun `a file that plays short is dropped with a message`() = runBlocking {
+        insertCloudBook(duration = 600.0)
+        cloud.enqueue(MockResponse().setBody("half-the-audio"))
+        val failures = mutableListOf<String>()
+
+        assertTrue(processor(durationOf = { 300.0 }, failures = failures).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertEquals(listOf("Book One"), failures)
+        assertFalse(OfflineDownloadManager.processedFile(context, relativePath).exists())
+        assertTrue(partsDir().listFiles().isNullOrEmpty())
+    }
+
+    @Test fun `the duration check is one-sided and tolerant, and skipped without a stored duration`() = runBlocking {
+        assertEquals(12.0, DownloadFileProcessor.durationTolerance(600.0), 0.0)
+        assertEquals(2.0, DownloadFileProcessor.durationTolerance(30.0), 0.0)
+
+        insertCloudBook(duration = 600.0)
+        cloud.enqueue(MockResponse().setBody("longer"))
+        assertTrue(processor(durationOf = { 900.0 }).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+        assertTrue("a longer file is fine", OfflineDownloadManager.processedFile(context, relativePath).exists())
+    }
+
+    @Test fun `with no stored duration the file isn't read`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setBody("audio"))
+        var read = false
+        assertTrue(processor(durationOf = { read = true; null }).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+        assertFalse(read)
+        assertTrue(OfflineDownloadManager.processedFile(context, relativePath).exists())
+    }
+
+    /** With no announced size there's nothing else to go on: a length that can't be read is rejected, as on iOS */
+    @Test fun `an unreadable file with no announced size is dropped`() = runBlocking {
+        insertCloudBook(duration = 600.0)
+        cloud.enqueue(MockResponse().setChunkedBody("audio-of-some-kind", 4))
+        val failures = mutableListOf<String>()
+
+        assertTrue(processor(durationOf = { null }, failures = failures).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertEquals(1, failures.size)
+        assertFalse(OfflineDownloadManager.processedFile(context, relativePath).exists())
+    }
+
+    /** Android's reader knows fewer formats than its player: every announced byte arrived, so the file is whole */
+    @Test fun `an unreadable file with every announced byte is kept`() = runBlocking {
+        insertCloudBook(duration = 600.0)
+        cloud.enqueue(MockResponse().setBody("opus-audio").setHeader("Content-Type", "audio/ogg"))
+        val failures = mutableListOf<String>()
+
+        assertTrue(processor(durationOf = { null }, failures = failures).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertTrue(failures.isEmpty())
+        assertEquals("opus-audio", OfflineDownloadManager.processedFile(context, relativePath).readText())
+    }
+
+    /** Nothing stored to check against doesn't make a login page the book: kept, a streamed book's would go up */
+    @Test fun `text in place of the file is dropped with no stored duration too`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setBody("<html>sign in</html>").setHeader("Content-Type", "text/html"))
+        val failures = mutableListOf<String>()
+
+        assertTrue(processor(failures = failures, queuesUploads = true).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertEquals(listOf("Book One"), failures)
+        assertFalse(OfflineDownloadManager.processedFile(context, relativePath).exists())
+        assertTrue(queuedUploads().isEmpty())
+    }
+
+    /** A proxy's login or error page comes whole too: it's still not the book */
+    @Test fun `text in place of the file is dropped even at full length`() = runBlocking {
+        insertCloudBook(duration = 600.0)
+        for (type in listOf("text/html; charset=utf-8", "TEXT/PLAIN", "application/json")) {
+            cloud.enqueue(MockResponse().setBody("<html>sign in</html>").setHeader("Content-Type", type))
+            val failures = mutableListOf<String>()
+
+            assertTrue(type, processor(durationOf = { null }, failures = failures).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+            assertEquals(type, 1, failures.size)
+            assertFalse(type, OfflineDownloadManager.processedFile(context, relativePath).exists())
+        }
+    }
+
+    /** Trusting the byte count is only for a length that can't be read: one that's read and short still fails */
+    @Test fun `a short file is dropped even with every announced byte`() = runBlocking {
+        insertCloudBook(duration = 600.0)
+        cloud.enqueue(MockResponse().setBody("half"))
+        val failures = mutableListOf<String>()
+
+        assertTrue(processor(durationOf = { 300.0 }, failures = failures).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertEquals(1, failures.size)
+    }
+
+    @Test fun `an expired cloud link is dropped with a message instead of retried`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setResponseCode(403))
+        val failures = mutableListOf<String>()
+        val expiredServers = mutableListOf<String?>()
+        assertTrue(processor(failures = failures, expiredServers = expiredServers).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+        assertEquals(1, failures.size)
+        assertEquals("an expired presigned link isn't a media-server sign-in", listOf<String?>(null), expiredServers)
+    }
+
+    @Test fun `a dropped connection retries and keeps nothing`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AT_START))
+        val failures = mutableListOf<String>()
+
+        assertFalse(processor(failures = failures).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertTrue("not a failure for good", failures.isEmpty())
+        assertFalse(OfflineDownloadManager.processedFile(context, relativePath).exists())
+        assertTrue(partsDir().listFiles().isNullOrEmpty())
+    }
+
+    /** A process that died mid-download left a part file: the first download of the next process clears it */
+    @Test fun `a part file left by a dead process is swept`() = runBlocking {
+        val stale = File(partsDir().apply { mkdirs() }, "row-gone.part").apply { writeText("partial") }
+        DownloadFileProcessor.partsSwept.set(false)
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setBody("audio"))
+
+        assertTrue(processor().process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertFalse(stale.exists())
+    }
+
+    @Test fun `a book with nowhere to download to is dropped with a message`() = runBlocking {
+        val failures = mutableListOf<String>()
+        val noPath = SyncTaskEntity(
+            id = "row-np", taskID = "np", queueKey = SyncTaskFactory.QUEUE_FILE, jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE,
+            position = 0, payload = """{"uuid":"np","title":"No Path","remoteURL":"${cloud.url("/x")}"}""",
+        )
+        assertTrue(processor(failures = failures).process(noPath))
+        assertEquals(listOf("No Path"), failures)
+    }
+
+    // ---- After a download: a streamed book's file goes to the cloud (iOS finalizeDownloadedFile) ----
+
+    private suspend fun queuedUploads() = syncTasks.getAllTasks().first().filter { it.jobType == SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD }
+
+    private suspend fun linkOf(uuid: String) = AppDatabase.getDatabase(context).libraryDao().getExternalResourcesForBookSync(uuid).single()
+
+    @Test fun `a streamed book's download queues its upload from the sync lane and marks its link`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor(queuesUploads = true).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        val queued = queuedUploads().single()
+        assertEquals(uuid, queued.taskID)
+        assertEquals(SyncTaskFactory.QUEUE_SYNC, queued.queueKey)
+        assertTrue(linkOf(uuid).processedFile)
+        // The link still streams: the server says when the file reached the cloud
+        assertEquals(ExternalResourceEntity.STATUS_STREAM, linkOf(uuid).syncStatus)
+    }
+
+    @Test fun `a volume's book queues its upload and leaves the volume's link alone`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor(queuesUploads = true).process(childDownloadTask(mediaServer.url("/api/items/abs-1/file/222").toString())))
+
+        assertEquals(listOf(childUuid), queuedUploads().map { it.taskID })
+        assertFalse(linkOf("abs-vol").processedFile)
+    }
+
+    /** The watch registers no queue for it: it uploads nothing, as on iOS */
+    @Test fun `the watch queues no upload`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor().process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertTrue(queuedUploads().isEmpty())
+        assertFalse(linkOf(uuid).processedFile)
+    }
+
+    @Test fun `a cloud book's download queues nothing`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor(queuesUploads = true).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertTrue(syncTasks.getAllTasks().first().isEmpty())
+    }
+
+    @Test fun `a download that fails for good queues nothing`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setResponseCode(401))
+
+        assertTrue(processor(queuesUploads = true).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertTrue(queuedUploads().isEmpty())
+        assertFalse(linkOf(uuid).processedFile)
+    }
+
+    /** The server marks the link "downloaded" once the book's file is in the cloud */
+    @Test fun `a book whose file is already in the cloud queues nothing`() = runBlocking {
+        insertJellyfinBook()
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        dao.insertExternalResource(linkOf(uuid).copy(syncStatus = ExternalResourceEntity.STATUS_DOWNLOADED))
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor(queuesUploads = true).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertTrue(queuedUploads().isEmpty())
+    }
+
+    @Test fun `downloading a book again doesn't queue a second upload`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+        val task = bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())
+
+        assertTrue(processor(queuesUploads = true).process(task))
+        assertTrue(processor(queuesUploads = true).process(task))
+
+        assertEquals(1, queuedUploads().size)
     }
 }

@@ -8,8 +8,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Pins the provider whole-item URL shared by Jellyfin playback and the stream-to-cloud pipe's source GET
- * (no token in the URL, exact endpoint shape; none for AudiobookShelf).
+ * Pins the provider whole-item URL shared by Jellyfin playback and downloads (no token in the URL, exact
+ * endpoint shape; none for AudiobookShelf).
  */
 class ExternalStreamUrlTest {
 
@@ -31,7 +31,7 @@ class ExternalStreamUrlTest {
     }
 
     // ABS's item download is a zip for any book in a folder: its books stream per file (MediaServerStreams),
-    // so there's no whole-item URL to hand the player or the stream-to-cloud pipe.
+    // so there's no whole-item URL to hand the player or a download.
     @Test fun `audiobookshelf has no whole-item audio URL`() {
         assertNull(ExternalServiceUtils.downloadUrlFor(server(ExternalServiceType.AUDIOBOOKSHELF), resource("audiobookshelf")))
     }

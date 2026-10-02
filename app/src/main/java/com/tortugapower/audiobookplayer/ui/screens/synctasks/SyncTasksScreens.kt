@@ -55,7 +55,6 @@ private fun laneName(queueKey: String): String = when (queueKey.lowercase()) {
     SyncTaskFactory.QUEUE_SYNC -> stringResource(R.string.sync_queue_sync)
     SyncTaskFactory.QUEUE_FILE -> stringResource(R.string.sync_queue_file)
     SyncTaskFactory.QUEUE_UPLOAD -> stringResource(R.string.sync_queue_upload)
-    SyncTaskFactory.QUEUE_PIPE -> stringResource(R.string.sync_queue_pipe)
     SyncTaskFactory.QUEUE_PREFERENCES -> stringResource(R.string.sync_queue_preferences)
     SyncTaskFactory.QUEUE_HARDCOVER -> stringResource(R.string.sync_queue_hardcover)
     "jellyfin" -> stringResource(R.string.sync_queue_jellyfin)
@@ -67,7 +66,6 @@ private fun laneIcon(queueKey: String): ImageVector = when (queueKey.lowercase()
     SyncTaskFactory.QUEUE_SYNC -> Icons.Default.CloudSync
     SyncTaskFactory.QUEUE_FILE -> Icons.Default.SwapVert
     SyncTaskFactory.QUEUE_UPLOAD -> Icons.Default.CloudUpload
-    SyncTaskFactory.QUEUE_PIPE -> Icons.Default.CloudUpload
     SyncTaskFactory.QUEUE_PREFERENCES -> Icons.Default.Tune
     SyncTaskFactory.QUEUE_HARDCOVER -> Icons.AutoMirrored.Filled.MenuBook
     else -> Icons.Default.Dns
@@ -281,7 +279,6 @@ private fun QueuedTaskRow(
         SyncTaskFactory.JOB_UPLOAD_FILE -> Icons.Default.Upload to stringResource(R.string.sync_task_upload_audio)
         // The step that queues the upload once the book is registered: shown as the upload it leads to
         SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD -> Icons.Default.Upload to stringResource(R.string.sync_task_upload_audio)
-        SyncTaskFactory.JOB_UPLOAD_STREAM_FILE -> Icons.Default.CloudUpload to stringResource(R.string.sync_task_upload_stream_file)
         SyncTaskFactory.JOB_DOWNLOAD_FILE -> Icons.Default.Download to stringResource(R.string.sync_task_download_audio)
         SyncTaskFactory.JOB_SYNC_IDENTIFIERS -> Icons.Default.Person to stringResource(R.string.sync_task_sync_identifiers)
         SyncTaskFactory.JOB_MATCH_UUIDS -> Icons.Default.SyncAlt to stringResource(R.string.sync_task_match_library_ids)
@@ -290,7 +287,6 @@ private fun QueuedTaskRow(
         SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH -> Icons.Default.Search to stringResource(R.string.sync_task_hardcover_auto_match)
         SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS -> Icons.Default.Check to stringResource(R.string.sync_task_hardcover_update_status)
         SyncTaskFactory.JOB_EXTERNAL_UPDATE -> Icons.Default.Dns to stringResource(R.string.sync_task_external_update)
-        SyncTaskFactory.JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD -> Icons.Default.Download to stringResource(R.string.sync_task_set_external_resource_to_download)
         else -> Icons.Default.Sync to stringResource(R.string.sync_task_generic)
     }
 

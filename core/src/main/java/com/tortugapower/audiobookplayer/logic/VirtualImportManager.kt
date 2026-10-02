@@ -49,9 +49,8 @@ object VirtualImportManager {
      *
      * @param artworkPath value for the new item's `artworkURL` (local file or remote URL)
      * @param enqueueSyncTasks pass the caller's subscription check; tasks require an active tier
-     * @param isPro PRO additionally gets the cloud copy: the source file is piped from the media
-     *   server into BookPlayer cloud ([StreamFileUploadProcessor]) and the artwork uploaded, so the
-     *   item is playable on devices that can't reach the Jellyfin/ABS server
+     * @param isPro PRO additionally uploads the artwork. The book's file goes to the cloud once it's
+     *   downloaded ([DownloadFileProcessor]), as on iOS: until then the media server holds it
      * @param files the item's audio files when it has several: it's imported as a volume of them
      *   ([importStreamVolume]) instead of one book
      * @param basePath the folder the item goes in (the one being browsed); null = library root
@@ -116,16 +115,12 @@ object VirtualImportManager {
         if (enqueueSyncTasks) {
             SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, entity)
             SyncTaskFactory.createUploadExternalResourceTask(syncTaskRepository, resource)
-            if (isPro) {
-                // PRO cloud copy: pipe the source file from the media server into BookPlayer cloud.
-                SyncTaskFactory.createUploadStreamFileTask(syncTaskRepository, entity)
-                // Also push the (locally downloaded) cover so other devices get artwork from our
-                // servers instead of relying on the media-server backfill — but only when it's a real
-                // local file: artworkPath can fall back to the provider's URL, and ArtworkUploadProcessor
-                // retries a missing local file forever on the serial file queue.
-                if (artworkPath != null && java.io.File(artworkPath).isFile) {
-                    SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, entity)
-                }
+            // PRO pushes the (locally downloaded) cover so other devices get artwork from our servers
+            // instead of relying on the media-server backfill — but only when it's a real local file:
+            // artworkPath can fall back to the provider's URL, and ArtworkUploadProcessor retries a missing
+            // local file forever on the serial file queue.
+            if (isPro && artworkPath != null && java.io.File(artworkPath).isFile) {
+                SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, entity)
             }
         }
 
@@ -197,7 +192,7 @@ object VirtualImportManager {
             SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, volume)
             books.forEach { SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, it) }
             SyncTaskFactory.createUploadExternalResourceTask(syncTaskRepository, resource)
-            // No stream-to-cloud pipe: it copies one file per item. The cover still goes up (see importStreamItem).
+            // The cover goes up as for a single book (see importStreamItem)
             if (isPro && artworkPath != null && java.io.File(artworkPath).isFile) {
                 SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, volume)
             }

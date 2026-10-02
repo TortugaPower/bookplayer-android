@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.util.Log
+import com.google.gson.stream.MalformedJsonException
 import com.tortugapower.audiobookplayer.database.dao.LibraryDao
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
@@ -42,8 +43,15 @@ object MediaServerStreams {
      * server rejected the stored token, so playback can say so instead of reporting a generic failure.
      * [noFile] holds the items whose server answered but has no file for them (the item is gone, or has
      * several files but was imported as one book): asking again won't change that, unlike a failed lookup.
+     * [unreachable] holds the items whose server timed out or couldn't be reached: asking later may work,
+     * unlike a server that answered with an error.
      */
-    data class Lookup(val urls: Map<String, String>, val sessionExpired: Boolean, val noFile: Set<String>)
+    data class Lookup(
+        val urls: Map<String, String>,
+        val sessionExpired: Boolean,
+        val noFile: Set<String>,
+        val unreachable: Set<String> = emptySet(),
+    )
 
     suspend fun lookUp(
         items: List<LibraryItemEntity>,
@@ -63,16 +71,21 @@ object MediaServerStreams {
 
         val urls = mutableMapOf<String, String>()
         val noFile = mutableSetOf<String>()
+        val unreachable = mutableSetOf<String>()
         var sessionExpired = false
         // Servers that timed out, couldn't be reached or rejected the token: their other items would fail
         // the same way, one wait each (a folder of single books is one lookup per book).
         val skippedServers = mutableSetOf<Long>()
+        val unreachableServers = mutableSetOf<Long>()
         for ((owner, allMembers) in membersByOwner.values) {
             // A volume has no file of its own: asked for itself, there's nothing to look up.
             val members = allMembers.filterNot { it.uuid == owner.item.uuid && owner.item.type == ItemType.BOUND }
             if (members.isEmpty()) continue
             val server = ExternalServiceUtils.serverForResource(servers, owner.resource) ?: continue
-            if (server.id in skippedServers) continue
+            if (server.id in skippedServers) {
+                if (server.id in unreachableServers) members.mapTo(unreachable) { it.uuid }
+                continue
+            }
             val service = serviceFor(server.type)
             val files = try {
                 // A timeout is a lookup that failed, not one the service answered with "one URL per item".
@@ -82,6 +95,8 @@ object MediaServerStreams {
                 if (answer == null) {
                     Log.w("MediaServerStreams", "Timed out looking up the files of ${owner.resource.providerId}")
                     skippedServers += server.id
+                    unreachableServers += server.id
+                    members.mapTo(unreachable) { it.uuid }
                     continue
                 }
                 answer.files
@@ -91,9 +106,15 @@ object MediaServerStreams {
                 sessionExpired = true
                 skippedServers += server.id
                 continue
+            } catch (e: MalformedJsonException) {
+                // An IOException, but the server answered: with a page that isn't JSON (a proxy's login page)
+                Log.w("MediaServerStreams", "The server answered the lookup of ${owner.resource.providerId} with something that isn't JSON", e)
+                continue
             } catch (e: IOException) {
                 Log.w("MediaServerStreams", "Couldn't reach the server for ${owner.resource.providerId}", e)
                 skippedServers += server.id
+                unreachableServers += server.id
+                members.mapTo(unreachable) { it.uuid }
                 continue
             } catch (e: Exception) {
                 Log.w("MediaServerStreams", "Couldn't look up the files of ${owner.resource.providerId}", e)
@@ -121,7 +142,7 @@ object MediaServerStreams {
                 if (file != null) urls[member.uuid] = base + file.path else noFile += member.uuid
             }
         }
-        return Lookup(urls, sessionExpired, noFile)
+        return Lookup(urls, sessionExpired, noFile, unreachable)
     }
 
     /**
@@ -140,9 +161,25 @@ object MediaServerStreams {
             .also { parents[parentPath] = it }
     }
 
+    /**
+     * Whether the book with [uuid] streams from a media server ([owner]: its own link or its volume's,
+     * streamed or downloaded since). Its file reaches the cloud only once it's downloaded (the
+     * download-finished hook), never from its registration (iOS `mediaServerProviderName`). A book
+     * downloaded from the media-server browser is a plain local book even when it keeps a link to its
+     * server, and uploads like one.
+     */
+    suspend fun isStreamed(uuid: String, libraryDao: LibraryDao): Boolean = ownerOf(uuid, libraryDao) != null
+
+    /** [owner] for the item with [uuid], its links loaded here: the one entry point for "what streams it" */
+    suspend fun ownerOf(uuid: String, libraryDao: LibraryDao): Owner? {
+        val withResources = libraryDao.getItemByIdWithResources(uuid) ?: return null
+        return owner(withResources.item.also { it.externalResources = withResources.externalResources }, libraryDao)
+    }
+
     private class Answer(val files: List<StreamFile>?)
 
-    private fun streams(resource: ExternalResourceEntity): Boolean =
+    /** A media-server link that streams its item, or streamed it before a download */
+    fun streams(resource: ExternalResourceEntity): Boolean =
         (resource.syncStatus == ExternalResourceEntity.STATUS_STREAM || resource.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED) &&
             ExternalServiceUtils.serviceTypeFor(resource.providerName) != null
 

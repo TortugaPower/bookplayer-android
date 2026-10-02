@@ -158,4 +158,17 @@ class MetadataUploadProcessorTest {
         val failing = MetadataUploadProcessor(context, repository, api, { db.libraryDao() }, { AccountTier.PRO }, { 500 })
         assertEquals(false, failing.process(task("f3")))
     }
+
+    /** Downloaded from the media-server browser: a plain local book that uploads like any other (iOS) */
+    @Test fun aBrowserDownloadedBook_uploadsLikeAnyLocalBook() = runBlocking {
+        insert("b6")
+        db.libraryDao().insertExternalResource(
+            ExternalResourceEntity(providerName = "jellyfin", providerId = "j6", syncStatus = ExternalResourceEntity.STATUS_SYNCED, libraryItemUuid = "b6")
+        )
+        server.enqueue(answer("https://s3/presigned"))
+
+        assertTrue(processor(AccountTier.PRO).process(task("b6")))
+
+        assertEquals(SyncTaskFactory.JOB_UPLOAD_FILE, db.syncTaskDao().getAllTasksSync().single().jobType)
+    }
 }

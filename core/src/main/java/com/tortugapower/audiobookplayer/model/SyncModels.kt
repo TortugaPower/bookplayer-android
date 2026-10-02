@@ -52,15 +52,6 @@ data class ArtworkResponse(
     @SerializedName("thumbnail_url") val thumbnailURL: String
 )
 
-/**
- * `POST /v1/library/external_set` — request a presigned PUT URL for an external item's source file
- * (`{uuid}` → [url]), or confirm the upload (`{uuid, uploaded: true}` → [uploaded], empty [url]).
- */
-data class ExternalSetResponse(
-    @SerializedName("url") val url: String?,
-    @SerializedName("uploaded") val uploaded: Boolean?
-)
-
 data class IdentifiersResponse(
     @SerializedName("content") val content: List<String>
 )

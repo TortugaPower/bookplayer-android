@@ -1678,8 +1678,8 @@ object PlaybackManager {
                     android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
                 } else if (!resolvedItem.remoteURL.isNullOrEmpty()) {
                     // Media-server-first: refresh the BookPlayer presigned URL only when no saved
-                    // Jellyfin/ABS server can serve the item — that's how a piped stream item plays from
-                    // its cloud copy on a device without the server configured, while devices WITH the
+                    // Jellyfin/ABS server can serve the item — that's how a streamed book whose file is in
+                    // the cloud plays from it on a device without the server configured, while devices WITH the
                     // server keep streaming from it (LAN speed, zero S3 egress).
                     if (externalUrl == null) {
                         // Only query Bookplayer API signed URLs if it's not a Jellyfin/Audiobookshelf item

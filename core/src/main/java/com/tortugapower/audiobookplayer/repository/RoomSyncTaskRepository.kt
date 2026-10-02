@@ -114,6 +114,16 @@ class RoomSyncTaskRepository(
         Unit
     }
 
+    override suspend fun convertTasks(from: String, to: String, queueKey: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.convertTasks(from, to, queueKey)
+        Unit
+    }
+
+    override suspend fun deleteAllTasksOfType(jobType: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.deleteAllTasksOfType(jobType)
+        Unit
+    }
+
     override suspend fun saveUploadState(id: String, state: MultipartUploadState): Boolean = withContext(Dispatchers.IO) {
         syncTaskDao.saveUploadState(id, state)
     }

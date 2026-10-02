@@ -34,8 +34,9 @@ object UploadHandBack {
 
     /**
      * Queues the book's registration, its external resources and bookmarks; the registration's answer
-     * queues a new upload (a media-server book's queues it from the sync lane, after the registration,
-     * since its registration never asks for its file). False when the book is gone on this device too.
+     * queues a new upload (a streamed media-server book's queues it from the sync lane, after the
+     * registration, since its registration never asks for its file). False when the book is gone on
+     * this device too.
      */
     suspend fun reRegister(libraryDao: LibraryDao, repository: SyncTaskRepository, uuid: String): Boolean {
         val item = libraryDao.getItemById(uuid) ?: return false
@@ -47,7 +48,8 @@ object UploadHandBack {
                 .filter { it.type == BookmarkType.USER }
                 .forEach { SyncTaskFactory.createSetBookmarkTask(repository, it, item.title, path) }
         }
-        if (resources.any { ExternalServiceUtils.serviceTypeFor(it.providerName) != null }) {
+        // Its links are loaded already: no second read
+        if (MediaServerStreams.owner(item.also { it.externalResources = resources }, libraryDao) != null) {
             SyncTaskFactory.createQueueFileUploadTask(repository, item)
         }
         return true
@@ -58,12 +60,12 @@ object UploadHandBack {
  * Whether a queued task is part of getting a book's file to S3 (iOS `pendingBookUploads`): the upload
  * itself, the sync-lane step that queues it, or a book's registration, whose answer queues it (also the
  * gap after `item_not_found`, while the book is registered again). Removing the book's file before then
- * loses the only copy. A media-server book's registration never asks for its file (it goes up once it's
- * downloaded, and the media server keeps it meanwhile), so it doesn't count.
+ * loses the only copy. A streamed media-server book's registration never asks for its file (it goes up
+ * once it's downloaded, and the media server keeps it meanwhile), so it doesn't count.
  */
-fun leadsToBookUpload(task: SyncTaskEntity, isMediaServerBook: Boolean): Boolean = when (task.jobType) {
+fun leadsToBookUpload(task: SyncTaskEntity, isStreamed: Boolean): Boolean = when (task.jobType) {
     SyncTaskFactory.JOB_UPLOAD_FILE, SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD -> true
-    SyncTaskFactory.JOB_UPLOAD_METADATA -> !isMediaServerBook && registeredType(task.payload) == ItemType.BOOK.ordinal
+    SyncTaskFactory.JOB_UPLOAD_METADATA -> !isStreamed && registeredType(task.payload) == ItemType.BOOK.ordinal
     else -> false
 }
 

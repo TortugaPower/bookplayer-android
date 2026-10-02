@@ -129,8 +129,9 @@ class VirtualImportManagerTest {
         val jobTypes = fakeSyncTasks.tasks.map { it.jobType }
         assertEquals(4, jobTypes.count { it == SyncTaskFactory.JOB_UPLOAD_METADATA })
         assertEquals(1, jobTypes.count { it == SyncTaskFactory.JOB_UPLOAD_EXTERNAL_RESOURCE })
-        // The pipe copies one file per item, so a volume never gets one, even on PRO.
-        assertFalse(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE in jobTypes)
+        // A streamed book's file goes up only once it's downloaded (DownloadFileProcessor)
+        assertFalse(SyncTaskFactory.JOB_UPLOAD_FILE in jobTypes)
+        assertFalse(SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD in jobTypes)
     }
 
     @Test
@@ -192,13 +193,12 @@ class VirtualImportManagerTest {
         val jobTypes = fakeSyncTasks.tasks.map { it.jobType }
         assertTrue(SyncTaskFactory.JOB_UPLOAD_METADATA in jobTypes)
         assertTrue(SyncTaskFactory.JOB_UPLOAD_EXTERNAL_RESOURCE in jobTypes)
-        // Not PRO (default): no cloud-copy pipe, no artwork upload.
-        assertFalse(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE in jobTypes)
+        // Not PRO (default): no artwork upload
         assertFalse(SyncTaskFactory.JOB_UPLOAD_ARTWORK in jobTypes)
     }
 
     @Test
-    fun importStreamItem_proEnqueuesPipeAndLocalArtworkUpload() = runBlocking {
+    fun importStreamItem_proUploadsLocalArtworkButNotTheFile() = runBlocking {
         // A real local cover file (the import downloads it before this call).
         val cover = java.io.File.createTempFile("cover", ".jpg").apply { writeText("jpg") }
 
@@ -209,11 +209,11 @@ class VirtualImportManagerTest {
         )
 
         val jobTypes = fakeSyncTasks.tasks.map { it.jobType }
-        assertTrue(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE in jobTypes)
-        assertTrue(SyncTaskFactory.JOB_UPLOAD_ARTWORK in jobTypes)
-        val pipe = fakeSyncTasks.tasks.single { it.jobType == SyncTaskFactory.JOB_UPLOAD_STREAM_FILE }
-        assertEquals(result!!.item.uuid, pipe.taskID)
-        assertEquals(SyncTaskFactory.QUEUE_PIPE, pipe.queueKey)
+        val artwork = fakeSyncTasks.tasks.single { it.jobType == SyncTaskFactory.JOB_UPLOAD_ARTWORK }
+        assertEquals(result!!.item.uuid, artwork.taskID)
+        // The file goes up once it's downloaded (DownloadFileProcessor), as on iOS
+        assertFalse(SyncTaskFactory.JOB_UPLOAD_FILE in jobTypes)
+        assertFalse(SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD in jobTypes)
         cover.delete()
         Unit
     }
@@ -228,9 +228,7 @@ class VirtualImportManagerTest {
             artworkPath = "https://server/Items/x/Images/Primary", isPro = true
         )
 
-        val jobTypes = fakeSyncTasks.tasks.map { it.jobType }
-        assertTrue(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE in jobTypes)
-        assertFalse(SyncTaskFactory.JOB_UPLOAD_ARTWORK in jobTypes)
+        assertFalse(SyncTaskFactory.JOB_UPLOAD_ARTWORK in fakeSyncTasks.tasks.map { it.jobType })
     }
 
     @Test
@@ -334,6 +332,7 @@ class VirtualImportManagerTest {
         override suspend fun getExternalResource(itemUuid: String, provider: String): ExternalResourceEntity? =
             externalResources.find { it.libraryItemUuid == itemUuid && it.providerName == provider }
 
+        override suspend fun markExternalResourceFileProcessed(id: Long): Unit = TODO()
         override fun getRootItems(): Flow<List<LibraryItemEntity>> = TODO()
         override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = TODO()
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = TODO()

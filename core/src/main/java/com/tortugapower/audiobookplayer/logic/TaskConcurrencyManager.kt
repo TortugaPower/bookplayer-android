@@ -72,6 +72,13 @@ class TaskConcurrencyManager(
             repository.resetRunningTasks()
             // An older build queued book uploads in the file lane, ahead of the downloads behind them
             repository.moveToLane(SyncTaskFactory.JOB_UPLOAD_FILE, SyncTaskFactory.QUEUE_UPLOAD)
+            // 1.2's stream-to-cloud pipe is retired: its copies become the step that queues the book's upload,
+            // which goes ahead only if the file is on this device (else the book's download queues it later).
+            // Its confirmations called a route the server no longer has.
+            repository.convertTasks(
+                SyncTaskFactory.RETIRED_JOB_UPLOAD_STREAM_FILE, SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD, SyncTaskFactory.QUEUE_SYNC,
+            )
+            repository.deleteAllTasksOfType(SyncTaskFactory.RETIRED_JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD)
             
             Log.d(TAG, "📡 Starting queue worker manager...")
             

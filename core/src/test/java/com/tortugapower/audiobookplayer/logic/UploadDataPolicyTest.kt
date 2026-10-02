@@ -23,7 +23,6 @@ class UploadDataPolicyTest {
     @Test fun `only file-bearing upload jobs are gated`() {
         assertTrue(UploadDataPolicy.isFileUploadJob(SyncTaskFactory.JOB_UPLOAD_FILE))
         assertTrue(UploadDataPolicy.isFileUploadJob(SyncTaskFactory.JOB_UPLOAD_ARTWORK))
-        assertTrue(UploadDataPolicy.isFileUploadJob(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE))
 
         // Downloads, small metadata/identifier syncs, and library ops must NEVER be gated.
         listOf(
