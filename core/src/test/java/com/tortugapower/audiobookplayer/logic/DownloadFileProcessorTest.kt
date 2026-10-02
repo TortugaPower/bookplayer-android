@@ -454,16 +454,53 @@ class DownloadFileProcessorTest {
         assertTrue(OfflineDownloadManager.processedFile(context, relativePath).exists())
     }
 
-    /** A 200 that isn't audio (a login page in front of the server) can't be read: rejected, as on iOS */
-    @Test fun `an unreadable file with a stored duration is dropped`() = runBlocking {
+    /** With no announced size there's nothing else to go on: a length that can't be read is rejected, as on iOS */
+    @Test fun `an unreadable file with no announced size is dropped`() = runBlocking {
         insertCloudBook(duration = 600.0)
-        cloud.enqueue(MockResponse().setBody("<html>sign in</html>"))
+        cloud.enqueue(MockResponse().setChunkedBody("audio-of-some-kind", 4))
         val failures = mutableListOf<String>()
 
         assertTrue(processor(durationOf = { null }, failures = failures).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
 
         assertEquals(1, failures.size)
         assertFalse(OfflineDownloadManager.processedFile(context, relativePath).exists())
+    }
+
+    /** Android's reader knows fewer formats than its player: every announced byte arrived, so the file is whole */
+    @Test fun `an unreadable file with every announced byte is kept`() = runBlocking {
+        insertCloudBook(duration = 600.0)
+        cloud.enqueue(MockResponse().setBody("opus-audio").setHeader("Content-Type", "audio/ogg"))
+        val failures = mutableListOf<String>()
+
+        assertTrue(processor(durationOf = { null }, failures = failures).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertTrue(failures.isEmpty())
+        assertEquals("opus-audio", OfflineDownloadManager.processedFile(context, relativePath).readText())
+    }
+
+    /** A proxy's login or error page comes whole too: it's still not the book */
+    @Test fun `text in place of the file is dropped even at full length`() = runBlocking {
+        insertCloudBook(duration = 600.0)
+        for (type in listOf("text/html; charset=utf-8", "TEXT/PLAIN", "application/json")) {
+            cloud.enqueue(MockResponse().setBody("<html>sign in</html>").setHeader("Content-Type", type))
+            val failures = mutableListOf<String>()
+
+            assertTrue(type, processor(durationOf = { null }, failures = failures).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+            assertEquals(type, 1, failures.size)
+            assertFalse(type, OfflineDownloadManager.processedFile(context, relativePath).exists())
+        }
+    }
+
+    /** Trusting the byte count is only for a length that can't be read: one that's read and short still fails */
+    @Test fun `a short file is dropped even with every announced byte`() = runBlocking {
+        insertCloudBook(duration = 600.0)
+        cloud.enqueue(MockResponse().setBody("half"))
+        val failures = mutableListOf<String>()
+
+        assertTrue(processor(durationOf = { 300.0 }, failures = failures).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertEquals(1, failures.size)
     }
 
     @Test fun `an expired cloud link is dropped with a message instead of retried`() = runBlocking {

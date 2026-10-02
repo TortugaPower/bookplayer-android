@@ -314,8 +314,9 @@ class MetadataUploadProcessor(
  * it before it counts as downloaded (iOS `BPTaskDownloadDelegate` + `SyncService.verifyDownloadedFile`):
  * the bytes go to a temp file, which must hold as many bytes as the response announced and play at
  * least the book's stored duration (less 2 s or 2%, whichever is more), and only then is it moved into
- * place. A file that never finished is never in `Processed/`, where it would count as downloaded,
- * play half, or be uploaded.
+ * place. A length Android's reader can't measure passes when every announced byte arrived and the answer
+ * isn't text (a proxy's login or error page). A file that never finished is never in `Processed/`, where
+ * it would count as downloaded, play half, or be uploaded.
  *
  * A download that fails for good (an HTTP error answer, a server with no file for the book, a file that
  * fails the checks) is dropped, and the library says so once ([SyncStatusManager.notifyDownloadFailed]);
@@ -351,6 +352,9 @@ class DownloadFileProcessor(
         // Downloads run one at a time (the file lane), so before this process's first one no part file is
         // being written: anything there was left by a process that died mid-download
         internal val partsSwept = AtomicBoolean(false)
+
+        /** `application/` types that are text, never audio: a server's error or login page */
+        private val TEXT_APPLICATION_SUBTYPES = setOf("json", "xml", "xhtml+xml")
 
         /** iOS's tolerance: a file may play this much shorter than the stored duration */
         internal fun durationTolerance(expected: Double): Double = maxOf(2.0, expected * 0.02)
@@ -491,7 +495,14 @@ class DownloadFileProcessor(
                 if (contentLength > 0 && bytesRead < contentLength) {
                     return failedForGood(taskId, title, "it ended at $bytesRead of $contentLength bytes")
                 }
-                failedCheck(part, book?.duration)?.let { reason -> return failedForGood(taskId, title, reason) }
+                // Every announced byte arrived: a length Android's reader can't measure (a format it doesn't
+                // know, though the player does) isn't a sign of a cut file. Text in its place (a proxy's login
+                // or error page) still is.
+                val isText = body.contentType()?.let {
+                    it.type == "text" || (it.type == "application" && it.subtype in TEXT_APPLICATION_SUBTYPES)
+                } == true
+                val trustUnreadable = contentLength > 0 && !isText
+                failedCheck(part, book?.duration, trustUnreadable)?.let { reason -> return failedForGood(taskId, title, reason) }
 
                 destFile.parentFile?.mkdirs()
                 destFile.delete()
@@ -525,11 +536,17 @@ class DownloadFileProcessor(
     /**
      * Why the downloaded [file] doesn't hold the book, or null when it does: it must play at least the stored
      * [expected] duration less [durationTolerance] (a longer file is fine). Without a stored duration there's
-     * nothing to check against; a file that can't be read when there is one is rejected, as on iOS.
+     * nothing to check against. A file whose length can't be read when there is one is rejected, as on iOS,
+     * unless [trustUnreadable]: Android's reader knows fewer formats than its player.
      */
-    private fun failedCheck(file: File, expected: Double?): String? {
+    private fun failedCheck(file: File, expected: Double?, trustUnreadable: Boolean): String? {
         if (expected == null || expected <= 0) return null
-        val actual = durationOf(file) ?: return "its duration can't be read"
+        val actual = durationOf(file) ?: return if (trustUnreadable) {
+            Log.w("DownloadFileProcessor", "Kept ${file.name} with every announced byte, though its length can't be read")
+            null
+        } else {
+            "its duration can't be read"
+        }
         if (actual.isNaN() || actual.isInfinite()) return null
         if (expected - actual > durationTolerance(expected)) return "it plays ${actual}s of ${expected}s"
         return null
