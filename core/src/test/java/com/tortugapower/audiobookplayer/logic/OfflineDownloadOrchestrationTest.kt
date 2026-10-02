@@ -10,6 +10,8 @@ import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -67,6 +69,20 @@ class OfflineDownloadOrchestrationTest {
         val syncRepo = FakeSyncTaskRepository(pending = downloadTask(SyncTaskStatus.PENDING))
         OfflineDownloadManager.startDownload(context, FakeLibraryRepository(), syncRepo, book())
         assertTrue("a queued file must not be enqueued twice", syncRepo.saved.isEmpty())
+    }
+
+    // The URL lookup takes network time between the dedup snapshot and the enqueue: a second tap meanwhile
+    // must still see the first tap's task.
+    @Test fun `a second tap during the first one's lookup doesn't queue the file twice`() = runBlocking {
+        val syncRepo = FakeSyncTaskRepository()
+        val repo = FakeLibraryRepository(lookupDelayMs = 200)
+
+        listOf(
+            launch { OfflineDownloadManager.startDownload(context, repo, syncRepo, book()) },
+            launch { OfflineDownloadManager.startDownload(context, repo, syncRepo, book()) },
+        ).joinAll()
+
+        assertEquals(1, syncRepo.saved.size)
     }
 
     @Test fun `cancelDownload deletes a PENDING task and requests cancel (covers the pending-to-running race)`() = runBlocking {
@@ -127,7 +143,7 @@ private class FakeSyncTaskRepository(private val pending: SyncTaskEntity? = null
     override suspend fun saveTask(task: SyncTaskEntity) { saved += task }
     override suspend fun deleteTask(task: SyncTaskEntity) { deleted += task }
     override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = pending
-    override fun getAllTasks(): Flow<List<SyncTaskEntity>> = flowOf(listOfNotNull(pending))
+    override fun getAllTasks(): Flow<List<SyncTaskEntity>> = flowOf(listOfNotNull(pending) + saved)
     override suspend fun getPendingTasks(): List<SyncTaskEntity> = error("unused")
     override suspend fun getTasksByStatus(status: SyncTaskStatus): List<SyncTaskEntity> = error("unused")
     override suspend fun getTasksInQueueByStatus(queueKey: String, status: SyncTaskStatus): List<SyncTaskEntity> = error("unused")
@@ -144,9 +160,13 @@ private class FakeSyncTaskRepository(private val pending: SyncTaskEntity? = null
 }
 
 /** Identity resolveStreamingUrl (BOOK downloadUnits never touches the other methods). */
-private class FakeLibraryRepository : LibraryRepository {
+private class FakeLibraryRepository(private val lookupDelayMs: Long = 0) : LibraryRepository {
     override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
     override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
+    override suspend fun externalStreamUrlsFor(items: List<LibraryItemEntity>, onSessionExpired: (() -> Unit)?): Map<String, String> {
+        kotlinx.coroutines.delay(lookupDelayMs)
+        return emptyMap()
+    }
     override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) = error("unused")
     override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = emptyList()
     override fun getRootItems() = error("unused")

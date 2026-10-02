@@ -54,11 +54,13 @@ class MediaServerStreamsTest {
         val lookups = mutableListOf<String>()
         var rejectToken = false
         var stall = false
+        var unreachable = false
 
         override suspend fun getStreamFiles(url: String, token: String, itemId: String, headers: Map<String, String>?): List<StreamFile>? {
             if (type == ExternalServiceType.JELLYFIN) return null
             lookups += itemId
             if (stall) awaitCancellation()
+            if (unreachable) throw java.net.ConnectException("Failed to connect")
             if (rejectToken) throw SessionExpiredException()
             return files[itemId].orEmpty()
         }
@@ -228,13 +230,33 @@ class MediaServerStreamsTest {
         assertFalse(lookup.sessionExpired)
     }
 
+    // A folder of single books is one lookup per book: a server that's down costs one wait, not one per book.
+    @Test fun `a server that can't be reached is asked once per lookup`() = runBlocking {
+        insert(LibraryItemEntity(uuid = "b1", title = "Charlie", relativePath = "Charlie.m4b", type = ItemType.BOOK), "audiobookshelf", "abs-1", absHost)
+        insert(LibraryItemEntity(uuid = "b2", title = "Delta", relativePath = "Delta.m4b", type = ItemType.BOOK), "audiobookshelf", "abs-2", absHost)
+
+        abs.stall = true
+        val items = listOf(loaded("b1"), loaded("b2"))
+        assertTrue(MediaServerStreams.lookUp(items, db.libraryDao(), servers, ::serviceFor, timeoutMs = 50).urls.isEmpty())
+        assertEquals(listOf("abs-1"), abs.lookups)
+
+        abs.stall = false
+        abs.unreachable = true
+        abs.lookups.clear()
+        assertTrue(lookUp("b1", "b2").urls.isEmpty())
+        assertEquals(listOf("abs-1"), abs.lookups)
+    }
+
     @Test fun `a rejected token is reported as an expired session`() = runBlocking {
         insert(LibraryItemEntity(uuid = "b1", title = "Charlie", relativePath = "Charlie.m4b", type = ItemType.BOOK), "audiobookshelf", "abs-1", absHost)
+        insert(LibraryItemEntity(uuid = "b2", title = "Delta", relativePath = "Delta.m4b", type = ItemType.BOOK), "audiobookshelf", "abs-2", absHost)
         abs.rejectToken = true
 
-        val lookup = lookUp("b1")
+        val lookup = lookUp("b1", "b2")
 
         assertTrue(lookup.sessionExpired)
         assertTrue(lookup.urls.isEmpty())
+        // The token is the server's, not the item's: the second book isn't asked for.
+        assertEquals(listOf("abs-1"), abs.lookups)
     }
 }

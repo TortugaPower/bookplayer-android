@@ -13,6 +13,7 @@ import com.tortugapower.audiobookplayer.network.StreamFile
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.IOException
 
 /**
  * Playable media-server URLs, looked up when items are about to play or download.
@@ -60,11 +61,15 @@ object MediaServerStreams {
 
         val urls = mutableMapOf<String, String>()
         var sessionExpired = false
+        // Servers that timed out, couldn't be reached or rejected the token: their other items would fail
+        // the same way, one wait each (a folder of single books is one lookup per book).
+        val skippedServers = mutableSetOf<Long>()
         for ((owner, allMembers) in membersByOwner.values) {
             // A volume has no file of its own: asked for itself, there's nothing to look up.
             val members = allMembers.filterNot { it.uuid == owner.item.uuid && owner.item.type == ItemType.BOUND }
             if (members.isEmpty()) continue
             val server = ExternalServiceUtils.serverForResource(servers, owner.resource) ?: continue
+            if (server.id in skippedServers) continue
             val service = serviceFor(server.type)
             val files = try {
                 // A timeout is a lookup that failed, not one the service answered with "one URL per item".
@@ -73,6 +78,7 @@ object MediaServerStreams {
                 }
                 if (answer == null) {
                     Log.w("MediaServerStreams", "Timed out looking up the files of ${owner.resource.providerId}")
+                    skippedServers += server.id
                     continue
                 }
                 answer.files
@@ -80,6 +86,11 @@ object MediaServerStreams {
                 throw e
             } catch (e: SessionExpiredException) {
                 sessionExpired = true
+                skippedServers += server.id
+                continue
+            } catch (e: IOException) {
+                Log.w("MediaServerStreams", "Couldn't reach the server for ${owner.resource.providerId}", e)
+                skippedServers += server.id
                 continue
             } catch (e: Exception) {
                 Log.w("MediaServerStreams", "Couldn't look up the files of ${owner.resource.providerId}", e)

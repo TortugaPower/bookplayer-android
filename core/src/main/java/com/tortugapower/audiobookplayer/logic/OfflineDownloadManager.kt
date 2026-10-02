@@ -10,6 +10,8 @@ import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 
 /** One book file's download status — pure inputs to the per-row aggregation, shared by phone and Wear. */
@@ -64,6 +66,8 @@ object OfflineDownloadManager {
             else -> emptyList()
         }
 
+    private val enqueueLock = Mutex()
+
     /**
      * Enqueue a download task for each not-yet-local BOOK file of [item] (resolving each file's streaming
      * URL first, exactly like the phone's cloud-tap). The caller must ensure the sync engine is running.
@@ -73,10 +77,11 @@ object OfflineDownloadManager {
         libraryRepository: LibraryRepository,
         syncTaskRepository: SyncTaskRepository,
         item: LibraryItemEntity,
-    ) {
+    ) = enqueueLock.withLock {
         // Snapshot the queue once to dedup against files that are already PENDING or RUNNING (not just
         // PENDING like getPendingTaskByTypeAndTaskId) — so a re-enqueue can't duplicate an in-flight
-        // download regardless of any UI gating.
+        // download regardless of any UI gating. The lock holds a second tap until this one has queued its
+        // tasks: the URL lookups below take network time, and its snapshot must see them.
         val activeTasks = syncTaskRepository.getAllTasks().first()
         val books = downloadUnits(libraryRepository, item).filter { book ->
             !isFileDownloaded(context, book.relativePath) && !isTaskActive(activeTasks, book.uuid)

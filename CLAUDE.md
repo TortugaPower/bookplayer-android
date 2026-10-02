@@ -178,7 +178,9 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     payload, a sub-book's saved `remoteURL`) can go stale, so a download whose ABS URL 404s is looked up
     once more in the same run. Don't resolve URLs speculatively: each ABS lookup is a request. A lookup
     gives up after 5 s (`MediaServerStreams.LOOKUP_TIMEOUT_MS`), so an unreachable home server falls
-    through to the cloud copy instead of waiting out the HTTP timeouts. ABS has nothing for the PRO
+    through to the cloud copy instead of waiting out the HTTP timeouts. A server that times out, can't be
+    reached or rejects the token is skipped for the rest of that lookup, so a folder of single books
+    waits once, not once per book. ABS has nothing for the PRO
     stream-to-cloud pipe to copy, so `StreamFileUploadProcessor` drops an ABS task unless the book was
     downloaded meanwhile.
 
