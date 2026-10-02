@@ -117,6 +117,18 @@ class ImportManagerDownloadLinkTest {
         assertEquals(2, runBlocking { dao.getItemsInPathSync("Golf-1") }.size)
     }
 
+    // The placement prompt moves the batch it was handed: the volume must keep its totals.
+    @Test fun `a downloaded volume moved by the prompt keeps its book count`() {
+        runBlocking { dao.insertItem(com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity(uuid = "shelf", title = "Shelf", relativePath = "Shelf", type = ItemType.FOLDER)) }
+        val completion = acceptDownload("Golf.zip", mapOf("Disc 1/01.mp3" to "a", "Disc 2/01.mp3" to "b"))
+
+        runBlocking { com.tortugapower.audiobookplayer.repository.RoomLibraryRepository(context, dao).moveItems(context, completion.items, "Shelf") }
+
+        val moved = runBlocking { dao.getItemByPath("Shelf/Golf") }!!
+        assertEquals("2", moved.author)
+        assertEquals(2, runBlocking { dao.getItemsInPathSync("Shelf/Golf") }.size)
+    }
+
     @Test fun `a downloaded book and its cover is accepted as the linked book`() {
         val completion = acceptDownload("Hotel.zip", mapOf("Hotel.m4b" to "a", "cover.jpg" to "img"))
 

@@ -63,6 +63,18 @@ class ShallowDeleteFolderTest {
         assertTrue(File(File(context.filesDir, "Processed"), "B/A/Book.mp3").isFile)
     }
 
+    // A shallow delete still moves every child, even one whose name is taken at the root: one left behind
+    // would be deleted with the folder.
+    @Test fun `a child whose name is taken at the root isn't deleted with the folder`() = runBlocking {
+        seed("root", "Book One.mp3", ItemType.BOOK, withFile = true)
+        val folder = seed("f", "Series", ItemType.FOLDER)
+        seed("child", "Series/Book One.mp3", ItemType.BOOK, withFile = true)
+
+        repository.shallowDeleteFolder(context, folder)
+
+        assertEquals("Book One.mp3", db.libraryDao().getItemById("child")!!.relativePath)
+    }
+
     @Test fun `children move to root, sub-container descendants keep coherent paths, folder is gone`() = runBlocking {
         val folder = seed("f", "Series", ItemType.FOLDER)
         seed("b1", "Series/Book One.mp3", ItemType.BOOK, withFile = true)

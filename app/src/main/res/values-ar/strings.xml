@@ -454,4 +454,12 @@
     <string name="external_server_missing_message">يتم بث هذا الكتاب من خادم %1$s الخاص بك. اتصل به على هذا الجهاز لتشغيل الكتاب.</string>
     <string name="external_server_missing_message_address">يتم بث هذا الكتاب من خادم %1$s الخاص بك على العنوان %2$s. أضف هذا الخادم على هذا الجهاز لتشغيل الكتاب.</string>
     <string name="external_server_missing_connect">اتصال</string>
+    <plurals name="library_move_name_taken">
+        <item quantity="zero">لم يتم نقل %1$d عنصر: توجد بالفعل عناصر بالأسماء نفسها في الوجهة.</item>
+        <item quantity="one">لم يتم نقل %1$d عنصر: يوجد بالفعل عنصر بالاسم نفسه في الوجهة.</item>
+        <item quantity="two">لم يتم نقل %1$d عنصر: يوجد بالفعل عنصران بالاسمين نفسيهما في الوجهة.</item>
+        <item quantity="few">لم يتم نقل %1$d عناصر: توجد بالفعل عناصر بالأسماء نفسها في الوجهة.</item>
+        <item quantity="many">لم يتم نقل %1$d عنصرًا: توجد بالفعل عناصر بالأسماء نفسها في الوجهة.</item>
+        <item quantity="other">لم يتم نقل %1$d عنصر: توجد بالفعل عناصر بالأسماء نفسها في الوجهة.</item>
+    </plurals>
 </resources>

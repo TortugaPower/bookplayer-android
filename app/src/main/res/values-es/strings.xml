@@ -442,4 +442,8 @@
     <string name="external_server_missing_message">Este libro se transmite desde tu servidor %1$s. Conéctalo en este dispositivo para reproducir el libro.</string>
     <string name="external_server_missing_message_address">Este libro se transmite desde tu servidor %1$s en %2$s. Añade ese servidor en este dispositivo para reproducir el libro.</string>
     <string name="external_server_missing_connect">Conectar</string>
+    <plurals name="library_move_name_taken">
+        <item quantity="one">%1$d elemento no se movió: ya hay uno con el mismo nombre en el destino.</item>
+        <item quantity="other">%1$d elementos no se movieron: ya hay otros con los mismos nombres en el destino.</item>
+    </plurals>
 </resources>

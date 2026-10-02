@@ -49,7 +49,7 @@ class VirtualImportManagerTest {
         StreamFile("api/items/abs-1/file/33", "03.mp3", 30.0),
     )
 
-    private suspend fun importVolume(files: List<StreamFile> = threeFiles, isPro: Boolean = false) =
+    private suspend fun importVolume(files: List<StreamFile> = threeFiles, isPro: Boolean = false, basePath: String? = null) =
         VirtualImportManager.importStreamItem(
             libraryDao = fakeDao,
             syncTaskRepository = fakeSyncTasks,
@@ -59,7 +59,46 @@ class VirtualImportManagerTest {
             artworkPath = "/data/Artworks/abc.jpg",
             isPro = isPro,
             files = files,
+            basePath = basePath,
         )!!
+
+    // --- placed in the folder being browsed, like any import (iOS parity) ---
+
+    @Test
+    fun importStreamItem_insideAFolder_landsInItAfterItsItems() = runBlocking {
+        fakeDao.insertItem(LibraryItemEntity(uuid = "shelf", title = "Shelf", relativePath = "Shelf", orderRank = 0, type = ItemType.FOLDER))
+        fakeDao.insertItem(LibraryItemEntity(uuid = "old", title = "Old", relativePath = "Shelf/Old.m4b", orderRank = 3, type = ItemType.BOOK))
+
+        val result = VirtualImportManager.importStreamItem(
+            libraryDao = fakeDao, syncTaskRepository = fakeSyncTasks, externalItem = serverItem(),
+            providerName = "jellyfin", hostId = "jf-guid", basePath = "Shelf",
+        )!!
+
+        assertEquals("Shelf/Book One.m4b", result.item.relativePath)
+        assertEquals(4, result.item.orderRank)
+    }
+
+    @Test
+    fun importStreamItem_volumeInsideAFolder_holdsItsBooksThere() = runBlocking {
+        val result = importVolume(basePath = "Shelf")
+
+        assertEquals("Shelf/Book One", result.item.relativePath)
+        assertEquals(0, result.item.orderRank)
+        val books = fakeDao.items.values.filter { it.type == ItemType.BOOK }.map { it.relativePath }.sortedBy { it }
+        assertEquals(listOf("Shelf/Book One/03.mp3", "Shelf/Book One/Disc 1 - 01.mp3", "Shelf/Book One/Disc 2 - 01.mp3"), books)
+    }
+
+    // The volume's path must be free where it goes; an item of that name elsewhere doesn't matter.
+    @Test
+    fun importStreamItem_volumeNameCollision_isCheckedInsideItsFolder() = runBlocking {
+        fakeDao.insertItem(LibraryItemEntity(uuid = "root-twin", title = "Book One", relativePath = "Book One", type = ItemType.BOUND))
+        assertEquals("Shelf/Book One", importVolume(basePath = "Shelf").item.relativePath)
+
+        fakeDao.items.clear()
+        fakeDao.insertItem(LibraryItemEntity(uuid = "twin", title = "Book One", relativePath = "Shelf/Book One", type = ItemType.BOUND))
+        val path = importVolume(basePath = "Shelf").item.relativePath!!
+        assertTrue(path, path.startsWith("Shelf/Book One-"))
+    }
 
     @Test
     fun importStreamItem_severalFiles_createsVolumeOfOneBookPerFile() = runBlocking {
@@ -309,7 +348,8 @@ class VirtualImportManagerTest {
         override suspend fun insertCompletion(completion: BookCompletionEntity) = TODO()
         override suspend fun hasCompletion(bookUuid: String): Boolean = TODO()
         override suspend fun getAllItemsSync(): List<LibraryItemEntity> = TODO()
-        override suspend fun getMaxPathOrderRank(path: String): Int? = TODO()
+        override suspend fun getMaxPathOrderRank(path: String): Int? =
+            items.values.filter { it.relativePath?.substringBeforeLast('/', "") == path }.maxOfOrNull { it.orderRank }
         override suspend fun updateItem(item: LibraryItemEntity) = TODO()
         override suspend fun updateRemoteURL(uuid: String, url: String?) = TODO()
         override suspend fun deleteItem(item: LibraryItemEntity) = TODO()

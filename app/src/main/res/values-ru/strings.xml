@@ -448,4 +448,10 @@
     <string name="external_server_missing_message">Эта книга транслируется с вашего сервера %1$s. Подключите его на этом устройстве, чтобы воспроизвести книгу.</string>
     <string name="external_server_missing_message_address">Эта книга транслируется с вашего сервера %1$s по адресу %2$s. Добавьте этот сервер на этом устройстве, чтобы воспроизвести книгу.</string>
     <string name="external_server_missing_connect">Подключиться</string>
+    <plurals name="library_move_name_taken">
+        <item quantity="one">%1$d элемент не перемещён: там уже есть элемент с таким же именем.</item>
+        <item quantity="few">%1$d элемента не перемещены: там уже есть элементы с такими же именами.</item>
+        <item quantity="many">%1$d элементов не перемещено: там уже есть элементы с такими же именами.</item>
+        <item quantity="other">%1$d элемента не перемещено: там уже есть элементы с такими же именами.</item>
+    </plurals>
 </resources>

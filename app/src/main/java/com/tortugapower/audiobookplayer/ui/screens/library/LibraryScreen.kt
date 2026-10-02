@@ -351,6 +351,24 @@ fun LibraryScreen(
         )
     }
 
+    // A move skips items whose name is already taken at the destination: say so.
+    val itemsNotMoved by libraryViewModel.itemsNotMoved.collectAsState()
+    itemsNotMoved?.let { count ->
+        AlertDialog(
+            onDismissRequest = { libraryViewModel.clearItemsNotMoved() },
+            title = { Text(stringResource(R.string.common_error)) },
+            text = { Text(pluralStringResource(R.plurals.library_move_name_taken, count, count)) },
+            confirmButton = {
+                TextButton(onClick = { libraryViewModel.clearItemsNotMoved() }) {
+                    Text(stringResource(R.string.common_ok))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
     // iOS parity (loadingState.error alert): a rejected folder→volume conversion — the option is
     // enabled like iOS's and the rule ("only books, never empty") is enforced at execute time.
     val boundConversionError by libraryViewModel.boundConversionError.collectAsState()

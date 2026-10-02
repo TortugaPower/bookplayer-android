@@ -249,9 +249,23 @@ class RoomLibraryRepository(
         }
     }
 
-    override suspend fun moveItems(context: Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {
+    override suspend fun moveItems(context: Context, items: List<LibraryItemEntity>, targetFolderPath: String?): List<LibraryItemEntity> =
+        moveItems(context, items, targetFolderPath, skipTakenNames = true)
+
+    /**
+     * [skipTakenNames] false keeps the old move-anyway behavior for [shallowDeleteFolder], which deletes the
+     * folder right after: a child left behind would be deleted with it. The server moves those children
+     * itself (one shallow-delete task).
+     */
+    private suspend fun moveItems(
+        context: Context,
+        items: List<LibraryItemEntity>,
+        targetFolderPath: String?,
+        skipTakenNames: Boolean
+    ): List<LibraryItemEntity> =
         withContext(Dispatchers.IO) {
             val processedDir = File(context.filesDir, "Processed")
+            val notMoved = mutableListOf<LibraryItemEntity>()
             
             // Get current max order rank in target folder
             var currentMaxRank = if (targetFolderPath == null) libraryDao.getMaxRootOrderRank() 
@@ -266,6 +280,14 @@ class RoomLibraryRepository(
                 // 1. Move physical file
                 val oldFile = File(processedDir, oldPath)
                 val newFile = File(processedDir, newPath)
+
+                // Another item already there (a streamed one has no file, so ask the library too).
+                val taken = newPath != oldPath &&
+                    (libraryDao.getItemByPath(newPath).let { it != null && it.uuid != item.uuid } || newFile.exists())
+                if (skipTakenNames && taken) {
+                    notMoved += item
+                    return@forEach
+                }
                 
                 // Ensure parent directory exists
                 newFile.parentFile?.let { if (!it.exists()) it.mkdirs() }
@@ -294,8 +316,8 @@ class RoomLibraryRepository(
                 updateParentFolders(previousPath)
                 updateParentFolders(newPath)
             }
+            notMoved
         }
-    }
 
     override suspend fun shallowDeleteFolder(context: Context, folder: LibraryItemEntity) {
         withContext(Dispatchers.IO) {
@@ -307,7 +329,7 @@ class RoomLibraryRepository(
             // sub-container's descendants, so rewrite those prefixes here.
             // moveItems handles files, the child rows, AND (now) descendant-path rewriting for
             // moved sub-containers.
-            moveItems(context, libraryDao.getItemsInPathSync(folderPath), targetFolderPath = null)
+            moveItems(context, libraryDao.getItemsInPathSync(folderPath), targetFolderPath = null, skipTakenNames = false)
 
             // The folder is now empty: remove its directory and its row.
             File(processedDir, folderPath).takeIf { it.exists() }?.deleteRecursively()

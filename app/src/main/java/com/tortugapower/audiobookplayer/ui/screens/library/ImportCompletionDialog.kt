@@ -41,7 +41,7 @@ import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
 
 /**
  * Post-import placement prompt (BookPlayer iOS parity). Offers, per the imported batch:
- * - Library: leave items where they were inserted (default; also the dismiss action)
+ * - Library: the library root; imported inside a folder, the items move there (iOS parity)
  * - Current folder: only when the user is inside a folder
  * - New folder: name input pre-filled with the batch's suggested name
  * - Existing folder: disabled when no other folders exist at the insertion level
@@ -139,7 +139,7 @@ fun ImportCompletionDialog(
     }
 
     AlertDialog(
-        // Dismiss = "Library": the items stay where they were inserted.
+        // Dismissing leaves the items where they were inserted.
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.import_complete_title)) },
         text = {
@@ -147,7 +147,13 @@ fun ImportCompletionDialog(
                 Text(stringResource(R.string.import_complete_message))
                 Spacer(modifier = Modifier.height(8.dp))
 
-                CompletionOption(text = stringResource(R.string.import_option_library), onClick = onDismiss)
+                CompletionOption(
+                    text = stringResource(R.string.import_option_library),
+                    onClick = {
+                        libraryViewModel.moveImportToLibrary(context, completion)
+                        onDismiss()
+                    }
+                )
 
                 if (currentFolderPath != null) {
                     CompletionOption(

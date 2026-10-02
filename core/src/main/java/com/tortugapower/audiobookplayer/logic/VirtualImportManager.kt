@@ -54,6 +54,7 @@ object VirtualImportManager {
      *   item is playable on devices that can't reach the Jellyfin/ABS server
      * @param files the item's audio files when it has several: it's imported as a volume of them
      *   ([importStreamVolume]) instead of one book
+     * @param basePath the folder the item goes in (the one being browsed); null = library root
      */
     suspend fun importStreamItem(
         libraryDao: LibraryDao,
@@ -64,29 +65,31 @@ object VirtualImportManager {
         artworkPath: String? = null,
         enqueueSyncTasks: Boolean = true,
         isPro: Boolean = false,
-        files: List<StreamFile> = emptyList()
+        files: List<StreamFile> = emptyList(),
+        basePath: String? = null
     ): Result? {
         libraryDao.getExternalResourceByProvider(providerName, externalItem.uuid)?.let { resource ->
             libraryDao.getItemById(resource.libraryItemUuid)?.let { return Result(it, true) }
         }
 
         if (files.size > 1) {
-            return importStreamVolume(libraryDao, syncTaskRepository, externalItem, providerName, hostId, artworkPath, enqueueSyncTasks, isPro, files)
+            return importStreamVolume(libraryDao, syncTaskRepository, externalItem, providerName, hostId, artworkPath, enqueueSyncTasks, isPro, files, basePath)
         }
 
         val originalFileName = externalItem.originalFileName?.takeIf { it.isNotBlank() } ?: return null
         val fileName = FilenameUtils.sanitizeFilename(originalFileName)
         val uuid = UUID.randomUUID().toString()
 
-        // relativePath is the item's unique "location" (root-level, so no '/'), and is also how
-        // playback probes Processed/ for a local file — a different book may already own this
-        // filename, so disambiguate instead of colliding with it.
-        var relativePath = fileName
+        // relativePath is the item's unique "location", and is also how playback probes Processed/ for a
+        // local file — a different book may already own this filename, so disambiguate instead of
+        // colliding with it.
+        var name = fileName
         if (libraryDao.existsWithFileName(fileName)) {
             val base = fileName.substringBeforeLast('.')
             val ext = fileName.substringAfterLast('.', "")
-            relativePath = if (ext.isEmpty()) "$base-${uuid.take(8)}" else "$base-${uuid.take(8)}.$ext"
+            name = if (ext.isEmpty()) "$base-${uuid.take(8)}" else "$base-${uuid.take(8)}.$ext"
         }
+        val relativePath = pathIn(basePath, name)
 
         val entity = LibraryItemEntity(
             uuid = uuid,
@@ -96,7 +99,7 @@ object VirtualImportManager {
             relativePath = relativePath,
             originalFileName = fileName,
             artworkURL = artworkPath,
-            orderRank = (libraryDao.getMaxRootOrderRank() ?: -1) + 1,
+            orderRank = nextOrderRank(libraryDao, basePath),
             type = ItemType.BOOK
         )
         val resource = ExternalResourceEntity(
@@ -135,6 +138,11 @@ object VirtualImportManager {
      * per file named by [volumeChildFileNames], in the server's order. Each book plays its own file, looked up
      * through the volume's link ([MediaServerStreams]). Root-level, like single-book stream imports.
      */
+    private fun pathIn(basePath: String?, name: String) = if (basePath == null) name else "$basePath/$name"
+
+    private suspend fun nextOrderRank(libraryDao: LibraryDao, basePath: String?): Int =
+        ((if (basePath == null) libraryDao.getMaxRootOrderRank() else libraryDao.getMaxPathOrderRank(basePath)) ?: -1) + 1
+
     private suspend fun importStreamVolume(
         libraryDao: LibraryDao,
         syncTaskRepository: SyncTaskRepository,
@@ -144,12 +152,15 @@ object VirtualImportManager {
         artworkPath: String?,
         enqueueSyncTasks: Boolean,
         isPro: Boolean,
-        files: List<StreamFile>
+        files: List<StreamFile>,
+        basePath: String?
     ): Result {
         val uuid = UUID.randomUUID().toString()
         val folderName = FilenameUtils.sanitizeFilename(externalItem.title)
         // relativePath is the volume's unique location (and its books' parent); a different item may own it.
-        val volumePath = if (libraryDao.getItemByPath(folderName) != null) "$folderName-${uuid.take(8)}" else folderName
+        val volumePath = pathIn(basePath, folderName).let { path ->
+            if (libraryDao.getItemByPath(path) != null) pathIn(basePath, "$folderName-${uuid.take(8)}") else path
+        }
 
         val volume = LibraryItemEntity(
             uuid = uuid,
@@ -159,7 +170,7 @@ object VirtualImportManager {
             duration = files.sumOf { it.duration },
             relativePath = volumePath,
             artworkURL = artworkPath,
-            orderRank = (libraryDao.getMaxRootOrderRank() ?: -1) + 1,
+            orderRank = nextOrderRank(libraryDao, basePath),
             type = ItemType.BOUND
         )
         val names = volumeChildFileNames(files.map { it.name })

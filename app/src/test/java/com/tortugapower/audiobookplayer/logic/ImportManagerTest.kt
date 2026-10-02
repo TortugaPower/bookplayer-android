@@ -221,7 +221,8 @@ class ImportManagerTest {
         )!!
 
         assertEquals(ItemType.BOUND, db.libraryDao().getItemById(volume.uuid)!!.type)
-        assertEquals("2", db.libraryDao().getItemById(volume.uuid)!!.author)
+        // The returned item carries the totals too: the prompt moves it, and moves write it back.
+        assertEquals("2", volume.author)
         // Recorded regardless of tier (only the sync-task upload is gated).
         val link = db.libraryDao().getExternalResourceByProvider("audiobookshelf", "abs-9")!!
         assertEquals(volume.uuid, link.libraryItemUuid)

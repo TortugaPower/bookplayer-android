@@ -69,4 +69,40 @@ class ImportManagerStreamTest {
         val books = runBlocking { dao.getItemsInPathSync("Foxtrot") }.sortedBy { it.orderRank }
         assertEquals(listOf("Foxtrot/01 - Part 1.mp3", "Foxtrot/02 - Part 2.mp3"), books.map { it.relativePath })
     }
+
+    // iOS parity: a stream import lands in the folder being browsed and gets the placement prompt.
+    @Test fun `a stream import inside a folder lands there and is placed by the prompt`() {
+        runBlocking { dao.insertItem(LibraryItemEntity(uuid = "shelf", title = "Shelf", relativePath = "Shelf", type = ItemType.FOLDER)) }
+        val item = ExternalLibraryItem(
+            entity = LibraryItemEntity(uuid = "abs-9", title = "Golf", author = "Author", originalFileName = "Golf.m4b", type = ItemType.BOOK),
+        )
+
+        ImportManager.startStreamImport(context, listOf(item), "audiobookshelf", "https://abs.example.com", 0)
+        awaitUntil { ImportManager.importedFiles.isNotEmpty() }
+        ImportManager.acceptImport(context, "Shelf")
+        awaitUntil { ImportManager.importCompletion != null && !ImportManager.isImporting }
+
+        val completion = ImportManager.importCompletion!!
+        assertEquals("Shelf", completion.basePath)
+        assertEquals(listOf("Shelf/Golf.m4b"), completion.items.map { it.relativePath })
+    }
+
+    // Already in the library: nothing was imported, so there's nothing to place.
+    @Test fun `a stream import of an item already in the library prompts for nothing`() {
+        runBlocking {
+            dao.insertItemWithExternalResource(
+                LibraryItemEntity(uuid = "have", title = "Golf", relativePath = "Golf.m4b", type = ItemType.BOOK),
+                ExternalResourceEntity(providerName = "audiobookshelf", providerId = "abs-9", syncStatus = ExternalResourceEntity.STATUS_STREAM, libraryItemUuid = "have"),
+            )
+        }
+        val other = ExternalLibraryItem(entity = LibraryItemEntity(uuid = "abs-10", title = "Hotel", originalFileName = "Hotel.m4b", type = ItemType.BOOK))
+        val again = ExternalLibraryItem(entity = LibraryItemEntity(uuid = "abs-9", title = "Golf", originalFileName = "Golf.m4b", type = ItemType.BOOK))
+
+        ImportManager.startStreamImport(context, listOf(again, other), "audiobookshelf", "https://abs.example.com", 0)
+        awaitUntil { ImportManager.importedFiles.isNotEmpty() }
+        ImportManager.acceptImport(context, null)
+        awaitUntil { ImportManager.importCompletion != null && !ImportManager.isImporting }
+
+        assertEquals(listOf("Hotel.m4b"), ImportManager.importCompletion!!.items.map { it.relativePath })
+    }
 }

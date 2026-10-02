@@ -440,4 +440,7 @@
     <string name="external_server_missing_message">この本は %1$s サーバーからストリーミングされます。本を再生するには、このデバイスでサーバーに接続してください。</string>
     <string name="external_server_missing_message_address">この本は %2$s の %1$s サーバーからストリーミングされます。本を再生するには、このデバイスにそのサーバーを追加してください。</string>
     <string name="external_server_missing_connect">接続</string>
+    <plurals name="library_move_name_taken">
+        <item quantity="other">%1$d個のアイテムを移動できませんでした。移動先に同じ名前のアイテムが既にあります。</item>
+    </plurals>
 </resources>

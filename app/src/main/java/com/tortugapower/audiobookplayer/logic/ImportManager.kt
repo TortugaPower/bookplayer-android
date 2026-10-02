@@ -499,7 +499,8 @@ object ImportManager : ImportService {
                             artworkPath = artworkPath ?: streamEntity.artworkURL,
                             enqueueSyncTasks = isSubscribed,
                             isPro = isPro,
-                            files = importFile.streamFiles
+                            files = importFile.streamFiles,
+                            basePath = targetFolderPath
                         )
                         if (result == null) {
                             // No file name to store it under — staging hydrates the real extension, so
@@ -507,6 +508,8 @@ object ImportManager : ImportService {
                             skippedNoAudioCount++
                         } else if (!result.alreadyImported) {
                             currentMaxRank = maxOf(currentMaxRank, result.item.orderRank)
+                            // Placed by the prompt like any import (iOS parity). One already in the library stays put.
+                            createdItems.add(result.item)
                             enqueueHardcoverAutoMatch(context, syncTaskRepository, result.item.uuid)
                         }
                     } else if (importFile.file != null && importFile.file.exists()) {
@@ -682,7 +685,9 @@ object ImportManager : ImportService {
         val firstChild = libraryDao.getItemsInPathSync(folderPath).firstOrNull()
         RoomLibraryRepository(context.applicationContext, libraryDao)
             .refreshParentMetadata(firstChild?.relativePath ?: "$folderPath/")
-        return folderItem
+        // The stored row, with the totals the roll-up just wrote: the placement prompt moves or converts this
+        // item, and writing back the entity built above would reset its count and duration.
+        return libraryDao.getItemById(folderItem.uuid) ?: folderItem
     }
 
     private suspend fun importDirectoryContents(

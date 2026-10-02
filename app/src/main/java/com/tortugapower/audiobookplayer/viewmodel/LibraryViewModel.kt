@@ -311,10 +311,30 @@ class LibraryViewModel(
         }
     }
 
+    /**
+     * The post-import prompt's "Library": a batch imported inside a folder moves to the library root
+     * (iOS parity: ItemListViewModel.importIntoLibrary). At the root there's nothing to move.
+     */
+    fun moveImportToLibrary(context: android.content.Context, completion: com.tortugapower.audiobookplayer.logic.ImportCompletion) {
+        if (completion.basePath != null) moveSelectedItems(context, completion.items, null)
+    }
+
     fun moveSelectedItems(context: android.content.Context, items: List<LibraryItemEntity>, targetPath: String?) {
         viewModelScope.launch {
-            repository.moveItems(context, items, targetPath)
+            reportNotMoved(repository.moveItems(context, items, targetPath))
         }
+    }
+
+    private val _itemsNotMoved = MutableStateFlow<Int?>(null)
+    /** How many items of the last move stayed put because their name was taken at the destination. */
+    val itemsNotMoved: StateFlow<Int?> = _itemsNotMoved.asStateFlow()
+
+    fun clearItemsNotMoved() {
+        _itemsNotMoved.value = null
+    }
+
+    private fun reportNotMoved(notMoved: List<LibraryItemEntity>) {
+        if (notMoved.isNotEmpty()) _itemsNotMoved.value = notMoved.size
     }
 
     /**
@@ -345,7 +365,7 @@ class LibraryViewModel(
                 orderRank = (currentMaxRank ?: -1) + 1
             )
             repository.saveItem(newFolder)
-            repository.moveItems(context, items, relativePath)
+            reportNotMoved(repository.moveItems(context, items, relativePath))
         }
     }
 

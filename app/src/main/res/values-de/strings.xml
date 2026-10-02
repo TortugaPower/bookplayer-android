@@ -442,4 +442,8 @@
     <string name="external_server_missing_message">Dieses Buch wird von Ihrem %1$s-Server gestreamt. Verbinden Sie ihn auf diesem Gerät, um das Buch abzuspielen.</string>
     <string name="external_server_missing_message_address">Dieses Buch wird von Ihrem %1$s-Server unter %2$s gestreamt. Fügen Sie diesen Server auf diesem Gerät hinzu, um das Buch abzuspielen.</string>
     <string name="external_server_missing_connect">Verbinden</string>
+    <plurals name="library_move_name_taken">
+        <item quantity="one">%1$d Element wurde nicht verschoben: Dort gibt es bereits eines mit demselben Namen.</item>
+        <item quantity="other">%1$d Elemente wurden nicht verschoben: Dort gibt es bereits Elemente mit denselben Namen.</item>
+    </plurals>
 </resources>
