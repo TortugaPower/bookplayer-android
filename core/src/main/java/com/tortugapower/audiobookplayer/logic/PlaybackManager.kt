@@ -1000,7 +1000,7 @@ object PlaybackManager {
 
             val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
             // Gather the backing items, back-fill any missing artwork, then build the playback model.
-            val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir)
+            val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir, userInitiated = autoplay)
             if (restartFromZero) {
                 // The refreshed row is a fresh DB read that can race the async reset write above —
                 // re-apply the restart so the seek below can't land on the stale saved position.
@@ -1045,7 +1045,7 @@ object PlaybackManager {
                 // hostId E2E: a fresh sign-in on a second device auto-loaded a media-server book
                 // and alerted before the user touched anything). A real tap on the same book
                 // retries with autoplay=true and surfaces the right dialog then.
-                // A rejected token is already surfaced by its own alert (reportLookupAuthError).
+                // A rejected token is already surfaced by its own alert (refreshRemoteUrlsIfNecessary).
                 if (autoplay && !_externalStreamAuthError.value) {
                     // Cross-device external item with no matching local server: show the
                     // connect-your-server prompt INSTEAD of the generic error (never both).
@@ -1139,9 +1139,10 @@ object PlaybackManager {
         context: Context,
         item: LibraryItemEntity,
         isBound: Boolean,
-        processedDir: File
+        processedDir: File,
+        userInitiated: Boolean
     ): Pair<PlayableItem, LibraryItemEntity> = withContext(Dispatchers.IO) {
-        val refreshedItem = refreshRemoteUrlsIfNecessary(context, item, isBound, processedDir)
+        val refreshedItem = refreshRemoteUrlsIfNecessary(context, item, isBound, processedDir, userInitiated)
         val p = if (isBound) {
             val subItems = getRepository(context).getItemsInPathSync(refreshedItem.relativePath ?: "")
             val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
@@ -1181,7 +1182,8 @@ object PlaybackManager {
         }
         val processedDir = File(context.filesDir, "Processed")
         val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
-        val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir)
+        // A browse-play in the car is the user's own pick.
+        val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir, userInitiated = true)
         val mediaItems = buildMediaItems(playable, processedDir, null)
         if (mediaItems.isEmpty()) return null
 
@@ -1222,7 +1224,8 @@ object PlaybackManager {
 
         // Build the playback model (back-filling artwork) and the Media3 playlist.
         val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
-        val refreshedItem = refreshRemoteUrlsIfNecessary(appContext, item, isBound, processedDir)
+        // Silent: a restore at launch never raises an alert.
+        val refreshedItem = refreshRemoteUrlsIfNecessary(appContext, item, isBound, processedDir, userInitiated = false)
         val playable = if (isBound) {
             val subItems = getRepository(appContext).getItemsInPathSync(refreshedItem.relativePath ?: "")
             val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
@@ -1576,27 +1579,35 @@ object PlaybackManager {
 
     /**
      * Saves each not-downloaded sub-book's media-server URL, in one lookup per streamed volume: buildBound
-     * reads sub-books back from the database. Local-only (the URL is never synced). Unlike
-     * [LibraryRepository.resolveStreamingUrls], a server rejecting its token raises the session alert.
-     * Returns the uuids that got one.
+     * reads sub-books back from the database. Local-only (the URL is never synced). [onSessionExpired] runs
+     * when a server rejects its token. Returns the uuids that got one.
      */
-    private suspend fun saveSubStreams(context: Context, repo: LibraryRepository, subItems: List<LibraryItemEntity>, processedDir: File): Set<String> {
+    private suspend fun saveSubStreams(
+        context: Context,
+        repo: LibraryRepository,
+        subItems: List<LibraryItemEntity>,
+        processedDir: File,
+        onSessionExpired: (() -> Unit)?,
+    ): Set<String> {
         val remote = subItems.filter { sub -> sub.relativePath?.let { File(processedDir, it).isFile } != true }
-        val urls = repo.externalStreamUrlsFor(remote, ::reportLookupAuthError)
+        val urls = repo.externalStreamUrlsFor(remote, onSessionExpired)
         val dao = AppDatabase.getDatabase(context).libraryDao()
         urls.forEach { (uuid, url) -> dao.updateRemoteURL(uuid, url) }
         return urls.keys
     }
 
     /**
-     * A media server rejected its stored token while looking up what to stream: the same alert as a
-     * stream answering 401, for user-initiated loads only (silent loads never alert).
+     * [userInitiated]: a media server rejecting its stored token while looking up what to stream raises the
+     * same alert as a stream answering 401 — only for loads the user started (silent loads never alert).
      */
-    private fun reportLookupAuthError() {
-        if (lastLoadUserInitiated) reportExternalStreamAuthError()
-    }
-
-    private suspend fun refreshRemoteUrlsIfNecessary(context: Context, item: LibraryItemEntity, isBound: Boolean, processedDir: File): LibraryItemEntity {
+    private suspend fun refreshRemoteUrlsIfNecessary(
+        context: Context,
+        item: LibraryItemEntity,
+        isBound: Boolean,
+        processedDir: File,
+        userInitiated: Boolean
+    ): LibraryItemEntity {
+        val onSessionExpired: (() -> Unit)? = if (userInitiated) ::reportExternalStreamAuthError else null
         val repo = getRepository(context)
         val isLocal = if (isBound) {
             val subItems = repo.getItemsInPathSync(item.relativePath ?: "")
@@ -1618,7 +1629,7 @@ object PlaybackManager {
             // both purposes: a non-null URL IS the "a saved server can serve this" signal the
             // media-server-first branch below keys on (no second server read + token decrypt). A bound
             // book has no file of its own: its sub-books are resolved below.
-            val externalUrl = if (isBound) null else repo.externalStreamUrlsFor(listOf(item), ::reportLookupAuthError)[item.uuid]
+            val externalUrl = if (isBound) null else repo.externalStreamUrlsFor(listOf(item), onSessionExpired)[item.uuid]
             val resolvedItem = item.also { if (externalUrl != null) it.remoteURL = externalUrl }
 
             try {
@@ -1660,7 +1671,7 @@ object PlaybackManager {
                         }
                     }
                     val subItems = repo.getItemsInPathSync(volumePath)
-                    val streamed = saveSubStreams(context, repo, subItems, processedDir)
+                    val streamed = saveSubStreams(context, repo, subItems, processedDir, onSessionExpired)
                     // Media-server-first, as for single books: the cloud copy only for sub-books no saved
                     // server can serve.
                     body?.content?.forEach { remoteSub ->

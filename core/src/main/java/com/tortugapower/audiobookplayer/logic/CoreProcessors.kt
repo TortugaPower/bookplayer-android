@@ -568,6 +568,9 @@ class DownloadFileProcessor(
         // One base client for every download (and retry); per-server variants derive via newBuilder(),
         // which shares this client's connection pool and dispatcher threads.
         private val baseHttpClient by lazy { okhttp3.OkHttpClient() }
+
+        // ABS's whole-item download (`api/items/{id}/download`), which older builds queued as a book's URL.
+        private val LEGACY_ABS_ITEM_DOWNLOAD = Regex("""/api/items/[^/?]+/download(\?|$)""")
     }
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
@@ -592,7 +595,13 @@ class DownloadFileProcessor(
         val owner = mediaServerOwner(taskId)
         // An ABS file URL can't be relied on to still work by the time the task runs (a file's id changes
         // when the file is replaced), and a lookup that failed at enqueue leaves none: ask the server again.
-        var remoteURL = (payload["remoteURL"] as? String).orEmpty().ifEmpty { owner?.let { freshMediaServerUrl(taskId) }.orEmpty() }
+        // A task queued before ABS books streamed per file carries the item download URL instead, a zip for
+        // any book in a folder (and an old token): ask the server for the file.
+        val payloadUrl = (payload["remoteURL"] as? String).orEmpty()
+        val isLegacyAbsItemUrl = owner?.resource?.providerName.equals("audiobookshelf", ignoreCase = true) &&
+            LEGACY_ABS_ITEM_DOWNLOAD.containsMatchIn(payloadUrl)
+        var remoteURL = payloadUrl.takeUnless { isLegacyAbsItemUrl }.orEmpty()
+            .ifEmpty { owner?.let { freshMediaServerUrl(taskId) }.orEmpty() }
 
         if (remoteURL.isEmpty() || relativePath.isNullOrEmpty()) {
             Log.e("DownloadFileProcessor", "❌ Missing remoteURL or relativePath")

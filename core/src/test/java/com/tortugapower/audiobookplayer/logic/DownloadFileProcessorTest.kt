@@ -256,6 +256,20 @@ class DownloadFileProcessorTest {
         assertEquals(0, mediaServer.requestCount)
     }
 
+    @Test fun `a task queued with the old item download URL fetches the file instead`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setBody(expandedItem))
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        val handled = processor().process(childDownloadTask(mediaServer.url("/api/items/abs-1/download?token=old").toString()))
+
+        assertTrue(handled)
+        // The zip URL is never requested: the first call is the lookup, the second the file.
+        assertEquals("/api/items/abs-1?expanded=1", mediaServer.takeRequest().path)
+        assertEquals("/api/items/abs-1/file/222", mediaServer.takeRequest().path)
+        assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, childPath).readText())
+    }
+
     @Test fun `a task queued without a URL looks it up`() = runBlocking {
         insertStreamedVolume()
         mediaServer.enqueue(MockResponse().setBody(expandedItem))
