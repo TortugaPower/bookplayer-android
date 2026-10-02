@@ -315,12 +315,12 @@ class MetadataUploadProcessor(
  * it before it counts as downloaded (iOS `BPTaskDownloadDelegate` + `SyncService.verifyDownloadedFile`):
  * the bytes go to a temp file, which must hold as many bytes as the response announced and play at
  * least the book's stored duration (less 2 s or 2%, whichever is more), and only then is it moved into
- * place. A length Android's reader can't measure passes when every announced byte arrived and the answer
- * isn't text (a proxy's login or error page). A file that never finished is never in `Processed/`, where
- * it would count as downloaded, play half, or be uploaded.
+ * place. A text answer (a proxy's login or error page) is never the book, and a length Android's reader
+ * can't measure passes when every announced byte arrived. A file that never finished is never in
+ * `Processed/`, where it would count as downloaded, play half, or be uploaded.
  *
  * A download that fails for good (an HTTP error answer, a server with no file for the book, a file that
- * fails the checks) is dropped, and the library says so once ([SyncStatusManager.notifyDownloadFailed]);
+ * fails the checks) is dropped, and the app says so once ([SyncStatusManager.notifyDownloadFailed]);
  * tapping download again asks afresh. A connection problem retries, as before.
  */
 class DownloadFileProcessor(
@@ -502,14 +502,15 @@ class DownloadFileProcessor(
                 if (contentLength > 0 && bytesRead < contentLength) {
                     return failedForGood(taskId, title, "it ended at $bytesRead of $contentLength bytes")
                 }
+                // Text in its place (a proxy's login or error page) is never the book, whatever is stored for it:
+                // kept, a streamed book's would even go up to the cloud as its file
+                val type = body.contentType()
+                if (type != null && (type.type == "text" || (type.type == "application" && type.subtype in TEXT_APPLICATION_SUBTYPES))) {
+                    return failedForGood(taskId, title, "the server answered with $type instead of audio")
+                }
                 // Every announced byte arrived: a length Android's reader can't measure (a format it doesn't
-                // know, though the player does) isn't a sign of a cut file. Text in its place (a proxy's login
-                // or error page) still is.
-                val isText = body.contentType()?.let {
-                    it.type == "text" || (it.type == "application" && it.subtype in TEXT_APPLICATION_SUBTYPES)
-                } == true
-                val trustUnreadable = contentLength > 0 && !isText
-                failedCheck(part, book?.duration, trustUnreadable)?.let { reason -> return failedForGood(taskId, title, reason) }
+                // know, though the player does) isn't a sign of a cut file
+                failedCheck(part, book?.duration, trustUnreadable = contentLength > 0)?.let { reason -> return failedForGood(taskId, title, reason) }
 
                 destFile.parentFile?.mkdirs()
                 destFile.delete()
@@ -561,7 +562,7 @@ class DownloadFileProcessor(
 
     /**
      * Ends the task without retrying: every retry would hold up the serial file queue behind it, and tapping
-     * download again asks afresh. The library says so once.
+     * download again asks afresh. The app says so once.
      */
     private fun failedForGood(uuid: String, title: String, why: String, expiredServer: String? = null): Boolean {
         Log.w("DownloadFileProcessor", "🧹 Dropping download $uuid: $why")

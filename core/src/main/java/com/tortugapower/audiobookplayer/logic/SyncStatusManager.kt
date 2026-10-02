@@ -1,11 +1,8 @@
 package com.tortugapower.audiobookplayer.logic
 
 import androidx.annotation.VisibleForTesting
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -27,18 +24,26 @@ object SyncStatusManager {
     fun clearCancel(taskId: String) { _cancelRequests.update { it - taskId } }
 
     /**
-     * A download that failed for good and was dropped (iOS's download error): the library says so once.
+     * A download that failed for good and was dropped (iOS's download error): the app says so once.
      * [expiredServer] names the media server that rejected the sign-in: trying again won't help until the
-     * user signs in again, so the library says that instead.
+     * user signs in again, so the app says that instead.
      */
     data class DownloadFailure(val uuid: String, val title: String, val expiredServer: String? = null)
 
-    private val _downloadFailures = MutableSharedFlow<DownloadFailure>(extraBufferCapacity = 8)
-    /** One event per dropped download; nothing is replayed to a screen that wasn't showing */
-    val downloadFailures: SharedFlow<DownloadFailure> = _downloadFailures.asSharedFlow()
+    private val _downloadFailures = MutableStateFlow<List<DownloadFailure>>(emptyList())
+    /**
+     * The dropped downloads the user hasn't been told about yet, oldest first. They wait here (a rotation, or
+     * the app away from the screen) until the app shows them and hands them to [dismissDownloadFailures].
+     */
+    val downloadFailures: StateFlow<List<DownloadFailure>> = _downloadFailures.asStateFlow()
 
     fun notifyDownloadFailed(failure: DownloadFailure) {
-        _downloadFailures.tryEmit(failure)
+        _downloadFailures.update { it + failure }
+    }
+
+    /** [shown] were shown (the oldest pending ones); any that came in since stay, and a repeated call does nothing */
+    fun dismissDownloadFailures(shown: List<DownloadFailure>) {
+        _downloadFailures.update { if (it.take(shown.size) == shown) it.drop(shown.size) else it }
     }
 
     // How often one library level's contents (and the sort-preferences pull that rides the same cadence)

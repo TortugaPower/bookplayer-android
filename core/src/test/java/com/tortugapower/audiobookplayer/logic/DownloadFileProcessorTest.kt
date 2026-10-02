@@ -536,6 +536,19 @@ class DownloadFileProcessorTest {
         assertEquals("opus-audio", OfflineDownloadManager.processedFile(context, relativePath).readText())
     }
 
+    /** Nothing stored to check against doesn't make a login page the book: kept, a streamed book's would go up */
+    @Test fun `text in place of the file is dropped with no stored duration too`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setBody("<html>sign in</html>").setHeader("Content-Type", "text/html"))
+        val failures = mutableListOf<String>()
+
+        assertTrue(processor(failures = failures, queuesUploads = true).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertEquals(listOf("Book One"), failures)
+        assertFalse(OfflineDownloadManager.processedFile(context, relativePath).exists())
+        assertTrue(queuedUploads().isEmpty())
+    }
+
     /** A proxy's login or error page comes whole too: it's still not the book */
     @Test fun `text in place of the file is dropped even at full length`() = runBlocking {
         insertCloudBook(duration = 600.0)

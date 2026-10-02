@@ -50,7 +50,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -74,8 +73,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.tortugapower.audiobookplayer.logic.ItemArtwork
@@ -107,8 +104,6 @@ import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModelFactory
 /** Duration of the horizontal slide between library folders. */
 private const val FolderNavDurationMillis = 400
 
-/** How long a failed download's snackbar waits for the rest of a run of failures to share it */
-private const val DownloadFailuresGatherMillis = 500L
 
 @Composable
 fun LibraryScreen(
@@ -144,28 +139,6 @@ fun LibraryScreen(
     val syncPausedMessage = stringResource(R.string.sync_paused_alert_title)
     val viewTasksLabel = stringResource(R.string.sync_tasks_view_title)
     val openQueuedTasks by rememberUpdatedState(onNavigateToQueuedTasks)
-    // A download that failed for good was dropped (DownloadFileProcessor): say so, as iOS's alert does. A run
-    // of them (a volume's books on a server that answers with an error) shares one snackbar, not one each.
-    val resources = LocalResources.current
-    LaunchedEffect(Unit) {
-        val failures = Channel<SyncStatusManager.DownloadFailure>(Channel.UNLIMITED)
-        launch { SyncStatusManager.downloadFailures.collect { failures.send(it) } }
-        for (first in failures) {
-            delay(DownloadFailuresGatherMillis)
-            val run = listOf(first) + generateSequence { failures.tryReceive().getOrNull() }
-            // A server that rejected the sign-in is named once: trying again won't help until the user signs in
-            run.mapNotNull { it.expiredServer }.distinct().forEach { server ->
-                snackbarHostState.showSnackbar(resources.getString(R.string.media_servers_error_session_expired, server))
-            }
-            val titles = run.filter { it.expiredServer == null }.map { it.title }
-            if (titles.isEmpty()) continue
-            val more = titles.size - 1
-            snackbarHostState.showSnackbar(
-                if (more == 0) resources.getString(R.string.download_incomplete_error, titles.first())
-                else resources.getQuantityString(R.plurals.download_incomplete_error_several, more, titles.first(), more)
-            )
-        }
-    }
     // A pull-to-refresh that lands while sync jobs are queued is declined (see LibraryViewModel.refresh);
     // surface that as a transient note rather than silently doing nothing, with the way to the queue (iOS
     // offers "View tasks" too). A parked task means the queue won't drain on its own.

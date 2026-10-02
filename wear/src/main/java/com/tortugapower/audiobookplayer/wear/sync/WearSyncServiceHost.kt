@@ -115,7 +115,8 @@ class WearSyncServiceHost : Service() {
             ArtworkUploadProcessor(this),
             DeleteBookmarkProcessor(),
             SetBookmarkProcessor(),
-            DownloadFileProcessor(this),
+            // The watch says nothing about a dropped download, as on iOS: its row goes back to not downloaded
+            DownloadFileProcessor(this, onFailedForGood = {}),
             MatchUuidsProcessor(this, repository),
             HardcoverProcessor(this),
             UploadExternalResourceProcessor(),
