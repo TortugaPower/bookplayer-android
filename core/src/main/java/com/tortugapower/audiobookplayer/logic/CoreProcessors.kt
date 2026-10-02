@@ -5,6 +5,7 @@ import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
@@ -216,9 +217,25 @@ class SyncIdentifiersProcessor(
     }
 }
 
+/**
+ * Registers an item with the server (`PUT /v1/library`) and acts on the answer the way iOS does
+ * (`LibraryItemSyncOperation.handleUploadJob`). The answer's `url` only means "the server needs the
+ * bytes": a book never goes to it, and a PRO account's book queues a multipart upload instead
+ * ([MultipartUploadProcessor]), which marks it synced once S3 assembles it. LITE never uploads files,
+ * so its books stay unsynced. A media-server book's file goes up only once it's downloaded, so its
+ * registration queues nothing. A folder or bound book has no bytes: a PRO account's empty PUT to the url,
+ * if one came, then the server is told it's synced, on every tier. Branches on the item's type: a PRO
+ * container gets a url too.
+ */
 class MetadataUploadProcessor(
     private val context: Context,
-    private val repository: SyncTaskRepository
+    private val repository: SyncTaskRepository,
+    private val libraryApi: com.tortugapower.audiobookplayer.network.LibraryApi = NetworkClient.libraryApi,
+    private val libraryDao: () -> com.tortugapower.audiobookplayer.database.dao.LibraryDao =
+        { AppDatabase.getDatabase(context).libraryDao() },
+    private val accountTier: suspend () -> com.tortugapower.audiobookplayer.database.entities.AccountTier? =
+        { AppDatabase.getDatabase(context).accountDao().getAccount()?.tier },
+    private val putEmpty: suspend (url: String) -> Int = com.tortugapower.audiobookplayer.network.S3Transfer::putEmpty,
 ) : TaskProcessor {
     private val gson = Gson()
 
@@ -226,122 +243,66 @@ class MetadataUploadProcessor(
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
 
-        val response = NetworkClient.libraryApi.uploadMetadata(payload)
+        val response = libraryApi.uploadMetadata(payload)
         val error = response.throwIfCoded()
-        
-        if (response.isSuccessful && response.body() != null) {
-            val uploadResponse = response.body()!!
-            val uploadUrl = uploadResponse.content.url
-            
-            if (!uploadUrl.isNullOrEmpty()) {
-                val database = AppDatabase.getDatabase(context)
-                val libraryDao = database.libraryDao()
-                
-                val itemUuid = payload["uuid"] as? String
-                val item = if (itemUuid != null) libraryDao.getItemById(itemUuid) else null
-                
-                if (item != null) {
-                    // Only books WITH a local file get the follow-up upload: a stream-only import has no
-                    // file on this device (the audio lives on the user's Jellyfin/ABS server), and an
-                    // upload task for a missing file can never succeed — it would poison the serial file
-                    // queue with endless retries.
-                    val hasLocalFile = OfflineDownloadManager.isFileDownloaded(context, item.relativePath)
-                    if (item.type == ItemType.BOOK && hasLocalFile) {
-                        Log.d("MetadataUploadProcessor", "📦 Creating follow-up file upload task for item: ${item.title}")
-                        SyncTaskFactory.createUploadFileTask(repository, item, uploadUrl)
-                    } else if (item.type == ItemType.BOOK) {
-                        Log.d("MetadataUploadProcessor", "⏭️ Skipping file upload for stream-only/offloaded item (no local file): ${item.title}")
-                    } else {
-                        Log.d("MetadataUploadProcessor", "⏭️ Skipping file upload task for non-BOOK item (${item.type}): ${item.title}")
-                    }
-                } else {
-                    Log.e("MetadataUploadProcessor", "❌ Could not find library item for UUID: $itemUuid to trigger file upload")
-                }
-            } else {
-                Log.w("MetadataUploadProcessor", "⚠️ Metadata upload successful but no URL was provided for file upload")
-            }
-            return true
-        } else {
+        val body = response.body()
+        if (!response.isSuccessful || body == null) {
             Log.e("MetadataUploadProcessor", "❌ Metadata upload failed: ${response.code()} ${error?.rawBody}")
+            return false
         }
+        val url = body.content.url?.takeIf { it.isNotBlank() }
+        val item = (payload["uuid"] as? String)?.let { libraryDao().getItemById(it) }
+        if (item == null) {
+            // Gone locally since it was queued: nothing to upload or confirm
+            Log.w("MetadataUploadProcessor", "⚠️ Registered an item no longer in the library")
+            return true
+        }
+
+        val tier = accountTier()
+        if (item.type != ItemType.BOOK) {
+            if (url != null) {
+                val status = putEmpty(url)
+                if (status !in 200..299) {
+                    Log.w("MetadataUploadProcessor", "⚠️ Container PUT answered $status, retrying")
+                    return false
+                }
+            }
+            return confirmSynced(item)
+        }
+
+        val isMediaServerBook = libraryDao().getExternalResourcesForBookSync(item.uuid)
+            .any { ExternalServiceUtils.serviceTypeFor(it.providerName) != null }
+        if (url == null) {
+            // S3 already holds the book: told it's synced, for a tier that uploads files
+            return if (tier == AccountTier.PRO) confirmSynced(item) else true
+        }
+        // A media-server book's file goes up only when its download finishes (the download-finished hook
+        // queues it), as on iOS: one already downloaded when it's registered isn't backfilled, by design.
+        // The media server still has its file.
+        if (isMediaServerBook) {
+            Log.d("MetadataUploadProcessor", "⏭️ Media-server book: its file goes up once it's downloaded")
+            return true
+        }
+        val file = item.relativePath?.let { OfflineDownloadManager.processedFile(context, it) }
+        if (shouldUploadFile(tier, item, file)) {
+            Log.d("MetadataUploadProcessor", "📦 Queuing the file upload for ${item.uuid}")
+            SyncTaskFactory.createUploadFileTask(repository, item)
+        }
+        return true
+    }
+
+    /** `POST /v1/library {synced: true}` (the server skips it for a book S3 doesn't hold) */
+    private suspend fun confirmSynced(item: LibraryItemEntity): Boolean {
+        val response = libraryApi.updateMetadata(
+            mapOf("uuid" to item.uuid, "relativePath" to item.relativePath, "synced" to true)
+        )
+        val error = response.throwIfCoded() ?: return true
+        Log.w("MetadataUploadProcessor", "⚠️ Confirming synced failed: ${response.code()} ${error.rawBody}")
         return false
     }
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_UPLOAD_METADATA
-    }
-}
-
-class UploadFileProcessor(
-    private val context: Context,
-    private val repository: SyncTaskRepository
-) : TaskProcessor {
-    private val gson = Gson()
-
-    override suspend fun process(task: SyncTaskEntity): Boolean {
-        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
-        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
-
-        val relativePath = payload["relativePath"] as? String
-        val remotePath = payload["remotePath"] as? String
-        val uuid = payload["uuid"] as? String
-        
-        Log.d("UploadFileProcessor", "🚀 Starting file upload for: $relativePath")
-
-        if (relativePath == null || remotePath == null || uuid == null) {
-            Log.e("UploadFileProcessor", "❌ Missing required payload data. relativePath: $relativePath, remotePath: $remotePath, uuid: $uuid")
-            return false
-        }
-
-        val processedDir = File(context.filesDir, "Processed")
-        val file = File(processedDir, relativePath)
-
-        if (!file.exists()) {
-            // Nothing to upload — the item is stream-only or its file was offloaded. Terminal (true →
-            // task deleted): retrying can never succeed and would block the serial file queue forever
-            // (same self-healing shape as the container-download guard).
-            Log.w("UploadFileProcessor", "🧹 No local file for $relativePath — dropping upload task (stream-only/offloaded)")
-            return true
-        }
-
-        val mediaType = when (file.extension.lowercase()) {
-            "mp3" -> "audio/mpeg"
-            "m4a", "m4b" -> "audio/mp4"
-            else -> "application/octet-stream"
-        }.toMediaTypeOrNull()
-
-        val requestBody = file.asRequestBody(mediaType)
-        
-        return try {
-            val cleanClient = okhttp3.OkHttpClient()
-            val uploadRequest = okhttp3.Request.Builder()
-                .url(remotePath)
-                .put(requestBody)
-                .build()
-                
-            val uploadResponse = withContext(Dispatchers.IO) {
-                cleanClient.newCall(uploadRequest).execute()
-            }
-
-            if (uploadResponse.isSuccessful) {
-                Log.d("UploadFileProcessor", "✅ File upload successful: $relativePath")
-                
-                // Notify server that the item is now synced
-                SyncTaskFactory.createSyncSuccessTask(repository, uuid, relativePath)
-                
-                true
-            } else {
-                Log.e("UploadFileProcessor", "❌ File upload failed with code: ${uploadResponse.code}. Error: ${uploadResponse.body?.string()}")
-                false
-            }
-        } catch (e: Exception) {
-            Log.e("UploadFileProcessor", "💥 Exception during file upload: ${e.message}", e)
-            false
-        }
-    }
-
-    override fun canHandle(jobType: String): Boolean {
-        return jobType == SyncTaskFactory.JOB_UPLOAD_FILE
     }
 }
 

@@ -1,18 +1,11 @@
 package com.tortugapower.audiobookplayer.network
 
 import com.tortugapower.audiobookplayer.model.*
-import okhttp3.RequestBody
 import retrofit2.Response
 import retrofit2.http.*
 
 @JvmSuppressWildcards
 interface LibraryApi {
-    @PUT
-    suspend fun uploadFile(
-        @Url url: String,
-        @Body file: RequestBody
-    ): Response<Unit>
-
     @GET("/v1/library/keys")
     suspend fun getSyncedIdentifiers(): Response<IdentifiersResponse>
 

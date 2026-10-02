@@ -16,6 +16,7 @@ import com.tortugapower.audiobookplayer.logic.SyncPauseReporter
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.SyncTaskPicker
 import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
+import com.tortugapower.audiobookplayer.logic.UploadDataPolicy
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
@@ -176,8 +177,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
                 // The count first: most launches have an empty queue and skip loading it
                 syncTaskRepository.countActiveTasks() > 0 && run {
                     val tier = accountRepository.getAccount()?.tier
+                    // Uploads held to Wi-Fi don't count either: the service would only sit idle
+                    val holdUploads = UploadDataPolicy.shouldHoldUploads(this@BookPlayerApplication)
                     SyncTaskPicker.hasStartableWork(syncTaskRepository.getAllTasks().first()) {
-                        TaskAccessPolicy.canExecuteTask(tier, it)
+                        TaskAccessPolicy.canExecuteTask(tier, it) && !(holdUploads && UploadDataPolicy.isFileUploadJob(it))
                     }
                 }
             }

@@ -47,7 +47,7 @@ class SyncTaskPickerTest {
     }
 
     @Test fun anAccountPause_holdsTheServerLanes() {
-        listOf(SyncTaskFactory.QUEUE_SYNC, SyncTaskFactory.QUEUE_PREFERENCES, SyncTaskFactory.QUEUE_PIPE).forEach {
+        listOf(SyncTaskFactory.QUEUE_SYNC, SyncTaskFactory.QUEUE_PREFERENCES, SyncTaskFactory.QUEUE_PIPE, SyncTaskFactory.QUEUE_UPLOAD).forEach {
             assertEquals(it, emptyList<String>(), ids(it, listOf(pending("a")), accountHeld = true))
         }
     }

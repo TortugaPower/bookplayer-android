@@ -21,6 +21,12 @@ object SyncTaskFactory {
     // being reachable, so it must never wedge the serial "file" queue that downloads/uploads share.
     const val QUEUE_PIPE = "pipe"
 
+    /**
+     * Book file uploads, a lane of their own (iOS `uploadFile`): an hour-long upload never holds up the
+     * file lane's downloads, and an account pause holds it with the other BookPlayer-server lanes.
+     */
+    const val QUEUE_UPLOAD = "upload"
+
     // Job Types (matching Swift models where applicable)
     const val JOB_UPLOAD_METADATA = "upload_metadata"
     const val JOB_UPDATE = "update"
@@ -33,6 +39,7 @@ object SyncTaskFactory {
     const val JOB_UPLOAD_ARTWORK = "upload_artwork"
     const val JOB_FETCH_CONTENTS = "fetch_contents"
     const val JOB_UPLOAD_FILE = "upload_file"
+    const val JOB_QUEUE_FILE_UPLOAD = "queue_file_upload"
     const val JOB_DOWNLOAD_FILE = "download_file"
     const val JOB_SYNC_IDENTIFIERS = "sync_identifiers"
     const val JOB_MATCH_UUIDS = "match_uuids"
@@ -78,15 +85,6 @@ object SyncTaskFactory {
             "type" to item.type.ordinal
         )
         enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_METADATA, item.uuid, payload)
-    }
-
-    suspend fun createSyncSuccessTask(repository: SyncTaskRepository, uuid: String, relativePath: String) {
-        val payload = mapOf(
-            "uuid" to uuid,
-            "relativePath" to relativePath,
-            "synced" to true
-        )
-        enqueue(repository, QUEUE_SYNC, JOB_UPDATE, uuid, payload)
     }
 
     suspend fun createUpdateTask(
@@ -242,15 +240,31 @@ object SyncTaskFactory {
         return true
     }
 
-    suspend fun createUploadFileTask(repository: SyncTaskRepository, item: LibraryItemEntity, remotePath: String) {
+    /**
+     * Uploads the book's file as a multipart upload ([MultipartUploadProcessor]). The task names the book
+     * by uuid; the file is found again on every run. Title and path are for the Queued Tasks row.
+     */
+    suspend fun createUploadFileTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
         val payload = mapOf(
             "uuid" to item.uuid,
             "title" to item.title,
             "relativePath" to item.relativePath,
-            "filePath" to (item.originalFileName ?: ""),
-            "remotePath" to remotePath
         )
-        enqueue(repository, QUEUE_FILE, JOB_UPLOAD_FILE, item.uuid, payload)
+        enqueue(repository, QUEUE_UPLOAD, JOB_UPLOAD_FILE, item.uuid, payload)
+    }
+
+    /**
+     * Queues the book's file upload from the sync lane, after the tasks ahead of it there (iOS
+     * `externalResourceToDownload`): for a media-server book, whose registration never asks for its file,
+     * once it's registered again. No server call of its own.
+     */
+    suspend fun createQueueFileUploadTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
+        val payload = mapOf(
+            "uuid" to item.uuid,
+            "title" to item.title,
+            "relativePath" to item.relativePath,
+        )
+        enqueue(repository, QUEUE_SYNC, JOB_QUEUE_FILE_UPLOAD, item.uuid, payload)
     }
 
     /**

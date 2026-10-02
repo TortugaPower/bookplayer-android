@@ -3,6 +3,8 @@ package com.tortugapower.audiobookplayer.database.dao
 import androidx.room.*
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.logic.MultipartUploadState
+import com.tortugapower.audiobookplayer.logic.UploadFilePayload
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -148,6 +150,25 @@ interface SyncTaskDao {
             "ORDER BY position DESC, rowid DESC LIMIT 1"
     )
     suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity?
+
+    /** Moves every [jobType] task to [queueKey]: returns how many moved */
+    @Query("UPDATE sync_tasks SET queueKey = :queueKey WHERE jobType = :jobType AND queueKey != :queueKey")
+    suspend fun moveToLane(jobType: String, queueKey: String): Int
+
+    /** Writes a task's payload whatever its status: 0 when it's gone */
+    @Query("UPDATE sync_tasks SET payload = :payload WHERE id = :id")
+    suspend fun saveTaskPayload(id: String, payload: String): Int
+
+    /**
+     * Writes a running upload's multipart state into its stored payload, the rest of it untouched (iOS
+     * `saveUploadState`): read and written in one transaction, so a uuid migration that rewrote the
+     * payload meanwhile is kept. False when the task is gone.
+     */
+    @Transaction
+    suspend fun saveUploadState(id: String, state: MultipartUploadState): Boolean {
+        val row = getTaskById(id) ?: return false
+        return saveTaskPayload(id, UploadFilePayload.withState(row.payload, state)) > 0
+    }
 
     /** Rewrites a queued task's payload while it's still pending: 0 once it has started or parked */
     @Query("UPDATE sync_tasks SET payload = :payload WHERE id = :id AND status = 'PENDING'")

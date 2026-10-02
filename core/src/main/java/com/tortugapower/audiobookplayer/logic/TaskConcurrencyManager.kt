@@ -16,7 +16,8 @@ class TaskConcurrencyManager(
     private val repository: SyncTaskRepository,
     private val accountRepository: com.tortugapower.audiobookplayer.repository.AccountRepository,
     private val processors: List<TaskProcessor>,
-    private var maxQueues: Int = 3,
+    // One per lane that's usually busy at once: sync, file transfers, book uploads, a media server
+    private var maxQueues: Int = 4,
     // Off on the watch: it has no Queued Tasks screen to show or retry a parked task, so a coded
     // failure there drops the task instead (SyncFailurePolicy)
     private val parkingEnabled: Boolean = true,
@@ -69,6 +70,8 @@ class TaskConcurrencyManager(
             // Reset any tasks that were left in RUNNING state (e.g., from a crash)
             Log.d(TAG, "🧹 Resetting hung RUNNING tasks to PENDING...")
             repository.resetRunningTasks()
+            // An older build queued book uploads in the file lane, ahead of the downloads behind them
+            repository.moveToLane(SyncTaskFactory.JOB_UPLOAD_FILE, SyncTaskFactory.QUEUE_UPLOAD)
             
             Log.d(TAG, "📡 Starting queue worker manager...")
             
@@ -87,7 +90,7 @@ class TaskConcurrencyManager(
                 if (tasks.any { it.jobType == SyncTaskFactory.JOB_DOWNLOAD_FILE && it.status == SyncTaskStatus.PENDING }) {
                     dropDownloadsTheTierCantRun()
                 }
-                for (queueKey in SyncTaskPicker.lanesWithWork(tasks, tierPolicy())) {
+                for (queueKey in SyncTaskPicker.lanesWithWork(tasks, startPolicy(tasks))) {
                     startQueueWorkerIfAbsent(queueKey)
                 }
             }
@@ -180,7 +183,8 @@ class TaskConcurrencyManager(
         if (!isProcessing) return
         serviceScope.launch {
             dropDownloadsTheTierCantRun()
-            SyncTaskPicker.lanesWithWork(repository.getAllTasks().first(), tierPolicy())
+            val tasks = repository.getAllTasks().first()
+            SyncTaskPicker.lanesWithWork(tasks, startPolicy(tasks))
                 .forEach { queueKey -> startQueueWorkerIfAbsent(queueKey) }
         }
     }
@@ -242,6 +246,12 @@ class TaskConcurrencyManager(
                 repository.markTaskPending(task.id, "Processor returned failure")
                 false
             }
+        } catch (e: UploadsHeldException) {
+            // Waiting for Wi-Fi isn't a failure: back to pending with no error line, and the worker moves
+            // straight on (its picker holds the upload)
+            SyncStatusManager.clearTaskProgress(task.id)
+            repository.markTaskPending(task.id, null)
+            true
         } catch (e: Exception) {
             // A cancelled worker (the host stopping) leaves the task RUNNING for resetRunningTasks;
             // a cancellation the processor raised itself (a timeout) is an ordinary failure
@@ -295,6 +305,19 @@ class TaskConcurrencyManager(
                 true
             }
         }
+    }
+
+    /**
+     * What a lane's worker could pick now, for deciding which lanes get one: the tier's policy, and file
+     * uploads held to Wi-Fi left out, so a lane holding only those doesn't start a worker that would
+     * pick nothing (the network callback rescans when Wi-Fi returns). The connectivity check runs only
+     * when an upload is queued.
+     */
+    private suspend fun startPolicy(tasks: List<SyncTaskEntity>): (String) -> Boolean {
+        val tier = tierPolicy()
+        val hold = tasks.any { it.status == SyncTaskStatus.PENDING && UploadDataPolicy.isFileUploadJob(it.jobType) } &&
+            UploadDataPolicy.shouldHoldUploads(context)
+        return { jobType -> tier(jobType) && !(hold && UploadDataPolicy.isFileUploadJob(jobType)) }
     }
 
     /** The tier's task policy, read now (TaskAccessPolicy; hardcover and media-server jobs always run) */

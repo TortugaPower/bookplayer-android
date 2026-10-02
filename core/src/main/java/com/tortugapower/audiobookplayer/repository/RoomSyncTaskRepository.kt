@@ -2,6 +2,7 @@ package com.tortugapower.audiobookplayer.repository
 
 import com.tortugapower.audiobookplayer.database.dao.SyncTaskDao
 import com.tortugapower.audiobookplayer.logic.CodedFailure
+import com.tortugapower.audiobookplayer.logic.MultipartUploadState
 import com.tortugapower.audiobookplayer.logic.TaskPauseScope
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
@@ -106,6 +107,15 @@ class RoomSyncTaskRepository(
 
     override suspend fun countActiveTasksInQueue(queueKey: String): Int = withContext(Dispatchers.IO) {
         syncTaskDao.countActiveTasksInQueue(queueKey)
+    }
+
+    override suspend fun moveToLane(jobType: String, queueKey: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.moveToLane(jobType, queueKey)
+        Unit
+    }
+
+    override suspend fun saveUploadState(id: String, state: MultipartUploadState): Boolean = withContext(Dispatchers.IO) {
+        syncTaskDao.saveUploadState(id, state)
     }
 
     override suspend fun countQueuedTasksInQueue(queueKey: String): Int = withContext(Dispatchers.IO) {
