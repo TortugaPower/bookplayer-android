@@ -6,6 +6,9 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
+import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.database.dao.LibraryDao
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.network.HardcoverService
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
@@ -39,7 +42,7 @@ class HardcoverProcessor(
                 Log.d("HardcoverProcessor", "Performing auto-match for item: ${item.title}")
 
                 // 1. Search books on Hardcover
-                val searchQuery = HardcoverService.buildSearchString(item.title, item.author ?: "")
+                val searchQuery = HardcoverService.buildSearchString(item.title, searchAuthor(item, libraryDao) ?: "")
                 val searchResults = HardcoverService.searchBooks(token, searchQuery)
                 val firstMatch = searchResults.firstOrNull()
 
@@ -141,4 +144,17 @@ class HardcoverProcessor(
         return jobType == SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH ||
                jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS
     }
+}
+
+/**
+ * The author an auto-match searches with. A volume's author field holds its file count, so a volume (or
+ * folder) is searched by its first book's author, as iOS searches a folder by its first file.
+ */
+internal suspend fun searchAuthor(item: LibraryItemEntity, libraryDao: LibraryDao): String? {
+    if (item.type == ItemType.BOOK) return item.author
+    val path = item.relativePath ?: return null
+    return libraryDao.getItemsInPathSync(path)
+        .filter { it.type == ItemType.BOOK }
+        .minByOrNull { it.orderRank }
+        ?.author
 }

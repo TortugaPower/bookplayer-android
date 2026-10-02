@@ -360,6 +360,10 @@ class RoomLibraryRepositoryTest {
             items[item.uuid] = item
         }
 
+        override suspend fun updateRemoteURL(uuid: String, url: String?) {
+            items[uuid]?.let { items[uuid] = it.copy(remoteURL = url) }
+        }
+
         override suspend fun getItemByPath(path: String): LibraryItemEntity? {
             return items.values.find { it.relativePath == path }
         }

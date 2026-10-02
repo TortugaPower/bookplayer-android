@@ -138,6 +138,19 @@ class ExternalUpdateProcessorTest {
         val body = push.body.readUtf8()
         assertTrue(body, body.contains("\"lastUpdate\":1790694307123"))
         assertTrue(body, body.contains("\"currentTime\":30.0"))
+        assertTrue(body, body.contains("\"progress\":0.1"))
+    }
+
+    // ABS reads `progress` only from a payload without `isFinished`, so the push leaves it out (as iOS does):
+    // sending it kept ABS's percentage at 0.
+    @Test fun `audiobookshelf progress push leaves isFinished out so ABS keeps the percentage`() = runBlocking {
+        insertAbsServer()
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        assertTrue(ExternalUpdateProcessor(context, serverRepository()).process(absTask()))
+
+        val body = server.takeRequest().body.readUtf8()
+        assertFalse(body, body.contains("isFinished"))
     }
 
     // A task queued before the date was recorded leaves lastUpdate out (ABS then stamps its own time),

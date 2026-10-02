@@ -4,6 +4,7 @@ import com.tortugapower.audiobookplayer.database.dao.LibraryDao
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.network.StreamFile
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import java.util.UUID
 
@@ -25,6 +26,19 @@ object VirtualImportManager {
     fun importFileName(title: String, extension: String): String = "$title.${extension.trimStart('.')}"
 
     /**
+     * The names a streamed volume's children are stored under, one per file in the server's order: each
+     * file's path inside the server item's folder, flattened (`"Disc 1/01.mp3"` -> `"Disc 1 - 01.mp3"`) since
+     * a volume holds books, not folders. Two paths that flatten to one name get `-2`, `-3` on the later ones.
+     * Also how [MediaServerStreams] finds the file a child plays.
+     */
+    fun volumeChildFileNames(relPaths: List<String>): List<String> {
+        val used = mutableSetOf<String>()
+        return relPaths.map { relPath ->
+            uniqueName(FilenameUtils.sanitizeFilename(relPath.split('/', '\\').filter { it.isNotBlank() }.joinToString(" - ")), used)
+        }
+    }
+
+    /**
      * Imports [externalItem] (whose `uuid` is the item's id on the integration server) as a
      * stream-only library entry. Idempotent: if a library item already links to this
      * provider/providerId pair (from a previous stream or download import), it is returned as-is.
@@ -38,6 +52,8 @@ object VirtualImportManager {
      * @param isPro PRO additionally gets the cloud copy: the source file is piped from the media
      *   server into BookPlayer cloud ([StreamFileUploadProcessor]) and the artwork uploaded, so the
      *   item is playable on devices that can't reach the Jellyfin/ABS server
+     * @param files the item's audio files when it has several: it's imported as a volume of them
+     *   ([importStreamVolume]) instead of one book
      */
     suspend fun importStreamItem(
         libraryDao: LibraryDao,
@@ -47,10 +63,15 @@ object VirtualImportManager {
         hostId: String?,
         artworkPath: String? = null,
         enqueueSyncTasks: Boolean = true,
-        isPro: Boolean = false
+        isPro: Boolean = false,
+        files: List<StreamFile> = emptyList()
     ): Result? {
         libraryDao.getExternalResourceByProvider(providerName, externalItem.uuid)?.let { resource ->
             libraryDao.getItemById(resource.libraryItemUuid)?.let { return Result(it, true) }
+        }
+
+        if (files.size > 1) {
+            return importStreamVolume(libraryDao, syncTaskRepository, externalItem, providerName, hostId, artworkPath, enqueueSyncTasks, isPro, files)
         }
 
         val originalFileName = externalItem.originalFileName?.takeIf { it.isNotBlank() } ?: return null
@@ -106,5 +127,87 @@ object VirtualImportManager {
         }
 
         return Result(entity, false)
+    }
+
+    /**
+     * An item made of several audio files, as a volume (what the Download path's placement prompt calls
+     * "Create a volume"): a BOUND item named after the title, holding the media-server link, with one book
+     * per file named by [volumeChildFileNames], in the server's order. Each book plays its own file, looked up
+     * through the volume's link ([MediaServerStreams]). Root-level, like single-book stream imports.
+     */
+    private suspend fun importStreamVolume(
+        libraryDao: LibraryDao,
+        syncTaskRepository: SyncTaskRepository,
+        externalItem: LibraryItemEntity,
+        providerName: String,
+        hostId: String?,
+        artworkPath: String?,
+        enqueueSyncTasks: Boolean,
+        isPro: Boolean,
+        files: List<StreamFile>
+    ): Result {
+        val uuid = UUID.randomUUID().toString()
+        val folderName = FilenameUtils.sanitizeFilename(externalItem.title)
+        // relativePath is the volume's unique location (and its books' parent); a different item may own it.
+        val volumePath = if (libraryDao.getItemByPath(folderName) != null) "$folderName-${uuid.take(8)}" else folderName
+
+        val volume = LibraryItemEntity(
+            uuid = uuid,
+            title = externalItem.title,
+            // Bare file count, the canonical local format for a volume (see LibraryContentsSync.recomputeFolder).
+            author = files.size.toString(),
+            duration = files.sumOf { it.duration },
+            relativePath = volumePath,
+            artworkURL = artworkPath,
+            orderRank = (libraryDao.getMaxRootOrderRank() ?: -1) + 1,
+            type = ItemType.BOUND
+        )
+        val names = volumeChildFileNames(files.map { it.name })
+        val books = files.mapIndexed { index, file ->
+            val name = names[index]
+            LibraryItemEntity(
+                uuid = UUID.randomUUID().toString(),
+                title = name.substringBeforeLast('.'),
+                author = externalItem.author,
+                duration = file.duration,
+                relativePath = "$volumePath/$name",
+                originalFileName = name,
+                orderRank = index,
+                type = ItemType.BOOK
+            )
+        }
+        val resource = ExternalResourceEntity(
+            providerName = providerName,
+            providerId = externalItem.uuid,
+            syncStatus = ExternalResourceEntity.STATUS_STREAM,
+            libraryItemUuid = volume.uuid,
+            hostId = hostId
+        )
+        libraryDao.insertVolumeWithExternalResource(volume, books, resource)
+
+        if (enqueueSyncTasks) {
+            // Parent first: the server files the books under the volume's path.
+            SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, volume)
+            books.forEach { SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, it) }
+            SyncTaskFactory.createUploadExternalResourceTask(syncTaskRepository, resource)
+            // No stream-to-cloud pipe: it copies one file per item. The cover still goes up (see importStreamItem).
+            if (isPro && artworkPath != null && java.io.File(artworkPath).isFile) {
+                SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, volume)
+            }
+        }
+        return Result(volume, false)
+    }
+
+    /** [name], or `<stem>-2.<ext>`, `-3`, … when a sibling already took it (two files flattening to one name). */
+    private fun uniqueName(name: String, used: MutableSet<String>): String {
+        var candidate = name
+        var n = 2
+        while (!used.add(candidate)) {
+            val stem = name.substringBeforeLast('.')
+            val ext = name.substringAfterLast('.', "")
+            candidate = if (ext.isEmpty() || stem == name) "$name-$n" else "$stem-$n.$ext"
+            n++
+        }
+        return candidate
     }
 }

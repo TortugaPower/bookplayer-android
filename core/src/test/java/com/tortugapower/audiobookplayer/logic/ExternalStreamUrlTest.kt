@@ -8,8 +8,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Pins the provider download-URL derivation shared by playback's `resolveStreamingUrl` and the
- * stream-to-cloud pipe's source GET (query-token auth, exact endpoint shapes).
+ * Pins the provider whole-item URL shared by Jellyfin playback and the stream-to-cloud pipe's source GET
+ * (no token in the URL, exact endpoint shape; none for AudiobookShelf).
  */
 class ExternalStreamUrlTest {
 
@@ -30,11 +30,10 @@ class ExternalStreamUrlTest {
         )
     }
 
-    @Test fun `audiobookshelf download URL carries the token query param`() {
-        assertEquals(
-            "https://media.example.com/api/items/item-9/download?token=tok-1",
-            ExternalServiceUtils.downloadUrlFor(server(ExternalServiceType.AUDIOBOOKSHELF), resource("audiobookshelf")),
-        )
+    // ABS's item download is a zip for any book in a folder: its books stream per file (MediaServerStreams),
+    // so there's no whole-item URL to hand the player or the stream-to-cloud pipe.
+    @Test fun `audiobookshelf has no whole-item audio URL`() {
+        assertNull(ExternalServiceUtils.downloadUrlFor(server(ExternalServiceType.AUDIOBOOKSHELF), resource("audiobookshelf")))
     }
 
     @Test fun `trailing-slash server URL does not double the slash`() {

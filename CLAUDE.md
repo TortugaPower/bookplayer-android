@@ -160,10 +160,33 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     `docs/media-servers-testing.md`.
   - **Virtual (stream) import never guesses a file extension.** List responses carry no audio-file
     metadata, so `ExternalLibraryViewModel.prepareStreamImport` hydrates the selection through
-    `ExternalService.getFileExtensions` (Jellyfin `Items?Ids=…&Fields=MediaSources,Path`, ABS
-    `POST api/items/batch/get`), names each item `<title>.<ext>` (`VirtualImportManager.importFileName`,
-    the iOS name, so both platforms produce the same `relativePath`) and skips items without one
-    (`import_no_audio_files_alert` / the skipped count on the import sheet).
+    `ExternalService.getStreamImportInfo` (Jellyfin `Items?Ids=…&Fields=MediaSources,Path`, ABS
+    `POST api/items/batch/get`), names each item `<title>.<ext>` (`VirtualImportManager.importFileName`;
+    iOS #1586 is aligning to the same name by dropping its `<providerId>-` prefix) and skips items without
+    one (`import_no_audio_files_alert` / the skipped count on the import sheet). An ABS item made of
+    several audio files imports as a **volume**: a BOUND item named after the title, holding the
+    media-server link, with one book per file named by its flattened path inside the item's folder
+    (`VirtualImportManager.volumeChildFileNames`: `Disc 1/01.mp3` → `Disc 1 - 01.mp3`; a name two paths
+    flatten to gets `-2` on the later one, and lookups rebuild the names the same way to match them).
+  - **Stream URLs are looked up at play/download time** (`MediaServerStreams`, behind
+    `LibraryRepository.externalStreamUrl(s)For`). Jellyfin serves an item from one URL
+    (`ExternalServiceUtils.downloadUrlFor`). ABS serves raw audio only per file: its item download is a
+    zip for any book in a folder, and a file's id is its inode, which changes when the file is replaced.
+    So playback and downloads ask `GET api/items/{id}?expanded=1` for the tracks
+    (`ExternalService.getStreamFiles`) and play `api/items/{id}/file/{ino}` relative to the saved server
+    URL, with no token in the URL (auth rides the headers). A volume's books find their file through the
+    volume's link (by name, else position), one lookup per volume. A copy of a URL (a download task's
+    payload, a sub-book's saved `remoteURL`) can go stale, so a download whose ABS URL 404s is looked up
+    once more in the same run. A download whose server answered without a file for it (the item is gone,
+    or several files imported as one book) is dropped, not retried: the file queue is serial, and a lookup
+    reports that apart from a failed one (`MediaServerStreams.Lookup.noFile`). Don't resolve URLs speculatively: each ABS lookup is a request. A lookup
+    gives up after 5 s (`MediaServerStreams.LOOKUP_TIMEOUT_MS`), so an unreachable home server falls
+    through to the cloud copy instead of waiting out the HTTP timeouts; a background download's lookup
+    (`DownloadFileProcessor`) waits 30 s, since nobody is waiting on it. A server that times out, can't be
+    reached or rejects the token is skipped for the rest of that lookup, so a folder of single books
+    waits once, not once per book. ABS has nothing for the PRO
+    stream-to-cloud pipe to copy, so `StreamFileUploadProcessor` drops an ABS task unless the book was
+    downloaded meanwhile.
 
 ## Git
 

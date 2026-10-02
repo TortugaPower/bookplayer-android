@@ -208,7 +208,8 @@ class ExternalLibraryViewModel(
 
     /**
      * A selection ready to stage as stream imports: the items the server reported a REAL audio file
-     * extension for, named `<title>.<ext>` as iOS names them, plus how many were left out for having none.
+     * extension for, named `<title>.<ext>` as iOS names them (with their files, when an item has several),
+     * plus how many were left out for having none.
      */
     data class ImportSelection(val items: List<ExternalLibraryItem>, val skippedWithoutAudio: Int)
 
@@ -220,8 +221,8 @@ class ExternalLibraryViewModel(
      */
     suspend fun prepareStreamImport(items: List<ExternalLibraryItem>): ImportSelection? {
         val currentServer = server ?: return null
-        val extensions = try {
-            libraryRepository.getFileExtensions(currentServer, items.map { it.entity.uuid })
+        val infos = try {
+            libraryRepository.getStreamImportInfo(currentServer, items.map { it.entity.uuid })
         } catch (e: SessionExpiredException) {
             _sessionExpiredServerName.value = currentServer.name
             return null
@@ -231,8 +232,11 @@ class ExternalLibraryViewModel(
             return null
         }
         val hydrated = items.mapNotNull { item ->
-            extensions[item.entity.uuid]?.let { extension ->
-                item.copy(entity = item.entity.copy(originalFileName = VirtualImportManager.importFileName(item.entity.title, extension)))
+            infos[item.entity.uuid]?.let { info ->
+                item.copy(
+                    entity = item.entity.copy(originalFileName = VirtualImportManager.importFileName(item.entity.title, info.extension)),
+                    streamFiles = info.files,
+                )
             }
         }
         return ImportSelection(hydrated, items.size - hydrated.size)

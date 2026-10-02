@@ -150,18 +150,18 @@ object ExternalServiceUtils {
     }
 
     /**
-     * The provider's direct-download URL for [resource] on [server], or null for an unknown provider.
-     * Pure counterpart of the URL rebuild in `resolveStreamingUrl`, also used to GET the source file for
-     * the stream-to-cloud pipe. The Jellyfin URL carries no token — Jellyfin 12 ignores `api_key`, and a
-     * URL token leaks into logs and the task table — so every request for it needs the provider's header
-     * auth: playback via PlaybackManager's host registry, the pipe and downloads via [downloadHeadersFor].
-     * ABS keeps its `token` query param; its consumers send the Bearer header on top of it.
+     * The provider's whole-item audio URL for [resource] on [server], or null when it has none: what a
+     * Jellyfin book streams from ([MediaServerStreams]) and the stream-to-cloud pipe copies. AudiobookShelf
+     * has none — its item download is a zip for any book in a folder — so its books stream per file
+     * ([MediaServerStreams]) and the pipe finds no source for them. The Jellyfin URL carries no token —
+     * Jellyfin 12 ignores `api_key`, and a URL token leaks into logs and the task table — so every request
+     * for it needs the provider's header auth: playback via PlaybackManager's host registry, the pipe and
+     * downloads via [downloadHeadersFor].
      */
     fun downloadUrlFor(server: ExternalServerEntity, resource: ExternalResourceEntity): String? {
         val path = when (serviceTypeFor(resource.providerName)) {
             ExternalServiceType.JELLYFIN -> "Items/${resource.providerId}/Download"
-            ExternalServiceType.AUDIOBOOKSHELF -> "api/items/${resource.providerId}/download?token=${server.token ?: ""}"
-            null -> return null
+            ExternalServiceType.AUDIOBOOKSHELF, null -> return null
         }
         return "${sanitizeUrl(server.url)}$path"
     }

@@ -12,6 +12,7 @@ import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.core.R
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
+import com.tortugapower.audiobookplayer.logic.MediaServerStreams
 import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -483,7 +484,9 @@ class RoomLibraryRepository(
             if (currentIndex == -1) return@withContext null
 
             val targetIndex = if (next) currentIndex + 1 else currentIndex - 1
-            resolveRemoteUrlInRuntime(orderedSiblings.getOrNull(targetIndex))
+            // Not resolved to a stream URL: callers only check for a neighbor or hand it to playItem, which
+            // resolves before playing — and resolving an AudiobookShelf book asks its server.
+            orderedSiblings.getOrNull(targetIndex)?.let { getItemById(it.uuid) ?: it }
         }
     }
 
@@ -519,31 +522,34 @@ class RoomLibraryRepository(
         return item
     }
 
-    override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? {
-        try {
-            val extResource = item.externalResources.find { it.syncStatus == ExternalResourceEntity.STATUS_STREAM || it.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED }
-                ?: return null
-            // Through the repository, not the DAO: stored credentials are encrypted at rest, and this
-            // token travels in the download URL/auth.
+    override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? =
+        externalStreamUrlsFor(listOf(item))[item.uuid]
+
+    override suspend fun externalStreamUrlsFor(items: List<LibraryItemEntity>, onSessionExpired: (() -> Unit)?): Map<String, String> {
+        if (items.isEmpty()) return emptyMap()
+        return try {
+            // Through the repository, not the DAO: stored credentials are encrypted at rest, and the token
+            // authenticates the lookup and the stream.
             val servers = ExternalServerRepository(
                 com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context).externalServerDao()
             )
-            val server = ExternalServiceUtils.serverForResource(servers, extResource) ?: return null
-            return ExternalServiceUtils.downloadUrlFor(server, extResource)
+            val lookup = MediaServerStreams.lookUp(items, libraryDao, servers)
+            if (lookup.sessionExpired) onSessionExpired?.invoke()
+            lookup.urls
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("RoomLibraryRepository", "Error resolving remote URL in runtime", e)
-            return null
+            emptyMap()
         }
     }
 
     override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> {
-        items.forEach { resolveStreamingUrl(it) }
+        val processedDir = File(context.filesDir, "Processed")
+        val remote = items.filter { item -> item.relativePath?.let { File(processedDir, it).isFile } != true }
+        val urls = externalStreamUrlsFor(remote)
+        remote.forEach { item -> urls[item.uuid]?.let { item.remoteURL = it } }
         return items
     }
 
-    private suspend fun resolveRemoteUrlInRuntime(item: LibraryItemEntity?): LibraryItemEntity? {
-        if (item == null) return null
-        val fullItem = getItemById(item.uuid) ?: item
-        return resolveStreamingUrl(fullItem)
-    }
 }

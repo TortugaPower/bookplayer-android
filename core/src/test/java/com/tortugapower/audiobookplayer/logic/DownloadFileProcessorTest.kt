@@ -58,6 +58,7 @@ class DownloadFileProcessorTest {
         cloud.shutdown()
         StorageMonitor.availableBytesProvider = { ctx -> android.os.StatFs(ctx.filesDir.path).availableBytes }
         OfflineDownloadManager.processedFile(context, relativePath).delete()
+        OfflineDownloadManager.processedFile(context, childPath).delete()
     }
 
     private fun containerItem(uuid: String, type: ItemType) = LibraryItemEntity(
@@ -177,5 +178,167 @@ class DownloadFileProcessorTest {
         // S3 rejects a presigned request that also carries an Authorization header.
         assertNull(get.getHeader("Authorization"))
         assertNull(get.getHeader("CF-Access-Client-Id"))
+    }
+
+    // --- a streamed volume's books (AudiobookShelf) ---
+
+    private val childUuid = "abs-child-1"
+    private val childPath = "Foxtrot/01.mp3"
+
+    private suspend fun insertStreamedVolume() {
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        val serverUrl = mediaServer.url("/").toString()
+        dao.insertItemWithExternalResource(
+            LibraryItemEntity(uuid = "abs-vol", title = "Foxtrot", relativePath = "Foxtrot", type = ItemType.BOUND),
+            ExternalResourceEntity(
+                providerName = "audiobookshelf", providerId = "abs-1", syncStatus = ExternalResourceEntity.STATUS_STREAM,
+                libraryItemUuid = "abs-vol", hostId = ExternalServiceUtils.canonicalServerKey(serverUrl),
+            ),
+        )
+        dao.insertItem(LibraryItemEntity(uuid = childUuid, title = "01", relativePath = childPath, originalFileName = "01.mp3", type = ItemType.BOOK))
+        serverRepository().saveServer(
+            ExternalServerEntity(
+                id = 2, name = "abs", type = ExternalServiceType.AUDIOBOOKSHELF, url = serverUrl,
+                token = "abs-tok", customHeaders = mapOf("CF-Access-Client-Id" to "cf-id"),
+            ),
+        )
+    }
+
+    private fun childDownloadTask(remoteURL: String) = SyncTaskEntity(
+        id = "row-$childUuid", taskID = childUuid, queueKey = SyncTaskFactory.QUEUE_FILE,
+        jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0,
+        payload = """{"uuid":"$childUuid","title":"01","relativePath":"$childPath","remoteURL":"$remoteURL"}""",
+    )
+
+    private val expandedItem =
+        """{"id":"abs-1","libraryId":"lib","mediaType":"book","media":{"tracks":[{"index":1,"ino":"222","duration":60,"metadata":{"filename":"01.mp3","relPath":"01.mp3"}}]}}"""
+
+    @Test fun `a streamed volume's book downloads with the volume's server auth`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        val handled = processor().process(childDownloadTask(mediaServer.url("/api/items/abs-1/file/222").toString()))
+
+        assertTrue(handled)
+        val get = mediaServer.takeRequest()
+        assertEquals("Bearer abs-tok", get.getHeader("Authorization"))
+        assertEquals("cf-id", get.getHeader("CF-Access-Client-Id"))
+        assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, childPath).readText())
+    }
+
+    @Test fun `a file that moved on the server is looked up again and downloaded`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setResponseCode(404))      // the queued URL's file was replaced
+        mediaServer.enqueue(MockResponse().setBody(expandedItem))      // fresh lookup
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))     // the file's new id
+
+        val handled = processor().process(childDownloadTask(mediaServer.url("/api/items/abs-1/file/111").toString()))
+
+        assertTrue(handled)
+        assertEquals("/api/items/abs-1/file/111", mediaServer.takeRequest().path)
+        assertEquals("/api/items/abs-1?expanded=1", mediaServer.takeRequest().path)
+        assertEquals("/api/items/abs-1/file/222", mediaServer.takeRequest().path)
+        assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, childPath).readText())
+    }
+
+    // The 404 is closed before the lookup: when the lookup fails, the 404 still decides the retry.
+    @Test fun `a 404 whose lookup fails is retryable and writes nothing`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setResponseCode(404))
+        mediaServer.enqueue(MockResponse().setResponseCode(500))      // the lookup fails: try again later
+
+        assertFalse(processor().process(childDownloadTask(mediaServer.url("/api/items/abs-1/file/111").toString())))
+
+        assertEquals(2, mediaServer.requestCount)
+        assertFalse(OfflineDownloadManager.processedFile(context, childPath).exists())
+    }
+
+    // Retrying would hold up the serial file queue forever.
+    @Test fun `a 404 for an item the server no longer has is dropped`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setResponseCode(404))
+        mediaServer.enqueue(MockResponse().setResponseCode(404))      // the item is gone from the server too
+
+        assertTrue(processor().process(childDownloadTask(mediaServer.url("/api/items/abs-1/file/111").toString())))
+
+        assertEquals(2, mediaServer.requestCount)
+        assertFalse(OfflineDownloadManager.processedFile(context, childPath).exists())
+    }
+
+    // A multi-file item imported as one book before volumes: its old zip URL is never fetched, and no lookup
+    // can give it a single file to download.
+    @Test fun `a book the server has no single file for is dropped`() = runBlocking {
+        insertStreamedVolume()
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        dao.insertItemWithExternalResource(
+            LibraryItemEntity(uuid = uuid, title = "Book One", relativePath = relativePath, type = ItemType.BOOK),
+            ExternalResourceEntity(
+                providerName = "audiobookshelf", providerId = "abs-2", syncStatus = ExternalResourceEntity.STATUS_STREAM,
+                libraryItemUuid = uuid, hostId = ExternalServiceUtils.canonicalServerKey(mediaServer.url("/").toString()),
+            ),
+        )
+        mediaServer.enqueue(MockResponse().setBody(
+            """{"id":"abs-2","libraryId":"lib","mediaType":"book","media":{"tracks":[
+              {"index":1,"ino":"1","duration":60,"metadata":{"filename":"01.mp3","relPath":"01.mp3"}},
+              {"index":2,"ino":"2","duration":60,"metadata":{"filename":"02.mp3","relPath":"02.mp3"}}]}}"""
+        ))
+
+        assertTrue(processor().process(bookDownloadTask(mediaServer.url("/api/items/abs-2/download?token=old").toString())))
+
+        assertEquals("/api/items/abs-2?expanded=1", mediaServer.takeRequest().path)
+        assertEquals(1, mediaServer.requestCount)
+        assertFalse(OfflineDownloadManager.processedFile(context, relativePath).exists())
+    }
+
+    @Test fun `a container task is dropped before any lookup`() = runBlocking {
+        insertStreamedVolume()
+
+        val handled = processor().process(
+            SyncTaskEntity(
+                id = "row-abs-vol", taskID = "abs-vol", queueKey = SyncTaskFactory.QUEUE_FILE,
+                jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0,
+                payload = """{"uuid":"abs-vol","title":"Foxtrot","relativePath":"Foxtrot","remoteURL":""}""",
+            )
+        )
+
+        assertTrue(handled)
+        assertEquals(0, mediaServer.requestCount)
+    }
+
+    @Test fun `a task queued with the old item download URL fetches the file instead`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setBody(expandedItem))
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        val handled = processor().process(childDownloadTask(mediaServer.url("/api/items/abs-1/download?token=old").toString()))
+
+        assertTrue(handled)
+        // The zip URL is never requested: the first call is the lookup, the second the file.
+        assertEquals("/api/items/abs-1?expanded=1", mediaServer.takeRequest().path)
+        assertEquals("/api/items/abs-1/file/222", mediaServer.takeRequest().path)
+        assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, childPath).readText())
+    }
+
+    // Playback gives up on a lookup after 5 s; a background download waits for a slow server.
+    @Test fun `a download's lookup waits longer than playback's`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setBody(expandedItem).setHeadersDelay(6, java.util.concurrent.TimeUnit.SECONDS))
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor().process(childDownloadTask("")))
+
+        assertEquals("audio-bytes", OfflineDownloadManager.processedFile(context, childPath).readText())
+    }
+
+    @Test fun `a task queued without a URL looks it up`() = runBlocking {
+        insertStreamedVolume()
+        mediaServer.enqueue(MockResponse().setBody(expandedItem))
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+
+        val handled = processor().process(childDownloadTask(""))
+
+        assertTrue(handled)
+        assertEquals("/api/items/abs-1?expanded=1", mediaServer.takeRequest().path)
+        assertEquals("/api/items/abs-1/file/222", mediaServer.takeRequest().path)
     }
 }

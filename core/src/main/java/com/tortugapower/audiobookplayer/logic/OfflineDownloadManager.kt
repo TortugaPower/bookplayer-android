@@ -64,6 +64,9 @@ object OfflineDownloadManager {
             else -> emptyList()
         }
 
+    /** Books a [startDownload] is queuing right now. */
+    private val enqueuing = mutableSetOf<String>()
+
     /**
      * Enqueue a download task for each not-yet-local BOOK file of [item] (resolving each file's streaming
      * URL first, exactly like the phone's cloud-tap). The caller must ensure the sync engine is running.
@@ -74,18 +77,30 @@ object OfflineDownloadManager {
         syncTaskRepository: SyncTaskRepository,
         item: LibraryItemEntity,
     ) {
-        // Snapshot the queue once to dedup against files that are already PENDING or RUNNING (not just
-        // PENDING like getPendingTaskByTypeAndTaskId) — so a re-enqueue can't duplicate an in-flight
-        // download regardless of any UI gating.
-        val activeTasks = syncTaskRepository.getAllTasks().first()
-        downloadUnits(libraryRepository, item).forEach { book ->
-            if (isFileDownloaded(context, book.relativePath)) return@forEach
-            if (isTaskActive(activeTasks, book.uuid)) return@forEach
-            // A fresh download must never inherit a stale cancel flag (e.g. a prior cancel that raced a
-            // just-completed/failed download and left the flag set): clear it before enqueuing, so this
-            // task's first read-loop iteration doesn't abort itself.
-            SyncStatusManager.clearCancel(book.uuid)
-            SyncTaskFactory.createDownloadFileTask(syncTaskRepository, freshUrlFor(libraryRepository, book))
+        // The URL lookups below take network time before the tasks exist: claim the books first, so a second
+        // tap meanwhile skips them instead of queuing them twice. Other books aren't held up.
+        val claimed = downloadUnits(libraryRepository, item).let { units ->
+            synchronized(enqueuing) { units.filter { enqueuing.add(it.uuid) } }
+        }
+        try {
+            // Snapshot the queue once to dedup against files that are already PENDING or RUNNING (not just
+            // PENDING like getPendingTaskByTypeAndTaskId) — so a re-enqueue can't duplicate an in-flight
+            // download regardless of any UI gating.
+            val activeTasks = syncTaskRepository.getAllTasks().first()
+            val books = claimed.filter { book ->
+                !isFileDownloaded(context, book.relativePath) && !isTaskActive(activeTasks, book.uuid)
+            }
+            // One lookup for the lot: a streamed volume's books share their server item.
+            val externalUrls = libraryRepository.externalStreamUrlsFor(books)
+            books.forEach { book ->
+                // A fresh download must never inherit a stale cancel flag (e.g. a prior cancel that raced a
+                // just-completed/failed download and left the flag set): clear it before enqueuing, so this
+                // task's first read-loop iteration doesn't abort itself.
+                SyncStatusManager.clearCancel(book.uuid)
+                SyncTaskFactory.createDownloadFileTask(syncTaskRepository, freshUrlFor(libraryRepository, book, externalUrls[book.uuid]))
+            }
+        } finally {
+            synchronized(enqueuing) { claimed.forEach { enqueuing.remove(it.uuid) } }
         }
     }
 
@@ -95,14 +110,14 @@ object OfflineDownloadManager {
      * because the stored one is a signed URL that expires (S3 rejects an expired presigned URL with HTTP 400,
      * which otherwise makes the download task fail-and-retry forever with no progress). Mirrors
      * [PlaybackManager]'s streaming refresh. On any network failure, falls back to the resolved item.
+     * [externalUrl] is the book's media-server URL, already looked up by the caller.
      */
-    private suspend fun freshUrlFor(libraryRepository: LibraryRepository, book: LibraryItemEntity): LibraryItemEntity {
+    private suspend fun freshUrlFor(libraryRepository: LibraryRepository, book: LibraryItemEntity, externalUrl: String?): LibraryItemEntity {
         // Media-server-first: a resolvable Jellyfin/ABS server keeps its own URL (LAN speed, zero S3
         // egress). Only when NO saved server can serve the item (e.g. a second device that never
         // configured one) fall through to the presigned refresh — that's how a piped stream item
-        // downloads from its BookPlayer cloud copy. One lookup both resolves the URL and acts as the
+        // downloads from its BookPlayer cloud copy. The lookup both resolves the URL and acts as the
         // guard (callers already skip books whose file is local, so no local-file short-circuit needed).
-        val externalUrl = libraryRepository.externalStreamUrlFor(book)
         if (externalUrl != null) {
             book.remoteURL = externalUrl
             return book

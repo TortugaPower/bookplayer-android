@@ -30,7 +30,24 @@ interface ExternalService {
      * knows about and is skipped — an extension is never guessed. Mirrors iOS's `fetchItems(ids:)`.
      */
     suspend fun getFileExtensions(url: String, token: String, ids: List<String>, headers: Map<String, String>? = null): Map<String, String>
+
+    /**
+     * [getFileExtensions], plus the audio files of each requested item made of several (imported as a volume
+     * of one book per file). Same keys and skipping as [getFileExtensions]; one file per item by default
+     * (Jellyfin). Asked once, at import: the files' playable URLs are looked up later ([getStreamFiles]).
+     */
+    suspend fun getStreamImportInfo(url: String, token: String, ids: List<String>, headers: Map<String, String>? = null): Map<String, StreamImportInfo> =
+        getFileExtensions(url, token, ids, headers).mapValues { (_, extension) -> StreamImportInfo(extension, emptyList()) }
     suspend fun getStreamUrl(url: String, token: String, item: LibraryItemEntity): String
+
+    /**
+     * The audio files the server plays item [itemId] from, in playback order — or null when the service
+     * serves a whole item from one URL ([com.tortugapower.audiobookplayer.logic.ExternalServiceUtils.downloadUrlFor]),
+     * which is Jellyfin. Asked when a stream is about to play or download and never stored: AudiobookShelf
+     * identifies a file by its inode, which changes whenever the file is replaced. An empty list means the
+     * server no longer has the item.
+     */
+    suspend fun getStreamFiles(url: String, token: String, itemId: String, headers: Map<String, String>? = null): List<StreamFile>? = null
     suspend fun getThumbnailUrl(url: String, token: String, item: LibraryItemEntity): String?
 
     /**
@@ -40,6 +57,16 @@ interface ExternalService {
      */
     suspend fun revokeToken(url: String, token: String, headers: Map<String, String>? = null)
 }
+
+/**
+ * One playable file of a media-server item. [path] is relative to the saved server URL (so a server
+ * behind a reverse-proxy subpath keeps working); [name] is the file's path inside the item's folder,
+ * unique within the item.
+ */
+data class StreamFile(val path: String, val name: String, val duration: Double)
+
+/** An item's REAL file extension, and its audio files when it has more than one (else empty). */
+data class StreamImportInfo(val extension: String, val files: List<StreamFile>)
 
 data class LibraryResult(
     val items: List<ExternalLibraryItem>,

@@ -79,6 +79,10 @@ interface LibraryDao {
     @Update
     suspend fun updateItem(item: LibraryItemEntity)
 
+    /** Just the URL a book streams from: a looked-up media-server URL is local, never synced. */
+    @Query("UPDATE library_items SET remoteURL = :url WHERE uuid = :uuid")
+    suspend fun updateRemoteURL(uuid: String, url: String?)
+
     @Delete
     suspend fun deleteItem(item: LibraryItemEntity)
 
@@ -188,6 +192,18 @@ interface LibraryDao {
         externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity,
     ) {
         insertItem(item)
+        insertExternalResource(externalResource)
+    }
+
+    /** A streamed volume in one step: its books are unplayable without the volume's "stream" resource. */
+    @Transaction
+    suspend fun insertVolumeWithExternalResource(
+        volume: LibraryItemEntity,
+        books: List<LibraryItemEntity>,
+        externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity,
+    ) {
+        insertItem(volume)
+        books.forEach { insertItem(it) }
         insertExternalResource(externalResource)
     }
 

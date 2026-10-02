@@ -411,10 +411,18 @@ class StreamFileUploadProcessor(
             return true
         }
 
-        val putUrl = fetchPutUrl(uuid) ?: return false
-
         val relativePath = item.relativePath
         val localFile = relativePath?.let { OfflineDownloadManager.processedFile(context, it) }
+        // AudiobookShelf has no whole-item audio to copy (its item download is a zip for any book in a folder:
+        // ExternalServiceUtils.downloadUrlFor): unless the file was downloaded meanwhile, there's nothing to pipe.
+        if (ExternalServiceUtils.serviceTypeFor(resource.providerName) == ExternalServiceType.AUDIOBOOKSHELF &&
+            localFile?.isFile != true
+        ) {
+            Log.d("StreamFileUploadProcessor", "🧹 No audio file to copy for ${item.title} (AudiobookShelf) — dropping pipe task")
+            return true
+        }
+
+        val putUrl = fetchPutUrl(uuid) ?: return false
         val transferred = withContext(Dispatchers.IO) {
             if (localFile?.isFile == true) {
                 // The user downloaded the file in the meantime — upload the local copy instead of
@@ -568,6 +576,13 @@ class DownloadFileProcessor(
         // One base client for every download (and retry); per-server variants derive via newBuilder(),
         // which shares this client's connection pool and dispatcher threads.
         private val baseHttpClient by lazy { okhttp3.OkHttpClient() }
+
+        // ABS's whole-item download (`api/items/{id}/download`), which older builds queued as a book's URL.
+        private val LEGACY_ABS_ITEM_DOWNLOAD = Regex("""/api/items/[^/?]+/download(\?|$)""")
+
+        // Nobody waits on a background download, unlike playback (MediaServerStreams' 5 s cap): give a slow home
+        // server the HTTP client's own timeouts, or it times out on every run and holds up the file queue.
+        private const val LOOKUP_TIMEOUT_MS = 30_000L
     }
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
@@ -575,14 +590,8 @@ class DownloadFileProcessor(
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
 
-        val remoteURL = payload["remoteURL"] as? String
         val relativePath = payload["relativePath"] as? String
         val taskId = task.taskID
-
-        if (remoteURL.isNullOrEmpty() || relativePath.isNullOrEmpty()) {
-            Log.e("DownloadFileProcessor", "❌ Missing remoteURL or relativePath")
-            return false
-        }
 
         // Container tasks are unrunnable by definition (a BOUND/FOLDER has no backing file — its stored
         // remoteURL 404s), so drop them as done instead of blocking the serial file queue with infinite
@@ -594,6 +603,27 @@ class DownloadFileProcessor(
             return true
         }
 
+        // The book's media-server link, if it streams from one: its own, or its streamed volume's.
+        val owner = mediaServerOwner(taskId)
+        // An ABS file URL can't be relied on to still work by the time the task runs (a file's id changes
+        // when the file is replaced), and a lookup that failed at enqueue leaves none: ask the server again.
+        // A task queued before ABS books streamed per file carries the item download URL instead, a zip for
+        // any book in a folder (and an old token): ask the server for the file.
+        val payloadUrl = (payload["remoteURL"] as? String).orEmpty()
+        val isLegacyAbsItemUrl = owner?.let { ExternalServiceUtils.serviceTypeFor(it.resource.providerName) } == ExternalServiceType.AUDIOBOOKSHELF &&
+            LEGACY_ABS_ITEM_DOWNLOAD.containsMatchIn(payloadUrl)
+        var remoteURL = payloadUrl.takeUnless { isLegacyAbsItemUrl }.orEmpty()
+        if (remoteURL.isEmpty() && owner != null) {
+            val lookup = lookUpFile(taskId)
+            if (lookup != null && taskId in lookup.noFile) return dropWithoutFile(relativePath)
+            remoteURL = lookup?.urls?.get(taskId).orEmpty()
+        }
+
+        if (remoteURL.isEmpty() || relativePath.isNullOrEmpty()) {
+            Log.e("DownloadFileProcessor", "❌ Missing remoteURL or relativePath")
+            return false
+        }
+
         val processedDir = File(context.filesDir, "Processed")
         if (!processedDir.exists()) processedDir.mkdirs()
         val destFile = File(processedDir, relativePath)
@@ -602,14 +632,22 @@ class DownloadFileProcessor(
         destFile.parentFile?.mkdirs()
 
         return try {
-            // Media-server headers ride only the hops that stay on that server: OkHttp would carry custom
-            // headers (often Cloudflare Access secrets) across a redirect to another host.
-            val client = mediaServerHeaders(taskId, remoteURL)?.let {
-                baseHttpClient.newBuilder().addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(remoteURL, it)).build()
-            } ?: baseHttpClient
+            var httpResponse = execute(owner, remoteURL)
+            if (httpResponse.code == 404 && owner != null) {
+                // The file moved on the server since the URL was looked up: one fresh lookup, one retry. Closed
+                // first, so a lookup that throws can't leak it; a closed response still reports its 404 below.
+                httpResponse.close()
+                val lookup = lookUpFile(taskId)
+                if (lookup != null && taskId in lookup.noFile) return dropWithoutFile(relativePath)
+                val fresh = lookup?.urls?.get(taskId)
+                if (fresh != null && fresh != remoteURL) {
+                    remoteURL = fresh
+                    httpResponse = execute(owner, remoteURL)
+                }
+            }
             // `use` closes the response on every path: the early returns below (error status, no room) would
             // otherwise leak the connection on each retry.
-            client.newCall(okhttp3.Request.Builder().url(remoteURL).build()).execute().use { response ->
+            httpResponse.use { response ->
                 if (!response.isSuccessful) {
                     Log.e("DownloadFileProcessor", "❌ Download failed: ${response.code}")
                     return false
@@ -674,13 +712,40 @@ class DownloadFileProcessor(
         }
     }
 
-    // Resolved per run, not stored in the payload: tokens stay out of the task table, and a re-auth's
-    // fresh token applies to an already-queued download. The resource pick mirrors externalStreamUrlFor.
-    private suspend fun mediaServerHeaders(uuid: String, url: String): Map<String, String>? {
-        val resource = AppDatabase.getDatabase(context).libraryDao().getExternalResourcesForBookSync(uuid)
-            .find { it.syncStatus == ExternalResourceEntity.STATUS_STREAM || it.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED }
-            ?: return null
-        return ExternalServiceUtils.downloadHeadersFor(serverRepository, resource, url)
+    /**
+     * GETs [url]; media-server headers ride only the hops that stay on that server (OkHttp would carry custom
+     * headers, often Cloudflare Access secrets, across a redirect to another host). They're resolved per run,
+     * not stored in the payload: tokens stay out of the task table, and a re-auth's fresh token applies to an
+     * already-queued download.
+     */
+    private suspend fun execute(owner: MediaServerStreams.Owner?, url: String): okhttp3.Response {
+        val headers = owner?.let { ExternalServiceUtils.downloadHeadersFor(serverRepository, it.resource, url) }
+        val client = headers?.let {
+            baseHttpClient.newBuilder().addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(url, it)).build()
+        } ?: baseHttpClient
+        return client.newCall(okhttp3.Request.Builder().url(url).build()).execute()
+    }
+
+    private suspend fun mediaServerOwner(uuid: String): MediaServerStreams.Owner? {
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        val row = dao.getItemByIdWithResources(uuid) ?: return null
+        return MediaServerStreams.owner(row.item.also { it.externalResources = row.externalResources }, dao)
+    }
+
+    private suspend fun lookUpFile(uuid: String): MediaServerStreams.Lookup? {
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        val row = dao.getItemByIdWithResources(uuid) ?: return null
+        val item = row.item.also { it.externalResources = row.externalResources }
+        return MediaServerStreams.lookUp(listOf(item), dao, serverRepository, timeoutMs = LOOKUP_TIMEOUT_MS)
+    }
+
+    /**
+     * Done, not retried: the server answered and has no file for this book, and every retry would hold up the
+     * serial file queue behind it. Unreachable servers and rejected tokens stay retryable.
+     */
+    private fun dropWithoutFile(relativePath: String?): Boolean {
+        Log.w("DownloadFileProcessor", "🧹 The server has no file for $relativePath — dropping download task")
+        return true
     }
 
     override fun canHandle(jobType: String): Boolean {
@@ -1137,7 +1202,6 @@ class ExternalUpdateProcessor(
                     val requestBody = com.tortugapower.audiobookplayer.network.services.AudiobookshelfProgressRequest(
                         progress = percentCompleted,
                         currentTime = currentTime,
-                        isFinished = isFinished,
                         lastUpdate = lastPlayDate
                     )
 
