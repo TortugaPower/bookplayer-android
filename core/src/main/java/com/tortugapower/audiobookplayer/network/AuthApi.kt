@@ -85,4 +85,5 @@ object NetworkClient {
     val authApi: AuthApi by lazy { retrofit.create(AuthApi::class.java) }
     val libraryApi: LibraryApi by lazy { retrofit.create(LibraryApi::class.java) }
     val preferencesApi: PreferencesApi by lazy { retrofit.create(PreferencesApi::class.java) }
+    val uploadApi: UploadApi by lazy { retrofit.create(UploadApi::class.java) }
 }
