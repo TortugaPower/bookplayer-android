@@ -194,6 +194,16 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
       (`Title-1`, `ImportArchiveUtils.uniqueDirectory`). The name must also be free in the library: a
       streamed volume of that title has no folder on disk, and the paths would collide.
     - Zips the user imports keep their folders, and an untagged folder stays a FOLDER.
+  - **Hardcover auto-match runs once per import** (iOS parity: `HardcoverService.processAutoMatch`).
+    - `ImportManager` queues one `JOB_HARDCOVER_AUTO_MATCH` task covering every item the import created
+      at the top level: books, folders, volumes and streamed items. A task queued in the older
+      one-item format (`itemUuid`) still runs.
+    - `HardcoverProcessor` takes each item's top search hit, then skips every item whose hit another
+      item of the batch also got (`uniqueHits`): most likely the parts of one book. The guard stays
+      within the batch. The others get the link, which LITE/PRO accounts upload right away.
+    - An item already linked is skipped, so an interrupted batch can run again.
+    - Hardcover's cover is used only for an item with none of its own. It's set on the item as
+      currently stored, not on the copy read before the search.
   - **Stream URLs are looked up at play/download time** (`MediaServerStreams`, behind
     `LibraryRepository.externalStreamUrl(s)For`). Jellyfin serves an item from one URL
     (`ExternalServiceUtils.downloadUrlFor`). ABS serves raw audio only per file: its item download is a

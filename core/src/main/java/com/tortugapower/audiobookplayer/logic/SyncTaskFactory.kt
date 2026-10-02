@@ -309,11 +309,19 @@ object SyncTaskFactory {
         }
     }
 
-    suspend fun createHardcoverAutoMatchTask(repository: SyncTaskRepository, itemUuid: String) {
+    /**
+     * One import's items, matched together (iOS parity: HardcoverService.processAutoMatch), so the ones that
+     * all match the same Hardcover book are skipped instead of all being linked to it. Tasks queued before
+     * this carried one `itemUuid`.
+     */
+    suspend fun createHardcoverAutoMatchTask(repository: SyncTaskRepository, items: List<LibraryItemEntity>) {
+        val first = items.firstOrNull() ?: return
         val payload = mapOf(
-            "itemUuid" to itemUuid
+            "itemUuids" to items.map { it.uuid },
+            // What the Queued Tasks screen shows: the first item, and how many more.
+            "title" to if (items.size == 1) first.title else "${first.title} (+${items.size - 1})"
         )
-        enqueue(repository, QUEUE_HARDCOVER, JOB_HARDCOVER_AUTO_MATCH, itemUuid, payload)
+        enqueue(repository, QUEUE_HARDCOVER, JOB_HARDCOVER_AUTO_MATCH, "hardcover_match_${first.uuid}", payload)
     }
 
     suspend fun createHardcoverUpdateStatusTask(repository: SyncTaskRepository, itemUuid: String, status: Int) {

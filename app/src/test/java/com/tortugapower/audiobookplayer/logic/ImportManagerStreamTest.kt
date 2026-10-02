@@ -105,4 +105,35 @@ class ImportManagerStreamTest {
 
         assertEquals(listOf("Hotel.m4b"), ImportManager.importCompletion!!.items.map { it.relativePath })
     }
+
+    // iOS parity: one import is matched with Hardcover together, so items that all match one book are told apart.
+    @Test fun `an import queues one Hardcover match for all its items`() {
+        runBlocking {
+            HardcoverSettingsManager.setToken(context, "hc-token")
+            HardcoverSettingsManager.setAutoMatchBooks(context, true)
+        }
+        try {
+            val items = listOf("abs-21" to "Juliet", "abs-22" to "Kilo").map { (id, title) ->
+                ExternalLibraryItem(entity = LibraryItemEntity(uuid = id, title = title, originalFileName = "$title.m4b", type = ItemType.BOOK))
+            }
+
+            ImportManager.startStreamImport(context, items, "audiobookshelf", "https://abs.example.com", 0)
+            awaitUntil { ImportManager.importedFiles.size == 2 }
+            ImportManager.acceptImport(context, null)
+            awaitUntil { ImportManager.importCompletion != null && !ImportManager.isImporting }
+
+            val created = ImportManager.importCompletion!!.items.map { it.uuid }.toSet()
+            val tasks = runBlocking(kotlinx.coroutines.Dispatchers.IO) { AppDatabase.getDatabase(context).syncTaskDao().getAllTasksSync() }
+                .filter { it.jobType == SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH }
+            assertEquals(1, tasks.size)
+            val payload = com.google.gson.Gson().fromJson(tasks.single().payload, Map::class.java)
+            assertEquals(created, (payload["itemUuids"] as List<*>).toSet())
+            assertEquals("Juliet (+1)", payload["title"])
+        } finally {
+            runBlocking {
+                HardcoverSettingsManager.setToken(context, "")
+                HardcoverSettingsManager.setAutoMatchBooks(context, false)
+            }
+        }
+    }
 }

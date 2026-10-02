@@ -510,7 +510,6 @@ object ImportManager : ImportService {
                             currentMaxRank = maxOf(currentMaxRank, result.item.orderRank)
                             // Placed by the prompt like any import (iOS parity). One already in the library stays put.
                             createdItems.add(result.item)
-                            enqueueHardcoverAutoMatch(context, syncTaskRepository, result.item.uuid)
                         }
                     } else if (importFile.file != null && importFile.file.exists()) {
                         if (importFile.isDirectory) {
@@ -519,11 +518,7 @@ object ImportManager : ImportService {
                             importDirectory(
                                 context, libraryDao, syncTaskRepository, importFile,
                                 baseDir, targetFolderPath, currentMaxRank, isSubscribed, isPro
-                            )?.let { item ->
-                                createdItems.add(item)
-                                // A downloaded media-server volume is matched once, like a streamed one.
-                                if (item.type == ItemType.BOUND) enqueueHardcoverAutoMatch(context, syncTaskRepository, item.uuid)
-                            }
+                            )?.let { createdItems.add(it) }
                         } else if (importFile.isFileOnly) {
                             val existingItem = libraryDao.getItemByFileName(importFile.name)
                             if (existingItem != null) {
@@ -594,9 +589,6 @@ object ImportManager : ImportService {
                                     SyncTaskFactory.createUploadExternalResourceTask(syncTaskRepository, externalResource)
                                 }
                             }
-
-                            // Hardcover Auto-match Integration
-                            enqueueHardcoverAutoMatch(context, syncTaskRepository, entity.uuid)
                         }
                     }
                 } catch (e: Exception) {
@@ -605,6 +597,10 @@ object ImportManager : ImportService {
                     android.util.Log.e("ImportManager", "Failed to import ${importFile.name}; skipping", e)
                 }
             }
+
+            // iOS parity (HardcoverService.processAutoMatch): the batch is matched together, so the items that
+            // all match one Hardcover book (likely its parts) are told apart from a real match.
+            enqueueHardcoverAutoMatch(context, syncTaskRepository, createdItems)
 
             // Roll up duration / progress / labels onto the target folder (and ancestors).
             if (targetFolderPath != null) {
@@ -916,16 +912,18 @@ object ImportManager : ImportService {
         return !File(processedDir, existingItem.relativePath ?: dest.name).exists()
     }
 
+    /** Every item the import created at the top level (books, folders, volumes), as iOS matches them. */
     private suspend fun enqueueHardcoverAutoMatch(
         context: Context,
         syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository,
-        uuid: String
+        items: List<LibraryItemEntity>
     ) {
+        if (items.isEmpty()) return
         try {
             val hardcoverToken = HardcoverSettingsManager.getToken(context).first()
             val autoMatch = HardcoverSettingsManager.getAutoMatchBooks(context).first()
             if (hardcoverToken.isNotBlank() && autoMatch) {
-                SyncTaskFactory.createHardcoverAutoMatchTask(syncTaskRepository, uuid)
+                SyncTaskFactory.createHardcoverAutoMatchTask(syncTaskRepository, items)
             }
         } catch (e: Exception) {
             android.util.Log.e("ImportManager", "Failed to enqueue hardcover auto-match task", e)
