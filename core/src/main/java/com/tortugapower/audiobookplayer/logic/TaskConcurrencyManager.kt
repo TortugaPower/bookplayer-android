@@ -242,6 +242,12 @@ class TaskConcurrencyManager(
                 repository.markTaskPending(task.id, "Processor returned failure")
                 false
             }
+        } catch (e: UploadsHeldException) {
+            // Waiting for Wi-Fi isn't a failure: back to pending with no error line, and the worker moves
+            // straight on (its picker holds the upload)
+            SyncStatusManager.clearTaskProgress(task.id)
+            repository.markTaskPending(task.id, null)
+            true
         } catch (e: Exception) {
             // A cancelled worker (the host stopping) leaves the task RUNNING for resetRunningTasks;
             // a cancellation the processor raised itself (a timeout) is an ordinary failure

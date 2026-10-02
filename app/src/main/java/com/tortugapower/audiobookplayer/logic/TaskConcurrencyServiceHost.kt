@@ -143,7 +143,7 @@ class TaskConcurrencyServiceHost : Service() {
             FetchContentsProcessor(this, repository, PlaybackManagerSyncCoordinator),
             SyncIdentifiersProcessor(this, repository),
             MetadataUploadProcessor(this, repository),
-            UploadFileProcessor(this, repository),
+            MultipartUploadProcessor.create(this, repository),
             StreamFileUploadProcessor(this, repository),
             UpdateProcessor(),
             MoveProcessor(),

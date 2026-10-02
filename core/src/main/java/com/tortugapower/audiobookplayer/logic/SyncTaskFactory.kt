@@ -80,15 +80,6 @@ object SyncTaskFactory {
         enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_METADATA, item.uuid, payload)
     }
 
-    suspend fun createSyncSuccessTask(repository: SyncTaskRepository, uuid: String, relativePath: String) {
-        val payload = mapOf(
-            "uuid" to uuid,
-            "relativePath" to relativePath,
-            "synced" to true
-        )
-        enqueue(repository, QUEUE_SYNC, JOB_UPDATE, uuid, payload)
-    }
-
     suspend fun createUpdateTask(
         repository: SyncTaskRepository,
         item: LibraryItemEntity,

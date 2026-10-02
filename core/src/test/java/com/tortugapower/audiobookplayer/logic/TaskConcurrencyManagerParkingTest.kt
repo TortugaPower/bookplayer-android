@@ -44,7 +44,8 @@ class TaskConcurrencyManagerParkingTest {
             return true
         }
         override suspend fun markTaskRunning(id: String) {}
-        override suspend fun markTaskPending(id: String, errorMessage: String?) { requeued += id }
+        val requeueErrors = mutableListOf<String?>()
+        override suspend fun markTaskPending(id: String, errorMessage: String?) { requeued += id; requeueErrors += errorMessage }
         override suspend fun deleteTask(task: SyncTaskEntity) { deleted += task.id }
         override fun getAllTasks(): Flow<List<SyncTaskEntity>> = emptyFlow()
         override suspend fun getPendingTasks(): List<SyncTaskEntity> = error("unused")
@@ -218,6 +219,16 @@ class TaskConcurrencyManagerParkingTest {
         // Alone, it parks as usual
         val (_, alone) = run(SyncTaskFactory.JOB_UPLOAD_PREFERENCE) { throw coded("invalid_request") }
         assertEquals(TaskPauseScope.TASK, alone.parked.single().scope)
+    }
+
+    /** Waiting for Wi-Fi isn't a failure: back to pending with no error, and the worker moves straight on */
+    @Test fun uploadsHeldToWifi_goBackPending_withNoErrorAndNoDelay() {
+        val (result, repo) = run(SyncTaskFactory.JOB_UPLOAD_FILE) { throw UploadsHeldException() }
+        assertTrue(result)
+        assertEquals(listOf("row-upload_file"), repo.requeued)
+        assertEquals(listOf<String?>(null), repo.requeueErrors)
+        assertTrue(repo.parked.isEmpty())
+        assertTrue(repo.deleted.isEmpty())
     }
 
     @Test fun withParkingOff_aCodedFailureDropsTheTask() {

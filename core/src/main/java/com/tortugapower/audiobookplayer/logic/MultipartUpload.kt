@@ -128,3 +128,10 @@ enum class PartOutcome {
         }
     }
 }
+
+/**
+ * Thrown by a processor whose work must wait (file uploads held to Wi-Fi): the engine puts the task back
+ * to pending with no error and moves on at once, and the picker holds it until the network allows.
+ * Not a failure, so it's never retried after the usual delay or parked.
+ */
+class UploadsHeldException : Exception("Uploads are waiting for Wi-Fi")
