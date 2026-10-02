@@ -73,6 +73,21 @@ object ImportArchiveUtils {
             .sortedBy { it.name }
 
     /**
+     * First free directory in [parentDir] for [name]: the name itself, then `-1`, `-2`, … at its end. A
+     * folder's name has no extension, so a dot in it (`Vol. 2`) stays where it is, unlike [uniqueDestination].
+     * [isTaken] rules out names the disk doesn't show, e.g. a library item with no files on this device.
+     */
+    inline fun uniqueDirectory(parentDir: File, name: String, isTaken: (String) -> Boolean = { false }): File {
+        var candidate = File(parentDir, name)
+        var index = 1
+        while (candidate.exists() || isTaken(candidate.name)) {
+            candidate = File(parentDir, "$name-$index")
+            index++
+        }
+        return candidate
+    }
+
+    /**
      * First free destination in [parentDir] for [name]: the name itself, then `-1`, `-2`, …
      * appended before the extension until a free slot is found.
      */

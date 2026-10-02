@@ -105,6 +105,22 @@ class ImportArchiveUtilsTest {
         assertEquals("folder-1", ImportArchiveUtils.uniqueDestination(dir, "folder").name)
     }
 
+    // A folder's name has no extension: the suffix goes at its end, even past a dot.
+    @Test
+    fun uniqueDirectory_appendsSuffixAtTheEnd() {
+        val dir = temp.newFolder("dirs")
+        assertEquals("Vol. 2", ImportArchiveUtils.uniqueDirectory(dir, "Vol. 2").name)
+
+        File(dir, "Vol. 2").mkdirs()
+        assertEquals("Vol. 2-1", ImportArchiveUtils.uniqueDirectory(dir, "Vol. 2").name)
+
+        File(dir, "Vol. 2-1").mkdirs()
+        assertEquals("Vol. 2-2", ImportArchiveUtils.uniqueDirectory(dir, "Vol. 2").name)
+
+        // A name the disk doesn't show but the caller knows is taken is skipped too.
+        assertEquals("Golf-1", ImportArchiveUtils.uniqueDirectory(dir, "Golf") { it == "Golf" }.name)
+    }
+
     @Test
     fun naturalOrderComparator_sortsNumericallyAndByLocale() {
         val sorted = listOf("Chapter 10.mp3", "Chapter 2.mp3", "Chapter 1.mp3", "appendix.mp3")
