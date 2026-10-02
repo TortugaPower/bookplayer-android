@@ -136,13 +136,9 @@ object VirtualImportManager {
      * An item made of several audio files, as a volume (what the Download path's placement prompt calls
      * "Create a volume"): a BOUND item named after the title, holding the media-server link, with one book
      * per file named by [volumeChildFileNames], in the server's order. Each book plays its own file, looked up
-     * through the volume's link ([MediaServerStreams]). Root-level, like single-book stream imports.
+     * through the volume's link ([MediaServerStreams]). Placed under `basePath` (the folder being
+     * browsed), like single-book stream imports.
      */
-    private fun pathIn(basePath: String?, name: String) = if (basePath == null) name else "$basePath/$name"
-
-    private suspend fun nextOrderRank(libraryDao: LibraryDao, basePath: String?): Int =
-        ((if (basePath == null) libraryDao.getMaxRootOrderRank() else libraryDao.getMaxPathOrderRank(basePath)) ?: -1) + 1
-
     private suspend fun importStreamVolume(
         libraryDao: LibraryDao,
         syncTaskRepository: SyncTaskRepository,
@@ -208,6 +204,11 @@ object VirtualImportManager {
         }
         return Result(volume, false)
     }
+
+    private fun pathIn(basePath: String?, name: String) = if (basePath == null) name else "$basePath/$name"
+
+    private suspend fun nextOrderRank(libraryDao: LibraryDao, basePath: String?): Int =
+        ((if (basePath == null) libraryDao.getMaxRootOrderRank() else libraryDao.getMaxPathOrderRank(basePath)) ?: -1) + 1
 
     /** [name], or `<stem>-2.<ext>`, `-3`, … when a sibling already took it (two files flattening to one name). */
     private fun uniqueName(name: String, used: MutableSet<String>): String {
