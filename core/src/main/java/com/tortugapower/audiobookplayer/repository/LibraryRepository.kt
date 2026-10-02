@@ -14,6 +14,12 @@ class BoundConversionException(val reason: Reason) : Exception(reason.name) {
 }
 
 /**
+ * A folder-only delete refused because [count] of the folder's items have names already taken where they'd
+ * go (iOS parity: its move throws when a file is in the way). Nothing was moved or deleted.
+ */
+class NameTakenException(val count: Int) : Exception("$count name(s) already taken at the destination")
+
+/**
  * Interface for library data operations, allowing for easy testing and different data sources.
  */
 interface LibraryRepository {
@@ -48,7 +54,12 @@ interface LibraryRepository {
     suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity>
     suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity)
     suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>)
-    suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?)
+    /**
+     * Moves [items] into [targetFolderPath] (null = library root). An item whose name is already taken there,
+     * by another library item or a file on disk, stays where it is: two items at one path would mix (a
+     * container's books with another's, a book onto another book's file). Returns those items.
+     */
+    suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?): List<LibraryItemEntity>
     suspend fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String)
     suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>)
     suspend fun convertFoldersToVolumes(context: android.content.Context, items: List<LibraryItemEntity>)

@@ -51,11 +51,15 @@ class SyncingLibraryRepositoryTest {
         override suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>) {}
         // Mirrors RoomLibraryRepository: mutates each item's relativePath IN PLACE — the move test pins
         // that SyncingLibraryRepository captures the source parents BEFORE this mutation loses them.
-        override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {
-            items.forEach { item ->
+        // Items whose uuid is here stay put, as if their name were taken at the destination.
+        val takenAtDestination = mutableSetOf<String>()
+        override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?): List<LibraryItemEntity> {
+            val (notMoved, moved) = items.partition { it.uuid in takenAtDestination }
+            moved.forEach { item ->
                 val fileName = item.relativePath?.substringAfterLast('/') ?: return@forEach
                 item.relativePath = if (targetFolderPath == null) fileName else "$targetFolderPath/$fileName"
             }
+            return notMoved
         }
         override suspend fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String) {}
         override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {}
@@ -71,7 +75,10 @@ class SyncingLibraryRepositoryTest {
         override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? = null
         override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
         override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
-        override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) = error("unused")
+        var refuseShallowDelete = false
+        override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) {
+            if (refuseShallowDelete) throw NameTakenException(1)
+        }
         override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
         override suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity> = emptyList()
 
@@ -139,6 +146,35 @@ class SyncingLibraryRepositoryTest {
         assertTrue(repoFor(AccountTier.LITE).isCloudSyncActive())
         assertFalse(repoFor(AccountTier.FREE).isCloudSyncActive())
         assertFalse(repoFor(AccountTier.PLUS).isCloudSyncActive())
+    }
+
+    // An item left where it was (its name taken at the destination) didn't move: the server must not move it.
+    @Test
+    fun moveItems_anItemThatStaysPut_getsNoMoveTask() = runBlocking {
+        val delegate = FakeLibraryRepository().apply { takenAtDestination += "stays" }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+        val moves = LibraryItemEntity(uuid = "moves", title = "A", relativePath = "Shelf/A.m4b", type = ItemType.BOOK)
+        val stays = LibraryItemEntity(uuid = "stays", title = "B", relativePath = "Shelf/B.m4b", type = ItemType.BOOK)
+
+        val notMoved = repository.moveItems(android.content.ContextWrapper(null), listOf(moves, stays), null)
+
+        assertEquals(listOf("stays"), notMoved.map { it.uuid })
+        val moveTasks = syncTaskRepository.tasks.filter { it.jobType == SyncTaskFactory.JOB_MOVE }
+        assertEquals(1, moveTasks.size)
+        assertTrue(moveTasks.single().payload.contains("\"moves\""))
+    }
+
+    // A refused folder-only delete changed nothing locally: the server must not do it either.
+    @Test
+    fun shallowDeleteFolder_refused_sendsNoTask() = runBlocking {
+        val delegate = FakeLibraryRepository().apply { refuseShallowDelete = true }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+        val folder = LibraryItemEntity(uuid = "f", title = "Series", relativePath = "Series", type = ItemType.FOLDER)
+
+        assertTrue(runCatching { repository.shallowDeleteFolder(android.content.ContextWrapper(null), folder) }.exceptionOrNull() is NameTakenException)
+        assertTrue(syncTaskRepository.tasks.isEmpty())
     }
 
     @Test

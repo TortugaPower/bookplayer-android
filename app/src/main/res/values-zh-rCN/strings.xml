@@ -440,4 +440,10 @@
     <string name="external_server_missing_message">此书从您的 %1$s 服务器串流播放。请在此设备上连接该服务器以播放此书。</string>
     <string name="external_server_missing_message_address">此书从您位于 %2$s 的 %1$s 服务器串流播放。请在此设备上添加该服务器以播放此书。</string>
     <string name="external_server_missing_connect">连接</string>
+    <plurals name="library_move_name_taken">
+        <item quantity="other">%1$d 个项目未移动：目标位置已存在同名项目。</item>
+    </plurals>
+    <plurals name="library_shallow_delete_name_taken">
+        <item quantity="other">文件夹未删除：其中 %1$d 个项目与库中已有项目同名。请先将其重命名或移动。</item>
+    </plurals>
 </resources>

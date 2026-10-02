@@ -442,4 +442,12 @@
     <string name="external_server_missing_message">यह पुस्तक आपके %1$s सर्वर से स्ट्रीम होती है। पुस्तक चलाने के लिए इसे इस डिवाइस पर कनेक्ट करें।</string>
     <string name="external_server_missing_message_address">यह पुस्तक %2$s पर मौजूद आपके %1$s सर्वर से स्ट्रीम होती है। पुस्तक चलाने के लिए उस सर्वर को इस डिवाइस पर जोड़ें।</string>
     <string name="external_server_missing_connect">कनेक्ट करें</string>
+    <plurals name="library_move_name_taken">
+        <item quantity="one">%1$d वस्तु स्थानांतरित नहीं की गई: उसी नाम वाली एक वस्तु वहाँ पहले से मौजूद है।</item>
+        <item quantity="other">%1$d वस्तुएं स्थानांतरित नहीं की गईं: उन्हीं नामों वाली वस्तुएं वहाँ पहले से मौजूद हैं।</item>
+    </plurals>
+    <plurals name="library_shallow_delete_name_taken">
+        <item quantity="one">फ़ोल्डर नहीं हटाया गया: इसमें मौजूद %1$d वस्तु का नाम लाइब्रेरी की एक वस्तु के नाम जैसा ही है। पहले उसका नाम बदलें या उसे स्थानांतरित करें।</item>
+        <item quantity="other">फ़ोल्डर नहीं हटाया गया: इसमें मौजूद %1$d वस्तुओं के नाम लाइब्रेरी की वस्तुओं के नामों जैसे ही हैं। पहले उनका नाम बदलें या उन्हें स्थानांतरित करें।</item>
+    </plurals>
 </resources>

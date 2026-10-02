@@ -9,6 +9,7 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -45,7 +46,7 @@ class ShallowDeleteFolderTest {
         val item = LibraryItemEntity(uuid = uuid, title = path.substringAfterLast('/'), relativePath = path, type = type, orderRank = 0)
         db.libraryDao().insertItem(item)
         if (withFile) {
-            File(File(context.filesDir, "Processed"), path).apply { parentFile?.mkdirs(); writeText("audio") }
+            File(File(context.filesDir, "Processed"), path).apply { parentFile?.mkdirs(); writeText(uuid) }
         }
         return item
     }
@@ -61,6 +62,35 @@ class ShallowDeleteFolderTest {
         // The descendant row must follow — previously it kept the stale "A/…" path and went unplayable.
         assertEquals("B/A/Book.mp3", db.libraryDao().getItemById("ab")!!.relativePath)
         assertTrue(File(File(context.filesDir, "Processed"), "B/A/Book.mp3").isFile)
+    }
+
+    // iOS parity: a child whose name is taken at the root refuses the whole delete. Moved, it would replace the
+    // other book's audio; left behind, it would be deleted with the folder.
+    @Test fun `a folder-only delete is refused when a child's name is taken at the root`() = runBlocking {
+        seed("root", "Book One.mp3", ItemType.BOOK, withFile = true)
+        val folder = seed("f", "Series", ItemType.FOLDER)
+        seed("child", "Series/Book One.mp3", ItemType.BOOK, withFile = true)
+        seed("other", "Series/Book Two.mp3", ItemType.BOOK, withFile = true)
+
+        val refused = runCatching { repository.shallowDeleteFolder(context, folder) }.exceptionOrNull()
+
+        assertEquals(1, (refused as NameTakenException).count)
+        // Nothing moved, nothing deleted, no audio replaced.
+        assertNotNull(db.libraryDao().getItemById("f"))
+        assertEquals("Series/Book One.mp3", db.libraryDao().getItemById("child")!!.relativePath)
+        assertEquals("Series/Book Two.mp3", db.libraryDao().getItemById("other")!!.relativePath)
+        assertEquals("root", File(File(context.filesDir, "Processed"), "Book One.mp3").readText())
+        assertEquals("child", File(File(context.filesDir, "Processed"), "Series/Book One.mp3").readText())
+    }
+
+    // A streamed item has no file: the library knows the name is taken.
+    @Test fun `a streamed child whose name is taken at the root refuses the delete too`() = runBlocking {
+        seed("root", "Foxtrot", ItemType.BOUND)
+        val folder = seed("f", "Series", ItemType.FOLDER)
+        seed("child", "Series/Foxtrot", ItemType.BOUND)
+
+        assertTrue(runCatching { repository.shallowDeleteFolder(context, folder) }.exceptionOrNull() is NameTakenException)
+        assertEquals("Series/Foxtrot", db.libraryDao().getItemById("child")!!.relativePath)
     }
 
     @Test fun `children move to root, sub-container descendants keep coherent paths, folder is gone`() = runBlocking {

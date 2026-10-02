@@ -85,7 +85,13 @@ class LibraryViewModelTest {
             if (item.type == ItemType.BOOK) listOf(item) else descendantBooks
         override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) {}
         override suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>) {}
-        override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {}
+        val moves = mutableListOf<Pair<List<String>, String?>>()
+        // Items whose uuid is here aren't moved, as if their name were taken at the destination.
+        val takenAtDestination = mutableSetOf<String>()
+        override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?): List<LibraryItemEntity> {
+            moves += items.map { it.uuid } to targetFolderPath
+            return items.filter { it.uuid in takenAtDestination }
+        }
         override suspend fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String) {}
         override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {}
         override suspend fun convertFoldersToVolumes(context: android.content.Context, items: List<LibraryItemEntity>) {}
@@ -98,7 +104,10 @@ class LibraryViewModelTest {
         override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? = null
         override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
         override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
-        override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) = error("unused")
+        var refuseShallowDelete = false
+        override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) {
+            if (refuseShallowDelete) throw com.tortugapower.audiobookplayer.repository.NameTakenException(2)
+        }
         override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
         override suspend fun getExternalResource(itemUuid: String, provider: String): ExternalResourceEntity? = null
         override suspend fun saveExternalResource(externalResource: ExternalResourceEntity) {}
@@ -389,5 +398,60 @@ class LibraryViewModelTest {
             listOf(Triple("b1", 0.0, false), Triple("b2", 1800.0, false)),
             libraryRepo.progressUpdates,
         )
+    }
+
+    // iOS parity: imported inside a folder, the prompt's "Library" moves the batch to the root.
+    @Test fun moveImportToLibrary_insideAFolder_movesTheBatchToTheRoot() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository()
+        val model = modelWith(libraryRepo = libraryRepo)
+        val items = listOf(LibraryItemEntity(uuid = "b1", title = "B", relativePath = "Shelf/B.m4b", type = ItemType.BOOK))
+
+        model.moveImportToLibrary(ApplicationProvider.getApplicationContext(), com.tortugapower.audiobookplayer.logic.ImportCompletion(items, "B", basePath = "Shelf"))
+        advanceUntilIdle()
+
+        assertEquals(listOf(listOf("b1") to null), libraryRepo.moves)
+    }
+
+    @Test fun moveImportToLibrary_atTheRoot_movesNothing() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository()
+        val model = modelWith(libraryRepo = libraryRepo)
+        val items = listOf(LibraryItemEntity(uuid = "b1", title = "B", relativePath = "B.m4b", type = ItemType.BOOK))
+
+        model.moveImportToLibrary(ApplicationProvider.getApplicationContext(), com.tortugapower.audiobookplayer.logic.ImportCompletion(items, "B", basePath = null))
+        advanceUntilIdle()
+
+        assertTrue(libraryRepo.moves.isEmpty())
+    }
+
+    // A move that left items where they were says how many, so the UI can tell the user.
+    @Test fun moveSelectedItems_reportsTheItemsLeftWhereTheyWere() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository().apply { takenAtDestination += "b2" }
+        val model = modelWith(libraryRepo = libraryRepo)
+        val items = listOf(
+            LibraryItemEntity(uuid = "b1", title = "A", relativePath = "Shelf/A.m4b", type = ItemType.BOOK),
+            LibraryItemEntity(uuid = "b2", title = "B", relativePath = "Shelf/B.m4b", type = ItemType.BOOK),
+        )
+
+        model.moveSelectedItems(ApplicationProvider.getApplicationContext(), items, null)
+        advanceUntilIdle()
+        assertEquals(1, model.itemsNotMoved.value)
+
+        model.clearItemsNotMoved()
+        model.moveSelectedItems(ApplicationProvider.getApplicationContext(), items.take(1), null)
+        advanceUntilIdle()
+        assertEquals(null, model.itemsNotMoved.value)
+    }
+
+    // A refused folder-only delete says how many of its items clash, so the UI can tell the user.
+    @Test fun shallowDeleteFolder_refused_reportsTheClashingItems() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository().apply { refuseShallowDelete = true }
+        val model = modelWith(libraryRepo = libraryRepo)
+
+        model.shallowDeleteFolder(ApplicationProvider.getApplicationContext(), LibraryItemEntity(uuid = "f", title = "Series", relativePath = "Series", type = ItemType.FOLDER))
+        // The delete runs on Dispatchers.IO: wait for it.
+        val deadline = System.currentTimeMillis() + 5_000
+        while (model.folderNotDeleted.value == null && System.currentTimeMillis() < deadline) Thread.sleep(10)
+
+        assertEquals(2, model.folderNotDeleted.value)
     }
 }

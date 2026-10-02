@@ -168,6 +168,20 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     media-server link, with one book per file named by its flattened path inside the item's folder
     (`VirtualImportManager.volumeChildFileNames`: `Disc 1/01.mp3` → `Disc 1 - 01.mp3`; a name two paths
     flatten to gets `-2` on the later one, and lookups rebuild the names the same way to match them).
+    Like any import (iOS parity), a stream import lands in the folder being browsed (`basePath`) and joins
+    the post-import placement prompt (`ImportCompletion`). Items already in the library stay put and
+    aren't prompted. The prompt's "Library" moves a batch imported inside a folder to the root
+    (`LibraryViewModel.moveImportToLibrary`), for every import.
+  - **A move never lands on a taken name.** `LibraryRepository.moveItems` leaves an item where it is
+    when another library item or a file on disk already has its name at the destination, and returns
+    it. Two items at one path would mix their books, or a book would point at another book's file. A
+    streamed item has no file, so the library is checked too.
+    - The library screen says how many items weren't moved (`itemsNotMoved`), and the server gets no
+      move task for them.
+    - `shallowDeleteFolder` ("Delete folder only") is refused outright when a child's name is taken at
+      the root (iOS parity, `NameTakenException`). Nothing is moved or deleted, and no task is sent.
+      Moved anyway, the child would replace the other book's audio; left behind, it would be deleted
+      with the folder.
   - **A media-server download lands like a stream import.** The browse-screen Download saves the item's
     file, or, for ABS, a zip of the item's folder with no root folder (`ImportManager.expandArchives` →
     `stageMediaServerDownload`). Only its audio files count, so a `cover.jpg` doesn't make a second item.

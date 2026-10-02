@@ -162,14 +162,15 @@ class SyncingLibraryRepository(
         }
     }
 
-    override suspend fun moveItems(context: Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {
+    override suspend fun moveItems(context: Context, items: List<LibraryItemEntity>, targetFolderPath: String?): List<LibraryItemEntity> {
         // Capture the source parents BEFORE the delegate mutates each item's relativePath in place.
         val sourceParents = parentPathsOf(items)
-        delegate.moveItems(context, items, targetFolderPath)
+        val notMoved = delegate.moveItems(context, items, targetFolderPath)
         if (isSubscribed()) {
             val destinationFolder = targetFolderPath?.let { delegate.getItemByPath(it) }
             val destinationUuid = destinationFolder?.uuid ?: ""
-            items.forEach { item ->
+            val notMovedUuids = notMoved.map { it.uuid }.toSet()
+            items.filterNot { it.uuid in notMovedUuids }.forEach { item ->
                 SyncTaskFactory.createMoveTask(syncTaskRepository, item, item.uuid, destinationUuid)
             }
             // Both sides change counts: the destination grew, the source parents shrank. The destination
@@ -178,6 +179,7 @@ class SyncingLibraryRepository(
             destinationFolder?.let { SyncTaskFactory.createUpdateTask(syncTaskRepository, it) }
             pushParentFolderMetadata(sourceParents - setOfNotNull(targetFolderPath))
         }
+        return notMoved
     }
 
     override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {
