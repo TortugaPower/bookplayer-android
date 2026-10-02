@@ -329,6 +329,10 @@
         <item quantity="one">%1$d item wasn\'t moved: one with the same name is already there.</item>
         <item quantity="other">%1$d items weren\'t moved: ones with the same names are already there.</item>
     </plurals>
+    <plurals name="library_shallow_delete_name_taken">
+        <item quantity="one">The folder wasn\'t deleted: %1$d item in it has the same name as one in the library. Rename or move it first.</item>
+        <item quantity="other">The folder wasn\'t deleted: %1$d items in it have the same names as ones in the library. Rename or move them first.</item>
+    </plurals>
     <string name="library_combine_to_volume">Create a volume</string>
     <string name="library_combine_to_volume_desc">Make sure items are in correct order. To reorder chapters later you need convert the volume back into a folder, reorder items and then re-create the volume.</string>
     <string name="library_combine_to_volume_title">New Book Volume</string>

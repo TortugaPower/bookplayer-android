@@ -446,4 +446,8 @@
         <item quantity="one">%1$d Element wurde nicht verschoben: Dort gibt es bereits eines mit demselben Namen.</item>
         <item quantity="other">%1$d Elemente wurden nicht verschoben: Dort gibt es bereits Elemente mit denselben Namen.</item>
     </plurals>
+    <plurals name="library_shallow_delete_name_taken">
+        <item quantity="one">Der Ordner wurde nicht gelöscht: %1$d Element darin hat denselben Namen wie eines in der Bibliothek. Benennen Sie es zuerst um oder verschieben Sie es.</item>
+        <item quantity="other">Der Ordner wurde nicht gelöscht: %1$d Elemente darin haben dieselben Namen wie Elemente in der Bibliothek. Benennen Sie sie zuerst um oder verschieben Sie sie.</item>
+    </plurals>
 </resources>

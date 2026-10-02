@@ -446,4 +446,8 @@
         <item quantity="one">%1$d élément n\'a pas été déplacé : un élément du même nom s\'y trouve déjà.</item>
         <item quantity="other">%1$d éléments n\'ont pas été déplacés : des éléments portant les mêmes noms s\'y trouvent déjà.</item>
     </plurals>
+    <plurals name="library_shallow_delete_name_taken">
+        <item quantity="one">Le dossier n\'a pas été supprimé : %1$d élément qu\'il contient porte le même nom qu\'un élément de la bibliothèque. Renommez-le ou déplacez-le d\'abord.</item>
+        <item quantity="other">Le dossier n\'a pas été supprimé : %1$d éléments qu\'il contient portent les mêmes noms que des éléments de la bibliothèque. Renommez-les ou déplacez-les d\'abord.</item>
+    </plurals>
 </resources>

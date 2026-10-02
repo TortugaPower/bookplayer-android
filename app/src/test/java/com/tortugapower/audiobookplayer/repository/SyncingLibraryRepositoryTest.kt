@@ -75,7 +75,10 @@ class SyncingLibraryRepositoryTest {
         override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? = null
         override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
         override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
-        override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) = error("unused")
+        var refuseShallowDelete = false
+        override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) {
+            if (refuseShallowDelete) throw NameTakenException(1)
+        }
         override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
         override suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity> = emptyList()
 
@@ -160,6 +163,18 @@ class SyncingLibraryRepositoryTest {
         val moveTasks = syncTaskRepository.tasks.filter { it.jobType == SyncTaskFactory.JOB_MOVE }
         assertEquals(1, moveTasks.size)
         assertTrue(moveTasks.single().payload.contains("\"moves\""))
+    }
+
+    // A refused folder-only delete changed nothing locally: the server must not do it either.
+    @Test
+    fun shallowDeleteFolder_refused_sendsNoTask() = runBlocking {
+        val delegate = FakeLibraryRepository().apply { refuseShallowDelete = true }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+        val folder = LibraryItemEntity(uuid = "f", title = "Series", relativePath = "Series", type = ItemType.FOLDER)
+
+        assertTrue(runCatching { repository.shallowDeleteFolder(android.content.ContextWrapper(null), folder) }.exceptionOrNull() is NameTakenException)
+        assertTrue(syncTaskRepository.tasks.isEmpty())
     }
 
     @Test

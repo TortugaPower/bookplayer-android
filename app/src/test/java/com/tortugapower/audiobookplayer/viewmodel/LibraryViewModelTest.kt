@@ -104,7 +104,10 @@ class LibraryViewModelTest {
         override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? = null
         override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
         override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
-        override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) = error("unused")
+        var refuseShallowDelete = false
+        override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) {
+            if (refuseShallowDelete) throw com.tortugapower.audiobookplayer.repository.NameTakenException(2)
+        }
         override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
         override suspend fun getExternalResource(itemUuid: String, provider: String): ExternalResourceEntity? = null
         override suspend fun saveExternalResource(externalResource: ExternalResourceEntity) {}
@@ -437,5 +440,18 @@ class LibraryViewModelTest {
         model.moveSelectedItems(ApplicationProvider.getApplicationContext(), items.take(1), null)
         advanceUntilIdle()
         assertEquals(null, model.itemsNotMoved.value)
+    }
+
+    // A refused folder-only delete says how many of its items clash, so the UI can tell the user.
+    @Test fun shallowDeleteFolder_refused_reportsTheClashingItems() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository().apply { refuseShallowDelete = true }
+        val model = modelWith(libraryRepo = libraryRepo)
+
+        model.shallowDeleteFolder(ApplicationProvider.getApplicationContext(), LibraryItemEntity(uuid = "f", title = "Series", relativePath = "Series", type = ItemType.FOLDER))
+        // The delete runs on Dispatchers.IO: wait for it.
+        val deadline = System.currentTimeMillis() + 5_000
+        while (model.folderNotDeleted.value == null && System.currentTimeMillis() < deadline) Thread.sleep(10)
+
+        assertEquals(2, model.folderNotDeleted.value)
     }
 }

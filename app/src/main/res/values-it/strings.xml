@@ -446,4 +446,8 @@
         <item quantity="one">%1$d elemento non è stato spostato: nella destinazione ce n\'è già uno con lo stesso nome.</item>
         <item quantity="other">%1$d elementi non sono stati spostati: nella destinazione ce ne sono già altri con gli stessi nomi.</item>
     </plurals>
+    <plurals name="library_shallow_delete_name_taken">
+        <item quantity="one">La cartella non è stata eliminata: %1$d elemento al suo interno ha lo stesso nome di uno nella libreria. Prima rinominalo o spostalo.</item>
+        <item quantity="other">La cartella non è stata eliminata: %1$d elementi al suo interno hanno gli stessi nomi di altri nella libreria. Prima rinominali o spostali.</item>
+    </plurals>
 </resources>

@@ -87,8 +87,8 @@ class ImportManagerStreamTest {
         assertEquals(listOf("Shelf/Golf.m4b"), completion.items.map { it.relativePath })
     }
 
-    // Already in the library: nothing was imported, so there's nothing to place.
-    @Test fun `a stream import of an item already in the library prompts for nothing`() {
+    // An item already in the library wasn't imported, so there's nothing to place: only the new one is.
+    @Test fun `a stream import prompts only for the items it created, not one already in the library`() {
         runBlocking {
             dao.insertItemWithExternalResource(
                 LibraryItemEntity(uuid = "have", title = "Golf", relativePath = "Golf.m4b", type = ItemType.BOOK),

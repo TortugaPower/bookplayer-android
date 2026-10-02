@@ -443,4 +443,7 @@
     <plurals name="library_move_name_taken">
         <item quantity="other">%1$d 个项目未移动：目标位置已存在同名项目。</item>
     </plurals>
+    <plurals name="library_shallow_delete_name_taken">
+        <item quantity="other">文件夹未删除：其中 %1$d 个项目与库中已有项目同名。请先将其重命名或移动。</item>
+    </plurals>
 </resources>

@@ -178,8 +178,10 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     streamed item has no file, so the library is checked too.
     - The library screen says how many items weren't moved (`itemsNotMoved`), and the server gets no
       move task for them.
-    - `shallowDeleteFolder` still moves every child, since anything left behind would be deleted with
-      the folder.
+    - `shallowDeleteFolder` ("Delete folder only") is refused outright when a child's name is taken at
+      the root (iOS parity, `NameTakenException`). Nothing is moved or deleted, and no task is sent.
+      Moved anyway, the child would replace the other book's audio; left behind, it would be deleted
+      with the folder.
   - **A media-server download lands like a stream import.** The browse-screen Download saves the item's
     file, or, for ABS, a zip of the item's folder with no root folder (`ImportManager.expandArchives` →
     `stageMediaServerDownload`). Only its audio files count, so a `cover.jpg` doesn't make a second item.

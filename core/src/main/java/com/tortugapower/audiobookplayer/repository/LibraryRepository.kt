@@ -14,6 +14,12 @@ class BoundConversionException(val reason: Reason) : Exception(reason.name) {
 }
 
 /**
+ * A folder-only delete refused because [count] of the folder's items have names already taken where they'd
+ * go (iOS parity: its move throws when a file is in the way). Nothing was moved or deleted.
+ */
+class NameTakenException(val count: Int) : Exception("$count name(s) already taken at the destination")
+
+/**
  * Interface for library data operations, allowing for easy testing and different data sources.
  */
 interface LibraryRepository {

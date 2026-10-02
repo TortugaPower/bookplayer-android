@@ -110,4 +110,20 @@ class MoveItemsNameTakenTest {
         assertEquals("Book.m4b", pathOf("first"))
         assertEquals("B/Book.m4b", pathOf("second"))
     }
+
+    // The caller's copy can be stale (the import prompt's batch while a Hardcover match set the artwork):
+    // a move must not write it back over the row.
+    @Test fun `a move keeps what changed on the row since the caller read it`() = runBlocking {
+        seed("shelf", "Shelf", ItemType.FOLDER)
+        val staleCopy = seed("book", "Shelf/Book.m4b", ItemType.BOOK)
+        db.libraryDao().updateItem(db.libraryDao().getItemById("book")!!.copy(artworkURL = "/art/matched.jpg"))
+
+        repository.moveItems(context, listOf(staleCopy), targetFolderPath = null)
+
+        val stored = db.libraryDao().getItemById("book")!!
+        assertEquals("Book.m4b", stored.relativePath)
+        assertEquals("/art/matched.jpg", stored.artworkURL)
+        // The caller's copy learns where it went: the sync layer reads it.
+        assertEquals("Book.m4b", staleCopy.relativePath)
+    }
 }

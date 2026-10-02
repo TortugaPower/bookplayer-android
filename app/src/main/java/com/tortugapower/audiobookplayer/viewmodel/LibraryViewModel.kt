@@ -526,8 +526,20 @@ class LibraryViewModel(
     /** iOS-parity "Delete folder only": contents move back to the library root, folder row goes. */
     fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.shallowDeleteFolder(context, folder)
+            try {
+                repository.shallowDeleteFolder(context, folder)
+            } catch (e: com.tortugapower.audiobookplayer.repository.NameTakenException) {
+                _folderNotDeleted.value = e.count
+            }
         }
+    }
+
+    private val _folderNotDeleted = MutableStateFlow<Int?>(null)
+    /** Set when a folder-only delete was refused: how many of its items have names taken at the root. */
+    val folderNotDeleted: StateFlow<Int?> = _folderNotDeleted.asStateFlow()
+
+    fun clearFolderNotDeleted() {
+        _folderNotDeleted.value = null
     }
 
     fun resetItemProgress(uuid: String) {
