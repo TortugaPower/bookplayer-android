@@ -78,6 +78,16 @@ object SyncFailurePolicy {
     fun codedFailure(error: Throwable?): CodedFailure? = (error as? CodedFailureException)?.failure
 
     /**
+     * Pulls from the server: a rejected one has no change of its own to keep, so it's dropped and the
+     * next refresh asks again (iOS doesn't queue a listing at all, and a failed one leaves nothing
+     * behind). Parked, it would also block every later refresh, since a parked sync task holds them.
+     */
+    private val pullJobs = setOf(
+        SyncTaskFactory.JOB_FETCH_CONTENTS,
+        SyncTaskFactory.JOB_FETCH_PREFERENCES,
+    )
+
+    /**
      * Only a coded failure parks: a code means the request can never succeed as sent. Anything uncoded
      * keeps retrying, so a new server failure mode never strands tasks.
      */
@@ -86,7 +96,7 @@ object SyncFailurePolicy {
         // An account pause must never land on a media-server or Hardcover lane
         if (jobType in nonServerJobs) return SyncFailureAction.Retry
         if (code in accountCodes) return SyncFailureAction.VerifyAccount
-        if (!parkingEnabled) return SyncFailureAction.Drop
+        if (!parkingEnabled || jobType in pullJobs) return SyncFailureAction.Drop
         return SyncFailureAction.Park(scope(jobType))
     }
 

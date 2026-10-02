@@ -25,12 +25,12 @@ class SyncFailurePolicyTest {
         }
     }
 
-    /** Leaf tasks park alone, Android-only jobs and unknown job types included */
+    /** Leaf tasks park alone, Android-only jobs and unknown job types included (pulls are dropped, below) */
     @Test fun aCodedFailure_parksALeafTaskAlone() {
         listOf(
             SyncTaskFactory.JOB_UPDATE, SyncTaskFactory.JOB_UPLOAD_ARTWORK, SyncTaskFactory.JOB_UPLOAD_FILE,
-            SyncTaskFactory.JOB_DOWNLOAD_FILE, SyncTaskFactory.JOB_FETCH_CONTENTS, SyncTaskFactory.JOB_SYNC_IDENTIFIERS,
-            SyncTaskFactory.JOB_UPLOAD_PREFERENCE, SyncTaskFactory.JOB_FETCH_PREFERENCES,
+            SyncTaskFactory.JOB_DOWNLOAD_FILE, SyncTaskFactory.JOB_SYNC_IDENTIFIERS,
+            SyncTaskFactory.JOB_UPLOAD_PREFERENCE,
             SyncTaskFactory.JOB_UPLOAD_STREAM_FILE, "some_future_job",
         ).forEach {
             assertEquals(it, SyncFailureAction.Park(TaskPauseScope.TASK), SyncFailurePolicy.action(coded("invalid_request"), it, parkingEnabled = true))
@@ -64,5 +64,13 @@ class SyncFailurePolicyTest {
         val e = CodedFailureException(CodedFailure("item_not_found", "Item not found: \"My Book.m4b\"", 404))
         assertEquals("Coded failure item_not_found (HTTP 404)", e.message)
         assertEquals("Item not found: \"My Book.m4b\"", e.failure.message)
+    }
+
+    /** A rejected pull keeps nothing and would hold every later refresh: dropped, like a failed iOS listing */
+    @Test fun aRejectedPull_isDropped_butAnAccountRejectionStillVerifies() {
+        listOf(SyncTaskFactory.JOB_FETCH_CONTENTS, SyncTaskFactory.JOB_FETCH_PREFERENCES).forEach { job ->
+            assertEquals(job, SyncFailureAction.Drop, SyncFailurePolicy.action(coded("invalid_request"), job, parkingEnabled = true))
+            assertEquals(job, SyncFailureAction.VerifyAccount, SyncFailurePolicy.action(coded("not_subscribed"), job, parkingEnabled = true))
+        }
     }
 }
