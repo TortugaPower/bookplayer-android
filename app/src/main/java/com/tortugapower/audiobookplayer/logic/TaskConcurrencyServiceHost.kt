@@ -170,6 +170,7 @@ class TaskConcurrencyServiceHost : Service() {
             verifySyncEntitlement = { SubscriptionManager.refreshSyncEntitlement() },
             onTaskPaused = BookPlayerApplication.instance.syncPauseReporter::report,
             onSyncLaneDrained = BookPlayerApplication.instance.firstSync::onSyncLaneDrained,
+            awaitTierReady = SubscriptionManager::awaitTierReady,
         )
         Log.d(TAG, "🚀 Triggering taskConcurrencyManager.startProcessing()")
         taskConcurrencyManager.startProcessing()

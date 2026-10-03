@@ -401,7 +401,9 @@ class AuthViewModel(
             email = response.email,
             apiToken = response.token,
             revenuecatId = response.revenuecatId,
-            tier = if (response.hasSubscription) AccountTier.PRO else AccountTier.FREE
+            // The server's flag doesn't tell PRO from LITE: RevenueCat's reading sets the tier, and a guessed PRO
+            // would start the first sync's file uploads for a LITE account. Only builds without RevenueCat guess.
+            tier = if (response.hasSubscription && !SubscriptionManager.isConfigured) AccountTier.PRO else AccountTier.FREE
         )
     }
 

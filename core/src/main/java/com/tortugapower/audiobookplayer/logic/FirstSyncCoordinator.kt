@@ -133,12 +133,21 @@ class FirstSyncCoordinator(
         store.setLastKnownProAccess(isPro)
     }
 
-    /** Sign-out: whatever runs can't queue or mark anything any more, and the next account starts afresh */
-    suspend fun signOut() {
+    /**
+     * Sync went off, mid-session or while the app was closed (iOS `endSyncSession`): whatever runs can't queue or
+     * mark anything any more, and the account's return is a first sync (what's imported meanwhile never reaches
+     * the server, and a deleting listing would remove it). The pass's schedule is kept.
+     */
+    suspend fun endSession() = endSession { store.setHasRunFirstSync(false) }
+
+    /** Sign-out: as [endSession], and the next account starts afresh */
+    suspend fun signOut() = endSession { store.clear() }
+
+    private suspend fun endSession(reset: suspend () -> Unit) {
         synchronized(runLock) { inFlight }?.cancel()
         sessionLock.withLock {
             session++
-            store.clear()
+            reset()
         }
     }
 

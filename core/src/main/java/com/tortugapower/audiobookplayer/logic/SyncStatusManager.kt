@@ -55,8 +55,10 @@ object SyncStatusManager {
     @Volatile
     internal var clock: () -> Long = { System.currentTimeMillis() }
 
-    /** Tests only: forget every fetch timestamp, so a test clock can't leave a future stamp behind. */
-    @VisibleForTesting
+    /**
+     * Forgets every fetch timestamp: a lapse lets the listings and the preferences pull it held back run as soon
+     * as the account is back (SyncQueueReset). Tests use it so a test clock can't leave a future stamp behind.
+     */
     internal fun resetFetchThrottles() {
         _lastPathFetchTimestamps.value = emptyMap()
         synchronized(this) { lastFetchPreferencesTimestamp = 0L }

@@ -161,6 +161,22 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     due pass, starts then.
   - The old path-based catch-up (`sync_identifiers`, `GET /v1/library/keys`) is retired; leftover tasks
     are dropped by `SyncTaskRetirement`.
+- **Tier changes come from RevenueCat readings, not the stored tier** (iOS `updateSyncEnabled`).
+  `SubscriptionManager` hands each reading to `AccountTierSync`, which classifies it against the last one
+  (`TierTransitions`) and applies it in order: it stores the tier (`AccountRepository.updateTier`, one column,
+  so a sign-out meanwhile isn't undone), then:
+  - a lapse mid-session (PRO/LITE → FREE/PLUS) ends the first sync's session and **wipes** the server lanes
+    (`SyncQueueReset.wipeForLapse`: the sync, upload and preferences lanes plus artwork uploads);
+  - a lapse in the first reading (launch: RevenueCat's cache; or right after a sign-in) happened while the app
+    was closed: the queue is **held** for the return, and only the first-sync flag resets;
+  - PRO → LITE drops the file uploads, parked ones too (`dropUploads`); LITE in a first reading does too;
+  - a return wakes the engine for the held work.
+  - Each wipe first stops the lanes' workers (`TaskConcurrencyManager.cancelLanes`, via `SyncEngine.current`):
+    deleting a task doesn't stop the worker running it. Sign-out does the same for every lane
+    (`SyncQueueReset.clearAll`), on the phone and the watch.
+  - A sign-in or sign-out starts a new epoch: RevenueCat answers to calls made before it are dropped.
+  - The engine, the launch gate and the first sync wait for this launch's reading
+    (`SubscriptionManager.awaitTierReady`), so they never act on last session's tier.
 - **Media-server connection flow** (Jellyfin / AudiobookShelf; mirrors iOS, so check the iOS `develop`
   branch before changing behavior): one `ConnectionFlowSheet` (own `NavHost`) serves both Add Server and
   re-auth. Address → Connect **probes** the server (`ExternalService.probe` → `ServerCapabilities`) →

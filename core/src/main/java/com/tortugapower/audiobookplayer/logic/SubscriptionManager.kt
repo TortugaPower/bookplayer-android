@@ -7,9 +7,9 @@ import com.revenuecat.purchases.*
 import com.revenuecat.purchases.interfaces.LogInCallback
 import com.revenuecat.purchases.interfaces.ReceiveCustomerInfoCallback
 import com.revenuecat.purchases.interfaces.UpdatedCustomerInfoListener
-import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,17 +17,22 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 object SubscriptionManager {
     private const val TAG = "SubscriptionManager"
+    private const val TIER_READY_TIMEOUT_MS = 10_000L
     private var accountRepository: AccountRepository? = null
-    private var syncTaskRepository: SyncTaskRepository? = null
+    @Volatile private var tierSync: AccountTierSync? = null
     private val scope = CoroutineScope(
         Dispatchers.IO + kotlinx.coroutines.SupervisorJob() +
             StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull }
     )
-    private var lastProcessedTier: AccountTier? = null
+
+    // Completed once this launch's first tier reading is stored (before the queue is changed for it: waiting on the
+    // hooks would let a pass holding the session lock stall a lapse's endSession), or there's none to wait for
+    private val tierReady = CompletableDeferred<Unit>()
 
     /**
      * Play Store subscription-management deep link for the current customer, or null when
@@ -37,15 +42,22 @@ object SubscriptionManager {
     private val _managementUrl = MutableStateFlow<Uri?>(null)
     val managementUrl: StateFlow<Uri?> = _managementUrl.asStateFlow()
 
-    fun initialize(context: Context, repository: AccountRepository, syncRepository: SyncTaskRepository, revenueCatApiKey: String) {
+    fun initialize(
+        context: Context,
+        repository: AccountRepository,
+        syncRepository: SyncTaskRepository,
+        revenueCatApiKey: String,
+        syncHooks: SyncSessionHooks? = null,
+    ) {
         accountRepository = repository
-        syncTaskRepository = syncRepository
 
         // At the beginning we work with RevenueCat sandbox
         Purchases.logLevel = LogLevel.DEBUG
 
         if (revenueCatApiKey.isEmpty()) {
             Log.e(TAG, "RevenueCat API Key is missing!")
+            // No readings to come (dev builds): the stored tier is all there is
+            tierReady.complete(Unit)
             return
         }
 
@@ -53,6 +65,23 @@ object SubscriptionManager {
             PurchasesConfiguration.Builder(context, revenueCatApiKey)
                 .build()
         )
+        tierSync = AccountTierSync(repository, syncRepository, syncHooks).also {
+            it.start(scope) { tierReady.complete(Unit) }
+        }
+
+        // This launch's first reading comes from RevenueCat's cache, as iOS reads its cached access level at
+        // setup: a lapse it shows happened while the app was closed. With nothing cached, the stored tier stands
+        // until a fetch answers. (Setting the listener below hands it the same cache, whichever lands first.)
+        val launch = currentEpoch()
+        Purchases.sharedInstance.getCustomerInfo(CacheFetchPolicy.CACHE_ONLY, object : ReceiveCustomerInfoCallback {
+            override fun onReceived(customerInfo: CustomerInfo) {
+                record(customerInfo, launch)
+            }
+
+            override fun onError(error: PurchasesError) {
+                tierReady.complete(Unit)
+            }
+        })
 
         Purchases.sharedInstance.updatedCustomerInfoListener = UpdatedCustomerInfoListener { customerInfo ->
             Log.d(TAG, "Customer info updated")
@@ -62,7 +91,7 @@ object SubscriptionManager {
         // Initial sync
         Purchases.sharedInstance.getCustomerInfo(object : ReceiveCustomerInfoCallback {
             override fun onReceived(customerInfo: CustomerInfo) {
-                updateAccountTier(customerInfo)
+                record(customerInfo, launch)
             }
 
             override fun onError(error: PurchasesError) {
@@ -80,13 +109,31 @@ object SubscriptionManager {
         }
     }
 
-    fun login(appUserId: String) {
+    /** Whether RevenueCat reads the tier: without it (dev builds), the stored one is all there is */
+    val isConfigured: Boolean get() = Purchases.isConfigured
+
+    /**
+     * Returns once this launch's tier reading is stored, or there's none to wait for (a while at most). Until
+     * then the stored tier is last session's: work it allows may be what a lapse while the app was closed holds.
+     */
+    suspend fun awaitTierReady() {
+        withTimeoutOrNull(TIER_READY_TIMEOUT_MS) { tierReady.await() }
+    }
+
+    /** The watch's sign-in: a new account, then the same login as at launch */
+    fun signIn(appUserId: String) {
+        newEpoch()
+        login(appUserId)
+    }
+
+    /** The signed-in account's RevenueCat user (launch, or a sign-in that began its epoch) */
+    private fun login(appUserId: String) {
         if (!Purchases.isConfigured) return
         Log.d(TAG, "Logging in with appUserId: $appUserId")
-        lastProcessedTier = null // Clear to force re-evaluation for the new user
+        val started = currentEpoch()
         Purchases.sharedInstance.logIn(appUserId, object : LogInCallback {
             override fun onReceived(customerInfo: CustomerInfo, created: Boolean) {
-                updateAccountTier(customerInfo)
+                record(customerInfo, started)
             }
 
             override fun onError(error: PurchasesError) {
@@ -104,7 +151,7 @@ object SubscriptionManager {
      */
     suspend fun loginAndCheckSubscription(appUserId: String): Boolean {
         if (!Purchases.isConfigured) return false
-        lastProcessedTier = null
+        val started = newEpoch()
         // Switching users — drop the previous customer's management URL up front so a login failure
         // (onError doesn't repopulate it) can't leave the UI pointing at a stale/incorrect
         // subscription-management link. It's set again from the fresh customer info on success.
@@ -112,7 +159,7 @@ object SubscriptionManager {
         return suspendCancellableCoroutine { cont ->
             Purchases.sharedInstance.logIn(appUserId, object : LogInCallback {
                 override fun onReceived(customerInfo: CustomerInfo, created: Boolean) {
-                    updateAccountTier(customerInfo)
+                    record(customerInfo, started)
                     // Guard against resuming a continuation that was already cancelled (e.g. the
                     // caller's scope was cleared before RevenueCat's callback fired) — resuming a
                     // cancelled/completed continuation throws.
@@ -130,10 +177,10 @@ object SubscriptionManager {
     fun logout() {
         if (!Purchases.isConfigured) return
         Log.d(TAG, "Logging out")
-        lastProcessedTier = null
+        val started = newEpoch()
         Purchases.sharedInstance.logOut(object : ReceiveCustomerInfoCallback {
             override fun onReceived(customerInfo: CustomerInfo) {
-                updateAccountTier(customerInfo)
+                record(customerInfo, started)
             }
 
             override fun onError(error: PurchasesError) {
@@ -150,6 +197,7 @@ object SubscriptionManager {
      */
     suspend fun refreshSyncEntitlement(): Boolean? {
         if (!Purchases.isConfigured) return null
+        val started = currentEpoch()
         val info = try {
             Purchases.sharedInstance.awaitCustomerInfo(CacheFetchPolicy.FETCH_CURRENT)
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -158,48 +206,25 @@ object SubscriptionManager {
             Log.w(TAG, "Couldn't refresh the sync entitlement: ${e.message}")
             return null
         }
-        updateAccountTier(info)
+        record(info, started)
         return info.entitlements["pro"]?.isActive == true || info.entitlements["lite"]?.isActive == true
     }
 
     // Invoked from RevenueCat SDK callbacks and by the purchase/tip flows (in :app) after a purchase.
-    // `_managementUrl` is a StateFlow, so its write is thread-safe regardless of the calling thread.
-    fun updateAccountTier(customerInfo: CustomerInfo) {
-        // Always refresh the management URL, even when the tier hasn't changed.
-        _managementUrl.value = customerInfo.managementURL
+    fun updateAccountTier(customerInfo: CustomerInfo) = record(customerInfo)
 
-        val activeEntitlements = customerInfo.entitlements.active.keys
-
-        val hasPro = customerInfo.entitlements["pro"]?.isActive == true
-        val hasLite = customerInfo.entitlements["lite"]?.isActive == true
-        val hasPlus = customerInfo.entitlements["plus"]?.isActive == true
-
-        val tier = when {
-            hasPro -> AccountTier.PRO
-            hasLite -> AccountTier.LITE
-            hasPlus -> AccountTier.PLUS
-            else -> AccountTier.FREE
-        }
-        
-        if (lastProcessedTier == tier) return
-        lastProcessedTier = tier
-        
-        Log.d(TAG, "Setting account tier to: $tier (Pro: $hasPro, Lite: $hasLite, Plus: $hasPlus)")
-        
-        scope.launch {
-            val account = accountRepository?.getAccount()
-            if (account != null && account.tier != tier) {
-                Log.d(TAG, "Persisting new tier: $tier for account: ${account.email}")
-                accountRepository?.saveAccount(account.copy(tier = tier))
-
-                // The lapse path drops queued downloads (see TaskConcurrencyManager.dropDownloadsTheTierCantRun):
-                // here too, since the sync service may not be running to do it
-                if (!TaskAccessPolicy.canExecuteTask(tier, SyncTaskFactory.JOB_DOWNLOAD_FILE)) {
-                    syncTaskRepository?.deletePendingTasksOfType(SyncTaskFactory.JOB_DOWNLOAD_FILE)
-                }
-                // What the server lacks is caught up by the phone's first sync (FirstSyncCoordinator), which
-                // a syncing account starts
-            }
-        }
+    /** Hands a reading to [AccountTierSync]; one answering a call made before [startedIn]'s epoch ended is dropped */
+    private fun record(customerInfo: CustomerInfo, startedIn: Int? = null) {
+        val tier = TierTransitions.tierOf(
+            hasPro = customerInfo.entitlements["pro"]?.isActive == true,
+            hasLite = customerInfo.entitlements["lite"]?.isActive == true,
+            hasPlus = customerInfo.entitlements["plus"]?.isActive == true,
+        )
+        // Always refreshed, even when the tier hasn't changed (a StateFlow: any thread)
+        if (tierSync?.record(tier, startedIn) == true) _managementUrl.value = customerInfo.managementURL
     }
+
+    private fun currentEpoch(): Int = tierSync?.currentEpoch() ?: 0
+
+    private fun newEpoch(): Int = tierSync?.newEpoch() ?: 0
 }

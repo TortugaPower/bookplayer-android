@@ -131,6 +131,7 @@ class WearSyncServiceHost : Service() {
             this, repository, accountRepository, processors,
             parkingEnabled = false,
             verifySyncEntitlement = { SubscriptionManager.refreshSyncEntitlement() },
+            awaitTierReady = SubscriptionManager::awaitTierReady,
         )
         taskConcurrencyManager.startProcessing()
 

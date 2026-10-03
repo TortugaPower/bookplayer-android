@@ -84,7 +84,7 @@ interface SyncTaskRepository {
     /** Turns an older build's [from] tasks into pending [to] tasks in [queueKey], payload and place kept */
     suspend fun convertTasks(from: String, to: String, queueKey: String) {}
 
-    /** Removes every task of a job this build no longer runs */
+    /** Removes every [jobType] task, running and parked ones included (a retired job, or what a tier change drops) */
     suspend fun deleteAllTasksOfType(jobType: String) {}
 
     /**

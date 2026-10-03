@@ -181,6 +181,31 @@ class FirstSyncCoordinatorTest {
         assertTrue(db.syncTaskDao().getAllTasksSync().isEmpty())
     }
 
+    /** A lapse ends the run like a sign-out, and the return is a first sync; the pass's schedule stays */
+    @Test fun aLapse_endsTheRun_andResetsOnlyTheFirstSync() = runBlocking {
+        store.lastRun = 5L
+        store.pending = true
+        store.lastKnownPro = true
+        statusGate = CompletableDeferred()
+        val coordinator = coordinator()
+
+        val run = async { coordinator.run() }
+        withTimeout(5_000) { while (statusCalls == 0) kotlinx.coroutines.delay(10) }
+        coordinator.endSession()
+        statusGate!!.complete(Unit)
+
+        assertEquals(FirstSyncResult.SessionEnded, run.await())
+        assertTrue(db.syncTaskDao().getAllTasksSync().isEmpty())
+        assertEquals(0, store.cleared)
+        assertEquals(5L, store.lastRun)
+        assertTrue(store.pending)
+        assertEquals(true, store.lastKnownPro)
+
+        store.done = true
+        coordinator.endSession()
+        assertFalse(store.done)
+    }
+
     @Test fun aFailedPassOrRootListing_leavesItNotDone() = runBlocking {
         statusAnswer = Response.error(500, """{"message":"Internal error"}""".toResponseBody())
         assertEquals(FirstSyncResult.Failed, coordinator().run())
