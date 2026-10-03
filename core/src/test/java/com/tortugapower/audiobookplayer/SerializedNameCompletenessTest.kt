@@ -20,6 +20,7 @@ import com.tortugapower.audiobookplayer.model.EmailVerificationSendRequest
 import com.tortugapower.audiobookplayer.model.EmailVerificationSendResponse
 import com.tortugapower.audiobookplayer.model.IdentifiersResponse
 import com.tortugapower.audiobookplayer.model.ItemConflict
+import com.tortugapower.audiobookplayer.model.ItemsStatusResponse
 import com.tortugapower.audiobookplayer.model.MatchUuidsResponse
 import com.tortugapower.audiobookplayer.model.PasskeyAssertionResponse
 import com.tortugapower.audiobookplayer.model.PasskeyCredentialDescriptor
@@ -96,6 +97,7 @@ class SerializedNameCompletenessTest {
         IdentifiersResponse::class.java,
         MatchUuidsResponse::class.java,
         ItemConflict::class.java,
+        ItemsStatusResponse::class.java,
         // model/AuthModels.kt
         EmailVerificationSendRequest::class.java,
         EmailVerificationSendResponse::class.java,

@@ -115,6 +115,22 @@ interface SyncTaskRepository {
     /** Removes [taskId]'s parked tasks of [jobType]: a newer one supersedes them */
     suspend fun deleteParkedTasks(jobType: String, taskId: String) {}
 
+    /** Removes every task in [queueKeys], running and parked ones included. Returns how many. */
+    suspend fun deleteTasksInQueues(queueKeys: Collection<String>): Int {
+        val doomed = SyncTaskStatus.entries.flatMap { getTasksByStatus(it) }.filter { it.queueKey in queueKeys }
+        doomed.forEach { deleteTask(it) }
+        return doomed.size
+    }
+
+    /** The ids of [jobTypes] tasks still to go through: queued, running or parked */
+    suspend fun queuedTaskIds(jobTypes: Collection<String>): Set<String> =
+        SyncTaskStatus.entries.flatMap { getTasksByStatus(it) }
+            .filter {
+                it.jobType in jobTypes &&
+                    (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING || it.pauseScope != null)
+            }
+            .mapTo(mutableSetOf()) { it.taskID }
+
     /** Removes the queued (not yet running) tasks of [jobType]. Returns how many. */
     suspend fun deletePendingTasksOfType(jobType: String): Int {
         val pending = getTasksByStatus(SyncTaskStatus.PENDING).filter { it.jobType == jobType }

@@ -172,6 +172,9 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             TaskConcurrencyServiceHost.start(this)
         }
         appScope.launch(Dispatchers.IO) {
+            // Before the gate: jobs this build no longer runs are held, so they'd never start the engine
+            // that cleans them up, and one left in the sync lane holds back every library refresh
+            com.tortugapower.audiobookplayer.logic.SyncTaskRetirement.cleanUp(syncTaskRepository)
             // Parked tasks don't count: they're retried when the app is opened (ParkedTaskRetry)
             val hasStartableWork: suspend () -> Boolean = {
                 // The count first: most launches have an empty queue and skip loading it

@@ -885,35 +885,17 @@ class MatchUuidsProcessor(
         val payload: Map<String, Map<String, String>> = gson.fromJson(task.payload, payloadType)
         val items = payload["items"] ?: return true // Nothing to match
 
-        // New tasks hold at most MATCH_UUIDS_MAX_ITEMS, but one queued by an older build can hold more
-        // than the API accepts in a request. A retry after a failed chunk re-sends the earlier ones:
-        // their conflicts are already applied, and applying them again changes nothing.
-        for (chunk in items.entries.chunked(SyncTaskFactory.MATCH_UUIDS_MAX_ITEMS)) {
-            val response = matchUuids(mapOf("items" to chunk.associate { it.key to it.value }))
+        // A task queued by an older build can hold more than the API accepts in one request (by count, or
+        // by body size with long paths). A retry after a failed batch re-sends the earlier ones: their
+        // conflicts are already applied, and applying them again changes nothing.
+        for (batch in MatchUuidsBatching.batches(items)) {
+            val response = matchUuids(mapOf("items" to batch))
             response.throwIfCoded()
             val result = response.body()
             if (!response.isSuccessful || result == null) return false
-            applyConflicts(result.conflicts)
+            UuidConflicts.apply(libraryDao(), repository, result.conflicts)
         }
         return true
-    }
-
-    private suspend fun applyConflicts(conflicts: List<ItemConflict>) {
-        val libraryDao = libraryDao()
-        conflicts.forEach { conflict ->
-            val oldUuid = conflict.key
-            val newUuid = conflict.uuid
-
-            Log.d("MatchUuidsProcessor", "⚔️ Conflict found: local=$oldUuid server=$newUuid. Resolving...")
-
-            // The item and everything that points at it, then its queued tasks. Neither when
-            // another local item already has the server's uuid: that conflict can't be adopted.
-            if (libraryDao.migrateItemUuid(oldUuid, newUuid)) {
-                repository.migrateTaskUuid(oldUuid, newUuid)
-            } else {
-                Log.w("MatchUuidsProcessor", "Another local item already has $newUuid; keeping $oldUuid")
-            }
-        }
     }
 
     override fun canHandle(jobType: String): Boolean {

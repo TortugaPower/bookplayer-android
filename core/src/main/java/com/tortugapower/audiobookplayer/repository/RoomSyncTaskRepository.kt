@@ -124,6 +124,14 @@ class RoomSyncTaskRepository(
         Unit
     }
 
+    override suspend fun deleteTasksInQueues(queueKeys: Collection<String>): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.deleteTasksInQueues(queueKeys.toList())
+    }
+
+    override suspend fun queuedTaskIds(jobTypes: Collection<String>): Set<String> = withContext(Dispatchers.IO) {
+        syncTaskDao.queuedTaskIds(jobTypes.toList()).toSet()
+    }
+
     override suspend fun saveUploadState(id: String, state: MultipartUploadState): Boolean = withContext(Dispatchers.IO) {
         syncTaskDao.saveUploadState(id, state)
     }

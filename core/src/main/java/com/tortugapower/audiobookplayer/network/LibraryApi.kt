@@ -57,6 +57,11 @@ interface LibraryApi {
     @POST("/v1/library/uuids")
     suspend fun matchUuids(@Body params: Map<String, Any?>): Response<MatchUuidsResponse>
 
+    // `{uuids: [...]}`: which of this device's items the server doesn't know, and which of its books it
+    // holds no file for (bookplayer-api docs/multipart-uploads.md, the missing-items pass)
+    @POST("/v1/library/status")
+    suspend fun itemsStatus(@Body params: Map<String, Any?>): Response<ItemsStatusResponse>
+
     @PUT("/v1/library/external")
     suspend fun uploadExternalResource(@Body params: Map<String, Any?>): Response<Unit>
 

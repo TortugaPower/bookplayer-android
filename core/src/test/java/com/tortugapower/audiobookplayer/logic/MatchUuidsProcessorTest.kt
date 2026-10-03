@@ -97,6 +97,25 @@ class MatchUuidsProcessorTest {
         assertEquals(listOf("local-1" to "server-1", "local-2500" to "server-2500"), repository.migrated)
     }
 
+    /** Long paths fill the API's 100 KB body long before 1,000 entries: an over-limit request is a 413 forever */
+    @Test fun longPaths_areSentInRequestsUnderTheBodyLimit() = runBlocking {
+        val items = (1..1_000).associate { "Series ${"long folder name ".repeat(8)}/Book $it.m4b" to "local-$it" }
+        val sentBytes = mutableListOf<Int>()
+        val processor = MatchUuidsProcessor(
+            context, MigrationRecordingRepository(),
+            matchUuids = { params ->
+                sentBytes += Gson().toJson(params).toByteArray(Charsets.UTF_8).size
+                Response.success(MatchUuidsResponse(applied = emptyList(), conflicts = emptyList()))
+            },
+            libraryDao = { db.libraryDao() },
+        )
+
+        assertTrue(processor.process(matchTask(items)))
+
+        assertTrue(sentBytes.size > 1)
+        sentBytes.forEach { assertTrue("$it bytes", it <= MatchUuidsBatching.MAX_BODY_BYTES) }
+    }
+
     /** A failed chunk retries the task; re-sending the chunks that already applied changes nothing */
     @Test fun aFailedChunk_failsTheTask_andTheRetryIsSafe() = runBlocking {
         val items = (1..1_500).associate { "Book $it.m4b" to "local-$it" }

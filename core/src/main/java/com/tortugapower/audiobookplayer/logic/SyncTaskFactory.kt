@@ -277,15 +277,11 @@ object SyncTaskFactory {
         enqueue(repository, QUEUE_FILE, JOB_DOWNLOAD_FILE, item.uuid, payload)
     }
 
-    /** The API answers more items than this with an uncoded 400 (its MAX_RECORDS_LIMIT) */
-    const val MATCH_UUIDS_MAX_ITEMS = 1_000
-
+    /** One match_uuids task per request the API accepts ([MatchUuidsBatching]: 1,000 items, under its 100 KB body) */
     suspend fun createMatchUuidsTask(repository: SyncTaskRepository, items: Map<String, String>) {
-        // items is a map of relativePath -> generatedUuid, sent as tasks of at most MATCH_UUIDS_MAX_ITEMS
-        items.entries.chunked(MATCH_UUIDS_MAX_ITEMS).forEach { chunk ->
-            val payload = mapOf(
-                "items" to chunk.associate { it.key to it.value }
-            )
+        // items is a map of relativePath -> generatedUuid, one task per request the API accepts
+        MatchUuidsBatching.batches(items).forEach { batch ->
+            val payload = mapOf("items" to batch)
             // Use a unique ID for this task to avoid duplicates if multiple fetches generate IDs
             val taskId = "match_${java.util.UUID.randomUUID().toString().take(8)}"
             enqueue(repository, QUEUE_SYNC, JOB_MATCH_UUIDS, taskId, payload)

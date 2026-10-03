@@ -282,4 +282,30 @@ class SyncTaskDaoTest {
         assertEquals(SyncTaskStatus.RUNNING, saved.status)
         assertEquals(1, saved.attempts)
     }
+
+    /** A lapse clears whole lanes: running and parked tasks too, nothing in the other lanes */
+    @Test fun deleteTasksInQueues_clearsEveryStateInThoseLanesOnly() = runBlocking {
+        dao.insertAtEnd(task("queued", "a"))
+        dao.insertAtEnd(task("running", "b"))
+        dao.markTaskRunning("running")
+        dao.insertAtEnd(task("parked", "c"))
+        dao.parkTask("parked", "LANE", "item_not_found", "Item not found", 404, 5L)
+        dao.insertAtEnd(task("upload", "d", jobType = "upload_file").copy(queueKey = "upload"))
+        dao.insertAtEnd(task("download", "e", jobType = "download_file").copy(queueKey = "file"))
+
+        assertEquals(4, dao.deleteTasksInQueues(listOf("sync", "upload")))
+        assertEquals(listOf("download"), dao.getAllTasks().first().map { it.id })
+    }
+
+    /** What already has an upload on its way: queued, running or parked, of the asked job types only */
+    @Test fun queuedTaskIds_coversQueuedRunningAndParked() = runBlocking {
+        dao.insertAtEnd(task("register", "a", jobType = "upload_metadata"))
+        dao.insertAtEnd(task("upload", "b", jobType = "upload_file").copy(queueKey = "upload"))
+        dao.markTaskRunning("upload")
+        dao.insertAtEnd(task("parked", "c", jobType = "upload_file").copy(queueKey = "upload"))
+        dao.parkTask("parked", "TASK", "file_too_large", "Too large", 422, 5L)
+        dao.insertAtEnd(task("move", "d", jobType = "move"))
+
+        assertEquals(setOf("a", "b", "c"), dao.queuedTaskIds(listOf("upload_metadata", "upload_file")).toSet())
+    }
 }
