@@ -175,13 +175,15 @@ class FirstSyncCoordinator(
     }
 
     private suspend fun runChecked(): FirstSyncResult {
+        // Before the checks, as in runDuePasses: if they read an account signed out meanwhile, this session has
+        // ended and nothing below is queued or marked
+        val started = sessionLock.withLock { session }
         if (store.hasRunFirstSync()) return FirstSyncResult.AlreadyDone
         if (!isSyncActive()) return FirstSyncResult.Inactive
         // What's queued goes first: the pass would register items a queued change still moves or deletes
         if (syncTasks.countQueuedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0 || syncTasks.hasAccountPause()) {
             return FirstSyncResult.WaitingForQueue
         }
-        val started = sessionLock.withLock { session }
         when (val outcome = pass.run { block -> inSession(started) { block() } }) {
             MissingItemsPass.Outcome.SessionEnded -> return FirstSyncResult.SessionEnded
             is MissingItemsPass.Outcome.Ran -> recordPass(started, outcome, owedPassCleared = outcome.couldQueueFiles)

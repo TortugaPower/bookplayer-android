@@ -6,7 +6,9 @@ import com.tortugapower.audiobookplayer.database.entities.AccountTier
 enum class TierChange {
     /**
      * The first reading since launch or sign-in. Sync found off here went off while the app was closed: its
-     * queue is held for the account's return, not wiped (iOS `SyncService.setup`).
+     * queue is held for the account's return, not wiped (iOS `SyncService.setup`). A launch's reading comes from
+     * RevenueCat's cache, which shows an expiry only 3 days after it was fetched: sooner, the expiry arrives as
+     * a [Lapse] from the fetch.
      */
     FirstReading,
 

@@ -168,7 +168,9 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   - a lapse mid-session (PRO/LITE → FREE/PLUS) ends the first sync's session and **wipes** the server lanes
     (`SyncQueueReset.wipeForLapse`: the sync, upload and preferences lanes plus artwork uploads);
   - a lapse in the first reading (launch: RevenueCat's cache; or right after a sign-in) happened while the app
-    was closed: the queue is **held** for the return, and only the first-sync flag resets;
+    was closed: the queue is **held** for the return, and only the first-sync flag resets. RevenueCat's cache
+    still reads an expired entitlement as active for 3 days after its fetch, so most expiries while closed
+    arrive as the launch fetch's lapse and wipe, as on iOS;
   - PRO → LITE drops the file uploads, parked ones too (`dropUploads`); LITE in a first reading does too;
   - a return wakes the engine for the held work.
   - Each wipe first stops the lanes' workers (`TaskConcurrencyManager.cancelLanes`, via `SyncEngine.current`):

@@ -70,8 +70,11 @@ object SubscriptionManager {
         }
 
         // This launch's first reading comes from RevenueCat's cache, as iOS reads its cached access level at
-        // setup: a lapse it shows happened while the app was closed. With nothing cached, the stored tier stands
-        // until a fetch answers. (Setting the listener below hands it the same cache, whichever lands first.)
+        // setup. RevenueCat judges a cached entitlement as of when it was fetched for 3 days, so an expiry while
+        // the app was closed usually still reads active here, and the fetch that follows is the lapse, which
+        // wipes: the same as iOS. Only a cache that already says lapsed holds the queue. With nothing cached,
+        // the stored tier stands until a fetch answers. (Setting the listener below hands it the same cache,
+        // whichever lands first.)
         val launch = currentEpoch()
         Purchases.sharedInstance.getCustomerInfo(CacheFetchPolicy.CACHE_ONLY, object : ReceiveCustomerInfoCallback {
             override fun onReceived(customerInfo: CustomerInfo) {
