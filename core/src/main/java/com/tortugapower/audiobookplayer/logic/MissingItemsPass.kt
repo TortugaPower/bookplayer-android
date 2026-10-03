@@ -51,6 +51,8 @@ class MissingItemsPass(
         val uuids = dao.getAllUuids()
         if (uuids.isEmpty()) return Outcome.Ran(canQueueFiles, 0, 0)
 
+        // One request, unbatched: the API parses this route's body with its own 5 MB limit (about 130k uuids) and
+        // no record cap, unlike the 100 KB / 1,000 records of /uuids below
         val response = itemsStatus(uuids)
         response.throwIfCoded()
         val status = response.body()

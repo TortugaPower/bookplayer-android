@@ -30,6 +30,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import retrofit2.Response
 import java.io.File
+import java.io.IOException
 
 /** iOS `syncLibraryContents`: no listing deletes until this device's items are registered */
 @RunWith(RobolectricTestRunner::class)
@@ -78,7 +79,7 @@ class FirstSyncCoordinatorTest {
         db.close()
     }
 
-    private fun coordinator() = FirstSyncCoordinator(
+    private fun coordinator(store: SyncStateStore = this.store) = FirstSyncCoordinator(
         store = store,
         pass = MissingItemsPass(
             itemsStatus = {
@@ -204,6 +205,30 @@ class FirstSyncCoordinatorTest {
         store.done = true
         coordinator.endSession()
         assertFalse(store.done)
+    }
+
+    /** A store that can't be written (a full disk) doesn't stop a sign-out or a lapse: the session still ends */
+    @Test fun aFailingStoreWrite_stillEndsTheSession() = runBlocking {
+        val failing = object : SyncStateStore by store {
+            override suspend fun setHasRunFirstSync(done: Boolean) {
+                if (!done) throw IOException("disk full")
+                store.setHasRunFirstSync(true)
+            }
+            override suspend fun clear() {
+                throw IOException("disk full")
+            }
+        }
+        statusGate = CompletableDeferred()
+        val coordinator = coordinator(failing)
+
+        val run = async { coordinator.run() }
+        withTimeout(5_000) { while (statusCalls == 0) kotlinx.coroutines.delay(10) }
+        coordinator.endSession()
+        coordinator.signOut()
+        statusGate!!.complete(Unit)
+
+        assertEquals(FirstSyncResult.SessionEnded, run.await())
+        assertTrue(db.syncTaskDao().getAllTasksSync().isEmpty())
     }
 
     @Test fun aFailedPassOrRootListing_leavesItNotDone() = runBlocking {

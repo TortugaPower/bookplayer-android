@@ -204,13 +204,15 @@ class LibraryViewModelTest {
         assertTrue(syncRepo.tasks.value.isEmpty())
     }
 
-    @Test fun fetchVisibleLevel_beforeTheFirstSync_startsItAtTheRoot_andSkipsFolders() = runTest(dispatcher) {
+    /** A first sync that fails isn't asked again on every visit to the root: the root's listing throttle covers it */
+    @Test fun fetchVisibleLevel_beforeTheFirstSync_startsItAtTheRootOnce_andSkipsFolders() = runTest(dispatcher) {
         val syncRepo = FakeSyncTaskRepository()
         val firstSync = FakeFirstSync(done = false)
         val model = modelWith(syncRepo = syncRepo, firstSync = firstSync)
 
         model.fetchVisibleLevel(null, syncEnabled = true)
         model.fetchVisibleLevel("Shelf", syncEnabled = true)
+        model.fetchVisibleLevel(null, syncEnabled = true)
 
         assertEquals(1, firstSync.requested)
         assertTrue(syncRepo.tasks.value.isEmpty())

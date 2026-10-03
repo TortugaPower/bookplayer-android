@@ -180,6 +180,16 @@ object ContentsListing {
     }
 }
 
+/**
+ * Registers an item with the server (`PUT /v1/library`) and acts on the answer the way iOS does
+ * (`LibraryItemSyncOperation.handleUploadJob`). The answer's `url` only means "the server needs the
+ * bytes": a book never goes to it, and a PRO account's book queues a multipart upload instead
+ * ([MultipartUploadProcessor]), which marks it synced once S3 assembles it. LITE never uploads files,
+ * so its books stay unsynced. A streamed media-server book's file goes up only once it's downloaded,
+ * so its registration queues nothing. A folder or bound book has no bytes: a PRO account's empty PUT to the url,
+ * if one came, then the server is told it's synced, on every tier. Branches on the item's type: a PRO
+ * container gets a url too.
+ */
 class MetadataUploadProcessor(
     private val context: Context,
     private val repository: SyncTaskRepository,

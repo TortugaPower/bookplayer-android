@@ -129,7 +129,12 @@ class LibraryViewModel(
         val pathKey = path ?: "root"
         if (!SyncStatusManager.canFetchContents(pathKey)) return
         if (!firstSync.hasRunFirstSync()) {
-            if (path == null) firstSync.request()
+            if (path == null) {
+                // Throttled like a listing: one that fails (the server down, offline) isn't asked again on every
+                // visit to the root
+                SyncStatusManager.markPathAsFetched(pathKey)
+                firstSync.request()
+            }
             return
         }
         if (SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path, canDelete = true)) {

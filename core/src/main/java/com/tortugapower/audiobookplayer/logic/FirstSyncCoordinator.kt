@@ -147,7 +147,15 @@ class FirstSyncCoordinator(
         synchronized(runLock) { inFlight }?.cancel()
         sessionLock.withLock {
             session++
-            reset()
+            // The bump already ends whatever runs. A store write that fails (a full disk) mustn't abort what
+            // follows: the sign-out deleting the account, or the lapse wiping the queue
+            try {
+                reset()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Couldn't reset the sync state: ${e.javaClass.simpleName}")
+            }
         }
     }
 
