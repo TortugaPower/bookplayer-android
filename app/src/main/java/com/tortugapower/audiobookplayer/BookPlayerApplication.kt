@@ -121,11 +121,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
                 },
             ),
             syncTasks = syncTaskRepository,
-            // Not on last session's tier: a lapse while the app was closed shows in this launch's reading
-            isSyncActive = {
-                SubscriptionManager.awaitTierReady()
-                TaskAccessPolicy.canAccessSyncService(accountRepository.getAccount()?.tier)
-            },
+            isSyncActive = { TaskAccessPolicy.canAccessSyncService(accountRepository.getAccount()?.tier) },
             fetchRoot = { com.tortugapower.audiobookplayer.network.NetworkClient.libraryApi.getContents("") },
             applyRootListing = { root ->
                 com.tortugapower.audiobookplayer.logic.ContentsListing.apply(
@@ -135,6 +131,8 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             },
             // Its own scope, off the main thread: the pass reads the library and checks files on disk
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + StorageMonitor.exceptionHandler { this }),
+            // Not on last session's tier: a lapse while the app was closed shows in this launch's reading
+            awaitTierReady = SubscriptionManager::awaitTierReady,
         )
 
         val librarySortStore = LibrarySortStore(DataStorePreferencesStore(this))

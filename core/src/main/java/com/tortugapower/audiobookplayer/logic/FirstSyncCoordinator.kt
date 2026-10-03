@@ -66,13 +66,18 @@ class FirstSyncCoordinator(
     private val store: SyncStateStore,
     private val pass: MissingItemsPass,
     private val syncTasks: SyncTaskRepository,
-    /** PRO or LITE */
+    /** PRO or LITE, read now: it's checked under the session lock, so it never waits */
     private val isSyncActive: suspend () -> Boolean,
     private val fetchRoot: suspend () -> Response<ContentsResponse>,
     /** Applies the root listing, never deleting */
     private val applyRootListing: suspend (ContentsResponse) -> Unit,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * Returns once this launch's tier reading is stored (a while at most): until then the stored tier is last
+     * session's. Awaited once per run, before its checks and outside the session lock.
+     */
+    private val awaitTierReady: suspend () -> Unit = {},
 ) : FirstSyncGate {
     private val sessionLock = Mutex()
     private var session = 0 // guarded by sessionLock
@@ -195,6 +200,7 @@ class FirstSyncCoordinator(
         // ended and nothing below is queued or marked
         val started = sessionLock.withLock { session }
         if (store.hasRunFirstSync()) return FirstSyncResult.AlreadyDone
+        awaitTierReady()
         if (!isSyncActive()) return FirstSyncResult.Inactive
         // What's queued goes first: the pass would register items a queued change still moves or deletes
         if (syncTasks.countQueuedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0 || syncTasks.hasAccountPause()) {
@@ -231,7 +237,9 @@ class FirstSyncCoordinator(
             // Before the checks: if they read the state of an account signed out meanwhile, this session has
             // ended and nothing below is queued or recorded
             val started = sessionLock.withLock { session }
-            if (!store.hasRunFirstSync() || !isSyncActive()) return
+            if (!store.hasRunFirstSync()) return
+            awaitTierReady()
+            if (!isSyncActive()) return
             val pending = store.isPassPending()
             if (!pending && clock() - store.passLastRun() < PASS_INTERVAL_MS) return
             if (syncTasks.countQueuedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0 || syncTasks.hasAccountPause()) return

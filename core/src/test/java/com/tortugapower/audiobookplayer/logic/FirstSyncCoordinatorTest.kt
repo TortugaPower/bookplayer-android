@@ -79,7 +79,11 @@ class FirstSyncCoordinatorTest {
         db.close()
     }
 
-    private fun coordinator(store: SyncStateStore = this.store, scope: CoroutineScope = this.scope) = FirstSyncCoordinator(
+    private fun coordinator(
+        store: SyncStateStore = this.store,
+        scope: CoroutineScope = this.scope,
+        awaitTierReady: suspend () -> Unit = {},
+    ) = FirstSyncCoordinator(
         store = store,
         pass = MissingItemsPass(
             itemsStatus = {
@@ -102,6 +106,7 @@ class FirstSyncCoordinatorTest {
         },
         scope = scope,
         clock = { now },
+        awaitTierReady = awaitTierReady,
     )
 
     private companion object {
@@ -256,6 +261,16 @@ class FirstSyncCoordinatorTest {
         watched.cancel()
 
         assertTrue(thrown.isEmpty())
+    }
+
+    /**
+     * The launch's tier reading is awaited once per run, outside the session lock: never again by each guarded step,
+     * which would hold a sign-out or a lapse behind the wait
+     */
+    @Test fun theTierReading_isAwaitedOncePerRun() = runBlocking {
+        var waits = 0
+        assertEquals(FirstSyncResult.Done, coordinator(awaitTierReady = { waits++ }).run())
+        assertEquals(1, waits)
     }
 
     @Test fun aFailedPassOrRootListing_leavesItNotDone() = runBlocking {
