@@ -231,6 +231,16 @@ class FirstSyncCoordinatorTest {
         assertTrue(db.syncTaskDao().getAllTasksSync().isEmpty())
     }
 
+    /** A refresh awaits the first sync: a read that fails before the pass (a broken database) is a Failed, not a throw */
+    @Test fun aFailingRead_beforeThePass_isAFailure() = runBlocking {
+        val broken = object : SyncStateStore by store {
+            override suspend fun hasRunFirstSync(): Boolean = throw IllegalStateException("database is corrupt")
+        }
+
+        assertEquals(FirstSyncResult.Failed, coordinator(broken).run())
+        assertEquals(0, statusCalls)
+    }
+
     @Test fun aFailedPassOrRootListing_leavesItNotDone() = runBlocking {
         statusAnswer = Response.error(500, """{"message":"Internal error"}""".toResponseBody())
         assertEquals(FirstSyncResult.Failed, coordinator().run())

@@ -19,6 +19,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -121,6 +122,20 @@ class MissingItemsPassTest {
 
         assertEquals(listOf("server-1"), tasks().map { uuidOf(it) })
         assertEquals("server-1", db.libraryDao().getItemById("server-1")?.uuid)
+    }
+
+    /** A match answer that lands after a sign-out remaps nothing in the next account's library */
+    @Test fun aMatchAnsweredAfterTheSessionEnded_remapsNothing() = runBlocking {
+        db.libraryDao().insertItem(item("local-1", "Book.m4b"))
+        status(unknown = listOf("local-1"))
+        conflicts = listOf(ItemConflict("local-1", "server-1"))
+
+        val outcome = pass().run { false }
+
+        assertEquals(MissingItemsPass.Outcome.SessionEnded, outcome)
+        assertEquals("local-1", db.libraryDao().getItemById("local-1")?.uuid)
+        assertNull(db.libraryDao().getItemById("server-1"))
+        assertTrue(tasks().isEmpty())
     }
 
     @Test fun unsyncedBooks_areQueuedForUpload_unlessStreamedMissingOrTooLarge() = runBlocking {

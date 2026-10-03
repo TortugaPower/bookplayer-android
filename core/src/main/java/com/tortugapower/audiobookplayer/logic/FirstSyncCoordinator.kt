@@ -163,7 +163,18 @@ class FirstSyncCoordinator(
         inFlight?.takeIf { it.isActive } ?: scope.async { runOnce() }.also { inFlight = it }
     }
 
-    private suspend fun runOnce(): FirstSyncResult {
+    // Every failure, the checks' reads included, is a Failed: a refresh awaits this, and a throw would end it
+    private suspend fun runOnce(): FirstSyncResult = try {
+        runChecked()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // The next root refresh tries again
+        Log.w(TAG, "First sync failed: ${e.javaClass.simpleName} ${e.message}")
+        FirstSyncResult.Failed
+    }
+
+    private suspend fun runChecked(): FirstSyncResult {
         if (store.hasRunFirstSync()) return FirstSyncResult.AlreadyDone
         if (!isSyncActive()) return FirstSyncResult.Inactive
         // What's queued goes first: the pass would register items a queued change still moves or deletes
@@ -171,37 +182,29 @@ class FirstSyncCoordinator(
             return FirstSyncResult.WaitingForQueue
         }
         val started = sessionLock.withLock { session }
-        return try {
-            when (val outcome = pass.run { block -> inSession(started) { block() } }) {
-                MissingItemsPass.Outcome.SessionEnded -> return FirstSyncResult.SessionEnded
-                is MissingItemsPass.Outcome.Ran -> recordPass(started, outcome, owedPassCleared = outcome.couldQueueFiles)
-            }
-            val response = fetchRoot()
-            response.throwIfCoded()
-            val root = response.body()
-            if (!response.isSuccessful || root == null) {
-                Log.w(TAG, "The root listing answered HTTP ${response.code()}")
-                return FirstSyncResult.Failed
-            }
-            // Marked before the listing is applied (iOS): nothing the listing does can delete, and its
-            // registrations already hold back every later listing until they're through
-            if (!inSession(started) { store.setHasRunFirstSync(true) }) return FirstSyncResult.SessionEnded
-            try {
-                applyRootListing(root)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "Applying the first sync's root listing failed: ${e.javaClass.simpleName}")
-            }
-            SyncStatusManager.markPathAsFetched("root")
-            FirstSyncResult.Done
+        when (val outcome = pass.run { block -> inSession(started) { block() } }) {
+            MissingItemsPass.Outcome.SessionEnded -> return FirstSyncResult.SessionEnded
+            is MissingItemsPass.Outcome.Ran -> recordPass(started, outcome, owedPassCleared = outcome.couldQueueFiles)
+        }
+        val response = fetchRoot()
+        response.throwIfCoded()
+        val root = response.body()
+        if (!response.isSuccessful || root == null) {
+            Log.w(TAG, "The root listing answered HTTP ${response.code()}")
+            return FirstSyncResult.Failed
+        }
+        // Marked before the listing is applied (iOS): nothing the listing does can delete, and its
+        // registrations already hold back every later listing until they're through
+        if (!inSession(started) { store.setHasRunFirstSync(true) }) return FirstSyncResult.SessionEnded
+        try {
+            applyRootListing(root)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // The next root refresh tries again
-            Log.w(TAG, "First sync failed: ${e.javaClass.simpleName} ${e.message}")
-            FirstSyncResult.Failed
+            Log.w(TAG, "Applying the first sync's root listing failed: ${e.javaClass.simpleName}")
         }
+        SyncStatusManager.markPathAsFetched("root")
+        return FirstSyncResult.Done
     }
 
     /** iOS's loop: one more pass if a tier change owed one while the last ran */

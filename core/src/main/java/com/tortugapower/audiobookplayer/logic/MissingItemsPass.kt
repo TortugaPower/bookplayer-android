@@ -63,7 +63,8 @@ class MissingItemsPass(
 
         // Read after the answer, so an import queued meanwhile isn't registered twice
         val onItsWay = repository.queuedTaskIds(UPLOAD_JOBS)
-        val toRegister = matchedForRegistration(dao, unknown.filterNot { it in onItsWay })
+        val toRegister = matchedForRegistration(dao, unknown.filterNot { it in onItsWay }, inSession)
+            ?: return Outcome.SessionEnded
         val toUpload = if (canQueueFiles) withoutFile(dao, unsynced.filterNot { it in onItsWay }) else emptyList()
         if (toRegister.isEmpty() && toUpload.isEmpty()) return Outcome.Ran(canQueueFiles, 0, 0)
 
@@ -94,9 +95,14 @@ class MissingItemsPass(
 
     /**
      * [uuids]' items, parents first, after taking the server's uuid wherever it already holds an item at
-     * the same path: registering under the local uuid would make it a second item there.
+     * the same path: registering under the local uuid would make it a second item there. The uuids change
+     * under the session too, so an answer that lands after a sign-out remaps nothing; null then.
      */
-    private suspend fun matchedForRegistration(dao: LibraryDao, uuids: List<String>): List<LibraryItemEntity> {
+    private suspend fun matchedForRegistration(
+        dao: LibraryDao,
+        uuids: List<String>,
+        inSession: suspend (suspend () -> Unit) -> Boolean,
+    ): List<LibraryItemEntity>? {
         if (uuids.isEmpty()) return emptyList()
         val items = load(dao, uuids)
         val byPath = LinkedHashMap<String, String>()
@@ -108,7 +114,7 @@ class MissingItemsPass(
             val result = response.body()
             // Its error text can name files: the status code only
             if (!response.isSuccessful || result == null) throw Failed("uuids answered HTTP ${response.code()}")
-            adopted += UuidConflicts.apply(dao, repository, result.conflicts)
+            if (!inSession { adopted += UuidConflicts.apply(dao, repository, result.conflicts) }) return null
         }
         return if (adopted.isEmpty()) items else load(dao, items.map { adopted[it.uuid] ?: it.uuid })
     }

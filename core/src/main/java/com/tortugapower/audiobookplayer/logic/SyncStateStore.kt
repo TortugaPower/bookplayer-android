@@ -44,7 +44,8 @@ private val Context.syncStateDataStore: DataStore<Preferences> by preferencesDat
     corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
 )
 
-class DataStoreSyncStateStore(private val dataStore: DataStore<Preferences>) : SyncStateStore {
+// The DataStore one is for tests: :core's DataStore dependency isn't part of its API
+class DataStoreSyncStateStore internal constructor(private val dataStore: DataStore<Preferences>) : SyncStateStore {
     constructor(context: Context) : this(context.applicationContext.syncStateDataStore)
 
     private suspend fun read(): Preferences = dataStore.data
