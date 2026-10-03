@@ -198,6 +198,18 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
                     firstSync.request()
                 }
         }
+        // Every tier the account is seen with (iOS noteProAccess on each account update): gaining PRO owes
+        // a missing-items pass, which uploads the files LITE never sent
+        appScope.launch {
+            accountRepository.getAccountFlow()
+                .map { it?.tier }
+                .distinctUntilChanged()
+                .filter { it != null }
+                .collect { tier ->
+                    firstSync.noteProAccess(tier == com.tortugapower.audiobookplayer.database.entities.AccountTier.PRO)
+                    firstSync.schedulePassIfNeeded()
+                }
+        }
 
         // The sync host stops itself when idle (Android 15+ dataSync budget), and :core wakes it back up
         // whenever a sync task is enqueued — so at launch it is started only for work left over from an

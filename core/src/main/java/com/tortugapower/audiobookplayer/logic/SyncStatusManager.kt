@@ -64,9 +64,6 @@ object SyncStatusManager {
 
     // Map of relativePath to last fetch timestamp
     private val _lastPathFetchTimestamps = MutableStateFlow<Map<String, Long>>(emptyMap())
-    
-    // Last timestamp for account-wide sync (identifiers)
-    private var lastSyncIdentifiersTimestamp: Long = 0L
 
     fun updateLastSyncTimestamp(timestamp: Long) {
         _lastSyncTimestamp.value = timestamp
@@ -79,14 +76,6 @@ object SyncStatusManager {
 
     fun markPathAsFetched(path: String) {
         _lastPathFetchTimestamps.update { it + (path to clock()) }
-    }
-
-    fun canSyncIdentifiers(): Boolean {
-        return (System.currentTimeMillis() - lastSyncIdentifiersTimestamp) > 30_000
-    }
-
-    fun markIdentifiersAsSynced() {
-        lastSyncIdentifiersTimestamp = System.currentTimeMillis()
     }
 
     fun checkAndMarkFetchContents(path: String): Boolean {
@@ -103,15 +92,6 @@ object SyncStatusManager {
             }
         }
         return allowed
-    }
-
-    @Synchronized
-    fun checkAndMarkSyncIdentifiers(): Boolean {
-        if (canSyncIdentifiers()) {
-            markIdentifiersAsSynced()
-            return true
-        }
-        return false
     }
 
     // Debounce for pulling user preferences (sort rules) — same throttle as the contents fetch.

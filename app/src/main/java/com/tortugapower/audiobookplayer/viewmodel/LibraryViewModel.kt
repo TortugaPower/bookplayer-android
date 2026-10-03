@@ -112,6 +112,7 @@ class LibraryViewModel(
                 if (enqueued) {
                     withTimeoutOrNull(REFRESH_TIMEOUT_MS) { awaitFetchContentsDone(path ?: "root") }
                 }
+                if (path == null) firstSync.schedulePassIfNeeded()
             } finally {
                 _isRefreshing.value = false
             }
@@ -134,6 +135,8 @@ class LibraryViewModel(
         if (SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path, canDelete = true)) {
             SyncStatusManager.markPathAsFetched(pathKey)
         }
+        // After a root refresh (iOS): a missing-items pass that's due runs once the sync lane is empty
+        if (path == null) firstSync.schedulePassIfNeeded()
     }
 
     /** Suspends until no `fetch_contents` task for [taskKey] remains in the queue (deleted on completion). */

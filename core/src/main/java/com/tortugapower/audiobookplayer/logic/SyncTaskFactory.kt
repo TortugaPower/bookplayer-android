@@ -38,7 +38,6 @@ object SyncTaskFactory {
     const val JOB_UPLOAD_FILE = "upload_file"
     const val JOB_QUEUE_FILE_UPLOAD = "queue_file_upload"
     const val JOB_DOWNLOAD_FILE = "download_file"
-    const val JOB_SYNC_IDENTIFIERS = "sync_identifiers"
     const val JOB_MATCH_UUIDS = "match_uuids"
     const val JOB_HARDCOVER_AUTO_MATCH = "hardcover_auto_match"
     const val JOB_HARDCOVER_UPDATE_STATUS = "hardcover_update_status"
@@ -48,21 +47,12 @@ object SyncTaskFactory {
     const val JOB_UPLOAD_PREFERENCE = "upload_preference"
     const val JOB_FETCH_PREFERENCES = "fetch_preferences"
 
-    // Retired with 1.2's stream-to-cloud pipe: the engine converts or drops what an older build queued
-    // (TaskConcurrencyManager.startProcessing)
+    // Jobs this build no longer runs: SyncTaskRetirement converts or drops what an older build queued
+    // 1.2's stream-to-cloud pipe
     const val RETIRED_JOB_UPLOAD_STREAM_FILE = "upload_stream_file"
     const val RETIRED_JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD = "set_external_resource_to_download"
-
-    suspend fun createSyncIdentifiersTask(repository: SyncTaskRepository): Boolean {
-        if (!SyncStatusManager.checkAndMarkSyncIdentifiers()) return false
-        
-        val taskId = "all_identifiers"
-        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_SYNC_IDENTIFIERS, taskId)
-        if (existing != null) return true // Already queued
-
-        enqueue(repository, QUEUE_SYNC, JOB_SYNC_IDENTIFIERS, taskId, emptyMap<String, Any?>())
-        return true
-    }
+    // The path-based catch-up through `/v1/library/keys`, replaced by the first sync's missing-items pass
+    const val RETIRED_JOB_SYNC_IDENTIFIERS = "sync_identifiers"
 
     suspend fun createUploadMetadataTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
         val payload = mapOf(

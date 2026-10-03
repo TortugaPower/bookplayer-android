@@ -37,9 +37,18 @@ class FirstSyncCoordinatorTest {
 
     private class FakeStore(var done: Boolean = false) : SyncStateStore {
         var cleared = 0
+        var lastRun = 0L
+        var pending = false
+        var lastKnownPro: Boolean? = null
         override suspend fun hasRunFirstSync() = done
         override suspend fun setHasRunFirstSync(done: Boolean) { this.done = done }
-        override suspend fun clear() { done = false; cleared++ }
+        override suspend fun passLastRun() = lastRun
+        override suspend fun setPassLastRun(at: Long) { lastRun = at }
+        override suspend fun isPassPending() = pending
+        override suspend fun setPassPending(pending: Boolean) { this.pending = pending }
+        override suspend fun lastKnownProAccess() = lastKnownPro
+        override suspend fun setLastKnownProAccess(pro: Boolean) { lastKnownPro = pro }
+        override suspend fun clear() { done = false; lastRun = 0; pending = false; lastKnownPro = null; cleared++ }
     }
 
     private val context = ApplicationProvider.getApplicationContext<Context>()
@@ -55,6 +64,8 @@ class FirstSyncCoordinatorTest {
     private var rootAnswer: Response<ContentsResponse> = Response.success(ContentsResponse(emptyList(), null))
     private val applied = mutableListOf<ContentsResponse>()
     private var applyThrows = false
+    private var canUpload = true
+    private var now = 10 * DAY
 
     @Before fun setUp() {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
@@ -79,7 +90,7 @@ class FirstSyncCoordinatorTest {
             libraryDao = { db.libraryDao() },
             repository = repository,
             bookFile = { File(context.filesDir, it) },
-            canUploadFiles = { true },
+            canUploadFiles = { canUpload },
         ),
         syncTasks = repository,
         isSyncActive = { active },
@@ -89,7 +100,18 @@ class FirstSyncCoordinatorTest {
             applied += it
         },
         scope = scope,
+        clock = { now },
     )
+
+    private companion object {
+        const val DAY = 24 * 60 * 60 * 1000L
+    }
+
+    /** Waits for a scheduled pass, which runs in the background, to have left its mark */
+    private suspend fun awaitPasses(count: Int) = withTimeout(5_000) {
+        while (statusCalls < count) kotlinx.coroutines.delay(10)
+        kotlinx.coroutines.delay(100)
+    }
 
     private fun task(id: String, queue: String = SyncTaskFactory.QUEUE_SYNC) =
         SyncTaskEntity(id = id, taskID = id, queueKey = queue, jobType = "update", position = 0, payload = "{}")
@@ -202,5 +224,95 @@ class FirstSyncCoordinatorTest {
 
         assertEquals(FirstSyncResult.Done, coordinator().run())
         assertTrue(store.done)
+    }
+
+    // ---- The recurring pass (iOS scheduleMissingItemsIfNeeded) ----
+
+    @Test fun theFirstSyncsOwnPass_countsAsARun_andSettlesAPassOwed() = runBlocking {
+        store.pending = true
+
+        assertEquals(FirstSyncResult.Done, coordinator().run())
+
+        assertEquals(now, store.lastRun)
+        assertFalse(store.pending)
+    }
+
+    @Test fun aWeekAfterTheLastRun_thePassRunsAgain_andNotBefore() = runBlocking {
+        store.done = true
+        store.lastRun = now - 6 * DAY
+        val coordinator = coordinator()
+
+        coordinator.schedulePassIfNeeded()
+        kotlinx.coroutines.delay(300)
+        assertEquals(0, statusCalls)
+
+        store.lastRun = now - 7 * DAY
+        coordinator.schedulePassIfNeeded()
+        awaitPasses(1)
+        assertEquals(now, store.lastRun)
+        assertEquals(1, statusCalls)
+    }
+
+    /** Not before the first sync, nor while the sync lane holds anything */
+    @Test fun aDuePass_waitsForTheFirstSyncAndAnEmptyLane() = runBlocking {
+        store.lastRun = 0
+        val coordinator = coordinator()
+        coordinator.schedulePassIfNeeded()
+        kotlinx.coroutines.delay(300)
+
+        store.done = true
+        repository.saveTask(task("queued"))
+        coordinator.schedulePassIfNeeded()
+        kotlinx.coroutines.delay(300)
+
+        assertEquals(0, statusCalls)
+        assertEquals(0L, store.lastRun)
+    }
+
+    /** Gaining PRO owes a pass; one that couldn't queue files (the tier hadn't reached the queue) leaves it owed */
+    @Test fun aPassOwedSinceGainingPro_isSettledOnlyByOneThatCouldQueueFiles() = runBlocking {
+        store.done = true
+        store.lastRun = now
+        // Nothing to register, so each pass leaves the sync lane empty for the next
+        statusAnswer = Response.success(ItemsStatusResponse(emptyList(), emptyList()))
+        val coordinator = coordinator()
+        coordinator.noteProAccess(false)
+        coordinator.noteProAccess(true)
+        assertTrue(store.pending)
+
+        canUpload = false
+        coordinator.schedulePassIfNeeded()
+        awaitPasses(1)
+        assertTrue(store.pending)
+
+        canUpload = true
+        coordinator.schedulePassIfNeeded()
+        awaitPasses(2)
+        assertFalse(store.pending)
+    }
+
+    @Test fun noteProAccess_aFirstReadingIsNoChange_andLosingProCancelsAnOwedPass() = runBlocking {
+        val coordinator = coordinator()
+
+        coordinator.noteProAccess(true)
+        assertFalse(store.pending)
+        assertEquals(true, store.lastKnownPro)
+
+        coordinator.noteProAccess(false)
+        assertFalse(store.pending)
+        coordinator.noteProAccess(true)
+        assertTrue(store.pending)
+        coordinator.noteProAccess(false)
+        assertFalse(store.pending)
+    }
+
+    /** The sync lane emptied: a first sync waiting for it runs then */
+    @Test fun aDrainedLane_startsAFirstSyncThatWasWaiting() = runBlocking {
+        val coordinator = coordinator()
+
+        coordinator.onSyncLaneDrained()
+
+        withTimeout(5_000) { while (!store.done) kotlinx.coroutines.delay(10) }
+        assertEquals(1, statusCalls)
     }
 }

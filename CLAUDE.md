@@ -155,6 +155,12 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     (`FetchContentsProcessor.canDeleteListings`). Every `createFetchContentsTask` call states `canDelete`.
   - Sign-out ends its session (`signOut`): a pass still running can't queue into, or mark, the next
     account's library. The watch only mirrors the cloud and has none of this.
+  - The same pass runs again weekly, and right after the account gains PRO (`noteProAccess` owes one:
+    it uploads the files LITE never sent), after a root refresh, once the sync lane is empty.
+  - The engine reports the sync lane emptying (`onSyncLaneDrained`): a first sync waiting for it, or a
+    due pass, starts then.
+  - The old path-based catch-up (`sync_identifiers`, `GET /v1/library/keys`) is retired; leftover tasks
+    are dropped by `SyncTaskRetirement`.
 - **Media-server connection flow** (Jellyfin / AudiobookShelf; mirrors iOS, so check the iOS `develop`
   branch before changing behavior): one `ConnectionFlowSheet` (own `NavHost`) serves both Add Server and
   re-auth. Address → Connect **probes** the server (`ExternalService.probe` → `ServerCapabilities`) →

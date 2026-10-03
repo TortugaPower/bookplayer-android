@@ -211,7 +211,6 @@
     <string name="sync_task_fetch_library">Получить библиотеку</string>
     <string name="sync_task_upload_audio">Загрузить аудио</string>
     <string name="sync_task_download_audio">Скачать аудио</string>
-    <string name="sync_task_sync_identifiers">Синхронизировать идентификаторы</string>
     <string name="sync_task_match_library_ids">Сопоставить ID библиотеки</string>
     <string name="sync_task_upload_external_resource">Загрузить внешний ресурс</string>
     <string name="sync_task_delete_external_resource">Удалить внешний ресурс</string>

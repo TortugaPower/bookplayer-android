@@ -18,7 +18,6 @@ import com.tortugapower.audiobookplayer.model.EmailVerificationCheckRequest
 import com.tortugapower.audiobookplayer.model.EmailVerificationCheckResponse
 import com.tortugapower.audiobookplayer.model.EmailVerificationSendRequest
 import com.tortugapower.audiobookplayer.model.EmailVerificationSendResponse
-import com.tortugapower.audiobookplayer.model.IdentifiersResponse
 import com.tortugapower.audiobookplayer.model.ItemConflict
 import com.tortugapower.audiobookplayer.model.ItemsStatusResponse
 import com.tortugapower.audiobookplayer.model.MatchUuidsResponse
@@ -94,7 +93,6 @@ class SerializedNameCompletenessTest {
         UploadItemResponse::class.java,
         UploadItemContent::class.java,
         ArtworkResponse::class.java,
-        IdentifiersResponse::class.java,
         MatchUuidsResponse::class.java,
         ItemConflict::class.java,
         ItemsStatusResponse::class.java,

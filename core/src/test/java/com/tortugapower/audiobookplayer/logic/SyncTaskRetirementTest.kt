@@ -42,6 +42,15 @@ class SyncTaskRetirementTest {
             )
         )
 
+        // The /keys catch-up, parked: it would hold back every listing and the first sync
+        repository.saveTask(
+            SyncTaskEntity(
+                id = "identifiers", taskID = "all_identifiers", queueKey = SyncTaskFactory.QUEUE_SYNC,
+                jobType = SyncTaskFactory.RETIRED_JOB_SYNC_IDENTIFIERS, position = 0, payload = "{}",
+            )
+        )
+        db.syncTaskDao().parkTask("identifiers", "TASK", "invalid_request", "Invalid", 422, 5L)
+
         SyncTaskRetirement.cleanUp(repository)
 
         val tasks = db.syncTaskDao().getAllTasksSync()

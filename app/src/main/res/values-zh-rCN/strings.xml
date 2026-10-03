@@ -212,7 +212,6 @@
     <string name="sync_task_fetch_library">获取库</string>
     <string name="sync_task_upload_audio">上传音频</string>
     <string name="sync_task_download_audio">下载音频</string>
-    <string name="sync_task_sync_identifiers">同步标识符</string>
     <string name="sync_task_match_library_ids">匹配库 ID</string>
     <string name="sync_task_upload_external_resource">上传外部资源</string>
     <string name="sync_task_delete_external_resource">删除外部资源</string>

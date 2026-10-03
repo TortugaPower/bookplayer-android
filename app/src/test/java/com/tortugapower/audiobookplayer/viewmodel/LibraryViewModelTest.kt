@@ -158,6 +158,8 @@ class LibraryViewModelTest {
             ran++
             return FirstSyncResult.Done
         }
+        var passesScheduled = 0
+        override fun schedulePassIfNeeded() { passesScheduled++ }
     }
 
     private fun modelWith(

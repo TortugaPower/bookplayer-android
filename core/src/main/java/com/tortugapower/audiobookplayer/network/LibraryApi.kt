@@ -6,9 +6,6 @@ import retrofit2.http.*
 
 @JvmSuppressWildcards
 interface LibraryApi {
-    @GET("/v1/library/keys")
-    suspend fun getSyncedIdentifiers(): Response<IdentifiersResponse>
-
     @GET("/v1/library")
     suspend fun getContents(
         @Query("relativePath") path: String,

@@ -212,7 +212,6 @@
     <string name="sync_task_fetch_library">लाइब्रेरी प्राप्त करें</string>
     <string name="sync_task_upload_audio">ऑडियो अपलोड करें</string>
     <string name="sync_task_download_audio">ऑडियो डाउनलोड करें</string>
-    <string name="sync_task_sync_identifiers">आइडेंटिफ़ायर सिंक करें</string>
     <string name="sync_task_match_library_ids">लाइब्रेरी आईडी मिलान करें</string>
     <string name="sync_task_upload_external_resource">बाहरी संसाधन अपलोड करें</string>
     <string name="sync_task_delete_external_resource">बाहरी संसाधन हटाएं</string>

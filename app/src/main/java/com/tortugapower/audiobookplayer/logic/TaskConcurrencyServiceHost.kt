@@ -144,7 +144,6 @@ class TaskConcurrencyServiceHost : Service() {
                 this, repository, PlaybackManagerSyncCoordinator,
                 canDeleteListings = { BookPlayerApplication.instance.firstSync.hasRunFirstSync() },
             ),
-            SyncIdentifiersProcessor(this, repository),
             MetadataUploadProcessor(this, repository),
             MultipartUploadProcessor.create(this, repository),
             QueueFileUploadProcessor.create(this, repository),
@@ -170,6 +169,7 @@ class TaskConcurrencyServiceHost : Service() {
             this, repository, accountRepository, processors,
             verifySyncEntitlement = { SubscriptionManager.refreshSyncEntitlement() },
             onTaskPaused = BookPlayerApplication.instance.syncPauseReporter::report,
+            onSyncLaneDrained = BookPlayerApplication.instance.firstSync::onSyncLaneDrained,
         )
         Log.d(TAG, "🚀 Triggering taskConcurrencyManager.startProcessing()")
         taskConcurrencyManager.startProcessing()

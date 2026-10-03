@@ -52,10 +52,6 @@ data class ArtworkResponse(
     @SerializedName("thumbnail_url") val thumbnailURL: String
 )
 
-data class IdentifiersResponse(
-    @SerializedName("content") val content: List<String>
-)
-
 data class MatchUuidsResponse(
     @SerializedName("applied") val applied: List<String>,
     @SerializedName("conflicts") val conflicts: List<ItemConflict>

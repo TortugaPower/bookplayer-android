@@ -17,5 +17,8 @@ object SyncTaskRetirement {
             SyncTaskFactory.RETIRED_JOB_UPLOAD_STREAM_FILE, SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD, SyncTaskFactory.QUEUE_SYNC,
         )
         repository.deleteAllTasksOfType(SyncTaskFactory.RETIRED_JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD)
+        // The `/keys` catch-up: the first sync's missing-items pass does it by uuid now. A parked one would
+        // hold back every listing, and the first sync with it.
+        repository.deleteAllTasksOfType(SyncTaskFactory.RETIRED_JOB_SYNC_IDENTIFIERS)
     }
 }

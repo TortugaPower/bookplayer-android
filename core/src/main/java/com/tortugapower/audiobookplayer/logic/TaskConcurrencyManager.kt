@@ -27,6 +27,9 @@ class TaskConcurrencyManager(
     // Told about a park worth reporting, off the worker (the target reports it; :core never
     // initializes Sentry). The pause carries the task's earlier report, if any.
     private val onTaskPaused: suspend (task: SyncTaskEntity, pause: TaskPause) -> Unit = { _, _ -> },
+    // Told when the sync lane empties (its last task, parked ones included, is gone): the phone starts a
+    // pending first sync or a due missing-items pass then, as both need that lane empty
+    private val onSyncLaneDrained: () -> Unit = {},
 ) : TaskConcurrencyService {
 
     // A full disk turns the engine's own bookkeeping writes into SQLiteFullException; those are
@@ -34,6 +37,7 @@ class TaskConcurrencyManager(
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + StorageMonitor.exceptionHandler { context })
     private var collectorJob: Job? = null
     private var isProcessing = false
+    private var syncLaneBusy = false // the task collector's own: it runs one emission at a time
 
     private val _activeQueues = MutableStateFlow<Set<String>>(emptySet())
     override val activeQueues: Flow<Set<String>> = _activeQueues.asStateFlow()
@@ -89,6 +93,13 @@ class TaskConcurrencyManager(
             // (getAllTasks is in queue order)
             repository.getAllTasks().collect { tasks ->
                 if (!isProcessing) return@collect
+                // The same "still to go through" the first sync and the pass wait on (countQueuedTasksInQueue)
+                val syncBusy = tasks.any {
+                    it.queueKey == SyncTaskFactory.QUEUE_SYNC &&
+                        (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING || it.pauseScope != null)
+                }
+                if (syncLaneBusy && !syncBusy) onSyncLaneDrained()
+                syncLaneBusy = syncBusy
                 if (tasks.any { it.jobType == SyncTaskFactory.JOB_DOWNLOAD_FILE && it.status == SyncTaskStatus.PENDING }) {
                     dropDownloadsTheTierCantRun()
                 }
