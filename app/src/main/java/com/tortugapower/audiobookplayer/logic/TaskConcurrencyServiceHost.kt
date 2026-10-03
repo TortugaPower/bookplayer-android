@@ -140,7 +140,10 @@ class TaskConcurrencyServiceHost : Service() {
 
         // Register all available processors
         val processors = listOf(
-            FetchContentsProcessor(this, repository, PlaybackManagerSyncCoordinator),
+            FetchContentsProcessor(
+                this, repository, PlaybackManagerSyncCoordinator,
+                canDeleteListings = { BookPlayerApplication.instance.firstSync.hasRunFirstSync() },
+            ),
             SyncIdentifiersProcessor(this, repository),
             MetadataUploadProcessor(this, repository),
             MultipartUploadProcessor.create(this, repository),

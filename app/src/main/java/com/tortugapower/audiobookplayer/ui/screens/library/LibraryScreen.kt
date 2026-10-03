@@ -90,7 +90,6 @@ import com.tortugapower.audiobookplayer.logic.sort.SortType
 import com.tortugapower.audiobookplayer.repository.BoundConversionException
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
-import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
@@ -125,7 +124,7 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
 
     val libraryViewModel: LibraryViewModel = viewModel ?: viewModel(
-        factory = LibraryViewModelFactory(context.applicationContext as Application, RoomLibraryRepository(context.applicationContext, database.libraryDao()), syncTaskRepository)
+        factory = LibraryViewModelFactory.default(context.applicationContext as Application)
     )
 
     val currentPath by libraryViewModel.currentPath.collectAsState()
@@ -153,19 +152,8 @@ fun LibraryScreen(
         }
     }
 
-    // One throttled contents fetch for the level on screen (60 s per level; skipped while sync jobs
-    // are queued — see createFetchContentsTask).
-    val fetchVisibleLevel: suspend () -> Unit = {
-        val pathKey = currentPath ?: "root"
-
-        if (canSyncLibrary) {
-            if (SyncStatusManager.canFetchContents(pathKey)) {
-                if (SyncTaskFactory.createFetchContentsTask(syncTaskRepository, currentPath)) {
-                    SyncStatusManager.markPathAsFetched(pathKey)
-                }
-            }
-        }
-    }
+    // One throttled contents fetch for the level on screen (the first sync instead, until it has run)
+    val fetchVisibleLevel: suspend () -> Unit = { libraryViewModel.fetchVisibleLevel(currentPath, canSyncLibrary) }
 
     // Fetch contents with throttle when path or account changes (e.g. login)
     LaunchedEffect(currentPath, account) { fetchVisibleLevel() }

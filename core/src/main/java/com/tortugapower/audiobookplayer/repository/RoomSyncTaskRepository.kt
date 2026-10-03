@@ -39,6 +39,13 @@ class RoomSyncTaskRepository(
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.notifyWorkEnqueued()
     }
 
+    // One transaction: the queue's observers see the batch once, not once per task
+    override suspend fun saveTasks(tasks: List<SyncTaskEntity>) = withContext(Dispatchers.IO) {
+        if (tasks.isEmpty()) return@withContext
+        syncTaskDao.insertAllAtEnd(tasks)
+        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.notifyWorkEnqueued()
+    }
+
     override suspend fun updateTask(task: SyncTaskEntity) = withContext(Dispatchers.IO) {
         syncTaskDao.updateTask(task)
     }

@@ -197,14 +197,8 @@ object SubscriptionManager {
                 if (!TaskAccessPolicy.canExecuteTask(tier, SyncTaskFactory.JOB_DOWNLOAD_FILE)) {
                     syncTaskRepository?.deletePendingTasksOfType(SyncTaskFactory.JOB_DOWNLOAD_FILE)
                 }
-                
-                // Trigger account-wide identifier sync on subscription activation
-                if (tier == AccountTier.PRO || tier == AccountTier.LITE) {
-                    syncTaskRepository?.let { repo ->
-                        Log.d(TAG, "🚀 Subscription activated, triggering syncIdentifiers task")
-                        SyncTaskFactory.createSyncIdentifiersTask(repo)
-                    }
-                }
+                // What the server lacks is caught up by the phone's first sync (FirstSyncCoordinator), which
+                // a syncing account starts
             }
         }
     }

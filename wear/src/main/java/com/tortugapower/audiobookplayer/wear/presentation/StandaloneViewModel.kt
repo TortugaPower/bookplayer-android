@@ -155,7 +155,8 @@ class StandaloneViewModel(
             // Prefs ride along with the contents fetch (same open/refresh cadence the phone uses);
             // the factory debounces to one pull per 60 s per launch.
             SyncTaskFactory.createFetchPreferencesTask(syncTaskRepository, force = force)
-            SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path = path, force = force)
+            // The watch only mirrors the cloud (it imports nothing), so its listings may delete
+            SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path = path, force = force, canDelete = true)
         }
     }
 

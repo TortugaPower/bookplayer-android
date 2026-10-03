@@ -54,6 +54,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
     lateinit var syncPauseReporter: SyncPauseReporter
         private set
 
+    /** This device's first sync of the signed-in account. Set in [onCreate]. */
+    lateinit var firstSync: com.tortugapower.audiobookplayer.logic.FirstSyncCoordinator
+        private set
+
     /** Library sort brain: sort actions + preference push/pull. Set in [onCreate]. */
     lateinit var librarySortManager: LibrarySortManager
         private set
@@ -100,6 +104,31 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             baseLibraryRepository,
             syncTaskRepository,
             accountRepository
+        )
+
+        firstSync = com.tortugapower.audiobookplayer.logic.FirstSyncCoordinator(
+            store = com.tortugapower.audiobookplayer.logic.DataStoreSyncStateStore(this),
+            pass = com.tortugapower.audiobookplayer.logic.MissingItemsPass(
+                itemsStatus = { com.tortugapower.audiobookplayer.network.NetworkClient.libraryApi.itemsStatus(mapOf("uuids" to it)) },
+                matchUuids = { com.tortugapower.audiobookplayer.network.NetworkClient.libraryApi.matchUuids(mapOf("items" to it)) },
+                libraryDao = { database.libraryDao() },
+                repository = syncTaskRepository,
+                bookFile = { com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.processedFile(this, it) },
+                canUploadFiles = {
+                    TaskAccessPolicy.canExecuteTask(accountRepository.getAccount()?.tier, com.tortugapower.audiobookplayer.logic.SyncTaskFactory.JOB_UPLOAD_FILE)
+                },
+            ),
+            syncTasks = syncTaskRepository,
+            isSyncActive = { TaskAccessPolicy.canAccessSyncService(accountRepository.getAccount()?.tier) },
+            fetchRoot = { com.tortugapower.audiobookplayer.network.NetworkClient.libraryApi.getContents("") },
+            applyRootListing = { root ->
+                com.tortugapower.audiobookplayer.logic.ContentsListing.apply(
+                    this, database.libraryDao(), syncTaskRepository,
+                    com.tortugapower.audiobookplayer.logic.PlaybackManagerSyncCoordinator, "", root, canDelete = false,
+                )
+            },
+            // Its own scope, off the main thread: the pass reads the library and checks files on disk
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + StorageMonitor.exceptionHandler { this }),
         )
 
         val librarySortStore = LibrarySortStore(DataStorePreferencesStore(this))
@@ -162,7 +191,12 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         })
         appScope.launch {
             PreferencesPullTriggers.onSyncAccountChange(accountRepository.getAccountFlow())
-                .collect { forcePreferencesPull() }
+                .collect {
+                    forcePreferencesPull()
+                    // A sign-in (or a subscription) starts this device's first sync right away, whatever
+                    // screen is showing (iOS runs it when sync turns on)
+                    firstSync.request()
+                }
         }
 
         // The sync host stops itself when idle (Android 15+ dataSync budget), and :core wakes it back up

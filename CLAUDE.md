@@ -141,6 +141,20 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
 - Media3 `ExoPlayer` / `MediaSession` must be released on the appropriate lifecycle; the playback
   service must be started/stopped correctly to avoid leaks and stuck foreground notifications.
 - New repository / `logic` behavior should come with a unit test.
+- **No library listing deletes before this device's first sync** (iOS `syncLibraryContents`, phone only).
+  A listing removes the local items it lacks, and a device can hold items the server never got (imported
+  while signed out or lapsed). So `FirstSyncCoordinator` runs on a root refresh, and right after a sign-in,
+  once the sync lane is empty (parked tasks count):
+  - the `MissingItemsPass` sends every uuid to `POST /v1/library/status`;
+  - it registers the `unknown` items like an import, parents first, after matching them by path
+    (`/v1/library/uuids`, batched by count and body size);
+  - for PRO, it queues `upload_file` for the `unsynced` books with a file here;
+  - it lists the root without deleting, and only then marks the first sync done (`SyncStateStore`, a
+    backup-excluded DataStore file).
+  - Until then folder levels don't fetch, and a queued deleting fetch doesn't delete
+    (`FetchContentsProcessor.canDeleteListings`). Every `createFetchContentsTask` call states `canDelete`.
+  - Sign-out ends its session (`signOut`): a pass still running can't queue into, or mark, the next
+    account's library. The watch only mirrors the cloud and has none of this.
 - **Media-server connection flow** (Jellyfin / AudiobookShelf; mirrors iOS, so check the iOS `develop`
   branch before changing behavior): one `ConnectionFlowSheet` (own `NavHost`) serves both Add Server and
   re-auth. Address → Connect **probes** the server (`ExternalService.probe` → `ServerCapabilities`) →

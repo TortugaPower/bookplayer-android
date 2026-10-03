@@ -18,12 +18,13 @@ import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
 class LibraryViewModelFactory(
     private val application: Application,
     private val repository: LibraryRepository,
-    private val syncTaskRepository: SyncTaskRepository
+    private val syncTaskRepository: SyncTaskRepository,
+    private val firstSync: com.tortugapower.audiobookplayer.logic.FirstSyncGate,
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(LibraryViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return LibraryViewModel(application, repository, syncTaskRepository) as T
+            return LibraryViewModel(application, repository, syncTaskRepository, firstSync) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
@@ -46,6 +47,7 @@ class LibraryViewModelFactory(
                     RoomAccountRepository(database.accountDao()),
                 ),
                 syncTaskRepository,
+                (application as com.tortugapower.audiobookplayer.BookPlayerApplication).firstSync,
             )
         }
     }

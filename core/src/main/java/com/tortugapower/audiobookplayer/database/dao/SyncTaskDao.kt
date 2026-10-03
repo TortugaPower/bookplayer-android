@@ -41,6 +41,13 @@ interface SyncTaskDao {
         insertTask(task.copy(position = nextPosition()))
     }
 
+    /** Stores [tasks] in order behind every task already queued, in one transaction */
+    @Transaction
+    suspend fun insertAllAtEnd(tasks: List<SyncTaskEntity>) {
+        var position = nextPosition()
+        tasks.forEach { insertTask(it.copy(position = position++)) }
+    }
+
     @Update
     suspend fun updateTask(task: SyncTaskEntity)
 

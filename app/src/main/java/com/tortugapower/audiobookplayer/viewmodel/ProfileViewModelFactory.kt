@@ -9,12 +9,13 @@ class ProfileViewModelFactory(
     private val accountRepository: AccountRepository,
     private val syncTaskRepository: SyncTaskRepository,
     private val statisticsDao: com.tortugapower.audiobookplayer.database.dao.StatisticsDao,
-    private val libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
+    private val libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao,
+    private val endSyncSession: suspend () -> Unit,
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ProfileViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return ProfileViewModel(accountRepository, syncTaskRepository, statisticsDao, libraryDao) as T
+            return ProfileViewModel(accountRepository, syncTaskRepository, statisticsDao, libraryDao, endSyncSession) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

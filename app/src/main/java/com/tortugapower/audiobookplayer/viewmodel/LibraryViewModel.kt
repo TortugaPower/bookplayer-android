@@ -12,6 +12,7 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.BookPlayerApplication
 import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
+import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
 import com.tortugapower.audiobookplayer.logic.sort.SortType
@@ -25,6 +26,7 @@ class LibraryViewModel(
     application: Application,
     private val repository: com.tortugapower.audiobookplayer.repository.LibraryRepository,
     private val syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository,
+    private val firstSync: com.tortugapower.audiobookplayer.logic.FirstSyncGate,
     // Injectable so unit tests can run the row-state derivation on the test dispatcher.
     private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO
 ) : AndroidViewModel(application) {
@@ -100,13 +102,37 @@ class LibraryViewModel(
                 }
 
                 val path = _currentPath.value
-                val enqueued = SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path, force = true)
+                if (!firstSync.hasRunFirstSync()) {
+                    // Until this device's first sync has run, the root runs it instead and a folder waits
+                    // (iOS): a listing that deletes would drop items the server never got
+                    if (path == null) withTimeoutOrNull(REFRESH_TIMEOUT_MS) { firstSync.run() }
+                    return@launch
+                }
+                val enqueued = SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path, force = true, canDelete = true)
                 if (enqueued) {
                     withTimeoutOrNull(REFRESH_TIMEOUT_MS) { awaitFetchContentsDone(path ?: "root") }
                 }
             } finally {
                 _isRefreshing.value = false
             }
+        }
+    }
+
+    /**
+     * The throttled contents fetch for the level on screen (60 s per level; skipped while sync jobs are
+     * queued, see createFetchContentsTask). Until this device's first sync has run, the root runs it instead
+     * and folder levels wait.
+     */
+    suspend fun fetchVisibleLevel(path: String?, syncEnabled: Boolean) {
+        if (!syncEnabled) return
+        val pathKey = path ?: "root"
+        if (!SyncStatusManager.canFetchContents(pathKey)) return
+        if (!firstSync.hasRunFirstSync()) {
+            if (path == null) firstSync.request()
+            return
+        }
+        if (SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path, canDelete = true)) {
+            SyncStatusManager.markPathAsFetched(pathKey)
         }
     }
 

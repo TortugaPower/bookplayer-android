@@ -43,7 +43,7 @@ class ProfileViewModelPausedTasksTest {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
         viewModel = ProfileViewModel(
             RoomAccountRepository(db.accountDao()), RoomSyncTaskRepository(db.syncTaskDao()),
-            db.statisticsDao(), db.libraryDao(),
+            db.statisticsDao(), db.libraryDao(), endSyncSession = {},
         )
         SyncEngineWaker.onWorkEnqueued = { woken++ }
     }

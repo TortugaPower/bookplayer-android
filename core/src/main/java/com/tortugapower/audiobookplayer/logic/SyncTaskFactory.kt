@@ -216,7 +216,11 @@ object SyncTaskFactory {
         enqueue(repository, QUEUE_FILE, JOB_UPLOAD_ARTWORK, item.uuid, payload)
     }
 
-    suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?, force: Boolean = false, canDelete: Boolean = true): Boolean {
+    /**
+     * [canDelete] lets the listing remove the level's local items it lacks: every caller says whether its
+     * listing may (a first sync's, or anything before it on the phone, may not).
+     */
+    suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?, force: Boolean = false, canDelete: Boolean): Boolean {
         if (!force) {
             // Only fetch if the sync queue is empty to avoid desyncs with local actions: a parked task
             // counts, since the listing would undo a change the server never got. An account pause in any

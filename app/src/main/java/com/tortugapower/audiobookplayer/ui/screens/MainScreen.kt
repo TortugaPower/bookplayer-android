@@ -218,7 +218,8 @@ fun MainScreen() {
             accountRepository,
             syncTaskRepository,
             database.statisticsDao(),
-            database.libraryDao()
+            database.libraryDao(),
+            endSyncSession = { com.tortugapower.audiobookplayer.BookPlayerApplication.instance.firstSync.signOut() },
         )
     )
 

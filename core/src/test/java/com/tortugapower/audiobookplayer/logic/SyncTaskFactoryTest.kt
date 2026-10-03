@@ -209,7 +209,7 @@ class SyncTaskFactoryTest {
             override suspend fun countActiveTasksInQueue(queueKey: String): Int = 0
             override suspend fun countQueuedTasksInQueue(queueKey: String): Int = 1
         }
-        assertEquals(false, SyncTaskFactory.createFetchContentsTask(repo, "Some folder"))
+        assertEquals(false, SyncTaskFactory.createFetchContentsTask(repo, "Some folder", canDelete = true))
     }
 
     @Test fun preferencesPull_unforced_isSkippedWhileAnUploadIsParked() = runBlocking {
@@ -237,6 +237,6 @@ class SyncTaskFactoryTest {
             override suspend fun countQueuedTasksInQueue(queueKey: String): Int = 0
             override suspend fun hasAccountPause(): Boolean = true
         }
-        assertEquals(false, SyncTaskFactory.createFetchContentsTask(repo, "Some folder"))
+        assertEquals(false, SyncTaskFactory.createFetchContentsTask(repo, "Some folder", canDelete = true))
     }
 }
