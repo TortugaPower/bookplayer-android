@@ -102,7 +102,7 @@ class FirstSyncCoordinator(
         if (!passScheduled.compareAndSet(false, true)) return
         scope.launch {
             try {
-                while (passRequested.getAndSet(false)) runDuePasses()
+                while (passRequested.getAndSet(false)) backgrounded("Missing-items pass") { runDuePasses() }
             } finally {
                 passScheduled.set(false)
             }
@@ -114,12 +114,28 @@ class FirstSyncCoordinator(
     /** The sync lane emptied: a first sync waiting for it runs now, else a pass that's due */
     fun onSyncLaneDrained() {
         scope.launch {
-            if (store.hasRunFirstSync()) {
-                schedulePassIfNeeded()
-            } else if (run() == FirstSyncResult.WaitingForQueue) {
-                // The run joined may have counted the lane before it emptied: one fresh look
-                request()
+            backgrounded("First sync after the lane drained") {
+                if (store.hasRunFirstSync()) {
+                    schedulePassIfNeeded()
+                } else if (run() == FirstSyncResult.WaitingForQueue) {
+                    // The run joined may have counted the lane before it emptied: one fresh look
+                    request()
+                }
             }
+        }
+    }
+
+    /**
+     * Work nobody awaits: a failed read or write (the account, the queue, the store) is logged, never thrown. The
+     * scope's handler takes only a full disk; anything else would end the process.
+     */
+    private suspend fun backgrounded(what: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "$what failed: ${e.javaClass.simpleName} ${e.message}")
         }
     }
 

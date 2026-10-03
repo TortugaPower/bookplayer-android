@@ -79,7 +79,7 @@ class FirstSyncCoordinatorTest {
         db.close()
     }
 
-    private fun coordinator(store: SyncStateStore = this.store) = FirstSyncCoordinator(
+    private fun coordinator(store: SyncStateStore = this.store, scope: CoroutineScope = this.scope) = FirstSyncCoordinator(
         store = store,
         pass = MissingItemsPass(
             itemsStatus = {
@@ -239,6 +239,23 @@ class FirstSyncCoordinatorTest {
 
         assertEquals(FirstSyncResult.Failed, coordinator(broken).run())
         assertEquals(0, statusCalls)
+    }
+
+    /** Nobody awaits the background pass or the drained-lane start: a failing read there is logged, not thrown */
+    @Test fun aFailingReadInTheBackground_isNeverThrown() = runBlocking {
+        val thrown = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
+        val watched = CoroutineScope(SupervisorJob() + Dispatchers.IO + kotlinx.coroutines.CoroutineExceptionHandler { _, e -> thrown += e })
+        val broken = object : SyncStateStore by store {
+            override suspend fun hasRunFirstSync(): Boolean = throw IllegalStateException("database is corrupt")
+        }
+        val coordinator = coordinator(broken, watched)
+
+        coordinator.schedulePassIfNeeded()
+        coordinator.onSyncLaneDrained()
+        kotlinx.coroutines.delay(500)
+        watched.cancel()
+
+        assertTrue(thrown.isEmpty())
     }
 
     @Test fun aFailedPassOrRootListing_leavesItNotDone() = runBlocking {

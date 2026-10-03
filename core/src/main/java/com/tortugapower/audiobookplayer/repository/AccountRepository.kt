@@ -9,7 +9,10 @@ interface AccountRepository {
     suspend fun getAccount(): AccountEntity?
     suspend fun saveAccount(account: AccountEntity)
 
-    /** Changes the signed-in account's tier, never bringing back one signed out meanwhile */
+    /**
+     * Changes the signed-in account's tier. An implementation writes that one column, so an account signed out
+     * meanwhile isn't brought back (RoomAccountRepository); this read-then-save default is for test fakes only.
+     */
     suspend fun updateTier(tier: AccountTier) {
         getAccount()?.let { saveAccount(it.copy(tier = tier)) }
     }
