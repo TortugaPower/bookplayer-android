@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.database.entities
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
@@ -28,7 +29,14 @@ data class LibraryItemEntity(
     var isFinished: Boolean = false,
     var lastPlayDate: Long? = null,
     var parentFolderUuid: String? = null,
-    var type: ItemType
+    var type: ItemType,
+    /**
+     * The server has confirmed it holds this item: a listing brought it, its registration went through, or the
+     * missing-items pass's /status answered for it. Only such an item is removed by a listing that lacks it: one
+     * the server never had (imported while signed out, or while a listing was on its way) stays.
+     */
+    @ColumnInfo(defaultValue = "0")
+    var serverKnown: Boolean = false,
 ) {
     @Ignore
     var externalResources: List<ExternalResourceEntity> = emptyList()

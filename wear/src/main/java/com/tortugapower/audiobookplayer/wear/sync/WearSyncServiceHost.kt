@@ -101,7 +101,8 @@ class WearSyncServiceHost : Service() {
         // it re-arms the on-watch player to the server's last-played item after a contents fetch (matching
         // iOS's handleSyncedLastPlayed) instead of leaving the stale locally-restored book.
         val processors = listOf(
-            FetchContentsProcessor(this, repository, WearPlaybackSyncCoordinator),
+            // The watch only mirrors the cloud: every row it has came from a listing
+            FetchContentsProcessor(this, repository, WearPlaybackSyncCoordinator, keepsUnconfirmed = false),
             MetadataUploadProcessor(this, repository),
             MultipartUploadProcessor.create(this, repository),
             QueueFileUploadProcessor.create(this, repository),

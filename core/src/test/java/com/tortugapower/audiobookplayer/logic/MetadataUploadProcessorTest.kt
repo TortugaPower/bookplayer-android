@@ -116,6 +116,18 @@ class MetadataUploadProcessorTest {
         assertEquals(true, Gson().fromJson(confirm.body.readUtf8(), Map::class.java)["synced"])
     }
 
+    /** A registration the server took confirms the item: a listing that lacks it may now remove it */
+    @Test fun aRegistration_confirmsTheItem_aFailedOneDoesnt() = runBlocking {
+        insert("b5")
+        server.enqueue(MockResponse().setResponseCode(500).setBody("{}"))
+        assertEquals(false, processor(AccountTier.LITE).process(task("b5")))
+        assertEquals(false, db.libraryDao().getItemById("b5")!!.serverKnown)
+
+        server.enqueue(answer(null))
+        assertTrue(processor(AccountTier.LITE).process(task("b5")))
+        assertEquals(true, db.libraryDao().getItemById("b5")!!.serverKnown)
+    }
+
     @Test fun aProBookWithoutItsFile_queuesNothing() = runBlocking {
         insert("b4", withFile = false)
         server.enqueue(answer("https://s3/presigned"))

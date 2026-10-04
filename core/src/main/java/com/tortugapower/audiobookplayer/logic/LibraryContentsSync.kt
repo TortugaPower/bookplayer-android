@@ -81,7 +81,9 @@ object LibraryContentsSync {
             isFinished = remote.isFinished,
             lastPlayDate = remote.lastPlayDateTimestamp?.let { (it * 1000).toLong() } ?: local?.lastPlayDate,
             parentFolderUuid = local?.parentFolderUuid,
-            type = type
+            type = type,
+            // The server just listed it
+            serverKnown = true,
         )
 
         if (isNew) {

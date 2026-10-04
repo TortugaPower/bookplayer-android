@@ -60,6 +60,16 @@ class MissingItemsPass(
         // A list missing is a malformed answer, never "nothing to do"
         val unknown = status.unknown ?: throw Failed("status answered without its unknown list")
         val unsynced = status.unsynced ?: throw Failed("status answered without its unsynced list")
+        // Every uuid it didn't call unknown is the server's, deleted ones included: a listing may remove those
+        // once they're missing from it. Not one the server can't read: it leaves those out of both lists. The
+        // unknown ones aren't, whatever an earlier account left flagged. Under the session, so an answer that
+        // lands after a sign-out changes nothing
+        val unknownSet = unknown.toHashSet()
+        val flagged = inSession {
+            dao.setServerKnown(uuids.filter { it !in unknownSet && SERVER_UUID.matches(it) }, known = true)
+            dao.setServerKnown(unknownSet, known = false)
+        }
+        if (!flagged) return Outcome.SessionEnded
 
         // Read after the answer, so an import queued meanwhile isn't registered twice
         val onItsWay = repository.queuedTaskIds(UPLOAD_JOBS)
@@ -114,7 +124,12 @@ class MissingItemsPass(
             val result = response.body()
             // Its error text can name files: the status code only
             if (!response.isSuccessful || result == null) throw Failed("uuids answered HTTP ${response.code()}")
-            if (!inSession { adopted += UuidConflicts.apply(dao, repository, result.conflicts) }) return null
+            val ran = inSession {
+                // The server took these uuids for its items at those paths
+                dao.setServerKnown(result.applied, known = true)
+                adopted += UuidConflicts.apply(dao, repository, result.conflicts)
+            }
+            if (!ran) return null
         }
         return if (adopted.isEmpty()) items else load(dao, items.map { adopted[it.uuid] ?: it.uuid })
     }
@@ -150,6 +165,9 @@ class MissingItemsPass(
     private companion object {
         /** SQLite on API 28 binds 999 variables at most */
         const val IN_CHUNK = 500
+
+        /** The uuids `/status` answers for (bookplayer-api's `isValidUUID`): it drops anything else silently */
+        val SERVER_UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", RegexOption.IGNORE_CASE)
 
         /** A book's registration or upload already queued, running or parked */
         val UPLOAD_JOBS = listOf(

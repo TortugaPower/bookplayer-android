@@ -125,6 +125,34 @@ class LibraryDaoTest {
         assertEquals(setOf("b1", "f1"), dao.getAllUuids().toSet())
     }
 
+    // ---- What the server has confirmed ----
+
+    /** More uuids than a statement can bind, in chunks; and back to unconfirmed */
+    @Test fun setServerKnown_flagsEveryUuidGiven_andClearsThem() = runBlocking {
+        val uuids = (1..1_200).map { "b$it" }
+        uuids.forEach { dao.insertItem(item(it, it, null, "$it.m4b")) }
+        dao.insertItem(item("local", "Local", null, "Local.m4b"))
+
+        dao.setServerKnown(uuids, known = true)
+        assertEquals(1_200, uuids.count { dao.getItemById(it)!!.serverKnown })
+        assertEquals(false, dao.getItemById("local")!!.serverKnown)
+
+        dao.setServerKnown(listOf("b1", "b2"), known = false)
+        assertEquals(false, dao.getItemById("b1")!!.serverKnown)
+        assertEquals(true, dao.getItemById("b3")!!.serverKnown)
+
+        dao.clearServerKnown()
+        assertEquals(0, uuids.count { dao.getItemById(it)!!.serverKnown })
+    }
+
+    /** A uuid migration keeps what the server confirmed */
+    @Test fun migrateItemUuid_keepsServerKnown() = runBlocking {
+        dao.insertItem(item("local-1", "Book", null, "Book.m4b").copy(serverKnown = true))
+
+        assertEquals(true, dao.migrateItemUuid("local-1", "server-1"))
+        assertEquals(true, dao.getItemById("server-1")!!.serverKnown)
+    }
+
     @Test fun getItemsByIdsWithResources_loadsTheItemsAndTheirLinks() = runBlocking {
         dao.insertItemWithExternalResource(
             item("b1", "Dune", null, "Dune.m4b"),

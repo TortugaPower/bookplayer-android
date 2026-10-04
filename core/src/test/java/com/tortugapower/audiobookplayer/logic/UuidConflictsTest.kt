@@ -57,6 +57,9 @@ class UuidConflictsTest {
         assertEquals(mapOf("local-a" to "server-a"), adopted)
         assertNotNull(dao.getItemById("server-a"))
         assertNotNull(dao.getItemById("local-b"))
+        // The server holds the adopted one under its own uuid; the one kept back isn't confirmed
+        assertEquals(true, dao.getItemById("server-a")!!.serverKnown)
+        assertEquals(false, dao.getItemById("local-b")!!.serverKnown)
         assertEquals(setOf("server-a", "local-b"), db.syncTaskDao().getAllTasksSync().map { it.taskID }.toSet())
     }
 }

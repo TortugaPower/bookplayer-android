@@ -28,6 +28,8 @@ object UuidConflicts {
                 Log.w("UuidConflicts", "Another local item already has $newUuid; keeping $oldUuid")
             }
         }
+        // The server holds each adopted one under the uuid it gave
+        libraryDao.setServerKnown(adopted.values, known = true)
         return adopted
     }
 }
