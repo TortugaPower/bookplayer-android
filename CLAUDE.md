@@ -161,6 +161,12 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     due pass, starts then.
   - The old path-based catch-up (`sync_identifiers`, `GET /v1/library/keys`) is retired; leftover tasks
     are dropped by `SyncTaskRetirement`.
+- **A listing removes only items the server has confirmed** (`LibraryItemEntity.serverKnown`): one it never had
+  (imported while signed out, restored from the cloud-deleted screen, or imported while the listing was on its
+  way) isn't missing from it, just not there yet. The flag is set by a listing's upsert, a registration the server
+  took (`MetadataUploadProcessor`), the missing-items pass's `/status` answer (it also unflags what `/status`
+  calls unknown) and `/uuids` matches; phone sign-out clears it. The watch ignores it
+  (`FetchContentsProcessor(keepsUnconfirmed = false)`): it never creates items, so every row came from a listing.
 - **Tier changes come from RevenueCat readings, not the stored tier** (iOS `updateSyncEnabled`).
   `SubscriptionManager` hands each reading to `AccountTierSync`, which classifies it against the last one
   (`TierTransitions`) and applies it in order: it stores the tier (`AccountRepository.updateTier`, one column,

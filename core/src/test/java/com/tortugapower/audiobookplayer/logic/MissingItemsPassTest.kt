@@ -45,6 +45,7 @@ class MissingItemsPassTest {
     private var statusAnswer: Response<ItemsStatusResponse> = Response.success(ItemsStatusResponse(emptyList(), emptyList()))
     private var statusCalls = 0
     private var conflicts: List<ItemConflict> = emptyList()
+    private var applied: List<String> = emptyList()
     private var uuidsAnswerCode = 200
     private val sentPaths = mutableListOf<String>()
     private var pro = true
@@ -60,7 +61,7 @@ class MissingItemsPassTest {
         itemsStatus = { statusCalls++; statusAnswer },
         matchUuids = { items ->
             sentPaths += items.keys
-            if (uuidsAnswerCode == 200) Response.success(MatchUuidsResponse(applied = emptyList(), conflicts = conflicts))
+            if (uuidsAnswerCode == 200) Response.success(MatchUuidsResponse(applied = applied, conflicts = conflicts))
             else Response.error(uuidsAnswerCode, """{"message":"duplicate key Book.m4b"}""".toResponseBody())
         },
         libraryDao = { db.libraryDao() },
@@ -86,6 +87,54 @@ class MissingItemsPassTest {
     private suspend fun tasks(): List<SyncTaskEntity> = db.syncTaskDao().getAllTasksSync().sortedBy { it.position }
 
     private fun uuidOf(task: SyncTaskEntity): String? = Gson().fromJson(task.payload, Map::class.java)["uuid"] as? String
+
+    /**
+     * What /status didn't call unknown is the server's, deleted ones included: confirmed. What it called unknown
+     * isn't, whatever an earlier account left flagged: a listing must not remove it before its registration lands
+     */
+    @Test fun theStatusAnswer_confirmsWhatTheServerHas_andUnconfirmsTheRest() = runBlocking {
+        val known = "6f1d2c3b-4a5e-4f60-8a7b-1c2d3e4f5a6b"
+        db.libraryDao().insertItem(item(known, "Known.m4b"))
+        db.libraryDao().insertItem(item("left-flagged", "Old account's.m4b").copy(serverKnown = true))
+        // The server leaves a uuid it can't read out of both lists (iOS's task-migration placeholder among them):
+        // that's no answer for it
+        db.libraryDao().insertItem(item("LEGACY_UUID_PLACEHOLDER", "Legacy.m4b"))
+        status(unknown = listOf("left-flagged"))
+
+        pass().run(inSession)
+
+        assertEquals(true, db.libraryDao().getItemById(known)!!.serverKnown)
+        assertEquals(false, db.libraryDao().getItemById("left-flagged")!!.serverKnown)
+        assertEquals(false, db.libraryDao().getItemById("LEGACY_UUID_PLACEHOLDER")!!.serverKnown)
+    }
+
+    @Test fun aStatusAnsweredAfterTheSessionEnded_changesNoFlag() = runBlocking {
+        val known = "6f1d2c3b-4a5e-4f60-8a7b-1c2d3e4f5a6b"
+        db.libraryDao().insertItem(item(known, "Known.m4b"))
+        db.libraryDao().insertItem(item("left-flagged", "Old account's.m4b").copy(serverKnown = true))
+        status(unknown = listOf("left-flagged"))
+
+        assertEquals(MissingItemsPass.Outcome.SessionEnded, pass().run { false })
+
+        assertEquals(false, db.libraryDao().getItemById(known)!!.serverKnown)
+        assertEquals(true, db.libraryDao().getItemById("left-flagged")!!.serverKnown)
+    }
+
+    /** /uuids: the server took our uuid for its item at that path, or holds the item under its own */
+    @Test fun aUuidsMatch_confirmsWhatTheServerTookOrAlreadyHad() = runBlocking {
+        db.libraryDao().insertItem(item("took-mine", "Took.m4b"))
+        db.libraryDao().insertItem(item("local-1", "Had.m4b"))
+        db.libraryDao().insertItem(item("not-there", "New.m4b"))
+        status(unknown = listOf("took-mine", "local-1", "not-there"))
+        applied = listOf("took-mine")
+        conflicts = listOf(ItemConflict("local-1", "server-1"))
+
+        pass().run(inSession)
+
+        assertEquals(true, db.libraryDao().getItemById("took-mine")!!.serverKnown)
+        assertEquals(true, db.libraryDao().getItemById("server-1")!!.serverKnown)
+        assertEquals("registered, not confirmed until that lands", false, db.libraryDao().getItemById("not-there")!!.serverKnown)
+    }
 
     @Test fun unknownItems_areMatchedThenRegisteredParentsFirst_withBookmarksAfter() = runBlocking {
         val dao = db.libraryDao()

@@ -37,6 +37,9 @@ class FetchContentsProcessor(
     // The phone deletes nothing a listing lacks until its first sync has registered this device's items
     // (read when the task runs: a deleting fetch can wait in the queue across a sign-in or a lapse)
     private val canDeleteListings: suspend () -> Boolean = { true },
+    // A listing removes only the items the server has confirmed (serverKnown). The watch lists every row away:
+    // it never creates items, so all of them came from the server
+    private val keepsUnconfirmed: Boolean = true,
     // Seams for tests: the global Retrofit client and database can't be pointed elsewhere
     private val getContents: suspend (path: String) -> retrofit2.Response<ContentsResponse> = { path ->
         NetworkClient.libraryApi.getContents(path)
@@ -58,7 +61,9 @@ class FetchContentsProcessor(
         val contents = response.body()
         if (!response.isSuccessful || contents == null) return false
 
-        ContentsListing.apply(context, libraryDao(), repository, playback, path, contents, canDelete && canDeleteListings())
+        ContentsListing.apply(
+            context, libraryDao(), repository, playback, path, contents, canDelete && canDeleteListings(), keepsUnconfirmed,
+        )
         return true
     }
 
@@ -81,6 +86,7 @@ object ContentsListing {
         path: String,
         contents: ContentsResponse,
         canDelete: Boolean,
+        keepsUnconfirmed: Boolean = true,
     ) {
         val normalizedPath = if (path.endsWith("/")) path.removeSuffix("/") else path
         val remoteUuids = mutableSetOf<String>()
@@ -153,7 +159,9 @@ object ContentsListing {
             }
         }
 
-        // Find local items missing on server and delete them if canDelete is true
+        // Find local items missing on server and delete them if canDelete is true: only ones the server has
+        // confirmed, as one it never had (imported while signed out, or while this listing was on its way) isn't
+        // missing from it, just not there yet
         if (canDelete) {
             val localItems = if (normalizedPath.isEmpty()) {
                 libraryDao.getRootItemsSync()
@@ -162,7 +170,7 @@ object ContentsListing {
             }
 
             localItems.forEach { localItem ->
-                if (localItem.uuid !in remoteUuids) {
+                if (localItem.uuid !in remoteUuids && (localItem.serverKnown || !keepsUnconfirmed)) {
                     Log.d("FetchContentsProcessor", "🗑️ Local item missing on server, deleting: ${localItem.title}")
                     libraryDao.deleteItem(localItem)
                     localItem.relativePath?.let { affectedPaths.add(it) }
@@ -219,6 +227,8 @@ class MetadataUploadProcessor(
             Log.w("MetadataUploadProcessor", "⚠️ Registered an item no longer in the library")
             return true
         }
+        // The server holds it now: a listing that lacks it may remove it from here
+        libraryDao().setServerKnown(listOf(item.uuid), known = true)
 
         val tier = accountTier()
         if (item.type != ItemType.BOOK) {

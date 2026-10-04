@@ -86,6 +86,27 @@ class ProfileViewModelPausedTasksTest {
         assertNotNull(db.syncTaskDao().getTaskById("other"))
     }
 
+    /** Sign-out keeps the library, but the next account's server holds none of it */
+    @Test fun logout_keepsTheLibrary_butUnconfirmsIt() = runBlocking {
+        db.libraryDao().insertItem(
+            com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity(
+                uuid = "b1", title = "Book", relativePath = "Book.m4b",
+                type = com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK, serverKnown = true,
+            )
+        )
+
+        // Sign-out drops the API token first (the network constants) and ends with the streaming gate (the app context)
+        com.tortugapower.audiobookplayer.network.NetworkConstants.configure(baseUrl = "http://localhost:1/", googleClientId = "")
+        com.tortugapower.audiobookplayer.core.CoreContext.init(context)
+        com.tortugapower.audiobookplayer.logic.SyncStatusManager.updateLastSyncTimestamp(1L)
+        viewModel.logout()
+
+        // Its last steps reset the sync time and check the loaded book (none here): the whole sign-out ran
+        until { com.tortugapower.audiobookplayer.logic.SyncStatusManager.lastSyncTimestamp.value == 0L }
+        assertEquals(false, db.libraryDao().getItemById("b1")?.serverKnown)
+        assertNotNull(db.libraryDao().getItemById("b1"))
+    }
+
     @Test fun theReport_readsTheQueueAndTheLibrary() = runBlocking {
         val task = parked("t", "item_not_found")
         db.syncTaskDao().insertTask(task)

@@ -71,6 +71,19 @@ interface LibraryDao {
     @Query("SELECT uuid FROM library_items WHERE uuid != ''")
     suspend fun getAllUuids(): List<String>
 
+    /** Records whether the server holds [uuids] (LibraryItemEntity.serverKnown), in chunks a statement can bind */
+    @Transaction
+    suspend fun setServerKnown(uuids: Collection<String>, known: Boolean) {
+        uuids.distinct().chunked(500).forEach { setServerKnownChunk(it, known) }
+    }
+
+    @Query("UPDATE library_items SET serverKnown = :known WHERE uuid IN (:uuids)")
+    suspend fun setServerKnownChunk(uuids: List<String>, known: Boolean)
+
+    /** Sign-out: the next account's server holds none of them */
+    @Query("UPDATE library_items SET serverKnown = 0")
+    suspend fun clearServerKnown()
+
     @Query("SELECT MAX(orderRank) FROM library_items WHERE relativePath NOT LIKE '%/%'")
     suspend fun getMaxRootOrderRank(): Int?
 

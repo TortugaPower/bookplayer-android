@@ -137,6 +137,15 @@ class ProfileViewModel(
         // Every lane's worker stops too, so nothing runs on under the next account's token; this also clears any
         // queued preference push/fetch tasks
         SyncQueueReset.clearAll(syncTaskRepository)
+        // The library stays, but the next account's server holds none of it (and the next first sync corrects
+        // whatever a failed write leaves)
+        try {
+            libraryDao.clearServerKnown()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("ProfileViewModel", "Couldn't clear the server-known flags: ${e.javaClass.simpleName}")
+        }
         // Drop every local library_sort:* preference so the next login pulls fresh (no stale state).
         // runCatching like LibraryViewModel's sortManager access: unit tests with a plain
         // Application have no singleton, and logout cleanup must not abort halfway.
