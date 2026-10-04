@@ -95,6 +95,8 @@ class TaskConcurrencyManager(
             repository.resetRunningTasks()
             // An older build queued book uploads in the file lane, ahead of the downloads behind them
             repository.moveToLane(SyncTaskFactory.JOB_UPLOAD_FILE, SyncTaskFactory.QUEUE_UPLOAD)
+            // and covers in the file lane, where they could reach the server before their item's registration
+            repository.moveToLane(SyncTaskFactory.JOB_UPLOAD_ARTWORK, SyncTaskFactory.QUEUE_SYNC)
             // Jobs this build no longer runs (also done at app launch: held, they don't start the engine)
             SyncTaskRetirement.cleanUp(repository)
             

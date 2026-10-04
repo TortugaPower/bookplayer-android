@@ -273,6 +273,25 @@ class FirstSyncCoordinatorTest {
         assertEquals(1, waits)
     }
 
+    /**
+     * A reading can drop the last tasks a first sync was waiting on (a return as LITE), with no engine running to
+     * report the lane emptying: the reading starts it
+     */
+    @Test fun aTierReading_startsAPendingFirstSync_orSchedulesTheDuePass() = runBlocking {
+        val coordinator = coordinator()
+
+        coordinator.onTierRead(isPro = true)
+        withTimeout(5_000) { while (!store.done) kotlinx.coroutines.delay(10) }
+        assertEquals(1, statusCalls)
+        assertEquals(true, store.lastKnownPro)
+
+        // Done: a reading looks for a due pass instead (a week later, once the registration it queued went through)
+        repository.deleteAllTasks()
+        now += 8 * DAY
+        coordinator.onTierRead(isPro = true)
+        awaitPasses(2)
+    }
+
     @Test fun aFailedPassOrRootListing_leavesItNotDone() = runBlocking {
         statusAnswer = Response.error(500, """{"message":"Internal error"}""".toResponseBody())
         assertEquals(FirstSyncResult.Failed, coordinator().run())

@@ -79,7 +79,9 @@ class AccountTierSyncTest {
         queue("parked-upload", SyncTaskFactory.QUEUE_UPLOAD, SyncTaskFactory.JOB_UPLOAD_FILE)
         db.syncTaskDao().parkTask("parked-upload", "ACCOUNT", "account_inactive", "Inactive", 403, 5L)
         queue("preference", SyncTaskFactory.QUEUE_PREFERENCES, SyncTaskFactory.JOB_UPLOAD_PREFERENCE)
-        queue("artwork", SyncTaskFactory.QUEUE_FILE, SyncTaskFactory.JOB_UPLOAD_ARTWORK)
+        queue("artwork", SyncTaskFactory.QUEUE_SYNC, SyncTaskFactory.JOB_UPLOAD_ARTWORK)
+        // An older build's, until the engine moves it
+        queue("old-artwork", SyncTaskFactory.QUEUE_FILE, SyncTaskFactory.JOB_UPLOAD_ARTWORK)
         queue("download", SyncTaskFactory.QUEUE_FILE, SyncTaskFactory.JOB_DOWNLOAD_FILE)
         queue("hardcover", SyncTaskFactory.QUEUE_HARDCOVER, SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS)
         queue("jellyfin", "jellyfin", SyncTaskFactory.JOB_EXTERNAL_UPDATE)
@@ -113,7 +115,7 @@ class AccountTierSyncTest {
 
         assertEquals(AccountTier.FREE, accounts.account.value?.tier)
         assertEquals("the next sync is a first sync", 1, hooks.ended)
-        assertEquals(setOf("move", "upload", "parked-upload", "preference", "artwork", "hardcover", "jellyfin"), queued())
+        assertEquals(setOf("move", "upload", "parked-upload", "preference", "artwork", "old-artwork", "hardcover", "jellyfin"), queued())
     }
 
     @Test fun proToLite_dropsTheFileUploads_parkedOnesToo() = runBlocking {
@@ -139,6 +141,22 @@ class AccountTierSyncTest {
         sync.applyQueued()
 
         assertEquals(setOf("move", "preference", "download", "hardcover", "jellyfin"), queued())
+    }
+
+    /** Lapsed at launch (held), then back as LITE: the held uploads go, a cover would hold back every listing */
+    @Test fun aReturnAsLite_dropsTheHeldUploads() = runBlocking {
+        val accounts = Accounts(AccountTier.PRO)
+        val sync = sync(accounts)
+        fillEveryLane()
+
+        sync.record(AccountTier.FREE)
+        sync.applyQueued()
+        assertTrue("held", "artwork" in queued())
+
+        sync.record(AccountTier.LITE)
+        sync.applyQueued()
+        assertEquals(AccountTier.LITE, accounts.account.value?.tier)
+        assertEquals(setOf("move", "preference", "hardcover", "jellyfin"), queued())
     }
 
     @Test fun aReturn_wakesTheEngineForTheHeldWork() = runBlocking {
@@ -193,7 +211,7 @@ class AccountTierSyncTest {
         sync.applyQueued()
 
         assertEquals(0, hooks.ended)
-        assertEquals(8, queued().size)
+        assertEquals(9, queued().size)
     }
 
     /** A new account's first reading isn't compared with the last account's */

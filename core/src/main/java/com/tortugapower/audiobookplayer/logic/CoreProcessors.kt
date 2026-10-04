@@ -732,8 +732,8 @@ class ArtworkUploadProcessor(private val context: Context) : TaskProcessor {
         
         val localFile = File(localPath)
         if (!localFile.exists()) {
-            // Gone for good (a cleared cache, a deleted book): retrying would hold the file queue,
-            // downloads included, forever
+            // Gone for good (a cleared cache, a deleted book): retrying would hold the sync lane, every listing
+            // included, forever
             Log.w("ArtworkUploadProcessor", "Local artwork file not found at $localPath; dropping the upload")
             return true
         }

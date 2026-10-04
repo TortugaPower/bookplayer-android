@@ -96,6 +96,17 @@ class SyncTaskFactoryTest {
         assertEquals(0.0, (payloadOf(repo.saved!!)["lastPlayDateTimestamp"] as Number).toDouble(), 0.0)
     }
 
+    /** iOS: a cover rides the sync lane, behind its item's registration, so the server never gets it first */
+    @Test fun artworkUpload_ridesTheSyncLane() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createUploadArtworkTask(repo, item(lastPlayDateMs = null).copy(artworkURL = "/covers/u1.jpg"))
+
+        val task = repo.saved!!
+        assertEquals(SyncTaskFactory.QUEUE_SYNC, task.queueKey)
+        assertEquals(SyncTaskFactory.JOB_UPLOAD_ARTWORK, task.jobType)
+        assertEquals("u1", task.taskID)
+    }
+
     @Test fun shallowDeleteTask_syncQueue_carriesPathAndUuid() = runBlocking {
         val repo = CapturingRepo()
         SyncTaskFactory.createShallowDeleteTask(repo, item(lastPlayDateMs = null))

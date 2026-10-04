@@ -56,11 +56,10 @@ class SyncTaskPickerTest {
     @Test fun anAccountPause_holdsTheFileLanesUploads_butNotItsDownloads() {
         val candidates = listOf(
             pending("upload", SyncTaskFactory.JOB_UPLOAD_FILE),
-            pending("art", SyncTaskFactory.JOB_UPLOAD_ARTWORK),
             pending("download", SyncTaskFactory.JOB_DOWNLOAD_FILE),
         )
         assertEquals(listOf("download"), ids(SyncTaskFactory.QUEUE_FILE, candidates, accountHeld = true))
-        assertEquals(listOf("upload", "art", "download"), ids(SyncTaskFactory.QUEUE_FILE, candidates))
+        assertEquals(listOf("upload", "download"), ids(SyncTaskFactory.QUEUE_FILE, candidates))
     }
 
     /** Media-server and Hardcover lanes never talk to the BookPlayer API */

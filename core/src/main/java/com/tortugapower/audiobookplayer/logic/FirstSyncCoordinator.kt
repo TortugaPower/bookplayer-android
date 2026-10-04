@@ -117,9 +117,22 @@ class FirstSyncCoordinator(
     }
 
     /** The sync lane emptied: a first sync waiting for it runs now, else a pass that's due */
-    fun onSyncLaneDrained() {
+    fun onSyncLaneDrained() = lookAgain()
+
+    /**
+     * Each reading of the account's tier, once the queue matches it: notes PRO, then starts a pending first sync,
+     * or a pass that's due. The reading may just have dropped the last tasks the first sync was waiting on, with
+     * no engine running to report the lane emptying.
+     */
+    suspend fun onTierRead(isPro: Boolean) {
+        noteProAccess(isPro)
+        lookAgain()
+    }
+
+    /** In the background (a reading's consumer mustn't wait on a whole first sync): a pending first sync, else a due pass */
+    private fun lookAgain() {
         scope.launch {
-            backgrounded("First sync after the lane drained") {
+            backgrounded("First sync") {
                 if (store.hasRunFirstSync()) {
                     schedulePassIfNeeded()
                 } else if (run() == FirstSyncResult.WaitingForQueue) {

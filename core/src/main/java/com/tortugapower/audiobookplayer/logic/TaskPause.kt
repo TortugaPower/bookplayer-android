@@ -102,6 +102,7 @@ object SyncTaskPicker {
         val runnable = mutableListOf<SyncTaskEntity>()
         for (task in candidates) {
             if (task.status == SyncTaskStatus.PENDING) {
+                // An older build's book upload in the file lane, until the engine moves it to its own lane
                 if (accountHeld && UploadDataPolicy.isFileUploadJob(task.jobType)) continue
                 if (!canRun(task.jobType)) continue
                 runnable += task
@@ -109,9 +110,9 @@ object SyncTaskPicker {
             }
             when (task.pause?.scope) {
                 TaskPauseScope.LANE -> break
-                // An account pause has already stopped the server lanes above, so this row is an upload in
-                // the mixed file lane. Like a task parked alone, or a failed row with no readable pause, it
-                // is skipped.
+                // An account pause has already stopped the server lanes above, so this row is in a lane of
+                // the user's own (the file lane's downloads, a media server, Hardcover). Like a task parked
+                // alone, or a failed row with no readable pause, it is skipped.
                 TaskPauseScope.ACCOUNT, TaskPauseScope.TASK, null -> continue
             }
         }
