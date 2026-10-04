@@ -12,6 +12,7 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.model.*
 import com.tortugapower.audiobookplayer.model.ArtworkResponse
+import com.tortugapower.audiobookplayer.network.S3Transfer
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.network.throwIfCoded
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
@@ -756,7 +757,7 @@ class ArtworkUploadProcessor(private val context: Context) : TaskProcessor {
 
         // 2. Upload file to signed URL: the shared presigned-URL client, its response closed and its call
         // cancelled with the worker (retried until it goes through, as on iOS)
-        val uploadStatus = com.tortugapower.audiobookplayer.network.S3Transfer.putFile(
+        val uploadStatus = S3Transfer.putFile(
             thumbnailURL.toString(), localFile, "image/jpeg".toMediaTypeOrNull(),
         )
         if (uploadStatus !in 200..299) {
