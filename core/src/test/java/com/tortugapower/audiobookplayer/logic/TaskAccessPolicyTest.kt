@@ -28,7 +28,11 @@ class TaskAccessPolicyTest {
 
     /** Held until the engine's start converts or drops them: never discarded by a worker for having no processor */
     @Test fun `retired pipe jobs never run as they are`() {
-        listOf(SyncTaskFactory.RETIRED_JOB_UPLOAD_STREAM_FILE, SyncTaskFactory.RETIRED_JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD).forEach { job ->
+        listOf(
+            SyncTaskFactory.RETIRED_JOB_UPLOAD_STREAM_FILE,
+            SyncTaskFactory.RETIRED_JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD,
+            SyncTaskFactory.RETIRED_JOB_SYNC_IDENTIFIERS,
+        ).forEach { job ->
             AccountTier.entries.forEach { tier -> assertFalse("$job on $tier", TaskAccessPolicy.canExecuteTask(tier, job)) }
             assertFalse(job, TaskAccessPolicy.canExecuteTask(null, job))
         }

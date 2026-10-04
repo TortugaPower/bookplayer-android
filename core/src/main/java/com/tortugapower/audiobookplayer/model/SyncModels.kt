@@ -52,10 +52,6 @@ data class ArtworkResponse(
     @SerializedName("thumbnail_url") val thumbnailURL: String
 )
 
-data class IdentifiersResponse(
-    @SerializedName("content") val content: List<String>
-)
-
 data class MatchUuidsResponse(
     @SerializedName("applied") val applied: List<String>,
     @SerializedName("conflicts") val conflicts: List<ItemConflict>
@@ -64,4 +60,14 @@ data class MatchUuidsResponse(
 data class ItemConflict(
     @SerializedName("key") val key: String, // Maps to the local sent "uuid" (our key in the map)
     @SerializedName("uuid") val uuid: String // Maps to the authoritative server uuid
+)
+
+/**
+ * `POST /v1/library/status`. [unknown]: uuids the server has no row for, deleted or not. [unsynced]: books
+ * the server holds no file for. A uuid in neither is fine, or deleted on the server. Nullable because Gson
+ * fills a missing key with null: a reply without both lists is malformed, never "nothing to do".
+ */
+data class ItemsStatusResponse(
+    @SerializedName("unknown") val unknown: List<String>?,
+    @SerializedName("unsynced") val unsynced: List<String>?,
 )

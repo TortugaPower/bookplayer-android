@@ -5,12 +5,11 @@ import android.util.Log
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.dao.LibraryDao
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
-import com.tortugapower.audiobookplayer.database.entities.BookmarkType
+import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
-import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -39,20 +38,35 @@ object UploadHandBack {
      * this device too.
      */
     suspend fun reRegister(libraryDao: LibraryDao, repository: SyncTaskRepository, uuid: String): Boolean {
-        val item = libraryDao.getItemById(uuid) ?: return false
-        SyncTaskFactory.createUploadMetadataTask(repository, item)
-        val resources = libraryDao.getExternalResourcesForBookSync(uuid)
-        resources.forEach { SyncTaskFactory.createUploadExternalResourceTask(repository, it) }
-        item.relativePath?.let { path ->
-            libraryDao.getBookmarksForBook(uuid).first()
-                .filter { it.type == BookmarkType.USER }
-                .forEach { SyncTaskFactory.createSetBookmarkTask(repository, it, item.title, path) }
-        }
+        val row = libraryDao.getItemByIdWithResources(uuid) ?: return false
+        val item = row.item.also { it.externalResources = row.externalResources }
+        ItemRegistration.register(repository, listOf(item), libraryDao.getUserBookmarksForBooks(listOf(uuid)))
         // Its links are loaded already: no second read
-        if (MediaServerStreams.owner(item.also { it.externalResources = resources }, libraryDao) != null) {
+        if (MediaServerStreams.owner(item, libraryDao) != null) {
             SyncTaskFactory.createQueueFileUploadTask(repository, item)
         }
         return true
+    }
+}
+
+/**
+ * Registers items with the server like an import does: each one's registration (`PUT /v1/library`) and its
+ * links, in the order given (parents before children), then the user's bookmarks of those books (iOS
+ * `handleItemsToUpload`). The registration's answer decides the rest, a book's file upload included.
+ */
+object ItemRegistration {
+    /** [items] carry their links (`externalResources`); [bookmarks] are the user's own, of these books */
+    suspend fun register(repository: SyncTaskRepository, items: List<LibraryItemEntity>, bookmarks: List<BookmarkEntity>) {
+        items.forEach { item ->
+            SyncTaskFactory.createUploadMetadataTask(repository, item)
+            item.externalResources.forEach { SyncTaskFactory.createUploadExternalResourceTask(repository, it) }
+        }
+        val booksByUuid = items.associateBy { it.uuid }
+        bookmarks.forEach { bookmark ->
+            val book = booksByUuid[bookmark.bookUuid] ?: return@forEach
+            val path = book.relativePath ?: return@forEach
+            SyncTaskFactory.createSetBookmarkTask(repository, bookmark, book.title, path)
+        }
     }
 }
 

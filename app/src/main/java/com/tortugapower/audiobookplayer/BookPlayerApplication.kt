@@ -7,6 +7,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.ParkedTaskRetry
@@ -20,6 +21,7 @@ import com.tortugapower.audiobookplayer.logic.UploadDataPolicy
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
+import com.tortugapower.audiobookplayer.logic.SyncSessionHooks
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
@@ -52,6 +54,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
 
     /** Reports parked sync tasks to Sentry, once each. Set in [onCreate]. */
     lateinit var syncPauseReporter: SyncPauseReporter
+        private set
+
+    /** This device's first sync of the signed-in account. Set in [onCreate]. */
+    lateinit var firstSync: com.tortugapower.audiobookplayer.logic.FirstSyncCoordinator
         private set
 
     /** Library sort brain: sort actions + preference push/pull. Set in [onCreate]. */
@@ -102,6 +108,33 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             accountRepository
         )
 
+        firstSync = com.tortugapower.audiobookplayer.logic.FirstSyncCoordinator(
+            store = com.tortugapower.audiobookplayer.logic.DataStoreSyncStateStore(this),
+            pass = com.tortugapower.audiobookplayer.logic.MissingItemsPass(
+                itemsStatus = { com.tortugapower.audiobookplayer.network.NetworkClient.libraryApi.itemsStatus(mapOf("uuids" to it)) },
+                matchUuids = { com.tortugapower.audiobookplayer.network.NetworkClient.libraryApi.matchUuids(mapOf("items" to it)) },
+                libraryDao = { database.libraryDao() },
+                repository = syncTaskRepository,
+                bookFile = { com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.processedFile(this, it) },
+                canUploadFiles = {
+                    TaskAccessPolicy.canExecuteTask(accountRepository.getAccount()?.tier, com.tortugapower.audiobookplayer.logic.SyncTaskFactory.JOB_UPLOAD_FILE)
+                },
+            ),
+            syncTasks = syncTaskRepository,
+            isSyncActive = { TaskAccessPolicy.canAccessSyncService(accountRepository.getAccount()?.tier) },
+            fetchRoot = { com.tortugapower.audiobookplayer.network.NetworkClient.libraryApi.getContents("") },
+            applyRootListing = { root ->
+                com.tortugapower.audiobookplayer.logic.ContentsListing.apply(
+                    this, database.libraryDao(), syncTaskRepository,
+                    com.tortugapower.audiobookplayer.logic.PlaybackManagerSyncCoordinator, "", root, canDelete = false,
+                )
+            },
+            // Its own scope, off the main thread: the pass reads the library and checks files on disk
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + StorageMonitor.exceptionHandler { this }),
+            // Not on last session's tier: a lapse while the app was closed shows in this launch's reading
+            awaitTierReady = SubscriptionManager::awaitTierReady,
+        )
+
         val librarySortStore = LibrarySortStore(DataStorePreferencesStore(this))
         librarySortManager = LibrarySortManager(
             syncingLibraryRepository,
@@ -126,7 +159,19 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
                 com.tortugapower.audiobookplayer.widget.WidgetPlaybackNotifier.notify(this, itemChanged, isPlaying)
             },
         )
-        SubscriptionManager.initialize(this, accountRepository, syncTaskRepository, BuildConfig.REVENUECAT_API_KEY)
+        SubscriptionManager.initialize(
+            this, accountRepository, syncTaskRepository, BuildConfig.REVENUECAT_API_KEY,
+            syncHooks = object : SyncSessionHooks {
+                override suspend fun syncEnded() = firstSync.endSession()
+
+                // Every tier the account is read with (iOS noteProAccess on each account update): gaining PRO owes
+                // a missing-items pass, which uploads the files LITE never sent
+                override suspend fun tierRead(tier: AccountTier) {
+                    firstSync.noteProAccess(tier == AccountTier.PRO)
+                    firstSync.schedulePassIfNeeded()
+                }
+            },
+        )
 
         // Keep NetworkClient's auth token current with the signed-in account at the app level — as the
         // watch does — so playback (presigned-URL refresh), account calls and sync all see it whether or
@@ -162,7 +207,12 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         })
         appScope.launch {
             PreferencesPullTriggers.onSyncAccountChange(accountRepository.getAccountFlow())
-                .collect { forcePreferencesPull() }
+                .collect {
+                    forcePreferencesPull()
+                    // A sign-in (or a subscription) starts this device's first sync right away, whatever
+                    // screen is showing (iOS runs it when sync turns on)
+                    firstSync.request()
+                }
         }
 
         // The sync host stops itself when idle (Android 15+ dataSync budget), and :core wakes it back up
@@ -172,10 +222,15 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             TaskConcurrencyServiceHost.start(this)
         }
         appScope.launch(Dispatchers.IO) {
+            // Before the gate: jobs this build no longer runs are held, so they'd never start the engine
+            // that cleans them up, and one left in the sync lane holds back every library refresh
+            com.tortugapower.audiobookplayer.logic.SyncTaskRetirement.cleanUp(syncTaskRepository)
             // Parked tasks don't count: they're retried when the app is opened (ParkedTaskRetry)
             val hasStartableWork: suspend () -> Boolean = {
                 // The count first: most launches have an empty queue and skip loading it
                 syncTaskRepository.countActiveTasks() > 0 && run {
+                    // This launch's tier, not last session's: a lapse while closed holds the queue
+                    SubscriptionManager.awaitTierReady()
                     val tier = accountRepository.getAccount()?.tier
                     // Uploads held to Wi-Fi don't count either: the service would only sit idle
                     val holdUploads = UploadDataPolicy.shouldHoldUploads(this@BookPlayerApplication)

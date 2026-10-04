@@ -114,4 +114,43 @@ class LibraryDaoTest {
         assertNotNull(id)
         assertEquals(listOf(12.0), dao.getBookmarksForBook("b1").first().map { it.time })
     }
+
+    // ---- Reads for the missing-items pass ----
+
+    @Test fun getAllUuids_returnsEveryItemsUuid() = runBlocking {
+        dao.insertItem(item("b1", "Dune", null, "Dune.m4b"))
+        dao.insertItem(item("f1", "Shelf", null, "Shelf", ItemType.FOLDER))
+        dao.insertItem(item("", "Odd", null, "Odd.m4b"))
+
+        assertEquals(setOf("b1", "f1"), dao.getAllUuids().toSet())
+    }
+
+    @Test fun getItemsByIdsWithResources_loadsTheItemsAndTheirLinks() = runBlocking {
+        dao.insertItemWithExternalResource(
+            item("b1", "Dune", null, "Dune.m4b"),
+            com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity(
+                providerName = "jellyfin", providerId = "jf-1", syncStatus = "stream", libraryItemUuid = "b1",
+            ),
+        )
+        dao.insertItem(item("b2", "Emma", null, "Emma.m4b"))
+        dao.insertItem(item("b3", "Faust", null, "Faust.m4b"))
+
+        val rows = dao.getItemsByIdsWithResources(listOf("b1", "b2", "gone")).associateBy { it.item.uuid }
+
+        assertEquals(setOf("b1", "b2"), rows.keys)
+        assertEquals(listOf("jf-1"), rows.getValue("b1").externalResources.map { it.providerId })
+        assertEquals(emptyList<String>(), rows.getValue("b2").externalResources.map { it.providerId })
+    }
+
+    @Test fun getUserBookmarksForBooks_onlyTheUsersOwn_byTime() = runBlocking {
+        dao.insertItem(item("b1", "Dune", null, "Dune.m4b"))
+        dao.insertItem(item("b2", "Emma", null, "Emma.m4b"))
+        dao.insertBookmark(BookmarkEntity(bookUuid = "b1", time = 30.0))
+        dao.insertBookmark(BookmarkEntity(bookUuid = "b2", time = 10.0))
+        dao.insertBookmark(BookmarkEntity(bookUuid = "b1", time = 20.0, type = com.tortugapower.audiobookplayer.database.entities.BookmarkType.PLAY))
+
+        val bookmarks = dao.getUserBookmarksForBooks(listOf("b1", "b2"))
+
+        assertEquals(listOf("b2" to 10.0, "b1" to 30.0), bookmarks.map { it.bookUuid to it.time })
+    }
 }

@@ -373,6 +373,9 @@ class RoomLibraryRepositoryTest {
         }
 
         override suspend fun markExternalResourceFileProcessed(id: Long): Unit = TODO()
+        override suspend fun getAllUuids(): List<String> = TODO()
+        override suspend fun getItemsByIdsWithResources(uuids: List<String>): List<com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources> = TODO()
+        override suspend fun getUserBookmarksForBooks(bookUuids: List<String>): List<com.tortugapower.audiobookplayer.database.entities.BookmarkEntity> = TODO()
         override fun getRootItems(): Flow<List<LibraryItemEntity>> = TODO()
         override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = TODO()
         override suspend fun getRootItemsSync(): List<LibraryItemEntity> = TODO()

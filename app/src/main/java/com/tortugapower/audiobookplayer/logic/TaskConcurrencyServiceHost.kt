@@ -140,8 +140,10 @@ class TaskConcurrencyServiceHost : Service() {
 
         // Register all available processors
         val processors = listOf(
-            FetchContentsProcessor(this, repository, PlaybackManagerSyncCoordinator),
-            SyncIdentifiersProcessor(this, repository),
+            FetchContentsProcessor(
+                this, repository, PlaybackManagerSyncCoordinator,
+                canDeleteListings = { BookPlayerApplication.instance.firstSync.hasRunFirstSync() },
+            ),
             MetadataUploadProcessor(this, repository),
             MultipartUploadProcessor.create(this, repository),
             QueueFileUploadProcessor.create(this, repository),
@@ -167,6 +169,8 @@ class TaskConcurrencyServiceHost : Service() {
             this, repository, accountRepository, processors,
             verifySyncEntitlement = { SubscriptionManager.refreshSyncEntitlement() },
             onTaskPaused = BookPlayerApplication.instance.syncPauseReporter::report,
+            onSyncLaneDrained = BookPlayerApplication.instance.firstSync::onSyncLaneDrained,
+            awaitTierReady = SubscriptionManager::awaitTierReady,
         )
         Log.d(TAG, "🚀 Triggering taskConcurrencyManager.startProcessing()")
         taskConcurrencyManager.startProcessing()

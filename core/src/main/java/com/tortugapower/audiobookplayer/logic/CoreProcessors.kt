@@ -34,7 +34,17 @@ class FetchContentsProcessor(
     private val context: Context,
     private val repository: SyncTaskRepository,
     // Injected by the host target; null on a no-player context (skips last-played reconciliation).
-    private val playback: PlaybackSyncCoordinator? = null
+    private val playback: PlaybackSyncCoordinator? = null,
+    // The phone deletes nothing a listing lacks until its first sync has registered this device's items
+    // (read when the task runs: a deleting fetch can wait in the queue across a sign-in or a lapse)
+    private val canDeleteListings: suspend () -> Boolean = { true },
+    // Seams for tests: the global Retrofit client and database can't be pointed elsewhere
+    private val getContents: suspend (path: String) -> retrofit2.Response<ContentsResponse> = { path ->
+        NetworkClient.libraryApi.getContents(path)
+    },
+    private val libraryDao: () -> com.tortugapower.audiobookplayer.database.dao.LibraryDao = {
+        AppDatabase.getDatabase(context).libraryDao()
+    },
 ) : TaskProcessor {
     private val gson = Gson()
 
@@ -43,182 +53,130 @@ class FetchContentsProcessor(
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
         val path = payload["relativePath"] as? String ?: ""
         val canDelete = payload["canDelete"] as? Boolean ?: false
-        val normalizedPath = if (path.endsWith("/")) path.removeSuffix("/") else path
-        
-        val response = NetworkClient.libraryApi.getContents(path)
+
+        val response = getContents(path)
         response.throwIfCoded()
-        
-        if (response.isSuccessful && response.body() != null) {
-            val contents = response.body()!!
-            val database = AppDatabase.getDatabase(context)
-            val libraryDao = database.libraryDao()
+        val contents = response.body()
+        if (!response.isSuccessful || contents == null) return false
 
-            val remoteUuids = mutableSetOf<String>()
-            val matchUuidMap = mutableMapOf<String, String>() // relativePath -> generatedUuid
-            val allGeneratedUuids = mutableSetOf<String>()
-            val affectedPaths = mutableSetOf<String>()
-
-            // Update existing and add missing from server
-            contents.content.forEach { remoteItem ->
-                val (finalUuid, isNew) = syncItem(libraryDao, remoteItem, allGeneratedUuids, skipParentUpdate = true)
-                remoteItem.relativePath?.let { affectedPaths.add(it) }
-                remoteUuids.add(finalUuid)
-                
-                // If the server didn't provide a UUID, mark it for matching
-                if (remoteItem.uuid.isNullOrEmpty()) {
-                    matchUuidMap[remoteItem.relativePath] = finalUuid
-                }
-
-                // If it's a NEW BOUND item, trigger fetch for its contents to ensure they are also synced
-                if (isNew && remoteItem.type == ItemType.BOUND.ordinal) {
-                    SyncTaskFactory.createFetchContentsTask(repository, remoteItem.relativePath, force = true)
-                }
-
-                // A stream-only item synced from ANOTHER device arrives without artwork (the importing
-                // device holds the cover as a local file; it never reaches our servers) — best-effort
-                // re-download it from the media server this device can also reach. Short-circuit on the
-                // resources the fetch payload ALREADY carries, so ordinary artwork-less books cost no
-                // extra DB read here; the (serialized) network trip only happens for genuine stream items
-                // still missing a cover, which is self-terminating once the cover lands.
-                val hasStreamResource = remoteItem.externalResources
-                    ?.any { it.syncStatus == ExternalResourceEntity.STATUS_STREAM } == true
-                if (hasStreamResource) {
-                    libraryDao.getItemById(finalUuid)?.let { synced ->
-                        if (synced.artworkURL.isNullOrBlank()) {
-                            StreamArtworkBackfill.backfill(context, libraryDao, synced)
-                        }
-                    }
-                }
-            }
-
-            // If we generated any UUIDs, trigger the matching task
-            if (matchUuidMap.isNotEmpty()) {
-                SyncTaskFactory.createMatchUuidsTask(repository, matchUuidMap)
-            }
-
-            // Handle cross-device Last Played synchronization
-            contents.lastItemPlayed?.let { serverLastPlayed ->
-                // Ensure the last played item itself is synced to DB
-                val (finalUuid, _) = syncItem(libraryDao, serverLastPlayed, allGeneratedUuids, skipParentUpdate = true)
-                serverLastPlayed.relativePath?.let { affectedPaths.add(it) }
-                
-                val coordinator = playback
-                if (coordinator != null && !coordinator.isPlaying()) {
-                    val localCurrent = coordinator.currentItem()
-                    val serverTs = serverLastPlayed.lastPlayDateTimestamp?.let { (it * 1000).toLong() } ?: 0L
-                    val localTs = localCurrent?.lastPlayDate ?: 0L
-
-                    val isMoreRecent = serverTs > localTs
-                    val isSameWithMoreProgress = localCurrent != null &&
-                                                finalUuid == localCurrent.uuid &&
-                                                serverLastPlayed.currentTime > localCurrent.currentTime
-
-                    if (localCurrent == null || isMoreRecent || isSameWithMoreProgress) {
-                        val itemToRestore = libraryDao.getItemById(finalUuid)
-                        if (itemToRestore != null) {
-                            Log.d("FetchContentsProcessor", "🔄 Server has a more recent state for '${itemToRestore.title}'. Syncing...")
-                            coordinator.syncLastPlayed(context, itemToRestore)
-                        }
-                    }
-                }
-            }
-
-            // Find local items missing on server and delete them if canDelete is true
-            if (canDelete) {
-                val localItems = if (normalizedPath.isEmpty()) {
-                    libraryDao.getRootItemsSync()
-                } else {
-                    libraryDao.getItemsInPathSync(normalizedPath)
-                }
-
-                localItems.forEach { localItem ->
-                    if (localItem.uuid !in remoteUuids) {
-                        Log.d("FetchContentsProcessor", "🗑️ Local item missing on server, deleting: ${localItem.title}")
-                        libraryDao.deleteItem(localItem)
-                        localItem.relativePath?.let { affectedPaths.add(it) }
-                    }
-                }
-            }
-
-            // Run parent folder updates once in batch
-            LibraryContentsSync.updateParentFoldersBatch(libraryDao, affectedPaths)
-
-            // No re-sort needed: an automatically-sorted level derives its order from the rule at
-            // view time and ignores orderRank, so the ranks this fetch just wrote have no visible
-            // effect. (Custom levels intentionally follow the synced orderRank.)
-
-            return true
-        }
-        return false
+        ContentsListing.apply(context, libraryDao(), repository, playback, path, contents, canDelete && canDeleteListings())
+        return true
     }
-
-    private suspend fun syncItem(
-        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao,
-        remote: SyncableItem,
-        generatedUuids: MutableSet<String>,
-        skipParentUpdate: Boolean = false
-    ): Pair<String, Boolean> =
-        // Shared with the playback-path offloaded-bound guard; here we pass the task repository so a
-        // path-conflict also migrates pending sync tasks (the play path passes null).
-        LibraryContentsSync.upsertItem(libraryDao, repository, remote, generatedUuids, skipParentUpdate)
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_FETCH_CONTENTS
     }
 }
 
-class SyncIdentifiersProcessor(
-    private val context: Context,
-    private val repository: SyncTaskRepository
-) : TaskProcessor {
-    override suspend fun process(task: SyncTaskEntity): Boolean {
-        val response = NetworkClient.libraryApi.getSyncedIdentifiers()
-        response.throwIfCoded()
-        
-        if (response.isSuccessful) {
-            val remotePaths = response.body()?.content?.toSet() ?: emptySet()
-            val database = AppDatabase.getDatabase(context)
-            val libraryDao = database.libraryDao()
+/**
+ * Applies one level's listing to the library: upserts what the server lists, matches the uuids it has none
+ * for, follows a new bound book into its contents, reconciles the last-played book, and, when [canDelete],
+ * removes the level's local items the listing lacks. Shared by the queued fetch and the first sync.
+ */
+object ContentsListing {
+    suspend fun apply(
+        context: Context,
+        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao,
+        repository: SyncTaskRepository,
+        playback: PlaybackSyncCoordinator?,
+        path: String,
+        contents: ContentsResponse,
+        canDelete: Boolean,
+    ) {
+        val normalizedPath = if (path.endsWith("/")) path.removeSuffix("/") else path
+        val remoteUuids = mutableSetOf<String>()
+        val matchUuidMap = mutableMapOf<String, String>() // relativePath -> generatedUuid
+        val allGeneratedUuids = mutableSetOf<String>()
+        val affectedPaths = mutableSetOf<String>()
+
+        // Update existing and add missing from server
+        contents.content.forEach { remoteItem ->
+            val (finalUuid, isNew) = LibraryContentsSync.upsertItem(libraryDao, repository, remoteItem, allGeneratedUuids, skipParentUpdate = true)
+            remoteItem.relativePath?.let { affectedPaths.add(it) }
+            remoteUuids.add(finalUuid)
             
-            // Enqueue a forced fetch content for the root library to update UI first
-            // We set canDelete to false to avoid removing local items before they have a chance to sync
-            SyncTaskFactory.createFetchContentsTask(repository, null, force = true, canDelete = false)
-            
-            val localItems = libraryDao.getAllItemsSync()
-            val processedDir = File(context.filesDir, "Processed")
+            // If the server didn't provide a UUID, mark it for matching
+            if (remoteItem.uuid.isNullOrEmpty()) {
+                matchUuidMap[remoteItem.relativePath] = finalUuid
+            }
 
-            localItems.forEach { item ->
-                if (item.relativePath !in remotePaths) {
-                    val shouldUpload = when (item.type) {
-                        ItemType.BOOK -> {
-                            val file = File(processedDir, item.relativePath ?: "")
-                            file.exists()
-                        }
-                        ItemType.FOLDER, ItemType.BOUND -> true
+            // If it's a NEW BOUND item, trigger fetch for its contents to ensure they are also synced
+            if (isNew && remoteItem.type == ItemType.BOUND.ordinal) {
+                SyncTaskFactory.createFetchContentsTask(repository, remoteItem.relativePath, force = true, canDelete = canDelete)
+            }
+
+            // A stream-only item synced from ANOTHER device arrives without artwork (the importing
+            // device holds the cover as a local file; it never reaches our servers) — best-effort
+            // re-download it from the media server this device can also reach. Short-circuit on the
+            // resources the fetch payload ALREADY carries, so ordinary artwork-less books cost no
+            // extra DB read here; the (serialized) network trip only happens for genuine stream items
+            // still missing a cover, which is self-terminating once the cover lands.
+            val hasStreamResource = remoteItem.externalResources
+                ?.any { it.syncStatus == ExternalResourceEntity.STATUS_STREAM } == true
+            if (hasStreamResource) {
+                libraryDao.getItemById(finalUuid)?.let { synced ->
+                    if (synced.artworkURL.isNullOrBlank()) {
+                        StreamArtworkBackfill.backfill(context, libraryDao, synced)
                     }
-
-                    if (shouldUpload) {
-                        Log.d("SyncIdentifiersProcessor", "📤 Account-wide sync: Local item (${item.type}) missing on server, queuing upload: ${item.title}")
-                        SyncTaskFactory.createUploadMetadataTask(repository, item)
-                    }
-                }
-
-                // Enqueue upload tasks for any external resources linked to this item
-                val externalResources = libraryDao.getExternalResourcesForBookSync(item.uuid)
-                externalResources.forEach { resource ->
-                    Log.d("SyncIdentifiersProcessor", "📤 Account-wide sync: Queuing upload for external resource: ${resource.providerName}")
-                    SyncTaskFactory.createUploadExternalResourceTask(repository, resource)
                 }
             }
-            
-            SyncStatusManager.markIdentifiersAsSynced()
-            return true
         }
-        return false
-    }
 
-    override fun canHandle(jobType: String): Boolean {
-        return jobType == SyncTaskFactory.JOB_SYNC_IDENTIFIERS
+        // If we generated any UUIDs, trigger the matching task
+        if (matchUuidMap.isNotEmpty()) {
+            SyncTaskFactory.createMatchUuidsTask(repository, matchUuidMap)
+        }
+
+        // Handle cross-device Last Played synchronization
+        contents.lastItemPlayed?.let { serverLastPlayed ->
+            // Ensure the last played item itself is synced to DB
+            val (finalUuid, _) = LibraryContentsSync.upsertItem(libraryDao, repository, serverLastPlayed, allGeneratedUuids, skipParentUpdate = true)
+            serverLastPlayed.relativePath?.let { affectedPaths.add(it) }
+            
+            val coordinator = playback
+            if (coordinator != null && !coordinator.isPlaying()) {
+                val localCurrent = coordinator.currentItem()
+                val serverTs = serverLastPlayed.lastPlayDateTimestamp?.let { (it * 1000).toLong() } ?: 0L
+                val localTs = localCurrent?.lastPlayDate ?: 0L
+
+                val isMoreRecent = serverTs > localTs
+                val isSameWithMoreProgress = localCurrent != null &&
+                                            finalUuid == localCurrent.uuid &&
+                                            serverLastPlayed.currentTime > localCurrent.currentTime
+
+                if (localCurrent == null || isMoreRecent || isSameWithMoreProgress) {
+                    val itemToRestore = libraryDao.getItemById(finalUuid)
+                    if (itemToRestore != null) {
+                        Log.d("FetchContentsProcessor", "🔄 Server has a more recent state for '${itemToRestore.title}'. Syncing...")
+                        coordinator.syncLastPlayed(context, itemToRestore)
+                    }
+                }
+            }
+        }
+
+        // Find local items missing on server and delete them if canDelete is true
+        if (canDelete) {
+            val localItems = if (normalizedPath.isEmpty()) {
+                libraryDao.getRootItemsSync()
+            } else {
+                libraryDao.getItemsInPathSync(normalizedPath)
+            }
+
+            localItems.forEach { localItem ->
+                if (localItem.uuid !in remoteUuids) {
+                    Log.d("FetchContentsProcessor", "🗑️ Local item missing on server, deleting: ${localItem.title}")
+                    libraryDao.deleteItem(localItem)
+                    localItem.relativePath?.let { affectedPaths.add(it) }
+                }
+            }
+        }
+
+        // Run parent folder updates once in batch
+        LibraryContentsSync.updateParentFoldersBatch(libraryDao, affectedPaths)
+
+        // No re-sort needed: an automatically-sorted level derives its order from the rule at
+        // view time and ignores orderRank, so the ranks this fetch just wrote have no visible
+        // effect. (Custom levels intentionally follow the synced orderRank.)
     }
 }
 
@@ -885,35 +843,17 @@ class MatchUuidsProcessor(
         val payload: Map<String, Map<String, String>> = gson.fromJson(task.payload, payloadType)
         val items = payload["items"] ?: return true // Nothing to match
 
-        // New tasks hold at most MATCH_UUIDS_MAX_ITEMS, but one queued by an older build can hold more
-        // than the API accepts in a request. A retry after a failed chunk re-sends the earlier ones:
-        // their conflicts are already applied, and applying them again changes nothing.
-        for (chunk in items.entries.chunked(SyncTaskFactory.MATCH_UUIDS_MAX_ITEMS)) {
-            val response = matchUuids(mapOf("items" to chunk.associate { it.key to it.value }))
+        // A task queued by an older build can hold more than the API accepts in one request (by count, or
+        // by body size with long paths). A retry after a failed batch re-sends the earlier ones: their
+        // conflicts are already applied, and applying them again changes nothing.
+        for (batch in MatchUuidsBatching.batches(items)) {
+            val response = matchUuids(mapOf("items" to batch))
             response.throwIfCoded()
             val result = response.body()
             if (!response.isSuccessful || result == null) return false
-            applyConflicts(result.conflicts)
+            UuidConflicts.apply(libraryDao(), repository, result.conflicts)
         }
         return true
-    }
-
-    private suspend fun applyConflicts(conflicts: List<ItemConflict>) {
-        val libraryDao = libraryDao()
-        conflicts.forEach { conflict ->
-            val oldUuid = conflict.key
-            val newUuid = conflict.uuid
-
-            Log.d("MatchUuidsProcessor", "⚔️ Conflict found: local=$oldUuid server=$newUuid. Resolving...")
-
-            // The item and everything that points at it, then its queued tasks. Neither when
-            // another local item already has the server's uuid: that conflict can't be adopted.
-            if (libraryDao.migrateItemUuid(oldUuid, newUuid)) {
-                repository.migrateTaskUuid(oldUuid, newUuid)
-            } else {
-                Log.w("MatchUuidsProcessor", "Another local item already has $newUuid; keeping $oldUuid")
-            }
-        }
     }
 
     override fun canHandle(jobType: String): Boolean {

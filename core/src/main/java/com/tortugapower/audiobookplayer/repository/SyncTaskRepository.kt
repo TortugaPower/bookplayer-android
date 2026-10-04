@@ -84,7 +84,7 @@ interface SyncTaskRepository {
     /** Turns an older build's [from] tasks into pending [to] tasks in [queueKey], payload and place kept */
     suspend fun convertTasks(from: String, to: String, queueKey: String) {}
 
-    /** Removes every task of a job this build no longer runs */
+    /** Removes every [jobType] task, running and parked ones included (a retired job, or what a tier change drops) */
     suspend fun deleteAllTasksOfType(jobType: String) {}
 
     /**
@@ -114,6 +114,27 @@ interface SyncTaskRepository {
 
     /** Removes [taskId]'s parked tasks of [jobType]: a newer one supersedes them */
     suspend fun deleteParkedTasks(jobType: String, taskId: String) {}
+
+    /** Stores [tasks] in order, behind every task already queued */
+    suspend fun saveTasks(tasks: List<SyncTaskEntity>) {
+        tasks.forEach { saveTask(it) }
+    }
+
+    /** Removes every task in [queueKeys], running and parked ones included. Returns how many. */
+    suspend fun deleteTasksInQueues(queueKeys: Collection<String>): Int {
+        val doomed = SyncTaskStatus.entries.flatMap { getTasksByStatus(it) }.filter { it.queueKey in queueKeys }
+        doomed.forEach { deleteTask(it) }
+        return doomed.size
+    }
+
+    /** The ids of [jobTypes] tasks still to go through: queued, running or parked */
+    suspend fun queuedTaskIds(jobTypes: Collection<String>): Set<String> =
+        SyncTaskStatus.entries.flatMap { getTasksByStatus(it) }
+            .filter {
+                it.jobType in jobTypes &&
+                    (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING || it.pauseScope != null)
+            }
+            .mapTo(mutableSetOf()) { it.taskID }
 
     /** Removes the queued (not yet running) tasks of [jobType]. Returns how many. */
     suspend fun deletePendingTasksOfType(jobType: String): Int {

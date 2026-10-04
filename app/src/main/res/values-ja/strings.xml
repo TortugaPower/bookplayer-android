@@ -212,7 +212,6 @@
     <string name="sync_task_fetch_library">ライブラリの取得</string>
     <string name="sync_task_upload_audio">オーディオのアップロード</string>
     <string name="sync_task_download_audio">オーディオのダウンロード</string>
-    <string name="sync_task_sync_identifiers">識別子の同期</string>
     <string name="sync_task_match_library_ids">ライブラリIDの照合</string>
     <string name="sync_task_upload_external_resource">外部リソースのアップロード</string>
     <string name="sync_task_delete_external_resource">外部リソースの削除</string>

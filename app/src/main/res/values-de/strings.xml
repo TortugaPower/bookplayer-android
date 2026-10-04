@@ -211,7 +211,6 @@
     <string name="sync_task_fetch_library">Bibliothek abrufen</string>
     <string name="sync_task_upload_audio">Audio hochladen</string>
     <string name="sync_task_download_audio">Audio herunterladen</string>
-    <string name="sync_task_sync_identifiers">Identifikatoren synchronisieren</string>
     <string name="sync_task_match_library_ids">Bibliotheks-IDs abgleichen</string>
     <string name="sync_task_upload_external_resource">Externe Ressource hochladen</string>
     <string name="sync_task_delete_external_resource">Externe Ressource löschen</string>

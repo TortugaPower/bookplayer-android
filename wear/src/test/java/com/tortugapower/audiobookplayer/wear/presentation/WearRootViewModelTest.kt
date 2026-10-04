@@ -7,6 +7,9 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.datalayer.WatchAuthPayload
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
+import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.wear.auth.WatchAuthenticator
 import com.tortugapower.audiobookplayer.wear.auth.WearAuthOutcome
 import com.tortugapower.audiobookplayer.wear.data.WearThemeRepository
@@ -106,11 +109,32 @@ class WearRootViewModelTest {
         override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
     }
 
+    // Only sign-out touches the queue
+    private class UnusedSyncTaskRepository : SyncTaskRepository {
+        override fun getAllTasks(): Flow<List<SyncTaskEntity>> = error("unused")
+        override suspend fun getPendingTasks(): List<SyncTaskEntity> = error("unused")
+        override suspend fun getTasksByStatus(status: SyncTaskStatus): List<SyncTaskEntity> = error("unused")
+        override suspend fun getTasksInQueueByStatus(queueKey: String, status: SyncTaskStatus): List<SyncTaskEntity> = error("unused")
+        override suspend fun getActiveQueueKeys(): List<String> = error("unused")
+        override suspend fun saveTask(task: SyncTaskEntity) = error("unused")
+        override suspend fun updateTask(task: SyncTaskEntity) = error("unused")
+        override suspend fun deleteTask(task: SyncTaskEntity) = error("unused")
+        override suspend fun clearCompletedTasks() = error("unused")
+        override suspend fun resetRunningTasks() = error("unused")
+        override suspend fun deleteAllTasks() = error("unused")
+        override suspend fun getTaskById(id: String): SyncTaskEntity? = error("unused")
+        override suspend fun countActiveTasks(): Int = error("unused")
+        override suspend fun countActiveTasksInQueue(queueKey: String): Int = error("unused")
+        override suspend fun countActiveTasksByType(jobType: String): Int = error("unused")
+        override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = error("unused")
+        override suspend fun migrateTaskUuid(oldUuid: String, newUuid: String) = error("unused")
+    }
+
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
 
     private fun modelFor(repo: AccountRepository, outcome: WearAuthOutcome) =
-        WearRootViewModel(repo, FakeAuthenticator(outcome), FakeThemeRepository(), FakeLibraryRepository())
+        WearRootViewModel(repo, FakeAuthenticator(outcome), FakeThemeRepository(), FakeLibraryRepository(), UnusedSyncTaskRepository())
 
     @Test fun signIn_success_persistsTransferredAccountIncludingRevenuecatId() = runTest(dispatcher) {
         val repo = FakeAccountRepository()
@@ -201,7 +225,7 @@ class WearRootViewModelTest {
         )
         val model = WearRootViewModel(
             repo, FakeAuthenticator(WearAuthOutcome.Failed("unused")), FakeThemeRepository(),
-            FakeLibraryRepository(rootItems),
+            FakeLibraryRepository(rootItems), UnusedSyncTaskRepository(),
         )
 
         backgroundScope.launch { model.isReady.collect {} }

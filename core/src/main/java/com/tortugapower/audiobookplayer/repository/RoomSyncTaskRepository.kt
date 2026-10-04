@@ -39,6 +39,13 @@ class RoomSyncTaskRepository(
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.notifyWorkEnqueued()
     }
 
+    // One transaction: the queue's observers see the batch once, not once per task
+    override suspend fun saveTasks(tasks: List<SyncTaskEntity>) = withContext(Dispatchers.IO) {
+        if (tasks.isEmpty()) return@withContext
+        syncTaskDao.insertAllAtEnd(tasks)
+        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.notifyWorkEnqueued()
+    }
+
     override suspend fun updateTask(task: SyncTaskEntity) = withContext(Dispatchers.IO) {
         syncTaskDao.updateTask(task)
     }
@@ -122,6 +129,14 @@ class RoomSyncTaskRepository(
     override suspend fun deleteAllTasksOfType(jobType: String) = withContext(Dispatchers.IO) {
         syncTaskDao.deleteAllTasksOfType(jobType)
         Unit
+    }
+
+    override suspend fun deleteTasksInQueues(queueKeys: Collection<String>): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.deleteTasksInQueues(queueKeys.toList())
+    }
+
+    override suspend fun queuedTaskIds(jobTypes: Collection<String>): Set<String> = withContext(Dispatchers.IO) {
+        syncTaskDao.queuedTaskIds(jobTypes.toList()).toSet()
     }
 
     override suspend fun saveUploadState(id: String, state: MultipartUploadState): Boolean = withContext(Dispatchers.IO) {

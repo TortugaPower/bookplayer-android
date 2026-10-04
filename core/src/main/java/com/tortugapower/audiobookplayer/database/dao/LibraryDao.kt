@@ -67,6 +67,10 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items")
     suspend fun getAllItemsSync(): List<LibraryItemEntity>
 
+    /** Every item's uuid, without loading the items (the missing-items pass sends them all) */
+    @Query("SELECT uuid FROM library_items WHERE uuid != ''")
+    suspend fun getAllUuids(): List<String>
+
     @Query("SELECT MAX(orderRank) FROM library_items WHERE relativePath NOT LIKE '%/%'")
     suspend fun getMaxRootOrderRank(): Int?
 
@@ -123,6 +127,10 @@ interface LibraryDao {
 
     @Query("SELECT * FROM bookmarks WHERE bookUuid = :bookUuid AND time = :time LIMIT 1")
     suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity?
+
+    /** The user's own bookmarks (the ones that sync) of these books, by time. At most 500 books per call. */
+    @Query("SELECT * FROM bookmarks WHERE bookUuid IN (:bookUuids) AND type = 'USER' ORDER BY time ASC")
+    suspend fun getUserBookmarksForBooks(bookUuids: List<String>): List<BookmarkEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBookmark(bookmark: BookmarkEntity): Long
@@ -252,6 +260,11 @@ interface LibraryDao {
     @Transaction
     @Query("SELECT * FROM library_items WHERE uuid = :uuid")
     suspend fun getItemByIdWithResources(uuid: String): com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources?
+
+    /** Callers pass at most 500: SQLite on API 28 binds 999 variables at most */
+    @Transaction
+    @Query("SELECT * FROM library_items WHERE uuid IN (:uuids)")
+    suspend fun getItemsByIdsWithResources(uuids: List<String>): List<com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources>
 
     @Transaction
     @Query("SELECT * FROM library_items WHERE relativePath = :path LIMIT 1")

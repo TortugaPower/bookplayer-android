@@ -55,8 +55,10 @@ object SyncStatusManager {
     @Volatile
     internal var clock: () -> Long = { System.currentTimeMillis() }
 
-    /** Tests only: forget every fetch timestamp, so a test clock can't leave a future stamp behind. */
-    @VisibleForTesting
+    /**
+     * Forgets every fetch timestamp: a lapse lets the listings and the preferences pull it held back run as soon
+     * as the account is back (SyncQueueReset). Tests use it so a test clock can't leave a future stamp behind.
+     */
     internal fun resetFetchThrottles() {
         _lastPathFetchTimestamps.value = emptyMap()
         synchronized(this) { lastFetchPreferencesTimestamp = 0L }
@@ -64,9 +66,6 @@ object SyncStatusManager {
 
     // Map of relativePath to last fetch timestamp
     private val _lastPathFetchTimestamps = MutableStateFlow<Map<String, Long>>(emptyMap())
-    
-    // Last timestamp for account-wide sync (identifiers)
-    private var lastSyncIdentifiersTimestamp: Long = 0L
 
     fun updateLastSyncTimestamp(timestamp: Long) {
         _lastSyncTimestamp.value = timestamp
@@ -79,14 +78,6 @@ object SyncStatusManager {
 
     fun markPathAsFetched(path: String) {
         _lastPathFetchTimestamps.update { it + (path to clock()) }
-    }
-
-    fun canSyncIdentifiers(): Boolean {
-        return (System.currentTimeMillis() - lastSyncIdentifiersTimestamp) > 30_000
-    }
-
-    fun markIdentifiersAsSynced() {
-        lastSyncIdentifiersTimestamp = System.currentTimeMillis()
     }
 
     fun checkAndMarkFetchContents(path: String): Boolean {
@@ -103,15 +94,6 @@ object SyncStatusManager {
             }
         }
         return allowed
-    }
-
-    @Synchronized
-    fun checkAndMarkSyncIdentifiers(): Boolean {
-        if (canSyncIdentifiers()) {
-            markIdentifiersAsSynced()
-            return true
-        }
-        return false
     }
 
     // Debounce for pulling user preferences (sort rules) — same throttle as the contents fetch.

@@ -7,8 +7,10 @@ import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.datalayer.WatchTheme
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
+import com.tortugapower.audiobookplayer.logic.SyncQueueReset
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
+import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import com.tortugapower.audiobookplayer.wear.auth.WatchAuthenticator
 import com.tortugapower.audiobookplayer.wear.auth.WearAuthOutcome
 import com.tortugapower.audiobookplayer.wear.data.WearThemeRepository
@@ -52,6 +54,7 @@ class WearRootViewModel(
     private val authenticator: WatchAuthenticator,
     themeRepository: WearThemeRepository,
     libraryRepository: LibraryRepository,
+    private val syncTaskRepository: SyncTaskRepository,
 ) : ViewModel() {
 
     /** The user's phone-selected theme colors (null until the phone syncs one → default palette applies). */
@@ -156,7 +159,7 @@ class WearRootViewModel(
                         // different user with no entitlement and downgrades the tier. No-ops on dev builds
                         // with an empty RevenueCat key; the phone-sent tier seeds the UI until RevenueCat
                         // resolves. Once the account is persisted, `mode` switches automatically.
-                        SubscriptionManager.login(payload.revenuecatId ?: payload.accountId)
+                        SubscriptionManager.signIn(payload.revenuecatId ?: payload.accountId)
                         // A PRO sign-in flips the app to standalone; the `mode` StateFlow lags the account
                         // emit by a frame, so if we dropped to Idle here the Settings screen would flash the
                         // signed-in profile before the nav host swaps to the library. Hold the spinner
@@ -185,12 +188,16 @@ class WearRootViewModel(
         }
     }
 
-    /** Sign out: drop downloads, log out of RevenueCat, and clear the account (mode reverts to remote). */
+    /**
+     * Sign out: drop downloads, log out of RevenueCat, and clear the account (mode reverts to remote) and its
+     * queued tasks (iOS clears the watch's queue too): left, they'd run under the next account's token.
+     */
     fun signOut() {
         viewModelScope.launch {
             withContext(Dispatchers.IO) { processedDir().deleteRecursively() }
             SubscriptionManager.logout()
             accountRepository.deleteAccount()
+            SyncQueueReset.clearAll(syncTaskRepository)
             storageTrigger.value++
         }
     }

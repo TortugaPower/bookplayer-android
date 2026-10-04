@@ -13,6 +13,7 @@ import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.SyncEngineWaker
 import com.tortugapower.audiobookplayer.logic.SyncFailurePolicy
 import com.tortugapower.audiobookplayer.logic.SyncPauseReport
+import com.tortugapower.audiobookplayer.logic.SyncQueueReset
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.UploadFilePayload
@@ -32,7 +33,9 @@ class ProfileViewModel(
     private val accountRepository: AccountRepository,
     private val syncTaskRepository: SyncTaskRepository,
     private val statisticsDao: com.tortugapower.audiobookplayer.database.dao.StatisticsDao,
-    private val libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
+    private val libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao,
+    /** Ends the library sync's session: nothing running can queue into, or mark, the next account's library */
+    private val endSyncSession: suspend () -> Unit,
 ) : ViewModel() {
 
     val account: StateFlow<AccountEntity?> = accountRepository.getAccountFlow()
@@ -129,8 +132,11 @@ class ProfileViewModel(
         // cleared even if a later step throws or the coroutine is cancelled. Done here (not just in
         // the delete path) so logout clears it too. None of the steps below need the token.
         NetworkClient.setToken(null)
+        endSyncSession()
         accountRepository.deleteAccount()
-        syncTaskRepository.deleteAllTasks() // also clears any queued preference push/fetch tasks
+        // Every lane's worker stops too, so nothing runs on under the next account's token; this also clears any
+        // queued preference push/fetch tasks
+        SyncQueueReset.clearAll(syncTaskRepository)
         // Drop every local library_sort:* preference so the next login pulls fresh (no stale state).
         // runCatching like LibraryViewModel's sortManager access: unit tests with a plain
         // Application have no singleton, and logout cleanup must not abort halfway.

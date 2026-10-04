@@ -31,7 +31,6 @@ import com.tortugapower.audiobookplayer.logic.RenameFolderProcessor
 import com.tortugapower.audiobookplayer.logic.SetBookmarkProcessor
 import com.tortugapower.audiobookplayer.logic.ShallowDeleteProcessor
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
-import com.tortugapower.audiobookplayer.logic.SyncIdentifiersProcessor
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyManager
 import com.tortugapower.audiobookplayer.logic.UpdateProcessor
 import com.tortugapower.audiobookplayer.logic.UploadExternalResourceProcessor
@@ -103,7 +102,6 @@ class WearSyncServiceHost : Service() {
         // iOS's handleSyncedLastPlayed) instead of leaving the stale locally-restored book.
         val processors = listOf(
             FetchContentsProcessor(this, repository, WearPlaybackSyncCoordinator),
-            SyncIdentifiersProcessor(this, repository),
             MetadataUploadProcessor(this, repository),
             MultipartUploadProcessor.create(this, repository),
             QueueFileUploadProcessor.create(this, repository),
@@ -133,6 +131,7 @@ class WearSyncServiceHost : Service() {
             this, repository, accountRepository, processors,
             parkingEnabled = false,
             verifySyncEntitlement = { SubscriptionManager.refreshSyncEntitlement() },
+            awaitTierReady = SubscriptionManager::awaitTierReady,
         )
         taskConcurrencyManager.startProcessing()
 

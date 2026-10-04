@@ -41,6 +41,13 @@ interface SyncTaskDao {
         insertTask(task.copy(position = nextPosition()))
     }
 
+    /** Stores [tasks] in order behind every task already queued, in one transaction */
+    @Transaction
+    suspend fun insertAllAtEnd(tasks: List<SyncTaskEntity>) {
+        var position = nextPosition()
+        tasks.forEach { insertTask(it.copy(position = position++)) }
+    }
+
     @Update
     suspend fun updateTask(task: SyncTaskEntity)
 
@@ -168,6 +175,17 @@ interface SyncTaskDao {
     /** Removes every [jobType] task, whatever its state: returns how many */
     @Query("DELETE FROM sync_tasks WHERE jobType = :jobType")
     suspend fun deleteAllTasksOfType(jobType: String): Int
+
+    /** Removes every task in [queueKeys], running and parked ones included: returns how many */
+    @Query("DELETE FROM sync_tasks WHERE queueKey IN (:queueKeys)")
+    suspend fun deleteTasksInQueues(queueKeys: List<String>): Int
+
+    /** The ids of [jobTypes] tasks still to go through: queued, running or parked */
+    @Query(
+        "SELECT DISTINCT taskID FROM sync_tasks WHERE jobType IN (:jobTypes) " +
+            "AND (status = 'PENDING' OR status = 'RUNNING' OR pauseScope IS NOT NULL)"
+    )
+    suspend fun queuedTaskIds(jobTypes: List<String>): List<String>
 
     /** Writes a task's payload whatever its status: 0 when it's gone */
     @Query("UPDATE sync_tasks SET payload = :payload WHERE id = :id")

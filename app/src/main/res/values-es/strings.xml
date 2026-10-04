@@ -215,7 +215,6 @@
     <string name="sync_task_fetch_library">Obtener biblioteca</string>
     <string name="sync_task_upload_audio">Subir audio</string>
     <string name="sync_task_download_audio">Descargar audio</string>
-    <string name="sync_task_sync_identifiers">Sincronizar identificadores</string>
     <string name="sync_task_match_library_ids">Coincidir IDs de biblioteca</string>
     <string name="sync_task_upload_external_resource">Subir recurso externo</string>
     <string name="sync_task_delete_external_resource">Eliminar recurso externo</string>

@@ -212,7 +212,6 @@
     <string name="sync_task_fetch_library">جلب المكتبة</string>
     <string name="sync_task_upload_audio">رفع الملف الصوتي</string>
     <string name="sync_task_download_audio">تحميل الملف الصوتي</string>
-    <string name="sync_task_sync_identifiers">مزامنة المعرفات</string>
     <string name="sync_task_match_library_ids">مطابقة معرفات المكتبة</string>
     <string name="sync_task_upload_external_resource">رفع مورد خارجي</string>
     <string name="sync_task_delete_external_resource">حذف مورد خارجي</string>

@@ -28,7 +28,7 @@ class SyncFailurePolicyTest {
     @Test fun aCodedFailure_parksALeafTaskAlone() {
         listOf(
             SyncTaskFactory.JOB_UPDATE, SyncTaskFactory.JOB_UPLOAD_ARTWORK, SyncTaskFactory.JOB_UPLOAD_FILE,
-            SyncTaskFactory.JOB_DOWNLOAD_FILE, SyncTaskFactory.JOB_SYNC_IDENTIFIERS,
+            SyncTaskFactory.JOB_DOWNLOAD_FILE,
             SyncTaskFactory.JOB_UPLOAD_PREFERENCE,
             SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD, "some_future_job",
         ).forEach {

@@ -44,7 +44,8 @@ object TaskAccessPolicy {
         // A job this build no longer runs is never picked as it is: the engine's start converts or drops it
         // (a worker scan can run before that, and would discard it for having no processor)
         if (jobType == SyncTaskFactory.RETIRED_JOB_UPLOAD_STREAM_FILE ||
-            jobType == SyncTaskFactory.RETIRED_JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD) {
+            jobType == SyncTaskFactory.RETIRED_JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD ||
+            jobType == SyncTaskFactory.RETIRED_JOB_SYNC_IDENTIFIERS) {
             return false
         }
 

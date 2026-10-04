@@ -280,7 +280,6 @@ private fun QueuedTaskRow(
         // The step that queues the upload once the book is registered: shown as the upload it leads to
         SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD -> Icons.Default.Upload to stringResource(R.string.sync_task_upload_audio)
         SyncTaskFactory.JOB_DOWNLOAD_FILE -> Icons.Default.Download to stringResource(R.string.sync_task_download_audio)
-        SyncTaskFactory.JOB_SYNC_IDENTIFIERS -> Icons.Default.Person to stringResource(R.string.sync_task_sync_identifiers)
         SyncTaskFactory.JOB_MATCH_UUIDS -> Icons.Default.SyncAlt to stringResource(R.string.sync_task_match_library_ids)
         SyncTaskFactory.JOB_UPLOAD_EXTERNAL_RESOURCE -> Icons.Default.CloudUpload to stringResource(R.string.sync_task_upload_external_resource)
         SyncTaskFactory.JOB_DELETE_EXTERNAL_RESOURCE -> Icons.Default.Delete to stringResource(R.string.sync_task_delete_external_resource)

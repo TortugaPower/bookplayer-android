@@ -141,6 +141,44 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
 - Media3 `ExoPlayer` / `MediaSession` must be released on the appropriate lifecycle; the playback
   service must be started/stopped correctly to avoid leaks and stuck foreground notifications.
 - New repository / `logic` behavior should come with a unit test.
+- **No library listing deletes before this device's first sync** (iOS `syncLibraryContents`, phone only).
+  A listing removes the local items it lacks, and a device can hold items the server never got (imported
+  while signed out or lapsed). So `FirstSyncCoordinator` runs on a root refresh, and right after a sign-in,
+  once the sync lane is empty (parked tasks count):
+  - the `MissingItemsPass` sends every uuid to `POST /v1/library/status`;
+  - it registers the `unknown` items like an import, parents first, after matching them by path
+    (`/v1/library/uuids`, batched by count and body size);
+  - for PRO, it queues `upload_file` for the `unsynced` books with a file here;
+  - it lists the root without deleting, and only then marks the first sync done (`SyncStateStore`, a
+    backup-excluded DataStore file).
+  - Until then folder levels don't fetch, and a queued deleting fetch doesn't delete
+    (`FetchContentsProcessor.canDeleteListings`). Every `createFetchContentsTask` call states `canDelete`.
+  - Sign-out ends its session (`signOut`): a pass still running can't queue into, or mark, the next
+    account's library. The watch only mirrors the cloud and has none of this.
+  - The same pass runs again weekly, and right after the account gains PRO (`noteProAccess` owes one:
+    it uploads the files LITE never sent), after a root refresh, once the sync lane is empty.
+  - The engine reports the sync lane emptying (`onSyncLaneDrained`): a first sync waiting for it, or a
+    due pass, starts then.
+  - The old path-based catch-up (`sync_identifiers`, `GET /v1/library/keys`) is retired; leftover tasks
+    are dropped by `SyncTaskRetirement`.
+- **Tier changes come from RevenueCat readings, not the stored tier** (iOS `updateSyncEnabled`).
+  `SubscriptionManager` hands each reading to `AccountTierSync`, which classifies it against the last one
+  (`TierTransitions`) and applies it in order: it stores the tier (`AccountRepository.updateTier`, one column,
+  so a sign-out meanwhile isn't undone), then:
+  - a lapse mid-session (PRO/LITE → FREE/PLUS) ends the first sync's session and **wipes** the server lanes
+    (`SyncQueueReset.wipeForLapse`: the sync, upload and preferences lanes plus artwork uploads);
+  - a lapse in the first reading (launch: RevenueCat's cache; or right after a sign-in) happened while the app
+    was closed: the queue is **held** for the return, and only the first-sync flag resets. RevenueCat's cache
+    still reads an expired entitlement as active for 3 days after its fetch, so most expiries while closed
+    arrive as the launch fetch's lapse and wipe, as on iOS;
+  - PRO → LITE drops the file uploads, parked ones too (`dropUploads`); LITE in a first reading does too;
+  - a return wakes the engine for the held work.
+  - Each wipe first stops the lanes' workers (`TaskConcurrencyManager.cancelLanes`, via `SyncEngine.current`):
+    deleting a task doesn't stop the worker running it. Sign-out does the same for every lane
+    (`SyncQueueReset.clearAll`), on the phone and the watch.
+  - A sign-in or sign-out starts a new epoch: RevenueCat answers to calls made before it are dropped.
+  - The engine, the launch gate and the first sync wait for this launch's reading
+    (`SubscriptionManager.awaitTierReady`), so they never act on last session's tier.
 - **Media-server connection flow** (Jellyfin / AudiobookShelf; mirrors iOS, so check the iOS `develop`
   branch before changing behavior): one `ConnectionFlowSheet` (own `NavHost`) serves both Add Server and
   re-auth. Address → Connect **probes** the server (`ExternalService.probe` → `ServerCapabilities`) →
@@ -230,7 +268,8 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     once `DownloadFileProcessor` has verified and moved the file into place, the phone queues the upload
     from the sync lane (`queue_file_upload`, which checks PRO and the file). The watch uploads nothing.
     1.2's stream-to-cloud pipe (`upload_stream_file`, server route `external_set`) is gone: the engine
-    turns queued pipe tasks into that step at start and drops their confirmations.
+    turns queued pipe tasks into that step and drops their confirmations (`SyncTaskRetirement`, at app launch and at
+    engine start: a held retired task never starts the engine, and in the sync lane it holds back every refresh).
 
 ## Git
 

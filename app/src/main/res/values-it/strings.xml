@@ -211,7 +211,6 @@
     <string name="sync_task_fetch_library">Recupera libreria</string>
     <string name="sync_task_upload_audio">Carica audio</string>
     <string name="sync_task_download_audio">Scarica audio</string>
-    <string name="sync_task_sync_identifiers">Sincronizza identificatori</string>
     <string name="sync_task_match_library_ids">Corrispondenza ID libreria</string>
     <string name="sync_task_upload_external_resource">Carica risorsa esterna</string>
     <string name="sync_task_delete_external_resource">Elimina risorsa esterna</string>

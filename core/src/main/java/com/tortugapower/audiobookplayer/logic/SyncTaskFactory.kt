@@ -38,7 +38,6 @@ object SyncTaskFactory {
     const val JOB_UPLOAD_FILE = "upload_file"
     const val JOB_QUEUE_FILE_UPLOAD = "queue_file_upload"
     const val JOB_DOWNLOAD_FILE = "download_file"
-    const val JOB_SYNC_IDENTIFIERS = "sync_identifiers"
     const val JOB_MATCH_UUIDS = "match_uuids"
     const val JOB_HARDCOVER_AUTO_MATCH = "hardcover_auto_match"
     const val JOB_HARDCOVER_UPDATE_STATUS = "hardcover_update_status"
@@ -48,21 +47,12 @@ object SyncTaskFactory {
     const val JOB_UPLOAD_PREFERENCE = "upload_preference"
     const val JOB_FETCH_PREFERENCES = "fetch_preferences"
 
-    // Retired with 1.2's stream-to-cloud pipe: the engine converts or drops what an older build queued
-    // (TaskConcurrencyManager.startProcessing)
+    // Jobs this build no longer runs: SyncTaskRetirement converts or drops what an older build queued
+    // 1.2's stream-to-cloud pipe
     const val RETIRED_JOB_UPLOAD_STREAM_FILE = "upload_stream_file"
     const val RETIRED_JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD = "set_external_resource_to_download"
-
-    suspend fun createSyncIdentifiersTask(repository: SyncTaskRepository): Boolean {
-        if (!SyncStatusManager.checkAndMarkSyncIdentifiers()) return false
-        
-        val taskId = "all_identifiers"
-        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_SYNC_IDENTIFIERS, taskId)
-        if (existing != null) return true // Already queued
-
-        enqueue(repository, QUEUE_SYNC, JOB_SYNC_IDENTIFIERS, taskId, emptyMap<String, Any?>())
-        return true
-    }
+    // The path-based catch-up through `/v1/library/keys`, replaced by the first sync's missing-items pass
+    const val RETIRED_JOB_SYNC_IDENTIFIERS = "sync_identifiers"
 
     suspend fun createUploadMetadataTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
         val payload = mapOf(
@@ -216,7 +206,11 @@ object SyncTaskFactory {
         enqueue(repository, QUEUE_FILE, JOB_UPLOAD_ARTWORK, item.uuid, payload)
     }
 
-    suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?, force: Boolean = false, canDelete: Boolean = true): Boolean {
+    /**
+     * [canDelete] lets the listing remove the level's local items it lacks: every caller says whether its
+     * listing may (a first sync's, or anything before it on the phone, may not).
+     */
+    suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?, force: Boolean = false, canDelete: Boolean): Boolean {
         if (!force) {
             // Only fetch if the sync queue is empty to avoid desyncs with local actions: a parked task
             // counts, since the listing would undo a change the server never got. An account pause in any
@@ -277,15 +271,11 @@ object SyncTaskFactory {
         enqueue(repository, QUEUE_FILE, JOB_DOWNLOAD_FILE, item.uuid, payload)
     }
 
-    /** The API answers more items than this with an uncoded 400 (its MAX_RECORDS_LIMIT) */
-    const val MATCH_UUIDS_MAX_ITEMS = 1_000
-
+    /** One match_uuids task per request the API accepts ([MatchUuidsBatching]: 1,000 items, under its 100 KB body) */
     suspend fun createMatchUuidsTask(repository: SyncTaskRepository, items: Map<String, String>) {
-        // items is a map of relativePath -> generatedUuid, sent as tasks of at most MATCH_UUIDS_MAX_ITEMS
-        items.entries.chunked(MATCH_UUIDS_MAX_ITEMS).forEach { chunk ->
-            val payload = mapOf(
-                "items" to chunk.associate { it.key to it.value }
-            )
+        // items is a map of relativePath -> generatedUuid, one task per request the API accepts
+        MatchUuidsBatching.batches(items).forEach { batch ->
+            val payload = mapOf("items" to batch)
             // Use a unique ID for this task to avoid duplicates if multiple fetches generate IDs
             val taskId = "match_${java.util.UUID.randomUUID().toString().take(8)}"
             enqueue(repository, QUEUE_SYNC, JOB_MATCH_UUIDS, taskId, payload)

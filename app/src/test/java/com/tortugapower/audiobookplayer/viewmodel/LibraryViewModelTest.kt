@@ -8,6 +8,8 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.logic.FirstSyncGate
+import com.tortugapower.audiobookplayer.logic.FirstSyncResult
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
@@ -146,17 +148,85 @@ class LibraryViewModelTest {
         override suspend fun migrateTaskUuid(oldUuid: String, newUuid: String) {}
     }
 
+    /** Done by default: the screens behave as before the first sync existed */
+    private class FakeFirstSync(var done: Boolean = true) : FirstSyncGate {
+        var requested = 0
+        var ran = 0
+        override suspend fun hasRunFirstSync(): Boolean = done
+        override fun request() { requested++ }
+        override suspend fun run(): FirstSyncResult {
+            ran++
+            return FirstSyncResult.Done
+        }
+        var passesScheduled = 0
+        override fun schedulePassIfNeeded() { passesScheduled++ }
+    }
+
     private fun modelWith(
         rootItems: Flow<List<LibraryItemEntity>> = emptyFlow(),
         syncRepo: SyncTaskRepository = FakeSyncTaskRepository(),
         libraryRepo: FakeLibraryRepository = FakeLibraryRepository(rootItems),
+        firstSync: FirstSyncGate = FakeFirstSync(),
     ) = LibraryViewModel(
         ApplicationProvider.getApplicationContext(),
         libraryRepo,
         syncRepo,
+        firstSync,
         // Row-state derivation on the test dispatcher so runTest controls it.
         ioDispatcher = dispatcher,
     )
+
+    // ---- Until this device's first sync has run, no listing may delete ----
+
+    @Test fun refresh_atTheRootBeforeTheFirstSync_runsItInsteadOfAFetch() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        val firstSync = FakeFirstSync(done = false)
+        val model = modelWith(syncRepo = syncRepo, firstSync = firstSync)
+
+        model.refresh(syncEnabled = true)
+        advanceUntilIdle()
+
+        assertEquals(1, firstSync.ran)
+        assertTrue(syncRepo.tasks.value.isEmpty())
+        assertFalse(model.isRefreshing.value)
+    }
+
+    @Test fun refresh_inAFolderBeforeTheFirstSync_waitsForIt() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        val firstSync = FakeFirstSync(done = false)
+        val model = modelWith(syncRepo = syncRepo, firstSync = firstSync)
+        model.navigateTo("Shelf")
+
+        model.refresh(syncEnabled = true)
+        advanceUntilIdle()
+
+        assertEquals(0, firstSync.ran)
+        assertTrue(syncRepo.tasks.value.isEmpty())
+    }
+
+    /** A first sync that fails isn't asked again on every visit to the root: the root's listing throttle covers it */
+    @Test fun fetchVisibleLevel_beforeTheFirstSync_startsItAtTheRootOnce_andSkipsFolders() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        val firstSync = FakeFirstSync(done = false)
+        val model = modelWith(syncRepo = syncRepo, firstSync = firstSync)
+
+        model.fetchVisibleLevel(null, syncEnabled = true)
+        model.fetchVisibleLevel("Shelf", syncEnabled = true)
+        model.fetchVisibleLevel(null, syncEnabled = true)
+
+        assertEquals(1, firstSync.requested)
+        assertTrue(syncRepo.tasks.value.isEmpty())
+    }
+
+    @Test fun fetchVisibleLevel_afterTheFirstSync_queuesADeletingListing() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        val model = modelWith(syncRepo = syncRepo)
+
+        model.fetchVisibleLevel("Shelf after first sync", syncEnabled = true)
+
+        val fetch = syncRepo.tasks.value.single { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS }
+        assertTrue(fetch.payload.contains("\"canDelete\":true"))
+    }
 
     @Test fun isReady_falseUntilRootLibraryEmits_thenTrue() = runTest(dispatcher) {
         val root = MutableSharedFlow<List<LibraryItemEntity>>(replay = 1)
