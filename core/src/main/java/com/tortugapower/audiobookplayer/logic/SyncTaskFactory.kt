@@ -202,8 +202,8 @@ object SyncTaskFactory {
             "relativePath" to item.relativePath,
             "filePath" to (item.artworkURL ?: "")
         )
-        // Artwork upload goes to FILE queue
-        enqueue(repository, QUEUE_FILE, JOB_UPLOAD_ARTWORK, item.uuid, payload)
+        // The sync lane (iOS): behind the item's registration, so the server never gets the cover first
+        enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_ARTWORK, item.uuid, payload)
     }
 
     /**

@@ -89,7 +89,10 @@ class AccountTierSync(
                     SyncQueueReset.wipeForLapse(tasks)
                 }
                 TierChange.ProToLite -> SyncQueueReset.dropUploads(tasks)
-                TierChange.Return, TierChange.LiteToPro, TierChange.Unchanged -> Unit
+                // Back as LITE from a lapse held at launch: what it held includes uploads LITE can't run, and a
+                // cover among them would sit in the sync lane, holding back every listing
+                TierChange.Return -> if (reading.tier == AccountTier.LITE) SyncQueueReset.dropUploads(tasks)
+                TierChange.LiteToPro, TierChange.Unchanged -> Unit
             }
             // Queued downloads go too (TaskConcurrencyManager.dropDownloadsTheTierCantRun), even with the engine stopped
             if (!TaskAccessPolicy.canExecuteTask(reading.tier, SyncTaskFactory.JOB_DOWNLOAD_FILE)) {

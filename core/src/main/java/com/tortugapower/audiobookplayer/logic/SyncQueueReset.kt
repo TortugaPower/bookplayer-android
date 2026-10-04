@@ -17,7 +17,7 @@ object SyncQueueReset {
     /**
      * Sync went off mid-session (iOS `cancelAllJobs` + `cancelServerQueueOperations`): the server would reject
      * all of it, and what's still owed is caught up by the first sync when the account is back. Artwork uploads
-     * share the downloads' lane, so they go by type (a running one finishes or fails on its own).
+     * go by type too: an older build queued them in the downloads' lane, until the engine moves them.
      */
     suspend fun wipeForLapse(repository: SyncTaskRepository) {
         SyncEngine.current?.cancelLanes(SERVER_LANES)
@@ -28,7 +28,7 @@ object SyncQueueReset {
         Log.w(TAG, "Sync went off: wiped $wiped task(s) from the server lanes")
     }
 
-    /** PRO to LITE (iOS): sync stays on, file uploads don't */
+    /** PRO to LITE (iOS): sync stays on, file uploads don't. A cover running in the sync lane finishes or fails on its own */
     suspend fun dropUploads(repository: SyncTaskRepository) {
         SyncEngine.current?.cancelLanes(setOf(SyncTaskFactory.QUEUE_UPLOAD))
         repository.deleteAllTasksOfType(SyncTaskFactory.JOB_UPLOAD_FILE)

@@ -5,6 +5,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
@@ -50,6 +51,22 @@ class S3TransferTest {
     @Test fun theStatus_isReturned_notThrown() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(403))
         assertEquals(403, S3Transfer.putPart(server.url("/key").toString(), file(10), 0, 10))
+    }
+
+    /** A cover goes whole, as its type, on the shared client: no Bearer token, and its response closed */
+    @Test fun aCoversPut_sendsTheFileAsItsType() = runBlocking {
+        val file = file(300)
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        val status = S3Transfer.putFile(server.url("/cover.jpg").toString(), file, "image/jpeg".toMediaType())
+
+        val request = server.takeRequest()
+        assertEquals(200, status)
+        assertEquals("PUT", request.method)
+        assertEquals("image/jpeg", request.getHeader("Content-Type"))
+        assertNull(request.getHeader("Authorization"))
+        assertArrayEquals(file.readBytes(), request.body.readByteArray())
+        assertEquals(0, S3Transfer.client.connectionPool.connectionCount() - S3Transfer.client.connectionPool.idleConnectionCount())
     }
 
     @Test fun aContainersPut_isEmpty() = runBlocking {

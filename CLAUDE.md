@@ -171,7 +171,8 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     was closed: the queue is **held** for the return, and only the first-sync flag resets. RevenueCat's cache
     still reads an expired entitlement as active for 3 days after its fetch, so most expiries while closed
     arrive as the launch fetch's lapse and wipe, as on iOS;
-  - PRO → LITE drops the file uploads, parked ones too (`dropUploads`); LITE in a first reading does too;
+  - PRO → LITE drops the file uploads, parked ones too (`dropUploads`); LITE in a first reading does too, and so
+    does a return as LITE (from a lapse held at launch);
   - a return wakes the engine for the held work.
   - Each wipe first stops the lanes' workers (`TaskConcurrencyManager.cancelLanes`, via `SyncEngine.current`):
     deleting a task doesn't stop the worker running it. Sign-out does the same for every lane
@@ -179,6 +180,10 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   - A sign-in or sign-out starts a new epoch: RevenueCat answers to calls made before it are dropped.
   - The engine, the launch gate and the first sync wait for this launch's reading
     (`SubscriptionManager.awaitTierReady`), so they never act on last session's tier.
+- **Covers ride the sync lane** (iOS): `upload_artwork` queues behind its item's registration, so the server
+  never gets a cover for an item it doesn't hold yet (`item_not_found`). The engine moves an older build's
+  file-lane covers there at start. Only book files wait for Wi-Fi (`UploadDataPolicy`): a cover held in the
+  sync lane would hold back every listing.
 - **Media-server connection flow** (Jellyfin / AudiobookShelf; mirrors iOS, so check the iOS `develop`
   branch before changing behavior): one `ConnectionFlowSheet` (own `NavHost`) serves both Add Server and
   re-auth. Address → Connect **probes** the server (`ExternalService.probe` → `ServerCapabilities`) →

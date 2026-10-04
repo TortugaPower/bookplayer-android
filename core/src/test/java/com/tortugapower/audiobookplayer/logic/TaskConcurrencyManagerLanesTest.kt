@@ -150,6 +150,23 @@ class TaskConcurrencyManagerLanesTest {
         }
     }
 
+    /** An older build's covers, parked ones too, move to the sync lane in their place before any worker runs */
+    @Test fun engineStart_movesFileLaneCoversToTheSyncLane() = runBlocking {
+        queue("register", SyncTaskFactory.QUEUE_SYNC, SyncTaskFactory.JOB_MOVE)
+        queue("cover", SyncTaskFactory.QUEUE_FILE, SyncTaskFactory.JOB_UPLOAD_ARTWORK)
+        db.syncTaskDao().parkTask("cover", "TASK", "item_not_found", "Item not found", 404, 5L)
+        val manager = TaskConcurrencyManager(context, repository, ProAccounts(), listOf(EndlessMoves()))
+        manager.startProcessing()
+        try {
+            withTimeout(5_000) { while (repository.getTaskById("cover")?.queueKey != SyncTaskFactory.QUEUE_SYNC) delay(20) }
+            val cover = repository.getTaskById("cover")!!
+            assertEquals("TASK", cover.pauseScope)
+            assertEquals(listOf("register", "cover"), db.syncTaskDao().getAllTasksSync().sortedBy { it.position }.map { it.id })
+        } finally {
+            manager.stopProcessing()
+        }
+    }
+
     @Test fun clearAll_stopsEveryLane_andEmptiesTheQueue() = runBlocking {
         val moves = EndlessMoves()
         val manager = TaskConcurrencyManager(context, repository, ProAccounts(), listOf(moves, Updates()))

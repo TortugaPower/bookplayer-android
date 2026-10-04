@@ -283,6 +283,16 @@ class SyncTaskDaoTest {
         assertEquals(1, saved.attempts)
     }
 
+    /** An older build's cover in the file lane moves to the sync lane in its place: behind what was queued before it */
+    @Test fun moveToLane_keepsTheTaskInItsPlace() = runBlocking {
+        dao.insertAtEnd(task("register", "book", jobType = "upload_metadata"))
+        dao.insertAtEnd(task("cover", "book", jobType = "upload_artwork").copy(queueKey = "file"))
+        dao.insertAtEnd(task("move", "other"))
+
+        assertEquals(1, dao.moveToLane("upload_artwork", "sync"))
+        assertEquals(listOf("register", "cover", "move"), pendingIds())
+    }
+
     /** A lapse clears whole lanes: running and parked tasks too, nothing in the other lanes */
     @Test fun deleteTasksInQueues_clearsEveryStateInThoseLanesOnly() = runBlocking {
         dao.insertAtEnd(task("queued", "a"))

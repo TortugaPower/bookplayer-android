@@ -14,10 +14,12 @@ import kotlinx.coroutines.flow.first
  */
 object UploadDataPolicy {
 
-    /** Upload jobs that move real bytes (audio files, artwork). */
+    /**
+     * Book file uploads only, as on iOS: a cover is small, and it rides the sync lane, where a held one would
+     * hold back every listing until Wi-Fi.
+     */
     private val METERED_HELD_JOBS = setOf(
         SyncTaskFactory.JOB_UPLOAD_FILE,
-        SyncTaskFactory.JOB_UPLOAD_ARTWORK,
     )
 
     fun isFileUploadJob(jobType: String): Boolean = jobType in METERED_HELD_JOBS

@@ -166,10 +166,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
 
                 // Every tier the account is read with (iOS noteProAccess on each account update): gaining PRO owes
                 // a missing-items pass, which uploads the files LITE never sent
-                override suspend fun tierRead(tier: AccountTier) {
-                    firstSync.noteProAccess(tier == AccountTier.PRO)
-                    firstSync.schedulePassIfNeeded()
-                }
+                override suspend fun tierRead(tier: AccountTier) = firstSync.onTierRead(tier == AccountTier.PRO)
             },
         )
 

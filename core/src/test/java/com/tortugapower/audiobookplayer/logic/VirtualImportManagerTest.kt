@@ -211,6 +211,9 @@ class VirtualImportManagerTest {
         val jobTypes = fakeSyncTasks.tasks.map { it.jobType }
         val artwork = fakeSyncTasks.tasks.single { it.jobType == SyncTaskFactory.JOB_UPLOAD_ARTWORK }
         assertEquals(result!!.item.uuid, artwork.taskID)
+        // Behind the registration, in the same lane
+        assertEquals(SyncTaskFactory.QUEUE_SYNC, artwork.queueKey)
+        assertTrue(jobTypes.indexOf(SyncTaskFactory.JOB_UPLOAD_METADATA) < jobTypes.indexOf(SyncTaskFactory.JOB_UPLOAD_ARTWORK))
         // The file goes up once it's downloaded (DownloadFileProcessor), as on iOS
         assertFalse(SyncTaskFactory.JOB_UPLOAD_FILE in jobTypes)
         assertFalse(SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD in jobTypes)

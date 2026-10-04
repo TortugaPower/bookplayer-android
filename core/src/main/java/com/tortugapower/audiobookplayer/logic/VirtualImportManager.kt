@@ -117,8 +117,7 @@ object VirtualImportManager {
             SyncTaskFactory.createUploadExternalResourceTask(syncTaskRepository, resource)
             // PRO pushes the (locally downloaded) cover so other devices get artwork from our servers
             // instead of relying on the media-server backfill — but only when it's a real local file:
-            // artworkPath can fall back to the provider's URL, and ArtworkUploadProcessor retries a missing
-            // local file forever on the serial file queue.
+            // artworkPath can fall back to the provider's URL, which isn't a file to upload.
             if (isPro && artworkPath != null && java.io.File(artworkPath).isFile) {
                 SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, entity)
             }
