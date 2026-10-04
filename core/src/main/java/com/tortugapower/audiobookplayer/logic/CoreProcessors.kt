@@ -16,14 +16,12 @@ import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.network.throwIfCoded
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import java.io.FileOutputStream
@@ -756,22 +754,13 @@ class ArtworkUploadProcessor(private val context: Context) : TaskProcessor {
         val responseBody: ArtworkResponse = initialResponse.body() ?: return false
         val thumbnailURL = responseBody.thumbnailURL
 
-        // 2. Upload file to signed URL
-        val mediaType = "image/jpeg".toMediaTypeOrNull()
-        val requestBody = localFile.asRequestBody(mediaType)
-        
-        val cleanClient = okhttp3.OkHttpClient()
-        val uploadRequest = okhttp3.Request.Builder()
-            .url(thumbnailURL.toString())
-            .put(requestBody)
-            .build()
-        
-        val uploadResponse = withContext(Dispatchers.IO) {
-            cleanClient.newCall(uploadRequest).execute()
-        }
-
-        if (!uploadResponse.isSuccessful) {
-            Log.e("ArtworkUploadProcessor", "❌ Failed to upload artwork to signed URL: ${uploadResponse.code}")
+        // 2. Upload file to signed URL: the shared presigned-URL client, its response closed and its call
+        // cancelled with the worker (retried until it goes through, as on iOS)
+        val uploadStatus = com.tortugapower.audiobookplayer.network.S3Transfer.putFile(
+            thumbnailURL.toString(), localFile, "image/jpeg".toMediaTypeOrNull(),
+        )
+        if (uploadStatus !in 200..299) {
+            Log.e("ArtworkUploadProcessor", "❌ Failed to upload artwork to signed URL: $uploadStatus")
             return false
         }
 

@@ -7,6 +7,7 @@ import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okio.BufferedSink
@@ -43,6 +44,9 @@ object S3Transfer {
 
     /** A container's presigned PUT carries no bytes (iOS sends an empty body too) */
     suspend fun putEmpty(url: String): Int = put(url, ByteArray(0).toRequestBody(null))
+
+    /** PUTs the whole [file] (a cover), as [contentType]. Returns the HTTP status */
+    suspend fun putFile(url: String, file: File, contentType: MediaType?): Int = put(url, file.asRequestBody(contentType))
 
     private suspend fun put(url: String, body: RequestBody): Int {
         val call = client.newCall(Request.Builder().url(url).put(body).build())

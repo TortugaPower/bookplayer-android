@@ -11,10 +11,10 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class ArtworkUploadProcessorTest {
 
-    /** The artwork upload shares the file queue with downloads: a file that's gone must not hold it */
+    /** The artwork upload rides the sync lane: a file that's gone must not hold it, every listing included */
     @Test fun aMissingArtworkFile_completesTheTask() = runBlocking {
         val task = SyncTaskEntity(
-            id = "art-1", taskID = "book-uuid", queueKey = SyncTaskFactory.QUEUE_FILE,
+            id = "art-1", taskID = "book-uuid", queueKey = SyncTaskFactory.QUEUE_SYNC,
             jobType = SyncTaskFactory.JOB_UPLOAD_ARTWORK, position = 0,
             payload = """{"filePath":"/nonexistent/cover.jpg","relativePath":"Book.m4b","uuid":"book-uuid"}""",
         )
