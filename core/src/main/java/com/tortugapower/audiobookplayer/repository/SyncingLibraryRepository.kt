@@ -266,8 +266,13 @@ class SyncingLibraryRepository(
     override suspend fun updateItemSpeed(uuid: String, speed: Double) {
         delegate.updateItemSpeed(uuid, speed)
         if (!isSubscribed()) return
-        // Update tasks push a full snapshot (merged per uuid), so the fresh row carries the new speed.
-        delegate.getItemById(uuid)?.let { SyncTaskFactory.createUpdateTask(syncTaskRepository, it) }
+        // The delegate set it on the item and its folder: both go up, with their speed
+        val item = delegate.getItemById(uuid) ?: return
+        SyncTaskFactory.createUpdateTask(syncTaskRepository, item, includeSpeed = true)
+        val parentPath = item.relativePath?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() }
+        parentPath?.let { delegate.getItemByPath(it) }?.let {
+            SyncTaskFactory.createUpdateTask(syncTaskRepository, it, includeSpeed = true)
+        }
     }
 
     override suspend fun deleteBookmark(bookmark: BookmarkEntity) {

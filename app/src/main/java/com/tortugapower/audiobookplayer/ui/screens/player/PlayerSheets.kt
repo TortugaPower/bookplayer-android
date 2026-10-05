@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
+import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
@@ -80,6 +81,7 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.ui.graphics.vector.ImageVector
 import android.content.Intent
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -234,6 +236,9 @@ fun BookmarksListSheet(
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     val sheetState = rememberModalBottomSheetState()
     var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
+    // A confirmed delete keeps its row swiped away until Room drops it from the list; snapping it back
+    // first would slide it in, then make it vanish.
+    var confirmedDeleteId by remember { mutableStateOf<Long?>(null) }
 
     // iOS parity: opening the list refreshes it from the cloud (a no-op without an active sync account).
     LaunchedEffect(Unit) { viewModel.refreshBookmarksFromCloud() }
@@ -287,7 +292,7 @@ fun BookmarksListSheet(
                 items(bookmarks, key = { it.id }) { bookmark ->
                     BookmarkRow(
                         bookmark = bookmark,
-                        pendingDelete = bookmarkToDelete?.id == bookmark.id,
+                        pendingDelete = bookmarkToDelete?.id == bookmark.id || confirmedDeleteId == bookmark.id,
                         onSeek = { viewModel.seekToBookmark(bookmark) },
                         onEditNote = { viewModel.editBookmarkNote(bookmark) },
                         onRequestDelete = { bookmarkToDelete = bookmark }
@@ -305,6 +310,7 @@ fun BookmarksListSheet(
             },
             confirmButton = {
                 TextButton(onClick = {
+                    confirmedDeleteId = bookmark.id
                     viewModel.deleteBookmark(bookmark)
                     bookmarkToDelete = null
                 }) { Text(stringResource(R.string.common_delete)) }
@@ -485,17 +491,15 @@ fun PlayerControlsSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(stringResource(R.string.player_set_speed), style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    "${if (currentSpeed % 1.0f == 0.0f) currentSpeed.toInt() else currentSpeed}x",
-                    fontWeight = FontWeight.Bold
-                )
+                Text(formatSpeed(currentSpeed), fontWeight = FontWeight.Bold)
             }
 
             BookPlayerSlider(
                 value = currentSpeed,
                 onValueChange = {
-                    currentSpeed = it
-                    viewModel.setPlaybackSpeed(context, it)
+                    // Steps of 0.1, as the iOS slider
+                    currentSpeed = (it * 10).roundToInt() / 10f
+                    viewModel.setPlaybackSpeed(context, currentSpeed)
                 },
                 valueRange = 0.5f..4.0f
             )
@@ -515,8 +519,9 @@ fun PlayerControlsSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Steps of 0.05, as the iOS buttons (its slider moves by 0.1)
                 QuickSpeedButton(icon = Icons.Default.Remove) {
-                    currentSpeed = (currentSpeed - 0.1f).coerceAtLeast(0.5f)
+                    currentSpeed = PlaybackManager.roundedSpeed(currentSpeed - 0.05f).toFloat().coerceAtLeast(0.5f)
                     viewModel.setPlaybackSpeed(context, currentSpeed)
                 }
                 QuickSpeedLabelButton(formatSpeed(viewModel.quickAction1), currentSpeed == viewModel.quickAction1) {
@@ -532,7 +537,7 @@ fun PlayerControlsSheet(
                     viewModel.setPlaybackSpeed(context, viewModel.quickAction3)
                 }
                 QuickSpeedButton(icon = Icons.Default.Add) {
-                    currentSpeed = (currentSpeed + 0.1f).coerceAtMost(4.0f)
+                    currentSpeed = PlaybackManager.roundedSpeed(currentSpeed + 0.05f).toFloat().coerceAtMost(4.0f)
                     viewModel.setPlaybackSpeed(context, currentSpeed)
                 }
             }

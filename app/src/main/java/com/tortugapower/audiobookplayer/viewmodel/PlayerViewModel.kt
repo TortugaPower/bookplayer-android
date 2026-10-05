@@ -14,6 +14,7 @@ import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -284,6 +285,8 @@ class PlayerViewModel(
         }
     }
 
+    private var bookmarkRefreshJob: Job? = null
+
     /**
      * Pull the loaded book's bookmarks from the cloud when the list opens (iOS parity:
      * BookmarksViewModel → syncBookmarksList). The repository no-ops without an active sync account;
@@ -291,7 +294,9 @@ class PlayerViewModel(
      */
     fun refreshBookmarksFromCloud() {
         val item = PlaybackManager.currentItem.value ?: return
-        viewModelScope.launch(Dispatchers.IO) {
+        // One pull at a time: the list reopened while a request is still in flight reuses it.
+        if (bookmarkRefreshJob?.isActive == true) return
+        bookmarkRefreshJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.syncBookmarksFromCloud(item)
             } catch (e: kotlinx.coroutines.CancellationException) {

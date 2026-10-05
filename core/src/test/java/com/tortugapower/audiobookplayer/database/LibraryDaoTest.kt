@@ -62,6 +62,18 @@ class LibraryDaoTest {
         assertEquals(listOf("2", "3", "1"), result.map { it.uuid })
     }
 
+    /** A targeted write: a speed change can't undo a progress or confirmation written meanwhile */
+    @Test fun updateItemSpeed_setsOnlyTheSpeed() = runBlocking {
+        dao.insertItem(item("1", "Dune", "Frank Herbert", "Dune.m4b").copy(currentTime = 42.0, serverKnown = true))
+
+        dao.updateItemSpeed("1", 1.75)
+
+        val stored = dao.getItemById("1")!!
+        assertEquals(1.75, stored.speed!!, 0.0)
+        assertEquals(42.0, stored.currentTime, 0.0)
+        assertEquals(true, stored.serverKnown)
+    }
+
     @Test fun searchAllBooks_respectsLimit() = runBlocking {
         repeat(5) { i -> dao.insertItem(item("b$i", "Book Dune $i", null, "b$i.m4b", lastPlay = i.toLong())) }
         assertEquals(2, dao.searchAllBooksSync("dune", 2).size)

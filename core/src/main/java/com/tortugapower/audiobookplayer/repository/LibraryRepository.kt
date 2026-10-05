@@ -81,7 +81,11 @@ interface LibraryRepository {
      */
     suspend fun syncBookmarksFromCloud(item: LibraryItemEntity): Boolean
 
-    /** Persist [speed] as the item's own playback speed (Global Speed Control off); synced as an update. */
+    /**
+     * Persist [speed] as the item's playback speed and its parent folder's (iOS
+     * `LibraryService.updateBookSpeed`: a book in a folder plays at the folder's speed while Global Speed
+     * Control is off). Both are synced as updates.
+     */
     suspend fun updateItemSpeed(uuid: String, speed: Double)
 
     fun getChaptersForBook(bookUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>>

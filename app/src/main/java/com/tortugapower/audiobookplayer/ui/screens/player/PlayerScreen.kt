@@ -629,7 +629,7 @@ fun PlayerScreen(
                         val sleepRemaining by viewModel.sleepTimerRemaining.collectAsStateWithLifecycle()
 
                         PlayerBottomBar(
-                            speedLabel = "${if (playbackSpeed % 1.0f == 0.0f) playbackSpeed.toInt() else playbackSpeed}x",
+                            speedLabel = formatSpeed(playbackSpeed),
                             sleepLabel = when {
                                 sleepEndOfChapter -> stringResource(R.string.player_timer_active)
                                 sleepActive -> sleepRemaining

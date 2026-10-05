@@ -11,7 +11,11 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.yield
 import com.tortugapower.audiobookplayer.logic.BookmarkSync
 import com.tortugapower.audiobookplayer.model.SyncableBookmark
 import kotlinx.coroutines.runBlocking
@@ -42,14 +46,19 @@ class SyncingLibraryRepositoryTest {
         val addedBookmarks = mutableListOf<BookmarkEntity>()
         val updatedBookmarks = mutableListOf<BookmarkEntity>()
         var lastSpeed: Pair<String, Double>? = null
-        override fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>> = flowOf(bookmarks.toList())
+        // Hands back the rows read at the call, after a suspension: two merges can then interleave
+        var yieldOnBookmarkRead = false
+        override fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>> {
+            val rows = bookmarks.toList()
+            return if (yieldOnBookmarkRead) flow { yield(); emit(rows) } else flowOf(rows)
+        }
         override fun getChaptersForBook(bookUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>> = emptyFlow()
         override suspend fun insertChapters(chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}
         override suspend fun replaceChaptersForBook(bookUuid: String, chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}
         override fun getExternalResourcesForBook(itemUuid: String): Flow<List<ExternalResourceEntity>> = emptyFlow()
 
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = emptyList()
-        override suspend fun getItemById(uuid: String): LibraryItemEntity? = itemById
+        override suspend fun getItemById(uuid: String): LibraryItemEntity? = items[uuid] ?: itemById
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = itemsByPath[path]
         override suspend fun saveItem(item: LibraryItemEntity) {}
         override suspend fun updateItem(item: LibraryItemEntity) {}
@@ -76,13 +85,23 @@ class SyncingLibraryRepositoryTest {
         override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? = null
         var addBookmarkResult: Long? = 0L          // null = the book is gone, nothing written
         var itemById: LibraryItemEntity? = null
-        override suspend fun addBookmark(bookmark: BookmarkEntity): Long? { addedBookmarks += bookmark; return addBookmarkResult }
+        val items = mutableMapOf<String, LibraryItemEntity>()
+        override suspend fun addBookmark(bookmark: BookmarkEntity): Long? {
+            addedBookmarks += bookmark
+            if (addBookmarkResult != null) bookmarks += bookmark
+            return addBookmarkResult
+        }
         override suspend fun updateBookmark(bookmark: BookmarkEntity) { updatedBookmarks += bookmark }
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) {}
         override suspend fun syncBookmarksFromCloud(item: LibraryItemEntity): Boolean = false
         override suspend fun updateItemSpeed(uuid: String, speed: Double) {
             lastSpeed = uuid to speed
             itemById?.let { if (it.uuid == uuid) it.speed = speed }
+            // As RoomLibraryRepository does: the parent folder takes it too
+            items[uuid]?.let { item ->
+                item.speed = speed
+                itemsByPath[item.relativePath?.substringBeforeLast('/', "")]?.speed = speed
+            }
         }
         override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? = null
         override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
@@ -127,6 +146,11 @@ class SyncingLibraryRepositoryTest {
         var activeInSyncQueue = 0
         override suspend fun countActiveTasksInQueue(queueKey: String): Int =
             if (queueKey == SyncTaskFactory.QUEUE_SYNC) activeInSyncQueue else 0
+        var parkedInSyncQueue = 0
+        override suspend fun countQueuedTasksInQueue(queueKey: String): Int =
+            countActiveTasksInQueue(queueKey) + if (queueKey == SyncTaskFactory.QUEUE_SYNC) parkedInSyncQueue else 0
+        var accountPause = false
+        override suspend fun hasAccountPause(): Boolean = accountPause
         override suspend fun countActiveTasksByType(jobType: String): Int = 0
         override suspend fun migrateTaskUuid(oldUuid: String, newUuid: String) {}
 
@@ -443,6 +467,40 @@ class SyncingLibraryRepositoryTest {
         assertTrue(task.payload.contains("\"speed\":1.5"))
     }
 
+    /** iOS LibraryService.updateBookSpeed: the folder takes the speed too, and both go up with it */
+    @Test
+    fun updateItemSpeed_whenSubscribed_queuesTheBookAndItsFolderWithTheSpeed() = runBlocking {
+        val folder = LibraryItemEntity(uuid = "folder-1", title = "Folder", relativePath = "Folder", type = ItemType.FOLDER)
+        val book = speedBook(path = "Folder/book.mp3")
+        val delegate = FakeLibraryRepository().apply {
+            items += mapOf(book.uuid to book, folder.uuid to folder)
+            itemsByPath += mapOf("Folder/book.mp3" to book, "Folder" to folder)
+        }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.updateItemSpeed("book-1", 1.5)
+
+        assertEquals(listOf("book-1", "folder-1"), syncTaskRepository.tasks.map { it.taskID })
+        syncTaskRepository.tasks.forEach {
+            assertEquals(SyncTaskFactory.JOB_UPDATE, it.jobType)
+            assertTrue(it.payload.contains("\"speed\":1.5"))
+        }
+    }
+
+    /** A progress tick must not send this device's speed: it would overwrite a newer one set on iOS */
+    @Test
+    fun updateItemProgress_whenSubscribed_leavesTheSpeedOut() = runBlocking {
+        val delegate = FakeLibraryRepository().apply { itemById = speedBook().apply { speed = 1.5 } }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.updateItemProgress("book-1", 42.0, false)
+
+        assertTrue(syncTaskRepository.tasks.isNotEmpty())
+        syncTaskRepository.tasks.forEach { assertFalse(it.payload.contains("\"speed\"")) }
+    }
+
     // MARK: - Bookmark pull
 
     private class RecordingFetcher(private val rows: List<SyncableBookmark>?) : BookmarkSync.Fetcher {
@@ -496,6 +554,62 @@ class SyncingLibraryRepositoryTest {
         assertFalse(repository.syncBookmarksFromCloud(speedBook()))
         assertEquals(0, fetcher.calls)
         assertTrue(delegate.addedBookmarks.isEmpty())
+    }
+
+    /** A delete the server refused is parked, not pending: the server still lists the bookmark */
+    @Test
+    fun syncBookmarksFromCloud_skipsWhileASyncTaskIsParked() = runBlocking {
+        val delegate = FakeLibraryRepository().apply { itemById = speedBook() }
+        val syncTaskRepository = FakeSyncTaskRepository().apply { parkedInSyncQueue = 1 }
+        val fetcher = RecordingFetcher(listOf(serverRow(60.0)))
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO), fetcher)
+
+        assertFalse(repository.syncBookmarksFromCloud(speedBook()))
+        assertEquals(0, fetcher.calls)
+        assertTrue(delegate.addedBookmarks.isEmpty())
+    }
+
+    @Test
+    fun syncBookmarksFromCloud_skipsUnderAnAccountPause() = runBlocking {
+        val delegate = FakeLibraryRepository().apply { itemById = speedBook() }
+        val syncTaskRepository = FakeSyncTaskRepository().apply { accountPause = true }
+        val fetcher = RecordingFetcher(listOf(serverRow(60.0)))
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO), fetcher)
+
+        assertFalse(repository.syncBookmarksFromCloud(speedBook()))
+        assertEquals(0, fetcher.calls)
+    }
+
+    @Test
+    fun syncBookmarksFromCloud_dropsTheResponseWhenATaskParkedMidRequest() = runBlocking {
+        val delegate = FakeLibraryRepository().apply { itemById = speedBook() }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val fetcher = object : BookmarkSync.Fetcher {
+            override suspend fun fetch(relativePath: String, uuid: String): List<SyncableBookmark> {
+                syncTaskRepository.parkedInSyncQueue = 1
+                return listOf(serverRow(60.0))
+            }
+        }
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO), fetcher)
+
+        assertFalse(repository.syncBookmarksFromCloud(speedBook()))
+        assertTrue(delegate.addedBookmarks.isEmpty())
+    }
+
+    /** The list reopened while the first request was in flight: both responses land together */
+    @Test
+    fun syncBookmarksFromCloud_twoPullsAtOnceInsertAServerRowOnce() = runBlocking {
+        val delegate = FakeLibraryRepository().apply { itemById = speedBook(); yieldOnBookmarkRead = true }
+        val fetcher = RecordingFetcher(listOf(serverRow(60.0)))
+        val repository = SyncingLibraryRepository(delegate, FakeSyncTaskRepository(), FakeAccountRepository(AccountTier.PRO), fetcher)
+
+        listOf(
+            async { repository.syncBookmarksFromCloud(speedBook()) },
+            async { repository.syncBookmarksFromCloud(speedBook()) },
+        ).awaitAll()
+
+        assertEquals(2, fetcher.calls)
+        assertEquals(listOf(60.0), delegate.addedBookmarks.map { it.time })
     }
 
     @Test

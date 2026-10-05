@@ -479,7 +479,11 @@ class RoomLibraryRepository(
     override suspend fun syncBookmarksFromCloud(item: LibraryItemEntity): Boolean = false
 
     override suspend fun updateItemSpeed(uuid: String, speed: Double) {
-        withContext(Dispatchers.IO) { libraryDao.updateItemSpeed(uuid, speed) }
+        withContext(Dispatchers.IO) {
+            libraryDao.updateItemSpeed(uuid, speed)
+            val parentPath = libraryDao.getItemById(uuid)?.relativePath?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() }
+            parentPath?.let { libraryDao.getItemByPath(it) }?.let { libraryDao.updateItemSpeed(it.uuid, speed) }
+        }
     }
 
     override fun getChaptersForBook(bookUuid: String) =

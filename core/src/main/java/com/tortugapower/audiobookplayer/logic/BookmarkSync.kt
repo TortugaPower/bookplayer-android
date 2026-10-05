@@ -10,6 +10,8 @@ import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Pulls a book's bookmarks down from the BookPlayer cloud and merges them into the local table —
@@ -17,16 +19,22 @@ import kotlinx.coroutines.flow.first
  * `SyncService.syncBookmarksList` + `LibraryService.addBookmark(from:)`, run when the Bookmarks list
  * opens. Rules:
  *
- *  - Only runs while the sync queue is EMPTY: a bookmark note edited a second ago is still a pending
- *    set_bookmark task, and the server copy would overwrite it (same guard as iOS).
+ *  - Only runs while the sync queue is EMPTY, parked tasks and account pauses included: a bookmark
+ *    note edited a second ago is still a pending set_bookmark task, and a delete the server refused is
+ *    a parked delete_bookmark one; the server copy would overwrite the note or bring the bookmark back
+ *    (iOS guards on `queuedJobsCount() == 0`, which counts every stored task).
  *  - A server row matches a local USER bookmark on whole seconds: set_bookmark uploads `round(time)`
  *    and the server stores integers, while local times keep their fraction.
  *  - On a match the server note wins (it is the last pushed value); a blank server note means "no
  *    note". Otherwise the row is inserted as a USER bookmark. Nothing local is ever deleted, and a
  *    row the server marks inactive (a soft-deleted bookmark) is never inserted.
+ *  - Merges are serialized: two pulls whose responses land together (the list reopened while the first
+ *    request was in flight) would both read the table before either inserts, and add the row twice.
  */
 object BookmarkSync {
     private const val TAG = "BookmarkSync"
+
+    private val mergeMutex = Mutex()
 
     data class Plan(val toInsert: List<BookmarkEntity>, val toUpdate: List<BookmarkEntity>)
 
@@ -74,7 +82,7 @@ object BookmarkSync {
         fetcher: Fetcher = networkFetcher,
     ): Boolean {
         val path = item.relativePath ?: return false
-        if (syncTaskRepository.countActiveTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0) {
+        if (syncLaneBusy(syncTaskRepository)) {
             Log.d(TAG, "⏭️ Skipping bookmark pull for ${item.title}: sync queue not empty")
             return false
         }
@@ -90,19 +98,25 @@ object BookmarkSync {
         // or note edit made while the response was in flight is now a queued task, and the response is
         // stale against it — merging would re-insert the deleted row (with no task, so it never syncs
         // again) or overwrite the new note with the old one.
-        if (syncTaskRepository.countActiveTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0) {
-            Log.d(TAG, "⏭️ Dropping bookmark pull for ${item.title}: a sync task was queued mid-request")
-            return false
+        return mergeMutex.withLock {
+            if (syncLaneBusy(syncTaskRepository)) {
+                Log.d(TAG, "⏭️ Dropping bookmark pull for ${item.title}: a sync task was queued mid-request")
+                return@withLock false
+            }
+            // The book may have been deleted while the request was in flight (bookmarks FK-cascade on it).
+            if (repository.getItemById(item.uuid) == null) return@withLock false
+            val local = repository.getBookmarksForBook(item.uuid).first()
+            val plan = plan(item.uuid, local, remote)
+            plan.toInsert.forEach { repository.addBookmark(it) }
+            plan.toUpdate.forEach { repository.updateBookmark(it) }
+            if (plan.toInsert.isNotEmpty() || plan.toUpdate.isNotEmpty()) {
+                Log.d(TAG, "☁️ Merged ${plan.toInsert.size} new / ${plan.toUpdate.size} updated bookmarks for ${item.title}")
+            }
+            true
         }
-        // The book may have been deleted while the request was in flight (bookmarks FK-cascade on it).
-        if (repository.getItemById(item.uuid) == null) return false
-        val local = repository.getBookmarksForBook(item.uuid).first()
-        val plan = plan(item.uuid, local, remote)
-        plan.toInsert.forEach { repository.addBookmark(it) }
-        plan.toUpdate.forEach { repository.updateBookmark(it) }
-        if (plan.toInsert.isNotEmpty() || plan.toUpdate.isNotEmpty()) {
-            Log.d(TAG, "☁️ Merged ${plan.toInsert.size} new / ${plan.toUpdate.size} updated bookmarks for ${item.title}")
-        }
-        return true
     }
+
+    /** Same test as the throttled listing (SyncTaskFactory.createFetchContentsTask): parked tasks count */
+    private suspend fun syncLaneBusy(syncTaskRepository: SyncTaskRepository): Boolean =
+        syncTaskRepository.countQueuedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0 || syncTaskRepository.hasAccountPause()
 }

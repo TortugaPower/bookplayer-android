@@ -38,7 +38,7 @@ data class LibraryItemEntity(
     @ColumnInfo(defaultValue = "0")
     var serverKnown: Boolean = false,
     // Per-book playback speed (iOS parity: `LibraryItem.speed`, synced as `speed`). Used when the
-    // Global Speed Control setting is OFF; null = never set on this book → the last global speed applies.
+    // Global Speed Control setting is OFF (a folder's is used for the books in it); null = never set = 1x.
     var speed: Double? = null
 ) {
     @Ignore
