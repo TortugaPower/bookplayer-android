@@ -286,6 +286,7 @@ class PlayerViewModel(
     }
 
     private var bookmarkRefreshJob: Job? = null
+    private var bookmarkRefreshUuid: String? = null
 
     /**
      * Pull the loaded book's bookmarks from the cloud when the list opens (iOS parity:
@@ -294,8 +295,10 @@ class PlayerViewModel(
      */
     fun refreshBookmarksFromCloud() {
         val item = PlaybackManager.currentItem.value ?: return
-        // One pull at a time: the list reopened while a request is still in flight reuses it.
-        if (bookmarkRefreshJob?.isActive == true) return
+        // One pull per book at a time: the list reopened while its book's request is still in flight reuses
+        // it. Another book's pull still starts (merges are serialized in BookmarkSync).
+        if (bookmarkRefreshJob?.isActive == true && bookmarkRefreshUuid == item.uuid) return
+        bookmarkRefreshUuid = item.uuid
         bookmarkRefreshJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.syncBookmarksFromCloud(item)

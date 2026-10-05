@@ -1294,7 +1294,7 @@ object PlaybackManager {
         // A browse-play is a MANUAL tap, never an autoplay transition — same rule as playItem (a
         // finished book restarts from 0:00 regardless of the autoplay-restart preference). Picking
         // another book is a load, though: its play doesn't re-arm the auto sleep timer (iOS CarPlay).
-        loadPlayPending = isLoadPlay(autoplay = true, item.uuid, _currentItem.value?.uuid)
+        val isLoad = isLoadPlay(autoplay = true, item.uuid, _currentItem.value?.uuid)
         if (shouldRestartFromZero(item.isFinished, fromBeginning = false, isAutoplayTransition = false, autoplayRestartFinished = autoplayRestartFinished)) {
             item.currentTime = 0.0; item.isFinished = false; item.percentCompleted = 0.0
             getRepository(context).updateItemProgress(item.uuid, 0.0, false)
@@ -1305,6 +1305,8 @@ object PlaybackManager {
         val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir, userInitiated = true)
         val mediaItems = buildMediaItems(playable, processedDir, null)
         if (mediaItems.isEmpty()) return null
+        // Only a pick that resolved loads anything: after a failed one the session keeps the loaded book
+        loadPlayPending = isLoad
 
         _currentItem.value = refreshedItem
         _currentPlayable.value = playable
