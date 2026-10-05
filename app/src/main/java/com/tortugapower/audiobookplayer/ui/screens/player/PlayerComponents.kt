@@ -69,6 +69,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
@@ -142,9 +143,13 @@ fun SheetHeaderButton(
     }
 }
 
+/**
+ * "1x", "1.25x": the speed to 2 decimals (as iOS's `formatSpeed`), always with a dot. A locale format
+ * would give "2,x" where the decimal mark is a comma.
+ */
 internal fun formatSpeed(speed: Float): String {
-    val s = "%.2f".format(speed).trimEnd('0').trimEnd('.')
-    return "${s}x"
+    val rounded = PlaybackManager.roundedSpeed(speed)
+    return if (rounded % 1.0 == 0.0) "${rounded.toInt()}x" else "${rounded}x"
 }
 
 @Composable

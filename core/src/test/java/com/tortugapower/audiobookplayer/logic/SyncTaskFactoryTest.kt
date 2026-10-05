@@ -250,4 +250,43 @@ class SyncTaskFactoryTest {
         }
         assertEquals(false, SyncTaskFactory.createFetchContentsTask(repo, "Some folder", canDelete = true))
     }
+
+    @Test fun updateTask_carriesTheBookSpeed_forASpeedChange() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null).apply { speed = 1.5 }, includeSpeed = true)
+        assertEquals(1.5, payloadOf(repo.saved!!)["speed"])
+    }
+
+    /** iOS sends the speed only when it changes: any other update would push this device's older copy */
+    @Test fun updateTask_leavesTheSpeedOut_otherwise() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null).apply { speed = 1.5 })
+        assertTrue("speed" !in payloadOf(repo.saved!!))
+    }
+
+    @Test fun updateTask_omitsSpeed_whenNeverSet() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null), includeSpeed = true)
+        // A never-set speed must not push a 0/null that clears a speed set from another device.
+        assertTrue("speed" !in payloadOf(repo.saved!!))
+    }
+
+    /** Progress ticks merge into the pending update task: a speed change queued before them still goes up */
+    @Test fun aProgressUpdate_mergedIntoAPendingSpeedChange_keepsItsSpeed() = runBlocking {
+        val repo = object : SyncTaskRepository by CapturingRepo() {
+            var pending: SyncTaskEntity? = null
+            override suspend fun saveTask(task: SyncTaskEntity) { pending = task }
+            override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = pending
+            override suspend fun updatePendingTaskPayload(task: SyncTaskEntity, payload: String): Boolean {
+                pending = task.copy(payload = payload)
+                return true
+            }
+        }
+        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null).apply { speed = 1.5 }, includeSpeed = true)
+        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null).apply { currentTime = 42.0 })
+
+        val payload = payloadOf(repo.pending!!)
+        assertEquals(1.5, payload["speed"])
+        assertEquals(42.0, payload["currentTime"])
+    }
 }

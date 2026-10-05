@@ -73,6 +73,21 @@ interface LibraryRepository {
     suspend fun updateBookmark(bookmark: BookmarkEntity)
     suspend fun deleteBookmark(bookmark: BookmarkEntity)
 
+    /**
+     * Pull this book's bookmarks from the cloud and merge them into the local table (iOS parity:
+     * `SyncService.syncBookmarksList`, run when the Bookmarks list opens). Server rows win on the note;
+     * nothing local is deleted. No-op (false) without an active cloud-sync account, while sync tasks are
+     * still pending (a local edit could be overwritten by a stale server copy), or on a network error.
+     */
+    suspend fun syncBookmarksFromCloud(item: LibraryItemEntity): Boolean
+
+    /**
+     * Persist [speed] as the item's playback speed and its parent folder's (iOS
+     * `LibraryService.updateBookSpeed`: a book in a folder plays at the folder's speed while Global Speed
+     * Control is off). Both are synced as updates.
+     */
+    suspend fun updateItemSpeed(uuid: String, speed: Double)
+
     fun getChaptersForBook(bookUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>>
     suspend fun insertChapters(chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>)
     suspend fun replaceChaptersForBook(bookUuid: String, chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>)

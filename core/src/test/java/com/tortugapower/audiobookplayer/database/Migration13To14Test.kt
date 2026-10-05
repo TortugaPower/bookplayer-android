@@ -13,12 +13,12 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * Pins MIGRATION_12_13 against the v12 library_items table (Room's own CREATE statement for it, as in
- * Migration11To12Test): items survive unconfirmed, and the migrated table has exactly the columns Room expects
- * from the entity, which Room checks when it opens a migrated database.
+ * Pins MIGRATION_13_14 against the v13 library_items table (Room's own CREATE statement for it, as in
+ * Migration12To13Test): library_items gains the nullable per-book `speed` column, existing rows keep what they
+ * had with a null speed, and the migrated table has exactly the columns Room expects from the entity.
  */
 @RunWith(RobolectricTestRunner::class)
-class Migration12To13Test {
+class Migration13To14Test {
 
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
@@ -33,21 +33,22 @@ class Migration12To13Test {
         }
 
     @Test
-    fun migration_addsServerKnown_andLeavesEveryItemUnconfirmed() {
+    fun migration_addsNullableSpeedColumn_keepingExistingRows() {
         val config = SupportSQLiteOpenHelper.Configuration.builder(context)
             .name(null) // in-memory
-            .callback(object : SupportSQLiteOpenHelper.Callback(12) {
+            .callback(object : SupportSQLiteOpenHelper.Callback(13) {
                 override fun onCreate(db: SupportSQLiteDatabase) {
                     db.execSQL(
                         "CREATE TABLE IF NOT EXISTS `library_items` (`uuid` TEXT NOT NULL, `title` TEXT NOT NULL, " +
                             "`author` TEXT, `duration` REAL NOT NULL, `currentTime` REAL NOT NULL, " +
                             "`percentCompleted` REAL NOT NULL, `relativePath` TEXT, `remoteURL` TEXT, `artworkURL` TEXT, " +
                             "`originalFileName` TEXT, `orderRank` INTEGER NOT NULL, `isFinished` INTEGER NOT NULL, " +
-                            "`lastPlayDate` INTEGER, `parentFolderUuid` TEXT, `type` TEXT NOT NULL, PRIMARY KEY(`uuid`))"
+                            "`lastPlayDate` INTEGER, `parentFolderUuid` TEXT, `type` TEXT NOT NULL, " +
+                            "`serverKnown` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`uuid`))"
                     )
                     db.execSQL(
                         "INSERT INTO library_items (uuid, title, duration, currentTime, percentCompleted, relativePath, " +
-                            "orderRank, isFinished, type) VALUES ('book-uuid', 'Book', 60.0, 12.5, 0.2, 'Book.m4b', 3, 0, 'BOOK')"
+                            "orderRank, isFinished, type, serverKnown) VALUES ('u1', 'Book A', 60.0, 12.5, 0.2, 'Book A.m4b', 3, 0, 'BOOK', 1)"
                     )
                 }
 
@@ -57,17 +58,22 @@ class Migration12To13Test {
 
         val migratedColumns = FrameworkSQLiteOpenHelperFactory().create(config).use { helper ->
             val db = helper.writableDatabase
-            AppDatabase.MIGRATION_12_13.migrate(db)
-
-            db.query("SELECT title, currentTime, relativePath, serverKnown FROM library_items WHERE uuid = 'book-uuid'").use { cursor ->
-                assertTrue(cursor.moveToFirst())
-                assertEquals("Book", cursor.getString(0))
-                assertEquals(12.5, cursor.getDouble(1), 0.0)
-                assertEquals("Book.m4b", cursor.getString(2))
-                assertEquals("unconfirmed until the first sync's pass", 0, cursor.getInt(3))
-            }
-            // Room checks the current schema: the later library_items migrations bring the table up to it
             AppDatabase.MIGRATION_13_14.migrate(db)
+
+            db.query("SELECT uuid, title, currentTime, serverKnown, speed FROM library_items").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("u1", cursor.getString(0))
+                assertEquals("Book A", cursor.getString(1))
+                assertEquals(12.5, cursor.getDouble(2), 0.0)
+                assertEquals(1, cursor.getInt(3))
+                assertTrue(cursor.isNull(4))
+                assertEquals(1, cursor.count)
+            }
+            db.execSQL("UPDATE library_items SET speed = 1.5 WHERE uuid = 'u1'")
+            db.query("SELECT speed FROM library_items WHERE uuid = 'u1'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(1.5, cursor.getDouble(0), 0.0)
+            }
             columns(db)
         }
 

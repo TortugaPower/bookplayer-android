@@ -84,6 +84,8 @@ object LibraryContentsSync {
             type = type,
             // The server just listed it
             serverKnown = true,
+            // Same rule as artwork/lastPlayDate: a server null must not wipe a speed set on this device.
+            speed = remote.speed ?: local?.speed
         )
 
         if (isNew) {

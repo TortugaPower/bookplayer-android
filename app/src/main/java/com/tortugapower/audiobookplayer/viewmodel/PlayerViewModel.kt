@@ -14,6 +14,7 @@ import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -54,14 +55,29 @@ class PlayerViewModel(
     var showCastSheet by mutableStateOf(false)
     var currentBookmark: BookmarkEntity? by mutableStateOf(null)
     var isExistingBookmark by mutableStateOf(false)
+    /** The note dialog was opened from the list to EDIT an existing bookmark (title + reset differ). */
+    var isEditingBookmarkNote by mutableStateOf(false)
 
     var hasNextItem by mutableStateOf(false)
         private set
     var hasPreviousItem by mutableStateOf(false)
         private set
 
-    private val _bookmarks = MutableStateFlow<List<BookmarkEntity>>(emptyList())
-    val bookmarks: StateFlow<List<BookmarkEntity>> = _bookmarks.asStateFlow()
+    /**
+     * The loaded book's manual bookmarks. Derived with flatMapLatest so switching books CANCELS the
+     * previous book's Room collector: the old shape (a nested `launch` inside `collectLatest`) parented
+     * that collector to the outer scope, so every book played in the session kept a live collector and
+     * Room's table-wide invalidation on any bookmark write let a stale one overwrite the list with the
+     * previous book's bookmarks.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val bookmarks: StateFlow<List<BookmarkEntity>> = PlaybackManager.currentItem
+        .map { it?.uuid }
+        .distinctUntilChanged()
+        .flatMapLatest { uuid ->
+            if (uuid == null) flowOf(emptyList()) else repository.getBookmarksForBook(uuid)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _chapters = MutableStateFlow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>>(emptyList())
     val chapters: StateFlow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>> = _chapters.asStateFlow()
@@ -146,20 +162,12 @@ class PlayerViewModel(
             }
         }
 
-        // Observe Current Item and update lists (Using Stable collectLatest)
+        // Observe the current item for the prev/next navigation state (bookmarks derive from it above).
         viewModelScope.launch {
             PlaybackManager.currentItem.collectLatest { item ->
                 if (item != null) {
-                    // Update navigation states
                     hasNextItem = repository.getAdjacentItem(item.uuid, next = true) != null
                     hasPreviousItem = repository.getAdjacentItem(item.uuid, next = false) != null
-
-                    // collectLatest automatically cancels this when the item changes.
-                    launch {
-                        repository.getBookmarksForBook(item.uuid).collect { _bookmarks.value = it }
-                    }
-                } else {
-                    _bookmarks.value = emptyList()
                 }
             }
         }
@@ -247,15 +255,58 @@ class PlayerViewModel(
     fun updateBookmarkNote(note: String) {
         val bookmark = currentBookmark ?: return
         viewModelScope.launch {
-            bookmark.note = note
-            repository.updateBookmark(bookmark)
+            // A cleared note is "no note" (the list only renders non-empty notes; sync sends "").
+            // Save a COPY: `bookmark` is the instance inside the observed list, and mutating it in place
+            // makes Room's re-emitted list compare equal to the current one, so the StateFlow drops it
+            // and the sheet keeps showing the old note.
+            val updated = bookmark.copy(note = note.trim().ifEmpty { null })
+            repository.updateBookmark(updated)
+            currentBookmark = updated
             showAddNoteDialog = false
+            isEditingBookmarkNote = false
         }
+    }
+
+    /** Bookmarks list → edit an existing bookmark's note (iOS: swipe "Edit note"). */
+    fun editBookmarkNote(bookmark: BookmarkEntity) {
+        currentBookmark = bookmark
+        isEditingBookmarkNote = true
+        showAddNoteDialog = true
+    }
+
+    fun dismissNoteDialog() {
+        showAddNoteDialog = false
+        isEditingBookmarkNote = false
     }
 
     fun deleteBookmark(bookmark: BookmarkEntity) {
         viewModelScope.launch {
             repository.deleteBookmark(bookmark)
+        }
+    }
+
+    private var bookmarkRefreshJob: Job? = null
+    private var bookmarkRefreshUuid: String? = null
+
+    /**
+     * Pull the loaded book's bookmarks from the cloud when the list opens (iOS parity:
+     * BookmarksViewModel → syncBookmarksList). The repository no-ops without an active sync account;
+     * the Room flow the list observes picks up whatever gets merged.
+     */
+    fun refreshBookmarksFromCloud() {
+        val item = PlaybackManager.currentItem.value ?: return
+        // One pull per book at a time: the list reopened while its book's request is still in flight reuses
+        // it. Another book's pull still starts (merges are serialized in BookmarkSync).
+        if (bookmarkRefreshJob?.isActive == true && bookmarkRefreshUuid == item.uuid) return
+        bookmarkRefreshUuid = item.uuid
+        bookmarkRefreshJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                repository.syncBookmarksFromCloud(item)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e // the scope is going away; never swallow a cancellation
+            } catch (e: Exception) {
+                android.util.Log.w("PlayerViewModel", "Bookmark refresh failed", e)
+            }
         }
     }
 

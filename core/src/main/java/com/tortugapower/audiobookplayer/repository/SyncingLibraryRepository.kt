@@ -4,6 +4,7 @@ import android.content.Context
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.logic.BookmarkSync
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -11,7 +12,9 @@ import kotlinx.coroutines.flow.first
 class SyncingLibraryRepository(
     private val delegate: LibraryRepository,
     private val syncTaskRepository: SyncTaskRepository,
-    private val accountRepository: AccountRepository
+    private val accountRepository: AccountRepository,
+    // The bookmark-pull server call, injectable so the merge and its guards are testable offline.
+    private val bookmarkFetcher: BookmarkSync.Fetcher = BookmarkSync.networkFetcher
 ) : LibraryRepository by delegate {
 
     private suspend fun isSubscribed(): Boolean {
@@ -232,19 +235,20 @@ class SyncingLibraryRepository(
         }
     }
 
-    override suspend fun addBookmark(bookmark: BookmarkEntity): Long? {
+    // Bookmark changes run under the cloud merge's lock (BookmarkSync.withMergeLock)
+    override suspend fun addBookmark(bookmark: BookmarkEntity): Long? = BookmarkSync.withMergeLock {
         // Null means the book is gone and nothing was written: there is nothing to sync.
-        val id = delegate.addBookmark(bookmark) ?: return null
+        val id = delegate.addBookmark(bookmark) ?: return@withMergeLock null
         if (isSubscribed()) {
             val item = delegate.getItemById(bookmark.bookUuid)
             item?.relativePath?.let { path ->
                 SyncTaskFactory.createSetBookmarkTask(syncTaskRepository, bookmark.copy(id = id), item.title, path)
             }
         }
-        return id
+        id
     }
 
-    override suspend fun updateBookmark(bookmark: BookmarkEntity) {
+    override suspend fun updateBookmark(bookmark: BookmarkEntity) = BookmarkSync.withMergeLock {
         delegate.updateBookmark(bookmark)
         if (isSubscribed()) {
             val item = delegate.getItemById(bookmark.bookUuid)
@@ -254,7 +258,25 @@ class SyncingLibraryRepository(
         }
     }
 
-    override suspend fun deleteBookmark(bookmark: BookmarkEntity) {
+    override suspend fun syncBookmarksFromCloud(item: LibraryItemEntity): Boolean {
+        if (!isSubscribed()) return false
+        // Merge through the plain delegate so server rows don't get echoed back as set_bookmark tasks.
+        return BookmarkSync.pull(delegate, syncTaskRepository, item, bookmarkFetcher)
+    }
+
+    override suspend fun updateItemSpeed(uuid: String, speed: Double) {
+        delegate.updateItemSpeed(uuid, speed)
+        if (!isSubscribed()) return
+        // The delegate set it on the item and its folder: both go up, with their speed
+        val item = delegate.getItemById(uuid) ?: return
+        SyncTaskFactory.createUpdateTask(syncTaskRepository, item, includeSpeed = true)
+        val parentPath = item.relativePath?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() }
+        parentPath?.let { delegate.getItemByPath(it) }?.let {
+            SyncTaskFactory.createUpdateTask(syncTaskRepository, it, includeSpeed = true)
+        }
+    }
+
+    override suspend fun deleteBookmark(bookmark: BookmarkEntity) = BookmarkSync.withMergeLock {
         if (isSubscribed()) {
             val item = delegate.getItemById(bookmark.bookUuid)
             item?.relativePath?.let { path ->

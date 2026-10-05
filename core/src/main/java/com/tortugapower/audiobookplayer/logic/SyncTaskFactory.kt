@@ -11,6 +11,11 @@ import java.util.UUID
 object SyncTaskFactory {
     private val gson = Gson()
 
+    private fun pendingPayloadOf(task: SyncTaskEntity): Map<String, Any?> {
+        val type = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
+        return runCatching { gson.fromJson<Map<String, Any?>>(task.payload, type) }.getOrNull() ?: emptyMap()
+    }
+
     const val QUEUE_SYNC = "sync"
     const val QUEUE_FILE = "file"
     const val QUEUE_HARDCOVER = "hardcover"
@@ -72,7 +77,9 @@ object SyncTaskFactory {
             // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
             // last_play_date never advances from Android, breaking cross-device "recently played".
             "lastPlayDateTimestamp" to item.lastPlayDate?.let { it / 1000 },
-            "type" to item.type.ordinal
+            "type" to item.type.ordinal,
+            // Per-book speed (iOS registers items with theirs); null is dropped by Gson.
+            "speed" to item.speed
         )
         enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_METADATA, item.uuid, payload)
     }
@@ -84,7 +91,11 @@ object SyncTaskFactory {
         // updateFolder pushes lastPlayDate: 0) so the server drops the stale value. Everywhere else a
         // null lastPlayDate stays omitted from the payload (Gson drops nulls): update tasks push a
         // full snapshot, and a never-played-here item must not wipe a date set by another device.
-        clearedLastPlayDate: Boolean = false
+        clearedLastPlayDate: Boolean = false,
+        // Only a speed change sends the speed, as on iOS (LibraryService.updateBookSpeed). Every other
+        // update (progress ticks above all) leaves it out, or this device's copy would overwrite a speed
+        // set later on another one.
+        includeSpeed: Boolean = false
     ) {
         val payload = mapOf(
             "uuid" to item.uuid,
@@ -103,11 +114,18 @@ object SyncTaskFactory {
             // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
             // last_play_date never advances from Android, breaking cross-device "recently played".
             "lastPlayDateTimestamp" to (item.lastPlayDate?.let { it / 1000 } ?: if (clearedLastPlayDate) 0L else null),
-            "type" to item.type.ordinal
+            "type" to item.type.ordinal,
+            // Null is dropped by Gson
+            "speed" to if (includeSpeed) item.speed else null
         )
 
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_UPDATE, item.uuid)
-        if (existingTask != null && repository.updatePendingTaskPayload(existingTask, gson.toJson(payload))) {
+        // A pending speed change survives the progress ticks merged into its task after it
+        val merged = if (existingTask != null && !includeSpeed) {
+            val pendingSpeed = pendingPayloadOf(existingTask)["speed"]
+            if (pendingSpeed != null) payload + ("speed" to pendingSpeed) else payload
+        } else payload
+        if (existingTask != null && repository.updatePendingTaskPayload(existingTask, gson.toJson(merged))) {
             android.util.Log.d("SyncTaskFactory", "🔄 Merging update task for item: ${item.uuid}")
         } else {
             enqueue(repository, QUEUE_SYNC, JOB_UPDATE, item.uuid, payload)

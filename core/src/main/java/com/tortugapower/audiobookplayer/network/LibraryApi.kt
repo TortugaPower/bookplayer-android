@@ -39,11 +39,12 @@ interface LibraryApi {
     @HTTP(method = "DELETE", path = "/v1/library/folder_in_out", hasBody = true)
     suspend fun shallowDeleteFolder(@Body params: Map<String, Any?>): Response<Unit>
 
+    // The server filters by uuid when it is a valid UUID (ours always are), else by relativePath.
     @GET("/v1/library/bookmarks")
     suspend fun getBookmarks(
         @Query("relativePath") path: String,
         @Query("uuid") uuid: String?
-    ): Response<List<Map<String, Any>>>
+    ): Response<com.tortugapower.audiobookplayer.model.BookmarksResponse>
 
     @PUT("/v1/library/bookmark")
     suspend fun setBookmark(@Body params: Map<String, Any?>): Response<Unit>
