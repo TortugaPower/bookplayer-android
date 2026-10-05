@@ -257,8 +257,8 @@ abstract class AppDatabase : RoomDatabase() {
 
         internal val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // Per-book playback speed (iOS `speed`, synced). Nullable: an existing book keeps
-                // following the global speed until the user sets a speed while it is loaded.
+                // Per-book playback speed (iOS `speed`, synced). Nullable: no existing book has one yet, so
+                // with Global Speed Control off it plays at 1x, as on iOS, until the user sets its speed.
                 db.execSQL("ALTER TABLE library_items ADD COLUMN speed REAL")
             }
         }

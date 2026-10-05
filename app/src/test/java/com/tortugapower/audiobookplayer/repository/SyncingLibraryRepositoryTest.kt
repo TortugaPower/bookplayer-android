@@ -612,6 +612,24 @@ class SyncingLibraryRepositoryTest {
         assertEquals(listOf(60.0), delegate.addedBookmarks.map { it.time })
     }
 
+    /** The edit waits for the merge, so the older server note can't land over it */
+    @Test
+    fun aNoteEditedWhileAPullMerges_isNotOverwrittenByTheServerNote() = runBlocking {
+        val delegate = FakeLibraryRepository().apply {
+            itemById = speedBook()
+            bookmarks += BookmarkEntity(id = 7, bookUuid = "book-1", time = 60.0, note = "local")
+            yieldOnBookmarkRead = true // the merge suspends after reading the rows, holding the lock
+        }
+        val fetcher = RecordingFetcher(listOf(serverRow(60.0, "server")))
+        val repository = SyncingLibraryRepository(delegate, FakeSyncTaskRepository(), FakeAccountRepository(AccountTier.PRO), fetcher)
+
+        val pull = async { repository.syncBookmarksFromCloud(speedBook()) }
+        val edit = async { repository.updateBookmark(BookmarkEntity(id = 7, bookUuid = "book-1", time = 60.0, note = "edited")) }
+        listOf(pull, edit).awaitAll()
+
+        assertEquals(listOf("server", "edited"), delegate.updatedBookmarks.map { it.note })
+    }
+
     @Test
     fun syncBookmarksFromCloud_writesNothingWhenTheBookVanishedMidRequest() = runBlocking {
         val delegate = FakeLibraryRepository().apply { itemById = null } // deleted while the request was in flight

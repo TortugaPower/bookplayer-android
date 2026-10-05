@@ -116,6 +116,13 @@ object BookmarkSync {
         }
     }
 
+    /**
+     * Runs a local bookmark change (its row and its task) under the merge lock, so it can't land between a
+     * merge's queue re-check and its writes: an edited note would get the older server note back, and a
+     * deleted bookmark could come back with no task to remove it.
+     */
+    suspend fun <T> withMergeLock(change: suspend () -> T): T = mergeMutex.withLock { change() }
+
     /** Same test as the throttled listing (SyncTaskFactory.createFetchContentsTask): parked tasks count */
     private suspend fun syncLaneBusy(syncTaskRepository: SyncTaskRepository): Boolean =
         syncTaskRepository.countQueuedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0 || syncTaskRepository.hasAccountPause()

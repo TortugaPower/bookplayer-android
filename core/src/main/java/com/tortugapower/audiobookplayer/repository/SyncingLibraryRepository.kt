@@ -235,19 +235,20 @@ class SyncingLibraryRepository(
         }
     }
 
-    override suspend fun addBookmark(bookmark: BookmarkEntity): Long? {
+    // Bookmark changes run under the cloud merge's lock (BookmarkSync.withMergeLock)
+    override suspend fun addBookmark(bookmark: BookmarkEntity): Long? = BookmarkSync.withMergeLock {
         // Null means the book is gone and nothing was written: there is nothing to sync.
-        val id = delegate.addBookmark(bookmark) ?: return null
+        val id = delegate.addBookmark(bookmark) ?: return@withMergeLock null
         if (isSubscribed()) {
             val item = delegate.getItemById(bookmark.bookUuid)
             item?.relativePath?.let { path ->
                 SyncTaskFactory.createSetBookmarkTask(syncTaskRepository, bookmark.copy(id = id), item.title, path)
             }
         }
-        return id
+        id
     }
 
-    override suspend fun updateBookmark(bookmark: BookmarkEntity) {
+    override suspend fun updateBookmark(bookmark: BookmarkEntity) = BookmarkSync.withMergeLock {
         delegate.updateBookmark(bookmark)
         if (isSubscribed()) {
             val item = delegate.getItemById(bookmark.bookUuid)
@@ -275,7 +276,7 @@ class SyncingLibraryRepository(
         }
     }
 
-    override suspend fun deleteBookmark(bookmark: BookmarkEntity) {
+    override suspend fun deleteBookmark(bookmark: BookmarkEntity) = BookmarkSync.withMergeLock {
         if (isSubscribed()) {
             val item = delegate.getItemById(bookmark.bookUuid)
             item?.relativePath?.let { path ->

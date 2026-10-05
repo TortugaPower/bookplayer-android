@@ -1678,18 +1678,20 @@ object PlaybackManager {
         val rounded = roundedSpeed(speed)
         val playerSpeed = rounded.toFloat()
         _playbackSpeed.value = playerSpeed
-        scope.launch(Dispatchers.Main) { player?.setPlaybackSpeed(playerSpeed) }
         val item = _currentItem.value
+        scope.launch(Dispatchers.Main) {
+            player?.setPlaybackSpeed(playerSpeed)
+            // The loaded entity too, on Main with its other writers: a full-row save of it (a streamed book's
+            // URL refresh) would otherwise put the old speed back
+            item?.speed = rounded
+        }
         speedPersistJob?.cancel()
         speedPersistJob = scope.launch(Dispatchers.IO) {
             delay(SPEED_PERSIST_DEBOUNCE_MS)
             if (PlaybackSettingsManager.getGlobalSpeedControl(context).first()) {
                 PlaybackSettingsManager.setSpeed(context, playerSpeed)
             }
-            if (item != null) {
-                item.speed = rounded
-                getRepository(context).updateItemSpeed(item.uuid, rounded)
-            }
+            if (item != null) getRepository(context).updateItemSpeed(item.uuid, rounded)
         }
     }
 
