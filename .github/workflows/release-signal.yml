@@ -124,8 +124,10 @@ jobs:
               --json title,body --jq "[.[] | select($TITLES)][0].body // empty" > notes.md
           fi
           if [ ! -s notes.md ]; then
-            echo "::error::no merged release PR titled 'Release $VERSION' found. The version is already recorded, so" \
-              "'Re-run failed jobs' would skip everything: post it with a manual run (Run workflow) with dry_run off and repost on."
+            msg="no merged release PR titled 'Release $VERSION' found."
+            # The recovery advice only holds when the version was just recorded (a dry run records nothing).
+            [ "$DRY_RUN" = "true" ] || msg="$msg The version is already recorded, so 'Re-run failed jobs' would skip everything: post it with a manual run (Run workflow) with dry_run off and repost on."
+            echo "::error::$msg"
             exit 1
           fi
 
