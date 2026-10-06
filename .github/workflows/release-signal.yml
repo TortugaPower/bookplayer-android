@@ -143,7 +143,8 @@ jobs:
           link = f"Link to {os.environ['STORE_LINK_LABEL']}: {os.environ['STORE_URL']}"
           limit = 4096 - len(link) - 10  # a Discord embed description holds 4096 characters
           if len(notes) > limit:
-              notes = notes[: notes.rfind("\n", 0, limit)].rstrip() + "\n…"
+              cut = notes.rfind("\n", 0, limit)  # end on a whole line, unless that would drop most of the text
+              notes = notes[: cut if cut >= limit // 2 else limit].rstrip() + "\n…"
           print(json.dumps({
               "content": f"**v{os.environ['VERSION']} is now available on {os.environ['STORE_IN_TITLE']} 🎉**",
               "embeds": [{"description": f"{notes}\n\n{link}", "color": int(os.environ["EMBED_COLOR"])}],
@@ -157,5 +158,7 @@ jobs:
           fi
           WEBHOOK=$(aws ssm get-parameter --name "$WEBHOOK_PARAM" --with-decryption --query Parameter.Value --output text)
           echo "::add-mask::$WEBHOOK"
-          curl --fail-with-body -sS -H "Content-Type: application/json" --data @payload.json "$WEBHOOK?wait=true" -o /dev/null
+          # On a rejection, show Discord's reason (the response body never contains the webhook URL).
+          curl --fail-with-body -sS -H "Content-Type: application/json" --data @payload.json "$WEBHOOK?wait=true" -o response.json \
+            || { cat response.json; echo; exit 1; }
           echo "Posted v$VERSION to Discord."
