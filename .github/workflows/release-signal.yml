@@ -1,0 +1,148 @@
+# Release signal: a new version reached the store.
+#
+# In this repo `main` is what is live on Google Play: the release PR develop→main is merged only AFTER Play has
+# published the build (the discipline sentry-deploy.yml relies on too). So a push to main that carries a newer
+# versionName means that version is in users' hands. This workflow then:
+#   1. records it in SSM (/bookplayer-support-pipeline/released/android); the support pipeline's drafter reads it to
+#      tell customers that a known issue's fix is out ("update to 1.3.0") instead of "in review";
+#   2. posts the merged release PR's notes to the Discord Announcements channel (title line + green card).
+# A push to main without a newer version does nothing. Run it by hand (workflow_dispatch) to preview the post
+# (dry run, the default) or to record + post a release this workflow missed.
+#
+# AWS access is GitHub OIDC → role github-release-signal, whose trust accepts only this repo's `release-signal`
+# environment (deployment branch policy: main) and which can only write the two released/* parameters and read the
+# webhook. No AWS keys or webhook URL are stored in GitHub.
+name: Release signal
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the announcement and record nothing
+        type: boolean
+        default: true
+      repost:
+        description: Post (and record) even if this version is already recorded
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  id-token: write
+
+concurrency:
+  group: release-signal
+  cancel-in-progress: false
+
+jobs:
+  signal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: release-signal
+    env:
+      PARAM: /bookplayer-support-pipeline/released/android
+      WEBHOOK_PARAM: /bookplayer-release-signal/discord-announcements-webhook
+      STORE_IN_TITLE: Google Play
+      STORE_LINK_LABEL: Google Play
+      STORE_URL: https://play.google.com/store/apps/details?id=com.tortugapower.audiobookplayer
+      EMBED_COLOR: "4054148"  # 0x3DDC84, Android green (iOS posts are blue)
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      REPOST: ${{ github.event_name == 'workflow_dispatch' && inputs.repost }}
+    steps:
+      # Every `uses:` is pinned to a commit SHA (version in the trailing comment): this job can assume an AWS role.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read the version
+        id: version
+        run: |
+          VN=$(sed -n 's/.*versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -1)
+          VC=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts | head -1)
+          if ! [[ "$VN" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]]; then echo "::error::unreadable versionName '$VN'"; exit 1; fi
+          echo "version=$VN" >> "$GITHUB_OUTPUT"
+          echo "build=$VC" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: arn:aws:iam::327317202676:role/github-release-signal
+          aws-region: us-east-1
+
+      - name: Is this version newer than the recorded one?
+        id: recorded
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          RECORDED=$(aws ssm get-parameter --name "$PARAM" --query Parameter.Value --output text 2>/dev/null || echo '{}')
+          NEWER=$(RECORDED="$RECORDED" python3 - <<'PY'
+          import json, os
+          key = lambda v: tuple(int(p) for p in v.split("."))
+          try:
+              recorded = json.loads(os.environ["RECORDED"]).get("version") or "0"
+          except ValueError:
+              recorded = "0"
+          print(json.dumps({"recorded": recorded, "newer": key(os.environ["VERSION"]) > key(recorded)}))
+          PY
+          )
+          echo "recorded vs this commit: $NEWER (this commit: $VERSION)"
+          echo "newer=$(echo "$NEWER" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["newer"]).lower())')" >> "$GITHUB_OUTPUT"
+
+      - name: Record the released version
+        if: (steps.recorded.outputs.newer == 'true' || env.REPOST == 'true') && env.DRY_RUN != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          VALUE=$(python3 -c 'import json, os, datetime; print(json.dumps({"version": os.environ["VERSION"], "build": os.environ["BUILD"], "released_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "commit": os.environ["GITHUB_SHA"]}))')
+          aws ssm put-parameter --name "$PARAM" --type String --overwrite --value "$VALUE" --query Version --output text
+          echo "recorded: $VALUE"
+
+      - name: Find the release notes
+        if: steps.recorded.outputs.newer == 'true' || env.REPOST == 'true' || env.DRY_RUN == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # The release PR (develop→main, titled "Release <version>") is the one this merge commit belongs to; the
+          # title search is the fallback for a run by hand on a later commit.
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            --jq "[.[] | select(.base.ref == \"main\" and .merged_at != null and (.title | test(\"^Release v?$VERSION\$\")))][0].body // empty" > notes.md
+          if [ ! -s notes.md ]; then
+            gh pr list --repo "$GITHUB_REPOSITORY" --state merged --base main --search "Release in:title" --limit 50 \
+              --json title,body --jq "[.[] | select(.title | test(\"^Release v?$VERSION\$\"))][0].body // empty" > notes.md
+          fi
+          if [ ! -s notes.md ]; then echo "::error::no merged release PR titled 'Release $VERSION' found"; exit 1; fi
+
+      - name: Announce on Discord
+        if: steps.recorded.outputs.newer == 'true' || env.REPOST == 'true' || env.DRY_RUN == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 - <<'PY' > payload.json
+          import json, os, re
+          notes = open("notes.md", encoding="utf-8").read().replace("\r", "").strip()
+          # Store-style notes as they are, with their section names bold ("## Phone" headings included).
+          # [ \t], not \s: \s would also swallow the blank line that follows a heading.
+          notes = re.sub(r"^#{1,6}[ \t]*(.+?)[ \t]*$", r"**\1**", notes, flags=re.MULTILINE)
+          notes = re.sub(r"^(Improvements|Bugfixes|Bug fixes|Special thanks to:?)[ \t]*$", r"**\1**", notes, flags=re.MULTILINE)
+          notes = re.sub(r"\n{3,}", "\n\n", notes)
+          link = f"Link to {os.environ['STORE_LINK_LABEL']}: {os.environ['STORE_URL']}"
+          limit = 4096 - len(link) - 10  # a Discord embed description holds 4096 characters
+          if len(notes) > limit:
+              notes = notes[: notes.rfind("\n", 0, limit)].rstrip() + "\n…"
+          print(json.dumps({
+              "content": f"**v{os.environ['VERSION']} is now available on {os.environ['STORE_IN_TITLE']} 🎉**",
+              "embeds": [{"description": f"{notes}\n\n{link}", "color": int(os.environ["EMBED_COLOR"])}],
+              "allowed_mentions": {"parse": []},  # nothing in the notes can ping anyone
+          }))
+          PY
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run, nothing posted. The announcement would be:"
+            python3 -c 'import json; p = json.load(open("payload.json")); print(p["content"]); print("---"); print(p["embeds"][0]["description"])'
+            exit 0
+          fi
+          WEBHOOK=$(aws ssm get-parameter --name "$WEBHOOK_PARAM" --with-decryption --query Parameter.Value --output text)
+          echo "::add-mask::$WEBHOOK"
+          curl --fail-with-body -sS -H "Content-Type: application/json" --data @payload.json "$WEBHOOK?wait=true" -o /dev/null
+          echo "Posted v$VERSION to Discord."
