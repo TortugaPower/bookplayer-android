@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history: `sentry-cli releases set-commits --auto` below walks from the previous
+          # Full history: `sentry-cli releases set-commits --local` below walks from the previous
           # release's commit to HEAD, and a shallow clone has neither.
           fetch-depth: 0
 
@@ -122,10 +122,16 @@ jobs:
           VC=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts | head -1)
           RELEASE="com.tortugapower.audiobookplayer@${VN}+${VC}"
           echo "release: $RELEASE"
+          # --local: post the commit list from this checkout (full history, see fetch-depth above)
+          # instead of handing Sentry a ref range to resolve through its GitHub integration — that
+          # path returned one page of 100 commits for 1.3.0+22 (170 in the range), and the crash-fix
+          # commits with `Fixes ANDROID-BOOKPLAYER-<id>` trailers fell outside it, so nothing resolved.
           # --ignore-missing: don't fail if the previous release's commit is unknown to Sentry;
           # --initial-depth: on the first release that carries commits, reach back far enough to
           # cover everything since the previous tag instead of only HEAD.
-          npx --yes @sentry/cli@2 releases set-commits "$RELEASE" --auto --ignore-missing --initial-depth 300
+          # A rebuild of a version that already carries commits prints "No commits found. Leaving
+          # release alone." and exits 0 — the earlier list stands.
+          npx --yes @sentry/cli@2 releases set-commits "$RELEASE" --local --ignore-missing --initial-depth 300
 
       # The bundles stay downloadable from the run even if the Play upload below fails.
       # Nothing reaches Play if a class another process resolves by name lost its name (see
