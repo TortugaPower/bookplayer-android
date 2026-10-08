@@ -11,11 +11,12 @@ import com.tortugapower.audiobookplayer.network.ProbeResult
 import com.tortugapower.audiobookplayer.network.ServerCapabilities
 import com.tortugapower.audiobookplayer.network.SsoCapable
 import com.tortugapower.audiobookplayer.network.SsoResult
+import com.tortugapower.audiobookplayer.network.StreamFile
+import com.tortugapower.audiobookplayer.network.StreamImportInfo
 import com.tortugapower.audiobookplayer.network.WebAuthenticator
 import com.tortugapower.audiobookplayer.network.OkHttpOidcClient
 import com.tortugapower.audiobookplayer.logic.AbsOidcFlow
 import kotlinx.coroutines.CancellationException
-import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -27,15 +28,11 @@ class AudiobookshelfService : ExternalService, SsoCapable {
     private fun getApi(url: String, headers: Map<String, String>? = null): AudiobookshelfApi {
         val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
 
-        val okHttpClientBuilder = OkHttpClient.Builder()
-        ExternalServiceUtils.sanitizeCustomHeaders(headers)?.forEach { (key, value) ->
-            okHttpClientBuilder.addInterceptor(Interceptor { chain ->
-                val original = chain.request()
-                val requestBuilder = original.newBuilder().header(key, value)
-                chain.proceed(requestBuilder.build())
-            })
-        }
-        val okHttpClient = okHttpClientBuilder.build()
+        // Derived from one base client so calls share its connection pool (a file lookup runs on every play).
+        // Custom headers (often Cloudflare Access secrets) ride only the hops that stay on the server.
+        val okHttpClient = ExternalServiceUtils.sanitizeCustomHeaders(headers)?.takeIf { it.isNotEmpty() }
+            ?.let { baseHttpClient.newBuilder().addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(sanitizedUrl, it)).build() }
+            ?: baseHttpClient
 
         return Retrofit.Builder()
             .client(okHttpClient)
@@ -101,9 +98,8 @@ class AudiobookshelfService : ExternalService, SsoCapable {
                 val body = response.body()!!
                 val token = body.user.token
                 val serverName = body.serverSettings?.serverName ?: "Audiobookshelf"
-                // serverSettings.id is the ABS instance's stable id (hostId contract) — rides the
-                // login response, no extra request.
-                ConnectionResult.Success(token = token, name = serverName, stableId = body.serverSettings?.id, userId = body.user.id)
+                // No stableId: ABS has no instance id, so its hostId is the canonical URL key (as on iOS).
+                ConnectionResult.Success(token = token, name = serverName, stableId = null, userId = body.user.id)
             } else if (response.code() == 401) {
                 ConnectionError.Unauthorized.toFailure()
             } else {
@@ -129,9 +125,9 @@ class AudiobookshelfService : ExternalService, SsoCapable {
             is AbsOidcFlow.Outcome.Success -> {
                 val credentials = outcome.credentials
                 // The exchange returns only the user. `/api/authorize` with the fresh token yields the
-                // login-response shape, so the row gets the server's real name and its stable id (the
-                // cross-device hostId contract) exactly like a password sign-in. Best-effort: a failure
-                // degrades to the host as the name and no stable id, which is what iOS stores.
+                // login-response shape, so the row gets the server's real name exactly like a password
+                // sign-in. Best-effort: a failure degrades to the host as the name, which is what iOS
+                // stores.
                 val settings = try {
                     getApi(url, headers).authorize(getAuthHeader(credentials.token)).takeIf { it.isSuccessful }?.body()?.serverSettings
                 } catch (e: CancellationException) {
@@ -143,7 +139,7 @@ class AudiobookshelfService : ExternalService, SsoCapable {
                     ConnectionResult.Success(
                         token = credentials.token,
                         name = settings?.serverName ?: ServerAddress.parse(url)?.host ?: url,
-                        stableId = settings?.id,
+                        stableId = null,
                         userId = credentials.userId,
                         userName = credentials.userName,
                     )
@@ -173,7 +169,10 @@ class AudiobookshelfService : ExternalService, SsoCapable {
             }
     }
 
-    override suspend fun getFileExtensions(url: String, token: String, ids: List<String>, headers: Map<String, String>?): Map<String, String> {
+    override suspend fun getFileExtensions(url: String, token: String, ids: List<String>, headers: Map<String, String>?): Map<String, String> =
+        getStreamImportInfo(url, token, ids, headers).mapValues { (_, info) -> info.extension }
+
+    override suspend fun getStreamImportInfo(url: String, token: String, ids: List<String>, headers: Map<String, String>?): Map<String, StreamImportInfo> {
         if (ids.isEmpty()) return emptyMap()
         val api = getApi(url, headers)
         val response = api.getItemsBatch(getAuthHeader(token), AudiobookshelfBatchItemsRequest(ids))
@@ -182,7 +181,11 @@ class AudiobookshelfService : ExternalService, SsoCapable {
             throw Exception("Audiobookshelf API error fetching items: ${response.code()} ${response.message()}")
         }
         return response.body()!!.libraryItems.orEmpty()
-            .mapNotNull { item -> fileExtension(item)?.let { item.id to it } }
+            .mapNotNull { item ->
+                val extension = fileExtension(item) ?: return@mapNotNull null
+                val files = streamFiles(item.id, item).takeIf { it.size > 1 }.orEmpty()
+                item.id to StreamImportInfo(extension, files)
+            }
             .toMap()
     }
 
@@ -256,6 +259,18 @@ class AudiobookshelfService : ExternalService, SsoCapable {
         return "${sanitizedUrl}api/items/${item.uuid}/download"
     }
 
+    override suspend fun getStreamFiles(url: String, token: String, itemId: String, headers: Map<String, String>?): List<StreamFile>? {
+        val response = getApi(url, headers).getItemExpanded(getAuthHeader(token), itemId)
+        // Only 401 means the token is dead: a 403 here is this user not being allowed this item (ABS's item
+        // middleware, checkCanAccessLibraryItem), which says nothing about the session or the server's other items.
+        if (response.code() == 401) throw com.tortugapower.audiobookplayer.network.SessionExpiredException()
+        if (response.code() == 404) return emptyList()
+        if (!response.isSuccessful || response.body() == null) {
+            throw Exception("Audiobookshelf API error fetching item: ${response.code()} ${response.message()}")
+        }
+        return streamFiles(itemId, response.body()!!)
+    }
+
     override suspend fun getThumbnailUrl(url: String, token: String, item: LibraryItemEntity): String? {
         val sanitizedUrl = ExternalServiceUtils.sanitizeUrl(url)
         // We can't easily check coverPath here without a full item fetch,
@@ -272,6 +287,27 @@ class AudiobookshelfService : ExternalService, SsoCapable {
     }
 
     companion object {
+        private val baseHttpClient by lazy { OkHttpClient() }
+
+        /**
+         * [item]'s playable files. The path is built from the track's `ino` against the saved server URL
+         * rather than taken from the track's `contentUrl`: that one is absolute from the server root and
+         * carried the router base path in older versions, so joining it to a URL with a subpath breaks.
+         * Tracks only carry `ino` since ABS 2.18, so older servers' is read off the `contentUrl` (`…/file/<ino>`,
+         * since 2.3 — before that ABS had no per-file route).
+         */
+        fun streamFiles(itemId: String, item: AudiobookshelfItem): List<StreamFile> =
+            item.media?.tracks.orEmpty().sortedBy { it.index }.mapNotNull { track ->
+                val ino = track.ino?.takeIf { it.isNotBlank() }
+                    ?: track.contentUrl?.substringAfterLast("/file/", "")?.substringBefore('?')?.takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                StreamFile(
+                    path = "api/items/$itemId/file/$ino",
+                    name = track.metadata?.relPath?.takeIf { it.isNotBlank() } ?: track.metadata?.filename.orEmpty(),
+                    duration = track.duration ?: 0.0,
+                )
+            }
+
         /**
          * The REAL extension of the item's first audio file (lowest index), without the leading dot the
          * server includes; the file name's extension when `ext` is missing. Null when the item has no audio

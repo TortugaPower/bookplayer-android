@@ -9,10 +9,10 @@ import android.util.Log
 import io.sentry.Breadcrumb
 import io.sentry.Sentry
 import androidx.core.app.NotificationCompat
+import com.tortugapower.audiobookplayer.BookPlayerApplication
 import com.tortugapower.audiobookplayer.MainActivity
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
-import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
@@ -140,11 +140,13 @@ class TaskConcurrencyServiceHost : Service() {
 
         // Register all available processors
         val processors = listOf(
-            FetchContentsProcessor(this, repository, PlaybackManagerSyncCoordinator),
-            SyncIdentifiersProcessor(this, repository),
+            FetchContentsProcessor(
+                this, repository, PlaybackManagerSyncCoordinator,
+                canDeleteListings = { BookPlayerApplication.instance.firstSync.hasRunFirstSync() },
+            ),
             MetadataUploadProcessor(this, repository),
-            UploadFileProcessor(this, repository),
-            StreamFileUploadProcessor(this, repository),
+            MultipartUploadProcessor.create(this, repository),
+            QueueFileUploadProcessor.create(this, repository),
             UpdateProcessor(),
             MoveProcessor(),
             DeleteProcessor(),
@@ -153,32 +155,29 @@ class TaskConcurrencyServiceHost : Service() {
             ArtworkUploadProcessor(this),
             DeleteBookmarkProcessor(),
             SetBookmarkProcessor(),
-            DownloadFileProcessor(this),
+            DownloadFileProcessor(this, syncTasks = repository),
             MatchUuidsProcessor(this, repository),
             HardcoverProcessor(this),
             UploadExternalResourceProcessor(),
             DeleteExternalResourceProcessor(),
-            SetExternalResourceToDownloadProcessor(),
             ExternalUpdateProcessor(this),
             PreferenceUploadProcessor(),
             PreferenceFetchProcessor(this, repository)
         )
 
-        taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)
+        taskConcurrencyManager = TaskConcurrencyManager(
+            this, repository, accountRepository, processors,
+            verifySyncEntitlement = { SubscriptionManager.refreshSyncEntitlement() },
+            onTaskPaused = BookPlayerApplication.instance.syncPauseReporter::report,
+            onSyncLaneDrained = BookPlayerApplication.instance.firstSync::onSyncLaneDrained,
+            awaitTierReady = SubscriptionManager::awaitTierReady,
+        )
         Log.d(TAG, "🚀 Triggering taskConcurrencyManager.startProcessing()")
         taskConcurrencyManager.startProcessing()
 
         // Resume cellular-held uploads promptly when the network changes (e.g. Wi-Fi returns).
         connectivityManager = (getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager)?.also {
             runCatching { it.registerDefaultNetworkCallback(networkCallback) }
-        }
-
-        // Observe account changes to update NetworkClient token
-        serviceScope.launch {
-            accountRepository.getAccountFlow().collect { account ->
-                Log.d(TAG, "👤 Account updated, setting NetworkClient token")
-                NetworkClient.setToken(account?.apiToken)
-            }
         }
 
         // Observe active queues to update the notification — and to stop the service once work
@@ -209,8 +208,8 @@ class TaskConcurrencyServiceHost : Service() {
         }
         // NOT_STICKY: a sticky null-intent restart arrives from the BACKGROUND, where dataSync
         // promotion is refused (budget/exemption) — it can only churn, never do useful work.
-        // Every real producer (app start, SyncEngineWaker on task enqueue, settings toggles)
-        // starts the service explicitly anyway.
+        // Every real producer (SyncEngineWaker on task enqueue, the launch gate for leftover
+        // PENDING/RUNNING tasks, settings toggles) starts the service explicitly anyway.
         return START_NOT_STICKY
     }
 

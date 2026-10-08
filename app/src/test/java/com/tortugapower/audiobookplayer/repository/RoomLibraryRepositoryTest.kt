@@ -305,6 +305,22 @@ class RoomLibraryRepositoryTest {
         assertEquals(null, repository.getItemByIdOrPath("missing"))
     }
 
+    // iOS LibraryService.updateBookSpeed: a book's speed is its folder's too (the folder's books play at it)
+    @Test
+    fun testUpdateItemSpeed_setsTheBookAndItsFolder() = runBlocking {
+        val folder = LibraryItemEntity(uuid = "folder-1", title = "Folder", relativePath = "Folder", type = ItemType.FOLDER)
+        // Android finds a parent by path (parentFolderUuid isn't kept)
+        val book = LibraryItemEntity(uuid = "book-1", title = "Book", relativePath = "Folder/one.mp3", type = ItemType.BOOK)
+        val other = LibraryItemEntity(uuid = "book-2", title = "Other", relativePath = "Folder/two.mp3", type = ItemType.BOOK)
+        listOf(folder, book, other).forEach { fakeDao.items[it.uuid] = it }
+
+        repository.updateItemSpeed("book-1", 1.5)
+
+        assertEquals(1.5, fakeDao.items["book-1"]?.speed)
+        assertEquals(1.5, fakeDao.items["folder-1"]?.speed)
+        assertEquals(null, fakeDao.items["book-2"]?.speed)
+    }
+
     // getDescendantBooks drives the bulk mark-as-finished action: a BOOK short-circuits to itself,
     // a container expands to its BOOK descendants at ANY depth (recursive), never folders/bounds.
     @Test
@@ -360,6 +376,10 @@ class RoomLibraryRepositoryTest {
             items[item.uuid] = item
         }
 
+        override suspend fun updateRemoteURL(uuid: String, url: String?) {
+            items[uuid]?.let { items[uuid] = it.copy(remoteURL = url) }
+        }
+
         override suspend fun getItemByPath(path: String): LibraryItemEntity? {
             return items.values.find { it.relativePath == path }
         }
@@ -368,6 +388,12 @@ class RoomLibraryRepositoryTest {
             return items.values.filter { it.relativePath?.startsWith(path) == true }
         }
 
+        override suspend fun markExternalResourceFileProcessed(id: Long): Unit = TODO()
+        override suspend fun getAllUuids(): List<String> = TODO()
+        override suspend fun setServerKnownChunk(uuids: List<String>, known: Boolean) = TODO()
+        override suspend fun clearServerKnown() = TODO()
+        override suspend fun getItemsByIdsWithResources(uuids: List<String>): List<com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources> = TODO()
+        override suspend fun getUserBookmarksForBooks(bookUuids: List<String>): List<com.tortugapower.audiobookplayer.database.entities.BookmarkEntity> = TODO()
         override fun getRootItems(): Flow<List<LibraryItemEntity>> = TODO()
         override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = TODO()
         override suspend fun getRootItemsSync(): List<LibraryItemEntity> = TODO()
@@ -392,9 +418,16 @@ class RoomLibraryRepositoryTest {
         override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? = TODO()
         override suspend fun insertBookmark(bookmark: BookmarkEntity): Long = TODO()
         override suspend fun updateBookmark(bookmark: BookmarkEntity) = TODO()
+        override suspend fun updateItemSpeed(uuid: String, speed: Double) {
+            items[uuid]?.let { items[uuid] = it.copy(speed = speed) }
+        }
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) = TODO()
         override suspend fun updateChaptersUuid(oldUuid: String, newUuid: String) = TODO()
         override suspend fun updateBookmarksUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun updateExternalResourcesUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun updatePlaybackSessionsUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun updateCompletionsUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun updateChildrenParentUuid(oldUuid: String, newUuid: String) = TODO()
         override suspend fun getItemByFileName(fileName: String): LibraryItemEntity? =
             items.values.find { it.originalFileName == fileName }
         // updateItemProgress probes for a linked hardcover resource inside a catch(Exception);

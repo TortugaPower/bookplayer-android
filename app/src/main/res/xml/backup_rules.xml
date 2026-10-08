@@ -6,8 +6,6 @@
    See https://developer.android.com/about/versions/12/backup-restore
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <!-- The library sync's state (SyncStateStore): a restored install must sync like a fresh one -->
+    <exclude domain="file" path="datastore/sync_state.preferences_pb"/>
 </full-backup-content>

@@ -8,6 +8,8 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.logic.FirstSyncGate
+import com.tortugapower.audiobookplayer.logic.FirstSyncResult
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
@@ -85,20 +87,31 @@ class LibraryViewModelTest {
             if (item.type == ItemType.BOOK) listOf(item) else descendantBooks
         override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) {}
         override suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>) {}
-        override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {}
+        val moves = mutableListOf<Pair<List<String>, String?>>()
+        // Items whose uuid is here aren't moved, as if their name were taken at the destination.
+        val takenAtDestination = mutableSetOf<String>()
+        override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?): List<LibraryItemEntity> {
+            moves += items.map { it.uuid } to targetFolderPath
+            return items.filter { it.uuid in takenAtDestination }
+        }
         override suspend fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String) {}
         override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {}
         override suspend fun convertFoldersToVolumes(context: android.content.Context, items: List<LibraryItemEntity>) {}
         override suspend fun reorderItems(items: List<LibraryItemEntity>) {}
         override suspend fun updateArtworkSync(item: LibraryItemEntity) {}
         override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? = null
-        override suspend fun addBookmark(bookmark: BookmarkEntity): Long = 0L
+        override suspend fun addBookmark(bookmark: BookmarkEntity): Long? = 0L
         override suspend fun updateBookmark(bookmark: BookmarkEntity) {}
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) {}
+        override suspend fun syncBookmarksFromCloud(item: LibraryItemEntity): Boolean = false
+        override suspend fun updateItemSpeed(uuid: String, speed: Double) {}
         override suspend fun getAdjacentItem(currentItemUuid: String, next: Boolean): LibraryItemEntity? = null
         override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
         override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
-        override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) = error("unused")
+        var refuseShallowDelete = false
+        override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) {
+            if (refuseShallowDelete) throw com.tortugapower.audiobookplayer.repository.NameTakenException(2)
+        }
         override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
         override suspend fun getExternalResource(itemUuid: String, provider: String): ExternalResourceEntity? = null
         override suspend fun saveExternalResource(externalResource: ExternalResourceEntity) {}
@@ -125,6 +138,11 @@ class LibraryViewModelTest {
         override suspend fun countActiveTasks(): Int = tasks.value.count { it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING }
         override suspend fun countActiveTasksInQueue(queueKey: String): Int =
             tasks.value.count { it.queueKey == queueKey && (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING) }
+        override suspend fun countQueuedTasksInQueue(queueKey: String): Int =
+            tasks.value.count { it.queueKey == queueKey && (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING || it.pauseScope != null) }
+        override suspend fun countPausedTasksInQueue(queueKey: String): Int =
+            tasks.value.count { it.queueKey == queueKey && it.pauseScope != null }
+        override suspend fun hasAccountPause(): Boolean = tasks.value.any { it.pauseScope == "ACCOUNT" }
         override suspend fun countActiveTasksByType(jobType: String): Int =
             tasks.value.count { it.jobType == jobType && (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING) }
         override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? =
@@ -132,17 +150,85 @@ class LibraryViewModelTest {
         override suspend fun migrateTaskUuid(oldUuid: String, newUuid: String) {}
     }
 
+    /** Done by default: the screens behave as before the first sync existed */
+    private class FakeFirstSync(var done: Boolean = true) : FirstSyncGate {
+        var requested = 0
+        var ran = 0
+        override suspend fun hasRunFirstSync(): Boolean = done
+        override fun request() { requested++ }
+        override suspend fun run(): FirstSyncResult {
+            ran++
+            return FirstSyncResult.Done
+        }
+        var passesScheduled = 0
+        override fun schedulePassIfNeeded() { passesScheduled++ }
+    }
+
     private fun modelWith(
         rootItems: Flow<List<LibraryItemEntity>> = emptyFlow(),
         syncRepo: SyncTaskRepository = FakeSyncTaskRepository(),
         libraryRepo: FakeLibraryRepository = FakeLibraryRepository(rootItems),
+        firstSync: FirstSyncGate = FakeFirstSync(),
     ) = LibraryViewModel(
         ApplicationProvider.getApplicationContext(),
         libraryRepo,
         syncRepo,
+        firstSync,
         // Row-state derivation on the test dispatcher so runTest controls it.
         ioDispatcher = dispatcher,
     )
+
+    // ---- Until this device's first sync has run, no listing may delete ----
+
+    @Test fun refresh_atTheRootBeforeTheFirstSync_runsItInsteadOfAFetch() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        val firstSync = FakeFirstSync(done = false)
+        val model = modelWith(syncRepo = syncRepo, firstSync = firstSync)
+
+        model.refresh(syncEnabled = true)
+        advanceUntilIdle()
+
+        assertEquals(1, firstSync.ran)
+        assertTrue(syncRepo.tasks.value.isEmpty())
+        assertFalse(model.isRefreshing.value)
+    }
+
+    @Test fun refresh_inAFolderBeforeTheFirstSync_waitsForIt() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        val firstSync = FakeFirstSync(done = false)
+        val model = modelWith(syncRepo = syncRepo, firstSync = firstSync)
+        model.navigateTo("Shelf")
+
+        model.refresh(syncEnabled = true)
+        advanceUntilIdle()
+
+        assertEquals(0, firstSync.ran)
+        assertTrue(syncRepo.tasks.value.isEmpty())
+    }
+
+    /** A first sync that fails isn't asked again on every visit to the root: the root's listing throttle covers it */
+    @Test fun fetchVisibleLevel_beforeTheFirstSync_startsItAtTheRootOnce_andSkipsFolders() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        val firstSync = FakeFirstSync(done = false)
+        val model = modelWith(syncRepo = syncRepo, firstSync = firstSync)
+
+        model.fetchVisibleLevel(null, syncEnabled = true)
+        model.fetchVisibleLevel("Shelf", syncEnabled = true)
+        model.fetchVisibleLevel(null, syncEnabled = true)
+
+        assertEquals(1, firstSync.requested)
+        assertTrue(syncRepo.tasks.value.isEmpty())
+    }
+
+    @Test fun fetchVisibleLevel_afterTheFirstSync_queuesADeletingListing() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        val model = modelWith(syncRepo = syncRepo)
+
+        model.fetchVisibleLevel("Shelf after first sync", syncEnabled = true)
+
+        val fetch = syncRepo.tasks.value.single { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS }
+        assertTrue(fetch.payload.contains("\"canDelete\":true"))
+    }
 
     @Test fun isReady_falseUntilRootLibraryEmits_thenTrue() = runTest(dispatcher) {
         val root = MutableSharedFlow<List<LibraryItemEntity>>(replay = 1)
@@ -203,16 +289,64 @@ class LibraryViewModelTest {
         )
         val model = modelWith(syncRepo = syncRepo)
 
-        val busy = mutableListOf<Unit>()
+        val busy = mutableListOf<Boolean>()
         // UNDISPATCHED so the collector subscribes synchronously before refresh emits (SharedFlow, no replay).
         backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            model.syncTasksBusy.collect { busy += Unit }
+            model.syncTasksBusy.collect { busy += it }
         }
 
         model.refresh(syncEnabled = true)
         runCurrent()
 
-        assertEquals(1, busy.size)
+        assertEquals("busy, not paused", listOf(false), busy)
+        assertTrue(syncRepo.tasks.value.none { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS })
+        assertFalse(model.isRefreshing.value)
+    }
+
+    /** A parked sync task blocks the refresh too, and the note says sync is paused (iOS) */
+    @Test fun refresh_withAParkedSyncTask_signalsPausedAndSkipsFetch() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        syncRepo.saveTask(
+            SyncTaskEntity(
+                id = "t1", taskID = "book", queueKey = SyncTaskFactory.QUEUE_SYNC, jobType = "move",
+                position = 0, payload = "{}", status = SyncTaskStatus.FAILED, pauseScope = "LANE", errorCode = "item_not_found",
+            ),
+        )
+        val model = modelWith(syncRepo = syncRepo)
+
+        val busy = mutableListOf<Boolean>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            model.syncTasksBusy.collect { busy += it }
+        }
+
+        model.refresh(syncEnabled = true)
+        runCurrent()
+
+        assertEquals(listOf(true), busy)
+        assertTrue(syncRepo.tasks.value.none { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS })
+    }
+
+    /** An account pause in another lane holds the sync lane too: the refresh says paused, queues nothing */
+    @Test fun refresh_underAnAccountPauseInAnotherLane_signalsPaused() = runTest(dispatcher) {
+        val syncRepo = FakeSyncTaskRepository()
+        syncRepo.saveTask(
+            SyncTaskEntity(
+                id = "pref", taskID = "library_sort:root", queueKey = SyncTaskFactory.QUEUE_PREFERENCES,
+                jobType = SyncTaskFactory.JOB_UPLOAD_PREFERENCE, position = 0, payload = "{}",
+                status = SyncTaskStatus.FAILED, pauseScope = "ACCOUNT", errorCode = "not_subscribed",
+            ),
+        )
+        val model = modelWith(syncRepo = syncRepo)
+
+        val busy = mutableListOf<Boolean>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            model.syncTasksBusy.collect { busy += it }
+        }
+
+        model.refresh(syncEnabled = true)
+        runCurrent()
+
+        assertEquals(listOf(true), busy)
         assertTrue(syncRepo.tasks.value.none { it.jobType == SyncTaskFactory.JOB_FETCH_CONTENTS })
         assertFalse(model.isRefreshing.value)
     }
@@ -336,5 +470,60 @@ class LibraryViewModelTest {
             listOf(Triple("b1", 0.0, false), Triple("b2", 1800.0, false)),
             libraryRepo.progressUpdates,
         )
+    }
+
+    // iOS parity: imported inside a folder, the prompt's "Library" moves the batch to the root.
+    @Test fun moveImportToLibrary_insideAFolder_movesTheBatchToTheRoot() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository()
+        val model = modelWith(libraryRepo = libraryRepo)
+        val items = listOf(LibraryItemEntity(uuid = "b1", title = "B", relativePath = "Shelf/B.m4b", type = ItemType.BOOK))
+
+        model.moveImportToLibrary(ApplicationProvider.getApplicationContext(), com.tortugapower.audiobookplayer.logic.ImportCompletion(items, "B", basePath = "Shelf"))
+        advanceUntilIdle()
+
+        assertEquals(listOf(listOf("b1") to null), libraryRepo.moves)
+    }
+
+    @Test fun moveImportToLibrary_atTheRoot_movesNothing() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository()
+        val model = modelWith(libraryRepo = libraryRepo)
+        val items = listOf(LibraryItemEntity(uuid = "b1", title = "B", relativePath = "B.m4b", type = ItemType.BOOK))
+
+        model.moveImportToLibrary(ApplicationProvider.getApplicationContext(), com.tortugapower.audiobookplayer.logic.ImportCompletion(items, "B", basePath = null))
+        advanceUntilIdle()
+
+        assertTrue(libraryRepo.moves.isEmpty())
+    }
+
+    // A move that left items where they were says how many, so the UI can tell the user.
+    @Test fun moveSelectedItems_reportsTheItemsLeftWhereTheyWere() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository().apply { takenAtDestination += "b2" }
+        val model = modelWith(libraryRepo = libraryRepo)
+        val items = listOf(
+            LibraryItemEntity(uuid = "b1", title = "A", relativePath = "Shelf/A.m4b", type = ItemType.BOOK),
+            LibraryItemEntity(uuid = "b2", title = "B", relativePath = "Shelf/B.m4b", type = ItemType.BOOK),
+        )
+
+        model.moveSelectedItems(ApplicationProvider.getApplicationContext(), items, null)
+        advanceUntilIdle()
+        assertEquals(1, model.itemsNotMoved.value)
+
+        model.clearItemsNotMoved()
+        model.moveSelectedItems(ApplicationProvider.getApplicationContext(), items.take(1), null)
+        advanceUntilIdle()
+        assertEquals(null, model.itemsNotMoved.value)
+    }
+
+    // A refused folder-only delete says how many of its items clash, so the UI can tell the user.
+    @Test fun shallowDeleteFolder_refused_reportsTheClashingItems() = runTest(dispatcher) {
+        val libraryRepo = FakeLibraryRepository().apply { refuseShallowDelete = true }
+        val model = modelWith(libraryRepo = libraryRepo)
+
+        model.shallowDeleteFolder(ApplicationProvider.getApplicationContext(), LibraryItemEntity(uuid = "f", title = "Series", relativePath = "Series", type = ItemType.FOLDER))
+        // The delete runs on Dispatchers.IO: wait for it.
+        val deadline = System.currentTimeMillis() + 5_000
+        while (model.folderNotDeleted.value == null && System.currentTimeMillis() < deadline) Thread.sleep(10)
+
+        assertEquals(2, model.folderNotDeleted.value)
     }
 }

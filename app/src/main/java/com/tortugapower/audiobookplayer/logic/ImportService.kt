@@ -20,7 +20,9 @@ data class ImportFile(
     val hostId: String? = null,
     val isFileOnly: Boolean = false,
     val streamEntity: LibraryItemEntity? = null,
-    val artworkHeaders: Map<String, String>? = null
+    val artworkHeaders: Map<String, String>? = null,
+    /** A stream import's audio files when the item has several: it's imported as a volume of them. */
+    val streamFiles: List<com.tortugapower.audiobookplayer.network.StreamFile> = emptyList()
 ) {
     val isStream: Boolean get() = streamEntity != null
 
@@ -32,7 +34,8 @@ data class ImportFile(
  * Result of an accepted import, driving the post-import placement prompt (Library / Current
  * folder / New folder / Existing folder / Create bound book).
  *
- * @param items the newly created library items (stream imports and offloaded-file restores excluded)
+ * @param items the newly created library items, streamed ones included (offloaded-file restores and items
+ *   already in the library excluded)
  * @param suggestedName pre-fill for folder/volume name prompts: the last imported archive's name,
  *   falling back to the first imported item's title
  * @param basePath where the items were inserted (null = library root)

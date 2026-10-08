@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.tortugapower.audiobookplayer.database.dao.LibraryDao
+import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.ChapterEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
@@ -11,6 +12,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -59,6 +62,18 @@ class LibraryDaoTest {
         assertEquals(listOf("2", "3", "1"), result.map { it.uuid })
     }
 
+    /** A targeted write: a speed change can't undo a progress or confirmation written meanwhile */
+    @Test fun updateItemSpeed_setsOnlyTheSpeed() = runBlocking {
+        dao.insertItem(item("1", "Dune", "Frank Herbert", "Dune.m4b").copy(currentTime = 42.0, serverKnown = true))
+
+        dao.updateItemSpeed("1", 1.75)
+
+        val stored = dao.getItemById("1")!!
+        assertEquals(1.75, stored.speed!!, 0.0)
+        assertEquals(42.0, stored.currentTime, 0.0)
+        assertEquals(true, stored.serverKnown)
+    }
+
     @Test fun searchAllBooks_respectsLimit() = runBlocking {
         repeat(5) { i -> dao.insertItem(item("b$i", "Book Dune $i", null, "b$i.m4b", lastPlay = i.toLong())) }
         assertEquals(2, dao.searchAllBooksSync("dune", 2).size)
@@ -93,5 +108,89 @@ class LibraryDaoTest {
         dao.replaceChaptersForBook("b1", listOf(chapter("b1", 0), chapter("b1", 1), chapter("b1", 2)))
 
         assertEquals(3, dao.getChaptersForBook("b1").first().size)
+    }
+
+    @Test fun insertBookmarkIfBookExists_skipsWhenTheBookIsGone() = runBlocking {
+        // No library_items row for this uuid: the FOREIGN KEY would fail the insert. The DAO must
+        // notice inside the transaction and write nothing rather than throw (ANDROID-BOOKPLAYER-23).
+        val id = dao.insertBookmarkIfBookExists(BookmarkEntity(bookUuid = "deleted-book", time = 12.0))
+
+        assertNull(id)
+        assertEquals(0, dao.getBookmarksForBook("deleted-book").first().size)
+    }
+
+    @Test fun insertBookmarkIfBookExists_insertsForAnExistingBook() = runBlocking {
+        dao.insertItem(item("b1", "Dune", "Frank Herbert", "Dune.m4b"))
+        val id = dao.insertBookmarkIfBookExists(BookmarkEntity(bookUuid = "b1", time = 12.0))
+
+        assertNotNull(id)
+        assertEquals(listOf(12.0), dao.getBookmarksForBook("b1").first().map { it.time })
+    }
+
+    // ---- Reads for the missing-items pass ----
+
+    @Test fun getAllUuids_returnsEveryItemsUuid() = runBlocking {
+        dao.insertItem(item("b1", "Dune", null, "Dune.m4b"))
+        dao.insertItem(item("f1", "Shelf", null, "Shelf", ItemType.FOLDER))
+        dao.insertItem(item("", "Odd", null, "Odd.m4b"))
+
+        assertEquals(setOf("b1", "f1"), dao.getAllUuids().toSet())
+    }
+
+    // ---- What the server has confirmed ----
+
+    /** More uuids than a statement can bind, in chunks; and back to unconfirmed */
+    @Test fun setServerKnown_flagsEveryUuidGiven_andClearsThem() = runBlocking {
+        val uuids = (1..1_200).map { "b$it" }
+        uuids.forEach { dao.insertItem(item(it, it, null, "$it.m4b")) }
+        dao.insertItem(item("local", "Local", null, "Local.m4b"))
+
+        dao.setServerKnown(uuids, known = true)
+        assertEquals(1_200, uuids.count { dao.getItemById(it)!!.serverKnown })
+        assertEquals(false, dao.getItemById("local")!!.serverKnown)
+
+        dao.setServerKnown(listOf("b1", "b2"), known = false)
+        assertEquals(false, dao.getItemById("b1")!!.serverKnown)
+        assertEquals(true, dao.getItemById("b3")!!.serverKnown)
+
+        dao.clearServerKnown()
+        assertEquals(0, uuids.count { dao.getItemById(it)!!.serverKnown })
+    }
+
+    /** A uuid migration keeps what the server confirmed */
+    @Test fun migrateItemUuid_keepsServerKnown() = runBlocking {
+        dao.insertItem(item("local-1", "Book", null, "Book.m4b").copy(serverKnown = true))
+
+        assertEquals(true, dao.migrateItemUuid("local-1", "server-1"))
+        assertEquals(true, dao.getItemById("server-1")!!.serverKnown)
+    }
+
+    @Test fun getItemsByIdsWithResources_loadsTheItemsAndTheirLinks() = runBlocking {
+        dao.insertItemWithExternalResource(
+            item("b1", "Dune", null, "Dune.m4b"),
+            com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity(
+                providerName = "jellyfin", providerId = "jf-1", syncStatus = "stream", libraryItemUuid = "b1",
+            ),
+        )
+        dao.insertItem(item("b2", "Emma", null, "Emma.m4b"))
+        dao.insertItem(item("b3", "Faust", null, "Faust.m4b"))
+
+        val rows = dao.getItemsByIdsWithResources(listOf("b1", "b2", "gone")).associateBy { it.item.uuid }
+
+        assertEquals(setOf("b1", "b2"), rows.keys)
+        assertEquals(listOf("jf-1"), rows.getValue("b1").externalResources.map { it.providerId })
+        assertEquals(emptyList<String>(), rows.getValue("b2").externalResources.map { it.providerId })
+    }
+
+    @Test fun getUserBookmarksForBooks_onlyTheUsersOwn_byTime() = runBlocking {
+        dao.insertItem(item("b1", "Dune", null, "Dune.m4b"))
+        dao.insertItem(item("b2", "Emma", null, "Emma.m4b"))
+        dao.insertBookmark(BookmarkEntity(bookUuid = "b1", time = 30.0))
+        dao.insertBookmark(BookmarkEntity(bookUuid = "b2", time = 10.0))
+        dao.insertBookmark(BookmarkEntity(bookUuid = "b1", time = 20.0, type = com.tortugapower.audiobookplayer.database.entities.BookmarkType.PLAY))
+
+        val bookmarks = dao.getUserBookmarksForBooks(listOf("b1", "b2"))
+
+        assertEquals(listOf("b2" to 10.0, "b1" to 30.0), bookmarks.map { it.bookUuid to it.time })
     }
 }

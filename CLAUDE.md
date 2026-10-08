@@ -141,6 +141,55 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
 - Media3 `ExoPlayer` / `MediaSession` must be released on the appropriate lifecycle; the playback
   service must be started/stopped correctly to avoid leaks and stuck foreground notifications.
 - New repository / `logic` behavior should come with a unit test.
+- **No library listing deletes before this device's first sync** (iOS `syncLibraryContents`, phone only).
+  A listing removes the local items it lacks, and a device can hold items the server never got (imported
+  while signed out or lapsed). So `FirstSyncCoordinator` runs on a root refresh, and right after a sign-in,
+  once the sync lane is empty (parked tasks count):
+  - the `MissingItemsPass` sends every uuid to `POST /v1/library/status`;
+  - it registers the `unknown` items like an import, parents first, after matching them by path
+    (`/v1/library/uuids`, batched by count and body size);
+  - for PRO, it queues `upload_file` for the `unsynced` books with a file here;
+  - it lists the root without deleting, and only then marks the first sync done (`SyncStateStore`, a
+    backup-excluded DataStore file).
+  - Until then folder levels don't fetch, and a queued deleting fetch doesn't delete
+    (`FetchContentsProcessor.canDeleteListings`). Every `createFetchContentsTask` call states `canDelete`.
+  - Sign-out ends its session (`signOut`): a pass still running can't queue into, or mark, the next
+    account's library. The watch only mirrors the cloud and has none of this.
+  - The same pass runs again weekly, and right after the account gains PRO (`noteProAccess` owes one:
+    it uploads the files LITE never sent), after a root refresh, once the sync lane is empty.
+  - The engine reports the sync lane emptying (`onSyncLaneDrained`): a first sync waiting for it, or a
+    due pass, starts then.
+  - The old path-based catch-up (`sync_identifiers`, `GET /v1/library/keys`) is retired; leftover tasks
+    are dropped by `SyncTaskRetirement`.
+- **A listing removes only items the server has confirmed** (`LibraryItemEntity.serverKnown`): one it never had
+  (imported while signed out, restored from the cloud-deleted screen, or imported while the listing was on its
+  way) isn't missing from it, just not there yet. The flag is set by a listing's upsert, a registration the server
+  took (`MetadataUploadProcessor`), the missing-items pass's `/status` answer (it also unflags what `/status`
+  calls unknown) and `/uuids` matches; phone sign-out clears it. The watch ignores it
+  (`FetchContentsProcessor(keepsUnconfirmed = false)`): it never creates items, so every row came from a listing.
+- **Tier changes come from RevenueCat readings, not the stored tier** (iOS `updateSyncEnabled`).
+  `SubscriptionManager` hands each reading to `AccountTierSync`, which classifies it against the last one
+  (`TierTransitions`) and applies it in order: it stores the tier (`AccountRepository.updateTier`, one column,
+  so a sign-out meanwhile isn't undone), then:
+  - a lapse mid-session (PRO/LITE → FREE/PLUS) ends the first sync's session and **wipes** the server lanes
+    (`SyncQueueReset.wipeForLapse`: the sync, upload and preferences lanes plus artwork uploads);
+  - a lapse in the first reading (launch: RevenueCat's cache; or right after a sign-in) happened while the app
+    was closed: the queue is **held** for the return, and only the first-sync flag resets. RevenueCat's cache
+    still reads an expired entitlement as active for 3 days after its fetch, so most expiries while closed
+    arrive as the launch fetch's lapse and wipe, as on iOS;
+  - PRO → LITE drops the file uploads, parked ones too (`dropUploads`); LITE in a first reading does too, and so
+    does a return as LITE (from a lapse held at launch);
+  - a return wakes the engine for the held work.
+  - Each wipe first stops the lanes' workers (`TaskConcurrencyManager.cancelLanes`, via `SyncEngine.current`):
+    deleting a task doesn't stop the worker running it. Sign-out does the same for every lane
+    (`SyncQueueReset.clearAll`), on the phone and the watch.
+  - A sign-in or sign-out starts a new epoch: RevenueCat answers to calls made before it are dropped.
+  - The engine, the launch gate and the first sync wait for this launch's reading
+    (`SubscriptionManager.awaitTierReady`), so they never act on last session's tier.
+- **Covers ride the sync lane** (iOS): `upload_artwork` queues behind its item's registration, so the server
+  never gets a cover for an item it doesn't hold yet (`item_not_found`). The engine moves an older build's
+  file-lane covers there at start. Only book files wait for Wi-Fi (`UploadDataPolicy`): a cover held in the
+  sync lane would hold back every listing.
 - **Media-server connection flow** (Jellyfin / AudiobookShelf; mirrors iOS, so check the iOS `develop`
   branch before changing behavior): one `ConnectionFlowSheet` (own `NavHost`) serves both Add Server and
   re-auth. Address → Connect **probes** the server (`ExternalService.probe` → `ServerCapabilities`) →
@@ -160,10 +209,78 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     `docs/media-servers-testing.md`.
   - **Virtual (stream) import never guesses a file extension.** List responses carry no audio-file
     metadata, so `ExternalLibraryViewModel.prepareStreamImport` hydrates the selection through
-    `ExternalService.getFileExtensions` (Jellyfin `Items?Ids=…&Fields=MediaSources,Path`, ABS
-    `POST api/items/batch/get`), names each item `<title>.<ext>` (`VirtualImportManager.importFileName`,
-    the iOS name, so both platforms produce the same `relativePath`) and skips items without one
-    (`import_no_audio_files_alert` / the skipped count on the import sheet).
+    `ExternalService.getStreamImportInfo` (Jellyfin `Items?Ids=…&Fields=MediaSources,Path`, ABS
+    `POST api/items/batch/get`), names each item `<title>.<ext>` (`VirtualImportManager.importFileName`;
+    iOS #1586 is aligning to the same name by dropping its `<providerId>-` prefix) and skips items without
+    one (`import_no_audio_files_alert` / the skipped count on the import sheet). An ABS item made of
+    several audio files imports as a **volume**: a BOUND item named after the title, holding the
+    media-server link, with one book per file named by its flattened path inside the item's folder
+    (`VirtualImportManager.volumeChildFileNames`: `Disc 1/01.mp3` → `Disc 1 - 01.mp3`; a name two paths
+    flatten to gets `-2` on the later one, and lookups rebuild the names the same way to match them).
+    Like any import (iOS parity), a stream import lands in the folder being browsed (`basePath`) and joins
+    the post-import placement prompt (`ImportCompletion`). Items already in the library stay put and
+    aren't prompted. The prompt's "Library" moves a batch imported inside a folder to the root
+    (`LibraryViewModel.moveImportToLibrary`), for every import.
+  - **A move never lands on a taken name.** `LibraryRepository.moveItems` leaves an item where it is
+    when another library item or a file on disk already has its name at the destination, and returns
+    it. Two items at one path would mix their books, or a book would point at another book's file. A
+    streamed item has no file, so the library is checked too.
+    - The library screen says how many items weren't moved (`itemsNotMoved`), and the server gets no
+      move task for them.
+    - `shallowDeleteFolder` ("Delete folder only") moves the folder's children up into its **parent**,
+      the root for a top-level folder, as iOS does and as the server's `folder_in_out` does
+      (`moveFilesUp`). Moving them to the root would leave the library out of step with the server.
+    - It's refused outright when a child's name is taken in that parent (iOS parity,
+      `NameTakenException`). Nothing is moved or deleted, and no task is sent. Moved anyway, the child
+      would replace the other book's audio; left behind, it would be deleted with the folder.
+  - **A media-server download lands like a stream import.** The browse-screen Download saves the item's
+    file, or, for ABS, a zip of the item's folder with no root folder (`ImportManager.expandArchives` →
+    `stageMediaServerDownload`). Only its audio files count, so a `cover.jpg` doesn't make a second item.
+    - One audio file is the item's book and carries the link (`synced`).
+    - Several are staged as one directory named after the download, carrying the item's tags, so
+      `importDirectory` creates a **volume** with the link. Its books are flattened, named like a
+      streamed volume's (`volumeChildFileNames`).
+    - Inside that directory the books are never matched to an offloaded book by name: generic track
+      names would fill another item's book. A second download of the same item is a second volume
+      (`Title-1`, `ImportArchiveUtils.uniqueDirectory`). The name must also be free in the library: a
+      streamed volume of that title has no folder on disk, and the paths would collide.
+    - Zips the user imports keep their folders, and an untagged folder stays a FOLDER.
+  - **Hardcover auto-match runs once per import** (iOS parity: `HardcoverService.processAutoMatch`).
+    - `ImportManager` queues one `JOB_HARDCOVER_AUTO_MATCH` task covering every item the import created
+      at the top level: books, folders, volumes and streamed items. A task queued in the older
+      one-item format (`itemUuid`) still runs.
+    - `HardcoverProcessor` takes each item's top search hit, then skips every item whose hit another
+      item of the batch also got (`uniqueHits`): most likely the parts of one book. The guard stays
+      within the batch. The others get the link, which LITE/PRO accounts upload right away.
+    - An item already linked is skipped, so an interrupted batch can run again.
+    - Hardcover's cover is used only for an item with none of its own. It's set on the item as
+      currently stored, not on the copy read before the search.
+  - **Stream URLs are looked up at play/download time** (`MediaServerStreams`, behind
+    `LibraryRepository.externalStreamUrl(s)For`). Jellyfin serves an item from one URL
+    (`ExternalServiceUtils.downloadUrlFor`). ABS serves raw audio only per file: its item download is a
+    zip for any book in a folder, and a file's id is its inode, which changes when the file is replaced.
+    So playback and downloads ask `GET api/items/{id}?expanded=1` for the tracks
+    (`ExternalService.getStreamFiles`) and play `api/items/{id}/file/{ino}` relative to the saved server
+    URL, with no token in the URL (auth rides the headers). A volume's books find their file through the
+    volume's link (by name, else position), one lookup per volume. A copy of a URL (a download task's
+    payload, a sub-book's saved `remoteURL`) can go stale, so a download whose ABS URL 404s is looked up
+    once more in the same run. A download whose server answered without a file for it (the item is gone,
+    or several files imported as one book) is dropped, not retried: the file queue is serial, and a lookup
+    reports that apart from a failed one (`MediaServerStreams.Lookup.noFile`). Only a server that didn't answer
+    (`Lookup.unreachable`) leaves a download to retry; one that answered with an error, rejected the token or
+    isn't saved drops it, as the download's own error answer would. Don't resolve URLs speculatively: each ABS lookup is a request. A lookup
+    gives up after 5 s (`MediaServerStreams.LOOKUP_TIMEOUT_MS`), so an unreachable home server falls
+    through to the cloud copy instead of waiting out the HTTP timeouts; a background download's lookup
+    (`DownloadFileProcessor`) waits 30 s, since nobody is waiting on it. A server that times out, can't be
+    reached or rejects the token is skipped for the rest of that lookup, so a folder of single books
+    waits once, not once per book.
+  - **A streamed book's file reaches the cloud only through a download** (iOS parity). Its registration
+    never asks for the file (`MediaServerStreams.isStreamed`: its own link, or its streamed volume's), and
+    once `DownloadFileProcessor` has verified and moved the file into place, the phone queues the upload
+    from the sync lane (`queue_file_upload`, which checks PRO and the file). The watch uploads nothing.
+    1.2's stream-to-cloud pipe (`upload_stream_file`, server route `external_set`) is gone: the engine
+    turns queued pipe tasks into that step and drops their confirmations (`SyncTaskRetirement`, at app launch and at
+    engine start: a held retired task never starts the engine, and in the sync lane it holds back every refresh).
 
 ## Git
 

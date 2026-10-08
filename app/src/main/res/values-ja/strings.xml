@@ -212,14 +212,12 @@
     <string name="sync_task_fetch_library">ライブラリの取得</string>
     <string name="sync_task_upload_audio">オーディオのアップロード</string>
     <string name="sync_task_download_audio">オーディオのダウンロード</string>
-    <string name="sync_task_sync_identifiers">識別子の同期</string>
     <string name="sync_task_match_library_ids">ライブラリIDの照合</string>
     <string name="sync_task_upload_external_resource">外部リソースのアップロード</string>
     <string name="sync_task_delete_external_resource">外部リソースの削除</string>
     <string name="sync_task_hardcover_auto_match">Hardcover 自動マッチング</string>
     <string name="sync_task_hardcover_update_status">Hardcover ステータスの更新</string>
     <string name="sync_task_external_update">外部ステータスの更新</string>
-    <string name="sync_task_set_external_resource_to_download">外部リソースのダウンロード状況</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">概要</string>
@@ -435,4 +433,15 @@
     <string name="settings_disable_autolock">自動ロックを無効化</string>
     <string name="settings_autolock_only_on_power">電源接続時のみ</string>
     <string name="settings_autolock_desc">プレーヤー画面でデバイスがロックされるのを防ぎます。</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">サーバーが接続されていません</string>
+    <string name="external_server_missing_message">この本は %1$s サーバーからストリーミングされます。本を再生するには、このデバイスでサーバーに接続してください。</string>
+    <string name="external_server_missing_message_address">この本は %2$s の %1$s サーバーからストリーミングされます。本を再生するには、このデバイスにそのサーバーを追加してください。</string>
+    <string name="external_server_missing_connect">接続</string>
+    <plurals name="library_move_name_taken">
+        <item quantity="other">%1$d個のアイテムを移動できませんでした。移動先に同じ名前のアイテムが既にあります。</item>
+    </plurals>
+    <plurals name="library_shallow_delete_name_taken">
+        <item quantity="other">フォルダを削除できませんでした。フォルダ内の%1$d個のアイテムと同じ名前のアイテムがライブラリに既にあります。先に名前を変更するか、移動してください。</item>
+    </plurals>
 </resources>

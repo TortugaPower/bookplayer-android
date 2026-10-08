@@ -12,6 +12,7 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.BookPlayerApplication
 import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
+import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
 import com.tortugapower.audiobookplayer.logic.sort.SortType
@@ -25,6 +26,7 @@ class LibraryViewModel(
     application: Application,
     private val repository: com.tortugapower.audiobookplayer.repository.LibraryRepository,
     private val syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository,
+    private val firstSync: com.tortugapower.audiobookplayer.logic.FirstSyncGate,
     // Injectable so unit tests can run the row-state derivation on the test dispatcher.
     private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO
 ) : AndroidViewModel(application) {
@@ -63,9 +65,12 @@ class LibraryViewModel(
     /** True while a pull-to-refresh fetch is in flight — drives the list's refresh indicator. */
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
-    private val _syncTasksBusy = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    /** Emits when a refresh is declined because sync jobs are already scheduled (UI shows a transient note). */
-    val syncTasksBusy: SharedFlow<Unit> = _syncTasksBusy.asSharedFlow()
+    private val _syncTasksBusy = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
+    /**
+     * Emits when a refresh is declined because sync jobs are already queued (UI shows a transient note):
+     * true when one of them is parked, so the queue won't drain until the user resolves it.
+     */
+    val syncTasksBusy: SharedFlow<Boolean> = _syncTasksBusy.asSharedFlow()
 
     /**
      * Manual library refresh (pull-to-refresh), mirroring iOS `ItemListViewModel.refreshListState`:
@@ -74,10 +79,11 @@ class LibraryViewModel(
      *
      * - [syncEnabled] is the caller's tier gate (PRO/LITE). When false we no-op silently, like iOS's
      *   `guard syncService.isActive`.
-     * - If the sync queue already has scheduled jobs we decline and signal [syncTasksBusy] instead of
-     *   fetching, matching iOS's "sync tasks in progress" guard. File transfers (a separate queue) do NOT
-     *   block a refresh — Android keeps them off the sync queue on purpose.
-     * - Otherwise we force past the 30s per-path throttle (a manual pull should always try) and wait for the
+     * - If the sync queue already has scheduled jobs, parked ones included, we decline and signal
+     *   [syncTasksBusy] instead of fetching, matching iOS's "sync tasks in progress" / "sync is paused"
+     *   guard: the listing would undo local changes the server never got. File transfers (a separate
+     *   queue) do NOT block a refresh — Android keeps them off the sync queue on purpose.
+     * - Otherwise we force past the 60 s per-path throttle (a manual pull should always try) and wait for the
      *   fetch task to drain, bounded by [REFRESH_TIMEOUT_MS] so a wedged task can't hang the indicator.
      */
     fun refresh(syncEnabled: Boolean) {
@@ -86,20 +92,56 @@ class LibraryViewModel(
             try {
                 if (!syncEnabled) return@launch
 
-                if (syncTaskRepository.countActiveTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0) {
-                    _syncTasksBusy.tryEmit(Unit)
+                // An account pause in any lane holds the sync lane too: a fetch queued now would never start
+                val accountHeld = syncTaskRepository.hasAccountPause()
+                if (accountHeld || syncTaskRepository.countQueuedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0) {
+                    _syncTasksBusy.tryEmit(
+                        accountHeld || syncTaskRepository.countPausedTasksInQueue(SyncTaskFactory.QUEUE_SYNC) > 0
+                    )
                     return@launch
                 }
 
                 val path = _currentPath.value
-                val enqueued = SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path, force = true)
+                if (!firstSync.hasRunFirstSync()) {
+                    // Until this device's first sync has run, the root runs it instead and a folder waits
+                    // (iOS): a listing that deletes would drop items the server never got
+                    if (path == null) withTimeoutOrNull(REFRESH_TIMEOUT_MS) { firstSync.run() }
+                    return@launch
+                }
+                val enqueued = SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path, force = true, canDelete = true)
                 if (enqueued) {
                     withTimeoutOrNull(REFRESH_TIMEOUT_MS) { awaitFetchContentsDone(path ?: "root") }
                 }
+                if (path == null) firstSync.schedulePassIfNeeded()
             } finally {
                 _isRefreshing.value = false
             }
         }
+    }
+
+    /**
+     * The throttled contents fetch for the level on screen (60 s per level; skipped while sync jobs are
+     * queued, see createFetchContentsTask). Until this device's first sync has run, the root runs it instead
+     * and folder levels wait.
+     */
+    suspend fun fetchVisibleLevel(path: String?, syncEnabled: Boolean) {
+        if (!syncEnabled) return
+        val pathKey = path ?: "root"
+        if (!SyncStatusManager.canFetchContents(pathKey)) return
+        if (!firstSync.hasRunFirstSync()) {
+            if (path == null) {
+                // Throttled like a listing: one that fails (the server down, offline) isn't asked again on every
+                // visit to the root
+                SyncStatusManager.markPathAsFetched(pathKey)
+                firstSync.request()
+            }
+            return
+        }
+        if (SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path, canDelete = true)) {
+            SyncStatusManager.markPathAsFetched(pathKey)
+        }
+        // After a root refresh (iOS): a missing-items pass that's due runs once the sync lane is empty
+        if (path == null) firstSync.schedulePassIfNeeded()
     }
 
     /** Suspends until no `fetch_contents` task for [taskKey] remains in the queue (deleted on completion). */
@@ -303,10 +345,30 @@ class LibraryViewModel(
         }
     }
 
+    /**
+     * The post-import prompt's "Library": a batch imported inside a folder moves to the library root
+     * (iOS parity: ItemListViewModel.importIntoLibrary). At the root there's nothing to move.
+     */
+    fun moveImportToLibrary(context: android.content.Context, completion: com.tortugapower.audiobookplayer.logic.ImportCompletion) {
+        if (completion.basePath != null) moveSelectedItems(context, completion.items, null)
+    }
+
     fun moveSelectedItems(context: android.content.Context, items: List<LibraryItemEntity>, targetPath: String?) {
         viewModelScope.launch {
-            repository.moveItems(context, items, targetPath)
+            reportNotMoved(repository.moveItems(context, items, targetPath))
         }
+    }
+
+    private val _itemsNotMoved = MutableStateFlow<Int?>(null)
+    /** How many items of the last move stayed put because their name was taken at the destination. */
+    val itemsNotMoved: StateFlow<Int?> = _itemsNotMoved.asStateFlow()
+
+    fun clearItemsNotMoved() {
+        _itemsNotMoved.value = null
+    }
+
+    private fun reportNotMoved(notMoved: List<LibraryItemEntity>) {
+        if (notMoved.isNotEmpty()) _itemsNotMoved.value = notMoved.size
     }
 
     /**
@@ -337,7 +399,7 @@ class LibraryViewModel(
                 orderRank = (currentMaxRank ?: -1) + 1
             )
             repository.saveItem(newFolder)
-            repository.moveItems(context, items, relativePath)
+            reportNotMoved(repository.moveItems(context, items, relativePath))
         }
     }
 
@@ -495,11 +557,23 @@ class LibraryViewModel(
         }
     }
 
-    /** iOS-parity "Delete folder only": contents move back to the library root, folder row goes. */
+    /** iOS-parity "Delete folder only": contents move up into the folder's parent, folder row goes. */
     fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.shallowDeleteFolder(context, folder)
+            try {
+                repository.shallowDeleteFolder(context, folder)
+            } catch (e: com.tortugapower.audiobookplayer.repository.NameTakenException) {
+                _folderNotDeleted.value = e.count
+            }
         }
+    }
+
+    private val _folderNotDeleted = MutableStateFlow<Int?>(null)
+    /** Set when a folder-only delete was refused: how many of its items have names taken in its parent. */
+    val folderNotDeleted: StateFlow<Int?> = _folderNotDeleted.asStateFlow()
+
+    fun clearFolderNotDeleted() {
+        _folderNotDeleted.value = null
     }
 
     fun resetItemProgress(uuid: String) {

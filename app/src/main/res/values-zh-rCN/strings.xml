@@ -212,14 +212,12 @@
     <string name="sync_task_fetch_library">获取库</string>
     <string name="sync_task_upload_audio">上传音频</string>
     <string name="sync_task_download_audio">下载音频</string>
-    <string name="sync_task_sync_identifiers">同步标识符</string>
     <string name="sync_task_match_library_ids">匹配库 ID</string>
     <string name="sync_task_upload_external_resource">上传外部资源</string>
     <string name="sync_task_delete_external_resource">删除外部资源</string>
     <string name="sync_task_hardcover_auto_match">Hardcover 自动匹配</string>
     <string name="sync_task_hardcover_update_status">更新 Hardcover 状态</string>
     <string name="sync_task_external_update">外部状态更新</string>
-    <string name="sync_task_set_external_resource_to_download">下载外部资源状态</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">概览</string>
@@ -435,4 +433,15 @@
     <string name="settings_disable_autolock">禁用自动锁定</string>
     <string name="settings_autolock_only_on_power">仅在连接电源时</string>
     <string name="settings_autolock_desc">在播放器界面时，防止设备自动锁定。</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">服务器未连接</string>
+    <string name="external_server_missing_message">此书从您的 %1$s 服务器串流播放。请在此设备上连接该服务器以播放此书。</string>
+    <string name="external_server_missing_message_address">此书从您位于 %2$s 的 %1$s 服务器串流播放。请在此设备上添加该服务器以播放此书。</string>
+    <string name="external_server_missing_connect">连接</string>
+    <plurals name="library_move_name_taken">
+        <item quantity="other">%1$d 个项目未移动：目标位置已存在同名项目。</item>
+    </plurals>
+    <plurals name="library_shallow_delete_name_taken">
+        <item quantity="other">文件夹未删除：其中 %1$d 个项目与库中已有项目同名。请先将其重命名或移动。</item>
+    </plurals>
 </resources>

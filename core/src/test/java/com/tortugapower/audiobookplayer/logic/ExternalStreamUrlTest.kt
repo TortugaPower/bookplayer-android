@@ -8,8 +8,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Pins the provider download-URL derivation shared by playback's `resolveStreamingUrl` and the
- * stream-to-cloud pipe's source GET (query-token auth, exact endpoint shapes).
+ * Pins the provider whole-item URL shared by Jellyfin playback and downloads (no token in the URL, exact
+ * endpoint shape; none for AudiobookShelf).
  */
 class ExternalStreamUrlTest {
 
@@ -22,23 +22,23 @@ class ExternalStreamUrlTest {
         syncStatus = ExternalResourceEntity.STATUS_STREAM, libraryItemUuid = "b1", hostId = "1",
     )
 
-    @Test fun `jellyfin download URL carries the api_key query token`() {
+    // No token in the URL: Jellyfin 12 ignores `api_key`, so consumers authenticate with the header.
+    @Test fun `jellyfin download URL carries no token`() {
         assertEquals(
-            "https://media.example.com/Items/item-9/Download?api_key=tok-1",
+            "https://media.example.com/Items/item-9/Download",
             ExternalServiceUtils.downloadUrlFor(server(ExternalServiceType.JELLYFIN), resource("jellyfin")),
         )
     }
 
-    @Test fun `audiobookshelf download URL carries the token query param`() {
-        assertEquals(
-            "https://media.example.com/api/items/item-9/download?token=tok-1",
-            ExternalServiceUtils.downloadUrlFor(server(ExternalServiceType.AUDIOBOOKSHELF), resource("audiobookshelf")),
-        )
+    // ABS's item download is a zip for any book in a folder: its books stream per file (MediaServerStreams),
+    // so there's no whole-item URL to hand the player or a download.
+    @Test fun `audiobookshelf has no whole-item audio URL`() {
+        assertNull(ExternalServiceUtils.downloadUrlFor(server(ExternalServiceType.AUDIOBOOKSHELF), resource("audiobookshelf")))
     }
 
     @Test fun `trailing-slash server URL does not double the slash`() {
         assertEquals(
-            "https://media.example.com/Items/item-9/Download?api_key=tok-1",
+            "https://media.example.com/Items/item-9/Download",
             ExternalServiceUtils.downloadUrlFor(
                 server(ExternalServiceType.JELLYFIN, url = "https://media.example.com/"), resource("jellyfin"),
             ),

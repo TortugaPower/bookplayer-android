@@ -212,14 +212,12 @@
     <string name="sync_task_fetch_library">جلب المكتبة</string>
     <string name="sync_task_upload_audio">رفع الملف الصوتي</string>
     <string name="sync_task_download_audio">تحميل الملف الصوتي</string>
-    <string name="sync_task_sync_identifiers">مزامنة المعرفات</string>
     <string name="sync_task_match_library_ids">مطابقة معرفات المكتبة</string>
     <string name="sync_task_upload_external_resource">رفع مورد خارجي</string>
     <string name="sync_task_delete_external_resource">حذف مورد خارجي</string>
     <string name="sync_task_hardcover_auto_match">مطابقة تلقائية لـ Hardcover</string>
     <string name="sync_task_hardcover_update_status">تحديث حالة Hardcover</string>
     <string name="sync_task_external_update">تحديث الحالة الخارجية</string>
-    <string name="sync_task_set_external_resource_to_download">حالة تنزيل المورد الخارجي</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">نظرة عامة</string>
@@ -449,4 +447,25 @@
     <string name="settings_disable_autolock">تعطيل القفل التلقائي</string>
     <string name="settings_autolock_only_on_power">فقط عند التوصيل بالطاقة</string>
     <string name="settings_autolock_desc">منع الجهاز من القفل عندما تكون في شاشة المشغل.</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">الخادم غير متصل</string>
+    <string name="external_server_missing_message">يتم بث هذا الكتاب من خادم %1$s الخاص بك. اتصل به على هذا الجهاز لتشغيل الكتاب.</string>
+    <string name="external_server_missing_message_address">يتم بث هذا الكتاب من خادم %1$s الخاص بك على العنوان %2$s. أضف هذا الخادم على هذا الجهاز لتشغيل الكتاب.</string>
+    <string name="external_server_missing_connect">اتصال</string>
+    <plurals name="library_move_name_taken">
+        <item quantity="zero">لم يتم نقل %1$d عنصر: توجد بالفعل عناصر بالأسماء نفسها في الوجهة.</item>
+        <item quantity="one">لم يتم نقل %1$d عنصر: يوجد بالفعل عنصر بالاسم نفسه في الوجهة.</item>
+        <item quantity="two">لم يتم نقل %1$d عنصر: يوجد بالفعل عنصران بالاسمين نفسيهما في الوجهة.</item>
+        <item quantity="few">لم يتم نقل %1$d عناصر: توجد بالفعل عناصر بالأسماء نفسها في الوجهة.</item>
+        <item quantity="many">لم يتم نقل %1$d عنصرًا: توجد بالفعل عناصر بالأسماء نفسها في الوجهة.</item>
+        <item quantity="other">لم يتم نقل %1$d عنصر: توجد بالفعل عناصر بالأسماء نفسها في الوجهة.</item>
+    </plurals>
+    <plurals name="library_shallow_delete_name_taken">
+        <item quantity="zero">لم يتم حذف المجلد: يحتوي على %1$d عنصر بأسماء مستخدمة بالفعل في المكتبة. أعد تسميتها أو انقلها أولاً.</item>
+        <item quantity="one">لم يتم حذف المجلد: يحتوي على %1$d عنصر باسم مستخدم بالفعل في المكتبة. أعد تسميته أو انقله أولاً.</item>
+        <item quantity="two">لم يتم حذف المجلد: يحتوي على %1$d عنصر باسمين مستخدمين بالفعل في المكتبة. أعد تسميتهما أو انقلهما أولاً.</item>
+        <item quantity="few">لم يتم حذف المجلد: يحتوي على %1$d عناصر بأسماء مستخدمة بالفعل في المكتبة. أعد تسميتها أو انقلها أولاً.</item>
+        <item quantity="many">لم يتم حذف المجلد: يحتوي على %1$d عنصرًا بأسماء مستخدمة بالفعل في المكتبة. أعد تسميتها أو انقلها أولاً.</item>
+        <item quantity="other">لم يتم حذف المجلد: يحتوي على %1$d عنصر بأسماء مستخدمة بالفعل في المكتبة. أعد تسميتها أو انقلها أولاً.</item>
+    </plurals>
 </resources>

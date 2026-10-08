@@ -67,6 +67,23 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items")
     suspend fun getAllItemsSync(): List<LibraryItemEntity>
 
+    /** Every item's uuid, without loading the items (the missing-items pass sends them all) */
+    @Query("SELECT uuid FROM library_items WHERE uuid != ''")
+    suspend fun getAllUuids(): List<String>
+
+    /** Records whether the server holds [uuids] (LibraryItemEntity.serverKnown), in chunks a statement can bind */
+    @Transaction
+    suspend fun setServerKnown(uuids: Collection<String>, known: Boolean) {
+        uuids.distinct().chunked(500).forEach { setServerKnownChunk(it, known) }
+    }
+
+    @Query("UPDATE library_items SET serverKnown = :known WHERE uuid IN (:uuids)")
+    suspend fun setServerKnownChunk(uuids: List<String>, known: Boolean)
+
+    /** Sign-out: the next account's server holds none of them */
+    @Query("UPDATE library_items SET serverKnown = 0")
+    suspend fun clearServerKnown()
+
     @Query("SELECT MAX(orderRank) FROM library_items WHERE relativePath NOT LIKE '%/%'")
     suspend fun getMaxRootOrderRank(): Int?
 
@@ -78,6 +95,10 @@ interface LibraryDao {
 
     @Update
     suspend fun updateItem(item: LibraryItemEntity)
+
+    /** Just the URL a book streams from: a looked-up media-server URL is local, never synced. */
+    @Query("UPDATE library_items SET remoteURL = :url WHERE uuid = :uuid")
+    suspend fun updateRemoteURL(uuid: String, url: String?)
 
     @Delete
     suspend fun deleteItem(item: LibraryItemEntity)
@@ -114,14 +135,34 @@ interface LibraryDao {
         insertChapters(chapters)
     }
 
+    @Query("UPDATE library_items SET speed = :speed WHERE uuid = :uuid")
+    suspend fun updateItemSpeed(uuid: String, speed: Double)
+
     @Query("SELECT * FROM bookmarks WHERE bookUuid = :bookUuid ORDER BY time ASC")
     fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>>
 
     @Query("SELECT * FROM bookmarks WHERE bookUuid = :bookUuid AND time = :time LIMIT 1")
     suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity?
 
+    /** The user's own bookmarks (the ones that sync) of these books, by time. At most 500 books per call. */
+    @Query("SELECT * FROM bookmarks WHERE bookUuid IN (:bookUuids) AND type = 'USER' ORDER BY time ASC")
+    suspend fun getUserBookmarksForBooks(bookUuids: List<String>): List<BookmarkEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBookmark(bookmark: BookmarkEntity): Long
+
+    /**
+     * Insert a bookmark only while its book still exists. The player keeps its item in memory, and a
+     * sync pull can delete or replace the row underneath it (uuid churn); `bookmarks.bookUuid` is a
+     * FOREIGN KEY to `library_items`, so inserting then would fail the transaction and, unhandled,
+     * the process (Sentry ANDROID-BOOKPLAYER-23). Checked inside the same transaction, so it cannot
+     * race the delete. Returns the new row id, or null when the book is gone and nothing was written.
+     */
+    @Transaction
+    suspend fun insertBookmarkIfBookExists(bookmark: BookmarkEntity): Long? {
+        if (getItemById(bookmark.bookUuid) == null) return null
+        return insertBookmark(bookmark)
+    }
 
     @Update
     suspend fun updateBookmark(bookmark: BookmarkEntity)
@@ -129,19 +170,42 @@ interface LibraryDao {
     @Delete
     suspend fun deleteBookmark(bookmark: BookmarkEntity)
 
+    /**
+     * Gives the item [oldUuid] the server's [newUuid]. The new row is stored first and every row that
+     * points at the item moves to it before the old row is deleted: foreign keys are enforced, so
+     * repointing first fails, and deleting first cascades the item's chapters, bookmarks, external
+     * resources and listening sessions away. Returns false, changing nothing, when another item
+     * already has [newUuid]; true otherwise, including when there's no local item to move (so a retry
+     * after the item moved still moves its queued tasks).
+     */
     @Transaction
-    suspend fun migrateItemUuid(oldUuid: String, newUuid: String) {
-        val item = getItemById(oldUuid) ?: return
-        
-        // 1. Update Chapters to the new UUID
-        updateChaptersUuid(oldUuid, newUuid)
-        // 2. Update Bookmarks to the new UUID
-        updateBookmarksUuid(oldUuid, newUuid)
-        // 3. Delete old item
-        deleteItem(item)
-        // 4. Insert new item with new UUID
+    suspend fun migrateItemUuid(oldUuid: String, newUuid: String): Boolean {
+        if (oldUuid == newUuid) return true
+        val item = getItemById(oldUuid) ?: return true
+        if (getItemById(newUuid) != null) return false
+
         insertItem(item.copy(uuid = newUuid))
+        updateChaptersUuid(oldUuid, newUuid)
+        updateBookmarksUuid(oldUuid, newUuid)
+        updateExternalResourcesUuid(oldUuid, newUuid)
+        updatePlaybackSessionsUuid(oldUuid, newUuid)
+        updateCompletionsUuid(oldUuid, newUuid)
+        updateChildrenParentUuid(oldUuid, newUuid)
+        deleteItem(item)
+        return true
     }
+
+    @Query("UPDATE external_resources SET libraryItemUuid = :newUuid WHERE libraryItemUuid = :oldUuid")
+    suspend fun updateExternalResourcesUuid(oldUuid: String, newUuid: String)
+
+    @Query("UPDATE playback_sessions SET bookUuid = :newUuid WHERE bookUuid = :oldUuid")
+    suspend fun updatePlaybackSessionsUuid(oldUuid: String, newUuid: String)
+
+    @Query("UPDATE book_completions SET bookUuid = :newUuid WHERE bookUuid = :oldUuid")
+    suspend fun updateCompletionsUuid(oldUuid: String, newUuid: String)
+
+    @Query("UPDATE library_items SET parentFolderUuid = :newUuid WHERE parentFolderUuid = :oldUuid")
+    suspend fun updateChildrenParentUuid(oldUuid: String, newUuid: String)
 
     @Query("UPDATE chapters SET bookUuid = :newUuid WHERE bookUuid = :oldUuid")
     suspend fun updateChaptersUuid(oldUuid: String, newUuid: String)
@@ -164,6 +228,10 @@ interface LibraryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExternalResource(externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity)
 
+    /** Records that the link's file is on this device, touching nothing else on the row */
+    @Query("UPDATE external_resources SET processedFile = 1 WHERE id = :id")
+    suspend fun markExternalResourceFileProcessed(id: Long)
+
     /**
      * Insert a library item together with its external resource atomically — a failure in the second
      * insert must not leave an orphaned item without its backing resource (a stream item without its
@@ -175,6 +243,18 @@ interface LibraryDao {
         externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity,
     ) {
         insertItem(item)
+        insertExternalResource(externalResource)
+    }
+
+    /** A streamed volume in one step: its books are unplayable without the volume's "stream" resource. */
+    @Transaction
+    suspend fun insertVolumeWithExternalResource(
+        volume: LibraryItemEntity,
+        books: List<LibraryItemEntity>,
+        externalResource: com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity,
+    ) {
+        insertItem(volume)
+        books.forEach { insertItem(it) }
         insertExternalResource(externalResource)
     }
 
@@ -196,6 +276,11 @@ interface LibraryDao {
     @Transaction
     @Query("SELECT * FROM library_items WHERE uuid = :uuid")
     suspend fun getItemByIdWithResources(uuid: String): com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources?
+
+    /** Callers pass at most 500: SQLite on API 28 binds 999 variables at most */
+    @Transaction
+    @Query("SELECT * FROM library_items WHERE uuid IN (:uuids)")
+    suspend fun getItemsByIdsWithResources(uuids: List<String>): List<com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources>
 
     @Transaction
     @Query("SELECT * FROM library_items WHERE relativePath = :path LIMIT 1")

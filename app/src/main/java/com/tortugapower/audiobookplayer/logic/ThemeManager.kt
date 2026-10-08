@@ -1,15 +1,13 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
-import android.content.Intent
-import android.appwidget.AppWidgetManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerThemeSpec
-import com.tortugapower.audiobookplayer.widget.AudioWidgetLargeProvider
+import com.tortugapower.audiobookplayer.widget.WidgetPlaybackNotifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -122,16 +120,8 @@ object ThemeManager {
         }
     }
 
-    private fun updateWidgets(context: Context) {
-        val intent = Intent(context, AudioWidgetLargeProvider::class.java).apply {
-            action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-        }
-        val ids = AppWidgetManager.getInstance(context).getAppWidgetIds(
-            android.content.ComponentName(context, AudioWidgetLargeProvider::class.java)
-        )
-        intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
-        context.sendBroadcast(intent)
-    }
+    /** In-process rebuild through the notifier's coalescing entry; never a broadcast at our own receiver. */
+    private fun updateWidgets(context: Context) = WidgetPlaybackNotifier.rebuild(context)
 
     private fun loadThemesFromAssets(context: Context): List<BookPlayerThemeSpec> {
         return try {

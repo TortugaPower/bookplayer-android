@@ -6,14 +6,22 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
+import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
+import com.tortugapower.audiobookplayer.database.dao.LibraryDao
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
+import com.tortugapower.audiobookplayer.network.HardcoverBook
 import com.tortugapower.audiobookplayer.network.HardcoverService
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import kotlinx.coroutines.flow.first
 
 class HardcoverProcessor(
-    private val context: Context
+    private val context: Context,
+    // Test seams: these reach Hardcover over the network.
+    private val searchBooks: suspend (token: String, query: String) -> List<HardcoverBook> = HardcoverService::searchBooks,
+    private val saveUserBookStatus: suspend (token: String, bookId: Int, statusId: Int) -> Int? = HardcoverService::saveUserBookStatus,
+    private val downloadArtwork: (Context, String, java.io.File) -> Boolean = ArtworkManager::downloadAndSaveArtwork,
 ) : TaskProcessor {
     private val gson = Gson()
 
@@ -33,71 +41,11 @@ class HardcoverProcessor(
 
         return when (task.jobType) {
             SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH -> {
-                val itemUuid = payload["itemUuid"] as? String ?: return true
-                val item = libraryDao.getItemById(itemUuid) ?: return true // Item was deleted
-
-                Log.d("HardcoverProcessor", "Performing auto-match for item: ${item.title}")
-
-                // 1. Search books on Hardcover
-                val searchQuery = HardcoverService.buildSearchString(item.title, item.author ?: "")
-                val searchResults = HardcoverService.searchBooks(token, searchQuery)
-                val firstMatch = searchResults.firstOrNull()
-
-                if (firstMatch != null) {
-                    Log.d("HardcoverProcessor", "Found auto-match: '${firstMatch.title}' (ID: ${firstMatch.id})")
-
-                    // 2. Determine initial status
-                    val autoAddWantToRead = HardcoverSettingsManager.getAutoAddToWantToRead(context).first()
-                    val initialStatus = if (autoAddWantToRead) "library" else "synced"
-
-                    // 3. Create external resource in DB
-                    val externalResource = ExternalResourceEntity(
-                        providerName = "hardcover",
-                        providerId = firstMatch.id,
-                        syncStatus = initialStatus,
-                        libraryItemUuid = item.uuid
-                    )
-                    libraryDao.insertExternalResource(externalResource)
-
-                    // Download and set artwork if local item has none
-                    val artworkUrl = firstMatch.image?.url
-                    if (!artworkUrl.isNullOrBlank() && item.artworkURL.isNullOrBlank()) {
-                        val artworkDir = java.io.File(context.filesDir, "Artworks")
-                        if (!artworkDir.exists()) artworkDir.mkdirs()
-                        val fileName = "${java.util.UUID.randomUUID()}.jpg"
-                        val destFile = java.io.File(artworkDir, fileName)
-                        val success = ArtworkManager.downloadAndSaveArtwork(context, artworkUrl, destFile)
-                        if (success) {
-                            item.artworkURL = destFile.absolutePath
-                            libraryDao.updateItem(item)
-                            Log.d("HardcoverProcessor", "Downloaded and set artwork for item ${item.title} from hardcover")
-
-                            val account = database.accountDao().getAccount()
-                            if (account != null && account.tier == AccountTier.PRO) {
-                                val syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
-                                SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, item)
-                            }
-                        }
-                    }
-
-                    // 4. If auto-add is enabled, send mutation to want-to-read list (status_id = 1)
-                    if (autoAddWantToRead) {
-                        try {
-                            val userBookId = HardcoverService.saveUserBookStatus(token, firstMatch.id.toInt(), 1)
-                            if (userBookId != null) {
-                                Log.d("HardcoverProcessor", "Added '${item.title}' to Hardcover Want to Read list (userBookId: $userBookId)")
-                            } else {
-                                Log.e("HardcoverProcessor", "Failed to add '${item.title}' to Hardcover Want to Read (saveUserBookStatus returned null)")
-                            }
-                        } catch (e: Exception) {
-                            Log.e("HardcoverProcessor", "Error registering matched book as Want to Read", e)
-                        }
-                    }
-                    true
-                } else {
-                    Log.d("HardcoverProcessor", "No Hardcover match found for: ${item.title}")
-                    true // Discard task since no match was found
-                }
+                // One import's items; a task queued before batches carries one.
+                val uuids = (payload["itemUuids"] as? List<*>)?.filterIsInstance<String>()
+                    ?: listOfNotNull(payload["itemUuid"] as? String)
+                autoMatch(token, uuids, libraryDao)
+                true
             }
 
             SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS -> {
@@ -137,8 +85,107 @@ class HardcoverProcessor(
         }
     }
 
+    /**
+     * iOS parity (HardcoverService.processAutoMatch): each item's top search hit, then every hit another item
+     * of the batch also got is skipped (most likely parts of one book: linking each to it would be wrong), and
+     * the rest are linked. An item already linked (a re-run of an interrupted batch) is left alone.
+     */
+    private suspend fun autoMatch(token: String, uuids: List<String>, libraryDao: LibraryDao) {
+        val hits = mutableListOf<Pair<LibraryItemEntity, HardcoverBook>>()
+        for (uuid in uuids) {
+            val item = libraryDao.getItemById(uuid) ?: continue // deleted since
+            if (libraryDao.getExternalResource(uuid, "hardcover") != null) continue
+            val query = HardcoverService.buildSearchString(item.title, searchAuthor(item, libraryDao) ?: "")
+            val hit = searchBooks(token, query).firstOrNull()
+            if (hit == null) {
+                Log.d("HardcoverProcessor", "No Hardcover match found for: ${item.title}")
+                continue
+            }
+            hits += item to hit
+        }
+        val unique = uniqueHits(hits)
+        if (unique.size < hits.size) {
+            Log.i("HardcoverProcessor", "Skipped ${hits.size - unique.size} items whose Hardcover match another item of the import also got")
+        }
+        unique.forEach { (item, hit) -> link(token, item, hit, libraryDao) }
+    }
+
+    private suspend fun link(token: String, item: LibraryItemEntity, hit: HardcoverBook, libraryDao: LibraryDao) {
+        Log.d("HardcoverProcessor", "Auto-matched '${item.title}' to '${hit.title}' (ID: ${hit.id})")
+        val database = AppDatabase.getDatabase(context)
+        val syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
+        val tier = database.accountDao().getAccount()?.tier
+        val autoAddWantToRead = HardcoverSettingsManager.getAutoAddToWantToRead(context).first()
+
+        val externalResource = ExternalResourceEntity(
+            providerName = "hardcover",
+            providerId = hit.id,
+            syncStatus = if (autoAddWantToRead) "library" else "synced",
+            libraryItemUuid = item.uuid
+        )
+        libraryDao.insertExternalResource(externalResource)
+        // iOS parity: the link reaches the cloud now, as a manual one does, not at the next account-wide sync.
+        if (tier == AccountTier.PRO || tier == AccountTier.LITE) {
+            SyncTaskFactory.createUploadExternalResourceTask(syncTaskRepository, externalResource)
+        }
+
+        // Hardcover's cover, only for an item with none of its own (an imported file's embedded cover is
+        // already its artworkURL), as on iOS.
+        val artworkUrl = hit.image?.url
+        if (!artworkUrl.isNullOrBlank() && item.artworkURL.isNullOrBlank()) {
+            val artworkDir = java.io.File(context.filesDir, "Artworks").apply { mkdirs() }
+            val destFile = java.io.File(artworkDir, "${java.util.UUID.randomUUID()}.jpg")
+            if (downloadArtwork(context, artworkUrl, destFile)) {
+                // The stored row, not the copy read before the search: saving that whole would undo whatever
+                // changed meanwhile (the placement prompt moving the item, say).
+                val stored = libraryDao.getItemById(item.uuid)
+                if (stored != null && stored.artworkURL.isNullOrBlank()) {
+                    stored.artworkURL = destFile.absolutePath
+                    libraryDao.updateItem(stored)
+                    if (tier == AccountTier.PRO) SyncTaskFactory.createUploadArtworkTask(syncTaskRepository, stored)
+                } else {
+                    destFile.delete()
+                }
+            }
+        }
+
+        // Want to Read on Hardcover (status_id = 1)
+        if (autoAddWantToRead) {
+            val bookId = hit.id.toIntOrNull()
+            if (bookId == null) {
+                Log.e("HardcoverProcessor", "Invalid Hardcover book id: ${hit.id}")
+                return
+            }
+            try {
+                val userBookId = saveUserBookStatus(token, bookId, 1)
+                if (userBookId == null) Log.e("HardcoverProcessor", "Failed to add '${item.title}' to Hardcover Want to Read")
+            } catch (e: Exception) {
+                Log.e("HardcoverProcessor", "Error registering matched book as Want to Read", e)
+            }
+        }
+    }
+
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH ||
                jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS
     }
+}
+
+/** The hits no other item of the batch also got: a Hardcover book matched more than once is skipped for all of them. */
+internal fun <T> uniqueHits(hits: List<Pair<T, HardcoverBook>>): List<Pair<T, HardcoverBook>> {
+    val counts = hits.groupingBy { it.second.id }.eachCount()
+    return hits.filter { counts[it.second.id] == 1 }
+}
+
+/**
+ * The author an auto-match searches with. A volume's author field holds its file count, so a volume (or
+ * folder) is searched by its first book's author, as iOS searches a folder by its first file.
+ */
+internal suspend fun searchAuthor(item: LibraryItemEntity, libraryDao: LibraryDao): String? {
+    if (item.type == ItemType.BOOK) return item.author
+    val path = item.relativePath ?: return null
+    return libraryDao.getItemsInPathSync(path)
+        .filter { it.type == ItemType.BOOK }
+        .minByOrNull { it.orderRank }
+        ?.author
 }

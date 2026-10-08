@@ -4,10 +4,13 @@ import com.google.gson.annotations.SerializedName
 import retrofit2.Response
 import retrofit2.http.*
 
+// Every call carries the MediaBrowser scheme in the standard `Authorization` header. Jellyfin 12 turned
+// legacy auth off by default: it ignores `X-Emby-Authorization`, so sign-in arrived with no client/device
+// info (400) and token calls came back 401.
 interface JellyfinApi {
     @POST("Users/AuthenticateByName")
     suspend fun authenticate(
-        @Header("X-Emby-Authorization") authHeader: String,
+        @Header("Authorization") authHeader: String,
         @Body request: JellyfinAuthRequest
     ): Response<JellyfinAuthResponse>
 
@@ -19,32 +22,32 @@ interface JellyfinApi {
     // client-identity header (no token) like every other pre-auth Jellyfin call.
     @GET("QuickConnect/Enabled")
     suspend fun getQuickConnectEnabled(
-        @Header("X-Emby-Authorization") authHeader: String
+        @Header("Authorization") authHeader: String
     ): Response<Boolean>
 
     // Quick Connect: start a request (server returns the user-facing Code + our Secret) …
     @POST("QuickConnect/Initiate")
     suspend fun initiateQuickConnect(
-        @Header("X-Emby-Authorization") authHeader: String
+        @Header("Authorization") authHeader: String
     ): Response<JellyfinQuickConnectResult>
 
     // … poll until the user approves it from the web UI (Authenticated flips to true; 404 once the secret expired) …
     @GET("QuickConnect/Connect")
     suspend fun getQuickConnectState(
-        @Header("X-Emby-Authorization") authHeader: String,
+        @Header("Authorization") authHeader: String,
         @Query("secret") secret: String
     ): Response<JellyfinQuickConnectResult>
 
     // … then exchange the approved secret for a session, same shape as a password sign-in.
     @POST("Users/AuthenticateWithQuickConnect")
     suspend fun authenticateWithQuickConnect(
-        @Header("X-Emby-Authorization") authHeader: String,
+        @Header("Authorization") authHeader: String,
         @Body request: JellyfinQuickConnectRequest
     ): Response<JellyfinAuthResponse>
 
     @GET("Items")
     suspend fun getItems(
-        @Header("X-Emby-Authorization") authHeader: String,
+        @Header("Authorization") authHeader: String,
         @Query("IncludeItemTypes") itemTypes: String = "Audiobook",
         @Query("Recursive") recursive: Boolean = true,
         @Query("Fields") fields: String = "PrimaryImageAspectRatio,BasicSyncInfo,Path,Genres,ArtistItems",
@@ -61,7 +64,7 @@ interface JellyfinApi {
      */
     @GET("Items")
     suspend fun getItemsByIds(
-        @Header("X-Emby-Authorization") authHeader: String,
+        @Header("Authorization") authHeader: String,
         @Query("Ids") ids: String,
         @Query("Fields") fields: String = "MediaSources,Path"
     ): Response<JellyfinItemsResponse>
@@ -69,23 +72,25 @@ interface JellyfinApi {
     // The authenticated user's top-level views (libraries); the user is inferred from the token.
     @GET("UserViews")
     suspend fun getUserViews(
-        @Header("X-Emby-Authorization") authHeader: String
+        @Header("Authorization") authHeader: String
     ): Response<JellyfinItemsResponse>
 
     @GET("System/Info")
     suspend fun getSystemInfo(
-        @Header("X-Emby-Authorization") authHeader: String
+        @Header("Authorization") authHeader: String
     ): Response<JellyfinSystemInfo>
 
     // Revokes the session behind the supplied token.
     @POST("Sessions/Logout")
     suspend fun logout(
-        @Header("X-Emby-Authorization") authHeader: String
+        @Header("Authorization") authHeader: String
     ): Response<Unit>
-    
-    @POST("Users/me/Items/{itemId}/UserData")
+
+    // The user is inferred from the token, as iOS's `updateItemUserData` does. The old `Users/me/...`
+    // route never worked: Jellyfin parses that segment as a user GUID and answers 400 for "me".
+    @POST("UserItems/{itemId}/UserData")
     suspend fun updateUserData(
-        @Header("X-Emby-Authorization") authHeader: String,
+        @Header("Authorization") authHeader: String,
         @Path("itemId") itemId: String,
         @Body request: JellyfinUserDataRequest
     ): Response<Unit>
@@ -94,7 +99,11 @@ interface JellyfinApi {
 data class JellyfinUserDataRequest(
     @SerializedName("PlaybackPositionTicks") val playbackPositionTicks: Long,
     @SerializedName("PlayedPercentage") val playedPercentage: Double?,
-    @SerializedName("Played") val played: Boolean
+    @SerializedName("Played") val played: Boolean,
+    // When this position was reached (ISO-8601, UTC). Jellyfin stores it only when a client sends it,
+    // and iOS applies a server position only when this date is newer than its own. Null is left out of
+    // the body (Gson skips nulls), so the server keeps the date it has.
+    @SerializedName("LastPlayedDate") val lastPlayedDate: String? = null
 )
 
 data class JellyfinSystemInfo(

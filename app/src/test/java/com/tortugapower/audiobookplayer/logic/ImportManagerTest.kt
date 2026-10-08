@@ -6,12 +6,14 @@ import androidx.test.core.app.ApplicationProvider
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -24,7 +26,7 @@ import java.util.zip.ZipOutputStream
 /**
  * Covers the :app import "glue" that stages what the user picked: [ImportManager.expandArchives]
  * (archive draining — folder-vs-loose-files semantics, provider-tag inheritance, recursion) and
- * [ImportManager.importDirectory] (folder item + children with natural ordering, provider linkage).
+ * [ImportManager.importDirectory] (folder item + children with natural ordering; a media-server item's folder is a linked volume).
  * The pure :core helpers (ImportArchiveUtils, VirtualImportManager) have their own tests; these pin
  * the orchestration on top of them, which was previously only verified by hand.
  */
@@ -80,35 +82,75 @@ class ImportManagerTest {
         assertEquals(2, result[0].file!!.listFiles()!!.size)
     }
 
-    @Test fun expandArchives_zipWithLooseFiles_stagesIndividualEntries_withoutTagInheritance() = runBlocking {
-        val zip = zipFixture(stagingDir(), "tracks.zip", mapOf(
-            "01.mp3" to "a",
-            "02.mp3" to "b",
-        ))
-        val tagged = ImportFile(name = zip.name, file = zip, providerName = "audiobookshelf", providerId = "abs-1", hostId = "h1")
+    // --- a media-server download's zip (AudiobookShelf zips the item's folder, with no root folder) ---
 
-        val result = ImportManager.expandArchives(context, listOf(tagged), db.libraryDao())
+    private fun downloadZip(name: String, entries: Map<String, String>) =
+        ImportFile(name = name, file = zipFixture(stagingDir(), name, entries), providerName = "audiobookshelf", providerId = "abs-1", hostId = "h1")
 
-        assertEquals(listOf("01.mp3", "02.mp3"), result.map { it.name }.sorted())
-        // Provider tags only stay meaningful when the archive maps to ONE library item — two loose
-        // files must not both claim the same media-server identity.
-        assertTrue(result.all { it.providerName == null && it.providerId == null && it.hostId == null })
+    private fun assertTagged(file: ImportFile) {
+        assertEquals("audiobookshelf", file.providerName)
+        assertEquals("abs-1", file.providerId)
+        assertEquals("h1", file.hostId)
     }
 
-    @Test fun expandArchives_singleRootFolder_inheritsProviderTags() = runBlocking {
-        val zip = zipFixture(stagingDir(), "abs.zip", mapOf(
-            "Volume/01.mp3" to "a",
-            "Volume/02.mp3" to "b",
-        ))
-        val tagged = ImportFile(name = zip.name, file = zip, providerName = "audiobookshelf", providerId = "abs-1", hostId = "h1")
+    @Test fun `a downloaded book and its cover stage the book with its link`() = runBlocking {
+        val result = ImportManager.expandArchives(
+            context, listOf(downloadZip("Book Hotel.zip", mapOf("Book Hotel.m4b" to "a", "cover.jpg" to "img"))), db.libraryDao(),
+        )
 
-        val result = ImportManager.expandArchives(context, listOf(tagged), db.libraryDao())
+        // The cover isn't a second item: the one audio file is the item's book and keeps its link.
+        assertEquals(listOf("Book Hotel.m4b"), result.map { it.name })
+        assertTagged(result.single())
+    }
 
-        // An Audiobookshelf multitrack zip (one root folder) keeps its provider identity.
-        assertEquals(1, result.size)
-        assertEquals("audiobookshelf", result[0].providerName)
-        assertEquals("abs-1", result[0].providerId)
-        assertEquals("h1", result[0].hostId)
+    @Test fun `a downloaded item's tracks stage as one tagged folder of its books`() = runBlocking {
+        val result = ImportManager.expandArchives(
+            context, listOf(downloadZip("Foxtrot.zip", mapOf("01.mp3" to "a", "02.mp3" to "b", "cover.jpg" to "img"))), db.libraryDao(),
+        )
+
+        // Named after the download, carrying the item's tags: it imports as the item's linked volume.
+        val volume = result.single()
+        assertEquals("Foxtrot", volume.name)
+        assertTrue(volume.isDirectory)
+        assertTagged(volume)
+        assertEquals(listOf("01.mp3", "02.mp3"), volume.file!!.list()!!.sorted())
+    }
+
+    @Test fun `a downloaded item's disc folders flatten into its folder of books`() = runBlocking {
+        val result = ImportManager.expandArchives(
+            context, listOf(downloadZip("Golf.zip", mapOf("Disc 1/01.mp3" to "a", "Disc 2/01.mp3" to "b"))), db.libraryDao(),
+        )
+
+        // Named like a streamed volume's books; no subfolders, so it can be a volume.
+        assertEquals(listOf("Disc 1 - 01.mp3", "Disc 2 - 01.mp3"), result.single().file!!.list()!!.sorted())
+    }
+
+    // AudiobookShelf doesn't serve archives as audio: one in the item's folder isn't one of its books.
+    @Test fun `an archive inside a downloaded item isn't one of its books`() = runBlocking {
+        val result = ImportManager.expandArchives(
+            context, listOf(downloadZip("Foxtrot.zip", mapOf("01.mp3" to "a", "02.mp3" to "b", "extras.zip" to "zip"))), db.libraryDao(),
+        )
+
+        assertEquals(listOf("01.mp3", "02.mp3"), result.single().file!!.list()!!.sorted())
+    }
+
+    @Test fun `a downloaded item's one file in a subfolder keeps its own name and link`() = runBlocking {
+        val result = ImportManager.expandArchives(context, listOf(downloadZip("Hotel.zip", mapOf("CD1/Hotel.m4b" to "a"))), db.libraryDao())
+
+        assertEquals(listOf("Hotel.m4b"), result.map { it.name })
+        assertTagged(result.single())
+    }
+
+    // Generic track names are everywhere: matching them by name would fill another item's offloaded book.
+    @Test fun `a downloaded item's tracks never restore another item's offloaded book`() = runBlocking {
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "other", title = "01", relativePath = "Other/01.mp3", type = ItemType.BOOK))
+
+        val result = ImportManager.expandArchives(
+            context, listOf(downloadZip("Foxtrot.zip", mapOf("01.mp3" to "a", "02.mp3" to "b"))), db.libraryDao(),
+        )
+
+        assertFalse(result.single().isFileOnly)
+        assertEquals("Other/01.mp3", db.libraryDao().getItemById("other")!!.relativePath)
     }
 
     @Test fun expandArchives_nestedZip_isDrainedRecursively() = runBlocking {
@@ -165,22 +207,45 @@ class ImportManagerTest {
         assertEquals(listOf("1", "2", "10"), byRank)
     }
 
-    @Test fun importDirectory_providerTags_linkExternalResourceEvenUnsubscribed() = runBlocking {
+    // A media-server item's folder of books is that item: a volume with its link, like a streamed volume.
+    @Test fun importDirectory_aMediaServerItemsFolder_isALinkedVolume() = runBlocking {
         val source = File(stagingDir(), "Abs Book").apply { mkdirs() }
+        File(source, "01.mp3").writeText("x")
+        File(source, "02.mp3").writeText("y")
+        val baseDir = File(context.filesDir, "Processed").apply { mkdirs() }
+
+        val volume = ImportManager.importDirectory(
+            context, db.libraryDao(), RoomSyncTaskRepository(db.syncTaskDao()),
+            ImportFile(name = "Abs Book", file = source, providerName = "audiobookshelf", providerId = "abs-9", hostId = "h1"),
+            baseDir, basePath = null, orderRank = 0, isSubscribed = false, isPro = false,
+        )!!
+
+        assertEquals(ItemType.BOUND, db.libraryDao().getItemById(volume.uuid)!!.type)
+        // The returned item carries the totals too: the prompt moves it, and moves write it back.
+        assertEquals("2", volume.author)
+        // Recorded regardless of tier (only the sync-task upload is gated).
+        val link = db.libraryDao().getExternalResourceByProvider("audiobookshelf", "abs-9")!!
+        assertEquals(volume.uuid, link.libraryItemUuid)
+        assertEquals(ExternalResourceEntity.STATUS_SYNCED, link.syncStatus)
+        assertEquals("h1", link.hostId)
+        // The books play through the volume: none has a link of its own.
+        db.libraryDao().getItemsInPathSync("Abs Book").forEach {
+            assertTrue(db.libraryDao().getExternalResourcesForBookSync(it.uuid).isEmpty())
+        }
+    }
+
+    @Test fun importDirectory_aFolderWithoutTags_staysAPlainFolder() = runBlocking {
+        val source = File(stagingDir(), "My Book").apply { mkdirs() }
         File(source, "01.mp3").writeText("x")
         val baseDir = File(context.filesDir, "Processed").apply { mkdirs() }
 
         val folder = ImportManager.importDirectory(
             context, db.libraryDao(), RoomSyncTaskRepository(db.syncTaskDao()),
-            ImportFile(name = "Abs Book", file = source, providerName = "audiobookshelf", providerId = "abs-9", hostId = "h1"),
-            baseDir, basePath = null, orderRank = 0, isSubscribed = false, isPro = false,
-        )
+            ImportFile(name = "My Book", file = source), baseDir, basePath = null, orderRank = 0, isSubscribed = false, isPro = false,
+        )!!
 
-        // Media-server provenance is recorded regardless of tier (only the sync-task upload is gated).
-        val resource = db.libraryDao().getExternalResourceByProvider("audiobookshelf", "abs-9")
-        assertNotNull(resource)
-        assertEquals(folder!!.uuid, resource!!.libraryItemUuid)
-        assertEquals(ExternalResourceEntity.STATUS_SYNCED, resource.syncStatus)
+        assertEquals(ItemType.FOLDER, db.libraryDao().getItemById(folder.uuid)!!.type)
+        assertTrue(db.libraryDao().getExternalResourcesForBookSync(folder.uuid).isEmpty())
     }
 
     // --- resolveImportFileName: the per-URI guard that keeps one bad pick from killing the batch ---

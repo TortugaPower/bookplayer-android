@@ -10,6 +10,8 @@ import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -67,6 +69,35 @@ class OfflineDownloadOrchestrationTest {
         val syncRepo = FakeSyncTaskRepository(pending = downloadTask(SyncTaskStatus.PENDING))
         OfflineDownloadManager.startDownload(context, FakeLibraryRepository(), syncRepo, book())
         assertTrue("a queued file must not be enqueued twice", syncRepo.saved.isEmpty())
+    }
+
+    // The URL lookup takes network time between the dedup snapshot and the enqueue: a second tap meanwhile
+    // must still see the first tap's task.
+    @Test fun `a second tap during the first one's lookup doesn't queue the file twice`() = runBlocking {
+        val syncRepo = FakeSyncTaskRepository()
+        val repo = FakeLibraryRepository(lookupDelayMs = 200)
+
+        listOf(
+            launch { OfflineDownloadManager.startDownload(context, repo, syncRepo, book()) },
+            launch { OfflineDownloadManager.startDownload(context, repo, syncRepo, book()) },
+        ).joinAll()
+
+        assertEquals(1, syncRepo.saved.size)
+    }
+
+    @Test fun `a slow lookup for one book doesn't hold up a tap on another`() = runBlocking {
+        val syncRepo = FakeSyncTaskRepository()
+        val repo = FakeLibraryRepository(lookupDelayMs = 500, slowUuids = setOf(uuid))
+        val other = LibraryItemEntity(uuid = "other-uuid", title = "B", relativePath = "folder/other.m4b", type = ItemType.BOOK)
+
+        val slow = launch { OfflineDownloadManager.startDownload(context, repo, syncRepo, book()) }
+        kotlinx.coroutines.yield()
+        OfflineDownloadManager.startDownload(context, repo, syncRepo, other)
+
+        // The other book was queued while the slow lookup was still waiting.
+        assertEquals(listOf("other-uuid"), syncRepo.saved.map { it.taskID })
+        slow.join()
+        assertEquals(listOf("other-uuid", uuid), syncRepo.saved.map { it.taskID })
     }
 
     @Test fun `cancelDownload deletes a PENDING task and requests cancel (covers the pending-to-running race)`() = runBlocking {
@@ -127,7 +158,7 @@ private class FakeSyncTaskRepository(private val pending: SyncTaskEntity? = null
     override suspend fun saveTask(task: SyncTaskEntity) { saved += task }
     override suspend fun deleteTask(task: SyncTaskEntity) { deleted += task }
     override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = pending
-    override fun getAllTasks(): Flow<List<SyncTaskEntity>> = flowOf(listOfNotNull(pending))
+    override fun getAllTasks(): Flow<List<SyncTaskEntity>> = flowOf(listOfNotNull(pending) + saved)
     override suspend fun getPendingTasks(): List<SyncTaskEntity> = error("unused")
     override suspend fun getTasksByStatus(status: SyncTaskStatus): List<SyncTaskEntity> = error("unused")
     override suspend fun getTasksInQueueByStatus(queueKey: String, status: SyncTaskStatus): List<SyncTaskEntity> = error("unused")
@@ -144,9 +175,13 @@ private class FakeSyncTaskRepository(private val pending: SyncTaskEntity? = null
 }
 
 /** Identity resolveStreamingUrl (BOOK downloadUnits never touches the other methods). */
-private class FakeLibraryRepository : LibraryRepository {
+private class FakeLibraryRepository(private val lookupDelayMs: Long = 0, private val slowUuids: Set<String>? = null) : LibraryRepository {
     override suspend fun resolveStreamingUrl(item: LibraryItemEntity): LibraryItemEntity = item
     override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? = null
+    override suspend fun externalStreamUrlsFor(items: List<LibraryItemEntity>, onSessionExpired: (() -> Unit)?): Map<String, String> {
+        if (slowUuids == null || items.any { it.uuid in slowUuids }) kotlinx.coroutines.delay(lookupDelayMs)
+        return emptyMap()
+    }
     override suspend fun shallowDeleteFolder(context: android.content.Context, folder: LibraryItemEntity) = error("unused")
     override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = emptyList()
     override fun getRootItems() = error("unused")
@@ -170,9 +205,11 @@ private class FakeLibraryRepository : LibraryRepository {
     override suspend fun updateArtworkSync(item: LibraryItemEntity) = error("unused")
     override fun getBookmarksForBook(bookUuid: String) = error("unused")
     override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): com.tortugapower.audiobookplayer.database.entities.BookmarkEntity? = error("unused")
-    override suspend fun addBookmark(bookmark: com.tortugapower.audiobookplayer.database.entities.BookmarkEntity): Long = error("unused")
+    override suspend fun addBookmark(bookmark: com.tortugapower.audiobookplayer.database.entities.BookmarkEntity): Long? = error("unused")
     override suspend fun updateBookmark(bookmark: com.tortugapower.audiobookplayer.database.entities.BookmarkEntity) = error("unused")
     override suspend fun deleteBookmark(bookmark: com.tortugapower.audiobookplayer.database.entities.BookmarkEntity) = error("unused")
+    override suspend fun syncBookmarksFromCloud(item: LibraryItemEntity): Boolean = error("unused")
+    override suspend fun updateItemSpeed(uuid: String, speed: Double) = error("unused")
     override fun getChaptersForBook(bookUuid: String) = error("unused")
     override suspend fun insertChapters(chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) = error("unused")
     override suspend fun replaceChaptersForBook(bookUuid: String, chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) = error("unused")

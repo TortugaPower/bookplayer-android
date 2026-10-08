@@ -153,9 +153,10 @@ class StandaloneViewModel(
     private fun enqueueFetch(force: Boolean) {
         viewModelScope.launch {
             // Prefs ride along with the contents fetch (same open/refresh cadence the phone uses);
-            // the factory debounces to one pull per 30s per launch.
+            // the factory debounces to one pull per 60 s per launch.
             SyncTaskFactory.createFetchPreferencesTask(syncTaskRepository, force = force)
-            SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path = path, force = force)
+            // The watch only mirrors the cloud (it imports nothing), so its listings may delete
+            SyncTaskFactory.createFetchContentsTask(syncTaskRepository, path = path, force = force, canDelete = true)
         }
     }
 

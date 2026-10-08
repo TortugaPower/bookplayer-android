@@ -25,16 +25,15 @@ import com.tortugapower.audiobookplayer.logic.PreferenceUploadProcessor
 import com.tortugapower.audiobookplayer.logic.MatchUuidsProcessor
 import com.tortugapower.audiobookplayer.logic.MetadataUploadProcessor
 import com.tortugapower.audiobookplayer.logic.MoveProcessor
+import com.tortugapower.audiobookplayer.logic.MultipartUploadProcessor
+import com.tortugapower.audiobookplayer.logic.QueueFileUploadProcessor
 import com.tortugapower.audiobookplayer.logic.RenameFolderProcessor
 import com.tortugapower.audiobookplayer.logic.SetBookmarkProcessor
-import com.tortugapower.audiobookplayer.logic.SetExternalResourceToDownloadProcessor
 import com.tortugapower.audiobookplayer.logic.ShallowDeleteProcessor
-import com.tortugapower.audiobookplayer.logic.StreamFileUploadProcessor
-import com.tortugapower.audiobookplayer.logic.SyncIdentifiersProcessor
+import com.tortugapower.audiobookplayer.logic.SubscriptionManager
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyManager
 import com.tortugapower.audiobookplayer.logic.UpdateProcessor
 import com.tortugapower.audiobookplayer.logic.UploadExternalResourceProcessor
-import com.tortugapower.audiobookplayer.logic.UploadFileProcessor
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.wear.R
@@ -102,11 +101,11 @@ class WearSyncServiceHost : Service() {
         // it re-arms the on-watch player to the server's last-played item after a contents fetch (matching
         // iOS's handleSyncedLastPlayed) instead of leaving the stale locally-restored book.
         val processors = listOf(
-            FetchContentsProcessor(this, repository, WearPlaybackSyncCoordinator),
-            SyncIdentifiersProcessor(this, repository),
+            // The watch only mirrors the cloud: every row it has came from a listing
+            FetchContentsProcessor(this, repository, WearPlaybackSyncCoordinator, keepsUnconfirmed = false),
             MetadataUploadProcessor(this, repository),
-            UploadFileProcessor(this, repository),
-            StreamFileUploadProcessor(this, repository),
+            MultipartUploadProcessor.create(this, repository),
+            QueueFileUploadProcessor.create(this, repository),
             UpdateProcessor(),
             MoveProcessor(),
             DeleteProcessor(),
@@ -115,12 +114,12 @@ class WearSyncServiceHost : Service() {
             ArtworkUploadProcessor(this),
             DeleteBookmarkProcessor(),
             SetBookmarkProcessor(),
-            DownloadFileProcessor(this),
+            // The watch says nothing about a dropped download, as on iOS: its row goes back to not downloaded
+            DownloadFileProcessor(this, onFailedForGood = {}),
             MatchUuidsProcessor(this, repository),
             HardcoverProcessor(this),
             UploadExternalResourceProcessor(),
             DeleteExternalResourceProcessor(),
-            SetExternalResourceToDownloadProcessor(),
             ExternalUpdateProcessor(this),
             // Sticky-sort preferences: the fetch is the watch's active path (pull-only — nothing on
             // the watch writes sort prefs); the upload processor is registered to keep processor-set
@@ -129,7 +128,12 @@ class WearSyncServiceHost : Service() {
             PreferenceFetchProcessor(this, repository),
         )
 
-        taskConcurrencyManager = TaskConcurrencyManager(this, repository, accountRepository, processors)
+        taskConcurrencyManager = TaskConcurrencyManager(
+            this, repository, accountRepository, processors,
+            parkingEnabled = false,
+            verifySyncEntitlement = { SubscriptionManager.refreshSyncEntitlement() },
+            awaitTierReady = SubscriptionManager::awaitTierReady,
+        )
         taskConcurrencyManager.startProcessing()
 
         connectivityManager = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager

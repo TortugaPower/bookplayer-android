@@ -62,7 +62,7 @@ class JellyfinQuickConnectServiceTest {
 
         val request = requests().single { it.path == "/QuickConnect/Initiate" }
         assertEquals("POST", request.method)
-        val header = request.getHeader("X-Emby-Authorization")!!
+        val header = request.getHeader("Authorization")!!
         assertTrue(header.startsWith("MediaBrowser Client=\""))
         assertFalse(header.contains("Token="))
     }
@@ -113,7 +113,7 @@ class JellyfinQuickConnectServiceTest {
 
         val exchange = requests().single { it.path == "/Users/AuthenticateWithQuickConnect" }
         assertEquals("""{"Secret":"s3cr3t"}""", exchange.body.readUtf8())
-        assertFalse(exchange.getHeader("X-Emby-Authorization")!!.contains("Token="))
+        assertFalse(exchange.getHeader("Authorization")!!.contains("Token="))
     }
 
     @Test fun `exchange failures map like password sign-in`() = runBlocking {

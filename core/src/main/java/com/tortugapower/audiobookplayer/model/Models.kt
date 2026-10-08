@@ -17,5 +17,8 @@ data class PlayableItem(
 data class ExternalLibraryItem(
     val entity: com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity,
     val genres: String? = null,
-    val customHeaders: Map<String, String>? = null
+    val customHeaders: Map<String, String>? = null,
+    // Filled when a stream import is prepared: the item's audio files when it has several (imported as a
+    // volume), else empty.
+    val streamFiles: List<com.tortugapower.audiobookplayer.network.StreamFile> = emptyList()
 )

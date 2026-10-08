@@ -8,8 +8,18 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.ListeningStatsCalculator
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.QueuedTaskSection
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
+import com.tortugapower.audiobookplayer.logic.SyncEngineWaker
+import com.tortugapower.audiobookplayer.logic.SyncFailurePolicy
+import com.tortugapower.audiobookplayer.logic.SyncPauseReport
+import com.tortugapower.audiobookplayer.logic.SyncQueueReset
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
+import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.logic.UploadFilePayload
+import com.tortugapower.audiobookplayer.logic.UploadHandBack
+import com.tortugapower.audiobookplayer.logic.pause
+import com.tortugapower.audiobookplayer.logic.groupedByLane
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
@@ -17,12 +27,15 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class ProfileViewModel(
     private val accountRepository: AccountRepository,
     private val syncTaskRepository: SyncTaskRepository,
     private val statisticsDao: com.tortugapower.audiobookplayer.database.dao.StatisticsDao,
-    private val libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
+    private val libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao,
+    /** Ends the library sync's session: nothing running can queue into, or mark, the next account's library */
+    private val endSyncSession: suspend () -> Unit,
 ) : ViewModel() {
 
     val account: StateFlow<AccountEntity?> = accountRepository.getAccountFlow()
@@ -59,6 +72,20 @@ class ProfileViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    /**
+     * The Queued Tasks screen's lanes, grouped off the main thread (a first sync can queue thousands).
+     * Null until the queue is first read, so the screen never shows an empty queue that isn't; read from
+     * Room directly, since [syncTasks] starts with a placeholder empty list.
+     */
+    val queuedTaskSections: StateFlow<List<QueuedTaskSection>?> = syncTaskRepository.getAllTasks()
+        .map { it.groupedByLane() }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** Parked tasks across every lane: the Profile entry turns into a warning while any need the user */
+    val pausedTasksCount: StateFlow<Int> = syncTasks.map { tasks -> tasks.count { it.pause != null } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val pendingTasksCount: StateFlow<Int> = syncTasks.map { tasks ->
         tasks.count { it.status != SyncTaskStatus.COMPLETED }
@@ -105,8 +132,20 @@ class ProfileViewModel(
         // cleared even if a later step throws or the coroutine is cancelled. Done here (not just in
         // the delete path) so logout clears it too. None of the steps below need the token.
         NetworkClient.setToken(null)
+        endSyncSession()
         accountRepository.deleteAccount()
-        syncTaskRepository.deleteAllTasks() // also clears any queued preference push/fetch tasks
+        // Every lane's worker stops too, so nothing runs on under the next account's token; this also clears any
+        // queued preference push/fetch tasks
+        SyncQueueReset.clearAll(syncTaskRepository)
+        // The library stays, but the next account's server holds none of it (and the next first sync corrects
+        // whatever a failed write leaves)
+        try {
+            libraryDao.clearServerKnown()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("ProfileViewModel", "Couldn't clear the server-known flags: ${e.javaClass.simpleName}")
+        }
         // Drop every local library_sort:* preference so the next login pulls fresh (no stale state).
         // runCatching like LibraryViewModel's sortManager access: unit tests with a plain
         // Application have no singleton, and logout cleanup must not abort halfway.
@@ -120,9 +159,34 @@ class ProfileViewModel(
         PlaybackManager.enforceRemoteStreamingGate(com.tortugapower.audiobookplayer.core.CoreContext.appContext)
     }
 
-    fun deleteAllTasks() {
-        viewModelScope.launch {
-            syncTaskRepository.deleteAllTasks()
+    /**
+     * The user's Retry: back to pending (one account pause resumes them all), and the engine is woken. An
+     * upload's Retry asks for the book again: it may be registered again even if it already was this session.
+     */
+    fun retryPausedTask(task: SyncTaskEntity) {
+        if (task.jobType == SyncTaskFactory.JOB_UPLOAD_FILE) {
+            UploadFilePayload.uuid(task.payload)?.let(UploadHandBack::release)
         }
+        viewModelScope.launch {
+            syncTaskRepository.resumeTask(task.id)
+            SyncEngineWaker.notifyWorkEnqueued()
+        }
+    }
+
+    /** Only a book over the upload limit can be dismissed: retrying can't make it smaller */
+    fun dismissPausedTask(task: SyncTaskEntity) {
+        if (task.pause?.errorCode != SyncFailurePolicy.FILE_TOO_LARGE) return
+        viewModelScope.launch { syncTaskRepository.deleteTask(task) }
+    }
+
+    /** What Report sends for [task], read now from the queue, the library and the account */
+    suspend fun pauseReport(task: SyncTaskEntity): SyncPauseReport = withContext(Dispatchers.IO) {
+        SyncPauseReport(
+            pausedTask = task,
+            queuedTasks = syncTaskRepository.getAllTasks().first(),
+            library = libraryDao.getAllItemsSync().mapNotNull { item -> item.relativePath?.let { it to item.uuid } },
+            appVersion = SyncPauseReport.appVersion(accountRepository.getAccount()?.tier),
+            device = SyncPauseReport.device(),
+        )
     }
 }

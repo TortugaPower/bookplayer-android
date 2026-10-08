@@ -155,6 +155,18 @@ object ImportManager : ImportService {
         }
     }
 
+    /**
+     * A staging file nobody else holds, for a name only the server chose. `createNewFile` is atomic, so two
+     * downloads resolving to the same name can't share one, and a file already waiting in the import sheet
+     * is never truncated.
+     */
+    private fun reserveBackupFile(dir: File, name: String): File {
+        while (true) {
+            val candidate = ImportArchiveUtils.uniqueDestination(dir, name)
+            if (candidate.createNewFile()) return candidate
+        }
+    }
+
     override fun startDownload(
         context: Context,
         url: String,
@@ -209,6 +221,8 @@ object ImportManager : ImportService {
 
             val backupDir = File(context.filesDir, "BPBackup")
             if (!backupDir.exists()) backupDir.mkdirs()
+            // A server-chosen name this download claimed for a file-only restore; released in finally.
+            var claimedServerName: String? = null
 
             try {
                 if (!isFileOnly && libraryDao.existsWithFileName(sanitizedFileName)) {
@@ -217,8 +231,9 @@ object ImportManager : ImportService {
                     return@launch
                 }
 
-                val destFile = File(backupDir, sanitizedFileName)
+                var destFile = File(backupDir, sanitizedFileName)
                 var newlyImportedFile: ImportFile? = null
+                var skippedAsDuplicate = false
 
                 try {
                     withContext(Dispatchers.IO) {
@@ -229,13 +244,74 @@ object ImportManager : ImportService {
                         val response = downloadClient.newCall(requestBuilder.build()).execute()
                         response.use { // Ensure response is closed
                             if (response.isSuccessful && response.body != null) {
+                                // The server's name beats our pre-request guess (an Audiobookshelf book
+                                // arrives as "<title>.zip", not "<title>.mp3"). A file-only re-download keeps
+                                // the existing item's name: the accept step finds that item by it.
+                                var savedName = if (isFileOnly) sanitizedFileName
+                                    else DownloadFileName.resolve(sanitizedFileName, response.header("Content-Disposition"))
+                                if (savedName != sanitizedFileName && !ImportArchiveUtils.isArchive(savedName)) {
+                                    // The checks above ran on the requested name; repeat them on the file the
+                                    // server actually named, before copying its body. Archives are checked per
+                                    // extracted entry instead (expandArchives).
+                                    val existing = libraryDao.getItemByFileName(savedName)
+                                    if (existing != null) {
+                                        val relativePath = existing.relativePath
+                                        val processed = if (!relativePath.isNullOrEmpty()) File(processedDir, relativePath) else File(processedDir, savedName)
+                                        if (processed.exists()) {
+                                            skippedAsDuplicate = true
+                                            return@use
+                                        }
+                                        isFileOnly = true
+                                    }
+                                }
+                                // Only the requested name was claimed (activeDownloadFileNames), so a name the
+                                // server chose gets a staging file of its own — never another download's, nor
+                                // one already waiting in the import sheet. A file-only restore found through the
+                                // server's name must keep the item's exact name instead: it skips only when that
+                                // name is taken by something current (staged in the sheet, or claimed by a
+                                // download in flight) and claims it otherwise. A file merely left over in
+                                // BPBackup is replaced, as on the requested-name path.
+                                destFile = when {
+                                    savedName == sanitizedFileName -> File(backupDir, savedName)
+                                    isFileOnly -> {
+                                        val target = File(backupDir, savedName)
+                                        val name = savedName
+                                        val taken = withContext(Dispatchers.Main) {
+                                            importedFiles.any { it.file?.absolutePath == target.absolutePath } ||
+                                                !activeDownloadFileNames.add(name)
+                                        }
+                                        if (taken) {
+                                            skippedAsDuplicate = true
+                                            return@use
+                                        }
+                                        claimedServerName = name
+                                        target
+                                    }
+                                    else -> reserveBackupFile(backupDir, savedName).also { savedName = it.name }
+                                }
                                 response.body!!.byteStream().use { input ->
                                     FileOutputStream(destFile).use { output ->
                                         input.copyTo(output)
                                     }
                                 }
+                                if (!isFileOnly) {
+                                    val head = destFile.inputStream().use { stream ->
+                                        val buffer = ByteArray(4)
+                                        buffer.copyOf(maxOf(stream.read(buffer), 0))
+                                    }
+                                    val archiveName = DownloadFileName.archiveAware(savedName, head)
+                                    if (archiveName != savedName) {
+                                        val renamed = reserveBackupFile(backupDir, archiveName)
+                                        if (destFile.renameTo(renamed)) {
+                                            destFile = renamed
+                                            savedName = renamed.name
+                                        } else {
+                                            renamed.delete()
+                                        }
+                                    }
+                                }
                                 newlyImportedFile = ImportFile(
-                                    name = sanitizedFileName,
+                                    name = savedName,
                                     file = destFile,
                                     providerName = providerName,
                                     providerId = providerId,
@@ -247,6 +323,8 @@ object ImportManager : ImportService {
                             }
                         }
                     }
+
+                    if (skippedAsDuplicate) skippedItemsCount++
 
                     newlyImportedFile?.let { downloaded ->
                         // Media servers may return archives (e.g. Audiobookshelf zips multitrack
@@ -268,6 +346,7 @@ object ImportManager : ImportService {
                 }
             } finally {
                 activeDownloadFileNames.remove(sanitizedFileName)
+                claimedServerName?.let { activeDownloadFileNames.remove(it) }
                 activeDownloadCount--
                 if (activeDownloadCount == 0 && (importedFiles.isNotEmpty() || skippedItemsCount > 0)) {
                     showImportSheet = true
@@ -311,7 +390,8 @@ object ImportManager : ImportService {
                             providerId = providerId,
                             hostId = hostId,
                             streamEntity = item.entity,
-                            artworkHeaders = item.customHeaders
+                            artworkHeaders = item.customHeaders,
+                            streamFiles = item.streamFiles
                         )
                     )
                 }
@@ -418,7 +498,9 @@ object ImportManager : ImportService {
                             hostId = importFile.hostId,
                             artworkPath = artworkPath ?: streamEntity.artworkURL,
                             enqueueSyncTasks = isSubscribed,
-                            isPro = isPro
+                            isPro = isPro,
+                            files = importFile.streamFiles,
+                            basePath = targetFolderPath
                         )
                         if (result == null) {
                             // No file name to store it under — staging hydrates the real extension, so
@@ -426,7 +508,8 @@ object ImportManager : ImportService {
                             skippedNoAudioCount++
                         } else if (!result.alreadyImported) {
                             currentMaxRank = maxOf(currentMaxRank, result.item.orderRank)
-                            enqueueHardcoverAutoMatch(context, syncTaskRepository, result.item.uuid)
+                            // Placed by the prompt like any import (iOS parity). One already in the library stays put.
+                            createdItems.add(result.item)
                         }
                     } else if (importFile.file != null && importFile.file.exists()) {
                         if (importFile.isDirectory) {
@@ -506,9 +589,6 @@ object ImportManager : ImportService {
                                     SyncTaskFactory.createUploadExternalResourceTask(syncTaskRepository, externalResource)
                                 }
                             }
-
-                            // Hardcover Auto-match Integration
-                            enqueueHardcoverAutoMatch(context, syncTaskRepository, entity.uuid)
                         }
                     }
                 } catch (e: Exception) {
@@ -517,6 +597,10 @@ object ImportManager : ImportService {
                     android.util.Log.e("ImportManager", "Failed to import ${importFile.name}; skipping", e)
                 }
             }
+
+            // iOS parity (HardcoverService.processAutoMatch): the batch is matched together, so the items that
+            // all match one Hardcover book (likely its parts) are told apart from a real match.
+            enqueueHardcoverAutoMatch(context, syncTaskRepository, createdItems)
 
             // Roll up duration / progress / labels onto the target folder (and ancestors).
             if (targetFolderPath != null) {
@@ -532,7 +616,9 @@ object ImportManager : ImportService {
     /**
      * Imports a staged directory (an archive's top-level folder) as a single FOLDER item whose
      * contents move with it: audio files inside become BOOK children, nested directories become
-     * nested FOLDERs. Returns the created folder item.
+     * nested FOLDERs. Returns the created folder item. A directory carrying a media-server item's
+     * tags is that item's books ([stageMediaServerDownload]): it becomes a BOUND volume with the
+     * item's link, like a streamed volume.
      */
     @androidx.annotation.VisibleForTesting
     internal suspend fun importDirectory(
@@ -547,18 +633,25 @@ object ImportManager : ImportService {
         isPro: Boolean
     ): LibraryItemEntity? {
         val sourceDir = importFile.file ?: return null
-        val destDir = ImportArchiveUtils.uniqueDestination(baseDir, importFile.name)
+        // Free in the library too: a streamed volume of the same title has no folder on disk, and two
+        // items (and their books) at one path would mix.
+        val destDir = ImportArchiveUtils.uniqueDirectory(baseDir, importFile.name) { name ->
+            libraryDao.getItemByPath(if (basePath == null) name else "$basePath/$name") != null
+        }
         if (!sourceDir.renameTo(destDir)) {
             sourceDir.copyRecursively(destDir, overwrite = false)
             sourceDir.deleteRecursively()
         }
 
         val folderPath = if (basePath == null) destDir.name else "$basePath/${destDir.name}"
+        val providerName = importFile.providerName?.takeIf { it.isNotBlank() }
+        val providerId = importFile.providerId?.takeIf { it.isNotBlank() }
+        val isVolume = providerName != null && providerId != null
         val folderItem = LibraryItemEntity(
             uuid = java.util.UUID.randomUUID().toString(),
             title = destDir.name,
             relativePath = folderPath,
-            type = ItemType.FOLDER,
+            type = if (isVolume) ItemType.BOUND else ItemType.FOLDER,
             orderRank = orderRank
         )
         libraryDao.insertItem(folderItem)
@@ -566,11 +659,13 @@ object ImportManager : ImportService {
             SyncTaskFactory.createUploadMetadataTask(syncTaskRepository, folderItem)
         }
 
-        // Media-server provenance (e.g. an Audiobookshelf multitrack zip) links to the folder.
-        if (!importFile.providerName.isNullOrBlank() && !importFile.providerId.isNullOrBlank()) {
+        importDirectoryContents(context, libraryDao, syncTaskRepository, destDir, folderPath, isSubscribed, isPro)
+
+        if (providerName != null && providerId != null) {
+            // After the volume and its books: the server files the link under the volume.
             val externalResource = ExternalResourceEntity(
-                providerName = importFile.providerName,
-                providerId = importFile.providerId,
+                providerName = providerName,
+                providerId = providerId,
                 syncStatus = ExternalResourceEntity.STATUS_SYNCED,
                 libraryItemUuid = folderItem.uuid,
                 hostId = importFile.hostId
@@ -581,14 +676,14 @@ object ImportManager : ImportService {
             }
         }
 
-        importDirectoryContents(context, libraryDao, syncTaskRepository, destDir, folderPath, isSubscribed, isPro)
-
         // Roll up duration / "N Files" label onto the new folder (and any ancestors). The child
         // path form is what refreshParentMetadata walks up from.
         val firstChild = libraryDao.getItemsInPathSync(folderPath).firstOrNull()
         RoomLibraryRepository(context.applicationContext, libraryDao)
             .refreshParentMetadata(firstChild?.relativePath ?: "$folderPath/")
-        return folderItem
+        // The stored row, with the totals the roll-up just wrote: the placement prompt moves or converts this
+        // item, and writing back the entity built above would reset its count and duration.
+        return libraryDao.getItemById(folderItem.uuid) ?: folderItem
     }
 
     private suspend fun importDirectoryContents(
@@ -685,7 +780,8 @@ object ImportManager : ImportService {
      * silently. On success, only the temp dir's top level is enumerated (hidden entries skipped,
      * no descent) and appended to the queue — so an archive nested at another archive's top
      * level is extracted the same way, and only audio files, directories, and archives are
-     * staged. Directories stage as single entries and later import as one folder item.
+     * staged. Directories stage as single entries and later import as one folder item. A
+     * media-server download's archive is the exception ([stageMediaServerDownload]).
      */
     @androidx.annotation.VisibleForTesting
     internal suspend fun expandArchives(
@@ -720,10 +816,13 @@ object ImportManager : ImportService {
                 continue
             }
 
+            if (!entry.providerName.isNullOrBlank() && !entry.providerId.isNullOrBlank()) {
+                result += stageMediaServerDownload(tempDir, entry, backupDir, processedDir, libraryDao)
+                tempDir.deleteRecursively()
+                continue
+            }
+
             val topLevel = ImportArchiveUtils.topLevelEntries(tempDir)
-            // Provider tags (media-server downloads) only stay meaningful when the archive maps
-            // to a single library item — e.g. an Audiobookshelf multitrack zip with one root folder.
-            val inheritTags = topLevel.size == 1
             topLevel.forEach { extractedEntry ->
                 if (!extractedEntry.isDirectory &&
                     !ImportArchiveUtils.isArchive(extractedEntry.name) &&
@@ -736,39 +835,95 @@ object ImportManager : ImportService {
                     extractedEntry.copyRecursively(dest, overwrite = false)
                     extractedEntry.deleteRecursively()
                 }
-                // Re-import of an offloaded book: restore its file instead of creating a new item
-                // (same staging check startImport applies to direct picks).
-                val isFileOnly = !dest.isDirectory && run {
-                    val existingItem = libraryDao.getItemByFileName(dest.name)
-                    existingItem != null &&
-                        !File(processedDir, existingItem.relativePath ?: dest.name).exists()
-                }
-                queue.addLast(
-                    ImportFile(
-                        name = dest.name,
-                        file = dest,
-                        providerName = if (inheritTags) entry.providerName else null,
-                        providerId = if (inheritTags) entry.providerId else null,
-                        hostId = if (inheritTags) entry.hostId else null,
-                        isFileOnly = isFileOnly
-                    )
-                )
+                queue.addLast(ImportFile(name = dest.name, file = dest, isFileOnly = isOffloadedRestore(dest, processedDir, libraryDao)))
             }
             tempDir.deleteRecursively()
         }
         return result
     }
 
+    /**
+     * A media-server item's download zip ([archive]'s tags), extracted at [tempDir]. AudiobookShelf zips the
+     * item's folder with no root folder: one file, a file and its cover, the tracks, or disc subfolders. Only
+     * the audio files matter, wherever they sit in it.
+     * - One: the item's book, staged with the item's tags so it gets its link. Unless its name matches an
+     *   offloaded book ([isOffloadedRestore]), which it restores instead, keeping that book's links (decided: an
+     *   edge case, and importing it again then makes a new linked book).
+     * - Several: the item's books, staged as one directory named after the archive that carries the item's
+     *   tags, so it imports as a linked volume ([importDirectory]). The books are flattened into it, named
+     *   like a streamed volume's ([VirtualImportManager.volumeChildFileNames]: `Disc 1/01.mp3` ->
+     *   `Disc 1 - 01.mp3`). Inside a directory, they're never matched to an offloaded book by name: a
+     *   generic track name (`01.mp3`) would fill another item's book.
+     */
+    private suspend fun stageMediaServerDownload(
+        tempDir: File,
+        archive: ImportFile,
+        backupDir: File,
+        processedDir: File,
+        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
+    ): List<ImportFile> {
+        val files = tempDir.walkTopDown()
+            .onEnter { it == tempDir || (!it.isHidden && !it.name.startsWith(".") && it.name != "__MACOSX") }
+            .filter { it.isFile && !it.name.startsWith(".") }
+            .toList()
+        // AudiobookShelf doesn't serve archives as audio: an archive inside the item's folder isn't one of its books.
+        files.count { ImportArchiveUtils.isArchive(it.name) }.takeIf { it > 0 }?.let { skipped ->
+            android.util.Log.w("ImportManager", "Skipping $skipped archive(s) inside ${archive.name}: only its audio files are the item's books")
+        }
+        val audio = files
+            .filter { ImportArchiveUtils.isAudioFile(it.name) }
+            .map { it to it.relativeTo(tempDir).invariantSeparatorsPath }
+            .sortedWith(compareBy(ImportArchiveUtils.naturalOrderComparator) { it.second })
+            .toList()
+        if (audio.isEmpty()) return emptyList()
+
+        if (audio.size == 1) {
+            val dest = ImportArchiveUtils.uniqueDestination(backupDir, audio.single().first.name)
+            moveFile(audio.single().first, dest)
+            return listOf(
+                archive.copy(name = dest.name, file = dest, isFileOnly = isOffloadedRestore(dest, processedDir, libraryDao))
+            )
+        }
+
+        val volumeDir = ImportArchiveUtils.uniqueDirectory(backupDir, ImportArchiveUtils.stripExtension(archive.name)).apply { mkdirs() }
+        val names = VirtualImportManager.volumeChildFileNames(audio.map { it.second })
+        audio.forEachIndexed { index, (file, _) -> moveFile(file, File(volumeDir, names[index])) }
+        return listOf(archive.copy(name = volumeDir.name, file = volumeDir, isFileOnly = false))
+    }
+
+    private fun moveFile(source: File, dest: File) {
+        if (!source.renameTo(dest)) {
+            source.copyTo(dest)
+            source.delete()
+        }
+    }
+
+    /**
+     * Re-import of an offloaded book: restore its file instead of creating a new item (same staging check
+     * startImport applies to direct picks).
+     */
+    private suspend fun isOffloadedRestore(
+        dest: File,
+        processedDir: File,
+        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
+    ): Boolean {
+        if (dest.isDirectory) return false
+        val existingItem = libraryDao.getItemByFileName(dest.name) ?: return false
+        return !File(processedDir, existingItem.relativePath ?: dest.name).exists()
+    }
+
+    /** Every item the import created at the top level (books, folders, volumes), as iOS matches them. */
     private suspend fun enqueueHardcoverAutoMatch(
         context: Context,
         syncTaskRepository: com.tortugapower.audiobookplayer.repository.SyncTaskRepository,
-        uuid: String
+        items: List<LibraryItemEntity>
     ) {
+        if (items.isEmpty()) return
         try {
             val hardcoverToken = HardcoverSettingsManager.getToken(context).first()
             val autoMatch = HardcoverSettingsManager.getAutoMatchBooks(context).first()
             if (hardcoverToken.isNotBlank() && autoMatch) {
-                SyncTaskFactory.createHardcoverAutoMatchTask(syncTaskRepository, uuid)
+                SyncTaskFactory.createHardcoverAutoMatchTask(syncTaskRepository, items)
             }
         } catch (e: Exception) {
             android.util.Log.e("ImportManager", "Failed to enqueue hardcover auto-match task", e)

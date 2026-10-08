@@ -7,6 +7,9 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.datalayer.WatchAuthPayload
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
+import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.wear.auth.WatchAuthenticator
 import com.tortugapower.audiobookplayer.wear.auth.WearAuthOutcome
 import com.tortugapower.audiobookplayer.wear.data.WearThemeRepository
@@ -81,7 +84,7 @@ class WearRootViewModelTest {
         override suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity> = emptyList()
         override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) {}
         override suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>) {}
-        override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {}
+        override suspend fun moveItems(context: android.content.Context, items: List<LibraryItemEntity>, targetFolderPath: String?): List<LibraryItemEntity> = emptyList()
         override suspend fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String) {}
         override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {}
         override suspend fun convertFoldersToVolumes(context: android.content.Context, items: List<LibraryItemEntity>) {}
@@ -89,9 +92,11 @@ class WearRootViewModelTest {
         override suspend fun updateArtworkSync(item: LibraryItemEntity) {}
         override fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>> = flowOf(emptyList())
         override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? = null
-        override suspend fun addBookmark(bookmark: BookmarkEntity): Long = 0L
+        override suspend fun addBookmark(bookmark: BookmarkEntity): Long? = 0L
         override suspend fun updateBookmark(bookmark: BookmarkEntity) {}
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) {}
+        override suspend fun syncBookmarksFromCloud(item: LibraryItemEntity): Boolean = false
+        override suspend fun updateItemSpeed(uuid: String, speed: Double) {}
         override fun getChaptersForBook(bookUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>> = flowOf(emptyList())
         override suspend fun insertChapters(chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}
         override suspend fun replaceChaptersForBook(bookUuid: String, chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}
@@ -106,11 +111,32 @@ class WearRootViewModelTest {
         override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> = items
     }
 
+    // Only sign-out touches the queue
+    private class UnusedSyncTaskRepository : SyncTaskRepository {
+        override fun getAllTasks(): Flow<List<SyncTaskEntity>> = error("unused")
+        override suspend fun getPendingTasks(): List<SyncTaskEntity> = error("unused")
+        override suspend fun getTasksByStatus(status: SyncTaskStatus): List<SyncTaskEntity> = error("unused")
+        override suspend fun getTasksInQueueByStatus(queueKey: String, status: SyncTaskStatus): List<SyncTaskEntity> = error("unused")
+        override suspend fun getActiveQueueKeys(): List<String> = error("unused")
+        override suspend fun saveTask(task: SyncTaskEntity) = error("unused")
+        override suspend fun updateTask(task: SyncTaskEntity) = error("unused")
+        override suspend fun deleteTask(task: SyncTaskEntity) = error("unused")
+        override suspend fun clearCompletedTasks() = error("unused")
+        override suspend fun resetRunningTasks() = error("unused")
+        override suspend fun deleteAllTasks() = error("unused")
+        override suspend fun getTaskById(id: String): SyncTaskEntity? = error("unused")
+        override suspend fun countActiveTasks(): Int = error("unused")
+        override suspend fun countActiveTasksInQueue(queueKey: String): Int = error("unused")
+        override suspend fun countActiveTasksByType(jobType: String): Int = error("unused")
+        override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = error("unused")
+        override suspend fun migrateTaskUuid(oldUuid: String, newUuid: String) = error("unused")
+    }
+
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
 
     private fun modelFor(repo: AccountRepository, outcome: WearAuthOutcome) =
-        WearRootViewModel(repo, FakeAuthenticator(outcome), FakeThemeRepository(), FakeLibraryRepository())
+        WearRootViewModel(repo, FakeAuthenticator(outcome), FakeThemeRepository(), FakeLibraryRepository(), UnusedSyncTaskRepository())
 
     @Test fun signIn_success_persistsTransferredAccountIncludingRevenuecatId() = runTest(dispatcher) {
         val repo = FakeAccountRepository()
@@ -201,7 +227,7 @@ class WearRootViewModelTest {
         )
         val model = WearRootViewModel(
             repo, FakeAuthenticator(WearAuthOutcome.Failed("unused")), FakeThemeRepository(),
-            FakeLibraryRepository(rootItems),
+            FakeLibraryRepository(rootItems), UnusedSyncTaskRepository(),
         )
 
         backgroundScope.launch { model.isReady.collect {} }

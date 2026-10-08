@@ -28,7 +28,7 @@ import androidx.room.TypeConverters
         ExternalServerEntity::class,
         ExternalResourceEntity::class
     ],
-    version = 10,
+    version = 14,
     exportSchema = false
 )
 @TypeConverters(MapConverter::class)
@@ -222,6 +222,47 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // AudiobookShelf has no instance id: the serverSettings.id earlier builds stored as
+                // stableId is "server-settings" on every server, so each new import stamped it as the
+                // hostId and every ABS book resolved to the first ABS server. Clear it so imports use
+                // the canonical URL key (as iOS does). Books that already carry the constant are left
+                // as they are and no longer resolve: those go to support.
+                db.execSQL(
+                    "UPDATE external_servers SET stableId = NULL WHERE type = 'AUDIOBOOKSHELF' AND stableId = 'server-settings'"
+                )
+            }
+        }
+
+        internal val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Parking: a task the server can never accept stops with the reason, instead of
+                // retrying every 5 seconds forever (SyncFailurePolicy). All nullable: no task is parked.
+                db.execSQL("ALTER TABLE sync_tasks ADD COLUMN pauseScope TEXT")
+                db.execSQL("ALTER TABLE sync_tasks ADD COLUMN errorCode TEXT")
+                db.execSQL("ALTER TABLE sync_tasks ADD COLUMN httpStatus INTEGER")
+                db.execSQL("ALTER TABLE sync_tasks ADD COLUMN pausedAt INTEGER")
+                db.execSQL("ALTER TABLE sync_tasks ADD COLUMN sentryEventId TEXT")
+            }
+        }
+
+        internal val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Which items the server has confirmed, so a listing only removes those. None yet: the first sync
+                // after this update (every account runs one) flags what the server holds
+                db.execSQL("ALTER TABLE library_items ADD COLUMN serverKnown INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        internal val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Per-book playback speed (iOS `speed`, synced). Nullable: no existing book has one yet, so
+                // with Global Speed Control off it plays at 1x, as on iOS, until the user sets its speed.
+                db.execSQL("ALTER TABLE library_items ADD COLUMN speed REAL")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -229,7 +270,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "bookplayer.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                 .build()
                 INSTANCE = instance
                 instance

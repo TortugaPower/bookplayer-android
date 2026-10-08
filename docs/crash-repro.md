@@ -98,6 +98,61 @@ gone (`StatisticsDao.startSession` returns null, `replaceChaptersForBook` return
 coroutines additionally run under a `CoroutineExceptionHandler` — bookkeeping must never take
 playback down, whatever the DB throws (this also covers a full disk on the heartbeat write).
 
+### ANDROID-BOOKPLAYER-23 — FOREIGN KEY failure adding a bookmark for a vanished book
+
+The third `library_items` child writer, missed by the -19 / -15 fix: `bookmarks.bookUuid` references
+`library_items.uuid`, and `LibraryDao.insertBookmark` wrote without checking the parent. The player
+keeps its `LibraryItemEntity` in memory, so a sync pull that deletes or replaces the row (uuid churn)
+leaves "Create bookmark" pointing at a uuid that no longer exists. The in-app delete path cannot
+trigger it (`LibraryViewModel.deleteItem` stops playback first); the field event happened at book end,
+with the post-book review dialog up.
+
+`scripts/chaos/bookmark-vanished-book.sh` — imports the well-formed m4b fixture, opens it, makes a
+baseline bookmark, deletes the row with the image's `sqlite3` through `run-as` (the sync pull, minus
+the network), then taps "Create bookmark" again. Before the fix the process dies with
+`SQLiteConstraintException: FOREIGN KEY constraint failed` at `LibraryDao_Impl.insertBookmark`; after
+it, nothing is written and the player stays open. Unit-level: `LibraryDaoTest.insertBookmarkIfBookExists_*`
+and `SyncingLibraryRepositoryTest.addBookmark_bookGone_writesNothingAndSchedulesNoSync`.
+
+Fix: `LibraryDao.insertBookmarkIfBookExists` checks the parent row **inside the same transaction** and
+returns null when it is gone; `LibraryRepository.addBookmark` is nullable, the syncing repository
+schedules no SET_BOOKMARK task for a bookmark that was never written, and both callers
+(`PlayerViewModel.addBookmark`, `PlaybackManager.createBookmarkAtCurrentPosition` → `BookmarkOutcome.Failed`)
+treat null as "no bookmark" instead of confirming one.
+
+### ANDROID-BOOKPLAYER-E / -F — "Broadcast already finished" on every launch with a widget placed
+
+One bug under two fingerprints: `-E` throws in our `finally { pendingResult.finish() }`
+(`AudioWidgetLargeProvider.goAsyncLaunch`), `-F` inside the framework's own `QueuedWork` runnable
+that `finish()` defers to while a SharedPreferences `apply()` is pending — same `PendingResult`, same
+second `sendFinished`. Every event (20/20, 3 users) is a vivo on Funtouch 13 (V2146, V2109); the
+activity-shaped ones land 0.1–1.8 s after process start with nothing but lifecycle breadcrumbs, and
+one user crash-looped 13 times in two minutes, cleared the app's data (fresh Sentry user id) and
+crashed again. Nobody taps a widget 100 ms into a launch: the broadcast in flight was our own.
+`PlaybackManager`'s first `combine` emission (`itemChanged=true`) made `WidgetPlaybackNotifier`
+broadcast `APPWIDGET_UPDATE` at our own receiver whenever a widget was placed, so every process start
+took a `goAsync()` result — which that ROM finishes on its own before we do. The APK's only
+`PendingResult.finish()` callers are the receiver's two compiled `finally` paths (dexdump), so the
+second finish is not app code. The "one dispatch reaches `goAsync()` twice" theory is wrong:
+`super.onReceive` handles `APPWIDGET_*`, the `when` handles `ACTION_*`, disjoint — and a second
+`goAsync()` returns null (an NPE), not this.
+
+Not reproducible on a stock emulator (AOSP never finishes a `goAsync()` result behind the receiver's
+back), so `scripts/chaos/widget-self-broadcast.sh` demonstrates the trigger instead: with a widget on
+the home screen it cold-starts the app and counts, in `dumpsys activity broadcasts history`, the
+`APPWIDGET_UPDATE` broadcasts the app sent to its own provider. Before the fix: 1 per launch. After:
+0, and the launcher's `RemoteViews` still changed (the widget was rebuilt in-process). Unit-level:
+`WidgetPlaybackNotifierTest` pins that a book change rebuilds the placed ids through the renderer and
+sends no broadcast.
+
+Fix: the rendering moved verbatim into `AudioWidgetLargeRenderer`; playback and theme changes go
+through `WidgetPlaybackNotifier.rebuild`, which cancels a rebuild still in flight and calls `refresh`
+directly — no receiver, no `PendingResult`. The receiver keeps `goAsync()` for what genuinely arrives from outside (the launcher's
+`APPWIDGET_*`, the widget's tap PendingIntents) and its `finish()` now tolerates
+`IllegalStateException`; that guard only reaches the direct finish (the deferred one throws on the
+framework's thread), which is why the in-process path is the fix and the guard is the backstop.
+Acceptance: both issues quiet on the first release carrying this.
+
 ### ANDROID-BOOKPLAYER-1A — "Session ID must be unique" creating the playback service
 
 media3 keeps session ids in a process-wide registry and refuses a duplicate; the service used the
@@ -198,6 +253,59 @@ Not reproducible on the emulator — its audioserver never stalls. The contract 
 release). Sanity check on a device or emulator: play, toggle *Volume boost* in settings a few times;
 `adb shell dumpsys media.audio_flinger | grep -i loudness` shows the effect attached to the session.
 
+### ANDROID-BOOKPLAYER-21 — foreground start refused on a resume without a user gesture
+
+`ForegroundServiceStartNotAllowedException` from media3's own `startForegroundService(self)` when it
+promotes `AudioPlayerService` after playback resumes in the background. Not an audio-focus story: a
+phone call is a *transient* loss, which ExoPlayer models as suppression with `playWhenReady` still
+true, so media3's engaged check stays true and the service stays foreground through the call. The
+failure needs, in this order: a real pause; media3's user-engaged timeout (`DEFAULT_FOREGROUND_SERVICE_TIMEOUT_MS`,
+10 minutes, also the maximum — `setForegroundServiceTimeoutMs` clamps), after which the next
+notification update calls `stopForeground` and the OS resets the record's allowance
+(`resetFgsRestrictionLocked`); a quiet UID — while the sync host is a foreground service, any
+foreground start of ours is allowed (`code:PROC_STATE_FGS`), and the host idle-stops ~60 s after its
+queues empty; and then a resume with no user gesture behind it. Android's own exemption list has no
+entry for media; what a headset press gets is `MediaSessionService.tempAllowlistTargetPkgIfPossible`,
+which allowlists the *target* of a key sent by *someone else* — never a package for a key it dispatched
+itself. In BookPlayer the gesture-less resumes are the watch's remote play (`WearCommandListenerService.play`
+→ `PlaybackManager.togglePlayPause()` from a Play-Services-bound listener) and, probably, Android Auto's
+controller commands. On media3 1.7 (1.1.3) the artwork-loaded retry crashed; media3 1.11 (1.2.0)
+catches both attempts and routes them to `MediaSessionService.Listener.onForegroundServiceStartNotAllowedException`,
+which the app does not implement: playback runs in a plain background service with no notification.
+
+`scripts/chaos/remote-resume-after-demotion.sh <mode>` on `bp-lowend-31` or `bp-api36` (dev build; same verdicts on API 31 and Android 16): the dev flavor
+adds `DebugPlaybackReceiver` (`src/dev`, an `am broadcast` resume with no gesture) and the
+`bookplayer_media_fgs_timeout_ms` global setting (`DebugKnobs`, read once in `AudioPlayerService.onCreate`)
+to reach the demoted state in 15 s instead of 10 min; the script then waits until nothing of ours is
+foreground and reads ActivityManager's verdict line. Measured: `direct` and `mediakey` (the app
+dispatching the key itself) → `Disallowed (DENIED)`, audio playing, no foreground service, no
+notification; `shellkey` (`input keyevent KEYCODE_MEDIA_PLAY`, the headset path) → `Allowed
+(TEMP_ALLOWED_WHILE_IN_USE)`. Rig gotchas: `pm clear` between runs; until #125 the sync host was started on every
+launch and its dataSync foreground service masked the refusal until it idle-stopped (the rig still waits
+for a quiet UID, since playback itself enqueues sync work); `cmd media_session dispatch` is broken on the
+API 31 image ("packageName may not be
+empty"); `adb shell date '+%m-%d %H:%M:%S.000'` must be quoted for the device shell; a demoted service
+record prints no `isForeground=` line at all. `bp-api36` needs 9.8 GB free for its userdata partition.
+
+Fix (the Pocket Casts shape, deliberately not a workaround of the OS): `AudioPlayerService` sets media3's
+`MediaSessionService.Listener`, and `ForegroundStartRefusals` counts the refusals since the last promotion
+and reports the first of each streak as a handled Sentry event (`fgs.playback_continued`; later refusals are
+`fgs` breadcrumbs), with a `wear`
+breadcrumb naming the watch command kind so the report says where the resume came from. Playback is left
+running: it is what the user asked for, and the next gesture restores the notification (`shellkey`
+measures that path as allowed). `REPORTED BY APP: yes` in the rig's output is the acceptance.
+
+Streak signal (fixed after 1.2.0): #124 ended a streak when `Service.getForegroundServiceType()` was
+non-zero on the next notification update. That field keeps the LAST type after media3 demotes the service
+(measured on API 31: `type=2` with ActivityManager's own record saying not foreground), so the streak reset
+after every refusal and each refused attempt became its own Sentry event — media3 re-attempts the
+promotion on every notification update while the app plays on in the background, eight events in ~90 s
+on the rig. The signal is now ActivityManager's `RunningServiceInfo.foreground` for our own service
+(`ForegroundStartRefusals.isForeground`). The rig prints the streak after its verdict
+(`STREAK: occurrences=[1,2,3,…] events (occurrence 1): 1`, `STREAK_WATCH_S` to lengthen the watch); the
+acceptance is one "occurrence 1" per streak. The rig's verdict alone (`REPORTED BY APP: yes`) had let the
+bug through: it proved a refusal was reported, not that repeats were de-duplicated.
+
 ### ANDROID-BOOKPLAYER-1E — "Bad notification for startForeground"
 
 One TECNO (Android 12) report on 1.1.2; the breadcrumbs show only rapid background/foreground cycling.
@@ -205,6 +313,31 @@ Android 12+ dropped the cause from this message and the stack has no app frames,
 say which service was promoting. Both promotion sites now leave an `fgs` breadcrumb
 (`TaskConcurrencyServiceHost` before `startForeground`, `AudioPlayerService.onUpdateNotification` when
 `startInForegroundRequired`). Nothing to fix until it recurs with a breadcrumb attached.
+
+### ANDROID-BOOKPLAYER-1P / -1R — tapping a link on a device with no browser
+
+`scripts/chaos/no-browser.sh`
+
+Disables Chrome (`pm disable-user`), the only `https` handler on a google_apis image, launches the app
+and taps Settings → "View project on GitHub". Compose's platform `UriHandler` rethrows the
+`ActivityNotFoundException` from `startActivity` as an `IllegalArgumentException("Can't open …")`, and
+nine call sites (Tip Jar contributors, Settings links, Account terms/privacy, Hardcover) used it bare.
+
+* Before: `FATAL EXCEPTION: main … IllegalArgumentException: Can't open https://github.com/TortugaPower/bookplayer-android`
+  and the process is gone (`pidof` empty). Same shape as the Sentry report, from a different link.
+* After: the process is alive and `NotificationService` logs a toast from the package ("No app on this
+  device can open links."; toast windows are not in the accessibility dump, so logcat is the check).
+  `BookPlayerTheme` installs `SafeUriHandler` as `LocalUriHandler`, so every
+  call site is covered without changing any of them. Unit test: `SafeUriHandlerTest`.
+* Verified 2026-09-11 on `bp-lowend-31` (Pixel 3a profile, API 31 — the report was a Pixel 3 on 12).
+  Re-enable Chrome afterwards: `adb shell pm enable com.android.chrome`.
+
+Follow-up (the raw `startActivity` sites outside the wrapper): the four cast/Bluetooth shortcuts in `PlayerSheets`
+and `openStorageSettings` already catch and fall back; the share and debug-info launches go through
+`Intent.createChooser`, which resolves to the system picker and cannot throw. The one unguarded call was the
+single-mail-app support path — now `launchSupportEmail` (`logic/SupportInfo.kt`), which turns a composer that
+disappeared between resolving and starting into the same clipboard fallback iOS shows when `canSendMail()` is
+false; `LaunchSupportEmailTest` drives the real throw with Robolectric's `checkActivities(true)`.
 
 ### Not yet scripted
 

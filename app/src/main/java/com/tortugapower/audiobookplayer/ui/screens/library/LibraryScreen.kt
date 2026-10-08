@@ -66,6 +66,9 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
@@ -87,7 +90,6 @@ import com.tortugapower.audiobookplayer.logic.sort.SortType
 import com.tortugapower.audiobookplayer.repository.BoundConversionException
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
-import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
@@ -101,11 +103,13 @@ import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModelFactory
 /** Duration of the horizontal slide between library folders. */
 private const val FolderNavDurationMillis = 400
 
+
 @Composable
 fun LibraryScreen(
     importViewModel: ImportViewModel = viewModel(),
     viewModel: LibraryViewModel? = null,
-    onNavigateToMediaServers: () -> Unit = {}
+    onNavigateToMediaServers: () -> Unit = {},
+    onNavigateToQueuedTasks: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -120,7 +124,7 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
 
     val libraryViewModel: LibraryViewModel = viewModel ?: viewModel(
-        factory = LibraryViewModelFactory(context.applicationContext as Application, RoomLibraryRepository(context.applicationContext, database.libraryDao()), syncTaskRepository)
+        factory = LibraryViewModelFactory.default(context.applicationContext as Application)
     )
 
     val currentPath by libraryViewModel.currentPath.collectAsState()
@@ -131,25 +135,37 @@ fun LibraryScreen(
     val isRefreshing by libraryViewModel.isRefreshing.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val syncTasksBusyMessage = stringResource(R.string.library_sync_tasks_busy)
+    val syncPausedMessage = stringResource(R.string.sync_paused_alert_title)
+    val viewTasksLabel = stringResource(R.string.sync_tasks_view_title)
+    val openQueuedTasks by rememberUpdatedState(onNavigateToQueuedTasks)
     // A pull-to-refresh that lands while sync jobs are queued is declined (see LibraryViewModel.refresh);
-    // surface that as a transient note rather than silently doing nothing.
+    // surface that as a transient note rather than silently doing nothing, with the way to the queue (iOS
+    // offers "View tasks" too). A parked task means the queue won't drain on its own.
     LaunchedEffect(Unit) {
-        libraryViewModel.syncTasksBusy.collect {
-            snackbarHostState.showSnackbar(syncTasksBusyMessage)
+        libraryViewModel.syncTasksBusy.collect { paused ->
+            val result = snackbarHostState.showSnackbar(
+                message = if (paused) syncPausedMessage else syncTasksBusyMessage,
+                actionLabel = viewTasksLabel,
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) openQueuedTasks()
         }
     }
 
-    // Fetch contents with throttle when path or account changes (e.g. login)
-    LaunchedEffect(currentPath, account) {
-        val pathKey = currentPath ?: "root"
+    // One throttled contents fetch for the level on screen (the first sync instead, until it has run)
+    val fetchVisibleLevel: suspend () -> Unit = { libraryViewModel.fetchVisibleLevel(currentPath, canSyncLibrary) }
 
-        if (canSyncLibrary) {
-            if (SyncStatusManager.canFetchContents(pathKey)) {
-                if (SyncTaskFactory.createFetchContentsTask(syncTaskRepository, currentPath)) {
-                    SyncStatusManager.markPathAsFetched(pathKey)
-                }
-            }
-        }
+    // Fetch contents with throttle when path or account changes (e.g. login)
+    LaunchedEffect(currentPath, account) { fetchVisibleLevel() }
+
+    // iOS parity (scenePhase .active re-syncs the visible list): coming back to the foreground fetches
+    // the level on screen too, through the same throttle, so a change made on another device shows
+    // without navigating. It observes the PROCESS lifecycle, so an in-app screen change never counts as
+    // a return to the foreground. It does also fire once whenever this screen enters composition
+    // (addObserver replays ON_START to a new observer); that only repeats the LaunchedEffect above,
+    // and the shared per-level throttle absorbs it.
+    LifecycleEventEffect(Lifecycle.Event.ON_START, lifecycleOwner = ProcessLifecycleOwner.get()) {
+        scope.launch { fetchVisibleLevel() }
     }
     
     // Fetch data for the actual current path (used by dialogs and actions)
@@ -321,6 +337,42 @@ fun LibraryScreen(
                 showItemDetailSheet = false 
                 itemToDetail = null
             }
+        )
+    }
+
+    // A move skips items whose name is already taken at the destination: say so.
+    val itemsNotMoved by libraryViewModel.itemsNotMoved.collectAsState()
+    itemsNotMoved?.let { count ->
+        AlertDialog(
+            onDismissRequest = { libraryViewModel.clearItemsNotMoved() },
+            title = { Text(stringResource(R.string.common_error)) },
+            text = { Text(pluralStringResource(R.plurals.library_move_name_taken, count, count)) },
+            confirmButton = {
+                TextButton(onClick = { libraryViewModel.clearItemsNotMoved() }) {
+                    Text(stringResource(R.string.common_ok))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    // iOS parity: a folder-only delete is refused when an item in it has a name taken in its parent.
+    val folderNotDeleted by libraryViewModel.folderNotDeleted.collectAsState()
+    folderNotDeleted?.let { count ->
+        AlertDialog(
+            onDismissRequest = { libraryViewModel.clearFolderNotDeleted() },
+            title = { Text(stringResource(R.string.common_error)) },
+            text = { Text(pluralStringResource(R.plurals.library_shallow_delete_name_taken, count, count)) },
+            confirmButton = {
+                TextButton(onClick = { libraryViewModel.clearFolderNotDeleted() }) {
+                    Text(stringResource(R.string.common_ok))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 

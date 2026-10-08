@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
+import com.tortugapower.audiobookplayer.network.throwIfCoded
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -49,6 +50,7 @@ class PreferenceUploadProcessor(
         val key = payload["key"] as? String ?: return true // malformed → drop
         val value = payload["value"] as? String ?: return true
         val response = api.setPreferences(buildPreferencePushBody(key, value))
+        response.throwIfCoded()
         return response.isSuccessful
     }
 }
@@ -69,15 +71,16 @@ class PreferenceFetchProcessor(
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
         val response = api.getPreferences(prefix = SortLocation.KEY_PREFIX)
+        response.throwIfCoded()
         if (!response.isSuccessful) return false
         val entries = response.body()?.entries ?: emptyList()
         val store = DataStorePreferencesStore(context)
         entries.forEach { entry ->
             if (!entry.key.startsWith(SortLocation.KEY_PREFIX)) return@forEach
-            // A key with a queued upload has a LOCAL value newer than the server's — writing the
-            // pulled value would revert the user's just-made choice until the next pull (the
-            // enqueue-time guard can't help once this fetch is already sitting in the queue).
-            if (syncTaskRepository.getPendingTaskByTypeAndTaskId(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, entry.key) != null) {
+            // A key with a queued upload (parked ones included) has a LOCAL value newer than the
+            // server's — writing the pulled value would revert the user's just-made choice until the
+            // next pull (the enqueue-time guard can't help once this fetch is already sitting in the queue).
+            if (syncTaskRepository.hasQueuedTask(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, entry.key)) {
                 return@forEach
             }
             val value = parsePulledSortValue(entry.value) ?: return@forEach
