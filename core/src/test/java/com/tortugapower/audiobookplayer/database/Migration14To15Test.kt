@@ -13,13 +13,12 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * Pins MIGRATION_11_12 against the v11 sync_tasks table, Room's own CREATE statement for it
- * (exportSchema=false rules out MigrationTestHelper, as in the earlier migration tests): queued tasks
- * survive unparked, and the migrated table has exactly the columns Room expects from the entity, which
- * Room checks when it opens a migrated database.
+ * Pins MIGRATION_14_15 against the v14 sync_tasks table (Room's own CREATE statement for it, as in
+ * Migration11To12Test): queued tasks survive with no retry streak and no wait, and the migrated table has
+ * exactly the columns Room expects from the entity, which Room checks when it opens a migrated database.
  */
 @RunWith(RobolectricTestRunner::class)
-class Migration11To12Test {
+class Migration14To15Test {
 
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
@@ -34,20 +33,23 @@ class Migration11To12Test {
         }
 
     @Test
-    fun migration_addsThePauseColumns_andKeepsQueuedTasksUnparked() {
+    fun migration_addsTheBackoffColumns_andLeavesEveryTaskDueNow() {
         val config = SupportSQLiteOpenHelper.Configuration.builder(context)
             .name(null) // in-memory
-            .callback(object : SupportSQLiteOpenHelper.Callback(11) {
+            .callback(object : SupportSQLiteOpenHelper.Callback(14) {
                 override fun onCreate(db: SupportSQLiteDatabase) {
                     db.execSQL(
                         "CREATE TABLE IF NOT EXISTS `sync_tasks` (`id` TEXT NOT NULL, `taskID` TEXT NOT NULL, " +
                             "`queueKey` TEXT NOT NULL, `jobType` TEXT NOT NULL, `position` INTEGER NOT NULL, " +
                             "`payload` TEXT NOT NULL, `status` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, " +
-                            "`errorMessage` TEXT, `attempts` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+                            "`errorMessage` TEXT, `attempts` INTEGER NOT NULL, `pauseScope` TEXT, `errorCode` TEXT, " +
+                            "`httpStatus` INTEGER, `pausedAt` INTEGER, `sentryEventId` TEXT, PRIMARY KEY(`id`))"
                     )
+                    // A task that has been failing every 5 s under the old engine
                     db.execSQL(
-                        "INSERT INTO sync_tasks VALUES ('t1', 'book-uuid', 'sync', 'move', 3, '{}', 'PENDING', 1000, " +
-                            "'Processor returned failure', 7)"
+                        "INSERT INTO sync_tasks (id, taskID, queueKey, jobType, position, payload, status, createdAt, " +
+                            "errorMessage, attempts) VALUES ('t1', 'book-uuid', 'sync', 'update', 3, '{}', 'PENDING', 1000, " +
+                            "'Processor returned failure', 40)"
                     )
                 }
 
@@ -57,21 +59,19 @@ class Migration11To12Test {
 
         val migratedColumns = FrameworkSQLiteOpenHelperFactory().create(config).use { helper ->
             val db = helper.writableDatabase
-            AppDatabase.MIGRATION_11_12.migrate(db)
+            AppDatabase.MIGRATION_14_15.migrate(db)
 
             db.query(
-                "SELECT taskID, position, errorMessage, attempts, pauseScope, errorCode, httpStatus, pausedAt, sentryEventId " +
-                    "FROM sync_tasks WHERE id = 't1'"
+                "SELECT taskID, position, errorMessage, attempts, failureStreak, nextAttemptAt FROM sync_tasks WHERE id = 't1'"
             ).use { cursor ->
                 assertTrue(cursor.moveToFirst())
                 assertEquals("book-uuid", cursor.getString(0))
                 assertEquals(3, cursor.getInt(1))
                 assertEquals("Processor returned failure", cursor.getString(2))
-                assertEquals(7, cursor.getInt(3))
-                (4..8).forEach { assertTrue("column $it is null", cursor.isNull(it)) }
+                assertEquals(40, cursor.getInt(3))
+                assertEquals("its next failure starts the streak", 0, cursor.getInt(4))
+                assertTrue("due now", cursor.isNull(5))
             }
-            // Room checks the current schema: the later sync_tasks migrations bring the table up to it
-            AppDatabase.MIGRATION_14_15.migrate(db)
             columns(db)
         }
 

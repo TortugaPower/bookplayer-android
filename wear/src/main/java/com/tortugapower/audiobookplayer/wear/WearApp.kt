@@ -147,6 +147,18 @@ class WearApp : Application() {
             WearSyncServiceHost.start(this)
         }
 
+        // Every time the app is opened, tasks waiting out a backoff retry now, their streak kept (as on the
+        // phone). Not while storage is critical: the engine holds all work then.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+            override fun onStart(owner: androidx.lifecycle.LifecycleOwner) {
+                appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    if (!com.tortugapower.audiobookplayer.logic.StorageMonitor.isCritical) {
+                        com.tortugapower.audiobookplayer.logic.SyncRetryWake.retryAllNow(syncTaskRepository)
+                    }
+                }
+            }
+        })
+
         // Run the on-watch sync foreground service while PRO AND the app is in use. Start/stop use
         // ASYMMETRIC conditions on purpose:
         //  - START only while foreground — starting a dataSync FGS from the background throws on API 31+
@@ -162,7 +174,7 @@ class WearApp : Application() {
             val isForeground = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
                 .map { it.isAtLeast(Lifecycle.State.STARTED) }
             // "Active work" excludes tasks that have already failed several times: sync retries are
-            // intentionally infinite (they keep retrying with backoff), but a permanently-failing task (a
+            // intentionally infinite (they back off up to 5 h, SyncBackoff), but a permanently-failing task (a
             // 404 URL, an offline device) must NOT pin the foreground service alive in the background
             // forever (battery + a persistent notification). Such a task still retries whenever the app is
             // foregrounded (the `foreground` signal runs the service regardless).

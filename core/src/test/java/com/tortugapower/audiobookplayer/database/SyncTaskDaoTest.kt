@@ -318,4 +318,86 @@ class SyncTaskDaoTest {
 
         assertEquals(setOf("a", "b", "c"), dao.queuedTaskIds(listOf("upload_metadata", "upload_file")).toSet())
     }
+
+    // Retry backoff (SyncBackoff): a retried failure stores its streak and wait; what isn't a failure clears them
+
+    @Test fun markTaskRetrying_storesTheStreakAndTheWait() = runBlocking {
+        dao.insertAtEnd(task("t", "a"))
+        dao.markTaskRunning("t")
+        dao.markTaskRetrying("t", "timeout", 3, 9_000L)
+
+        val row = requireNotNull(dao.getTaskById("t"))
+        assertEquals(SyncTaskStatus.PENDING, row.status)
+        assertEquals("timeout", row.errorMessage)
+        assertEquals(3, row.failureStreak)
+        assertEquals(9_000L, row.nextAttemptAt)
+        assertEquals("its place in the queue is kept", listOf("t"), pendingIds())
+    }
+
+    @Test fun running_endsTheWait_butKeepsTheStreak() = runBlocking {
+        dao.insertAtEnd(task("t", "a"))
+        dao.markTaskRetrying("t", "timeout", 2, 9_000L)
+        dao.markTaskRunning("t")
+
+        val row = requireNotNull(dao.getTaskById("t"))
+        assertNull(row.nextAttemptAt)
+        assertEquals(2, row.failureStreak)
+    }
+
+    /** Uploads held for Wi-Fi aren't a failure, and a park needs the user or the next launch: either ends the streak */
+    @Test fun aRunThatWasntAFailure_orAPark_endsTheStreak() = runBlocking {
+        dao.insertAtEnd(task("held", "a"))
+        dao.insertAtEnd(task("parked", "b"))
+        dao.markTaskRetrying("held", "timeout", 4, 9_000L)
+        dao.markTaskRetrying("parked", "timeout", 4, 9_000L)
+
+        dao.markTaskPending("held", null)
+        dao.parkTask("parked", "TASK", "item_not_found", "Item not found", 404, 5L)
+
+        listOf("held", "parked").forEach {
+            val row = requireNotNull(dao.getTaskById(it))
+            assertEquals(it, 0, row.failureStreak)
+            assertNull(it, row.nextAttemptAt)
+        }
+        dao.resumeTask("parked")
+        assertNull("resumed, it runs right away", dao.getTaskById("parked")?.nextAttemptAt)
+    }
+
+    @Test fun clearRetryWaits_letsEveryWaitingTaskRunNow_keepingItsStreak() = runBlocking {
+        dao.insertAtEnd(task("a", "a"))
+        dao.insertAtEnd(task("b", "b"))
+        dao.insertAtEnd(task("c", "c"))
+        dao.markTaskRetrying("a", "timeout", 2, 9_000L)
+        dao.markTaskRetrying("b", "timeout", 5, 9_000L)
+
+        assertEquals(2, dao.clearRetryWaits())
+        assertEquals(listOf(null, null, null), listOf("a", "b", "c").map { dao.getTaskById(it)?.nextAttemptAt })
+        assertEquals(listOf(2, 5, 0), listOf("a", "b", "c").map { dao.getTaskById(it)?.failureStreak })
+        assertEquals("nothing left waiting", 0, dao.clearRetryWaits())
+    }
+
+    @Test fun clearRetryWait_letsOneWaitingTaskRunNow() = runBlocking {
+        dao.insertAtEnd(task("a", "a"))
+        dao.insertAtEnd(task("b", "b"))
+        dao.markTaskRetrying("a", "timeout", 2, 9_000L)
+        dao.markTaskRetrying("b", "timeout", 2, 9_000L)
+
+        assertEquals(1, dao.clearRetryWait("a"))
+        assertNull(dao.getTaskById("a")?.nextAttemptAt)
+        assertEquals(2, dao.getTaskById("a")?.failureStreak)
+        assertEquals(9_000L, dao.getTaskById("b")?.nextAttemptAt)
+        assertEquals("not waiting any more", 0, dao.clearRetryWait("a"))
+    }
+
+    /** A retired job's streak was the old job's */
+    @Test fun convertTasks_endsTheOldJobsStreak() = runBlocking {
+        dao.insertAtEnd(task("t", "a", jobType = "old_job"))
+        dao.markTaskRetrying("t", "timeout", 6, 9_000L)
+
+        dao.convertTasks("old_job", "new_job", "sync")
+
+        val row = requireNotNull(dao.getTaskById("t"))
+        assertEquals(0, row.failureStreak)
+        assertNull(row.nextAttemptAt)
+    }
 }

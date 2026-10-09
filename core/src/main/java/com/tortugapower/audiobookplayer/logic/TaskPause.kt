@@ -118,4 +118,32 @@ object SyncTaskPicker {
         }
         return runnable
     }
+
+    /**
+     * What a lane's worker does next, from the tasks it may run ([runnable], in queue order): the first one
+     * due. A task waiting out a backoff (SyncBackoff) is passed over like a parked one
+     * (SyncFailurePolicy.scope): one that changes structure holds the lane behind it, since later tasks
+     * build on it; any other is skipped, and the lane runs what's behind it.
+     */
+    fun nextDue(tasks: List<SyncTaskEntity>, now: Long): LanePick {
+        var earliest: Long? = null
+        for (task in tasks) {
+            if (SyncBackoff.isDue(task.nextAttemptAt, now)) return LanePick.Run(task)
+            val until = checkNotNull(task.nextAttemptAt)
+            earliest = minOf(earliest ?: until, until)
+            if (SyncFailurePolicy.scope(task.jobType) == TaskPauseScope.LANE) break
+        }
+        return earliest?.let { LanePick.Wait(it) } ?: LanePick.Idle
+    }
+}
+
+/** A lane worker's next step ([SyncTaskPicker.nextDue]) */
+sealed interface LanePick {
+    data class Run(val task: SyncTaskEntity) : LanePick
+
+    /** Everything the lane may run is waiting out a backoff: nothing is due before [until] (epoch ms) */
+    data class Wait(val until: Long) : LanePick
+
+    /** Nothing to run: the worker retires */
+    data object Idle : LanePick
 }

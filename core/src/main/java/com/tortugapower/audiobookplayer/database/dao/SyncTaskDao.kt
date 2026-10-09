@@ -60,7 +60,8 @@ interface SyncTaskDao {
     @Query("UPDATE sync_tasks SET status = 'PENDING' WHERE status = 'RUNNING'")
     suspend fun resetRunningTasks()
 
-    @Query("UPDATE sync_tasks SET status = 'RUNNING', attempts = attempts + 1 WHERE id = :id")
+    // A running task isn't waiting out a backoff any more; its streak stays until the run ends
+    @Query("UPDATE sync_tasks SET status = 'RUNNING', attempts = attempts + 1, nextAttemptAt = NULL WHERE id = :id")
     suspend fun markTaskRunning(id: String)
 
     // Parking: a parked task is FAILED with its pause set (see TaskPause). The queue's PENDING reads
@@ -73,10 +74,14 @@ interface SyncTaskDao {
     @Query("SELECT EXISTS(SELECT 1 FROM sync_tasks WHERE pauseScope = 'ACCOUNT')")
     suspend fun hasAccountPause(): Boolean
 
-    /** Returns how many rows were parked: 0 when the task is gone (removed meanwhile) */
+    /**
+     * Returns how many rows were parked: 0 when the task is gone (removed meanwhile). A park ends the retry
+     * streak: resumed, the task runs right away.
+     */
     @Query(
         "UPDATE sync_tasks SET status = 'FAILED', pauseScope = :scope, errorCode = :errorCode, " +
-            "errorMessage = :message, httpStatus = :httpStatus, pausedAt = :pausedAt WHERE id = :id"
+            "errorMessage = :message, httpStatus = :httpStatus, pausedAt = :pausedAt, " +
+            "failureStreak = 0, nextAttemptAt = NULL WHERE id = :id"
     )
     suspend fun parkTask(id: String, scope: String, errorCode: String, message: String, httpStatus: Int?, pausedAt: Long): Int
 
@@ -110,8 +115,27 @@ interface SyncTaskDao {
     @Query("UPDATE sync_tasks SET sentryEventId = :eventId WHERE id = :id")
     suspend fun setSentryEventId(id: String, eventId: String)
 
-    @Query("UPDATE sync_tasks SET status = 'PENDING', errorMessage = :errorMessage WHERE id = :id")
+    /** Back to pending after a run that wasn't a failure (uploads held for Wi-Fi): the retry streak ends */
+    @Query(
+        "UPDATE sync_tasks SET status = 'PENDING', errorMessage = :errorMessage, failureStreak = 0, " +
+            "nextAttemptAt = NULL WHERE id = :id"
+    )
     suspend fun markTaskPending(id: String, errorMessage: String?)
+
+    /** Back to pending after a failure the policy retries: [failureStreak] in a row, not before [nextAttemptAt] */
+    @Query(
+        "UPDATE sync_tasks SET status = 'PENDING', errorMessage = :errorMessage, failureStreak = :failureStreak, " +
+            "nextAttemptAt = :nextAttemptAt WHERE id = :id"
+    )
+    suspend fun markTaskRetrying(id: String, errorMessage: String, failureStreak: Int, nextAttemptAt: Long)
+
+    /** Every task waiting out a backoff may run now, its streak kept. Returns how many. */
+    @Query("UPDATE sync_tasks SET nextAttemptAt = NULL WHERE status = 'PENDING' AND nextAttemptAt IS NOT NULL")
+    suspend fun clearRetryWaits(): Int
+
+    /** [id] may run now if it's waiting out a backoff, its streak kept. Returns 0 when it isn't waiting. */
+    @Query("UPDATE sync_tasks SET nextAttemptAt = NULL WHERE id = :id AND status = 'PENDING' AND nextAttemptAt IS NOT NULL")
+    suspend fun clearRetryWait(id: String): Int
 
     @Query("DELETE FROM sync_tasks")
     suspend fun deleteAllTasks()
@@ -164,11 +188,12 @@ interface SyncTaskDao {
 
     /**
      * Turns every [from] task into a pending [to] task in [queueKey], keeping its payload and place in the
-     * queue; a park or error it carried was the old job's. Returns how many.
+     * queue; a park, error or retry streak it carried was the old job's. Returns how many.
      */
     @Query(
         "UPDATE sync_tasks SET jobType = :to, queueKey = :queueKey, status = 'PENDING', errorMessage = NULL, " +
-            "pauseScope = NULL, errorCode = NULL, httpStatus = NULL, pausedAt = NULL, sentryEventId = NULL WHERE jobType = :from"
+            "pauseScope = NULL, errorCode = NULL, httpStatus = NULL, pausedAt = NULL, sentryEventId = NULL, " +
+            "failureStreak = 0, nextAttemptAt = NULL WHERE jobType = :from"
     )
     suspend fun convertTasks(from: String, to: String, queueKey: String): Int
 
