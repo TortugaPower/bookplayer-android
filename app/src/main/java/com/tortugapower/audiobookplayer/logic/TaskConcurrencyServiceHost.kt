@@ -79,23 +79,26 @@ class TaskConcurrencyServiceHost : Service() {
     private var connectivityManager: android.net.ConnectivityManager? = null
     // Tracks the active network's metered state so we only react to a real metered→unmetered flip.
     private var lastNotMetered: Boolean? = null
-    // Tells a new network from the one already up when the callback is registered
+    // Tells a new, validated default network from the one already up when the callback is registered
     private val networkChanges = NetworkChangeDetector<android.net.Network>()
     // Nudge the worker manager when the network changes so uploads held on cellular resume once
     // an un-metered connection is available (the task Flow won't re-emit on a network change alone),
     // and so tasks waiting out a backoff retry on the new network.
     private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: android.net.Network) {
-            val changed = networkChanges.onAvailable(network)
-            if (!::taskConcurrencyManager.isInitialized) return
-            taskConcurrencyManager.requestWorkerScan()
-            if (changed) taskConcurrencyManager.retryWaitingNow()
+            networkChanges.onAvailable(network)
+            if (::taskConcurrencyManager.isInitialized) taskConcurrencyManager.requestWorkerScan()
         }
         override fun onLost(network: android.net.Network) = networkChanges.onLost(network)
         override fun onCapabilitiesChanged(
             network: android.net.Network,
             caps: android.net.NetworkCapabilities
         ) {
+            // A new default network, now validated: tasks waiting out a backoff retry on it
+            val validated = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            if (networkChanges.onCapabilitiesChanged(network, validated) && ::taskConcurrencyManager.isInitialized) {
+                taskConcurrencyManager.retryWaitingNow()
+            }
             // Capability callbacks fire constantly on the active network (bandwidth estimate,
             // validation, etc.), and each scan hits the DB. Only nudge on a metered→unmetered
             // transition — the one change that can release cellular-held uploads.

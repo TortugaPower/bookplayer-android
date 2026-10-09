@@ -70,21 +70,24 @@ class WearSyncServiceHost : Service() {
     // only resume when something re-scans the queue — the task Flow doesn't re-emit on a network
     // change. Without this, a held upload on an LTE watch waits for an app restart.
     private var lastNotMetered: Boolean? = null
-    // Tells a new network from the one already up when the callback is registered: on a new one, tasks
-    // waiting out a backoff retry (same as the phone host)
+    // Tells a new, validated default network from the one already up when the callback is registered: on
+    // one, tasks waiting out a backoff retry (same as the phone host)
     private val networkChanges = NetworkChangeDetector<android.net.Network>()
     private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: android.net.Network) {
-            val changed = networkChanges.onAvailable(network)
-            if (!::taskConcurrencyManager.isInitialized) return
-            taskConcurrencyManager.requestWorkerScan()
-            if (changed) taskConcurrencyManager.retryWaitingNow()
+            networkChanges.onAvailable(network)
+            if (::taskConcurrencyManager.isInitialized) taskConcurrencyManager.requestWorkerScan()
         }
         override fun onLost(network: android.net.Network) = networkChanges.onLost(network)
         override fun onCapabilitiesChanged(
             network: android.net.Network,
             caps: android.net.NetworkCapabilities,
         ) {
+            // A new default network, now validated: tasks waiting out a backoff retry on it
+            val validated = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            if (networkChanges.onCapabilitiesChanged(network, validated) && ::taskConcurrencyManager.isInitialized) {
+                taskConcurrencyManager.retryWaitingNow()
+            }
             // Only nudge on the metered→unmetered flip (capability callbacks fire constantly).
             val notMetered = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
             val becameUnmetered = notMetered && lastNotMetered != true
