@@ -9,6 +9,7 @@ import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
+import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -163,6 +164,35 @@ class TaskConcurrencyManagerBackoffTest {
         queue("u", SyncTaskFactory.JOB_UPDATE)
 
         until { updates.ran.contains("u") }
+    }
+
+    /** Counts each lane's picks: a waiting worker picks again only when cued */
+    private class CountingPicks(private val inner: SyncTaskRepository) : SyncTaskRepository by inner {
+        val picks: MutableMap<String, Int> = Collections.synchronizedMap(mutableMapOf())
+        override suspend fun getQueueCandidates(queueKey: String): List<SyncTaskEntity> {
+            picks.merge(queueKey, 1, Int::plus)
+            return inner.getQueueCandidates(queueKey)
+        }
+    }
+
+    /** A busy lane writes on every task: a lane waiting out a backoff isn't cued by those writes */
+    @Test fun aWaitingLane_isNotCuedByAnotherLanesWrites() = runBlocking {
+        val counting = CountingPicks(repository)
+        val pushes = Jobs(SyncTaskFactory.JOB_EXTERNAL_UPDATE, failing = setOf("push"))
+        val updates = Jobs(SyncTaskFactory.JOB_UPDATE, failing = emptySet())
+        val manager = TaskConcurrencyManager(context, counting, ProAccounts(), listOf(pushes, updates))
+            .also { engines += it; it.startProcessing() }
+        queue("push", SyncTaskFactory.JOB_EXTERNAL_UPDATE, lane = "jellyfin")
+        until { manager.laneStates.value["jellyfin"] is LaneState.Waiting }
+        val picksWhileWaiting = counting.picks["jellyfin"]
+
+        (1..5).forEach { queue("u$it", SyncTaskFactory.JOB_UPDATE) }
+        until { updates.ran.size == 5 }
+
+        assertEquals(picksWhileWaiting, counting.picks["jellyfin"])
+        // Its own lane changing does cue it: a push queued behind the waiting one runs now
+        queue("push2", SyncTaskFactory.JOB_EXTERNAL_UPDATE, lane = "jellyfin")
+        until { pushes.ran.contains("push2") }
     }
 
     /** The wait is stored on the task: a new engine (the service restarted, the process died) keeps it */

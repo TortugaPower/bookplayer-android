@@ -77,7 +77,8 @@ class WearSyncServiceHost : Service() {
         override fun onAvailable(network: android.net.Network) {
             val changed = networkChanges.onAvailable(network)
             if (!::taskConcurrencyManager.isInitialized) return
-            if (changed) taskConcurrencyManager.retryWaitingNow() else taskConcurrencyManager.requestWorkerScan()
+            taskConcurrencyManager.requestWorkerScan()
+            if (changed) taskConcurrencyManager.retryWaitingNow()
         }
         override fun onLost(network: android.net.Network) = networkChanges.onLost(network)
         override fun onCapabilitiesChanged(

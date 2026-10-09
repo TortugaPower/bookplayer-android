@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import java.util.Objects
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 
@@ -71,9 +72,14 @@ class TaskConcurrencyManager(
     /** Each lane with a worker: working, or waiting out a backoff (and until when) */
     val laneStates: StateFlow<Map<String, LaneState>> = _laneStates.asStateFlow()
 
-    // Bumped whenever a waiting worker should look at its lane again: the queue changed (a new task, a
-    // cleared wait) or a rescan was asked for
-    private val laneChanges = MutableStateFlow(0L)
+    /**
+     * Cues for a worker waiting out a backoff to look at its lane again: its own lane's tasks changed (a new
+     * one, a cleared wait), or a rescan was asked for, which every lane answers
+     */
+    private data class LaneCues(val everyLane: Long = 0, val perLane: Map<String, Long> = emptyMap()) {
+        fun of(lane: String) = everyLane to (perLane[lane] ?: 0L)
+    }
+    private val laneCues = MutableStateFlow(LaneCues())
 
     override val tasksFlow: Flow<List<SyncTaskEntity>> = repository.getAllTasks()
 
@@ -126,12 +132,23 @@ class TaskConcurrencyManager(
                 }
             }
 
+            // What each lane last held, so only the lanes whose tasks changed cue their waiting worker: a busy
+            // lane writes on every task, and a waiting worker would redo its pick for each write
+            var laneContents = emptyMap<String, Int>()
+
             // Watch the queue to know which lanes need workers: only lanes with something runnable
             // (getAllTasks is in queue order)
             repository.getAllTasks().collect { tasks ->
                 if (!isProcessing) return@collect
-                // A task queued behind one waiting out a backoff may be due now
-                laneChanges.update { it + 1 }
+                // A task queued behind one waiting out a backoff may be due now, or a wait was cut short
+                val contents = laneContents(tasks)
+                val changed = (contents.keys + laneContents.keys).filter { contents[it] != laneContents[it] }
+                laneContents = contents
+                if (changed.isNotEmpty()) {
+                    laneCues.update { cues ->
+                        cues.copy(perLane = cues.perLane + changed.associateWith { (cues.perLane[it] ?: 0L) + 1 })
+                    }
+                }
                 // The same "still to go through" the first sync and the pass wait on (countQueuedTasksInQueue)
                 val syncBusy = tasks.any {
                     it.queueKey == SyncTaskFactory.QUEUE_SYNC &&
@@ -164,7 +181,7 @@ class TaskConcurrencyManager(
                 // Keep worker alive as long as there are pending tasks for this queue
                 while (isProcessing) {
                     // Read before the pick: a change landing while it runs still ends the wait below
-                    val seenChange = laneChanges.value
+                    val seenCue = laneCues.value.of(queueKey)
                     val pick = mutex.withLock {
                         // Re-fetch the next runnable pending task for this queue. File uploads are
                         // SKIPPED (not the whole queue) while held on cellular, so a user-triggered
@@ -206,8 +223,8 @@ class TaskConcurrencyManager(
                                 holdingSlot = false
                             }
                             _laneStates.update { it + (queueKey to LaneState.Waiting(pick.until)) }
-                            // Until the wait is over, or the queue changes (a wait cut short, a task behind it)
-                            withTimeoutOrNull(waitMs) { laneChanges.first { it != seenChange } }
+                            // Until the wait is over, or the lane changes (a wait cut short, a task behind it)
+                            withTimeoutOrNull(waitMs) { laneCues.first { it.of(queueKey) != seenCue } }
                             _laneStates.update { it + (queueKey to LaneState.Working) }
                             continue
                         }
@@ -278,7 +295,7 @@ class TaskConcurrencyManager(
      */
     fun requestWorkerScan() {
         if (!isProcessing) return
-        laneChanges.update { it + 1 }
+        laneCues.update { it.copy(everyLane = it.everyLane + 1) }
         serviceScope.launch {
             awaitTierReady()
             dropDownloadsTheTierCantRun()
@@ -420,6 +437,15 @@ class TaskConcurrencyManager(
             }
         }
     }
+
+    /**
+     * A fingerprint of each lane's tasks, in order: what a pick depends on (the payload is left out, since
+     * playback merges progress into a waiting task every few seconds)
+     */
+    private fun laneContents(tasks: List<SyncTaskEntity>): Map<String, Int> =
+        tasks.groupBy { it.queueKey }.mapValues { (_, rows) ->
+            rows.fold(1) { hash, task -> 31 * hash + Objects.hash(task.id, task.status, task.nextAttemptAt, task.pauseScope) }
+        }
 
     /** Back to pending, not to run again before its backoff is over: one more failure in a row (SyncBackoff) */
     private suspend fun scheduleRetry(task: SyncTaskEntity, errorMessage: String) {
