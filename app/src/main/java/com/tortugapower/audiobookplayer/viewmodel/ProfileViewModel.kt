@@ -14,6 +14,7 @@ import com.tortugapower.audiobookplayer.logic.SyncEngineWaker
 import com.tortugapower.audiobookplayer.logic.SyncFailurePolicy
 import com.tortugapower.audiobookplayer.logic.SyncPauseReport
 import com.tortugapower.audiobookplayer.logic.SyncQueueReset
+import com.tortugapower.audiobookplayer.logic.SyncRetryWake
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.UploadFilePayload
@@ -160,10 +161,15 @@ class ProfileViewModel(
     }
 
     /**
-     * The user's Retry: back to pending (one account pause resumes them all), and the engine is woken. An
-     * upload's Retry asks for the book again: it may be registered again even if it already was this session.
+     * The user's Retry. A parked task goes back to pending (one account pause resumes them all), and the
+     * engine is woken; an upload's Retry asks for the book again: it may be registered again even if it
+     * already was this session. A task waiting out a backoff runs now, keeping its streak.
      */
-    fun retryPausedTask(task: SyncTaskEntity) {
+    fun retryTask(task: SyncTaskEntity) {
+        if (task.pause == null) {
+            viewModelScope.launch { SyncRetryWake.retryNow(syncTaskRepository, task.id) }
+            return
+        }
         if (task.jobType == SyncTaskFactory.JOB_UPLOAD_FILE) {
             UploadFilePayload.uuid(task.payload)?.let(UploadHandBack::release)
         }

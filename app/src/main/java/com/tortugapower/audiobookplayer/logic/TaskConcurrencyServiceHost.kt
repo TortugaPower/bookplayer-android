@@ -25,9 +25,9 @@ class TaskConcurrencyServiceHost : Service() {
         private const val ACTION_RESUME_UPLOADS = "com.tortugapower.audiobookplayer.action.RESUME_UPLOADS"
 
         // How long activeQueues must stay empty before the service stops itself. Long enough to
-        // ride out the gaps between chained tasks (fetch → downloads, the per-queue 5s failure
-        // pause) so a running sync doesn't churn stop/start; short enough that an idle app stops
-        // burning the Android 15+ dataSync budget within the first minute.
+        // ride out the gaps between chained tasks (fetch → downloads) so a running sync doesn't
+        // churn stop/start; short enough that an idle app stops burning the Android 15+ dataSync
+        // budget within the first minute.
         private const val IDLE_STOP_GRACE_MS = 60_000L
 
         // Cheap running check so bursty enqueues (an import staging dozens of files) don't spam
@@ -79,12 +79,18 @@ class TaskConcurrencyServiceHost : Service() {
     private var connectivityManager: android.net.ConnectivityManager? = null
     // Tracks the active network's metered state so we only react to a real metered→unmetered flip.
     private var lastNotMetered: Boolean? = null
+    // Tells a new network from the one already up when the callback is registered
+    private val networkChanges = NetworkChangeDetector<android.net.Network>()
     // Nudge the worker manager when the network changes so uploads held on cellular resume once
-    // an un-metered connection is available (the task Flow won't re-emit on a network change alone).
+    // an un-metered connection is available (the task Flow won't re-emit on a network change alone),
+    // and so tasks waiting out a backoff retry on the new network.
     private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: android.net.Network) {
-            if (::taskConcurrencyManager.isInitialized) taskConcurrencyManager.requestWorkerScan()
+            val changed = networkChanges.onAvailable(network)
+            if (!::taskConcurrencyManager.isInitialized) return
+            if (changed) taskConcurrencyManager.retryWaitingNow() else taskConcurrencyManager.requestWorkerScan()
         }
+        override fun onLost(network: android.net.Network) = networkChanges.onLost(network)
         override fun onCapabilitiesChanged(
             network: android.net.Network,
             caps: android.net.NetworkCapabilities
@@ -177,6 +183,8 @@ class TaskConcurrencyServiceHost : Service() {
 
         // Resume cellular-held uploads promptly when the network changes (e.g. Wi-Fi returns).
         connectivityManager = (getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager)?.also {
+            // Registering reports the network already up: that's no change, so it cuts no backoff short
+            networkChanges.onRegistering(it.activeNetwork)
             runCatching { it.registerDefaultNetworkCallback(networkCallback) }
         }
 

@@ -25,6 +25,14 @@ object SyncEngine {
     }
 }
 
+/** What a lane's worker is doing ([TaskConcurrencyManager.laneStates]) */
+sealed interface LaneState {
+    data object Working : LaneState
+
+    /** Everything the lane may run is waiting out a backoff (SyncBackoff) until [until] (epoch ms) */
+    data class Waiting(val until: Long) : LaneState
+}
+
 class TaskConcurrencyManager(
     private val context: Context,
     private val repository: SyncTaskRepository,
@@ -58,6 +66,14 @@ class TaskConcurrencyManager(
 
     private val _activeQueues = MutableStateFlow<Set<String>>(emptySet())
     override val activeQueues: Flow<Set<String>> = _activeQueues.asStateFlow()
+
+    private val _laneStates = MutableStateFlow<Map<String, LaneState>>(emptyMap())
+    /** Each lane with a worker: working, or waiting out a backoff (and until when) */
+    val laneStates: StateFlow<Map<String, LaneState>> = _laneStates.asStateFlow()
+
+    // Bumped whenever a waiting worker should look at its lane again: the queue changed (a new task, a
+    // cleared wait) or a rescan was asked for
+    private val laneChanges = MutableStateFlow(0L)
 
     override val tasksFlow: Flow<List<SyncTaskEntity>> = repository.getAllTasks()
 
@@ -114,6 +130,8 @@ class TaskConcurrencyManager(
             // (getAllTasks is in queue order)
             repository.getAllTasks().collect { tasks ->
                 if (!isProcessing) return@collect
+                // A task queued behind one waiting out a backoff may be due now
+                laneChanges.update { it + 1 }
                 // The same "still to go through" the first sync and the pass wait on (countQueuedTasksInQueue)
                 val syncBusy = tasks.any {
                     it.queueKey == SyncTaskFactory.QUEUE_SYNC &&
@@ -135,15 +153,19 @@ class TaskConcurrencyManager(
         Log.d(TAG, "👷 Starting persistent worker for queue: $queueKey")
         // Registered before it runs, so its own cleanup always finds it
         val job = serviceScope.launch(start = CoroutineStart.LAZY) {
-            // Wait for available global slot
-            queueSemaphore.acquire()
+            // A slot is held to run tasks only: a worker waiting out a backoff gives it to the other lanes
+            val slots = queueSemaphore
+            var holdingSlot = false
             try {
                 _activeQueues.update { it + queueKey }
+                _laneStates.update { it + (queueKey to LaneState.Working) }
                 val mutex = queueMutexes.getOrPut(queueKey) { Mutex() }
                 
                 // Keep worker alive as long as there are pending tasks for this queue
                 while (isProcessing) {
-                    val task = mutex.withLock {
+                    // Read before the pick: a change landing while it runs still ends the wait below
+                    val seenChange = laneChanges.value
+                    val pick = mutex.withLock {
                         // Re-fetch the next runnable pending task for this queue. File uploads are
                         // SKIPPED (not the whole queue) while held on cellular, so a user-triggered
                         // download sharing this queue still runs; the skipped uploads wait for Wi-Fi.
@@ -161,18 +183,44 @@ class TaskConcurrencyManager(
                         val runnable = StoragePolicy.runnable(pending, StorageMonitor.state.value)
                         // Only pay for the settings/connectivity check when this queue actually holds a
                         // file upload that could be gated.
-                        if (runnable.any { UploadDataPolicy.isFileUploadJob(it.jobType) } &&
+                        val allowed = if (runnable.any { UploadDataPolicy.isFileUploadJob(it.jobType) } &&
                             UploadDataPolicy.shouldHoldUploads(context)
                         ) {
-                            runnable.firstOrNull { !UploadDataPolicy.isFileUploadJob(it.jobType) }
+                            runnable.filterNot { UploadDataPolicy.isFileUploadJob(it.jobType) }
                         } else {
-                            runnable.firstOrNull()
+                            runnable
                         }
+                        SyncTaskPicker.nextDue(allowed, System.currentTimeMillis())
                     }
 
-                    if (task == null) {
-                        Log.d(TAG, "🏁 Queue $queueKey has no runnable task. Worker retiring.")
-                        break
+                    val task = when (pick) {
+                        LanePick.Idle -> {
+                            Log.d(TAG, "🏁 Queue $queueKey has no runnable task. Worker retiring.")
+                            break
+                        }
+                        is LanePick.Wait -> {
+                            val waitMs = (pick.until - System.currentTimeMillis()).coerceAtLeast(1)
+                            Log.d(TAG, "⏳ Queue $queueKey waits ${waitMs / 1000}s for its next retry")
+                            if (holdingSlot) {
+                                slots.release()
+                                holdingSlot = false
+                            }
+                            _laneStates.update { it + (queueKey to LaneState.Waiting(pick.until)) }
+                            // Until the wait is over, or the queue changes (a wait cut short, a task behind it)
+                            withTimeoutOrNull(waitMs) { laneChanges.first { it != seenChange } }
+                            _laneStates.update { it + (queueKey to LaneState.Working) }
+                            continue
+                        }
+                        is LanePick.Run -> {
+                            if (!holdingSlot) {
+                                // Wait for available global slot, then pick again: the queue may have
+                                // changed meanwhile
+                                slots.acquire()
+                                holdingSlot = true
+                                continue
+                            }
+                            pick.task
+                        }
                     }
 
                     // Check policy before execution
@@ -188,24 +236,21 @@ class TaskConcurrencyManager(
                     // The pick already held what the tier can't run (a lapse found at launch keeps the tasks
                     // for when the subscription is back); re-checked here against the account read just above
                     if (isHardcoverQueue || TaskAccessPolicy.canExecuteTask(account?.tier, task.jobType)) {
-                        val success = executeTask(task)
-                        if (!success) {
-                            Log.w(TAG, "🛑 Queue $queueKey worker paused due to failure. Recovery time: 5s")
-                            delay(5000)
-                        } else {
-                            delay(300) // Small breather between tasks
-                        }
+                        // A failure stored when the task may run again: the next pick waits for it, or runs
+                        // what the lane holds behind it
+                        if (executeTask(task)) delay(300) // Small breather between tasks
                     } else {
                         Log.w(TAG, "🚫 Tier holds ${task.jobType} for queue $queueKey. Worker retiring.")
                         break
                     }
                 }
             } finally {
-                queueSemaphore.release()
+                if (holdingSlot) slots.release()
                 // Only itself: a cancelled worker can end after the lane's next one has started, which
                 // keeps the lane active
                 queueJobs.remove(queueKey, coroutineContext.job)
                 _activeQueues.update { if (queueJobs[queueKey] == null) it - queueKey else it }
+                _laneStates.update { if (queueJobs[queueKey] == null) it - queueKey else it }
             }
         }
         queueJobs[queueKey] = job
@@ -226,12 +271,14 @@ class TaskConcurrencyManager(
     suspend fun cancelAllLanes() = cancelLanes(queueJobs.keys.toSet())
 
     /**
-     * Re-scan pending tasks and (re)start workers for any queue lacking one. Called when connectivity
-     * changes so uploads that were held on cellular resume promptly once Wi-Fi returns (the task Flow
-     * only re-emits on DB changes, which a network change is not).
+     * Re-scan pending tasks and (re)start workers for any queue lacking one; a worker waiting out a backoff
+     * looks at its lane again. Called when connectivity changes so uploads that were held on cellular resume
+     * promptly once Wi-Fi returns (the task Flow only re-emits on DB changes, which a network change is not),
+     * and when a wait is cut short (SyncRetryWake).
      */
     fun requestWorkerScan() {
         if (!isProcessing) return
+        laneChanges.update { it + 1 }
         serviceScope.launch {
             awaitTierReady()
             dropDownloadsTheTierCantRun()
@@ -239,6 +286,15 @@ class TaskConcurrencyManager(
             SyncTaskPicker.lanesWithWork(tasks, startPolicy(tasks))
                 .forEach { queueKey -> startQueueWorkerIfAbsent(queueKey) }
         }
+    }
+
+    /**
+     * The network changed: every task waiting out a backoff retries now, keeping its streak, since a failure
+     * the old network caused may not happen on this one.
+     */
+    fun retryWaitingNow() {
+        if (!isProcessing) return
+        serviceScope.launch { SyncRetryWake.retryAllNow(repository) }
     }
 
     override fun stopProcessing() {
@@ -258,7 +314,10 @@ class TaskConcurrencyManager(
 
     override fun isRunning(): Boolean = isProcessing
 
-    // internal (not private) so the cancel-terminal branch can be unit-tested directly.
+    /**
+     * Runs [task] once. Returns true when the worker may move straight on, false when the task failed and
+     * waits out a backoff to retry. internal (not private) so the branches can be unit-tested directly.
+     */
     internal suspend fun executeTask(task: SyncTaskEntity): Boolean {
         Log.d(TAG, "🚀 Executing task: ${task.jobType} [ID: ${task.id}, Attempt: ${task.attempts + 1}]")
         
@@ -290,13 +349,13 @@ class TaskConcurrencyManager(
                 // failure — delete the task so the worker doesn't re-queue and re-run it, and clear the flag.
                 // Gated on the download job type so a leftover download-cancel flag can't make an unrelated
                 // same-uuid task (progress sync, upload, move…) that fails be dropped as "cancelled".
+                // Nothing to wait for: the worker moves straight on.
                 Log.d(TAG, "🚫 Task cancelled: ${task.jobType}. Removing (no retry).")
                 repository.deleteTask(updatedTask)
                 SyncStatusManager.clearCancel(task.taskID)
-                false
+                true
             } else {
-                Log.w(TAG, "⚠️ Task failed (processor returned false): ${task.jobType}. Retrying...")
-                repository.markTaskPending(task.id, "Processor returned failure")
+                scheduleRetry(task, "Processor returned failure")
                 false
             }
         } catch (e: UploadsHeldException) {
@@ -317,14 +376,14 @@ class TaskConcurrencyManager(
 
     /**
      * Retries, parks or drops a task whose processor threw, per [SyncFailurePolicy]. Returns true when the
-     * worker may move straight on (the task is parked or gone), false for the usual retry delay.
+     * task is parked or gone, false when it waits out a backoff to retry.
      */
     private suspend fun handleFailure(task: SyncTaskEntity, error: Exception): Boolean {
         val failure = SyncFailurePolicy.codedFailure(error)
         return when (val action = SyncFailurePolicy.action(error, task.jobType, parkingEnabled)) {
             SyncFailureAction.Retry -> {
-                Log.e(TAG, "💥 Task threw exception: ${task.jobType}. Retrying...", error)
-                repository.markTaskPending(task.id, error.message ?: "Unknown error")
+                Log.e(TAG, "💥 Task threw exception: ${task.jobType}", error)
+                scheduleRetry(task, error.message ?: "Unknown error")
                 false
             }
             is SyncFailureAction.Park -> {
@@ -360,6 +419,14 @@ class TaskConcurrencyManager(
                 true
             }
         }
+    }
+
+    /** Back to pending, not to run again before its backoff is over: one more failure in a row (SyncBackoff) */
+    private suspend fun scheduleRetry(task: SyncTaskEntity, errorMessage: String) {
+        val streak = task.failureStreak + 1
+        val delayMs = SyncBackoff.delayFor(streak)
+        Log.w(TAG, "⏳ ${task.jobType} task ${task.id} failed ($streak in a row); retrying in ${delayMs / 1000}s")
+        repository.markTaskRetrying(task.id, errorMessage, streak, System.currentTimeMillis() + delayMs)
     }
 
     /**

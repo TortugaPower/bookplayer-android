@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.database.entities
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -28,4 +29,10 @@ data class SyncTaskEntity(
     val pausedAt: Long? = null,
     /** The Sentry event that reported this task's pause: a pause is reported once */
     val sentryEventId: String? = null,
+    // Retry backoff (SyncBackoff): how many retried failures in a row, and the earliest time (epoch ms)
+    // the task may run again. Only a retried failure sets them; a park, a run that wasn't a failure, or a
+    // job conversion clears them (a success deletes the task).
+    @ColumnInfo(defaultValue = "0")
+    val failureStreak: Int = 0,
+    val nextAttemptAt: Long? = null,
 )
