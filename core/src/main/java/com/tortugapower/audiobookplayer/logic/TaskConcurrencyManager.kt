@@ -223,12 +223,16 @@ class TaskConcurrencyManager(
                                 holdingSlot = false
                             }
                             _laneStates.update { it + (queueKey to LaneState.Waiting(pick.until)) }
-                            // Until the wait is over, or the lane changes (a wait cut short, a task behind it)
+                            // Until the wait is over, or the lane changes (a wait cut short, a task behind it).
+                            // Timed on a clock that stops while the device sleeps, so a long wait can end late:
+                            // fine while the app is in use or playing (the device stays awake); with nothing
+                            // keeping the process alive, the WorkManager handoff wakes it at the wait's end
+                            // (BKPLY-456). The lane stays Waiting until a pick runs something.
                             withTimeoutOrNull(waitMs) { laneCues.first { it.of(queueKey) != seenCue } }
-                            _laneStates.update { it + (queueKey to LaneState.Working) }
                             continue
                         }
                         is LanePick.Run -> {
+                            _laneStates.update { it + (queueKey to LaneState.Working) }
                             if (!holdingSlot) {
                                 // Wait for available global slot, then pick again: the queue may have
                                 // changed meanwhile

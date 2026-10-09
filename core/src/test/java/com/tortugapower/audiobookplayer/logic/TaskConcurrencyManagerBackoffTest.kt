@@ -10,7 +10,11 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
@@ -164,6 +168,29 @@ class TaskConcurrencyManagerBackoffTest {
         queue("u", SyncTaskFactory.JOB_UPDATE)
 
         until { updates.ran.contains("u") }
+    }
+
+    /** The keep-alive and the WorkManager handoff read the lane's state: a cue that runs nothing isn't work */
+    @Test fun aLaneStaysWaiting_throughCuesThatRunNothing() = runBlocking {
+        val moves = Jobs(SyncTaskFactory.JOB_MOVE, failing = setOf("a"))
+        val updates = Jobs(SyncTaskFactory.JOB_UPDATE, failing = emptySet())
+        val manager = engine(moves, updates)
+        queue("a", SyncTaskFactory.JOB_MOVE)
+        until { manager.laneStates.value[SyncTaskFactory.QUEUE_SYNC] is LaneState.Waiting }
+        val states = Collections.synchronizedList(mutableListOf<LaneState?>())
+        val watcher = launch(Dispatchers.IO) {
+            manager.laneStates.map { it[SyncTaskFactory.QUEUE_SYNC] }.distinctUntilChanged().collect { states += it }
+        }
+
+        // Its lane changes (an update queued behind the waiting move), and a rescan is asked for
+        queue("b", SyncTaskFactory.JOB_UPDATE)
+        manager.requestWorkerScan()
+        delay(1_000)
+        watcher.cancel()
+
+        assertTrue(states.isNotEmpty())
+        assertTrue("never Working: $states", states.all { it is LaneState.Waiting })
+        assertTrue(updates.ran.isEmpty())
     }
 
     /** Counts each lane's picks: a waiting worker picks again only when cued */
