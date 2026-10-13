@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -32,21 +33,15 @@ fun RemoteListScreen(
     phoneAppStatus: PhoneAppStatus?,
     phoneStoreListing: StoreListingState,
     onInstallOnPhone: () -> Unit,
+    onInstallPromptGone: () -> Unit,
 ) {
     when {
         // No phone state yet because the phone has no BookPlayer: waiting would never end, so offer the install.
-        state.connecting && phoneAppStatus == PhoneAppStatus.APP_MISSING -> MessageScreen {
-            Text(
-                text = stringResource(phoneStoreListing.messageRes(R.string.wear_install_phone_body)),
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.body2,
-            )
-            // The install chip stays after the store opened, in case the user closed it there.
-            Spacer(Modifier.height(8.dp))
-            InstallOnPhoneChip(phoneStoreListing, onInstallOnPhone)
-            // Settings stays reachable, as on "Connecting": a signed-in watch can still sign out or free its downloads.
-            Spacer(Modifier.height(4.dp))
-            SettingsChip(onSettings)
+        state.connecting && phoneAppStatus == PhoneAppStatus.APP_MISSING -> {
+            // "Continue on your phone." belongs to this visit: once the prompt is gone (the app arrived, or the user
+            // left), a later one starts over.
+            DisposableEffect(Unit) { onDispose(onInstallPromptGone) }
+            InstallPrompt(phoneStoreListing, onInstallOnPhone, onSettings)
         }
         state.connecting -> MessageScreen {
             CircularProgressIndicator()
@@ -93,5 +88,22 @@ fun RemoteListScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun InstallPrompt(phoneStoreListing: StoreListingState, onInstallOnPhone: () -> Unit, onSettings: () -> Unit) {
+    MessageScreen {
+        Text(
+            text = stringResource(phoneStoreListing.messageRes(R.string.wear_install_phone_body)),
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.body2,
+        )
+        // The install chip stays after the store opened, in case the user closed it there.
+        Spacer(Modifier.height(8.dp))
+        InstallOnPhoneChip(phoneStoreListing, onInstallOnPhone)
+        // Settings stays reachable, as on "Connecting": a signed-in watch can still sign out or free its downloads.
+        Spacer(Modifier.height(4.dp))
+        SettingsChip(onSettings)
     }
 }

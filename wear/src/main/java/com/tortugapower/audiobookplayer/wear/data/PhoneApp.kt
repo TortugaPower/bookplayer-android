@@ -6,6 +6,8 @@ import androidx.core.net.toUri
 import androidx.wear.remote.interactions.RemoteActivityHelper
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.guava.await as awaitFuture
 
@@ -25,8 +27,8 @@ class WearPhoneApp(private val context: Context) : PhoneApp {
     private val capabilityClient = Wearable.getCapabilityClient(context)
     private val nodeClient = Wearable.getNodeClient(context)
 
-    // One helper per instance: its default executor is a new thread each time one is built.
-    private val remoteActivityHelper by lazy { RemoteActivityHelper(context) }
+    // On the shared IO pool: the helper's default executor is a thread of its own that's never shut down.
+    private val remoteActivityHelper = RemoteActivityHelper(context, Dispatchers.IO.asExecutor())
 
     override suspend fun status(): PhoneAppStatus = try {
         phoneAppStatus(capabilityClient, nodeClient)

@@ -49,6 +49,7 @@ fun RemoteNavHost(
                 phoneAppStatus = phoneAppStatus,
                 phoneStoreListing = phoneStoreListing,
                 onInstallOnPhone = rootViewModel::openPhoneStoreListing,
+                onInstallPromptGone = rootViewModel::resetPhoneStoreListing,
             )
         }
 

@@ -218,6 +218,15 @@ class WearRootViewModelTest {
         assertEquals(StoreListingState.IDLE, model.phoneStoreListing.value)
     }
 
+    @Test fun resetPhoneStoreListing_startsOver_evenWithARequestOnItsWay() = runTest(dispatcher) {
+        val model = modelFor(FakeAccountRepository(), WearAuthOutcome.PhoneAppMissing)
+
+        model.openPhoneStoreListing()
+        model.resetPhoneStoreListing() // the prompt left the screen before the phone answered
+        advanceUntilIdle()
+        assertEquals(StoreListingState.IDLE, model.phoneStoreListing.value) // the late answer doesn't bring it back
+    }
+
     @Test fun openPhoneStoreListing_noPhoneTookIt_failsAndCanRetry() = runTest(dispatcher) {
         val phone = FakePhoneApp(storeOpens = false)
         val model = modelFor(FakeAccountRepository(), WearAuthOutcome.PhoneAppMissing, phone)

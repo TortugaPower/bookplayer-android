@@ -152,7 +152,7 @@ class WearRootViewModel(
     fun signIn() {
         if (_signInState.value == SignInUiState.Loading) return
         _signInState.value = SignInUiState.Loading
-        _phoneStoreListing.value = StoreListingState.IDLE
+        resetPhoneStoreListing()
         viewModelScope.launch {
             _signInState.value = when (val outcome = authenticator.requestAuth()) {
                 is WearAuthOutcome.Success ->
@@ -200,9 +200,15 @@ class WearRootViewModel(
         if (_phoneStoreListing.value == StoreListingState.OPENING) return
         _phoneStoreListing.value = StoreListingState.OPENING
         viewModelScope.launch {
-            _phoneStoreListing.value =
-                if (phoneApp.openStoreListing()) StoreListingState.OPENED else StoreListingState.FAILED
+            val result = if (phoneApp.openStoreListing()) StoreListingState.OPENED else StoreListingState.FAILED
+            // A reset meanwhile wins: the answer belongs to a prompt that's gone.
+            _phoneStoreListing.compareAndSet(StoreListingState.OPENING, result)
         }
+    }
+
+    /** The install prompt left the screen (or a new sign-in started): a later one starts over. */
+    fun resetPhoneStoreListing() {
+        _phoneStoreListing.value = StoreListingState.IDLE
     }
 
     /** Delete all downloaded files (the Processed folder) and refresh the storage figure. */
