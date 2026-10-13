@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.wear.auth
 
 import android.content.Context
+import android.util.Log
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.NodeClient
@@ -81,10 +82,12 @@ class WearAuthClient(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
+        Log.w(TAG, "Couldn't read the phone app's status", e)
         WearAuthOutcome.PhoneNotReachable
     }
 
     private companion object {
+        const val TAG = "WearAuthClient"
         const val REPLY_TIMEOUT_MS = 15_000L
     }
 }
