@@ -25,6 +25,9 @@ class WearPhoneApp(private val context: Context) : PhoneApp {
     private val capabilityClient = Wearable.getCapabilityClient(context)
     private val nodeClient = Wearable.getNodeClient(context)
 
+    // One helper per instance: its default executor is a new thread each time one is built.
+    private val remoteActivityHelper by lazy { RemoteActivityHelper(context) }
+
     override suspend fun status(): PhoneAppStatus = try {
         phoneAppStatus(capabilityClient, nodeClient)
     } catch (e: CancellationException) {
@@ -45,7 +48,7 @@ class WearPhoneApp(private val context: Context) : PhoneApp {
                 .setData("market://details?id=${context.packageName}".toUri())
             // The phone may never answer: a bounded wait turns that into a failure the user can retry.
             withTimeoutOrNull(STORE_LISTING_TIMEOUT_MS) {
-                RemoteActivityHelper(context).startRemoteActivity(listing, phone.id).awaitFuture()
+                remoteActivityHelper.startRemoteActivity(listing, phone.id).awaitFuture()
                 true
             } ?: false
         }
