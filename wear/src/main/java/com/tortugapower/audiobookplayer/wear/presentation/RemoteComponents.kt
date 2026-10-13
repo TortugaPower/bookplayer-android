@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.wear.presentation
 import androidx.annotation.StringRes
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -50,7 +51,26 @@ fun ScrollScaffold(listState: ScalingLazyListState, content: @Composable () -> U
     ) { content() }
 }
 
-/** A whole screen for a non-list state (connecting / empty / signed out): the clock over a [CenterMessage]. */
+/** Centered content for the non-list states (connecting / empty). */
+@Composable
+fun CenterMessage(content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) { content() }
+    }
+}
+
+/**
+ * A whole screen for the sign-in screen and the install prompt: the clock over centered content that scrolls, crown
+ * included, when the user's font size makes it taller than the screen. Wear's quality rules reject text cut off by
+ * the screen edge at large font sizes (the 1.3.0 review). [messagePadding] keeps the first and last lines inside a
+ * round face.
+ */
+@OptIn(ExperimentalWearFoundationApi::class)
 @Composable
 fun MessageScreen(
     scrollState: ScrollState = rememberScrollState(),
@@ -60,35 +80,21 @@ fun MessageScreen(
         timeText = { TimeText(modifier = Modifier.scrollAway(scrollState)) },
         positionIndicator = { PositionIndicator(scrollState = scrollState) },
     ) {
-        CenterMessage(scrollState, content)
+        // fillMaxSize ahead of verticalScroll keeps the screen height as the content's minimum, so Arrangement.Center
+        // still centers content that fits.
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .rotaryScrollable(
+                    behavior = RotaryScrollableDefaults.behavior(scrollableState = scrollState),
+                    focusRequester = rememberActiveFocusRequester(),
+                )
+                .verticalScroll(scrollState)
+                .padding(messagePadding()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) { content() }
     }
-}
-
-/**
- * Centered content for the non-list states. It stays centered while it fits and scrolls, crown included, when the
- * user's font size makes it taller than the screen: Wear's quality rules reject text cut off by the screen edge at
- * large font sizes (the 1.3.0 review). [messagePadding] keeps the first and last lines inside a round face.
- */
-@OptIn(ExperimentalWearFoundationApi::class)
-@Composable
-fun CenterMessage(
-    scrollState: ScrollState = rememberScrollState(),
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    // fillMaxSize ahead of verticalScroll keeps the screen height as the content's minimum, so Arrangement.Center
-    // still centers content that fits.
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .rotaryScrollable(
-                behavior = RotaryScrollableDefaults.behavior(scrollableState = scrollState),
-                focusRequester = rememberActiveFocusRequester(),
-            )
-            .verticalScroll(scrollState)
-            .padding(messagePadding()),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) { content() }
 }
 
 /**

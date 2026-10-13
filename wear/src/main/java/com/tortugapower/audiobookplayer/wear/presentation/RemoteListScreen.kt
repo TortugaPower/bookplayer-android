@@ -43,7 +43,7 @@ fun RemoteListScreen(
             DisposableEffect(Unit) { onDispose(onInstallPromptGone) }
             InstallPrompt(phoneStoreListing, onInstallOnPhone, onSettings)
         }
-        state.connecting -> MessageScreen {
+        state.connecting -> CenterMessage {
             CircularProgressIndicator()
             Spacer(Modifier.height(8.dp))
             Text(
@@ -55,7 +55,7 @@ fun RemoteListScreen(
             Spacer(Modifier.height(8.dp))
             SettingsChip(onSettings)
         }
-        state.recentItems.isEmpty() -> MessageScreen {
+        state.recentItems.isEmpty() -> CenterMessage {
             Text(
                 text = stringResource(R.string.wear_remote_empty),
                 textAlign = TextAlign.Center,

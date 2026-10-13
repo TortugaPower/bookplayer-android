@@ -77,7 +77,7 @@ fun StandaloneLibraryScreen(
     if (state.rows.isEmpty()) {
         // Label + actions, matching the remote empty state. Reachable even before the library syncs, so a
         // PRO user can always retry the sync or reach Settings (sign out / manage storage).
-        MessageScreen {
+        CenterMessage {
             Text(
                 text = stringResource(R.string.wear_standalone_empty),
                 textAlign = TextAlign.Center,
