@@ -6,6 +6,7 @@ import androidx.core.net.toUri
 import androidx.wear.remote.interactions.RemoteActivityHelper
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.guava.await as awaitFuture
 
 /**
@@ -42,12 +43,19 @@ class WearPhoneApp(private val context: Context) : PhoneApp {
             val listing = Intent(Intent.ACTION_VIEW)
                 .addCategory(Intent.CATEGORY_BROWSABLE)
                 .setData("market://details?id=${context.packageName}".toUri())
-            RemoteActivityHelper(context).startRemoteActivity(listing, phone.id).awaitFuture()
-            true
+            // The phone may never answer: a bounded wait turns that into a failure the user can retry.
+            withTimeoutOrNull(STORE_LISTING_TIMEOUT_MS) {
+                RemoteActivityHelper(context).startRemoteActivity(listing, phone.id).awaitFuture()
+                true
+            } ?: false
         }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         false
+    }
+
+    private companion object {
+        const val STORE_LISTING_TIMEOUT_MS = 15_000L
     }
 }

@@ -86,7 +86,13 @@ class RemoteViewModel(
             emit(phoneApp.status())
             delay(PHONE_APP_CHECK_MS)
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.stateIn(
+        viewModelScope,
+        // Forget the last reading once nothing collects it: a later "Connecting" starts plain, not with an old
+        // APP_MISSING, until its own first check answers.
+        SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000, replayExpirationMillis = 0),
+        null,
+    )
 
     /** Tap a recent row: play it on the phone. */
     fun playItem(itemId: String) {

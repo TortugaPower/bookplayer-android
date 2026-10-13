@@ -26,6 +26,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -74,6 +75,18 @@ class RemoteViewModelTest {
         assertEquals(PhoneAppStatus.READY, vm.phoneAppStatus.value)
         assertEquals(2, phone.checks)
         vm.viewModelScope.cancel() // ends the polling loop, which never idles
+    }
+
+    @Test fun phoneAppStatus_forgetsTheLastReading_onceNothingCollectsIt() = runTest(dispatcher) {
+        phone.status = PhoneAppStatus.APP_MISSING
+        val vm = model()
+        val collector = backgroundScope.launch { vm.phoneAppStatus.collect {} }
+        runCurrent()
+        assertEquals(PhoneAppStatus.APP_MISSING, vm.phoneAppStatus.value)
+
+        collector.cancel() // the phone's state arrived: "Connecting" is gone
+        advanceTimeBy(5_001)
+        assertNull(vm.phoneAppStatus.value) // a later "Connecting" won't open on this old reading
     }
 
     @Test fun connecting_untilStateArrives() = runTest(dispatcher) {
