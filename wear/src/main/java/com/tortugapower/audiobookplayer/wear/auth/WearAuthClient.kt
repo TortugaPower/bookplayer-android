@@ -76,12 +76,8 @@ class WearAuthClient(
         }
     }
 
-    /** No phone advertises the app: a connected phone without it gets the install prompt instead of a retry. */
     private suspend fun noPhoneAppOutcome(): WearAuthOutcome = try {
-        when (phoneAppStatus(capabilityClient, nodeClient)) {
-            PhoneAppStatus.APP_MISSING -> WearAuthOutcome.PhoneAppMissing
-            else -> WearAuthOutcome.PhoneNotReachable
-        }
+        noPhoneAppOutcome(phoneAppStatus(capabilityClient, nodeClient))
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -92,6 +88,13 @@ class WearAuthClient(
         const val REPLY_TIMEOUT_MS = 15_000L
     }
 }
+
+/**
+ * No phone advertised the app when asked: a connected phone without it gets the install prompt, anything else a
+ * retry (READY means the app showed up in between).
+ */
+internal fun noPhoneAppOutcome(status: PhoneAppStatus): WearAuthOutcome =
+    if (status == PhoneAppStatus.APP_MISSING) WearAuthOutcome.PhoneAppMissing else WearAuthOutcome.PhoneNotReachable
 
 /** Outcome of a handoff attempt — maps to the sign-in UI state (mirrors iOS's WatchConnectivityError cases). */
 sealed interface WearAuthOutcome {

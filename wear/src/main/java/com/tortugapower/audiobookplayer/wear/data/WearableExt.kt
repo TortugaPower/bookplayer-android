@@ -23,11 +23,17 @@ internal suspend fun CapabilityClient.findPhoneNodeId(): String? {
 /** Whether the watch can reach BookPlayer on the phone. */
 enum class PhoneAppStatus { READY, APP_MISSING, NO_PHONE }
 
+internal suspend fun phoneAppStatus(capabilityClient: CapabilityClient, nodeClient: NodeClient): PhoneAppStatus {
+    if (capabilityClient.findPhoneNodeId() != null) return PhoneAppStatus.READY
+    return phoneAppStatus(appReachable = false, nodeConnected = nodeClient.connectedNodes.await().isNotEmpty())
+}
+
 /**
  * Tells "the phone has no BookPlayer" apart from "no phone is connected": only the phone app advertises
  * [WearDataLayer.CAPABILITY_PHONE], so a connected node without it is a phone that lacks the app.
  */
-internal suspend fun phoneAppStatus(capabilityClient: CapabilityClient, nodeClient: NodeClient): PhoneAppStatus {
-    if (capabilityClient.findPhoneNodeId() != null) return PhoneAppStatus.READY
-    return if (nodeClient.connectedNodes.await().isEmpty()) PhoneAppStatus.NO_PHONE else PhoneAppStatus.APP_MISSING
+internal fun phoneAppStatus(appReachable: Boolean, nodeConnected: Boolean): PhoneAppStatus = when {
+    appReachable -> PhoneAppStatus.READY
+    nodeConnected -> PhoneAppStatus.APP_MISSING
+    else -> PhoneAppStatus.NO_PHONE
 }

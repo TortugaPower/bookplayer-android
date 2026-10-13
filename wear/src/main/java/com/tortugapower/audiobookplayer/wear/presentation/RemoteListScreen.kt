@@ -30,23 +30,23 @@ fun RemoteListScreen(
     onRefresh: () -> Unit,
     onSettings: () -> Unit,
     phoneAppStatus: PhoneAppStatus?,
-    phoneStoreOpened: Boolean,
+    phoneStoreListing: StoreListingState,
     onInstallOnPhone: () -> Unit,
 ) {
     when {
         // No phone state yet because the phone has no BookPlayer: waiting would never end, so offer the install.
         state.connecting && phoneAppStatus == PhoneAppStatus.APP_MISSING -> MessageScreen {
             Text(
-                text = stringResource(
-                    if (phoneStoreOpened) R.string.wear_install_phone_opened else R.string.wear_install_phone_body,
-                ),
+                text = stringResource(phoneStoreListing.messageRes(R.string.wear_install_phone_body)),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.body2,
             )
-            // No Settings chip: signing in goes through the phone app too, so installing it is the only way on.
-            // The chip stays after the store opened, in case the user closed it there.
+            // The install chip stays after the store opened, in case the user closed it there.
             Spacer(Modifier.height(8.dp))
-            InstallOnPhoneChip(onInstallOnPhone)
+            InstallOnPhoneChip(phoneStoreListing, onInstallOnPhone)
+            // Settings stays reachable, as on "Connecting": a signed-in watch can still sign out or free its downloads.
+            Spacer(Modifier.height(4.dp))
+            SettingsChip(onSettings)
         }
         state.connecting -> MessageScreen {
             CircularProgressIndicator()

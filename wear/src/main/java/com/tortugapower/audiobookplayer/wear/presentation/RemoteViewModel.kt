@@ -15,7 +15,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onEach
@@ -88,15 +87,6 @@ class RemoteViewModel(
             delay(PHONE_APP_CHECK_MS)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    private val _phoneStoreOpened = MutableStateFlow(false)
-
-    /** True once BookPlayer's store listing opened on the phone (the prompt then says to continue there). */
-    val phoneStoreOpened: StateFlow<Boolean> = _phoneStoreOpened.asStateFlow()
-
-    fun openPhoneStoreListing() {
-        viewModelScope.launch { _phoneStoreOpened.value = phoneApp.openStoreListing() }
-    }
 
     /** Tap a recent row: play it on the phone. */
     fun playItem(itemId: String) {

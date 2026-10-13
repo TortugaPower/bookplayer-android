@@ -76,20 +76,6 @@ class RemoteViewModelTest {
         vm.viewModelScope.cancel() // ends the polling loop, which never idles
     }
 
-    @Test fun openPhoneStoreListing_reportsWhetherThePhoneOpenedIt() = runTest(dispatcher) {
-        val vm = model()
-        phone.storeOpens = false
-        vm.openPhoneStoreListing()
-        advanceUntilIdle()
-        assertFalse(vm.phoneStoreOpened.value) // no phone took it: the button stays
-
-        phone.storeOpens = true
-        vm.openPhoneStoreListing()
-        advanceUntilIdle()
-        assertTrue(vm.phoneStoreOpened.value)
-        assertEquals(2, phone.storeRequests)
-    }
-
     @Test fun connecting_untilStateArrives() = runTest(dispatcher) {
         val vm = model()
         advanceUntilIdle()

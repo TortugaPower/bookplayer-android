@@ -25,6 +25,7 @@
     <string name="wear_install_phone_body">Install BookPlayer on your phone.</string>
     <string name="wear_install_phone_button">Install on phone</string>
     <string name="wear_install_phone_opened">Continue on your phone.</string>
+    <string name="wear_install_phone_failed">Couldn\'t reach your phone. Try again.</string>
 
     <!-- Remote-controller mode (signed in, non-Pro tier). -->
     <string name="wear_remote_connecting">Connecting to phone…</string>

@@ -50,14 +50,14 @@ fun SettingsScreen(
     onSignIn: () -> Unit,
     onDeleteDownloads: () -> Unit,
     onSignOut: () -> Unit,
-    phoneStoreOpened: Boolean,
+    phoneStoreListing: StoreListingState,
     onInstallOnPhone: () -> Unit,
 ) {
     when {
         // Loading takes precedence over the account: after a PRO sign-in the account is already set but we
         // keep the spinner until the nav host swaps to the library, so no profile flash.
         signInState == SignInUiState.Loading -> LoadingContent()
-        account == null -> SignInContent(signInState, onSignIn, phoneStoreOpened, onInstallOnPhone)
+        account == null -> SignInContent(signInState, onSignIn, phoneStoreListing, onInstallOnPhone)
         else -> ProfileContent(account, storageUsed, canDelete, onDeleteDownloads, onSignOut)
     }
 }
@@ -81,7 +81,7 @@ private fun LoadingContent() {
 private fun SignInContent(
     state: SignInUiState,
     onSignIn: () -> Unit,
-    phoneStoreOpened: Boolean,
+    phoneStoreListing: StoreListingState,
     onInstallOnPhone: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
@@ -110,7 +110,7 @@ private fun SignInContent(
             Spacer(Modifier.height(8.dp))
             Text(
                 text = stringResource(
-                    if (appMissing && phoneStoreOpened) R.string.wear_install_phone_opened else state.error.messageRes(),
+                    if (appMissing) phoneStoreListing.messageRes(state.error.messageRes()) else state.error.messageRes(),
                 ),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.caption2,
@@ -118,7 +118,7 @@ private fun SignInContent(
             )
             if (appMissing) {
                 Spacer(Modifier.height(8.dp))
-                InstallOnPhoneChip(onInstallOnPhone)
+                InstallOnPhoneChip(phoneStoreListing, onInstallOnPhone)
             }
         }
     }

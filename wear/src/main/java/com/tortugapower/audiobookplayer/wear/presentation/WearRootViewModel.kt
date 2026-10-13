@@ -30,6 +30,9 @@ import java.io.File
 /** Why a sign-in attempt failed, mapped to a localized message by the UI (never a raw exception string). */
 enum class SignInError { PHONE_NOT_REACHABLE, PHONE_APP_MISSING, PHONE_NOT_SIGNED_IN, FAILED }
 
+/** Where the "Install on phone" request stands (the phone lacks BookPlayer). */
+enum class StoreListingState { IDLE, OPENING, OPENED, FAILED }
+
 sealed interface SignInUiState {
     data object Idle : SignInUiState
     data object Loading : SignInUiState
@@ -137,16 +140,19 @@ class WearRootViewModel(
         .map { hasDownloads(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    private val _phoneStoreOpened = MutableStateFlow(false)
+    private val _phoneStoreListing = MutableStateFlow(StoreListingState.IDLE)
 
-    /** True once BookPlayer's store listing opened on the phone (the sign-in error then says to continue there). */
-    val phoneStoreOpened: StateFlow<Boolean> = _phoneStoreOpened.asStateFlow()
+    /**
+     * The "Install on phone" request, shared by the remote list and the sign-in error: once the listing opened the
+     * prompt says to continue on the phone, and a request no phone took says so instead of looking ignored.
+     */
+    val phoneStoreListing: StateFlow<StoreListingState> = _phoneStoreListing.asStateFlow()
 
     /** Triggered by the "Sign in with phone" button (manual, mirroring iOS — never auto on launch). */
     fun signIn() {
         if (_signInState.value == SignInUiState.Loading) return
         _signInState.value = SignInUiState.Loading
-        _phoneStoreOpened.value = false
+        _phoneStoreListing.value = StoreListingState.IDLE
         viewModelScope.launch {
             _signInState.value = when (val outcome = authenticator.requestAuth()) {
                 is WearAuthOutcome.Success ->
@@ -189,9 +195,14 @@ class WearRootViewModel(
         }
     }
 
-    /** The phone lacks BookPlayer: open its store listing there. */
+    /** The phone lacks BookPlayer: open its store listing there, one request at a time. */
     fun openPhoneStoreListing() {
-        viewModelScope.launch { _phoneStoreOpened.value = phoneApp.openStoreListing() }
+        if (_phoneStoreListing.value == StoreListingState.OPENING) return
+        _phoneStoreListing.value = StoreListingState.OPENING
+        viewModelScope.launch {
+            _phoneStoreListing.value =
+                if (phoneApp.openStoreListing()) StoreListingState.OPENED else StoreListingState.FAILED
+        }
     }
 
     /** Delete all downloaded files (the Processed folder) and refresh the storage figure. */

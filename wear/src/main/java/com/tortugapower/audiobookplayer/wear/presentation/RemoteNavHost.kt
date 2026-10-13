@@ -37,7 +37,7 @@ fun RemoteNavHost(
             } else {
                 null
             }
-            val phoneStoreOpened by viewModel.phoneStoreOpened.collectAsStateWithLifecycle()
+            val phoneStoreListing by rootViewModel.phoneStoreListing.collectAsStateWithLifecycle()
             RemoteListScreen(
                 state = state,
                 onPlayItem = {
@@ -47,8 +47,8 @@ fun RemoteNavHost(
                 onRefresh = viewModel::refresh,
                 onSettings = { navController.navigate(RemoteRoute.SETTINGS) },
                 phoneAppStatus = phoneAppStatus,
-                phoneStoreOpened = phoneStoreOpened,
-                onInstallOnPhone = viewModel::openPhoneStoreListing,
+                phoneStoreListing = phoneStoreListing,
+                onInstallOnPhone = rootViewModel::openPhoneStoreListing,
             )
         }
 
@@ -57,7 +57,7 @@ fun RemoteNavHost(
             val signInState by rootViewModel.signInState.collectAsStateWithLifecycle()
             val storageUsed by rootViewModel.storageUsed.collectAsStateWithLifecycle()
             val hasDownloads by rootViewModel.hasDownloads.collectAsStateWithLifecycle()
-            val phoneStoreOpened by rootViewModel.phoneStoreOpened.collectAsStateWithLifecycle()
+            val phoneStoreListing by rootViewModel.phoneStoreListing.collectAsStateWithLifecycle()
             SettingsScreen(
                 account = account,
                 signInState = signInState,
@@ -66,7 +66,7 @@ fun RemoteNavHost(
                 onSignIn = rootViewModel::signIn,
                 onDeleteDownloads = rootViewModel::deleteDownloads,
                 onSignOut = rootViewModel::signOut,
-                phoneStoreOpened = phoneStoreOpened,
+                phoneStoreListing = phoneStoreListing,
                 onInstallOnPhone = rootViewModel::openPhoneStoreListing,
             )
         }

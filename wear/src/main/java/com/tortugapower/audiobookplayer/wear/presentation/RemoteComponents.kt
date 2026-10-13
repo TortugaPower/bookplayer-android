@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.wear.presentation
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -106,17 +107,26 @@ private fun messagePadding(): PaddingValues {
 
 /**
  * Opens BookPlayer's store listing on a connected phone that lacks the app. The watch app is non-standalone, so
- * nothing works until the phone app is installed.
+ * nothing works until the phone app is installed. Disabled while a request is on its way to the phone.
  */
 @Composable
-fun InstallOnPhoneChip(onInstall: () -> Unit) {
+fun InstallOnPhoneChip(listing: StoreListingState, onInstall: () -> Unit) {
     Chip(
         onClick = onInstall,
+        enabled = listing != StoreListingState.OPENING,
         label = { Text(stringResource(R.string.wear_install_phone_button)) },
         icon = { Icon(painter = painterResource(R.drawable.ic_open_on_phone), contentDescription = null) },
         colors = ChipDefaults.primaryChipColors(),
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+/** The install prompt's text: [defaultRes] until "Install on phone" was tapped, then how that went. */
+@StringRes
+fun StoreListingState.messageRes(@StringRes defaultRes: Int): Int = when (this) {
+    StoreListingState.OPENED -> R.string.wear_install_phone_opened
+    StoreListingState.FAILED -> R.string.wear_install_phone_failed
+    StoreListingState.IDLE, StoreListingState.OPENING -> defaultRes
 }
 
 @Composable

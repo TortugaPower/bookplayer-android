@@ -45,7 +45,7 @@ private fun RemoteListScreenPreview() =
             onRefresh = {},
             onSettings = {},
             phoneAppStatus = null,
-            phoneStoreOpened = false,
+            phoneStoreListing = StoreListingState.IDLE,
             onInstallOnPhone = {},
         )
     }

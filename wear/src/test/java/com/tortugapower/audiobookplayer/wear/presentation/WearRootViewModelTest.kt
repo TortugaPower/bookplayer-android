@@ -206,14 +206,31 @@ class WearRootViewModelTest {
         advanceUntilIdle()
 
         model.openPhoneStoreListing()
+        assertEquals(StoreListingState.OPENING, model.phoneStoreListing.value)
+        model.openPhoneStoreListing() // a second tap while the first is on its way sends nothing
         advanceUntilIdle()
-        assertTrue(model.phoneStoreOpened.value)
+        assertEquals(StoreListingState.OPENED, model.phoneStoreListing.value)
         assertEquals(1, phone.storeRequests)
 
-        // A new attempt starts over: if the app is still missing, the install button comes back.
+        // A new attempt starts over: if the app is still missing, the install prompt comes back as it was.
         model.signIn()
         advanceUntilIdle()
-        assertFalse(model.phoneStoreOpened.value)
+        assertEquals(StoreListingState.IDLE, model.phoneStoreListing.value)
+    }
+
+    @Test fun openPhoneStoreListing_noPhoneTookIt_failsAndCanRetry() = runTest(dispatcher) {
+        val phone = FakePhoneApp(storeOpens = false)
+        val model = modelFor(FakeAccountRepository(), WearAuthOutcome.PhoneAppMissing, phone)
+
+        model.openPhoneStoreListing()
+        advanceUntilIdle()
+        assertEquals(StoreListingState.FAILED, model.phoneStoreListing.value)
+
+        phone.storeOpens = true
+        model.openPhoneStoreListing()
+        advanceUntilIdle()
+        assertEquals(StoreListingState.OPENED, model.phoneStoreListing.value)
+        assertEquals(2, phone.storeRequests)
     }
 
     @Test fun signIn_failed_setsError() = runTest(dispatcher) {
