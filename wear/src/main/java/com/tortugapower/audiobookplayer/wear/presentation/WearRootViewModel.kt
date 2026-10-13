@@ -13,6 +13,7 @@ import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import com.tortugapower.audiobookplayer.wear.auth.WatchAuthenticator
 import com.tortugapower.audiobookplayer.wear.auth.WearAuthOutcome
+import com.tortugapower.audiobookplayer.wear.data.PhoneApp
 import com.tortugapower.audiobookplayer.wear.data.WearThemeRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +28,10 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /** Why a sign-in attempt failed, mapped to a localized message by the UI (never a raw exception string). */
-enum class SignInError { PHONE_NOT_REACHABLE, PHONE_NOT_SIGNED_IN, FAILED }
+enum class SignInError { PHONE_NOT_REACHABLE, PHONE_APP_MISSING, PHONE_NOT_SIGNED_IN, FAILED }
+
+/** Where the "Install on phone" request stands (the phone lacks BookPlayer). */
+enum class StoreListingState { IDLE, OPENING, OPENED, FAILED }
 
 sealed interface SignInUiState {
     data object Idle : SignInUiState
@@ -55,6 +59,7 @@ class WearRootViewModel(
     themeRepository: WearThemeRepository,
     libraryRepository: LibraryRepository,
     private val syncTaskRepository: SyncTaskRepository,
+    private val phoneApp: PhoneApp,
 ) : ViewModel() {
 
     /** The user's phone-selected theme colors (null until the phone syncs one → default palette applies). */
@@ -135,10 +140,19 @@ class WearRootViewModel(
         .map { hasDownloads(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
+    private val _phoneStoreListing = MutableStateFlow(StoreListingState.IDLE)
+
+    /**
+     * The "Install on phone" request, shared by the remote list and the sign-in error: once the listing opened the
+     * prompt says to continue on the phone, and a request no phone took says so instead of looking ignored.
+     */
+    val phoneStoreListing: StateFlow<StoreListingState> = _phoneStoreListing.asStateFlow()
+
     /** Triggered by the "Sign in with phone" button (manual, mirroring iOS — never auto on launch). */
     fun signIn() {
         if (_signInState.value == SignInUiState.Loading) return
         _signInState.value = SignInUiState.Loading
+        resetPhoneStoreListing()
         viewModelScope.launch {
             _signInState.value = when (val outcome = authenticator.requestAuth()) {
                 is WearAuthOutcome.Success ->
@@ -174,10 +188,27 @@ class WearRootViewModel(
                         SignInUiState.Error(SignInError.FAILED)
                     }
                 WearAuthOutcome.PhoneNotReachable -> SignInUiState.Error(SignInError.PHONE_NOT_REACHABLE)
+                WearAuthOutcome.PhoneAppMissing -> SignInUiState.Error(SignInError.PHONE_APP_MISSING)
                 WearAuthOutcome.NotSignedInOnPhone -> SignInUiState.Error(SignInError.PHONE_NOT_SIGNED_IN)
                 is WearAuthOutcome.Failed -> SignInUiState.Error(SignInError.FAILED)
             }
         }
+    }
+
+    /** The phone lacks BookPlayer: open its store listing there, one request at a time. */
+    fun openPhoneStoreListing() {
+        if (_phoneStoreListing.value == StoreListingState.OPENING) return
+        _phoneStoreListing.value = StoreListingState.OPENING
+        viewModelScope.launch {
+            val result = if (phoneApp.openStoreListing()) StoreListingState.OPENED else StoreListingState.FAILED
+            // A reset meanwhile wins: the answer belongs to a prompt that's gone.
+            _phoneStoreListing.compareAndSet(StoreListingState.OPENING, result)
+        }
+    }
+
+    /** The install prompt left the screen (or a new sign-in started): a later one starts over. */
+    fun resetPhoneStoreListing() {
+        _phoneStoreListing.value = StoreListingState.IDLE
     }
 
     /** Delete all downloaded files (the Processed folder) and refresh the storage figure. */

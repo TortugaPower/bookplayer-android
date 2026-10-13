@@ -135,8 +135,11 @@ class WearRootViewModelTest {
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun modelFor(repo: AccountRepository, outcome: WearAuthOutcome) =
-        WearRootViewModel(repo, FakeAuthenticator(outcome), FakeThemeRepository(), FakeLibraryRepository(), UnusedSyncTaskRepository())
+    private fun modelFor(repo: AccountRepository, outcome: WearAuthOutcome, phone: FakePhoneApp = FakePhoneApp()) =
+        WearRootViewModel(
+            repo, FakeAuthenticator(outcome), FakeThemeRepository(), FakeLibraryRepository(), UnusedSyncTaskRepository(),
+            phone,
+        )
 
     @Test fun signIn_success_persistsTransferredAccountIncludingRevenuecatId() = runTest(dispatcher) {
         val repo = FakeAccountRepository()
@@ -187,6 +190,58 @@ class WearRootViewModelTest {
         assertEquals(SignInUiState.Error(SignInError.PHONE_NOT_REACHABLE), model.signInState.value)
     }
 
+    @Test fun signIn_phoneAppMissing_setsInstallError() = runTest(dispatcher) {
+        val model = modelFor(FakeAccountRepository(), WearAuthOutcome.PhoneAppMissing)
+
+        model.signIn()
+        advanceUntilIdle()
+
+        assertEquals(SignInUiState.Error(SignInError.PHONE_APP_MISSING), model.signInState.value)
+    }
+
+    @Test fun openPhoneStoreListing_marksOpened_untilTheNextSignIn() = runTest(dispatcher) {
+        val phone = FakePhoneApp()
+        val model = modelFor(FakeAccountRepository(), WearAuthOutcome.PhoneAppMissing, phone)
+        model.signIn()
+        advanceUntilIdle()
+
+        model.openPhoneStoreListing()
+        assertEquals(StoreListingState.OPENING, model.phoneStoreListing.value)
+        model.openPhoneStoreListing() // a second tap while the first is on its way sends nothing
+        advanceUntilIdle()
+        assertEquals(StoreListingState.OPENED, model.phoneStoreListing.value)
+        assertEquals(1, phone.storeRequests)
+
+        // A new attempt starts over: if the app is still missing, the install prompt comes back as it was.
+        model.signIn()
+        advanceUntilIdle()
+        assertEquals(StoreListingState.IDLE, model.phoneStoreListing.value)
+    }
+
+    @Test fun resetPhoneStoreListing_startsOver_evenWithARequestOnItsWay() = runTest(dispatcher) {
+        val model = modelFor(FakeAccountRepository(), WearAuthOutcome.PhoneAppMissing)
+
+        model.openPhoneStoreListing()
+        model.resetPhoneStoreListing() // the prompt left the screen before the phone answered
+        advanceUntilIdle()
+        assertEquals(StoreListingState.IDLE, model.phoneStoreListing.value) // the late answer doesn't bring it back
+    }
+
+    @Test fun openPhoneStoreListing_noPhoneTookIt_failsAndCanRetry() = runTest(dispatcher) {
+        val phone = FakePhoneApp(storeOpens = false)
+        val model = modelFor(FakeAccountRepository(), WearAuthOutcome.PhoneAppMissing, phone)
+
+        model.openPhoneStoreListing()
+        advanceUntilIdle()
+        assertEquals(StoreListingState.FAILED, model.phoneStoreListing.value)
+
+        phone.storeOpens = true
+        model.openPhoneStoreListing()
+        advanceUntilIdle()
+        assertEquals(StoreListingState.OPENED, model.phoneStoreListing.value)
+        assertEquals(2, phone.storeRequests)
+    }
+
     @Test fun signIn_failed_setsError() = runTest(dispatcher) {
         val model = modelFor(FakeAccountRepository(), WearAuthOutcome.Failed("boom"))
 
@@ -227,7 +282,7 @@ class WearRootViewModelTest {
         )
         val model = WearRootViewModel(
             repo, FakeAuthenticator(WearAuthOutcome.Failed("unused")), FakeThemeRepository(),
-            FakeLibraryRepository(rootItems), UnusedSyncTaskRepository(),
+            FakeLibraryRepository(rootItems), UnusedSyncTaskRepository(), FakePhoneApp(),
         )
 
         backgroundScope.launch { model.isReady.collect {} }
