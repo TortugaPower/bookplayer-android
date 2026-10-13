@@ -127,6 +127,7 @@ dependencies {
     implementation(libs.androidx.core.splashscreen)
     // Ongoing Activity (watch-face indicator + recents chip during playback) — Wear App Quality requirement.
     implementation(libs.androidx.wear.ongoing)
+    implementation(libs.androidx.wear.remote.interactions)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     // ProcessLifecycleOwner: gate the sync foreground service on process-foreground state.
     implementation(libs.androidx.lifecycle.process)

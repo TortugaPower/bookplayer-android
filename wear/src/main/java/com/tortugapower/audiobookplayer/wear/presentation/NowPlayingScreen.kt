@@ -28,7 +28,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.ExperimentalWearFoundationApi
 import androidx.wear.compose.foundation.HierarchicalFocusCoordinator
@@ -149,11 +151,17 @@ fun NowPlayingScreen(
             ) {
                 // Fixed layout that fits without scrolling at normal font (so the bottom buttons are visible),
                 // but scrolls as a fallback if content overflows — e.g. at large accessibility font scale.
+                // On a round face it starts below the clock, and the title and author are inset further: they
+                // sit where the face is narrowest, and a marquee title would otherwise run off its edge.
+                val configuration = LocalConfiguration.current
+                val round = configuration.isScreenRound
+                val topInset = if (round) (configuration.screenHeightDp * 0.15f).dp else 0.dp
+                val textInset = if (round) (configuration.screenWidthDp * 0.12f).dp - 8.dp else 0.dp
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp),
+                        .padding(start = 8.dp, top = topInset, end = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
@@ -166,6 +174,7 @@ fun NowPlayingScreen(
                         style = MaterialTheme.typography.title3,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .padding(horizontal = textInset)
                             .basicMarquee(),
                     )
                     if (nowPlaying.author.isNotBlank()) {
@@ -173,7 +182,9 @@ fun NowPlayingScreen(
                             text = nowPlaying.author,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.caption1,
+                            modifier = Modifier.padding(horizontal = textInset),
                         )
                     }
 

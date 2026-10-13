@@ -135,8 +135,11 @@ class WearRootViewModelTest {
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun modelFor(repo: AccountRepository, outcome: WearAuthOutcome) =
-        WearRootViewModel(repo, FakeAuthenticator(outcome), FakeThemeRepository(), FakeLibraryRepository(), UnusedSyncTaskRepository())
+    private fun modelFor(repo: AccountRepository, outcome: WearAuthOutcome, phone: FakePhoneApp = FakePhoneApp()) =
+        WearRootViewModel(
+            repo, FakeAuthenticator(outcome), FakeThemeRepository(), FakeLibraryRepository(), UnusedSyncTaskRepository(),
+            phone,
+        )
 
     @Test fun signIn_success_persistsTransferredAccountIncludingRevenuecatId() = runTest(dispatcher) {
         val repo = FakeAccountRepository()
@@ -187,6 +190,32 @@ class WearRootViewModelTest {
         assertEquals(SignInUiState.Error(SignInError.PHONE_NOT_REACHABLE), model.signInState.value)
     }
 
+    @Test fun signIn_phoneAppMissing_setsInstallError() = runTest(dispatcher) {
+        val model = modelFor(FakeAccountRepository(), WearAuthOutcome.PhoneAppMissing)
+
+        model.signIn()
+        advanceUntilIdle()
+
+        assertEquals(SignInUiState.Error(SignInError.PHONE_APP_MISSING), model.signInState.value)
+    }
+
+    @Test fun openPhoneStoreListing_marksOpened_untilTheNextSignIn() = runTest(dispatcher) {
+        val phone = FakePhoneApp()
+        val model = modelFor(FakeAccountRepository(), WearAuthOutcome.PhoneAppMissing, phone)
+        model.signIn()
+        advanceUntilIdle()
+
+        model.openPhoneStoreListing()
+        advanceUntilIdle()
+        assertTrue(model.phoneStoreOpened.value)
+        assertEquals(1, phone.storeRequests)
+
+        // A new attempt starts over: if the app is still missing, the install button comes back.
+        model.signIn()
+        advanceUntilIdle()
+        assertFalse(model.phoneStoreOpened.value)
+    }
+
     @Test fun signIn_failed_setsError() = runTest(dispatcher) {
         val model = modelFor(FakeAccountRepository(), WearAuthOutcome.Failed("boom"))
 
@@ -227,7 +256,7 @@ class WearRootViewModelTest {
         )
         val model = WearRootViewModel(
             repo, FakeAuthenticator(WearAuthOutcome.Failed("unused")), FakeThemeRepository(),
-            FakeLibraryRepository(rootItems), UnusedSyncTaskRepository(),
+            FakeLibraryRepository(rootItems), UnusedSyncTaskRepository(), FakePhoneApp(),
         )
 
         backgroundScope.launch { model.isReady.collect {} }

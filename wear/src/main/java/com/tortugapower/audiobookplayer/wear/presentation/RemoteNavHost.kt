@@ -31,6 +31,13 @@ fun RemoteNavHost(
 
     SwipeDismissableNavHost(navController = navController, startDestination = RemoteRoute.LIST) {
         composable(RemoteRoute.LIST) {
+            // Checked only while waiting for the phone: a phone without BookPlayer would leave "Connecting" up forever.
+            val phoneAppStatus = if (state.connecting) {
+                viewModel.phoneAppStatus.collectAsStateWithLifecycle().value
+            } else {
+                null
+            }
+            val phoneStoreOpened by viewModel.phoneStoreOpened.collectAsStateWithLifecycle()
             RemoteListScreen(
                 state = state,
                 onPlayItem = {
@@ -39,6 +46,9 @@ fun RemoteNavHost(
                 },
                 onRefresh = viewModel::refresh,
                 onSettings = { navController.navigate(RemoteRoute.SETTINGS) },
+                phoneAppStatus = phoneAppStatus,
+                phoneStoreOpened = phoneStoreOpened,
+                onInstallOnPhone = viewModel::openPhoneStoreListing,
             )
         }
 
@@ -47,6 +57,7 @@ fun RemoteNavHost(
             val signInState by rootViewModel.signInState.collectAsStateWithLifecycle()
             val storageUsed by rootViewModel.storageUsed.collectAsStateWithLifecycle()
             val hasDownloads by rootViewModel.hasDownloads.collectAsStateWithLifecycle()
+            val phoneStoreOpened by rootViewModel.phoneStoreOpened.collectAsStateWithLifecycle()
             SettingsScreen(
                 account = account,
                 signInState = signInState,
@@ -55,6 +66,8 @@ fun RemoteNavHost(
                 onSignIn = rootViewModel::signIn,
                 onDeleteDownloads = rootViewModel::deleteDownloads,
                 onSignOut = rootViewModel::signOut,
+                phoneStoreOpened = phoneStoreOpened,
+                onInstallOnPhone = rootViewModel::openPhoneStoreListing,
             )
         }
         composable(RemoteRoute.NOW_PLAYING) {

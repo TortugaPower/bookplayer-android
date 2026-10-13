@@ -93,6 +93,7 @@ fun StandaloneNavHost(rootViewModel: WearRootViewModel) {
             val signInState by rootViewModel.signInState.collectAsStateWithLifecycle()
             val storageUsed by rootViewModel.storageUsed.collectAsStateWithLifecycle()
             val hasDownloads by rootViewModel.hasDownloads.collectAsStateWithLifecycle()
+            val phoneStoreOpened by rootViewModel.phoneStoreOpened.collectAsStateWithLifecycle()
             SettingsScreen(
                 account = account,
                 signInState = signInState,
@@ -101,6 +102,8 @@ fun StandaloneNavHost(rootViewModel: WearRootViewModel) {
                 onSignIn = rootViewModel::signIn,
                 onDeleteDownloads = rootViewModel::deleteDownloads,
                 onSignOut = rootViewModel::signOut,
+                phoneStoreOpened = phoneStoreOpened,
+                onInstallOnPhone = rootViewModel::openPhoneStoreListing,
             )
         }
 

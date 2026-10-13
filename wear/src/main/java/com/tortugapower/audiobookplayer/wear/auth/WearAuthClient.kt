@@ -3,13 +3,17 @@ package com.tortugapower.audiobookplayer.wear.auth
 import android.content.Context
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.MessageClient
+import com.google.android.gms.wearable.NodeClient
 import com.google.android.gms.wearable.Wearable
 import com.tortugapower.audiobookplayer.datalayer.WatchAuthCodec
 import com.tortugapower.audiobookplayer.datalayer.WatchAuthPayload
 import com.tortugapower.audiobookplayer.datalayer.WatchAuthReply
 import com.tortugapower.audiobookplayer.datalayer.WearDataLayer
 import com.tortugapower.audiobookplayer.wear.data.await
+import com.tortugapower.audiobookplayer.wear.data.PhoneAppStatus
 import com.tortugapower.audiobookplayer.wear.data.findPhoneNodeId
+import com.tortugapower.audiobookplayer.wear.data.phoneAppStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
@@ -33,14 +37,16 @@ interface WatchAuthenticator {
 class WearAuthClient(
     private val messageClient: MessageClient,
     private val capabilityClient: CapabilityClient,
+    private val nodeClient: NodeClient,
 ) : WatchAuthenticator {
     constructor(context: Context) : this(
         Wearable.getMessageClient(context),
         Wearable.getCapabilityClient(context),
+        Wearable.getNodeClient(context),
     )
 
     override suspend fun requestAuth(): WearAuthOutcome {
-        val phoneNodeId = capabilityClient.findPhoneNodeId() ?: return WearAuthOutcome.PhoneNotReachable
+        val phoneNodeId = capabilityClient.findPhoneNodeId() ?: return noPhoneAppOutcome()
 
         val replyBytes = CompletableDeferred<ByteArray>()
         val listener = MessageClient.OnMessageReceivedListener { event ->
@@ -70,6 +76,18 @@ class WearAuthClient(
         }
     }
 
+    /** No phone advertises the app: a connected phone without it gets the install prompt instead of a retry. */
+    private suspend fun noPhoneAppOutcome(): WearAuthOutcome = try {
+        when (phoneAppStatus(capabilityClient, nodeClient)) {
+            PhoneAppStatus.APP_MISSING -> WearAuthOutcome.PhoneAppMissing
+            else -> WearAuthOutcome.PhoneNotReachable
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        WearAuthOutcome.PhoneNotReachable
+    }
+
     private companion object {
         const val REPLY_TIMEOUT_MS = 15_000L
     }
@@ -80,5 +98,6 @@ sealed interface WearAuthOutcome {
     data class Success(val payload: WatchAuthPayload) : WearAuthOutcome
     data object NotSignedInOnPhone : WearAuthOutcome
     data object PhoneNotReachable : WearAuthOutcome
+    data object PhoneAppMissing : WearAuthOutcome
     data class Failed(val reason: String) : WearAuthOutcome
 }

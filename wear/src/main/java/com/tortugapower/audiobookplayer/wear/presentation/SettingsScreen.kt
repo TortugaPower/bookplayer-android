@@ -6,7 +6,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,19 +27,19 @@ import androidx.wear.compose.material.CircularProgressIndicator
 import androidx.wear.compose.material.CompactButton
 import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.MaterialTheme
-import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
-import androidx.wear.compose.material.TimeText
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.wear.R
+import kotlinx.coroutines.flow.first
 
 /**
  * The Settings screen (mirrors iOS `SettingsView`): signed out → the phone sign-in handoff; signed in → a
  * Profile section (email), a Downloaded section (total storage), and destructive Delete-downloads / Sign-out
  * compact buttons (iOS `ProfileView`). Signing in as PRO flips the app to standalone.
  *
- * The short signed-out / signing-in states are vertically centered (no scroll list) so the copy sits in the
- * middle of the round face instead of colliding with the top clock; the taller profile is a scrolling list.
+ * The short signed-out / signing-in states are vertically centered so the copy sits in the middle of the round
+ * face, and scroll once a large font size makes them taller than it ([MessageScreen]); the taller profile is a
+ * scrolling list.
  */
 @Composable
 fun SettingsScreen(
@@ -47,12 +50,14 @@ fun SettingsScreen(
     onSignIn: () -> Unit,
     onDeleteDownloads: () -> Unit,
     onSignOut: () -> Unit,
+    phoneStoreOpened: Boolean,
+    onInstallOnPhone: () -> Unit,
 ) {
     when {
         // Loading takes precedence over the account: after a PRO sign-in the account is already set but we
         // keep the spinner until the nav host swaps to the library, so no profile flash.
         signInState == SignInUiState.Loading -> LoadingContent()
-        account == null -> SignInContent(signInState, onSignIn)
+        account == null -> SignInContent(signInState, onSignIn, phoneStoreOpened, onInstallOnPhone)
         else -> ProfileContent(account, storageUsed, canDelete, onDeleteDownloads, onSignOut)
     }
 }
@@ -60,7 +65,7 @@ fun SettingsScreen(
 /** In-progress handoff: just a spinner + "Signing in", centered (no title/body to overlap). */
 @Composable
 private fun LoadingContent() {
-    CenteredScaffold {
+    MessageScreen {
         CircularProgressIndicator()
         Spacer(Modifier.height(8.dp))
         Text(
@@ -71,10 +76,23 @@ private fun LoadingContent() {
     }
 }
 
-/** Signed-out (idle/error): centered body + "Sign in with phone". */
+/** Signed-out (idle/error): centered body + "Sign in with phone"; a phone without BookPlayer adds the install. */
 @Composable
-private fun SignInContent(state: SignInUiState, onSignIn: () -> Unit) {
-    CenteredScaffold {
+private fun SignInContent(
+    state: SignInUiState,
+    onSignIn: () -> Unit,
+    phoneStoreOpened: Boolean,
+    onInstallOnPhone: () -> Unit,
+) {
+    val scrollState = rememberScrollState()
+    // A large font size pushes the error below the fold; bring it into view, or the tap looks like it did nothing.
+    LaunchedEffect(state) {
+        if (state is SignInUiState.Error) {
+            snapshotFlow { scrollState.maxValue }.first { it < Int.MAX_VALUE }
+            scrollState.animateScrollTo(scrollState.maxValue)
+        }
+    }
+    MessageScreen(scrollState) {
         Text(
             text = stringResource(R.string.wear_sign_in_body),
             textAlign = TextAlign.Center,
@@ -88,13 +106,20 @@ private fun SignInContent(state: SignInUiState, onSignIn: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         )
         if (state is SignInUiState.Error) {
+            val appMissing = state.error == SignInError.PHONE_APP_MISSING
             Spacer(Modifier.height(8.dp))
             Text(
-                text = stringResource(state.error.messageRes()),
+                text = stringResource(
+                    if (appMissing && phoneStoreOpened) R.string.wear_install_phone_opened else state.error.messageRes(),
+                ),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.caption2,
                 color = MaterialTheme.colors.error,
             )
+            if (appMissing) {
+                Spacer(Modifier.height(8.dp))
+                InstallOnPhoneChip(onInstallOnPhone)
+            }
         }
     }
 }
@@ -169,14 +194,6 @@ private fun DestructiveButton(iconRes: Int, descriptionRes: Int, enabled: Boolea
     }
 }
 
-/** A Scaffold (curved clock preserved) whose content is vertically centered on the round face. */
-@Composable
-private fun CenteredScaffold(content: @Composable () -> Unit) {
-    Scaffold(timeText = { TimeText() }) {
-        CenterMessage(content)
-    }
-}
-
 @Composable
 private fun SectionHeader(labelRes: Int, topPadding: Dp = 0.dp) {
     Text(
@@ -189,6 +206,7 @@ private fun SectionHeader(labelRes: Int, topPadding: Dp = 0.dp) {
 
 private fun SignInError.messageRes(): Int = when (this) {
     SignInError.PHONE_NOT_REACHABLE -> R.string.wear_signin_error_not_reachable
+    SignInError.PHONE_APP_MISSING -> R.string.wear_signin_error_app_missing
     SignInError.PHONE_NOT_SIGNED_IN -> R.string.wear_signin_error_phone_not_signed_in
     SignInError.FAILED -> R.string.wear_signin_error_failed
 }

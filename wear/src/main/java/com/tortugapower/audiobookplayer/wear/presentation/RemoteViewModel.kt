@@ -7,12 +7,17 @@ import com.tortugapower.audiobookplayer.datalayer.WatchCommandType
 import com.tortugapower.audiobookplayer.datalayer.WatchItem
 import com.tortugapower.audiobookplayer.datalayer.WatchNowPlaying
 import com.tortugapower.audiobookplayer.datalayer.WatchSleepSentinel
+import com.tortugapower.audiobookplayer.wear.data.PhoneApp
+import com.tortugapower.audiobookplayer.wear.data.PhoneAppStatus
 import com.tortugapower.audiobookplayer.wear.data.RemoteCommandSender
 import com.tortugapower.audiobookplayer.wear.data.RemoteContextRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -37,6 +42,7 @@ data class RemoteUiState(
 class RemoteViewModel(
     private val repository: RemoteContextRepository,
     private val commandSender: RemoteCommandSender,
+    private val phoneApp: PhoneApp,
 ) : ViewModel() {
 
     // Optimistic overrides so the controls flip instantly on tap instead of waiting for the phone's Data
@@ -70,6 +76,27 @@ class RemoteViewModel(
             forwardInterval = library?.forwardInterval ?: 0,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RemoteUiState())
+
+    /**
+     * Whether BookPlayer is on the connected phone, re-checked every [PHONE_APP_CHECK_MS] while collected. Only the
+     * "Connecting" screen collects it: with no phone state yet, a phone without the app gets the install prompt
+     * (and the screen moves on by itself once the app is installed and publishes).
+     */
+    val phoneAppStatus: StateFlow<PhoneAppStatus?> = flow {
+        while (true) {
+            emit(phoneApp.status())
+            delay(PHONE_APP_CHECK_MS)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val _phoneStoreOpened = MutableStateFlow(false)
+
+    /** True once BookPlayer's store listing opened on the phone (the prompt then says to continue there). */
+    val phoneStoreOpened: StateFlow<Boolean> = _phoneStoreOpened.asStateFlow()
+
+    fun openPhoneStoreListing() {
+        viewModelScope.launch { _phoneStoreOpened.value = phoneApp.openStoreListing() }
+    }
 
     /** Tap a recent row: play it on the phone. */
     fun playItem(itemId: String) {
@@ -134,6 +161,7 @@ class RemoteViewModel(
     }
 
     private companion object {
+        const val PHONE_APP_CHECK_MS = 5_000L
         const val SPEED_MIN = 0.5f
         const val SPEED_MAX = 4.0f
         const val SPEED_STEP = 0.1f

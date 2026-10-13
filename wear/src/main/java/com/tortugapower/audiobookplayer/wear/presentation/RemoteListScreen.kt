@@ -17,6 +17,7 @@ import androidx.wear.compose.material.CircularProgressIndicator
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import com.tortugapower.audiobookplayer.wear.R
+import com.tortugapower.audiobookplayer.wear.data.PhoneAppStatus
 
 /**
  * Remote start destination: the recently-played list (title/author rows only — matches iOS's companion
@@ -28,9 +29,26 @@ fun RemoteListScreen(
     onPlayItem: (String) -> Unit,
     onRefresh: () -> Unit,
     onSettings: () -> Unit,
+    phoneAppStatus: PhoneAppStatus?,
+    phoneStoreOpened: Boolean,
+    onInstallOnPhone: () -> Unit,
 ) {
     when {
-        state.connecting -> CenterMessage {
+        // No phone state yet because the phone has no BookPlayer: waiting would never end, so offer the install.
+        state.connecting && phoneAppStatus == PhoneAppStatus.APP_MISSING -> MessageScreen {
+            Text(
+                text = stringResource(
+                    if (phoneStoreOpened) R.string.wear_install_phone_opened else R.string.wear_install_phone_body,
+                ),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.body2,
+            )
+            // No Settings chip: signing in goes through the phone app too, so installing it is the only way on.
+            // The chip stays after the store opened, in case the user closed it there.
+            Spacer(Modifier.height(8.dp))
+            InstallOnPhoneChip(onInstallOnPhone)
+        }
+        state.connecting -> MessageScreen {
             CircularProgressIndicator()
             Spacer(Modifier.height(8.dp))
             Text(
@@ -42,7 +60,7 @@ fun RemoteListScreen(
             Spacer(Modifier.height(8.dp))
             SettingsChip(onSettings)
         }
-        state.recentItems.isEmpty() -> CenterMessage {
+        state.recentItems.isEmpty() -> MessageScreen {
             Text(
                 text = stringResource(R.string.wear_remote_empty),
                 textAlign = TextAlign.Center,
