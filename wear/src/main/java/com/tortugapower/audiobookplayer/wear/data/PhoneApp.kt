@@ -2,6 +2,7 @@ package com.tortugapower.audiobookplayer.wear.data
 
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.net.toUri
 import androidx.wear.remote.interactions.RemoteActivityHelper
 import com.google.android.gms.wearable.Wearable
@@ -36,6 +37,7 @@ class WearPhoneApp(private val context: Context) : PhoneApp {
         throw e
     } catch (e: Exception) {
         // The Wearable API is unavailable: nothing on the phone side can answer either.
+        Log.w(TAG, "Couldn't read the phone app's status", e)
         PhoneAppStatus.NO_PHONE
     }
 
@@ -43,24 +45,29 @@ class WearPhoneApp(private val context: Context) : PhoneApp {
         val nodes = nodeClient.connectedNodes.await()
         val phone = nodes.firstOrNull { it.isNearby } ?: nodes.firstOrNull()
         if (phone == null) {
+            Log.w(TAG, "No connected phone for the store listing")
             false
         } else {
             val listing = Intent(Intent.ACTION_VIEW)
                 .addCategory(Intent.CATEGORY_BROWSABLE)
                 .setData("market://details?id=${context.packageName}".toUri())
             // The phone may never answer: a bounded wait turns that into a failure the user can retry.
-            withTimeoutOrNull(STORE_LISTING_TIMEOUT_MS) {
+            val opened = withTimeoutOrNull(STORE_LISTING_TIMEOUT_MS) {
                 remoteActivityHelper.startRemoteActivity(listing, phone.id).awaitFuture()
                 true
-            } ?: false
+            }
+            if (opened == null) Log.w(TAG, "The phone didn't answer the store listing request")
+            opened == true
         }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
+        Log.w(TAG, "Couldn't open the store listing on the phone", e)
         false
     }
 
     private companion object {
+        const val TAG = "WearPhoneApp"
         const val STORE_LISTING_TIMEOUT_MS = 15_000L
     }
 }
