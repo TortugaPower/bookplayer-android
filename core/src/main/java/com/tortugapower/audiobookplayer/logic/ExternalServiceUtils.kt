@@ -5,6 +5,9 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalServerEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import kotlinx.coroutines.flow.first
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Interceptor
 
 object ExternalServiceUtils {
     fun sanitizeUrl(url: String): String {
@@ -96,11 +99,11 @@ object ExternalServiceUtils {
     /**
      * The saved server that can serve [resource], by the stable hostId contract. Candidates are
      * limited to the resource's provider type, then matched by the server's self-reported stable
-     * id (case-insensitive — Jellyfin reports lowercase hex, ABS a UUID), then by canonical URL
-     * key (covers servers that never reported an id, and URL-fallback hostIds). No other
+     * id (case-insensitive — Jellyfin reports lowercase hex; ABS has no id), then by canonical
+     * URL key (covers ABS, servers that never reported an id, and URL-fallback hostIds). No other
      * fallback: null means "this device has no matching server configured", which playback turns
      * into the connect-your-server prompt. The single resolution used by streaming-URL rebuild,
-     * artwork backfill, the stream-to-cloud pipe, and external progress push, so "which server
+     * downloads, artwork backfill, and external progress push, so "which server
      * owns this item" can't drift between them. Takes the [ExternalServerRepository] — never the
      * DAO — because stored credentials are encrypted at rest: a DAO-read server carries a
      * ciphertext token, which media servers reject with 401.
@@ -114,38 +117,92 @@ object ExternalServiceUtils {
     }
 
     /**
-     * The provider type to prompt "connect your server" for, or null when this isn't that case:
-     * the item is a media-server item (has a non-hardcover resource), has no local audio, and no
+     * What the connect-your-server dialog needs: the provider type for its copy, and the address
+     * the book was imported from when its hostId is one (ABS always; Jellyfin when the server never
+     * reported an id) so the user knows which server to add. Null for an id-shaped hostId, which
+     * means nothing to the user.
+     */
+    data class MissingServer(val type: ExternalServiceType, val address: String?)
+
+    /**
+     * The server to prompt "connect your server" for, or null when this isn't that case: the
+     * item is a media-server item (has a non-hardcover resource), has no local audio, and no
      * configured server resolves its hostId — i.e. the book synced down but the server config
      * (per-device) didn't. The pure decision behind PlaybackManager's connect-your-server dialog,
      * extracted here so it's testable without the playback singleton.
      */
-    suspend fun missingServerPromptType(
+    suspend fun missingServerPrompt(
         servers: ExternalServerRepository,
         resources: List<ExternalResourceEntity>,
         hasLocalFile: Boolean,
         hasRemoteUrl: Boolean,
-    ): ExternalServiceType? {
+    ): MissingServer? {
         // Any other playback source disqualifies the prompt: local audio, or a cloud copy
-        // (stream-to-cloud piped items keep a BookPlayer remoteURL — a transient failure there
-        // must show the generic error, not "connect your server").
+        // (a streamed book whose file is in the cloud — uploaded after a download, or piped by 1.2 —
+        // keeps a BookPlayer remoteURL: a transient failure there must show the generic error, not
+        // "connect your server").
         if (hasLocalFile || hasRemoteUrl) return null
         val resource = resources.firstOrNull { it.providerName != "hardcover" } ?: return null
         if (serverForResource(servers, resource) != null) return null
-        return serviceTypeFor(resource.providerName)
+        val type = serviceTypeFor(resource.providerName) ?: return null
+        val address = resource.hostId?.takeIf {
+            it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+        }
+        return MissingServer(type, address)
     }
 
     /**
-     * The provider's direct-download URL for [resource] on [server] (query-token auth, so it needs no
-     * extra headers), or null for an unknown provider. Pure counterpart of the URL rebuild in
-     * `resolveStreamingUrl`, also used to GET the source file for the stream-to-cloud pipe.
+     * The provider's whole-item audio URL for [resource] on [server], or null when it has none: what a
+     * Jellyfin book streams and downloads from ([MediaServerStreams]). AudiobookShelf has none — its item
+     * download is a zip for any book in a folder — so its books stream per file ([MediaServerStreams]).
+     * The Jellyfin URL carries no token — Jellyfin 12 ignores `api_key`, and a URL token leaks into logs
+     * and the task table — so every request for it needs the provider's header auth: playback via
+     * PlaybackManager's host registry, downloads via [downloadHeadersFor].
      */
     fun downloadUrlFor(server: ExternalServerEntity, resource: ExternalResourceEntity): String? {
         val path = when (serviceTypeFor(resource.providerName)) {
-            ExternalServiceType.JELLYFIN -> "Items/${resource.providerId}/Download?api_key=${server.token ?: ""}"
-            ExternalServiceType.AUDIOBOOKSHELF -> "api/items/${resource.providerId}/download?token=${server.token ?: ""}"
-            null -> return null
+            ExternalServiceType.JELLYFIN -> "Items/${resource.providerId}/Download"
+            ExternalServiceType.AUDIOBOOKSHELF, null -> return null
         }
         return "${sanitizeUrl(server.url)}$path"
     }
+
+    /**
+     * The headers a download of [url] must carry when it comes from the saved server behind [resource]:
+     * the provider's Authorization header plus the user's custom headers, like playback.
+     * The query token alone isn't enough — Jellyfin 12 rejects it (401), as do newer ABS versions.
+     * Null when [url] is anywhere else: a BookPlayer-cloud presigned URL must go out bare, since S3
+     * rejects a request that carries a second auth mechanism.
+     */
+    suspend fun downloadHeadersFor(
+        servers: ExternalServerRepository,
+        resource: ExternalResourceEntity,
+        url: String,
+    ): Map<String, String>? {
+        val server = serverForResource(servers, resource) ?: return null
+        if (!url.startsWith(sanitizeUrl(server.url))) return null
+        val type = serviceTypeFor(resource.providerName) ?: return null
+        return playbackHeaders(type, server.token, sanitizeCustomHeaders(server.customHeaders))
+    }
+
+    /**
+     * A network interceptor that adds [headers] to each hop of a request only while it stays on [url]'s
+     * origin (scheme, host and port — the rule OkHttp applies to `Authorization` on redirects). OkHttp
+     * keeps every other header across a cross-host redirect, and custom headers are often Cloudflare
+     * Access secrets; playback pins its headers to the server's host the same way.
+     */
+    fun originPinnedHeaders(url: String, headers: Map<String, String>): Interceptor {
+        val origin = url.toHttpUrlOrNull()
+        return Interceptor { chain ->
+            val request = chain.request()
+            if (!sameOrigin(request.url, origin)) return@Interceptor chain.proceed(request)
+            val pinned = request.newBuilder()
+            headers.forEach { (name, value) -> pinned.header(name, value) }
+            chain.proceed(pinned.build())
+        }
+    }
+
+    /** Whether [url] is on [origin]'s scheme, host and port */
+    fun sameOrigin(url: HttpUrl, origin: HttpUrl?): Boolean =
+        origin != null && url.scheme == origin.scheme && url.host == origin.host && url.port == origin.port
 }

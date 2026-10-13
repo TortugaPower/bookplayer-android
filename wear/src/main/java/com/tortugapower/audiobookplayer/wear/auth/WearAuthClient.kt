@@ -1,15 +1,20 @@
 package com.tortugapower.audiobookplayer.wear.auth
 
 import android.content.Context
+import android.util.Log
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.MessageClient
+import com.google.android.gms.wearable.NodeClient
 import com.google.android.gms.wearable.Wearable
 import com.tortugapower.audiobookplayer.datalayer.WatchAuthCodec
 import com.tortugapower.audiobookplayer.datalayer.WatchAuthPayload
 import com.tortugapower.audiobookplayer.datalayer.WatchAuthReply
 import com.tortugapower.audiobookplayer.datalayer.WearDataLayer
 import com.tortugapower.audiobookplayer.wear.data.await
+import com.tortugapower.audiobookplayer.wear.data.PhoneAppStatus
 import com.tortugapower.audiobookplayer.wear.data.findPhoneNodeId
+import com.tortugapower.audiobookplayer.wear.data.phoneAppStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
@@ -33,14 +38,16 @@ interface WatchAuthenticator {
 class WearAuthClient(
     private val messageClient: MessageClient,
     private val capabilityClient: CapabilityClient,
+    private val nodeClient: NodeClient,
 ) : WatchAuthenticator {
     constructor(context: Context) : this(
         Wearable.getMessageClient(context),
         Wearable.getCapabilityClient(context),
+        Wearable.getNodeClient(context),
     )
 
     override suspend fun requestAuth(): WearAuthOutcome {
-        val phoneNodeId = capabilityClient.findPhoneNodeId() ?: return WearAuthOutcome.PhoneNotReachable
+        val phoneNodeId = capabilityClient.findPhoneNodeId() ?: return noPhoneAppOutcome()
 
         val replyBytes = CompletableDeferred<ByteArray>()
         val listener = MessageClient.OnMessageReceivedListener { event ->
@@ -70,15 +77,33 @@ class WearAuthClient(
         }
     }
 
+    private suspend fun noPhoneAppOutcome(): WearAuthOutcome = try {
+        noPhoneAppOutcome(phoneAppStatus(capabilityClient, nodeClient))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "Couldn't read the phone app's status", e)
+        WearAuthOutcome.PhoneNotReachable
+    }
+
     private companion object {
+        const val TAG = "WearAuthClient"
         const val REPLY_TIMEOUT_MS = 15_000L
     }
 }
+
+/**
+ * No phone advertised the app when asked: a connected phone without it gets the install prompt, anything else a
+ * retry (READY means the app showed up in between).
+ */
+internal fun noPhoneAppOutcome(status: PhoneAppStatus): WearAuthOutcome =
+    if (status == PhoneAppStatus.APP_MISSING) WearAuthOutcome.PhoneAppMissing else WearAuthOutcome.PhoneNotReachable
 
 /** Outcome of a handoff attempt — maps to the sign-in UI state (mirrors iOS's WatchConnectivityError cases). */
 sealed interface WearAuthOutcome {
     data class Success(val payload: WatchAuthPayload) : WearAuthOutcome
     data object NotSignedInOnPhone : WearAuthOutcome
     data object PhoneNotReachable : WearAuthOutcome
+    data object PhoneAppMissing : WearAuthOutcome
     data class Failed(val reason: String) : WearAuthOutcome
 }

@@ -64,7 +64,7 @@ class JellyfinFileExtensionsTest {
         val request = requests.single()
         assertEquals("MediaSources,Path", request.requestUrl!!.queryParameter("Fields"))
         assertEquals("1", request.getHeader("X-Test"))
-        assertTrue(request.getHeader("X-Emby-Authorization")!!.contains("Token=\"tok\""))
+        assertTrue(request.getHeader("Authorization")!!.contains("Token=\"tok\""))
     }
 
     @Test fun `ids are chunked so a whole-folder import cannot overflow the URL`() {

@@ -31,6 +31,13 @@ fun RemoteNavHost(
 
     SwipeDismissableNavHost(navController = navController, startDestination = RemoteRoute.LIST) {
         composable(RemoteRoute.LIST) {
+            // Checked only while waiting for the phone: a phone without BookPlayer would leave "Connecting" up forever.
+            val phoneAppStatus = if (state.connecting) {
+                viewModel.phoneAppStatus.collectAsStateWithLifecycle().value
+            } else {
+                null
+            }
+            val phoneStoreListing by rootViewModel.phoneStoreListing.collectAsStateWithLifecycle()
             RemoteListScreen(
                 state = state,
                 onPlayItem = {
@@ -39,6 +46,10 @@ fun RemoteNavHost(
                 },
                 onRefresh = viewModel::refresh,
                 onSettings = { navController.navigate(RemoteRoute.SETTINGS) },
+                phoneAppStatus = phoneAppStatus,
+                phoneStoreListing = phoneStoreListing,
+                onInstallOnPhone = rootViewModel::openPhoneStoreListing,
+                onInstallPromptGone = rootViewModel::resetPhoneStoreListing,
             )
         }
 
@@ -47,6 +58,7 @@ fun RemoteNavHost(
             val signInState by rootViewModel.signInState.collectAsStateWithLifecycle()
             val storageUsed by rootViewModel.storageUsed.collectAsStateWithLifecycle()
             val hasDownloads by rootViewModel.hasDownloads.collectAsStateWithLifecycle()
+            val phoneStoreListing by rootViewModel.phoneStoreListing.collectAsStateWithLifecycle()
             SettingsScreen(
                 account = account,
                 signInState = signInState,
@@ -55,6 +67,8 @@ fun RemoteNavHost(
                 onSignIn = rootViewModel::signIn,
                 onDeleteDownloads = rootViewModel::deleteDownloads,
                 onSignOut = rootViewModel::signOut,
+                phoneStoreListing = phoneStoreListing,
+                onInstallOnPhone = rootViewModel::openPhoneStoreListing,
             )
         }
         composable(RemoteRoute.NOW_PLAYING) {

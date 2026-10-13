@@ -5,22 +5,28 @@ import com.tortugapower.audiobookplayer.datalayer.WatchCommandType
 import com.tortugapower.audiobookplayer.datalayer.WatchItem
 import com.tortugapower.audiobookplayer.datalayer.WatchLibraryState
 import com.tortugapower.audiobookplayer.datalayer.WatchPlaybackState
+import androidx.lifecycle.viewModelScope
+import com.tortugapower.audiobookplayer.wear.data.PhoneAppStatus
 import com.tortugapower.audiobookplayer.wear.data.RemoteCommandSender
 import com.tortugapower.audiobookplayer.wear.data.RemoteContextRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -44,6 +50,7 @@ class RemoteViewModelTest {
 
     private val repo = FakeRepo()
     private val sender = FakeSender()
+    private val phone = FakePhoneApp()
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
@@ -51,7 +58,36 @@ class RemoteViewModelTest {
     // `state` is a WhileSubscribed StateFlow, so it only merges upstream while collected. Start a
     // background collector (as the real UI does via collectAsStateWithLifecycle) so state.value updates.
     private fun TestScope.model(): RemoteViewModel =
-        RemoteViewModel(repo, sender).also { vm -> backgroundScope.launch { vm.state.collect {} } }
+        RemoteViewModel(repo, sender, phone).also { vm -> backgroundScope.launch { vm.state.collect {} } }
+
+    @Test fun phoneAppStatus_isCheckedOnlyWhileCollected_andFollowsThePhone() = runTest(dispatcher) {
+        phone.status = PhoneAppStatus.APP_MISSING
+        val vm = model()
+        runCurrent()
+        assertEquals(0, phone.checks) // nothing on screen asks: no polling
+
+        backgroundScope.launch { vm.phoneAppStatus.collect {} }
+        runCurrent()
+        assertEquals(PhoneAppStatus.APP_MISSING, vm.phoneAppStatus.value)
+
+        phone.status = PhoneAppStatus.READY // the user installed the phone app
+        advanceTimeBy(5_001)
+        assertEquals(PhoneAppStatus.READY, vm.phoneAppStatus.value)
+        assertEquals(2, phone.checks)
+        vm.viewModelScope.cancel() // ends the polling loop, which never idles
+    }
+
+    @Test fun phoneAppStatus_forgetsTheLastReading_onceNothingCollectsIt() = runTest(dispatcher) {
+        phone.status = PhoneAppStatus.APP_MISSING
+        val vm = model()
+        val collector = backgroundScope.launch { vm.phoneAppStatus.collect {} }
+        runCurrent()
+        assertEquals(PhoneAppStatus.APP_MISSING, vm.phoneAppStatus.value)
+
+        collector.cancel() // the phone's state arrived: "Connecting" is gone
+        advanceTimeBy(5_001)
+        assertNull(vm.phoneAppStatus.value) // a later "Connecting" won't open on this old reading
+    }
 
     @Test fun connecting_untilStateArrives() = runTest(dispatcher) {
         val vm = model()

@@ -10,6 +10,7 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.network.StreamFile
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
@@ -42,6 +43,125 @@ class VirtualImportManagerTest {
         type = ItemType.BOOK
     )
 
+    private val threeFiles = listOf(
+        StreamFile("api/items/abs-1/file/11", "Disc 1/01.mp3", 60.0),
+        StreamFile("api/items/abs-1/file/22", "Disc 2/01.mp3", 61.5),
+        StreamFile("api/items/abs-1/file/33", "03.mp3", 30.0),
+    )
+
+    private suspend fun importVolume(files: List<StreamFile> = threeFiles, isPro: Boolean = false, basePath: String? = null) =
+        VirtualImportManager.importStreamItem(
+            libraryDao = fakeDao,
+            syncTaskRepository = fakeSyncTasks,
+            externalItem = serverItem(uuid = "abs-1", fileName = "Book One.mp3"),
+            providerName = "audiobookshelf",
+            hostId = "https://abs.example.com",
+            artworkPath = "/data/Artworks/abc.jpg",
+            isPro = isPro,
+            files = files,
+            basePath = basePath,
+        )!!
+
+    // --- placed in the folder being browsed, like any import (iOS parity) ---
+
+    @Test
+    fun importStreamItem_insideAFolder_landsInItAfterItsItems() = runBlocking {
+        fakeDao.insertItem(LibraryItemEntity(uuid = "shelf", title = "Shelf", relativePath = "Shelf", orderRank = 0, type = ItemType.FOLDER))
+        fakeDao.insertItem(LibraryItemEntity(uuid = "old", title = "Old", relativePath = "Shelf/Old.m4b", orderRank = 3, type = ItemType.BOOK))
+
+        val result = VirtualImportManager.importStreamItem(
+            libraryDao = fakeDao, syncTaskRepository = fakeSyncTasks, externalItem = serverItem(),
+            providerName = "jellyfin", hostId = "jf-guid", basePath = "Shelf",
+        )!!
+
+        assertEquals("Shelf/Book One.m4b", result.item.relativePath)
+        assertEquals(4, result.item.orderRank)
+    }
+
+    @Test
+    fun importStreamItem_volumeInsideAFolder_holdsItsBooksThere() = runBlocking {
+        val result = importVolume(basePath = "Shelf")
+
+        assertEquals("Shelf/Book One", result.item.relativePath)
+        assertEquals(0, result.item.orderRank)
+        val books = fakeDao.items.values.filter { it.type == ItemType.BOOK }.map { it.relativePath }.sortedBy { it }
+        assertEquals(listOf("Shelf/Book One/03.mp3", "Shelf/Book One/Disc 1 - 01.mp3", "Shelf/Book One/Disc 2 - 01.mp3"), books)
+    }
+
+    // The volume's path must be free where it goes; an item of that name elsewhere doesn't matter.
+    @Test
+    fun importStreamItem_volumeNameCollision_isCheckedInsideItsFolder() = runBlocking {
+        fakeDao.insertItem(LibraryItemEntity(uuid = "root-twin", title = "Book One", relativePath = "Book One", type = ItemType.BOUND))
+        assertEquals("Shelf/Book One", importVolume(basePath = "Shelf").item.relativePath)
+
+        fakeDao.items.clear()
+        fakeDao.insertItem(LibraryItemEntity(uuid = "twin", title = "Book One", relativePath = "Shelf/Book One", type = ItemType.BOUND))
+        val path = importVolume(basePath = "Shelf").item.relativePath!!
+        assertTrue(path, path.startsWith("Shelf/Book One-"))
+    }
+
+    @Test
+    fun importStreamItem_severalFiles_createsVolumeOfOneBookPerFile() = runBlocking {
+        val result = importVolume(isPro = true)
+
+        assertFalse(result.alreadyImported)
+        val volume = fakeDao.items[result.item.uuid]!!
+        assertEquals(ItemType.BOUND, volume.type)
+        assertEquals("Book One", volume.title)
+        assertEquals("Book One", volume.relativePath)
+        assertEquals("3", volume.author) // the bare file count, like any volume
+        assertEquals(151.5, volume.duration, 0.001)
+
+        val books = fakeDao.items.values.filter { it.type == ItemType.BOOK }.sortedBy { it.orderRank }
+        assertEquals(listOf("Book One/Disc 1 - 01.mp3", "Book One/Disc 2 - 01.mp3", "Book One/03.mp3"), books.map { it.relativePath })
+        assertEquals(listOf("Disc 1 - 01.mp3", "Disc 2 - 01.mp3", "03.mp3"), books.map { it.originalFileName })
+        assertEquals(listOf("Disc 1 - 01", "Disc 2 - 01", "03"), books.map { it.title })
+        assertEquals(listOf(0, 1, 2), books.map { it.orderRank })
+        assertEquals(listOf(60.0, 61.5, 30.0), books.map { it.duration })
+        assertTrue(books.all { it.author == "Author One" })
+
+        // The link lives on the volume; its books find their files through it.
+        val resource = fakeDao.externalResources.single()
+        assertEquals(volume.uuid, resource.libraryItemUuid)
+        assertEquals("abs-1", resource.providerId)
+        assertEquals(ExternalResourceEntity.STATUS_STREAM, resource.syncStatus)
+
+        val jobTypes = fakeSyncTasks.tasks.map { it.jobType }
+        assertEquals(4, jobTypes.count { it == SyncTaskFactory.JOB_UPLOAD_METADATA })
+        assertEquals(1, jobTypes.count { it == SyncTaskFactory.JOB_UPLOAD_EXTERNAL_RESOURCE })
+        // A streamed book's file goes up only once it's downloaded (DownloadFileProcessor)
+        assertFalse(SyncTaskFactory.JOB_UPLOAD_FILE in jobTypes)
+        assertFalse(SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD in jobTypes)
+    }
+
+    @Test
+    fun importStreamItem_volume_isImportedOnce() = runBlocking {
+        val first = importVolume()
+        val second = importVolume()
+
+        assertTrue(second.alreadyImported)
+        assertEquals(first.item.uuid, second.item.uuid)
+        assertEquals(4, fakeDao.items.size)
+    }
+
+    @Test
+    fun importStreamItem_volumeNameTaken_getsItsOwnPath() = runBlocking {
+        fakeDao.insertItem(LibraryItemEntity(uuid = "other", title = "Book One", relativePath = "Book One", type = ItemType.FOLDER))
+
+        val volume = importVolume().item
+
+        assertTrue(volume.relativePath!!.startsWith("Book One-"))
+        assertTrue(fakeDao.items.values.filter { it.type == ItemType.BOOK }.all { it.relativePath!!.startsWith("${volume.relativePath}/") })
+    }
+
+    @Test
+    fun importStreamItem_volumeFilesFlatteningToOneName_stayDistinct() = runBlocking {
+        importVolume(listOf(StreamFile("a", "Part/01.mp3", 1.0), StreamFile("b", "Part - 01.mp3", 1.0)))
+
+        val names = fakeDao.items.values.filter { it.type == ItemType.BOOK }.sortedBy { it.orderRank }.map { it.originalFileName }
+        assertEquals(listOf("Part - 01.mp3", "Part - 01-2.mp3"), names)
+    }
+
     @Test
     fun importStreamItem_createsItemAndStreamResourceAndSyncTasks() = runBlocking {
         val result = VirtualImportManager.importStreamItem(
@@ -73,13 +193,12 @@ class VirtualImportManagerTest {
         val jobTypes = fakeSyncTasks.tasks.map { it.jobType }
         assertTrue(SyncTaskFactory.JOB_UPLOAD_METADATA in jobTypes)
         assertTrue(SyncTaskFactory.JOB_UPLOAD_EXTERNAL_RESOURCE in jobTypes)
-        // Not PRO (default): no cloud-copy pipe, no artwork upload.
-        assertFalse(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE in jobTypes)
+        // Not PRO (default): no artwork upload
         assertFalse(SyncTaskFactory.JOB_UPLOAD_ARTWORK in jobTypes)
     }
 
     @Test
-    fun importStreamItem_proEnqueuesPipeAndLocalArtworkUpload() = runBlocking {
+    fun importStreamItem_proUploadsLocalArtworkButNotTheFile() = runBlocking {
         // A real local cover file (the import downloads it before this call).
         val cover = java.io.File.createTempFile("cover", ".jpg").apply { writeText("jpg") }
 
@@ -90,11 +209,14 @@ class VirtualImportManagerTest {
         )
 
         val jobTypes = fakeSyncTasks.tasks.map { it.jobType }
-        assertTrue(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE in jobTypes)
-        assertTrue(SyncTaskFactory.JOB_UPLOAD_ARTWORK in jobTypes)
-        val pipe = fakeSyncTasks.tasks.single { it.jobType == SyncTaskFactory.JOB_UPLOAD_STREAM_FILE }
-        assertEquals(result!!.item.uuid, pipe.taskID)
-        assertEquals(SyncTaskFactory.QUEUE_PIPE, pipe.queueKey)
+        val artwork = fakeSyncTasks.tasks.single { it.jobType == SyncTaskFactory.JOB_UPLOAD_ARTWORK }
+        assertEquals(result!!.item.uuid, artwork.taskID)
+        // Behind the registration, in the same lane
+        assertEquals(SyncTaskFactory.QUEUE_SYNC, artwork.queueKey)
+        assertTrue(jobTypes.indexOf(SyncTaskFactory.JOB_UPLOAD_METADATA) < jobTypes.indexOf(SyncTaskFactory.JOB_UPLOAD_ARTWORK))
+        // The file goes up once it's downloaded (DownloadFileProcessor), as on iOS
+        assertFalse(SyncTaskFactory.JOB_UPLOAD_FILE in jobTypes)
+        assertFalse(SyncTaskFactory.JOB_QUEUE_FILE_UPLOAD in jobTypes)
         cover.delete()
         Unit
     }
@@ -109,9 +231,7 @@ class VirtualImportManagerTest {
             artworkPath = "https://server/Items/x/Images/Primary", isPro = true
         )
 
-        val jobTypes = fakeSyncTasks.tasks.map { it.jobType }
-        assertTrue(SyncTaskFactory.JOB_UPLOAD_STREAM_FILE in jobTypes)
-        assertFalse(SyncTaskFactory.JOB_UPLOAD_ARTWORK in jobTypes)
+        assertFalse(SyncTaskFactory.JOB_UPLOAD_ARTWORK in fakeSyncTasks.tasks.map { it.jobType })
     }
 
     @Test
@@ -215,11 +335,17 @@ class VirtualImportManagerTest {
         override suspend fun getExternalResource(itemUuid: String, provider: String): ExternalResourceEntity? =
             externalResources.find { it.libraryItemUuid == itemUuid && it.providerName == provider }
 
+        override suspend fun markExternalResourceFileProcessed(id: Long): Unit = TODO()
+        override suspend fun getAllUuids(): List<String> = TODO()
+        override suspend fun setServerKnownChunk(uuids: List<String>, known: Boolean) = TODO()
+        override suspend fun clearServerKnown() = TODO()
+        override suspend fun getItemsByIdsWithResources(uuids: List<String>): List<com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources> = TODO()
+        override suspend fun getUserBookmarksForBooks(bookUuids: List<String>): List<com.tortugapower.audiobookplayer.database.entities.BookmarkEntity> = TODO()
         override fun getRootItems(): Flow<List<LibraryItemEntity>> = TODO()
         override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = TODO()
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = TODO()
         override suspend fun getRootItemsSync(): List<LibraryItemEntity> = TODO()
-        override suspend fun getItemByPath(path: String): LibraryItemEntity? = TODO()
+        override suspend fun getItemByPath(path: String): LibraryItemEntity? = items.values.find { it.relativePath == path }
         override suspend fun getItemByFileName(fileName: String): LibraryItemEntity? = TODO()
         override fun getRootFolders(): Flow<List<LibraryItemEntity>> = TODO()
         override fun getFoldersInPath(path: String): Flow<List<LibraryItemEntity>> = TODO()
@@ -229,8 +355,10 @@ class VirtualImportManagerTest {
         override suspend fun insertCompletion(completion: BookCompletionEntity) = TODO()
         override suspend fun hasCompletion(bookUuid: String): Boolean = TODO()
         override suspend fun getAllItemsSync(): List<LibraryItemEntity> = TODO()
-        override suspend fun getMaxPathOrderRank(path: String): Int? = TODO()
+        override suspend fun getMaxPathOrderRank(path: String): Int? =
+            items.values.filter { it.relativePath?.substringBeforeLast('/', "") == path }.maxOfOrNull { it.orderRank }
         override suspend fun updateItem(item: LibraryItemEntity) = TODO()
+        override suspend fun updateRemoteURL(uuid: String, url: String?) = TODO()
         override suspend fun deleteItem(item: LibraryItemEntity) = TODO()
         override suspend fun deleteItems(items: List<LibraryItemEntity>) = TODO()
         override suspend fun getDescendantsOfPath(path: String): List<LibraryItemEntity> = TODO()
@@ -241,9 +369,14 @@ class VirtualImportManagerTest {
         override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? = TODO()
         override suspend fun insertBookmark(bookmark: BookmarkEntity): Long = TODO()
         override suspend fun updateBookmark(bookmark: BookmarkEntity) = TODO()
+        override suspend fun updateItemSpeed(uuid: String, speed: Double) = TODO()
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) = TODO()
         override suspend fun updateChaptersUuid(oldUuid: String, newUuid: String) = TODO()
         override suspend fun updateBookmarksUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun updateExternalResourcesUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun updatePlaybackSessionsUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun updateCompletionsUuid(oldUuid: String, newUuid: String) = TODO()
+        override suspend fun updateChildrenParentUuid(oldUuid: String, newUuid: String) = TODO()
         override fun getExternalResourcesForBookFlow(itemUuid: String): Flow<List<ExternalResourceEntity>> = TODO()
         override suspend fun getExternalResourcesForBookSync(itemUuid: String): List<ExternalResourceEntity> = TODO()
         override suspend fun deleteExternalResource(itemUuid: String, provider: String) = TODO()

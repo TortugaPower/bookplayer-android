@@ -305,7 +305,11 @@ fun PlayerScreen(
         AddNoteDialog(
             initialNote = viewModel.currentBookmark?.note ?: "",
             onConfirm = { viewModel.updateBookmarkNote(it) },
-            onDismiss = { viewModel.showAddNoteDialog = false }
+            onDismiss = { viewModel.dismissNoteDialog() },
+            title = stringResource(
+                if (viewModel.isEditingBookmarkNote) R.string.player_bookmark_edit_note
+                else R.string.player_add_note_title
+            )
         )
     }
 
@@ -625,7 +629,7 @@ fun PlayerScreen(
                         val sleepRemaining by viewModel.sleepTimerRemaining.collectAsStateWithLifecycle()
 
                         PlayerBottomBar(
-                            speedLabel = "${if (playbackSpeed % 1.0f == 0.0f) playbackSpeed.toInt() else playbackSpeed}x",
+                            speedLabel = formatSpeed(playbackSpeed),
                             sleepLabel = when {
                                 sleepEndOfChapter -> stringResource(R.string.player_timer_active)
                                 sleepActive -> sleepRemaining

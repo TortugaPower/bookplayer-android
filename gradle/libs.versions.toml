@@ -27,6 +27,7 @@ room = "2.8.4"
 datastore = "1.1.1"
 splashscreen = "1.0.1"
 wearOngoing = "1.0.0"
+wearRemoteInteractions = "1.2.0"
 # Constraint-only pin (see wear/build.gradle.kts): modernizes the transitive fragment:1.1.0 that
 # GMS/tiles pull, per the Play SDK Console "outdated SDK" advisory.
 fragment = "1.8.9"
@@ -45,9 +46,9 @@ billing = "8.3.0"
 # Play In-App Review (post-book-finish rating prompt; Play decides whether the dialog shows).
 playReview = "2.0.2"
 revenuecat = "9.29.1"
-sentry = "7.18.1"
+sentry = "8.58.0"
 # Gradle plugin only (R8 mapping upload); the runtime SDK stays pinned above.
-sentryPlugin = "4.14.1"
+sentryPlugin = "6.23.0"
 konfetti = "2.0.5"
 playServicesWearable = "18.2.0"
 # Matches the coroutines version resolved across the project (strictly 1.7.3).
@@ -83,6 +84,7 @@ androidx-credentials-play-services = { group = "androidx.credentials", name = "c
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }
 androidx-wear-ongoing = { group = "androidx.wear", name = "wear-ongoing", version.ref = "wearOngoing" }
+androidx-wear-remote-interactions = { group = "androidx.wear", name = "wear-remote-interactions", version.ref = "wearRemoteInteractions" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }

@@ -37,9 +37,12 @@ class AudiobookshelfFileExtensionsTest {
                     """{"libraryItems":[
                         {"id":"a","libraryId":"lib","mediaType":"book","media":{"metadata":{"title":"A"},"audioFiles":[
                             {"index":2,"ino":"2","metadata":{"filename":"02.mp3","ext":".mp3"}},
-                            {"index":1,"ino":"1","metadata":{"filename":"01.m4b","ext":".m4b"}}]}},
+                            {"index":1,"ino":"1","metadata":{"filename":"01.m4b","ext":".m4b"}}],"tracks":[
+                            {"index":2,"ino":"2","duration":20,"metadata":{"filename":"02.mp3","relPath":"CD/02.mp3"}},
+                            {"index":1,"ino":"1","duration":10,"metadata":{"filename":"01.m4b","relPath":"CD/01.m4b"}}]}},
                         {"id":"b","libraryId":"lib","mediaType":"book","media":{"metadata":{"title":"B"},"audioFiles":[
-                            {"index":1,"ino":"1","metadata":{"filename":"B.opus"}}]}},
+                            {"index":1,"ino":"1","metadata":{"filename":"B.opus"}}],"tracks":[
+                            {"index":1,"ino":"1","duration":5,"metadata":{"filename":"B.opus","relPath":"B.opus"}}]}},
                         {"id":"c","libraryId":"lib","mediaType":"book","media":{"metadata":{"title":"C"},"audioFiles":[]}},
                         {"id":"d","libraryId":"lib","mediaType":"book","media":{"metadata":{"title":"D"}}}
                     ]}"""
@@ -85,5 +88,17 @@ class AudiobookshelfFileExtensionsTest {
         } catch (e: SessionExpiredException) {
             // expected
         }
+    }
+
+    @Test fun `an item of several files reports them in track order, a single-file item none`() {
+        val infos = runBlocking { service.getStreamImportInfo(url(), "tok", listOf("a", "b", "c")) }
+
+        assertEquals("m4b", infos["a"]!!.extension)
+        assertEquals(
+            listOf(StreamFile("api/items/a/file/1", "CD/01.m4b", 10.0), StreamFile("api/items/a/file/2", "CD/02.mp3", 20.0)),
+            infos["a"]!!.files,
+        )
+        assertEquals(StreamImportInfo("opus", emptyList()), infos["b"])
+        assertNull(infos["c"])
     }
 }

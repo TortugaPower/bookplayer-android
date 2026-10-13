@@ -11,6 +11,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -65,7 +66,7 @@ class JellyfinProbeTest {
         found()
         val requests = generateSequence { server.takeRequest(1, java.util.concurrent.TimeUnit.SECONDS) }.toList()
         val qc = requests.first { it.path == "/QuickConnect/Enabled" }
-        val header = qc.getHeader("X-Emby-Authorization")
+        val header = qc.getHeader("Authorization")
         assertNotNull(header)
         assertTrue(header!!.startsWith("MediaBrowser Client=\""))
         assertTrue(header.contains("DeviceId=\""))
@@ -120,6 +121,20 @@ class JellyfinProbeTest {
         assertEquals("user-9", result.userId)
         assertEquals("guid-1", result.stableId)
         assertEquals("Home", result.name)
+    }
+
+    /**
+     * Jellyfin 12 ignores the legacy `X-Emby-Authorization` header by default, so a sign-in that sent only
+     * that one reached the server with no client/device info and failed with 400 (#119).
+     */
+    @Test fun `sign-in sends the client identity in the standard Authorization header`() {
+        runBlocking { service.connect(url(), "hana", "pw") }
+        val requests = generateSequence { server.takeRequest(1, java.util.concurrent.TimeUnit.SECONDS) }.toList()
+        val signIn = requests.first { it.path == "/Users/AuthenticateByName" }
+        assertTrue(signIn.getHeader("Authorization")!!.startsWith("MediaBrowser Client=\""))
+        assertNull(signIn.getHeader("X-Emby-Authorization"))
+        val info = requests.first { it.path == "/System/Info" }
+        assertTrue(info.getHeader("Authorization")!!.contains("Token=\"tok\""))
     }
 
     @Test fun `wrong credentials map to the unauthorized copy`() {

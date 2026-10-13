@@ -13,10 +13,11 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Whether [item] still has a queued/running upload task — removing its file(s) would destroy the
- * only copy before it reaches the cloud, so callers show the iOS-parity Warning dialog first
+ * Whether [item]'s file is still on its way to the cloud ([leadsToBookUpload]: the upload, the step
+ * that queues it, or the book's registration) — removing its file(s) would destroy the only copy
+ * before it reaches the cloud, so callers show the iOS-parity Warning dialog first
  * (`sync_tasks_item_upload_queued`). Containers offload recursively ([removeLocalFile] deletes the
- * whole directory), and upload tasks are keyed by the BOOK's uuid — so the check covers every
+ * whole directory), and these tasks are keyed by the BOOK's uuid — so the check covers every
  * descendant book, not just the item's own uuid. Shared by Storage Management and the library's
  * "Remove from device" option.
  */
@@ -26,8 +27,12 @@ suspend fun hasQueuedUploadTask(
     item: LibraryItemEntity
 ): Boolean {
     val uuids = repository.getDescendantBooks(item).mapTo(mutableSetOf()) { it.uuid } + item.uuid
-    return syncTaskRepository.getAllTasks().first().any {
-        it.jobType == SyncTaskFactory.JOB_UPLOAD_FILE && it.taskID in uuids
+    return syncTaskRepository.getAllTasks().first().any { task ->
+        if (task.taskID !in uuids) return@any false
+        // Read only for a registration, the one case it changes
+        val isStreamed = task.jobType == SyncTaskFactory.JOB_UPLOAD_METADATA &&
+            repository.isStreamedMediaServerBook(task.taskID)
+        leadsToBookUpload(task, isStreamed)
     }
 }
 
@@ -73,11 +78,11 @@ suspend fun removeLocalFile(context: Context, repository: LibraryRepository, ite
         // for subscribers, "audio not on this device" for free/signed-out) instead of vanishing
         // until the next fetch happens to re-insert it. Nothing is ever deleted server-side from
         // here (plain repository — no delete task).
-        if (extResources.isNotEmpty()) {
-            // External items also clear relativePath and revert their resource to "stream": their
-            // playback URL is rebuilt from hostId+providerId, not the path.
-            item.relativePath = null
-            repository.updateItem(item)
+        if (item.type == ItemType.BOOK && extResources.any(MediaServerStreams::streams)) {
+            // A streamed book reverts its resource to "stream": it plays from its media server again. It
+            // keeps its path, as on iOS: that's its identity on the server, a never-downloaded streamed book
+            // has one too, and a download needs it to know where the file goes. Only a book with its OWN
+            // streamed link: a browser download ("synced") or a Hardcover-linked book is a plain book.
             extResources.forEach { resource ->
                 if (resource.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED) {
                     // Through the DAO (REPLACE): repository.saveExternalResource early-returns when a
@@ -86,7 +91,7 @@ suspend fun removeLocalFile(context: Context, repository: LibraryRepository, ite
                 }
             }
         }
-        // Cloud/local rows keep relativePath untouched — it's the item's identity on the server and
-        // in the play/download paths; the row's "not downloaded" state is pure disk truth.
+        // Every row keeps relativePath untouched — it's the item's identity on the server and in the
+        // play/download paths; the row's "not downloaded" state is pure disk truth.
     }
 }

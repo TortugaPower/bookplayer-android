@@ -68,7 +68,11 @@ class ExternalLibraryViewModelTest {
         override suspend fun getLibraryItems(server: ExternalServerEntity, startIndex: Int, limit: Int): LibraryResult { itemsCalls++; return items() }
         var extensions: (List<String>) -> Map<String, String> = { ids -> ids.associateWith { "m4b" } }
         val extensionCalls = mutableListOf<List<String>>()
-        override suspend fun getFileExtensions(server: ExternalServerEntity, ids: List<String>): Map<String, String> { extensionCalls += ids; return extensions(ids) }
+        var files: Map<String, List<com.tortugapower.audiobookplayer.network.StreamFile>> = emptyMap()
+        override suspend fun getStreamImportInfo(server: ExternalServerEntity, ids: List<String>): Map<String, com.tortugapower.audiobookplayer.network.StreamImportInfo> {
+            extensionCalls += ids
+            return extensions(ids).mapValues { (id, ext) -> com.tortugapower.audiobookplayer.network.StreamImportInfo(ext, files[id].orEmpty()) }
+        }
     }
 
     @Before fun setUp() = runTest(dispatcher) {
@@ -177,6 +181,22 @@ class ExternalLibraryViewModelTest {
         assertEquals("c has no audio file the server knows about", 1, selection.skippedWithoutAudio)
         assertEquals("one hydration request for the whole selection", listOf(listOf("a", "b", "c")), library.extensionCalls)
         assertNull(vm.error.value)
+    }
+
+    @Test fun `an item of several files carries them, to be imported as a volume`() = runTest(dispatcher) {
+        val parts = listOf(
+            com.tortugapower.audiobookplayer.network.StreamFile("api/items/a/file/1", "01.mp3", 60.0),
+            com.tortugapower.audiobookplayer.network.StreamFile("api/items/a/file/2", "02.mp3", 60.0),
+        )
+        library.extensions = { mapOf("a" to "mp3", "b" to "m4b") }
+        library.files = mapOf("a" to parts)
+        val vm = viewModel()
+        advanceUntilIdle()
+
+        val selection = vm.prepareStreamImport(listOf(item("a"), item("b")))!!
+
+        assertEquals(parts, selection.items.single { it.entity.uuid == "a" }.streamFiles)
+        assertEquals(emptyList<Any>(), selection.items.single { it.entity.uuid == "b" }.streamFiles)
     }
 
     @Test fun `a failed hydration is the library's error alert, and nothing is staged`() = runTest(dispatcher) {

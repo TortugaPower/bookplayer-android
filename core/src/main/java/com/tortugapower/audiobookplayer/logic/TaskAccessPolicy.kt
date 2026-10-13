@@ -41,6 +41,14 @@ object TaskAccessPolicy {
      * Checks if the given account tier can execute a specific task type.
      */
     fun canExecuteTask(tier: AccountTier?, jobType: String): Boolean {
+        // A job this build no longer runs is never picked as it is: the engine's start converts or drops it
+        // (a worker scan can run before that, and would discard it for having no processor)
+        if (jobType == SyncTaskFactory.RETIRED_JOB_UPLOAD_STREAM_FILE ||
+            jobType == SyncTaskFactory.RETIRED_JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD ||
+            jobType == SyncTaskFactory.RETIRED_JOB_SYNC_IDENTIFIERS) {
+            return false
+        }
+
         if (jobType == SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH || 
             jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS ||
             jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE) {
@@ -49,11 +57,9 @@ object TaskAccessPolicy {
 
         if (!canAccessSyncService(tier)) return false
 
-        // specific restriction: only PRO can upload files or artwork (the stream-to-cloud pipe is a
-        // file upload — LITE keeps DB-only sync, no S3)
+        // specific restriction: only PRO can upload files or artwork (LITE keeps DB-only sync, no S3)
         if (jobType == SyncTaskFactory.JOB_UPLOAD_FILE ||
-            jobType == SyncTaskFactory.JOB_UPLOAD_ARTWORK ||
-            jobType == SyncTaskFactory.JOB_UPLOAD_STREAM_FILE) {
+            jobType == SyncTaskFactory.JOB_UPLOAD_ARTWORK) {
             return tier == AccountTier.PRO
         }
 

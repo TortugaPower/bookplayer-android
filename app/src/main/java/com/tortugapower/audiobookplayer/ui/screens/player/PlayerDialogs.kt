@@ -110,7 +110,8 @@ internal fun BookmarkDialogButton(
 fun AddNoteDialog(
     initialNote: String,
     onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    title: String = stringResource(R.string.player_add_note_title)
 ) {
     var note by remember { mutableStateOf(initialNote) }
 
@@ -118,7 +119,7 @@ fun AddNoteDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                stringResource(R.string.player_add_note_title),
+                title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,

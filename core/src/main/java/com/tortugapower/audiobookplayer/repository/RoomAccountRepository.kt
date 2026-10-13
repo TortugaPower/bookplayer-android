@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.repository
 import android.util.Log
 import com.tortugapower.audiobookplayer.database.dao.AccountDao
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.CredentialCipher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -40,6 +41,12 @@ class RoomAccountRepository(
 
     override suspend fun saveAccount(account: AccountEntity) = withContext(Dispatchers.IO) {
         accountDao.saveAccount(account.copy(apiToken = cipher.encrypt(account.apiToken)))
+    }
+
+    // One column: a read-then-save would bring back an account signed out in between
+    override suspend fun updateTier(tier: AccountTier) = withContext(Dispatchers.IO) {
+        accountDao.updateTier(tier)
+        Unit
     }
 
     override suspend fun deleteAccount() = withContext(Dispatchers.IO) {

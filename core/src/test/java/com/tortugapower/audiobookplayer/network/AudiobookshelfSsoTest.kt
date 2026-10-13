@@ -67,7 +67,7 @@ class AudiobookshelfSsoTest {
                         .addHeader("Location", "https://idp.example.com/authorize?client_id=abs&state=${query(path)["state"]}&redirect_uri=x")
                     path == "/api/authorize" -> {
                         if (request.getHeader("Authorization") != "Bearer sso-tok") MockResponse().setResponseCode(401)
-                        else MockResponse().setResponseCode(authorizeStatus).setBody("""{"user":{"id":"usr_1","username":"gianni","token":"sso-tok"},"serverSettings":{"id":"srv-guid","serverName":"Home"}}""")
+                        else MockResponse().setResponseCode(authorizeStatus).setBody("""{"user":{"id":"usr_1","username":"gianni","token":"sso-tok"},"serverSettings":{"id":"server-settings","serverName":"Home"}}""")
                     }
                     else -> MockResponse().setResponseCode(404)
                 }
@@ -91,7 +91,7 @@ class AudiobookshelfSsoTest {
         assertEquals("usr_1", result.userId)
         assertEquals("gianni", result.userName)
         assertEquals("the server's real name, not the host", "Home", result.name)
-        assertEquals("the stable id the hostId contract wants", "srv-guid", result.stableId)
+        assertNull("serverSettings.id is the same constant on every ABS server", result.stableId)
 
         assertEquals(1, webAuth.urls.size)
         assertTrue("only the IdP URL reaches the browser", webAuth.urls.single().startsWith("https://idp.example.com/authorize"))
