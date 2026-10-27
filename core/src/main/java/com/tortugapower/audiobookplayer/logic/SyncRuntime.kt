@@ -92,9 +92,13 @@ class SyncRuntime(
             // Its failures name it: a late report from an engine already replaced retires nothing
             buildEngine { e -> scope.launch(buildDispatcher) { retire(built, e) } }.also { built = it }
         } catch (e: Throwable) {
-            started.set(false)
-            if (e is CancellationException) throw e
+            if (e is CancellationException) {
+                started.set(false)
+                throw e
+            }
+            // The failure first: a start in between must find it
             fail(e, "Sync engine not built")
+            started.set(false)
             return
         }
         _engine.value = engine
@@ -108,8 +112,9 @@ class SyncRuntime(
         if (!_engine.compareAndSet(engine, null)) return
         engine.stopAndWait()
         unwatchNetwork(engine)
-        started.set(false)
+        // The failure first: a start in between must find it
         fail(e, "Sync engine failed")
+        started.set(false)
     }
 
     private fun fail(e: Throwable, what: String) {

@@ -156,11 +156,16 @@ class TaskConcurrencyManager(
 
         Log.d(TAG, "📡 Starting queue worker manager...")
 
+        // Each watcher waits out a full disk on its own: one failing there never stops the others. Any other
+        // failure fails them all, and the engine with them (onFailure)
+
         // A tier change can release work held by the tier policy (a subscription back after a lapse);
         // the task list doesn't re-emit for it
         launch {
-            accountRepository.getAccountFlow().map { it?.tier }.distinctUntilChanged().drop(1).collect {
-                requestWorkerScan()
+            whenStored {
+                accountRepository.getAccountFlow().map { it?.tier }.distinctUntilChanged().drop(1).collect {
+                    requestWorkerScan()
+                }
             }
         }
         // A full disk holds every lane (StoragePolicy), and their workers retire: when space is back, they look

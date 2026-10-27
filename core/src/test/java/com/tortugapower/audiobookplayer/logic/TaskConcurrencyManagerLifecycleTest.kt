@@ -246,6 +246,38 @@ class TaskConcurrencyManagerLifecycleTest {
         assertEquals(listOf("slow"), ran.toList())
     }
 
+    /**
+     * The tier watcher re-reads the account table: a full disk there is waited out on its own, and the queue watcher
+     * beside it keeps going (it used to take the queue watcher down with it, leaving the engine silently stopped)
+     */
+    @Test fun aFullDisk_inTheTierWatcher_leavesTheQueueWatcherRunning() = runBlocking {
+        val accounts = object : AccountRepository {
+            var failed = false
+            override fun getAccountFlow(): Flow<AccountEntity?> = flow {
+                if (!failed) {
+                    failed = true
+                    throw SQLiteFullException("database or disk is full")
+                }
+                emit(null)
+            }
+            override suspend fun getAccount(): AccountEntity? = null
+            override suspend fun saveAccount(account: AccountEntity) = Unit
+            override suspend fun deleteAccount() = Unit
+        }
+        val failures = Collections.synchronizedList(mutableListOf<Throwable>())
+        val pushes = Pushes()
+        val manager = TaskConcurrencyManager(context, repository, accounts, listOf(pushes), onFailure = { failures += it })
+            .also { engines += it }
+        manager.startProcessing()
+        until { StorageMonitor.isCritical }
+
+        freeSpace()
+        repository.saveTask(push("after"))
+        until { pushes.ran.contains("after") }
+        assertTrue(manager.isRunning())
+        assertTrue("a full disk isn't a failure", failures.isEmpty())
+    }
+
     /** A full disk holds every lane and their workers retire: space coming back runs what they held */
     @Test fun spaceComingBack_runsWhatAFullDiskHeld() = runBlocking {
         val pushes = Pushes()
