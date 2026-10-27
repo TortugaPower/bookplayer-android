@@ -194,8 +194,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
         // work (SyncKeepAlive).
         syncRuntime = SyncRuntime(
             this, appScope,
-            buildEngine = { PhoneSyncEngine.build(this, syncTaskRepository, accountRepository, firstSync, syncPauseReporter) },
-            onBuildFailed = { io.sentry.Sentry.captureException(it) },
+            buildEngine = { onFailure ->
+                PhoneSyncEngine.build(this, syncTaskRepository, accountRepository, firstSync, syncPauseReporter, onFailure)
+            },
+            onFailed = { io.sentry.Sentry.captureException(it) },
         )
         val startSyncService = { TaskConcurrencyServiceHost.start(this) }
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
@@ -247,7 +249,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
 
         // Crash/error reporting
         initSentry(accountRepository)
-        // After Sentry: a build that fails right away is reported (SyncRuntime's onBuildFailed)
+        // After Sentry: an engine that fails right away is reported (SyncRuntime's onFailed)
         syncRuntime.start()
     }
 

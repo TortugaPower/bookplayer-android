@@ -56,11 +56,26 @@ class TaskConcurrencyManager(
     // Returns once this launch's tier reading is stored (SubscriptionManager): until then the stored tier is
     // last session's, and a lapse while the app was closed would run work it should hold
     private val awaitTierReady: suspend () -> Unit = {},
+    // Told when the engine's own work fails for a reason other than a full disk (its start-up steps, its queue
+    // watcher, a scan, a worker's bookkeeping; a task's failure is the policy's, not this): whoever runs the engine
+    // retires it rather than letting the process crash (SyncRuntime). Without it, such a failure crashes as before.
+    private val onFailure: ((Throwable) -> Unit)? = null,
 ) : TaskConcurrencyService {
 
     // A full disk turns the engine's own bookkeeping writes into SQLiteFullException; those are
-    // recorded (and the storage state flips) instead of killing the process.
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + StorageMonitor.exceptionHandler { context })
+    // recorded (and the storage state flips) instead of killing the process. Any other failure goes to
+    // [onFailure], or crashes when nobody runs the engine to retire it.
+    private val serviceScope = CoroutineScope(
+        Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { coroutineContext, e ->
+            val report = onFailure
+            if (report == null || StorageMonitor.isStorageFailure(e)) {
+                StorageMonitor.exceptionHandler { context }.handleException(coroutineContext, e)
+            } else {
+                Log.e(TAG, "Sync engine failed", e)
+                report(e)
+            }
+        }
+    )
     private var isProcessing = false
     // An engine runs once: started, then stopped for good (a new start means a new engine)
     private var stopped = false

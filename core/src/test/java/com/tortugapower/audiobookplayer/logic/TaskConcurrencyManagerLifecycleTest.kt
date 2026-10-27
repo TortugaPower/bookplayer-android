@@ -185,6 +185,30 @@ class TaskConcurrencyManagerLifecycleTest {
         until { pushes.ran.contains("after") }
     }
 
+    /** Given someone to retire it, the engine reports a failure in its own work instead of crashing; a full disk isn't one */
+    @Test fun aFailureInTheEnginesOwnWork_goesToOnFailure_aFullDiskDoesNot() = runBlocking {
+        val failures = Collections.synchronizedList(mutableListOf<Throwable>())
+        var calls = 0
+        val failsTwice = object : SyncTaskRepository by repository {
+            override suspend fun resetRunningTasks() {
+                when (++calls) {
+                    1 -> throw SQLiteFullException("database or disk is full")
+                    2 -> error("bad row")
+                    else -> repository.resetRunningTasks()
+                }
+            }
+        }
+        TaskConcurrencyManager(context, failsTwice, NoAccount(), listOf(Pushes()), onFailure = { failures += it })
+            .also { engines += it }
+            .startProcessing()
+        until { StorageMonitor.isCritical }
+        assertTrue("a full disk is waited out, not reported", failures.isEmpty())
+
+        freeSpace()
+        until { failures.isNotEmpty() }
+        assertEquals("bad row", failures.single().message)
+    }
+
     /** A full disk holds every lane and their workers retire: space coming back runs what they held */
     @Test fun spaceComingBack_runsWhatAFullDiskHeld() = runBlocking {
         val pushes = Pushes()

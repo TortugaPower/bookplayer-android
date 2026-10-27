@@ -10,6 +10,7 @@ import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
+import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -85,7 +86,7 @@ class SyncRuntimeTest {
         SyncRuntime(context, scope, buildEngine = {
             builds.incrementAndGet()
             builtOnMainThread = Looper.myLooper() == Looper.getMainLooper()
-            TaskConcurrencyManager(context, repository, ProAccounts(), listOf(processor)).also { engines += it }
+            TaskConcurrencyManager(context, repository, ProAccounts(), listOf(processor), onFailure = it).also { engines += it }
         })
 
     private suspend fun queuePush(id: String) = repository.saveTask(
@@ -128,11 +129,12 @@ class SyncRuntimeTest {
         var attempts = 0
         val runtime = SyncRuntime(
             context, watched,
-            buildEngine = {
+            buildEngine = { onFailure ->
                 if (++attempts == 1) error("first build fails")
-                TaskConcurrencyManager(context, repository, ProAccounts(), listOf(Pushes())).also { engines += it }
+                TaskConcurrencyManager(context, repository, ProAccounts(), listOf(Pushes()), onFailure = onFailure)
+                    .also { engines += it }
             },
-            onBuildFailed = { reported += it },
+            onFailed = { reported += it },
         )
         try {
             runtime.start()
@@ -144,6 +146,53 @@ class SyncRuntimeTest {
             runtime.start()
             until { runtime.engine.value != null }
             assertEquals(2, attempts)
+        } finally {
+            watched.cancel()
+        }
+    }
+
+    /**
+     * An engine that fails in its own work once running (here its start-up steps) is reported, never fatal, and
+     * retired: the next start (a new task, an app open) builds a new one
+     */
+    @Test fun anEngineThatFails_isReported_retired_andRebuiltByTheNextStart() = runBlocking {
+        val reported = Collections.synchronizedList(mutableListOf<Throwable>())
+        val crashed = Collections.synchronizedList(mutableListOf<Throwable>())
+        val watched = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e -> crashed += e })
+        val breaksOnce = object : SyncTaskRepository by repository {
+            var broke = false
+            override suspend fun resetRunningTasks() {
+                if (!broke) {
+                    broke = true
+                    error("bad row")
+                }
+                repository.resetRunningTasks()
+            }
+        }
+        val pushes = Pushes()
+        var builds = 0
+        val runtime = SyncRuntime(
+            context, watched,
+            buildEngine = { onFailure ->
+                builds++
+                TaskConcurrencyManager(context, breaksOnce, ProAccounts(), listOf(pushes), onFailure = onFailure)
+                    .also { engines += it }
+            },
+            onFailed = { reported += it },
+        )
+        try {
+            runtime.start()
+            until { reported.isNotEmpty() }
+            assertEquals("bad row", reported.single().message)
+            assertTrue("not fatal", crashed.isEmpty())
+            until { runtime.engine.value == null }
+            assertNull("retired", SyncEngine.current)
+
+            runtime.start()
+            until { runtime.engine.value != null }
+            assertEquals(2, builds)
+            queuePush("p")
+            until { pushes.ran.contains("p") }
         } finally {
             watched.cancel()
         }

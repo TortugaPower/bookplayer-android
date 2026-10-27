@@ -33,20 +33,27 @@ interface SyncRuntimeOwner {
  * killed process left running, which assumes none still runs. A full disk is the engine's own to wait out
  * (TaskConcurrencyManager.startProcessing).
  *
- * @param buildEngine the target's engine, with its processors. Called once, on [buildDispatcher]: building the
- *   network clients sets up TLS, which stalled the main thread (ANDROID-BOOKPLAYER-2E).
- * @param onBuildFailed told when [buildEngine] (or the engine's start) threw for a reason other than a full disk, so
- *   the target can report it (`:core` never initializes Sentry). The next [start] tries again.
+ * Never fatal: the engine starts at every process start, playback-only ones included, so a crash in it would stop
+ * playback every time. A failure building it, or in its own work once running (its start-up steps, its queue
+ * watcher), is reported to [onFailed]; the engine retires and the next [start] (a new task, an app open) builds a
+ * new one. A full disk isn't a failure: the engine waits for space.
+ *
+ * @param buildEngine the target's engine, with its processors, handing the engine the `onFailure` it's given.
+ *   Called on [buildDispatcher]: building the network clients sets up TLS, which stalled the main thread
+ *   (ANDROID-BOOKPLAYER-2E).
+ * @param onFailed told about a failure building or running the engine, so the target can report it (`:core` never
+ *   initializes Sentry).
  */
 class SyncRuntime(
     private val context: Context,
     private val scope: CoroutineScope,
-    private val buildEngine: () -> TaskConcurrencyManager,
+    private val buildEngine: (onFailure: (Throwable) -> Unit) -> TaskConcurrencyManager,
     private val buildDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val onBuildFailed: (Throwable) -> Unit = {},
+    private val onFailed: (Throwable) -> Unit = {},
 ) {
     private val started = AtomicBoolean(false)
     private val _engine = MutableStateFlow<TaskConcurrencyManager?>(null)
+    private var networkCallback: SyncNetworkCallback? = null
 
     /** The engine, once built */
     val engine: StateFlow<TaskConcurrencyManager?> = _engine.asStateFlow()
@@ -57,39 +64,61 @@ class SyncRuntime(
         .flatMapLatest { it?.activeQueues ?: flowOf(emptySet()) }
         .stateIn(scope, SharingStarted.Eagerly, emptySet())
 
-    /** Builds and starts the engine, the first time; a later call does nothing, unless that build failed */
+    /** Builds and starts the engine, unless one runs (or is being built); after a failure, builds a new one */
     fun start() {
         if (!started.compareAndSet(false, true)) return
         scope.launch(buildDispatcher) {
             var engine: TaskConcurrencyManager? = null
             try {
-                engine = buildEngine()
+                // The engine only reaches its onFailure once it has started, by then it's in [_engine]
+                engine = buildEngine { e -> scope.launch(buildDispatcher) { retire(e) } }
+                _engine.value = engine
                 engine.startProcessing()
             } catch (e: Throwable) {
                 engine?.stopProcessing()
+                _engine.value = null
                 // The next new task, or the next app open, tries again
                 started.set(false)
                 if (e is CancellationException) throw e
-                // Never fatal: this runs at every process start, playback-only ones included, and a crash here
-                // would stop playback each time. A full disk is recorded; anything else is reported.
                 if (!StorageMonitor.reportFailure(context, e)) {
                     Log.e("SyncRuntime", "Sync engine not built", e)
-                    onBuildFailed(e)
+                    onFailed(e)
                 }
                 return@launch
             }
-            _engine.value = engine
             watchNetwork(engine)
         }
     }
 
-    // Registered for the life of the process, like the engine
+    /**
+     * The engine failed in its own work: its workers stop (waited on a while, so a new engine's start doesn't reset a
+     * row one of them still runs), it stops, and the next [start] builds a new one. Once per engine.
+     */
+    private suspend fun retire(e: Throwable) {
+        val engine = _engine.value ?: return
+        if (!_engine.compareAndSet(engine, null)) return
+        engine.cancelAllLanes()
+        engine.stopProcessing()
+        unwatchNetwork()
+        started.set(false)
+        onFailed(e)
+    }
+
+    // Registered while the engine runs
     private fun watchNetwork(engine: TaskConcurrencyManager) {
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
         val callback = SyncNetworkCallback(engine)
         callback.onRegistering(connectivity.activeNetwork)
         runCatching { connectivity.registerDefaultNetworkCallback(callback) }
+            .onSuccess { networkCallback = callback }
             .onFailure { Log.w("SyncRuntime", "Network callback not registered", it) }
+    }
+
+    private fun unwatchNetwork() {
+        val callback = networkCallback ?: return
+        networkCallback = null
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        runCatching { connectivity.unregisterNetworkCallback(callback) }
     }
 }
 

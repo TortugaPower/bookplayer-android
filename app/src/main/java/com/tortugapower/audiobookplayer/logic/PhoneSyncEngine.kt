@@ -12,6 +12,7 @@ internal object PhoneSyncEngine {
         accountRepository: AccountRepository,
         firstSync: FirstSyncCoordinator,
         syncPauseReporter: SyncPauseReporter,
+        onFailure: (Throwable) -> Unit,
     ): TaskConcurrencyManager {
         val processors = listOf(
             FetchContentsProcessor(
@@ -44,6 +45,7 @@ internal object PhoneSyncEngine {
             onTaskPaused = syncPauseReporter::report,
             onSyncLaneDrained = firstSync::onSyncLaneDrained,
             awaitTierReady = SubscriptionManager::awaitTierReady,
+            onFailure = onFailure,
         )
     }
 }

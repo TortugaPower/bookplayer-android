@@ -190,7 +190,9 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     (`SubscriptionManager.awaitTierReady`), so they never act on last session's tier.
 - **One sync engine per process** (`SyncRuntime` in `:core`, iOS's model). It's built at every process start, off
   the main thread (building the network clients sets up TLS: ANDROID-BOOKPLAYER-2E), and runs for the life of the
-  process; a failed build is reported (`onBuildFailed` → Sentry) and tried again on the next task or app open.
+  process. It's never fatal: a failure building it, or in its own work once running (start-up steps, queue watcher,
+  scans; not a task's failure), is reported (`onFailed` → Sentry), the engine retires, and the next task or app open
+  builds a new one.
   Never build a `TaskConcurrencyManager` anywhere else: its start resets the tasks a killed process left RUNNING,
   so a second engine would run them twice, and `SyncEngine.current` (lapse and sign-out wipes) would only stop one.
   - An engine runs once: started, then stopped for good (a start after a stop does nothing). No worker starts before
