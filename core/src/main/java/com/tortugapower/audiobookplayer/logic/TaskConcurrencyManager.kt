@@ -76,9 +76,10 @@ class TaskConcurrencyManager(
             }
         }
     )
+    // Set and cleared under workerStartLock; read anywhere
     @Volatile
     private var isProcessing = false
-    // An engine runs once: started, then stopped for good (a new start means a new engine)
+    // An engine runs once: started, then stopped for good (a new start means a new engine). Under workerStartLock.
     private var stopped = false
     // Completed once the start-up steps have run. No worker starts before: those steps reset the rows a killed
     // process left RUNNING, which is only safe while nothing runs them.
@@ -112,7 +113,8 @@ class TaskConcurrencyManager(
 
     // Guards the is-a-worker-already-running check + job registration as one atomic step: the
     // getAllTasks collector and requestWorkerScan (network callback) can race the same queue key,
-    // and a double start wastes a queueSemaphore slot until the orphaned worker retires.
+    // and a double start wastes a queueSemaphore slot until the orphaned worker retires. Starting and
+    // stopping the engine take it too, so a start never runs an engine a stop on another thread ended.
     private val workerStartLock = Any()
 
     /** Atomically starts a worker for [queueKey] unless one is already active, or the engine is stopping. */
@@ -132,9 +134,11 @@ class TaskConcurrencyManager(
      */
     override fun startProcessing() {
         Log.d(TAG, "🔄 startProcessing() called. Current state: isProcessing=$isProcessing")
-        if (isProcessing || stopped) return
-        isProcessing = true
-        SyncEngine.started(this)
+        synchronized(workerStartLock) {
+            if (isProcessing || stopped) return
+            isProcessing = true
+            SyncEngine.started(this)
+        }
         serviceScope.launch { run() }
     }
 
@@ -388,11 +392,7 @@ class TaskConcurrencyManager(
      * still runs. For whoever replaces this engine (SyncRuntime, after a failure).
      */
     suspend fun stopAndWait() {
-        synchronized(workerStartLock) {
-            isProcessing = false
-            stopped = true
-        }
-        SyncEngine.stopped(this)
+        markStopped()
         cancelAllLanes()
         stopProcessing()
     }
@@ -403,12 +403,17 @@ class TaskConcurrencyManager(
      */
     override fun stopProcessing() {
         Log.d(TAG, "🛑 stopProcessing() called")
-        isProcessing = false
-        stopped = true
-        SyncEngine.stopped(this)
+        markStopped()
         queueJobs.values.forEach { it.cancel() }
         queueJobs.clear()
         serviceScope.cancel()
+    }
+
+    // Nothing starts after this: no new worker, and no start of the engine
+    private fun markStopped() = synchronized(workerStartLock) {
+        isProcessing = false
+        stopped = true
+        SyncEngine.stopped(this)
     }
 
     override fun setMaxConcurrentQueues(n: Int) {
