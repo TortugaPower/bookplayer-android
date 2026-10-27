@@ -4,14 +4,16 @@
 #   1. runs the unit-test + lint bar,
 #   2. builds BOTH signed prod bundles (:app phone + :wear watch),
 #   3. attaches them to the run as artifacts, and
-#   4. creates DRAFT releases per form-factor track — phone on `production`, watch on
-#      `wear:production` — ready to review and submit by hand in Play Console. Nothing ever
-#      auto-publishes.
+#   4. submits phone (`production`) and watch (`wear:production`) TOGETHER, in one Play edit, as
+#      a 1% staged rollout with each track's release notes (distribution/whatsnew/, written by the
+#      release skill), verified before and after submitting (scripts/play-release.mjs). Managed
+#      publishing is off, so Google's approval publishes it to 1% of users; raising the rollout
+#      is a separate job. A rollout still in progress on a track is replaced by the new release.
 #
 # ── One-time setup ────────────────────────────────────────────────────────────────────────────
 # 1. Service account: create one in Google Cloud, then Play Console → Users & permissions →
-#    invite its email with access to BookPlayer and release permissions (create/edit draft
-#    releases; leave rollout/publish OFF so CI can never ship anything).
+#    invite its email with access to BookPlayer and "Release to production, exclude devices, and
+#    use Play App Signing" (needed to submit a staged rollout).
 # 2. Repo secrets (Settings → Secrets and variables → Actions):
 #      PLAY_SERVICE_ACCOUNT_JSON   the service account's JSON key, pasted as plaintext
 #      RELEASE_KEYSTORE_BASE64     `base64 -i <your .keystore/.jks file>`
@@ -27,9 +29,10 @@
 # Gradle needs no changes: keystoreProp()/localProp() in app/ and wear/ build files already fall
 # back to environment variables with these exact names.
 #
-# NOTE: uploaded versionCodes are burned permanently, even for drafts — bump versionCode in
-# app/build.gradle.kts and wear/build.gradle.kts BEFORE pushing the release branch, or the Play
-# upload step fails with "version code has already been used".
+# NOTE: a submitted versionCode is burned permanently, even if the release is later rejected —
+# bump versionCode in app/build.gradle.kts and wear/build.gradle.kts BEFORE pushing the release
+# branch, or the Play step fails with "version code has already been used". A run that fails
+# before Play's commit submits nothing.
 
 name: Release
 
@@ -57,6 +60,11 @@ jobs:
           # Full history: `sentry-cli releases set-commits --auto` below walks from the previous
           # release's commit to HEAD, and a shallow clone has neither.
           fetch-depth: 0
+
+      # The release notes are checked before ~10 minutes of build: missing, empty or over Play's
+      # 500 characters fails here (no network, nothing uploaded).
+      - name: Check release notes
+        run: node scripts/play-release.mjs --check-notes
 
       # A missing config secret wouldn't fail the build — localProp() defaults to "" and the
       # bundle would ship pointing at empty config. Refuse to continue instead.
@@ -154,56 +162,13 @@ jobs:
             wear/build/outputs/mapping/prodRelease/mapping.txt
           if-no-files-found: error
 
-      # Separate releases per form-factor track (phone -> production, watch -> wear:production),
-      # matching how releases are actually managed in the console. Each upload carries its own
-      # R8 mapping. Play's edit-commit rules FLIP with app state: with a rejected change on file
-      # the commit MUST set changesNotSentForReview=true; with a change in review (or none) the
-      # same flag is FORBIDDEN. Failed commits are atomic (nothing persists, no version codes
-      # burned), so each track tries one way and falls back to the other.
-      - name: Create draft PHONE release on Play (production)
-        id: play_phone
-        continue-on-error: true
-        uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: com.tortugapower.audiobookplayer
-          releaseFiles: app/build/outputs/bundle/prodRelease/app-prod-release.aab
-          track: production
-          status: draft
-          mappingFile: app/build/outputs/mapping/prodRelease/mapping.txt
-          changesNotSentForReview: true
-
-      - name: Create draft PHONE release on Play (retry for non-rejected app state)
-        if: steps.play_phone.outcome == 'failure'
-        uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: com.tortugapower.audiobookplayer
-          releaseFiles: app/build/outputs/bundle/prodRelease/app-prod-release.aab
-          track: production
-          status: draft
-          mappingFile: app/build/outputs/mapping/prodRelease/mapping.txt
-
-      - name: Create draft WEAR release on Play (wear:production)
-        id: play_wear
-        continue-on-error: true
-        uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: com.tortugapower.audiobookplayer
-          releaseFiles: wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
-          track: wear:production
-          status: draft
-          mappingFile: wear/build/outputs/mapping/prodRelease/mapping.txt
-          changesNotSentForReview: true
-
-      - name: Create draft WEAR release on Play (retry for non-rejected app state)
-        if: steps.play_wear.outcome == 'failure'
-        uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: com.tortugapower.audiobookplayer
-          releaseFiles: wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
-          track: wear:production
-          status: draft
-          mappingFile: wear/build/outputs/mapping/prodRelease/mapping.txt
+      # One Play edit for both tracks (phone -> production, watch -> wear:production): upload both
+      # bundles with their R8 mappings, set each track to its completed release + this one at 1%
+      # with its own notes, read both back and validate BEFORE committing (any difference = nothing
+      # submitted), then read back again after. Play refuses to send for review from the API while a
+      # rejected change is on file; the script then commits without sending and the run summary says
+      # to send it from Play Console. Details in scripts/play-release.mjs.
+      - name: Submit to Google Play (1% staged rollout)
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: node scripts/play-release.mjs

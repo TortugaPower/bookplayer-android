@@ -13,6 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Release script tests
+        run: node --test scripts/
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
