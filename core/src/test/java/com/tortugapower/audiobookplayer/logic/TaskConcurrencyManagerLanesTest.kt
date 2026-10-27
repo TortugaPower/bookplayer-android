@@ -184,4 +184,41 @@ class TaskConcurrencyManagerLanesTest {
             manager.stopProcessing()
         }
     }
+
+    private class NoAccount : AccountRepository {
+        override fun getAccountFlow(): Flow<AccountEntity?> = MutableStateFlow(null)
+        override suspend fun getAccount(): AccountEntity? = null
+        override suspend fun saveAccount(account: AccountEntity) = Unit
+        override suspend fun deleteAccount() = Unit
+    }
+
+    /**
+     * Each start resets the rows a stop left RUNNING (its cancelled workers'), as before the start-up steps learned
+     * to run once for a watcher restarted after a full disk (resumeWatching)
+     */
+    @Test fun aStartAfterAStop_resetsTheRowsItsWorkersLeftRunning() = runBlocking {
+        // No account: the tier holds the move, so no worker touches the row and only the start-up steps can. A
+        // media-server push (no account needed) running shows the first start got past them.
+        val pushes = object : TaskProcessor {
+            val ran = CompletableDeferred<Unit>()
+            override suspend fun process(task: SyncTaskEntity): Boolean { ran.complete(Unit); return true }
+            override fun canHandle(jobType: String): Boolean = jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE
+        }
+        val manager = TaskConcurrencyManager(context, repository, NoAccount(), listOf(Updates(), pushes))
+        manager.startProcessing()
+        queue("push", "jellyfin", SyncTaskFactory.JOB_EXTERNAL_UPDATE)
+        withTimeout(5_000) { pushes.ran.await() }
+        manager.stopProcessing()
+        db.syncTaskDao().insertTask(
+            SyncTaskEntity(id = "m", taskID = "m", queueKey = SyncTaskFactory.QUEUE_SYNC, jobType = SyncTaskFactory.JOB_MOVE,
+                position = 0, payload = "{}", status = SyncTaskStatus.RUNNING)
+        )
+
+        manager.startProcessing()
+        try {
+            withTimeout(5_000) { while (db.syncTaskDao().getTaskById("m")?.status != SyncTaskStatus.PENDING) delay(20) }
+        } finally {
+            manager.stopProcessing()
+        }
+    }
 }

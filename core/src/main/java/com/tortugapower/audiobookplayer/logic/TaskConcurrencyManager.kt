@@ -123,7 +123,8 @@ class TaskConcurrencyManager(
         launchWatcher()
     }
 
-    // Set once the start-up steps below have run: they reset RUNNING rows, safe only before any worker exists
+    // Set once the start-up steps below have run in this start: they reset RUNNING rows, safe only before any
+    // worker exists. A stop clears it, so each start runs them once.
     @Volatile
     private var prepared = false
 
@@ -348,6 +349,8 @@ class TaskConcurrencyManager(
         queueJobs.clear()
         collectorJob?.cancel()
         collectorJob = null
+        // A cancelled worker leaves its task RUNNING: a later start resets it, as every start does
+        prepared = false
     }
 
     override fun setMaxConcurrentQueues(n: Int) {
