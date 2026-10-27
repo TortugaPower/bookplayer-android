@@ -17,6 +17,17 @@ class SyncKeepAliveTest {
         assertEquals(2, starts)
     }
 
+    /**
+     * A start can fail while lanes stay busy for hours (one waiting out a backoff): a new task or an app open
+     * starts it again, as long as lanes work
+     */
+    @Test fun aNewTaskOrAnAppOpen_startsItAgain_whileLanesWork() {
+        var starts = 0
+        SyncKeepAlive.startIfLanesWork(setOf("jellyfin")) { starts++ }
+        SyncKeepAlive.startIfLanesWork(emptySet()) { starts++ }
+        assertEquals(1, starts)
+    }
+
     @Test fun noWork_noService() = runBlocking {
         var starts = 0
         SyncKeepAlive.startWhenLanesWork(flowOf(emptySet(), emptySet())) { starts++ }

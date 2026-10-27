@@ -190,6 +190,22 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
                 }
             }
         }
+        // The process's one sync engine (SyncRuntime): built off the main thread once storage allows, then running
+        // for the life of the process. A new task makes sure it's started, and that the sync service is up if lanes
+        // work (SyncKeepAlive).
+        syncRuntime = SyncRuntime(
+            this, appScope, StorageMonitor.state.map { it.isCritical },
+            buildEngine = { PhoneSyncEngine.build(this, syncTaskRepository, accountRepository, firstSync, syncPauseReporter) },
+        )
+        val startSyncService = { TaskConcurrencyServiceHost.start(this) }
+        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
+            syncRuntime.start()
+            SyncKeepAlive.startIfLanesWork(syncRuntime.activeQueues.value, startSyncService)
+        }
+        syncRuntime.start()
+        // The sync service keeps the process alive while lanes work; it stops itself once they've been idle a minute
+        appScope.launch { SyncKeepAlive.startWhenLanesWork(syncRuntime.activeQueues, startSyncService) }
+
         // The one automatic retry of parked tasks, when the app is first opened in this process
         val parkedTaskRetry = ParkedTaskRetry(
             resumeAllPaused = syncTaskRepository::resumeAllPaused,
@@ -199,6 +215,8 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
             override fun onStart(owner: LifecycleOwner) {
                 forcePreferencesPull()
                 appScope.launch(Dispatchers.IO) { parkedTaskRetry.onForeground(StorageMonitor.isCritical) }
+                // In the foreground a start is always allowed: one refused in the background gets its retry here
+                SyncKeepAlive.startIfLanesWork(syncRuntime.activeQueues.value, startSyncService)
                 // Every time the app is opened, tasks waiting out a backoff retry now (their streak kept).
                 // Not while storage is critical: the engine holds all work then.
                 appScope.launch(Dispatchers.IO) {
@@ -216,21 +234,6 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
                     // screen is showing (iOS runs it when sync turns on)
                     firstSync.request()
                 }
-        }
-
-        // The process's one sync engine (SyncRuntime): built off the main thread once storage allows, then running
-        // for the life of the process. A new task only needs it started, which it is from here on.
-        syncRuntime = SyncRuntime(
-            this, appScope, StorageMonitor.state.map { it.isCritical },
-            buildEngine = { PhoneSyncEngine.build(this, syncTaskRepository, accountRepository, firstSync, syncPauseReporter) },
-        )
-        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = { syncRuntime.start() }
-        syncRuntime.start()
-        // The sync service keeps the process alive while lanes work; it stops itself once they've been idle a minute
-        appScope.launch {
-            SyncKeepAlive.startWhenLanesWork(syncRuntime.activeQueues) {
-                TaskConcurrencyServiceHost.start(this@BookPlayerApplication)
-            }
         }
 
         // Mirror playback state to a paired Wear watch (remote-controller mode).

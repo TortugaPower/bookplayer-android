@@ -11,6 +11,7 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -151,6 +152,28 @@ class SyncRuntimeTest {
         StorageMonitor.refresh(context)
 
         until { pushes.ran.contains("held") }
+    }
+
+    /** A build that throws leaves no engine: the next start (a new task, an app open) tries again */
+    @Test fun aFailedBuild_isTriedAgain_byTheNextStart() = runBlocking {
+        val failures = Collections.synchronizedList(mutableListOf<Throwable>())
+        val failing = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e -> failures += e })
+        var attempts = 0
+        val runtime = SyncRuntime(context, failing, MutableStateFlow(false), buildEngine = {
+            if (++attempts == 1) error("first build fails")
+            TaskConcurrencyManager(context, repository, ProAccounts(), listOf(Pushes())).also { engines += it }
+        })
+        try {
+            runtime.start()
+            until { failures.isNotEmpty() }
+            assertNull(runtime.engine.value)
+
+            runtime.start()
+            until { runtime.engine.value != null }
+            assertEquals(2, attempts)
+        } finally {
+            failing.cancel()
+        }
     }
 
     @Test fun itsLanes_areTheEngines() = runBlocking {

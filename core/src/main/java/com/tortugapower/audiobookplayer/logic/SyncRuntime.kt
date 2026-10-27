@@ -47,7 +47,7 @@ class SyncRuntime(
     private val scope: CoroutineScope,
     private val storageCritical: Flow<Boolean>,
     private val buildEngine: () -> TaskConcurrencyManager,
-    private val buildDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val buildDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val started = AtomicBoolean(false)
     private val _engine = MutableStateFlow<TaskConcurrencyManager?>(null)
@@ -61,13 +61,18 @@ class SyncRuntime(
         .flatMapLatest { it?.activeQueues ?: flowOf(emptySet()) }
         .stateIn(scope, SharingStarted.Eagerly, emptySet())
 
-    /** Builds and starts the engine, the first time; any later call does nothing */
+    /** Builds and starts the engine, the first time; a later call does nothing, unless that build failed */
     fun start() {
         if (!started.compareAndSet(false, true)) return
         scope.launch(buildDispatcher) {
             storageCritical.first { !it }
-            val engine = buildEngine()
-            engine.startProcessing()
+            val engine = try {
+                buildEngine().also { it.startProcessing() }
+            } catch (e: Throwable) {
+                // The next new task, or the next app open, tries again
+                started.set(false)
+                throw e
+            }
             _engine.value = engine
             watchNetwork(engine)
             // A full disk holds every lane: when space is back, they look at their tasks again
