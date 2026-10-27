@@ -20,7 +20,8 @@
 //   6. validate the edit
 //   7. commit, sent for review. With a rejected change on file Play refuses that from the API, so the whole edit is
 //      redone and committed NOT sent for review, and the summary says to send it from Play Console. Any other failed
-//      commit is final; one without Play's refusal (a 5xx, a dropped connection) may have gone through, so it says so
+//      commit is final; one without Play's refusal (a 5xx, a dropped connection) may have gone through, so it says so.
+//      No commit starts more than 20 minutes in, so the job's time limit can't cut one short
 //   8. read both tracks back in a fresh edit (deleted afterwards)
 // With Managed publishing off, Google's approval publishes the release at 1%; raising it is a separate job.
 
@@ -33,6 +34,9 @@ export const PACKAGE = 'com.tortugapower.audiobookplayer';
 export const USER_FRACTION = 0.01;
 export const NOTES_LIMIT = 500;
 export const NOTES_LANGUAGE = 'en-US';
+// No commit starts later than this after signing in: release.yml gives the submit job 30 minutes, so its time limit
+// can only land before a commit, never during one
+const COMMIT_BY_MINUTES = 20;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOST = 'https://androidpublisher.googleapis.com';
@@ -264,7 +268,7 @@ class StepError extends Error {
 }
 
 /** Steps 2–7 in one edit. Returns what was replaced. */
-async function submitInEdit(play, plan, { notSentForReview }) {
+async function submitInEdit(play, plan, { notSentForReview, commitBy }) {
   return inEdit(play, async (edit, state) => {
     log(`Edit ${edit}${notSentForReview ? ' (committing NOT sent for review)' : ''}`);
     const replaced = [];
@@ -298,6 +302,9 @@ async function submitInEdit(play, plan, { notSentForReview }) {
     }
     log('  edit validates');
 
+    if (Date.now() > commitBy) {
+      throw new StepError('commit', `not started: over ${COMMIT_BY_MINUTES} minutes in, too close to the job's time limit`);
+    }
     try {
       await play.commit(edit, notSentForReview);
     } catch (error) {
@@ -373,13 +380,14 @@ export async function main(argv = process.argv.slice(2)) {
   // and committed without sending. Only that refusal is retried: it stored nothing
   let replaced;
   let sentForReview = true;
+  const commitBy = Date.now() + COMMIT_BY_MINUTES * 60 * 1000;
   try {
-    replaced = await submitInEdit(play, plan, { notSentForReview: false });
+    replaced = await submitInEdit(play, plan, { notSentForReview: false, commitBy });
   } catch (error) {
     if (error.commitFailure !== 'review') throw error;
     log(`Play won't send this for review (${error.message}); redoing the edit to commit it without sending`);
     try {
-      replaced = await submitInEdit(play, plan, { notSentForReview: true });
+      replaced = await submitInEdit(play, plan, { notSentForReview: true, commitBy });
       sentForReview = false;
     } catch (second) {
       throw new Error(`sent for review, refused: ${error.message}\nnot sent for review: ${second.message}`

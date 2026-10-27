@@ -194,7 +194,8 @@ jobs:
       group: release-submit
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The script starts no commit after 20 minutes, so this limit can't cut one short either.
+    timeout-minutes: 30
     steps:
       # The same commit as the build: the script reads the versions from the gradle files and the
       # notes from distribution/whatsnew/.
