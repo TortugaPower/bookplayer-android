@@ -103,7 +103,12 @@ class SyncRuntime(
         if (state == State.Idle || state == State.WaitingForSpace) build()
     }
 
-    /** The app was opened: an engine is built if none runs, after a failure too */
+    /**
+     * The app was opened: an engine is built if none runs, after a failure too. A build already on its way is this
+     * open's (at a cold start it usually is): if it fails, the next open builds again. Building again at once would
+     * mostly repeat a failure that happens every time (a full disk has its own retry). An open while a failed engine
+     * winds down builds once it's down.
+     */
     fun onAppOpened() = transition {
         when (val current = state) {
             State.Idle, State.Failed, State.WaitingForSpace -> build()
