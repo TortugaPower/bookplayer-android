@@ -5,7 +5,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  NOTES_LIMIT, USER_FRACTION, commitFailure, differences, gradleVersion, newRelease, normalizeNotes, planTrack, readNotes,
+  NOTES_LIMIT, USER_FRACTION, accessToken, commitFailure, differences, gradleVersion, newRelease, normalizeNotes, planTrack,
+  readNotes,
 } from './play-release.mjs';
 
 function notesDir(files) {
@@ -97,4 +98,10 @@ test('commit failure: only Play refusing to send for review is retried; no refus
   assert.equal(commitFailure(failed(500, 'Internal error')), 'unknown');
   assert.equal(commitFailure(failed(503, 'changesNotSentForReview')), 'unknown');
   assert.equal(commitFailure(new TypeError('fetch failed')), 'unknown');
+});
+
+test('service account: a malformed key fails without quoting it', async () => {
+  for (const json of ['{"private_key":"-----BEGIN PRIVATE KEY-----', '{"private_key": x-----BEGIN PRIVATE KEY-----"}']) {
+    await assert.rejects(accessToken(json), { message: 'PLAY_SERVICE_ACCOUNT_JSON is not valid JSON' });
+  }
 });

@@ -131,7 +131,13 @@ export function describeRelease(r) {
 // MARK: - Play API
 
 export async function accessToken(serviceAccountJson) {
-  const account = JSON.parse(serviceAccountJson);
+  let account;
+  try {
+    account = JSON.parse(serviceAccountJson);
+  } catch {
+    // Not the parser's message: it can quote part of the input, and the log masks only the whole key
+    throw new Error('PLAY_SERVICE_ACCOUNT_JSON is not valid JSON');
+  }
   const now = Math.floor(Date.now() / 1000);
   const b64url = (b) => Buffer.from(b).toString('base64url');
   const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));

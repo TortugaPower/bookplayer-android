@@ -20,8 +20,11 @@
 # 1. Service account: create one in Google Cloud, then Play Console → Users & permissions →
 #    invite its email with access to BookPlayer and "Release to production, exclude devices, and
 #    use Play App Signing" (needed to submit a staged rollout).
-# 2. Repo secrets (Settings → Secrets and variables → Actions):
-#      PLAY_SERVICE_ACCOUNT_JSON   the service account's JSON key, pasted as plaintext
+# 2. Environment `play-release` (Settings → Environments), deployment branches `release-*` only,
+#    with the secret PLAY_SERVICE_ACCOUNT_JSON (the service account's JSON key, pasted as
+#    plaintext). That key can release to production, so only the submit job, on a release
+#    branch, can read it: not as a repo secret, which any branch's workflow could read.
+# 3. Repo secrets (Settings → Secrets and variables → Actions):
 #      RELEASE_KEYSTORE_BASE64     `base64 -i <your .keystore/.jks file>`
 #      RELEASE_STORE_PASSWORD      \
 #      RELEASE_KEY_ALIAS            > same values as keystore.properties
@@ -46,6 +49,9 @@ on:
   push:
     branches: [ 'release-*' ]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -84,17 +90,17 @@ jobs:
         run: node scripts/play-release.mjs --check-notes
 
       # A missing config secret wouldn't fail the build — localProp() defaults to "" and the
-      # bundle would ship pointing at empty config. Refuse to continue instead.
+      # bundle would ship pointing at empty config. Refuse to continue instead. (The Play key is
+      # the submit job's, which stops before any upload without it.)
       - name: Check required secrets
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
           missing=""
           for name in PROD_BASE_URL GOOGLE_CLIENT_ID REVENUECAT_API_KEY SENTRY_DSN \
                       SENTRY_AUTH_TOKEN \
                       RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD \
-                      RELEASE_KEYSTORE_BASE64 PLAY_SERVICE_ACCOUNT_JSON; do
+                      RELEASE_KEYSTORE_BASE64; do
             if [ -z "${!name}" ]; then missing="$missing $name"; fi
           done
           if [ -n "$missing" ]; then
@@ -181,6 +187,8 @@ jobs:
 
   submit:
     needs: build
+    # Holds the Play key (see setup step 2).
+    environment: play-release
     # Never cancelled by a newer run (see the header): the newer run's submit waits for this one.
     concurrency:
       group: release-submit

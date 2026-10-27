@@ -133,8 +133,9 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   and the edit validated before committing (any difference = nothing submitted), and read back again after.
   Managed publishing is off, so Google's approval publishes it to 1%; raising the rollout is separate. A
   rollout still in progress on a track is replaced by the new release. A newer run cancels one that is still
-  building, never one that is submitting (its submit waits instead). The CI service account needs Play's
-  "Release to production, exclude devices, and use Play App Signing" permission.
+  building, never one that is submitting (its submit waits instead). The Play key is a secret of the
+  `play-release` environment (`release-*` branches only), read by the submit job alone. The CI service
+  account needs Play's "Release to production, exclude devices, and use Play App Signing" permission.
 
 ## Conventions
 
