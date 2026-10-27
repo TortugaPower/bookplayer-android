@@ -125,7 +125,7 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   entry in `scripts/audit-mapping.sh`, which fails CI when such a class is renamed or moved.
 - **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest`, `lintDevDebug`, then an
   unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17. It also runs the
-  release script's unit tests (`node --test scripts/play-release.test.mjs`).
+  release scripts' unit tests (`node --test scripts/play-release.test.mjs scripts/play-rollout.test.mjs`).
 - **Release** (`.github/workflows/release.yml`, on a `release-*` branch): tests and lint, the signed prod
   bundles, then `scripts/play-release.mjs` submits phone (`production`) and watch (`wear:production`) in ONE
   Play edit as a **1% staged rollout**, each with its notes from `distribution/whatsnew/{phone,wear}/whatsnew-en-US`
@@ -136,6 +136,11 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   building, never one that is submitting (its submit waits instead). The Play key is a secret of the
   `play-release` environment (`release-*` branches only), read by the submit job alone. The CI service
   account needs Play's "Release to production, exclude devices, and use Play App Signing" permission.
+- **Rollout** (`scripts/play-rollout.mjs`): `status`, `step --expect <fraction>` and `halt` move the staged rollout
+  along 1 → 2 → 5 → 10 → 25 → 50 → 100%, phone and watch together. `step` moves only when both tracks are at
+  `--expect`, so a change in Play Console or a second run never skips a rung; at 100% the release completes. No
+  resume: a person resumes a halted rollout in Play Console. A daily claude.ai routine (environment
+  `bookplayer-play-rollout`) runs it after judging the new version in Sentry.
 
 ## Conventions
 

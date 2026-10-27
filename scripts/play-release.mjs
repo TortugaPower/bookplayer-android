@@ -242,7 +242,7 @@ export function commitFailure(error) {
 }
 
 /** Runs `work` in a new edit and deletes the edit afterwards unless `work` committed it. */
-async function inEdit(play, work) {
+export async function inEdit(play, work) {
   const edit = await play.openEdit();
   const state = { committed: false };
   try {
