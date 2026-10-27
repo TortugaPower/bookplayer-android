@@ -12,12 +12,13 @@ import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.ParkedTaskRetry
 import com.tortugapower.audiobookplayer.logic.PreferencesPullTriggers
-import com.tortugapower.audiobookplayer.logic.SyncHostLaunchGate
+import com.tortugapower.audiobookplayer.logic.PhoneSyncEngine
+import com.tortugapower.audiobookplayer.logic.SyncKeepAlive
 import com.tortugapower.audiobookplayer.logic.SyncPauseReporter
+import com.tortugapower.audiobookplayer.logic.SyncRuntime
+import com.tortugapower.audiobookplayer.logic.SyncRuntimeOwner
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
-import com.tortugapower.audiobookplayer.logic.SyncTaskPicker
 import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
-import com.tortugapower.audiobookplayer.logic.UploadDataPolicy
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
@@ -37,14 +38,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import com.tortugapower.audiobookplayer.logic.StorageMonitor
 
-class BookPlayerApplication : Application(), ImageLoaderFactory {
+class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwner {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main + StorageMonitor.exceptionHandler { this })
 
     companion object {
@@ -62,6 +59,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
 
     /** Library sort brain: sort actions + preference push/pull. Set in [onCreate]. */
     lateinit var librarySortManager: LibrarySortManager
+        private set
+
+    /** The process's one sync engine. Set in [onCreate]. */
+    override lateinit var syncRuntime: SyncRuntime
         private set
 
     /**
@@ -171,9 +172,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         )
 
         // Keep NetworkClient's auth token current with the signed-in account at the app level — as the
-        // watch does — so playback (presigned-URL refresh), account calls and sync all see it whether or
-        // not the sync host is running. Until the launch gate below, the host's unconditional start was
-        // what set the token for the whole process.
+        // watch does — so playback (presigned-URL refresh), account calls and sync all see it.
         appScope.launch {
             accountRepository.getAccountFlow().collect { account ->
                 NetworkClient.setToken(account?.apiToken)
@@ -219,42 +218,19 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
                 }
         }
 
-        // The sync host stops itself when idle (Android 15+ dataSync budget), and :core wakes it back up
-        // whenever a sync task is enqueued — so at launch it is started only for work left over from an
-        // earlier session (see SyncHostLaunchGate), never just to sit idle.
-        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
-            TaskConcurrencyServiceHost.start(this)
-        }
-        appScope.launch(Dispatchers.IO) {
-            // Before the gate: jobs this build no longer runs are held, so they'd never start the engine
-            // that cleans them up, and one left in the sync lane holds back every library refresh
-            com.tortugapower.audiobookplayer.logic.SyncTaskRetirement.cleanUp(syncTaskRepository)
-            // Parked tasks don't count: they're retried when the app is opened (ParkedTaskRetry)
-            val hasStartableWork: suspend () -> Boolean = {
-                // The count first: most launches have an empty queue and skip loading it
-                syncTaskRepository.countActiveTasks() > 0 && run {
-                    // This launch's tier, not last session's: a lapse while closed holds the queue
-                    SubscriptionManager.awaitTierReady()
-                    val tier = accountRepository.getAccount()?.tier
-                    // Uploads held to Wi-Fi don't count either: the service would only sit idle
-                    val holdUploads = UploadDataPolicy.shouldHoldUploads(this@BookPlayerApplication)
-                    SyncTaskPicker.hasStartableWork(syncTaskRepository.getAllTasks().first()) {
-                        TaskAccessPolicy.canExecuteTask(tier, it) && !(holdUploads && UploadDataPolicy.isFileUploadJob(it))
-                    }
-                }
-            }
-            if (SyncHostLaunchGate.shouldStart(StorageMonitor.isCritical, hasStartableWork)) {
+        // The process's one sync engine (SyncRuntime): built off the main thread once storage allows, then running
+        // for the life of the process. A new task only needs it started, which it is from here on.
+        syncRuntime = SyncRuntime(
+            this, appScope, StorageMonitor.state.map { it.isCritical },
+            buildEngine = { PhoneSyncEngine.build(this, syncTaskRepository, accountRepository, firstSync, syncPauseReporter) },
+        )
+        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = { syncRuntime.start() }
+        syncRuntime.start()
+        // The sync service keeps the process alive while lanes work; it stops itself once they've been idle a minute
+        appScope.launch {
+            SyncKeepAlive.startWhenLanesWork(syncRuntime.activeQueues) {
                 TaskConcurrencyServiceHost.start(this@BookPlayerApplication)
             }
-        }
-        // The engine holds all work while storage is critical; restart it when space is back.
-        appScope.launch {
-            StorageMonitor.state
-                .map { it.isCritical }
-                .distinctUntilChanged()
-                .drop(1)
-                .filter { critical -> !critical }
-                .collect { TaskConcurrencyServiceHost.start(this@BookPlayerApplication) }
         }
 
         // Mirror playback state to a paired Wear watch (remote-controller mode).

@@ -196,7 +196,7 @@ class TaskConcurrencyManager(
                         )
                         // Storage: nothing runs while the disk is critically full (every task ends in a
                         // DB write), and file downloads wait while a transfer is known not to fit. The
-                        // host is restarted when storage recovers (see the app's StorageMonitor observer).
+                        // runtime rescans the lanes when storage recovers (SyncRuntime).
                         val runnable = StoragePolicy.runnable(pending, StorageMonitor.state.value)
                         // Only pay for the settings/connectivity check when this queue actually holds a
                         // file upload that could be gated.

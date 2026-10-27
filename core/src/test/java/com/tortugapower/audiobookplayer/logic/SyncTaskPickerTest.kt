@@ -125,25 +125,6 @@ class SyncTaskPickerTest {
         assertEquals(listOf("jellyfin"), SyncTaskPicker.lanesWithWork(tasks, freePolicy))
     }
 
-    /** The launch gate: a lapsed account's held queue doesn't start the sync service every launch */
-    @Test fun hasStartableWork_isFalseForAQueueTheTierHolds() {
-        val freePolicy = { jobType: String -> TaskAccessPolicy.canExecuteTask(AccountTier.FREE, jobType) }
-        val proPolicy = { jobType: String -> TaskAccessPolicy.canExecuteTask(AccountTier.PRO, jobType) }
-        val tasks = listOf(
-            inLane(pending("s", SyncTaskFactory.JOB_UPDATE), SyncTaskFactory.QUEUE_SYNC),
-            inLane(pending("u", SyncTaskFactory.JOB_UPLOAD_FILE), SyncTaskFactory.QUEUE_FILE),
-        )
-        assertFalse(SyncTaskPicker.hasStartableWork(tasks, freePolicy))
-        assertTrue(SyncTaskPicker.hasStartableWork(tasks, proPolicy))
-    }
-
-    /** The engine resets a killed process's RUNNING rows to PENDING when it starts */
-    @Test fun hasStartableWork_countsARunningRowLeftByAKilledProcess() {
-        val tasks = listOf(inLane(pending("r").copy(status = SyncTaskStatus.RUNNING), SyncTaskFactory.QUEUE_SYNC))
-        assertTrue(SyncTaskPicker.hasStartableWork(tasks) { true })
-        assertFalse(SyncTaskPicker.hasStartableWork(listOf(inLane(parked("t", "TASK"), SyncTaskFactory.QUEUE_SYNC))) { true })
-    }
-
     /** What the Queued Tasks screen calls paused: the same stop the picker makes, at the same row */
     @Test fun blockedLanes_followsThePicker() {
         val running = inLane(pending("r").copy(status = SyncTaskStatus.RUNNING), SyncTaskFactory.QUEUE_SYNC)

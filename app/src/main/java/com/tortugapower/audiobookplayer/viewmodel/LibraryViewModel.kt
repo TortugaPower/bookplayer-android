@@ -188,15 +188,12 @@ class LibraryViewModel(
 
     /**
      * Download [item] for offline via the shared `:core` orchestration (same path as Wear): fans a BOUND
-     * book out into its BOOK files, skips already-local/queued files, refreshes expiring presigned URLs,
-     * then starts the sync engine to run the tasks.
+     * book out into its BOOK files, skips already-local/queued files and refreshes expiring presigned URLs.
+     * The sync engine picks the queued tasks up.
      */
     fun startDownload(item: LibraryItemEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             OfflineDownloadManager.startDownload(appContext, repository, syncTaskRepository, item)
-            appContext.startService(
-                android.content.Intent(appContext, com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost::class.java)
-            )
         }
     }
 
