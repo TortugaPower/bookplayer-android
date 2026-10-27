@@ -34,6 +34,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -119,10 +120,11 @@ class SyncRuntimeTest {
     }
 
     /**
-     * A build that throws is reported, never fatal (it runs at every process start, playback-only ones included),
-     * and leaves no engine: the next start (a new task, an app open) tries again
+     * A build that throws is reported, never fatal (it runs at every process start, playback-only ones included), and
+     * leaves no engine. A new task doesn't build again (a failure that happens every time would loop); the next app
+     * open does
      */
-    @Test fun aFailedBuild_isReported_andTriedAgain_byTheNextStart() = runBlocking {
+    @Test fun aFailedBuild_isReported_andTriedAgain_whenTheAppIsOpened() = runBlocking {
         val reported = Collections.synchronizedList(mutableListOf<Throwable>())
         val crashed = Collections.synchronizedList(mutableListOf<Throwable>())
         val watched = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e -> crashed += e })
@@ -144,6 +146,10 @@ class SyncRuntimeTest {
             assertNull(runtime.engine.value)
 
             runtime.start()
+            delay(300)
+            assertEquals("a new task doesn't build again", 1, attempts)
+
+            runtime.onAppOpened()
             until { runtime.engine.value != null }
             assertEquals(2, attempts)
         } finally {
@@ -153,9 +159,9 @@ class SyncRuntimeTest {
 
     /**
      * An engine that fails in its own work once running (here its start-up steps) is reported, never fatal, and
-     * retired: the next start (a new task, an app open) builds a new one
+     * retired, its network callback with it: the next app open builds a new one
      */
-    @Test fun anEngineThatFails_isReported_retired_andRebuiltByTheNextStart() = runBlocking {
+    @Test fun anEngineThatFails_isReported_retired_andRebuiltWhenTheAppIsOpened() = runBlocking {
         val reported = Collections.synchronizedList(mutableListOf<Throwable>())
         val crashed = Collections.synchronizedList(mutableListOf<Throwable>())
         val watched = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e -> crashed += e })
@@ -187,16 +193,59 @@ class SyncRuntimeTest {
             assertTrue("not fatal", crashed.isEmpty())
             until { runtime.engine.value == null }
             assertNull("retired", SyncEngine.current)
+            until { networkCallbacks().isEmpty() }
 
-            runtime.start()
+            runtime.onAppOpened()
             until { runtime.engine.value != null }
             assertEquals(2, builds)
+            assertEquals("the new engine's", 1, networkCallbacks().size)
             queuePush("p")
             until { pushes.ran.contains("p") }
         } finally {
             watched.cancel()
         }
     }
+
+    /** The same failure every time: reported once per process, however often the app is opened */
+    @Test fun theSameFailure_isReportedOnce() = runBlocking {
+        val reported = Collections.synchronizedList(mutableListOf<Throwable>())
+        var attempts = 0
+        val runtime = SyncRuntime(context, scope, buildEngine = { attempts++; error("always fails") }, onFailed = { reported += it })
+
+        runtime.start()
+        until { attempts == 1 }
+        runtime.onAppOpened()
+        until { attempts == 2 }
+        runtime.onAppOpened()
+        until { attempts == 3 }
+        delay(200)
+
+        assertEquals(1, reported.size)
+    }
+
+    /** A late failure report from an engine already replaced retires nothing */
+    @Test fun aReplacedEnginesFailure_leavesTheCurrentOneRunning() = runBlocking {
+        val failureHooks = Collections.synchronizedList(mutableListOf<(Throwable) -> Unit>())
+        var builds = 0
+        val runtime = SyncRuntime(context, scope, buildEngine = { onFailure ->
+            failureHooks += onFailure
+            if (++builds == 1) error("first build fails")
+            TaskConcurrencyManager(context, repository, ProAccounts(), listOf(Pushes()), onFailure = onFailure).also { engines += it }
+        })
+        runtime.start()
+        until { builds == 1 }
+        runtime.onAppOpened()
+        until { runtime.engine.value != null }
+        val current = runtime.engine.value
+
+        failureHooks.first()(IllegalStateException("late"))
+        delay(300)
+
+        assertSame(current, runtime.engine.value)
+    }
+
+    private fun networkCallbacks() =
+        shadowOf(context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).networkCallbacks
 
     @Test fun itsLanes_areTheEngines() = runBlocking {
         val pushes = Pushes(hold = true)

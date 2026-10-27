@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** An Application running the process's sync engine: its sync service reads the lanes from here */
@@ -35,8 +37,10 @@ interface SyncRuntimeOwner {
  *
  * Never fatal: the engine starts at every process start, playback-only ones included, so a crash in it would stop
  * playback every time. A failure building it, or in its own work once running (its start-up steps, its queue
- * watcher), is reported to [onFailed]; the engine retires and the next [start] (a new task, an app open) builds a
- * new one. A full disk isn't a failure: the engine waits for space.
+ * watcher), is reported to [onFailed] (once per process for the same failure) and the engine retires. It isn't rebuilt
+ * for every new task, which would loop on a failure that happens every time: the next app open builds a new one
+ * ([onAppOpened]). A full disk isn't a failure: the engine waits for space, and a build it broke runs again on
+ * the next [start].
  *
  * @param buildEngine the target's engine, with its processors, handing the engine the `onFailure` it's given.
  *   Called on [buildDispatcher]: building the network clients sets up TLS, which stalled the main thread
@@ -51,9 +55,15 @@ class SyncRuntime(
     private val buildDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val onFailed: (Throwable) -> Unit = {},
 ) {
+    // An engine runs, or is being built
     private val started = AtomicBoolean(false)
+    // The last engine failed: only an app open builds a new one
+    private val failed = AtomicBoolean(false)
     private val _engine = MutableStateFlow<TaskConcurrencyManager?>(null)
-    private var networkCallback: SyncNetworkCallback? = null
+    // Each running engine's network callback, removed when it retires
+    private val networkCallbacks = ConcurrentHashMap<TaskConcurrencyManager, SyncNetworkCallback>()
+    // The failures already reported in this process
+    private val reported = Collections.synchronizedSet(mutableSetOf<String>())
 
     /** The engine, once built */
     val engine: StateFlow<TaskConcurrencyManager?> = _engine.asStateFlow()
@@ -64,59 +74,67 @@ class SyncRuntime(
         .flatMapLatest { it?.activeQueues ?: flowOf(emptySet()) }
         .stateIn(scope, SharingStarted.Eagerly, emptySet())
 
-    /** Builds and starts the engine, unless one runs (or is being built); after a failure, builds a new one */
+    /** Builds and starts the engine, unless one runs, is being built, or the last one failed */
     fun start() {
-        if (!started.compareAndSet(false, true)) return
-        scope.launch(buildDispatcher) {
-            var engine: TaskConcurrencyManager? = null
-            try {
-                // The engine only reaches its onFailure once it has started, by then it's in [_engine]
-                engine = buildEngine { e -> scope.launch(buildDispatcher) { retire(e) } }
-                _engine.value = engine
-                engine.startProcessing()
-            } catch (e: Throwable) {
-                engine?.stopProcessing()
-                _engine.value = null
-                // The next new task, or the next app open, tries again
-                started.set(false)
-                if (e is CancellationException) throw e
-                if (!StorageMonitor.reportFailure(context, e)) {
-                    Log.e("SyncRuntime", "Sync engine not built", e)
-                    onFailed(e)
-                }
-                return@launch
-            }
-            watchNetwork(engine)
+        if (failed.get() || !started.compareAndSet(false, true)) return
+        scope.launch(buildDispatcher) { build() }
+    }
+
+    /** The app was opened: an engine is built if none runs, after a failure too */
+    fun onAppOpened() {
+        failed.set(false)
+        start()
+    }
+
+    private fun build() {
+        val engine = try {
+            lateinit var built: TaskConcurrencyManager
+            // Its failures name it: a late report from an engine already replaced retires nothing
+            buildEngine { e -> scope.launch(buildDispatcher) { retire(built, e) } }.also { built = it }
+        } catch (e: Throwable) {
+            started.set(false)
+            if (e is CancellationException) throw e
+            fail(e, "Sync engine not built")
+            return
         }
+        _engine.value = engine
+        // Before it starts: a failure in its start-up always finds the callback to remove
+        watchNetwork(engine)
+        engine.startProcessing()
     }
 
     /**
-     * The engine failed in its own work: its workers stop (waited on a while, so a new engine's start doesn't reset a
-     * row one of them still runs), it stops, and the next [start] builds a new one. Once per engine.
+     * [engine] failed in its own work: its workers stop (waited on a while, so a new engine's start doesn't reset a row
+     * one of them still runs), it stops, and its network callback goes. Once per engine.
      */
-    private suspend fun retire(e: Throwable) {
-        val engine = _engine.value ?: return
+    private suspend fun retire(engine: TaskConcurrencyManager, e: Throwable) {
         if (!_engine.compareAndSet(engine, null)) return
         engine.cancelAllLanes()
         engine.stopProcessing()
-        unwatchNetwork()
+        unwatchNetwork(engine)
         started.set(false)
-        onFailed(e)
+        fail(e, "Sync engine failed")
     }
 
-    // Registered while the engine runs
+    private fun fail(e: Throwable, what: String) {
+        // A full disk is recorded and waited out, not a failure: the next start builds again
+        if (StorageMonitor.reportFailure(context, e)) return
+        failed.set(true)
+        Log.e("SyncRuntime", what, e)
+        if (reported.add("${e.javaClass.name}: ${e.message}")) onFailed(e)
+    }
+
     private fun watchNetwork(engine: TaskConcurrencyManager) {
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
         val callback = SyncNetworkCallback(engine)
         callback.onRegistering(connectivity.activeNetwork)
         runCatching { connectivity.registerDefaultNetworkCallback(callback) }
-            .onSuccess { networkCallback = callback }
+            .onSuccess { networkCallbacks[engine] = callback }
             .onFailure { Log.w("SyncRuntime", "Network callback not registered", it) }
     }
 
-    private fun unwatchNetwork() {
-        val callback = networkCallback ?: return
-        networkCallback = null
+    private fun unwatchNetwork(engine: TaskConcurrencyManager) {
+        val callback = networkCallbacks.remove(engine) ?: return
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
         runCatching { connectivity.unregisterNetworkCallback(callback) }
     }

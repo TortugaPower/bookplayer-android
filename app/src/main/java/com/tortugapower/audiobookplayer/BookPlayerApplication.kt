@@ -216,9 +216,9 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
             override fun onStart(owner: LifecycleOwner) {
                 forcePreferencesPull()
                 appScope.launch(Dispatchers.IO) { parkedTaskRetry.onForeground(StorageMonitor.isCritical) }
-                // An engine whose build failed is tried again; and in the foreground a start of the sync service is
-                // always allowed, so one refused in the background gets its retry here
-                syncRuntime.start()
+                // An engine that failed is built again (only here, not for every new task); and in the foreground a
+                // start of the sync service is always allowed, so one refused in the background gets its retry here
+                syncRuntime.onAppOpened()
                 SyncKeepAlive.startIfLanesWork(syncRuntime.activeQueues.value, startSyncService)
                 // Every time the app is opened, tasks waiting out a backoff retry now (their streak kept).
                 // Not while storage is critical: the engine holds all work then.
