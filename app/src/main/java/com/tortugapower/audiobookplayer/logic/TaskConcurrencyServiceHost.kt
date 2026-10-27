@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.flowOf
 
 /**
  * Keeps the process alive while the sync engine's lanes work: Android stops a backgrounded app otherwise. Started
- * when a lane gets a worker (SyncKeepAlive), it stops itself once the lanes have been idle a minute. The engine
+ * when the lanes go busy (SyncKeepAlive), it stops itself once the lanes have been idle a minute. The engine
  * isn't here: it runs in the process (SyncRuntime), so this service builds nothing and a refused, timed-out or
  * stopped one leaves the engine running.
  */
@@ -44,7 +44,7 @@ class TaskConcurrencyServiceHost : Service() {
             // A background start of a dataSync FGS throws ForegroundServiceStartNotAllowedException
             // on API 31+ (e.g. a progress-sync task enqueued from playback while the app is
             // backgrounded). Swallow it: the engine keeps running in the process meanwhile, and the
-            // next time a lane gets a worker tries again — never crash for it.
+            // next new task, app open or idle-to-busy change tries again (SyncKeepAlive) — never crash for it.
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)

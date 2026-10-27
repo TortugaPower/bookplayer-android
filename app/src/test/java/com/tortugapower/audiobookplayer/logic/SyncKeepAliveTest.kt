@@ -8,7 +8,7 @@ import org.junit.Test
 class SyncKeepAliveTest {
 
     /** Once per stretch of work: lanes changing while some still work don't start it again */
-    @Test fun theServiceStarts_eachTimeALaneGetsAWorker() = runBlocking {
+    @Test fun theServiceStarts_eachTimeTheLanesGoBusy() = runBlocking {
         var starts = 0
         val lanes = flowOf(emptySet(), setOf("sync"), setOf("sync", "file"), setOf("file"), emptySet(), setOf("upload"))
 

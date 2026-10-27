@@ -199,8 +199,8 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     its start-up steps (the reset, lane moves, retirement) have run: every worker start waits on them. A write that
     fails on a full disk is recorded and the step runs again once space is back, so the engine never silently
     stops; space coming back also rescans the lanes a full disk held.
-  - `TaskConcurrencyServiceHost` only keeps the process alive while lanes work. `SyncKeepAlive` starts it when a
-    lane gets a worker, and it stops itself after a minute idle. It holds no engine, so a refused, timed-out or
+  - `TaskConcurrencyServiceHost` only keeps the process alive while lanes work. `SyncKeepAlive` starts it when the
+    lanes go from idle to busy, and it stops itself after a minute idle. It holds no engine, so a refused, timed-out or
     stopped service leaves the engine running (ANDROID-BOOKPLAYER-2F was the service reading an engine a refused
     promotion never built).
   - What the old start/stop cycle covered is explicit: the runtime's `SyncNetworkCallback` rescans on network
