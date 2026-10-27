@@ -35,19 +35,19 @@ class LibraryContentsSyncTest {
 
     @After fun tearDown() = db.close()
 
-    private fun remote(uuid: String, artworkURL: String?) = SyncableItem(
+    private fun remote(uuid: String, artworkURL: String?, speed: Double? = null) = SyncableItem(
         uuid = uuid, relativePath = "book.mp3", title = "Book", details = "Author",
         originalFileName = "book.mp3", duration = 100.0, currentTime = 0.0,
         percentCompleted = 0.0, isFinished = false, orderRank = 0,
         type = ItemType.BOOK.ordinal, remoteURL = null, artworkURL = artworkURL,
-        speed = null, lastPlayDateTimestamp = null,
+        speed = speed, lastPlayDateTimestamp = null,
     )
 
-    private suspend fun seedLocal(uuid: String, artworkURL: String?) {
+    private suspend fun seedLocal(uuid: String, artworkURL: String?, speed: Double? = null) {
         db.libraryDao().insertItem(
             LibraryItemEntity(
                 uuid = uuid, title = "Book", relativePath = "book.mp3",
-                type = ItemType.BOOK, orderRank = 0, artworkURL = artworkURL,
+                type = ItemType.BOOK, orderRank = 0, artworkURL = artworkURL, speed = speed,
             )
         )
     }
@@ -355,5 +355,23 @@ class LibraryContentsSyncTest {
         LibraryContentsSync.upsertItem(db.libraryDao(), null, v2, mutableSetOf())
         val stored = db.libraryDao().getExternalResourcesForBookSync("b21").single()
         org.junit.Assert.assertEquals("new-guid", stored.hostId)
+    }
+
+    @Test fun upsert_serverSpeed_isStored() = runBlocking {
+        seedLocal("b1", artworkURL = null)
+
+        LibraryContentsSync.upsertItem(db.libraryDao(), null, remote("b1", artworkURL = null, speed = 1.5), mutableSetOf())
+
+        // Per-book speed set on another device arrives with the fetch.
+        assertEquals(1.5, db.libraryDao().getItemById("b1")?.speed)
+    }
+
+    @Test fun upsert_serverNullSpeed_preservesLocalSpeed() = runBlocking {
+        seedLocal("b1", artworkURL = null, speed = 1.25)
+
+        LibraryContentsSync.upsertItem(db.libraryDao(), null, remote("b1", artworkURL = null), mutableSetOf())
+
+        // Same rule as artwork/lastPlayDate: a server null never wipes device state.
+        assertEquals(1.25, db.libraryDao().getItemById("b1")?.speed)
     }
 }

@@ -12,6 +12,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.AfterClass
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
@@ -118,5 +119,19 @@ class PreferenceProcessorsTest {
         assertEquals("mostRecent", store.getString("library_sort:pending"))
         // Invalid raw value rejected.
         assertNull(store.getString("library_sort:bogus"))
+    }
+
+    /** A coded API answer reaches the engine as a CodedFailureException; an uncoded one stays a retry */
+    @Test fun `upload hands a coded API failure to the engine, keeps an uncoded one a retry`() = runBlocking {
+        val processor = PreferenceUploadProcessor(api)
+        val upload = task(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, """{"key":"library_sort:default","value":"metadataTitle"}""")
+
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"message":"You are not subscribed","error":"not_subscribed"}"""))
+        val coded = runCatching { processor.process(upload) }.exceptionOrNull() as? CodedFailureException
+        assertEquals(CodedFailure("not_subscribed", "You are not subscribed", 400), coded?.failure)
+
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"message":"You are not subscribed"}"""))
+        assertFalse(processor.process(upload))
+        repeat(2) { server.takeRequest() }
     }
 }

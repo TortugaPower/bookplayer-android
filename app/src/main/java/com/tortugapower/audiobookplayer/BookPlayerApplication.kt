@@ -1,13 +1,27 @@
 package com.tortugapower.audiobookplayer
 
 import android.app.Application
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import com.tortugapower.audiobookplayer.database.AppDatabase
+import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.ParkedTaskRetry
+import com.tortugapower.audiobookplayer.logic.PreferencesPullTriggers
+import com.tortugapower.audiobookplayer.logic.SyncHostLaunchGate
+import com.tortugapower.audiobookplayer.logic.SyncPauseReporter
+import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.logic.SyncTaskPicker
+import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
+import com.tortugapower.audiobookplayer.logic.UploadDataPolicy
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
+import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
+import com.tortugapower.audiobookplayer.logic.SyncSessionHooks
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
@@ -26,6 +40,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import com.tortugapower.audiobookplayer.logic.StorageMonitor
 
@@ -36,6 +51,14 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         lateinit var instance: BookPlayerApplication
             private set
     }
+
+    /** Reports parked sync tasks to Sentry, once each. Set in [onCreate]. */
+    lateinit var syncPauseReporter: SyncPauseReporter
+        private set
+
+    /** This device's first sync of the signed-in account. Set in [onCreate]. */
+    lateinit var firstSync: com.tortugapower.audiobookplayer.logic.FirstSyncCoordinator
+        private set
 
     /** Library sort brain: sort actions + preference push/pull. Set in [onCreate]. */
     lateinit var librarySortManager: LibrarySortManager
@@ -77,11 +100,39 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         val baseLibraryRepository = RoomLibraryRepository(this, database.libraryDao())
         val syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
         val accountRepository = RoomAccountRepository(database.accountDao())
+        syncPauseReporter = SyncPauseReporter(syncTaskRepository)
         
         val syncingLibraryRepository = SyncingLibraryRepository(
             baseLibraryRepository,
             syncTaskRepository,
             accountRepository
+        )
+
+        firstSync = com.tortugapower.audiobookplayer.logic.FirstSyncCoordinator(
+            store = com.tortugapower.audiobookplayer.logic.DataStoreSyncStateStore(this),
+            pass = com.tortugapower.audiobookplayer.logic.MissingItemsPass(
+                itemsStatus = { com.tortugapower.audiobookplayer.network.NetworkClient.libraryApi.itemsStatus(mapOf("uuids" to it)) },
+                matchUuids = { com.tortugapower.audiobookplayer.network.NetworkClient.libraryApi.matchUuids(mapOf("items" to it)) },
+                libraryDao = { database.libraryDao() },
+                repository = syncTaskRepository,
+                bookFile = { com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.processedFile(this, it) },
+                canUploadFiles = {
+                    TaskAccessPolicy.canExecuteTask(accountRepository.getAccount()?.tier, com.tortugapower.audiobookplayer.logic.SyncTaskFactory.JOB_UPLOAD_FILE)
+                },
+            ),
+            syncTasks = syncTaskRepository,
+            isSyncActive = { TaskAccessPolicy.canAccessSyncService(accountRepository.getAccount()?.tier) },
+            fetchRoot = { com.tortugapower.audiobookplayer.network.NetworkClient.libraryApi.getContents("") },
+            applyRootListing = { root ->
+                com.tortugapower.audiobookplayer.logic.ContentsListing.apply(
+                    this, database.libraryDao(), syncTaskRepository,
+                    com.tortugapower.audiobookplayer.logic.PlaybackManagerSyncCoordinator, "", root, canDelete = false,
+                )
+            },
+            // Its own scope, off the main thread: the pass reads the library and checks files on disk
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + StorageMonitor.exceptionHandler { this }),
+            // Not on last session's tier: a lapse while the app was closed shows in this launch's reading
+            awaitTierReady = SubscriptionManager::awaitTierReady,
         )
 
         val librarySortStore = LibrarySortStore(DataStorePreferencesStore(this))
@@ -108,17 +159,86 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
                 com.tortugapower.audiobookplayer.widget.WidgetPlaybackNotifier.notify(this, itemChanged, isPlaying)
             },
         )
-        SubscriptionManager.initialize(this, accountRepository, syncTaskRepository, BuildConfig.REVENUECAT_API_KEY)
+        SubscriptionManager.initialize(
+            this, accountRepository, syncTaskRepository, BuildConfig.REVENUECAT_API_KEY,
+            syncHooks = object : SyncSessionHooks {
+                override suspend fun syncEnded() = firstSync.endSession()
 
-        // Start background services. The sync host stops itself when idle (Android 15+ dataSync
-        // budget), so :core wakes it back up whenever a new sync task is enqueued.
+                // Every tier the account is read with (iOS noteProAccess on each account update): gaining PRO owes
+                // a missing-items pass, which uploads the files LITE never sent
+                override suspend fun tierRead(tier: AccountTier) = firstSync.onTierRead(tier == AccountTier.PRO)
+            },
+        )
+
+        // Keep NetworkClient's auth token current with the signed-in account at the app level — as the
+        // watch does — so playback (presigned-URL refresh), account calls and sync all see it whether or
+        // not the sync host is running. Until the launch gate below, the host's unconditional start was
+        // what set the token for the whole process.
+        appScope.launch {
+            accountRepository.getAccountFlow().collect { account ->
+                NetworkClient.setToken(account?.apiToken)
+            }
+        }
+
+        // iOS parity (PreferencesSyncService): pull the synced sort preferences past their cooldown
+        // whenever the app comes to the foreground (launch included), and whenever the signed-in account
+        // or its tier changes to one with cloud sync (login, free → LITE/PRO). The regular pull only runs
+        // on a library visit, so another device's sort change otherwise waited for one.
+        val forcePreferencesPull = {
+            appScope.launch(Dispatchers.IO) {
+                if (syncingLibraryRepository.isCloudSyncActive()) {
+                    SyncTaskFactory.createFetchPreferencesTask(syncTaskRepository, force = true)
+                }
+            }
+        }
+        // The one automatic retry of parked tasks, when the app is first opened in this process
+        val parkedTaskRetry = ParkedTaskRetry(
+            resumeAllPaused = syncTaskRepository::resumeAllPaused,
+            wakeEngine = { com.tortugapower.audiobookplayer.logic.SyncEngineWaker.notifyWorkEnqueued() },
+        )
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                forcePreferencesPull()
+                appScope.launch(Dispatchers.IO) { parkedTaskRetry.onForeground(StorageMonitor.isCritical) }
+            }
+        })
+        appScope.launch {
+            PreferencesPullTriggers.onSyncAccountChange(accountRepository.getAccountFlow())
+                .collect {
+                    forcePreferencesPull()
+                    // A sign-in (or a subscription) starts this device's first sync right away, whatever
+                    // screen is showing (iOS runs it when sync turns on)
+                    firstSync.request()
+                }
+        }
+
+        // The sync host stops itself when idle (Android 15+ dataSync budget), and :core wakes it back up
+        // whenever a sync task is enqueued — so at launch it is started only for work left over from an
+        // earlier session (see SyncHostLaunchGate), never just to sit idle.
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
             TaskConcurrencyServiceHost.start(this)
         }
-        if (StorageMonitor.isCritical) {
-            android.util.Log.w("BookPlayerApplication", "Storage critically full; not starting the sync host")
-        } else {
-            TaskConcurrencyServiceHost.start(this)
+        appScope.launch(Dispatchers.IO) {
+            // Before the gate: jobs this build no longer runs are held, so they'd never start the engine
+            // that cleans them up, and one left in the sync lane holds back every library refresh
+            com.tortugapower.audiobookplayer.logic.SyncTaskRetirement.cleanUp(syncTaskRepository)
+            // Parked tasks don't count: they're retried when the app is opened (ParkedTaskRetry)
+            val hasStartableWork: suspend () -> Boolean = {
+                // The count first: most launches have an empty queue and skip loading it
+                syncTaskRepository.countActiveTasks() > 0 && run {
+                    // This launch's tier, not last session's: a lapse while closed holds the queue
+                    SubscriptionManager.awaitTierReady()
+                    val tier = accountRepository.getAccount()?.tier
+                    // Uploads held to Wi-Fi don't count either: the service would only sit idle
+                    val holdUploads = UploadDataPolicy.shouldHoldUploads(this@BookPlayerApplication)
+                    SyncTaskPicker.hasStartableWork(syncTaskRepository.getAllTasks().first()) {
+                        TaskAccessPolicy.canExecuteTask(tier, it) && !(holdUploads && UploadDataPolicy.isFileUploadJob(it))
+                    }
+                }
+            }
+            if (SyncHostLaunchGate.shouldStart(StorageMonitor.isCritical, hasStartableWork)) {
+                TaskConcurrencyServiceHost.start(this@BookPlayerApplication)
+            }
         }
         // The engine holds all work while storage is critical; restart it when space is back.
         appScope.launch {
@@ -167,7 +287,12 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
     }
 
     /**
-     * Attach the signed-in account's id + email to outgoing Sentry events. Updates when the
+     * Attach the signed-in account to outgoing Sentry events as its RevenueCat app-user id — the
+     * server's `external_id`, which is also the storage prefix and the RevenueCat customer id, so
+     * support can reach the whole account (email, tier, library) from that one opaque key. The
+     * email itself never leaves the device: it is personal data Sentry does not need. Accounts
+     * persisted before the RevenueCat id was stored fall back to the local account id (the sign-in
+     * provider's subject, which the server's auth methods table also resolves). Updates when the
      * user signs in or out so crash reports always reflect the current identity (or anonymous
      * when signed out).
      */
@@ -178,8 +303,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             accountRepository.getAccountFlow().collect { account ->
                 if (account != null) {
                     Sentry.setUser(User().apply {
-                        id = account.id
-                        email = account.email
+                        id = account.revenuecatId ?: account.id
                     })
                 } else {
                     Sentry.setUser(null)

@@ -42,34 +42,6 @@ class JellyfinService : ExternalService, QuickConnectCapable {
             .create(JellyfinApi::class.java)
     }
 
-    private fun getDeviceId(): String {
-        return try {
-            if (!com.tortugapower.audiobookplayer.core.CoreContext.isInitialized()) return "BookPlayerAndroidID"
-            val context = com.tortugapower.audiobookplayer.core.CoreContext.appContext
-            val prefs = context.getSharedPreferences("jellyfin_prefs", android.content.Context.MODE_PRIVATE)
-            var id = prefs.getString("device_id", null)
-            if (id == null) {
-                id = java.util.UUID.randomUUID().toString()
-                prefs.edit().putString("device_id", id).apply()
-            }
-            id
-        } catch (e: Exception) {
-            "BookPlayerAndroidID"
-        }
-    }
-
-    // The MediaBrowser scheme Jellyfin requires on every call, token or not. Client/Device/Version come
-    // from ClientIdentity (injected by the host at startup) — they are what Jellyfin shows in its Quick
-    // Connect approval and Devices dashboard, so a hardcoded version would misreport every install.
-    private fun getAuthHeader(token: String? = null): String {
-        val deviceId = getDeviceId()
-        var header = "MediaBrowser Client=\"${ClientIdentity.appName}\", Device=\"${ClientIdentity.deviceName}\", DeviceId=\"$deviceId\", Version=\"${ClientIdentity.appVersion}\""
-        if (token != null) {
-            header += ", Token=\"$token\""
-        }
-        return header
-    }
-
     override suspend fun probe(url: String, headers: Map<String, String>?): ProbeResult {
         return try {
             val api = getApi(url, headers)
@@ -300,6 +272,35 @@ class JellyfinService : ExternalService, QuickConnectCapable {
 
     companion object {
         private const val HYDRATION_CHUNK = 100
+
+        private fun getDeviceId(): String {
+            return try {
+                if (!com.tortugapower.audiobookplayer.core.CoreContext.isInitialized()) return "BookPlayerAndroidID"
+                val context = com.tortugapower.audiobookplayer.core.CoreContext.appContext
+                val prefs = context.getSharedPreferences("jellyfin_prefs", android.content.Context.MODE_PRIVATE)
+                var id = prefs.getString("device_id", null)
+                if (id == null) {
+                    id = java.util.UUID.randomUUID().toString()
+                    prefs.edit().putString("device_id", id).apply()
+                }
+                id
+            } catch (e: Exception) {
+                "BookPlayerAndroidID"
+            }
+        }
+
+        // The MediaBrowser scheme Jellyfin requires on every call, token or not. Client/Device/Version come
+        // from ClientIdentity (injected by the host at startup) — they are what Jellyfin shows in its Quick
+        // Connect approval and Devices dashboard, so a hardcoded version would misreport every install.
+        // Shared with the progress push so the server never sees this install under two identities.
+        internal fun getAuthHeader(token: String? = null): String {
+            val deviceId = getDeviceId()
+            var header = "MediaBrowser Client=\"${ClientIdentity.appName}\", Device=\"${ClientIdentity.deviceName}\", DeviceId=\"$deviceId\", Version=\"${ClientIdentity.appVersion}\""
+            if (token != null) {
+                header += ", Token=\"$token\""
+            }
+            return header
+        }
 
         /**
          * The item's REAL audio extension in iOS's order of trust: the first media source's container

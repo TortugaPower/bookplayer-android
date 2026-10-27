@@ -11,15 +11,23 @@ import java.util.UUID
 object SyncTaskFactory {
     private val gson = Gson()
 
+    private fun pendingPayloadOf(task: SyncTaskEntity): Map<String, Any?> {
+        val type = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
+        return runCatching { gson.fromJson<Map<String, Any?>>(task.payload, type) }.getOrNull() ?: emptyMap()
+    }
+
     const val QUEUE_SYNC = "sync"
     const val QUEUE_FILE = "file"
     const val QUEUE_HARDCOVER = "hardcover"
     // User preferences (library sort rules) sync on their own serial queue, independent of item sync
     // and file transfers, so a pref push/pull never waits behind (or blocks) library operations.
     const val QUEUE_PREFERENCES = "preferences"
-    // Stream-to-cloud pipes get their own queue: the transfer depends on a third-party media server
-    // being reachable, so it must never wedge the serial "file" queue that downloads/uploads share.
-    const val QUEUE_PIPE = "pipe"
+
+    /**
+     * Book file uploads, a lane of their own (iOS `uploadFile`): an hour-long upload never holds up the
+     * file lane's downloads, and an account pause holds it with the other BookPlayer-server lanes.
+     */
+    const val QUEUE_UPLOAD = "upload"
 
     // Job Types (matching Swift models where applicable)
     const val JOB_UPLOAD_METADATA = "upload_metadata"
@@ -33,29 +41,23 @@ object SyncTaskFactory {
     const val JOB_UPLOAD_ARTWORK = "upload_artwork"
     const val JOB_FETCH_CONTENTS = "fetch_contents"
     const val JOB_UPLOAD_FILE = "upload_file"
+    const val JOB_QUEUE_FILE_UPLOAD = "queue_file_upload"
     const val JOB_DOWNLOAD_FILE = "download_file"
-    const val JOB_SYNC_IDENTIFIERS = "sync_identifiers"
     const val JOB_MATCH_UUIDS = "match_uuids"
     const val JOB_HARDCOVER_AUTO_MATCH = "hardcover_auto_match"
     const val JOB_HARDCOVER_UPDATE_STATUS = "hardcover_update_status"
-    const val JOB_UPLOAD_STREAM_FILE = "upload_stream_file"
     const val JOB_UPLOAD_EXTERNAL_RESOURCE = "upload_external_resource"
     const val JOB_DELETE_EXTERNAL_RESOURCE = "delete_external_resource"
-    const val JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD = "set_external_resource_to_download"
     const val JOB_EXTERNAL_UPDATE = "external_update"
     const val JOB_UPLOAD_PREFERENCE = "upload_preference"
     const val JOB_FETCH_PREFERENCES = "fetch_preferences"
 
-    suspend fun createSyncIdentifiersTask(repository: SyncTaskRepository): Boolean {
-        if (!SyncStatusManager.checkAndMarkSyncIdentifiers()) return false
-        
-        val taskId = "all_identifiers"
-        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_SYNC_IDENTIFIERS, taskId)
-        if (existing != null) return true // Already queued
-
-        enqueue(repository, QUEUE_SYNC, JOB_SYNC_IDENTIFIERS, taskId, emptyMap<String, Any?>())
-        return true
-    }
+    // Jobs this build no longer runs: SyncTaskRetirement converts or drops what an older build queued
+    // 1.2's stream-to-cloud pipe
+    const val RETIRED_JOB_UPLOAD_STREAM_FILE = "upload_stream_file"
+    const val RETIRED_JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD = "set_external_resource_to_download"
+    // The path-based catch-up through `/v1/library/keys`, replaced by the first sync's missing-items pass
+    const val RETIRED_JOB_SYNC_IDENTIFIERS = "sync_identifiers"
 
     suspend fun createUploadMetadataTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
         val payload = mapOf(
@@ -75,18 +77,11 @@ object SyncTaskFactory {
             // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
             // last_play_date never advances from Android, breaking cross-device "recently played".
             "lastPlayDateTimestamp" to item.lastPlayDate?.let { it / 1000 },
-            "type" to item.type.ordinal
+            "type" to item.type.ordinal,
+            // Per-book speed (iOS registers items with theirs); null is dropped by Gson.
+            "speed" to item.speed
         )
         enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_METADATA, item.uuid, payload)
-    }
-
-    suspend fun createSyncSuccessTask(repository: SyncTaskRepository, uuid: String, relativePath: String) {
-        val payload = mapOf(
-            "uuid" to uuid,
-            "relativePath" to relativePath,
-            "synced" to true
-        )
-        enqueue(repository, QUEUE_SYNC, JOB_UPDATE, uuid, payload)
     }
 
     suspend fun createUpdateTask(
@@ -96,7 +91,11 @@ object SyncTaskFactory {
         // updateFolder pushes lastPlayDate: 0) so the server drops the stale value. Everywhere else a
         // null lastPlayDate stays omitted from the payload (Gson drops nulls): update tasks push a
         // full snapshot, and a never-played-here item must not wipe a date set by another device.
-        clearedLastPlayDate: Boolean = false
+        clearedLastPlayDate: Boolean = false,
+        // Only a speed change sends the speed, as on iOS (LibraryService.updateBookSpeed). Every other
+        // update (progress ticks above all) leaves it out, or this device's copy would overwrite a speed
+        // set later on another one.
+        includeSpeed: Boolean = false
     ) {
         val payload = mapOf(
             "uuid" to item.uuid,
@@ -115,14 +114,19 @@ object SyncTaskFactory {
             // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
             // last_play_date never advances from Android, breaking cross-device "recently played".
             "lastPlayDateTimestamp" to (item.lastPlayDate?.let { it / 1000 } ?: if (clearedLastPlayDate) 0L else null),
-            "type" to item.type.ordinal
+            "type" to item.type.ordinal,
+            // Null is dropped by Gson
+            "speed" to if (includeSpeed) item.speed else null
         )
 
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_UPDATE, item.uuid)
-        if (existingTask != null) {
-            val updatedTask = existingTask.copy(payload = gson.toJson(payload))
+        // A pending speed change survives the progress ticks merged into its task after it
+        val merged = if (existingTask != null && !includeSpeed) {
+            val pendingSpeed = pendingPayloadOf(existingTask)["speed"]
+            if (pendingSpeed != null) payload + ("speed" to pendingSpeed) else payload
+        } else payload
+        if (existingTask != null && repository.updatePendingTaskPayload(existingTask, gson.toJson(merged))) {
             android.util.Log.d("SyncTaskFactory", "🔄 Merging update task for item: ${item.uuid}")
-            repository.updateTask(updatedTask)
         } else {
             enqueue(repository, QUEUE_SYNC, JOB_UPDATE, item.uuid, payload)
         }
@@ -141,7 +145,7 @@ object SyncTaskFactory {
 
     /**
      * iOS-parity shallow folder delete ("Delete folder only"): tells the server to move the
-     * folder's contents back to the library root and drop the folder row
+     * folder's contents up into its parent (the root for a top-level folder) and drop the folder row
      * (DELETE /v1/library/folder_in_out — the same endpoint iOS's shallowDelete job hits).
      */
     suspend fun createShallowDeleteTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
@@ -177,10 +181,10 @@ object SyncTaskFactory {
             // Check if it's the same bookmark ID by looking at the existing payload
             val existingPayloadType = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
             val existingPayload: Map<String, Any?> = gson.fromJson(existingTask.payload, existingPayloadType)
-            if (existingPayload["bookmarkId"] == bookmark.id.toString()) {
-                val updatedTask = existingTask.copy(payload = gson.toJson(payload))
+            if (existingPayload["bookmarkId"] == bookmark.id.toString() &&
+                repository.updatePendingTaskPayload(existingTask, gson.toJson(payload))
+            ) {
                 android.util.Log.d("SyncTaskFactory", "🔄 Merging set_bookmark task for bookmark: ${bookmark.id}")
-                repository.updateTask(updatedTask)
                 return
             }
         }
@@ -216,14 +220,20 @@ object SyncTaskFactory {
             "relativePath" to item.relativePath,
             "filePath" to (item.artworkURL ?: "")
         )
-        // Artwork upload goes to FILE queue
-        enqueue(repository, QUEUE_FILE, JOB_UPLOAD_ARTWORK, item.uuid, payload)
+        // The sync lane (iOS): behind the item's registration, so the server never gets the cover first
+        enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_ARTWORK, item.uuid, payload)
     }
 
-    suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?, force: Boolean = false, canDelete: Boolean = true): Boolean {
+    /**
+     * [canDelete] lets the listing remove the level's local items it lacks: every caller says whether its
+     * listing may (a first sync's, or anything before it on the phone, may not).
+     */
+    suspend fun createFetchContentsTask(repository: SyncTaskRepository, path: String?, force: Boolean = false, canDelete: Boolean): Boolean {
         if (!force) {
-            // Only fetch if the sync queue is empty to avoid desyncs with local actions
-            if (repository.countActiveTasksInQueue(QUEUE_SYNC) > 0) {
+            // Only fetch if the sync queue is empty to avoid desyncs with local actions: a parked task
+            // counts, since the listing would undo a change the server never got. An account pause in any
+            // lane holds the sync lane too, so a fetch queued now would only wait.
+            if (repository.countQueuedTasksInQueue(QUEUE_SYNC) > 0 || repository.hasAccountPause()) {
                 android.util.Log.d("SyncTaskFactory", "⏭️ Skipping fetch_contents: sync queue not empty")
                 return false
             }
@@ -242,32 +252,31 @@ object SyncTaskFactory {
         return true
     }
 
-    suspend fun createUploadFileTask(repository: SyncTaskRepository, item: LibraryItemEntity, remotePath: String) {
+    /**
+     * Uploads the book's file as a multipart upload ([MultipartUploadProcessor]). The task names the book
+     * by uuid; the file is found again on every run. Title and path are for the Queued Tasks row.
+     */
+    suspend fun createUploadFileTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
         val payload = mapOf(
             "uuid" to item.uuid,
             "title" to item.title,
             "relativePath" to item.relativePath,
-            "filePath" to (item.originalFileName ?: ""),
-            "remotePath" to remotePath
         )
-        enqueue(repository, QUEUE_FILE, JOB_UPLOAD_FILE, item.uuid, payload)
+        enqueue(repository, QUEUE_UPLOAD, JOB_UPLOAD_FILE, item.uuid, payload)
     }
 
     /**
-     * PRO follow-up to a stream import: pipe the item's source file from its media server into
-     * BookPlayer cloud ([StreamFileUploadProcessor]). No presigned URL in the payload on purpose —
-     * the processor fetches a fresh one per attempt (`external_set`), because a frozen URL expires
-     * and would make every retry fail.
+     * Queues the book's file upload from the sync lane, after the tasks ahead of it there (iOS
+     * `externalResourceToDownload`): for a streamed media-server book, whose registration never asks for its
+     * file, once it's downloaded ([DownloadFileProcessor]) or registered again. No server call of its own.
      */
-    suspend fun createUploadStreamFileTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
-        if (repository.getPendingTaskByTypeAndTaskId(JOB_UPLOAD_STREAM_FILE, item.uuid) != null) return
-
+    suspend fun createQueueFileUploadTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
         val payload = mapOf(
             "uuid" to item.uuid,
             "title" to item.title,
-            "relativePath" to item.relativePath
+            "relativePath" to item.relativePath,
         )
-        enqueue(repository, QUEUE_PIPE, JOB_UPLOAD_STREAM_FILE, item.uuid, payload)
+        enqueue(repository, QUEUE_SYNC, JOB_QUEUE_FILE_UPLOAD, item.uuid, payload)
     }
 
     suspend fun createDownloadFileTask(repository: SyncTaskRepository, item: LibraryItemEntity) {
@@ -280,24 +289,30 @@ object SyncTaskFactory {
         enqueue(repository, QUEUE_FILE, JOB_DOWNLOAD_FILE, item.uuid, payload)
     }
 
+    /** One match_uuids task per request the API accepts ([MatchUuidsBatching]: 1,000 items, under its 100 KB body) */
     suspend fun createMatchUuidsTask(repository: SyncTaskRepository, items: Map<String, String>) {
-        if (items.isEmpty()) return
-        
-        // items is a map of relativePath -> generatedUuid
-        val payload = mapOf(
-            "items" to items
-        )
-        
-        // Use a unique ID for this task to avoid duplicates if multiple fetches generate IDs
-        val taskId = "match_${java.util.UUID.randomUUID().toString().take(8)}"
-        enqueue(repository, QUEUE_SYNC, JOB_MATCH_UUIDS, taskId, payload)
+        // items is a map of relativePath -> generatedUuid, one task per request the API accepts
+        MatchUuidsBatching.batches(items).forEach { batch ->
+            val payload = mapOf("items" to batch)
+            // Use a unique ID for this task to avoid duplicates if multiple fetches generate IDs
+            val taskId = "match_${java.util.UUID.randomUUID().toString().take(8)}"
+            enqueue(repository, QUEUE_SYNC, JOB_MATCH_UUIDS, taskId, payload)
+        }
     }
 
-    suspend fun createHardcoverAutoMatchTask(repository: SyncTaskRepository, itemUuid: String) {
+    /**
+     * One import's items, matched together (iOS parity: HardcoverService.processAutoMatch), so the ones that
+     * all match the same Hardcover book are skipped instead of all being linked to it. Tasks queued before
+     * this carried one `itemUuid`.
+     */
+    suspend fun createHardcoverAutoMatchTask(repository: SyncTaskRepository, items: List<LibraryItemEntity>) {
+        val first = items.firstOrNull() ?: return
         val payload = mapOf(
-            "itemUuid" to itemUuid
+            "itemUuids" to items.map { it.uuid },
+            // What the Queued Tasks screen shows: the first item, and how many more.
+            "title" to if (items.size == 1) first.title else "${first.title} (+${items.size - 1})"
         )
-        enqueue(repository, QUEUE_HARDCOVER, JOB_HARDCOVER_AUTO_MATCH, itemUuid, payload)
+        enqueue(repository, QUEUE_HARDCOVER, JOB_HARDCOVER_AUTO_MATCH, "hardcover_match_${first.uuid}", payload)
     }
 
     suspend fun createHardcoverUpdateStatusTask(repository: SyncTaskRepository, itemUuid: String, status: Int) {
@@ -345,21 +360,6 @@ object SyncTaskFactory {
         enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_EXTERNAL_RESOURCE, taskId, payload)
     }
 
-    suspend fun createSetExternalResourceToDownloadTask(
-        repository: SyncTaskRepository,
-        uuid: String,
-        uploaded: Boolean
-    ) {
-        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD, uuid)
-        if (existing != null) return
-
-        val payload = mapOf(
-            "uuid" to uuid,
-            "uploaded" to uploaded
-        )
-        enqueue(repository, QUEUE_SYNC, JOB_SET_EXTERNAL_RESOURCE_TO_DOWNLOAD, uuid, payload)
-    }
-
     suspend fun createExternalUpdateTask(
         repository: SyncTaskRepository,
         libraryItemUuid: String,
@@ -368,7 +368,9 @@ object SyncTaskFactory {
         hostId: String?,
         currentTime: Double,
         percentCompleted: Double,
-        isFinished: Boolean
+        isFinished: Boolean,
+        // Epoch ms of the save this push carries (the item's lastPlayDate); the server's "last played".
+        lastPlayDate: Long?
     ) {
         val taskId = "${libraryItemUuid}_${providerId}"
         val queueKey = providerName.lowercase()
@@ -379,13 +381,12 @@ object SyncTaskFactory {
             "hostId" to hostId,
             "currentTime" to currentTime,
             "percentCompleted" to percentCompleted,
-            "isFinished" to isFinished
+            "isFinished" to isFinished,
+            "lastPlayDate" to lastPlayDate
         )
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_EXTERNAL_UPDATE, taskId)
-        if (existingTask != null) {
-            val updatedTask = existingTask.copy(payload = gson.toJson(payload))
+        if (existingTask != null && repository.updatePendingTaskPayload(existingTask, gson.toJson(payload))) {
             android.util.Log.d("SyncTaskFactory", "🔄 Merging external update task for $taskId in queue $queueKey")
-            repository.updateTask(updatedTask)
         } else {
             enqueue(repository, queueKey, JOB_EXTERNAL_UPDATE, taskId, payload)
         }
@@ -394,27 +395,31 @@ object SyncTaskFactory {
     /**
      * Push one preference level (root or a folder) to the server. Keyed by the preference key so
      * rapid changes to the same level coalesce onto a single pending task (last write wins) — the
-     * same merge [createUpdateTask] uses for items.
+     * same merge [createUpdateTask] uses for items. A parked push of the same key is superseded:
+     * resumed later, it would send the older value over this one.
      */
     suspend fun createUploadPreferenceTask(repository: SyncTaskRepository, key: String, value: String) {
+        repository.deleteParkedTasks(JOB_UPLOAD_PREFERENCE, key)
         val payload = mapOf("key" to key, "value" to value)
         val existing = repository.getPendingTaskByTypeAndTaskId(JOB_UPLOAD_PREFERENCE, key)
-        if (existing != null) {
-            repository.updateTask(existing.copy(payload = gson.toJson(payload)))
-        } else {
+        if (existing == null || !repository.updatePendingTaskPayload(existing, gson.toJson(payload))) {
             enqueue(repository, QUEUE_PREFERENCES, JOB_UPLOAD_PREFERENCE, key, payload)
         }
     }
 
     /**
      * Pull the user's preferences from the server. Skipped (unless [force]) when we still have an
-     * unsynced preference push queued — the local store is the source of truth, so a pull must never
-     * clobber a change we haven't sent yet. Debounced to one per 30s per launch, like fetch_contents.
+     * unsynced preference push queued, parked ones included — the local store is the source of truth,
+     * so a pull must never clobber a change we haven't sent yet. Debounced to one per 60 s per launch, like fetch_contents.
+     * A [force]d pull (app foreground, login, upgrade — iOS parity) skips both checks and starts the
+     * cooldown itself; PreferenceFetchProcessor still leaves every key with a queued upload alone.
      */
     suspend fun createFetchPreferencesTask(repository: SyncTaskRepository, force: Boolean = false): Boolean {
         if (!force) {
-            if (repository.countActiveTasksByType(JOB_UPLOAD_PREFERENCE) > 0) return false
+            if (repository.countQueuedTasksByType(JOB_UPLOAD_PREFERENCE) > 0) return false
             if (!SyncStatusManager.checkAndMarkFetchPreferences()) return false
+        } else {
+            SyncStatusManager.markFetchPreferences()
         }
         // Singleton task — one pending pull is enough.
         if (repository.getPendingTaskByTypeAndTaskId(JOB_FETCH_PREFERENCES, PREFERENCES_TASK_ID) != null) return true
@@ -436,7 +441,7 @@ object SyncTaskFactory {
             taskID = taskId,
             queueKey = queueKey,
             jobType = jobType,
-            position = 0, // Position management can be added if strict ordering is needed beyond createdAt
+            position = 0, // assigned at insert (SyncTaskDao.insertAtEnd): a lane runs in stored order
             payload = gson.toJson(payload)
         )
         android.util.Log.d("SyncTaskFactory", "📝 Enqueuing task: $jobType into $queueKey queue [TaskID: $taskId]")

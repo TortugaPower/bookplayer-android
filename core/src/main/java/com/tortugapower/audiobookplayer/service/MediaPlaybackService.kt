@@ -22,6 +22,7 @@ import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -68,6 +69,14 @@ abstract class MediaPlaybackService : MediaLibraryService() {
      * seconds on some devices, and doing it on the main thread was Sentry ANDROID-BOOKPLAYER-11.
      */
     private val loudnessBooster = LoudnessBooster()
+
+    /**
+     * Mirror of the "Progress Bar Seeking" setting (iOS: `changePlaybackPositionCommand.isEnabled`):
+     * whether OS surfaces — notification / lock screen, Android Auto, Bluetooth AVRCP — may scrub. The
+     * in-app controller ([PlaybackManager]) is never gated; only what the OS shows changes.
+     */
+    @Volatile private var remoteSeekEnabled = true
+    private var sessionCallback: MediaLibrarySession.Callback? = null
 
     protected val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -187,7 +196,8 @@ abstract class MediaPlaybackService : MediaLibraryService() {
                 scope = serviceScope
             )
 
-            val builder = MediaLibrarySession.Builder(this, sessionPlayer, createSessionCallback())
+            val callback = createSessionCallback().also { sessionCallback = it }
+            val builder = MediaLibrarySession.Builder(this, sessionPlayer, callback)
                 // media3 keeps session ids in a process-wide registry and refuses a duplicate. With the
                 // default "" id, one session that was never released — a build that failed after
                 // registering, an OEM retrying service creation in the same process — made every later
@@ -221,6 +231,15 @@ abstract class MediaPlaybackService : MediaLibraryService() {
             }
         }
 
+        // Progress Bar Seeking: (re)advertise the seek commands to every connected OS controller when
+        // the setting flips, so the lock-screen scrubber appears/disappears without a reconnect.
+        serviceScope.launch {
+            PlaybackSettingsManager.getProgressBarSeeking(this@MediaPlaybackService).collectLatest { enabled ->
+                remoteSeekEnabled = enabled
+                applyRemoteSeekPolicy()
+            }
+        }
+
         // Keep the Now Playing speed button's glyph in sync with the live playback speed.
         serviceScope.launch {
             PlaybackManager.playbackSpeed.drop(1).collect { refreshMediaButtons() }
@@ -233,6 +252,29 @@ abstract class MediaPlaybackService : MediaLibraryService() {
     protected fun refreshMediaButtons() {
         mediaSession?.setMediaButtonPreferences(buildMediaButtonPreferences())
     }
+
+    /** Re-send each connected controller's available commands under the current seek policy. */
+    private fun applyRemoteSeekPolicy() {
+        val session = mediaSession ?: return
+        val callback = sessionCallback as? BaseLibrarySessionCallback ?: return
+        session.connectedControllers.forEach { controller ->
+            session.setAvailableCommands(
+                controller,
+                callback.sessionCommandsFor(),
+                callback.playerCommandsFor(session, controller)
+            )
+        }
+    }
+
+    /**
+     * Our own in-process [androidx.media3.session.MediaController] (PlaybackManager, and the Wear
+     * bridges that drive it). The media-notification controller is also our package but represents the
+     * platform session — the lock screen / System UI read its commands — so it is NOT in-app.
+     */
+    private fun isInAppController(session: MediaSession, controller: MediaSession.ControllerInfo): Boolean =
+        controller.packageName == packageName &&
+            controller.controllerVersion != MediaSession.ControllerInfo.LEGACY_CONTROLLER_VERSION &&
+            !session.isMediaNotificationController(controller)
 
     /**
      * CPU-only wake lock for local files; CPU + Wi-Fi lock only when the item streams from a remote
@@ -298,34 +340,51 @@ abstract class MediaPlaybackService : MediaLibraryService() {
             args: Bundle
         ): ListenableFuture<SessionResult>? = null
 
-        override fun onConnect(
-            session: MediaSession,
-            controller: MediaSession.ControllerInfo
-        ): MediaSession.ConnectionResult {
-            // Withhold the standard skip / relative-seek player commands so System UI can't replace
-            // our custom rewind / fast-forward icons with its own skip-track glyphs. Everything else
-            // (play/pause, scrub via seek-in-current-item, speed, volume, media-item changes) stays.
-            val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+        /**
+         * Withhold the standard skip / relative-seek player commands so System UI can't replace our
+         * custom rewind / fast-forward icons with its own skip-track glyphs. Everything else (play/pause,
+         * speed, volume, media-item changes) stays. The scrubber's command (seek-in-current-item) is
+         * additionally withheld from OS controllers while Progress Bar Seeking is off; the app's own
+         * controller always keeps it (the in-app seek bar is not what the setting is about). Seek-to-item
+         * deliberately stays: in chapter context the session shows one playlist entry per chapter, and
+         * Android Auto's queue picks a chapter through it — iOS likewise disables only the scrubber
+         * (`changePlaybackPositionCommand`), never chapter selection.
+         */
+        fun playerCommandsFor(session: MediaSession, controller: MediaSession.ControllerInfo): Player.Commands {
+            val builder = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
                 .remove(Player.COMMAND_SEEK_TO_NEXT)
                 .remove(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                 .remove(Player.COMMAND_SEEK_TO_PREVIOUS)
                 .remove(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
                 .remove(Player.COMMAND_SEEK_BACK)
                 .remove(Player.COMMAND_SEEK_FORWARD)
-                .build()
-            // Advertise our custom rewind / fast-forward actions to controllers. Start from the
-            // library-INCLUSIVE default set: for a MediaLibrarySession, DEFAULT_SESSION_COMMANDS omits the
-            // browse (library) commands, so a MediaBrowser (Android Auto) would be PERMISSION_DENIED on
-            // getLibraryRoot/getChildren and never render the browse tree.
-            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+            if (!remoteSeekEnabled && !isInAppController(session, controller)) {
+                builder.remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+            }
+            return builder.build()
+        }
+
+        /**
+         * Our custom rewind / fast-forward / speed actions on top of the library-INCLUSIVE default set:
+         * for a MediaLibrarySession, DEFAULT_SESSION_COMMANDS omits the browse (library) commands, so a
+         * MediaBrowser (Android Auto) would be PERMISSION_DENIED on getLibraryRoot/getChildren and never
+         * render the browse tree.
+         */
+        fun sessionCommandsFor(): SessionCommands =
+            MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
                 .add(SessionCommand(APP_ACTION_REWIND, Bundle.EMPTY))
                 .add(SessionCommand(APP_ACTION_FORWARD, Bundle.EMPTY))
                 .add(SessionCommand(APP_ACTION_CYCLE_SPEED, Bundle.EMPTY))
                 .apply { customSessionCommands().forEach { add(it) } }
                 .build()
+
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): MediaSession.ConnectionResult {
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                .setAvailablePlayerCommands(playerCommands)
-                .setAvailableSessionCommands(sessionCommands)
+                .setAvailablePlayerCommands(playerCommandsFor(session, controller))
+                .setAvailableSessionCommands(sessionCommandsFor())
                 .build()
         }
 

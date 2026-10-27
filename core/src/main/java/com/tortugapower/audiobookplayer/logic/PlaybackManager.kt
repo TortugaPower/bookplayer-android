@@ -29,8 +29,11 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -117,11 +120,12 @@ object PlaybackManager {
 
     // Set when the user tries to PLAY an external (media-server) item and no locally-configured
     // server matches its hostId — the cross-device case: the book synced down, the server config
-    // didn't (configs are per-device). Carries the provider type for the dialog copy; the UI
-    // offers a jump to Media Servers settings. Only ever set from playItem's nothing-playable
-    // branch — never from launch restore or speculative URL refreshes.
-    private val _missingExternalServer = MutableStateFlow<com.tortugapower.audiobookplayer.database.entities.ExternalServiceType?>(null)
-    val missingExternalServer: StateFlow<com.tortugapower.audiobookplayer.database.entities.ExternalServiceType?> = _missingExternalServer.asStateFlow()
+    // didn't (configs are per-device). Carries the provider type and, when the hostId is one, the
+    // server's address for the dialog copy; the UI offers a jump to Media Servers settings. Only
+    // ever set from playItem's nothing-playable branch — never from launch restore or speculative
+    // URL refreshes.
+    private val _missingExternalServer = MutableStateFlow<ExternalServiceUtils.MissingServer?>(null)
+    val missingExternalServer: StateFlow<ExternalServiceUtils.MissingServer?> = _missingExternalServer.asStateFlow()
 
     fun clearMissingExternalServer() {
         _missingExternalServer.value = null
@@ -297,6 +301,17 @@ object PlaybackManager {
     // before the first flow emission doesn't briefly disable autoplay.
     private var autoplayLibrary = true
     private var autoplayRestartFinished = true
+    // Auto Sleep Timer (iOS `autoTimerEnabled`): re-arm the last-set sleep timer on user-initiated
+    // plays. Default OFF like the DataStore default.
+    private var autoSleepTimerEnabled = false
+    // Set while a load that changes the book plays it (a library tap, Next, the auto-advance, an Android
+    // Auto pick), cleared once that playback starts. iOS plays every fresh load with `autoPlayed: true`,
+    // so only resuming the book already loaded re-arms the auto sleep timer (`if !autoPlayed`).
+    private var loadPlayPending = false
+    // Global Speed Control (iOS `globalSpeedEnabled`, default OFF = each book keeps its own speed) is
+    // read straight from DataStore by each load path (speedFor / resolveSpeed).
+    private var speedPersistJob: Job? = null
+    private const val SPEED_PERSIST_DEBOUNCE_MS = 300L
     private val _isTransitioning = MutableStateFlow(false)
     val isTransitioning: StateFlow<Boolean> = _isTransitioning.asStateFlow()
     private var progressTrackerJob: kotlinx.coroutines.Job? = null
@@ -416,6 +431,7 @@ object PlaybackManager {
                         } else {
                             // Real playback has started — the load/buffering "queued" window is over.
                             playbackQueuedFlag = false
+                            loadPlayPending = false
                             recomputeIsPlaying()
                             if (smartRewindEnabled) {
                                 applySmartRewind()
@@ -436,8 +452,18 @@ object PlaybackManager {
                     // through buffering. An explicit pause (playWhenReady=false) also cancels a queued play.
                     override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                         playWhenReadyFlag = playWhenReady
-                        if (!playWhenReady) playbackQueuedFlag = false
+                        if (!playWhenReady) {
+                            playbackQueuedFlag = false
+                            // A pause ends whatever transition was in flight.
+                            loadPlayPending = false
+                        }
                         recomputeIsPlaying()
+                        // Play INTENT from any surface (player, notification, Auto, Wear, Bluetooth) —
+                        // iOS restarts the last sleep timer in play(), not on the actual audio start,
+                        // so a rebuffer never re-arms it.
+                        if (shouldRestartAutoSleepTimer(playWhenReady, autoSleepTimerEnabled, loadPlayPending)) {
+                            SleepTimerManager.restartLastEnabledTimer()
+                        }
                     }
 
                     override fun onPositionDiscontinuity(
@@ -473,7 +499,10 @@ object PlaybackManager {
                         // "playing": onIsPlayingChanged(true) never fired, so nothing else would clear it.
                         if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
                             playbackQueuedFlag = false
+                            loadPlayPending = false
                         }
+                        // Loaded without playing (a prepare only): the user's next play is a resume
+                        if (state == Player.STATE_READY && player?.playWhenReady == false) loadPlayPending = false
                         recomputeIsPlaying()
                         if (state == Player.STATE_ENDED) {
                             updateProgress(appContext, forceFinished = true)
@@ -516,6 +545,7 @@ object PlaybackManager {
 
                     override fun onPlayerError(error: PlaybackException) {
                         playbackQueuedFlag = false
+                        loadPlayPending = false
                         recomputeIsPlaying()
                         // A 401 on an external stream is already surfaced by its own re-auth alert
                         // (externalStreamAuthError, set by the auth data source before the player
@@ -531,9 +561,9 @@ object PlaybackManager {
                                 val processedDir = File(appContext.filesDir, "Processed")
                                 // Cross-device media-server book with no matching local server:
                                 // the connect-your-server prompt, never the generic error.
-                                val missingType = missingExternalServerType(appContext, currentItem, processedDir)
-                                if (missingType != null) {
-                                    _missingExternalServer.value = missingType
+                                val missing = missingExternalServerPrompt(appContext, currentItem, processedDir)
+                                if (missing != null) {
+                                    _missingExternalServer.value = missing
                                     return@launch
                                 }
                                 val lastSource = determineLastTriedSource(appContext, currentItem, processedDir)
@@ -567,10 +597,16 @@ object PlaybackManager {
         // Consolidate settings observation on background thread
         scope.launch(Dispatchers.IO) {
             launch {
+                // The stored speed is the GLOBAL speed (saved only while Global Speed Control is on). It
+                // only drives the player before a book is loaded; every load resolves the book's speed
+                // itself (resolveSpeed) and setPlaybackSpeed applies user changes directly, so the pref
+                // never fights a per-book speed nor races the launch restore.
                 PlaybackSettingsManager.getSpeed(appContext).collectLatest { speed ->
-                    _playbackSpeed.value = speed
-                    launch(Dispatchers.Main) { player?.setPlaybackSpeed(speed) }
+                    if (_currentItem.value == null) _playbackSpeed.value = speed
                 }
+            }
+            launch {
+                PlaybackSettingsManager.getAutoSleepTimer(appContext).collectLatest { autoSleepTimerEnabled = it }
             }
             launch {
                 PlaybackSettingsManager.getRewindInterval(appContext).collectLatest { _rewindInterval.value = it }
@@ -624,6 +660,62 @@ object PlaybackManager {
         isAutoplayTransition: Boolean,
         autoplayRestartFinished: Boolean,
     ): Boolean = (isFinished && (!isAutoplayTransition || autoplayRestartFinished)) || fromBeginning
+
+    /**
+     * Whether a play-intent transition should re-arm the last sleep timer: only a PLAY (not a pause),
+     * only with the Auto Sleep Timer setting on, and never for the play of a load that changed the book
+     * ([isLoadPlay]; iOS `handleAutoTimer` runs `if !autoPlayed`). Pure — pinned by AutoSleepTimerDecisionTest.
+     */
+    internal fun shouldRestartAutoSleepTimer(
+        playWhenReady: Boolean,
+        autoSleepTimerEnabled: Boolean,
+        isLoadPlay: Boolean,
+    ): Boolean = playWhenReady && autoSleepTimerEnabled && !isLoadPlay
+
+    /**
+     * Whether a load plays a book that wasn't loaded (iOS: `load(autoplay: true)` → `play(autoPlayed:
+     * true)`): a library tap on another book, Next, the auto-advance, an Android Auto pick. Playing the
+     * loaded book again (a tap on it, a resume) is the user's play. Pure — pinned by AutoSleepTimerDecisionTest.
+     */
+    internal fun isLoadPlay(autoplay: Boolean, loadingUuid: String, loadedUuid: String?): Boolean =
+        autoplay && loadingUuid != loadedUuid
+
+    /**
+     * The speed a book loads at (iOS `SpeedService.getSpeed` + `LibraryService.getItemSpeed`): the
+     * global speed when Global Speed Control is ON; else the speed of the book's folder when it is in
+     * one ([inFolder]: `item.folder?.speed ?? item.speed`), or the book's own, to 2 decimals. A speed
+     * never set is 1x (iOS stores 1 by default), and so is a non-positive one. Pure — pinned by
+     * SpeedResolutionTest.
+     */
+    internal fun resolveSpeed(
+        globalSpeedControl: Boolean,
+        globalSpeed: Float,
+        itemSpeed: Double?,
+        inFolder: Boolean,
+        folderSpeed: Double?,
+    ): Float {
+        val speed = when {
+            globalSpeedControl -> globalSpeed
+            inFolder -> folderSpeed?.toFloat() ?: 1.0f
+            else -> itemSpeed?.toFloat() ?: 1.0f
+        }
+        // Rounded like a set speed: a stored one can carry float noise (an earlier build's 1.3000001, or
+        // iOS's Float sent as a Double, 1.2999999523)
+        return if (speed > 0f) roundedSpeed(speed).toFloat() else 1.0f
+    }
+
+    /** [resolveSpeed] straight from DataStore, so the launch restore can't race the pref collectors. */
+    private suspend fun speedFor(context: Context, item: LibraryItemEntity): Float {
+        val parentPath = item.relativePath?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() }
+        val folder = parentPath?.let { getRepository(context).getItemByPath(it) }
+        return resolveSpeed(
+            globalSpeedControl = PlaybackSettingsManager.getGlobalSpeedControl(context).first(),
+            globalSpeed = PlaybackSettingsManager.getSpeed(context).first(),
+            itemSpeed = item.speed,
+            inFolder = folder != null,
+            folderSpeed = folder?.speed,
+        )
+    }
 
     /**
      * Remote-streaming gate (iOS parity: `PlayerLoaderService.loadPlayer` throws `fileMissing`): a
@@ -707,7 +799,7 @@ object PlaybackManager {
      * Best-effort audio file extension for picking the chapter parser, from most to least reliable:
      * the item's `relativePath`, then its `originalFileName` (set for external items whose relativePath
      * is null, e.g. AudiobookShelf), then the remote URL's last path segment with any query/fragment
-     * stripped. A streaming URL like `Items/<id>/Download?api_key=...` yields no extension → we fall
+     * stripped. A streaming URL like `Items/<id>/Download` yields no extension → we fall
      * through rather than mis-detecting. Pure (no Android APIs) so it's unit-tested. Lowercased, no dot.
      */
     internal fun audioExtensionFor(item: LibraryItemEntity, url: String): String {
@@ -737,16 +829,20 @@ object PlaybackManager {
                 } else {
                     listOf(item)
                 }
-                var extractedAny = false
-                for (sub in targets) {
+                val pending = targets.filter { sub ->
                     val rp = sub.relativePath
-                    if (rp != null && File(processedDir, rp).exists()) continue           // downloaded → local path handles it
-                    if (repo.getChaptersForBook(sub.uuid).first().isNotEmpty()) continue  // already have chapters
+                    if (rp != null && File(processedDir, rp).exists()) return@filter false          // downloaded → local path handles it
+                    if (repo.getChaptersForBook(sub.uuid).first().isNotEmpty()) return@filter false // already have chapters
                     // Bound the per-process dedup set (clear on overflow — a re-attempt is harmless).
                     if (remoteChapterAttempts.size >= REMOTE_ATTEMPT_CAP) remoteChapterAttempts.clear()
-                    if (!remoteChapterAttempts.add(sub.uuid)) continue                    // attempted this session
-                    val resolved = repo.resolveStreamingUrl(sub)
-                    val url = resolved.remoteURL?.takeIf { it.isNotEmpty() } ?: continue
+                    remoteChapterAttempts.add(sub.uuid)                                             // false: attempted this session
+                }
+                // Playback has just resolved and saved these URLs: only books still without one are looked
+                // up (one lookup for the lot — a streamed volume's books share their server item).
+                repo.resolveStreamingUrls(pending.filter { it.remoteURL.isNullOrEmpty() })
+                var extractedAny = false
+                for (sub in pending) {
+                    val url = sub.remoteURL?.takeIf { it.isNotEmpty() } ?: continue
                     val ext = audioExtensionFor(sub, url)
                     val headers = getHeadersForUri(android.net.Uri.parse(url))
                     val chapters = ChapterExtractionService.extractChapterEntitiesRemote(
@@ -896,9 +992,24 @@ object PlaybackManager {
         val pauseDuration = (System.currentTimeMillis() - lastPauseTime) / 1000 // in seconds
         if (pauseDuration < 2) return // No rewind for very short pauses
 
-        val rewindSecs = (pauseDuration / 10 + 2).coerceAtMost(smartRewindLimit.toLong())
-        player?.seekTo((player?.currentPosition ?: 0) - (rewindSecs * 1000L))
+        val p = player ?: return
+        val wholeBookMs = currentWholeBookMs(p)
+        val chapterStartMs = _currentPlayable.value?.chapterAt(wholeBookMs)?.let { (it.start * 1000).toLong() } ?: 0L
+        val rewindMs = smartRewindMs(pauseDuration, smartRewindLimit, wholeBookMs - chapterStartMs)
+        // The same distance in the controller's own coordinates: it stays inside the chapter, so inside its item
+        if (rewindMs > 0) p.seekTo(p.currentPosition - rewindMs)
         lastPauseTime = 0
+    }
+
+    /**
+     * How far smart rewind goes back after a pause of [pauseSecs]: never past the start of the chapter
+     * playing (iOS `handleSmartRewind`: `min(rewindTimeMin, timeInChapter, timePassed)`). Back in the
+     * previous chapter, an end-of-chapter sleep timer would fire again right after a resume.
+     * Pure — pinned by SmartRewindTest.
+     */
+    internal fun smartRewindMs(pauseSecs: Long, limitSecs: Int, timeInChapterMs: Long): Long {
+        val rewindSecs = (pauseSecs / 10 + 2).coerceAtMost(limitSecs.toLong())
+        return (rewindSecs * 1000L).coerceAtMost(timeInChapterMs.coerceAtLeast(0L))
     }
 
     fun syncLastPlayed(context: Context, item: LibraryItemEntity) {
@@ -931,7 +1042,12 @@ object PlaybackManager {
         isAutoplayTransition: Boolean = false,
     ) {
         lastLoadUserInitiated = autoplay
+        // Cleared again on every path where this load never reaches playback (storage/streaming
+        // block, nothing playable, player error, an explicit pause), so a stalled load can't keep the
+        // user's later play presses from re-arming the auto sleep timer.
+        loadPlayPending = false
         if (autoplay && blockedByStorage()) return
+        loadPlayPending = isLoadPlay(autoplay, item.uuid, _currentItem.value?.uuid)
         // If it's already playing the requested item, just show the player
         if (item.uuid == _currentItem.value?.uuid && player?.isPlaying == true) {
             _showPlayerScreen.value = true
@@ -984,6 +1100,7 @@ object PlaybackManager {
         scope.launch(Dispatchers.Main) {
             if (remoteStreamingBlocked(context, item, processedDir)) {
                 playbackQueuedFlag = false
+                loadPlayPending = false
                 recomputeIsPlaying()
                 _isTransitioning.value = false
                 // Same wording as iOS's BPPlayerError.fileMissing — deliberately does NOT suggest
@@ -995,7 +1112,7 @@ object PlaybackManager {
 
             val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
             // Gather the backing items, back-fill any missing artwork, then build the playback model.
-            val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir)
+            val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir, userInitiated = autoplay)
             if (restartFromZero) {
                 // The refreshed row is a fresh DB read that can race the async reset write above —
                 // re-apply the restart so the seek below can't land on the stale saved position.
@@ -1010,6 +1127,8 @@ object PlaybackManager {
 
             val mediaItems = buildMediaItems(playable, processedDir, headers)
             if (mediaItems.isNotEmpty()) {
+                // This book's speed (per-book unless Global Speed Control is on); applied below.
+                _playbackSpeed.value = speedFor(context, refreshedItem)
                 // Resolve the saved whole-book time into the player coordinate (file + offset) it maps to.
                 val local = if (isBound) {
                     playable.timeline.toLocal((refreshedItem.currentTime * 1000).toLong())
@@ -1032,6 +1151,7 @@ object PlaybackManager {
                 // start, so no state transition would clear the queued intent. Clear it here so the button
                 // doesn't strand on "playing".
                 playbackQueuedFlag = false
+                loadPlayPending = false
                 recomputeIsPlaying()
 
                 // Alerts only for USER-INITIATED plays (autoplay=true). The post-fetch
@@ -1040,12 +1160,13 @@ object PlaybackManager {
                 // hostId E2E: a fresh sign-in on a second device auto-loaded a media-server book
                 // and alerted before the user touched anything). A real tap on the same book
                 // retries with autoplay=true and surfaces the right dialog then.
-                if (autoplay) {
+                // A rejected token is already surfaced by its own alert (refreshRemoteUrlsIfNecessary).
+                if (autoplay && !_externalStreamAuthError.value) {
                     // Cross-device external item with no matching local server: show the
                     // connect-your-server prompt INSTEAD of the generic error (never both).
-                    val missingType = missingExternalServerType(context, refreshedItem, processedDir)
-                    if (missingType != null) {
-                        _missingExternalServer.value = missingType
+                    val missing = missingExternalServerPrompt(context, refreshedItem, processedDir)
+                    if (missing != null) {
+                        _missingExternalServer.value = missing
                     } else {
                         val lastSource = determineLastTriedSource(context, refreshedItem, processedDir)
                         val message = context.getString(R.string.playback_error_cannot_play, lastSource)
@@ -1088,23 +1209,23 @@ object PlaybackManager {
     }
 
     /**
-     * The provider type to prompt "connect your server" for, or null when this isn't that case.
+     * The server to prompt "connect your server" for, or null when this isn't that case.
      * True exactly when the item is a media-server item (non-hardcover resource), has no local
      * audio, and [ExternalServiceUtils.serverForResource] resolves no configured server for its
      * hostId — i.e. playback failed BECAUSE the server this book streams from isn't set up on
      * this device.
      */
-    private suspend fun missingExternalServerType(
+    private suspend fun missingExternalServerPrompt(
         context: Context,
         item: LibraryItemEntity,
         processedDir: File,
-    ): com.tortugapower.audiobookplayer.database.entities.ExternalServiceType? = withContext(Dispatchers.IO) {
+    ): ExternalServiceUtils.MissingServer? = withContext(Dispatchers.IO) {
         val hasLocalFile = item.relativePath?.let { File(processedDir, it).exists() } == true
         val servers = com.tortugapower.audiobookplayer.repository.ExternalServerRepository(
             AppDatabase.getDatabase(context).externalServerDao()
         )
         // Pure decision lives in ExternalServiceUtils (testable without this singleton).
-        ExternalServiceUtils.missingServerPromptType(
+        ExternalServiceUtils.missingServerPrompt(
             servers, item.externalResources, hasLocalFile,
             hasRemoteUrl = !item.remoteURL.isNullOrEmpty(),
         )
@@ -1133,9 +1254,10 @@ object PlaybackManager {
         context: Context,
         item: LibraryItemEntity,
         isBound: Boolean,
-        processedDir: File
+        processedDir: File,
+        userInitiated: Boolean
     ): Pair<PlayableItem, LibraryItemEntity> = withContext(Dispatchers.IO) {
-        val refreshedItem = refreshRemoteUrlsIfNecessary(context, item, isBound, processedDir)
+        val refreshedItem = refreshRemoteUrlsIfNecessary(context, item, isBound, processedDir, userInitiated)
         val p = if (isBound) {
             val subItems = getRepository(context).getItemsInPathSync(refreshedItem.relativePath ?: "")
             val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
@@ -1169,15 +1291,22 @@ object PlaybackManager {
     suspend fun resolveSessionMediaItems(context: Context, path: String): SessionMediaItems? {
         val item = getRepository(context).getItemByPath(path) ?: return null
         if (_currentItem.value?.uuid != item.uuid) updateProgress(context, itemToUpdate = _currentItem.value)
-        if (item.isFinished) {
+        // A browse-play is a MANUAL tap, never an autoplay transition — same rule as playItem (a
+        // finished book restarts from 0:00 regardless of the autoplay-restart preference). Picking
+        // another book is a load, though: its play doesn't re-arm the auto sleep timer (iOS CarPlay).
+        val isLoad = isLoadPlay(autoplay = true, item.uuid, _currentItem.value?.uuid)
+        if (shouldRestartFromZero(item.isFinished, fromBeginning = false, isAutoplayTransition = false, autoplayRestartFinished = autoplayRestartFinished)) {
             item.currentTime = 0.0; item.isFinished = false; item.percentCompleted = 0.0
             getRepository(context).updateItemProgress(item.uuid, 0.0, false)
         }
         val processedDir = File(context.filesDir, "Processed")
         val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
-        val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir)
+        // A browse-play in the car is the user's own pick.
+        val (playable, refreshedItem) = buildPlayableModel(context, item, isBound, processedDir, userInitiated = true)
         val mediaItems = buildMediaItems(playable, processedDir, null)
         if (mediaItems.isEmpty()) return null
+        // Only a pick that resolved loads anything: after a failed one the session keeps the loaded book
+        loadPlayPending = isLoad
 
         _currentItem.value = refreshedItem
         _currentPlayable.value = playable
@@ -1186,6 +1315,7 @@ object PlaybackManager {
                     else BoundTimeline.PlayerPosition(0, (refreshedItem.currentTime * 1000).toLong())
         _positionMs.value = (refreshedItem.currentTime * 1000).toLong()
         PlaybackSettingsManager.setLastItemUuid(context, item.uuid)
+        _playbackSpeed.value = speedFor(context, refreshedItem)
         player?.setPlaybackSpeed(_playbackSpeed.value)
         applyVolume(_volumeBoost.value, _playbackVolume.value)
         return SessionMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
@@ -1216,7 +1346,8 @@ object PlaybackManager {
 
         // Build the playback model (back-filling artwork) and the Media3 playlist.
         val isBound = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND
-        val refreshedItem = refreshRemoteUrlsIfNecessary(appContext, item, isBound, processedDir)
+        // Silent: a restore at launch never raises an alert.
+        val refreshedItem = refreshRemoteUrlsIfNecessary(appContext, item, isBound, processedDir, userInitiated = false)
         val playable = if (isBound) {
             val subItems = getRepository(appContext).getItemsInPathSync(refreshedItem.relativePath ?: "")
             val books = subItems.filter { it.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOOK }
@@ -1236,6 +1367,7 @@ object PlaybackManager {
 
         val mediaItems = buildMediaItems(playable, processedDir)
         if (mediaItems.isNotEmpty()) {
+            val speed = speedFor(appContext, refreshedItem)
             // For a single BOOK the player offset is just the saved whole-book time.
             val local = if (isBound) {
                 playable.timeline.toLocal((refreshedItem.currentTime * 1000).toLong())
@@ -1251,7 +1383,8 @@ object PlaybackManager {
                 mediaController.prepare()
 
                 // Apply speed and volume
-                mediaController.setPlaybackSpeed(_playbackSpeed.value)
+                _playbackSpeed.value = speed
+                mediaController.setPlaybackSpeed(speed)
                 applyVolume(_volumeBoost.value, _playbackVolume.value)
 
                 // Finalize restoration
@@ -1470,7 +1603,7 @@ object PlaybackManager {
 
     /**
      * Step the playback speed to the next preset (wrapping), since Android Auto can't present a speed
-     * picker. Persists it (the settings collector applies it to the player). Returns the new speed.
+     * picker. Applied and persisted by [setPlaybackSpeed]. Returns the new speed.
      */
     fun cyclePlaybackSpeed(context: Context): Float {
         val next = nextSpeedPreset(_playbackSpeed.value)
@@ -1513,6 +1646,7 @@ object PlaybackManager {
         val existing = repository.getBookmarkAtTime(item.uuid, timeSeconds)
         if (existing != null) return BookmarkOutcome.Existed(existing.time)
         repository.addBookmark(BookmarkEntity(bookUuid = item.uuid, time = timeSeconds))
+            ?: return BookmarkOutcome.Failed // the book vanished under the player; nothing was written
         return BookmarkOutcome.Created(timeSeconds)
     }
 
@@ -1536,11 +1670,39 @@ object PlaybackManager {
         }
     }
 
+    /**
+     * Apply [speed] now and persist it, as iOS's `SpeedService.setSpeed` does: on the loaded book and
+     * its folder (synced as metadata updates), so they come back at this speed when Global Speed Control
+     * is off, and as the global speed only while Global Speed Control is on. Debounced: the speed slider
+     * calls this on every drag tick.
+     */
     fun setPlaybackSpeed(context: Context, speed: Float) {
-        scope.launch {
-            PlaybackSettingsManager.setSpeed(context, speed)
+        val rounded = roundedSpeed(speed)
+        val playerSpeed = rounded.toFloat()
+        _playbackSpeed.value = playerSpeed
+        val item = _currentItem.value
+        scope.launch(Dispatchers.Main) {
+            player?.setPlaybackSpeed(playerSpeed)
+            // The loaded entity too, on Main with its other writers: a full-row save of it (a streamed book's
+            // URL refresh) would otherwise put the old speed back
+            item?.speed = rounded
+        }
+        speedPersistJob?.cancel()
+        speedPersistJob = scope.launch(Dispatchers.IO) {
+            delay(SPEED_PERSIST_DEBOUNCE_MS)
+            if (PlaybackSettingsManager.getGlobalSpeedControl(context).first()) {
+                PlaybackSettingsManager.setSpeed(context, playerSpeed)
+            }
+            if (item != null) getRepository(context).updateItemSpeed(item.uuid, rounded)
         }
     }
+
+    /**
+     * [speed] to 2 decimals, as iOS rounds every speed change (`round(speed * 100) / 100`): steps of 0.1
+     * add up to 1.3000001 in Float, which would reach the label, the book's row and the server.
+     * Pure — pinned by SpeedResolutionTest.
+     */
+    fun roundedSpeed(speed: Float): Double = (speed * 100).roundToInt() / 100.0
 
     fun setPlaybackVolume(context: Context, volume: Float) {
         scope.launch {
@@ -1567,7 +1729,41 @@ object PlaybackManager {
         }
     }
 
-    private suspend fun refreshRemoteUrlsIfNecessary(context: Context, item: LibraryItemEntity, isBound: Boolean, processedDir: File): LibraryItemEntity {
+    /**
+     * Saves each not-downloaded sub-book's media-server URL, in one lookup per streamed volume: buildBound
+     * reads sub-books back from the database. Local-only (the URL is never synced). [onSessionExpired] runs
+     * when a server rejects its token. Returns the uuids that got one.
+     */
+    private suspend fun saveSubStreams(
+        context: Context,
+        repo: LibraryRepository,
+        subItems: List<LibraryItemEntity>,
+        processedDir: File,
+        onSessionExpired: (() -> Unit)?,
+    ): Set<String> {
+        val remote = subItems.filter { sub -> sub.relativePath?.let { File(processedDir, it).isFile } != true }
+        val urls = repo.externalStreamUrlsFor(remote, onSessionExpired)
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        urls.forEach { (uuid, url) -> dao.updateRemoteURL(uuid, url) }
+        return urls.keys
+    }
+
+    /**
+     * [userInitiated]: a media server rejecting its stored token while looking up what to stream raises the
+     * same alert as a stream answering 401 — only for loads the user started (silent loads never alert), and
+     * only when nothing else can play the book (a cloud copy plays regardless).
+     */
+    private suspend fun refreshRemoteUrlsIfNecessary(
+        context: Context,
+        item: LibraryItemEntity,
+        isBound: Boolean,
+        processedDir: File,
+        userInitiated: Boolean
+    ): LibraryItemEntity {
+        var lookupRejected = false
+        val onSessionExpired: () -> Unit = { lookupRejected = true }
+        // Whether the BookPlayer cloud copy covers what the media server couldn't.
+        var cloudServed = false
         val repo = getRepository(context)
         val isLocal = if (isBound) {
             val subItems = repo.getItemsInPathSync(item.relativePath ?: "")
@@ -1587,61 +1783,55 @@ object PlaybackManager {
         if (!isLocal) {
             // First resolve external server stream URLs (Jellyfin/Audiobookshelf). One lookup serves
             // both purposes: a non-null URL IS the "a saved server can serve this" signal the
-            // media-server-first branch below keys on (no second server read + token decrypt).
-            val externalUrl = repo.externalStreamUrlFor(item)
+            // media-server-first branch below keys on (no second server read + token decrypt). A bound
+            // book has no file of its own: its sub-books are resolved below.
+            val externalUrl = if (isBound) null else repo.externalStreamUrlsFor(listOf(item), onSessionExpired)[item.uuid]
             val resolvedItem = item.also { if (externalUrl != null) it.remoteURL = externalUrl }
 
             try {
                 if (isBound) {
-                    // Bounded so a slow/unreachable server can't hang playback (OkHttp also has timeouts).
-                    val response = kotlinx.coroutines.withTimeoutOrNull(CONTENTS_FETCH_TIMEOUT_MS) {
-                        NetworkClient.libraryApi.getContents(resolvedItem.relativePath ?: "")
-                    }
-                    if (response != null && response.isSuccessful && response.body() != null) {
-                        val body = response.body()!!
-                        val subItems = repo.getItemsInPathSync(resolvedItem.relativePath ?: "")
-                        val resolvedSubItems = repo.resolveStreamingUrls(subItems)
-                        // Offloaded bound book whose sub-items were never fetched: insert the missing ones
-                        // (subscribed accounts only) so buildBound has a timeline to build. Reuses the same
-                        // upsert as the background contents-sync task.
-                        val syncActive = repo.isCloudSyncActive()
-                        val dao = if (syncActive) AppDatabase.getDatabase(context).libraryDao() else null
-                        val generatedUuids = mutableSetOf<String>()
-                        val upsertedPaths = mutableSetOf<String>()
-                        body.content.forEach { remoteSub ->
-                            val localSub = resolvedSubItems.find { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }
-                            if (localSub != null) {
-                                if (!remoteSub.remoteURL.isNullOrEmpty()) {
-                                    localSub.remoteURL = remoteSub.remoteURL
-                                    if (!remoteSub.artworkURL.isNullOrEmpty()) {
-                                        localSub.artworkURL = remoteSub.artworkURL
+                    val dao = AppDatabase.getDatabase(context).libraryDao()
+                    cloudServed = VolumeUrlRefresh(
+                        // Bounded so a slow/unreachable server can't hang playback (OkHttp also has timeouts).
+                        fetchContents = { path ->
+                            kotlinx.coroutines.withTimeoutOrNull(CONTENTS_FETCH_TIMEOUT_MS) {
+                                NetworkClient.libraryApi.getContents(path)
+                            }?.takeIf { it.isSuccessful }?.body()
+                        },
+                        insertMissing = { path, contents ->
+                            // Offloaded bound book whose sub-items were never fetched: insert the missing ones
+                            // (subscribed accounts only) so buildBound has a timeline to build. Reuses the same
+                            // upsert as the background contents-sync task.
+                            if (repo.isCloudSyncActive()) {
+                                val known = repo.getItemsInPathSync(path)
+                                val generatedUuids = mutableSetOf<String>()
+                                val upsertedPaths = mutableSetOf<String>()
+                                contents.content.forEach { remoteSub ->
+                                    if (known.none { it.uuid == remoteSub.uuid || it.relativePath == remoteSub.relativePath }) {
+                                        // skipParentUpdate: recomputing the parent chain once per sub-item is
+                                        // O(items × siblings) DB round-trips during playback load AND transiently
+                                        // rewrites the playing bound book's own progress fields mid-load. One
+                                        // batch recompute below covers every inserted item (same shape as
+                                        // FetchContentsProcessor).
+                                        LibraryContentsSync.upsertItem(dao, null, remoteSub, generatedUuids, skipParentUpdate = true)
+                                        upsertedPaths.add(remoteSub.relativePath)
                                     }
-                                    repo.updateItem(localSub)
                                 }
-                            } else if (dao != null) {
-                                // skipParentUpdate: recomputing the parent chain once per sub-item is
-                                // O(items × siblings) DB round-trips during playback load AND transiently
-                                // rewrites the playing bound book's own progress fields mid-load. One
-                                // batch recompute below covers every inserted item (same shape as
-                                // FetchContentsProcessor).
-                                LibraryContentsSync.upsertItem(dao, null, remoteSub, generatedUuids, skipParentUpdate = true)
-                                upsertedPaths.add(remoteSub.relativePath)
+                                if (upsertedPaths.isNotEmpty()) {
+                                    LibraryContentsSync.updateParentFoldersBatch(dao, upsertedPaths)
+                                }
                             }
-                        }
-                        if (dao != null && upsertedPaths.isNotEmpty()) {
-                            LibraryContentsSync.updateParentFoldersBatch(dao, upsertedPaths)
-                        }
-                        android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
-                    } else {
-                        // Fallback: save resolved sub-book URLs to DB
-                        val subItems = repo.getItemsInPathSync(resolvedItem.relativePath ?: "")
-                        val resolvedSubItems = repo.resolveStreamingUrls(subItems)
-                        resolvedSubItems.forEach { repo.updateItem(it) }
-                    }
+                        },
+                        booksIn = { path -> repo.getItemsInPathSync(path) },
+                        saveStreams = { books -> saveSubStreams(context, repo, books, processedDir, onSessionExpired) },
+                        saveBook = { book -> repo.updateItem(book) },
+                        isDownloaded = { book -> book.relativePath?.let { File(processedDir, it).isFile } == true },
+                    ).refresh(resolvedItem.relativePath ?: "")
+                    android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
                 } else if (!resolvedItem.remoteURL.isNullOrEmpty()) {
                     // Media-server-first: refresh the BookPlayer presigned URL only when no saved
-                    // Jellyfin/ABS server can serve the item — that's how a piped stream item plays from
-                    // its cloud copy on a device without the server configured, while devices WITH the
+                    // Jellyfin/ABS server can serve the item — that's how a streamed book whose file is in
+                    // the cloud plays from it on a device without the server configured, while devices WITH the
                     // server keep streaming from it (LAN speed, zero S3 egress).
                     if (externalUrl == null) {
                         // Only query Bookplayer API signed URLs if it's not a Jellyfin/Audiobookshelf item
@@ -1658,6 +1848,7 @@ object PlaybackManager {
                                     resolvedItem.artworkURL = remoteItem.artworkURL
                                 }
                                 repo.updateItem(resolvedItem)
+                                cloudServed = true
                                 android.util.Log.d("PlaybackManager", "✅ Refreshed remote URL for single item: ${resolvedItem.title}")
                             }
                         }
@@ -1670,6 +1861,7 @@ object PlaybackManager {
                 repo.updateItem(resolvedItem)
                 android.util.Log.e("PlaybackManager", "❌ Failed to refresh remote URL(s): ${e.message}")
             }
+            if (reportsStreamAuthError(userInitiated, lookupRejected, cloudServed)) reportExternalStreamAuthError()
         }
         return repo.getItemById(item.uuid) ?: item
     }

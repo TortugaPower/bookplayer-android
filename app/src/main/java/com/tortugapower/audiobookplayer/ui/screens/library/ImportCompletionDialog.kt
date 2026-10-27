@@ -35,12 +35,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ItemType
+import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.ImportCompletion
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
 
 /**
  * Post-import placement prompt (BookPlayer iOS parity). Offers, per the imported batch:
- * - Library: leave items where they were inserted (default; also the dismiss action)
+ * - Library: the library root; imported inside a folder, the items move there (iOS parity)
  * - Current folder: only when the user is inside a folder
  * - New folder: name input pre-filled with the batch's suggested name
  * - Existing folder: disabled when no other folders exist at the insertion level
@@ -75,7 +76,7 @@ fun ImportCompletionDialog(
             title = stringResource(R.string.library_create_folder_title),
             label = stringResource(R.string.library_folder_name_label),
             initialValue = completion.suggestedName,
-            existingNames = destinationFolders.map { it.title },
+            existingNames = newFolderTakenNames(completion, destinationFolders),
             onConfirm = { name ->
                 libraryViewModel.createFolderAndMoveItems(context, name, completion.items, completion.basePath)
                 onDismiss()
@@ -138,7 +139,7 @@ fun ImportCompletionDialog(
     }
 
     AlertDialog(
-        // Dismiss = "Library": the items stay where they were inserted.
+        // Dismissing leaves the items where they were inserted.
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.import_complete_title)) },
         text = {
@@ -146,7 +147,13 @@ fun ImportCompletionDialog(
                 Text(stringResource(R.string.import_complete_message))
                 Spacer(modifier = Modifier.height(8.dp))
 
-                CompletionOption(text = stringResource(R.string.import_option_library), onClick = onDismiss)
+                CompletionOption(
+                    text = stringResource(R.string.import_option_library),
+                    onClick = {
+                        libraryViewModel.moveImportToLibrary(context, completion)
+                        onDismiss()
+                    }
+                )
 
                 if (currentFolderPath != null) {
                     CompletionOption(
@@ -187,6 +194,14 @@ fun ImportCompletionDialog(
         confirmButton = {}
     )
 }
+
+/**
+ * Names a new folder at the insertion level can't take: the other folders there, and what was just imported.
+ * A downloaded volume sits at its own name's path (the suggested name), and a folder at that path would
+ * have the volume moved into itself.
+ */
+internal fun newFolderTakenNames(completion: ImportCompletion, destinationFolders: List<LibraryItemEntity>): List<String> =
+    destinationFolders.map { it.title } + completion.items.mapNotNull { it.relativePath?.substringAfterLast('/') }
 
 @Composable
 private fun CompletionOption(text: String, enabled: Boolean = true, onClick: () -> Unit) {

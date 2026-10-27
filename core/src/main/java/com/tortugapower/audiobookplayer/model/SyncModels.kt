@@ -52,19 +52,6 @@ data class ArtworkResponse(
     @SerializedName("thumbnail_url") val thumbnailURL: String
 )
 
-/**
- * `POST /v1/library/external_set` — request a presigned PUT URL for an external item's source file
- * (`{uuid}` → [url]), or confirm the upload (`{uuid, uploaded: true}` → [uploaded], empty [url]).
- */
-data class ExternalSetResponse(
-    @SerializedName("url") val url: String?,
-    @SerializedName("uploaded") val uploaded: Boolean?
-)
-
-data class IdentifiersResponse(
-    @SerializedName("content") val content: List<String>
-)
-
 data class MatchUuidsResponse(
     @SerializedName("applied") val applied: List<String>,
     @SerializedName("conflicts") val conflicts: List<ItemConflict>
@@ -73,4 +60,34 @@ data class MatchUuidsResponse(
 data class ItemConflict(
     @SerializedName("key") val key: String, // Maps to the local sent "uuid" (our key in the map)
     @SerializedName("uuid") val uuid: String // Maps to the authoritative server uuid
+)
+
+/**
+ * `POST /v1/library/status`. [unknown]: uuids the server has no row for, deleted or not. [unsynced]: books
+ * the server holds no file for. A uuid in neither is fine, or deleted on the server. Nullable because Gson
+ * fills a missing key with null: a reply without both lists is malformed, never "nothing to do".
+ */
+data class ItemsStatusResponse(
+    @SerializedName("unknown") val unknown: List<String>?,
+    @SerializedName("unsynced") val unsynced: List<String>?,
+)
+
+/**
+ * `GET /v1/library/bookmarks` (iOS `BookmarksResponse`): the server wraps the rows in a `bookmarks`
+ * object, it is NOT a bare array. Each row is `{title, key, note, time, active}` — `time` is the whole
+ * seconds the client uploaded (set_bookmark rounds), `key` the item's relativePath. No uuid comes back.
+ */
+data class BookmarksResponse(
+    @SerializedName("bookmarks") val bookmarks: List<SyncableBookmark>
+)
+
+data class SyncableBookmark(
+    @SerializedName("title") val title: String? = null,
+    @SerializedName("key") val key: String?,
+    @SerializedName("time") val time: Double,
+    @SerializedName("note") val note: String?,
+    // Deletes are soft (set_bookmark with active=false). The server's query already joins on
+    // `b.active = true` (LibraryDB.getBookmarks), so inactive rows are not expected here; the merge
+    // still skips them defensively so a bookmark deleted on this device can never be re-inserted.
+    @SerializedName("active") val active: Boolean? = null
 )

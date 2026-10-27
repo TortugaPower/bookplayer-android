@@ -12,6 +12,7 @@ import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.core.R
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
+import com.tortugapower.audiobookplayer.logic.MediaServerStreams
 import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -248,9 +249,16 @@ class RoomLibraryRepository(
         }
     }
 
-    override suspend fun moveItems(context: Context, items: List<LibraryItemEntity>, targetFolderPath: String?) {
+    /** Whether moving [item] to [newPath] would land on another library item or a file already there. */
+    private suspend fun nameTaken(item: LibraryItemEntity, newPath: String, processedDir: File): Boolean =
+        newPath != item.relativePath &&
+            // A streamed item has no file, so ask the library too.
+            (libraryDao.getItemByPath(newPath).let { it != null && it.uuid != item.uuid } || File(processedDir, newPath).exists())
+
+    override suspend fun moveItems(context: Context, items: List<LibraryItemEntity>, targetFolderPath: String?): List<LibraryItemEntity> =
         withContext(Dispatchers.IO) {
             val processedDir = File(context.filesDir, "Processed")
+            val notMoved = mutableListOf<LibraryItemEntity>()
             
             // Get current max order rank in target folder
             var currentMaxRank = if (targetFolderPath == null) libraryDao.getMaxRootOrderRank() 
@@ -265,6 +273,11 @@ class RoomLibraryRepository(
                 // 1. Move physical file
                 val oldFile = File(processedDir, oldPath)
                 val newFile = File(processedDir, newPath)
+
+                if (nameTaken(item, newPath, processedDir)) {
+                    notMoved += item
+                    return@forEach
+                }
                 
                 // Ensure parent directory exists
                 newFile.parentFile?.let { if (!it.exists()) it.mkdirs() }
@@ -273,11 +286,16 @@ class RoomLibraryRepository(
                     oldFile.renameTo(newFile)
                 }
                 
-                // 2. Update DB record by mutating the existing reference
+                // 2. Update the stored row, not the caller's copy: that copy can be stale (the import prompt's
+                // batch while a Hardcover match set its artwork), and saving it whole would undo the change.
+                // The caller's copy gets the new place too: callers read it (SyncingLibraryRepository's move task).
                 val previousPath = item.relativePath
-                item.relativePath = newPath
-                item.orderRank = nextRank++
-                libraryDao.updateItem(item)
+                val stored = libraryDao.getItemById(item.uuid) ?: item
+                stored.relativePath = newPath
+                stored.orderRank = nextRank++
+                libraryDao.updateItem(stored)
+                item.relativePath = stored.relativePath
+                item.orderRank = stored.orderRank
 
                 // Moving a container also moves everything under it on disk (the renameTo above),
                 // so every DESCENDANT row's path must be rewritten to the new prefix — otherwise
@@ -293,20 +311,31 @@ class RoomLibraryRepository(
                 updateParentFolders(previousPath)
                 updateParentFolders(newPath)
             }
+            notMoved
         }
-    }
 
     override suspend fun shallowDeleteFolder(context: Context, folder: LibraryItemEntity) {
         withContext(Dispatchers.IO) {
             val folderPath = folder.relativePath ?: return@withContext
             val processedDir = File(context.filesDir, "Processed")
 
-            // Move DIRECT children back to the library root. moveItems handles the file move, the
-            // child row's path, and parent recomputes — but not the DB paths of a moved
-            // sub-container's descendants, so rewrite those prefixes here.
-            // moveItems handles files, the child rows, AND (now) descendant-path rewriting for
-            // moved sub-containers.
-            moveItems(context, libraryDao.getItemsInPathSync(folderPath), targetFolderPath = null)
+            // Move DIRECT children up into the folder's parent (the root for a top-level folder), as iOS does
+            // (moveItems inside item.parentFolder) and as the server's folder_in_out does (moveFilesUp): the
+            // root would leave this device's library out of step with the server's. moveItems handles files,
+            // the child rows, and descendant-path rewriting for moved sub-containers.
+            val parentPath = folderPath.substringBeforeLast('/', "").takeIf { it.isNotEmpty() }
+            val children = libraryDao.getItemsInPathSync(folderPath)
+            // iOS parity: a child whose name is taken in the parent refuses the whole delete. Moved anyway, it
+            // would land on that item (a file move replaces the other book's audio); left behind, it would be
+            // deleted with the folder.
+            val taken = children.count { child ->
+                val name = child.relativePath!!.substringAfterLast('/')
+                nameTaken(child, if (parentPath == null) name else "$parentPath/$name", processedDir)
+            }
+            if (taken > 0) throw NameTakenException(taken)
+            // Nothing is taken, so nothing stays behind (barring a race, which keeps the folder).
+            val notMoved = moveItems(context, children, targetFolderPath = parentPath)
+            if (notMoved.isNotEmpty()) throw NameTakenException(notMoved.size)
 
             // The folder is now empty: remove its directory and its row.
             File(processedDir, folderPath).takeIf { it.exists() }?.deleteRecursively()
@@ -437,14 +466,25 @@ class RoomLibraryRepository(
     override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? =
         libraryDao.getBookmarkAtTime(bookUuid, time)
 
-    override suspend fun addBookmark(bookmark: BookmarkEntity): Long =
-        libraryDao.insertBookmark(bookmark)
+    override suspend fun addBookmark(bookmark: BookmarkEntity): Long? =
+        libraryDao.insertBookmarkIfBookExists(bookmark)
 
     override suspend fun updateBookmark(bookmark: BookmarkEntity) =
         libraryDao.updateBookmark(bookmark)
 
     override suspend fun deleteBookmark(bookmark: BookmarkEntity) =
         libraryDao.deleteBookmark(bookmark)
+
+    // Cloud-only behavior lives in SyncingLibraryRepository; the plain Room repository has no server.
+    override suspend fun syncBookmarksFromCloud(item: LibraryItemEntity): Boolean = false
+
+    override suspend fun updateItemSpeed(uuid: String, speed: Double) {
+        withContext(Dispatchers.IO) {
+            libraryDao.updateItemSpeed(uuid, speed)
+            val parentPath = libraryDao.getItemById(uuid)?.relativePath?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() }
+            parentPath?.let { libraryDao.getItemByPath(it) }?.let { libraryDao.updateItemSpeed(it.uuid, speed) }
+        }
+    }
 
     override fun getChaptersForBook(bookUuid: String) =
         libraryDao.getChaptersForBook(bookUuid)
@@ -483,7 +523,9 @@ class RoomLibraryRepository(
             if (currentIndex == -1) return@withContext null
 
             val targetIndex = if (next) currentIndex + 1 else currentIndex - 1
-            resolveRemoteUrlInRuntime(orderedSiblings.getOrNull(targetIndex))
+            // Not resolved to a stream URL: callers only check for a neighbor or hand it to playItem, which
+            // resolves before playing — and resolving an AudiobookShelf book asks its server.
+            orderedSiblings.getOrNull(targetIndex)?.let { getItemById(it.uuid) ?: it }
         }
     }
 
@@ -519,31 +561,38 @@ class RoomLibraryRepository(
         return item
     }
 
-    override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? {
-        try {
-            val extResource = item.externalResources.find { it.syncStatus == ExternalResourceEntity.STATUS_STREAM || it.syncStatus == ExternalResourceEntity.STATUS_DOWNLOADED }
-                ?: return null
-            // Through the repository, not the DAO: stored credentials are encrypted at rest, and this
-            // token travels in the download URL/auth.
+    override suspend fun isStreamedMediaServerBook(uuid: String): Boolean = withContext(Dispatchers.IO) {
+        MediaServerStreams.isStreamed(uuid, libraryDao)
+    }
+
+    override suspend fun externalStreamUrlFor(item: LibraryItemEntity): String? =
+        externalStreamUrlsFor(listOf(item))[item.uuid]
+
+    override suspend fun externalStreamUrlsFor(items: List<LibraryItemEntity>, onSessionExpired: (() -> Unit)?): Map<String, String> {
+        if (items.isEmpty()) return emptyMap()
+        return try {
+            // Through the repository, not the DAO: stored credentials are encrypted at rest, and the token
+            // authenticates the lookup and the stream.
             val servers = ExternalServerRepository(
                 com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context).externalServerDao()
             )
-            val server = ExternalServiceUtils.serverForResource(servers, extResource) ?: return null
-            return ExternalServiceUtils.downloadUrlFor(server, extResource)
+            val lookup = MediaServerStreams.lookUp(items, libraryDao, servers)
+            if (lookup.sessionExpired) onSessionExpired?.invoke()
+            lookup.urls
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("RoomLibraryRepository", "Error resolving remote URL in runtime", e)
-            return null
+            emptyMap()
         }
     }
 
     override suspend fun resolveStreamingUrls(items: List<LibraryItemEntity>): List<LibraryItemEntity> {
-        items.forEach { resolveStreamingUrl(it) }
+        val processedDir = File(context.filesDir, "Processed")
+        val remote = items.filter { item -> item.relativePath?.let { File(processedDir, it).isFile } != true }
+        val urls = externalStreamUrlsFor(remote)
+        remote.forEach { item -> urls[item.uuid]?.let { item.remoteURL = it } }
         return items
     }
 
-    private suspend fun resolveRemoteUrlInRuntime(item: LibraryItemEntity?): LibraryItemEntity? {
-        if (item == null) return null
-        val fullItem = getItemById(item.uuid) ?: item
-        return resolveStreamingUrl(fullItem)
-    }
 }

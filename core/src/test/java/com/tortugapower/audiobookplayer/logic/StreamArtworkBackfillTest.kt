@@ -38,6 +38,19 @@ class StreamArtworkBackfillTest {
         assertEquals("Bearer tok-1", headers?.get("Authorization"))
     }
 
+    // A persisted illegal header (BOOKPLAYER-B: a Cyrillic name) throws on addHeader and failed every
+    // backfill; a custom Authorization must not replace the provider's token.
+    @Test fun customHeaders_areSanitized() {
+        val (_, headers) = StreamArtworkBackfill.artworkRequestFor(
+            server(ExternalServiceType.JELLYFIN).copy(
+                customHeaders = mapOf("Заголовок" to "x", "CF-Access-Client-Id" to "cf-id", "Authorization" to "Basic custom"),
+            ),
+            resource("jellyfin"),
+        )!!
+
+        assertEquals(mapOf("CF-Access-Client-Id" to "cf-id", "Authorization" to "MediaBrowser Token=\"tok-1\""), headers)
+    }
+
     @Test fun unknownProvider_yieldsNull() {
         assertNull(
             StreamArtworkBackfill.artworkRequestFor(server(ExternalServiceType.JELLYFIN), resource("plex"))

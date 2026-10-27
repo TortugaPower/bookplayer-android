@@ -211,14 +211,12 @@
     <string name="sync_task_fetch_library">Recupera libreria</string>
     <string name="sync_task_upload_audio">Carica audio</string>
     <string name="sync_task_download_audio">Scarica audio</string>
-    <string name="sync_task_sync_identifiers">Sincronizza identificatori</string>
     <string name="sync_task_match_library_ids">Corrispondenza ID libreria</string>
     <string name="sync_task_upload_external_resource">Carica risorsa esterna</string>
     <string name="sync_task_delete_external_resource">Elimina risorsa esterna</string>
     <string name="sync_task_hardcover_auto_match">Associazione automatica Hardcover</string>
     <string name="sync_task_hardcover_update_status">Aggiorna stato Hardcover</string>
     <string name="sync_task_external_update">Aggiornamento stato esterno</string>
-    <string name="sync_task_set_external_resource_to_download">Stato download risorsa esterna</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">PANORAMICA</string>
@@ -437,4 +435,17 @@
     <string name="settings_disable_autolock">Disattiva blocco automatico</string>
     <string name="settings_autolock_only_on_power">Solo sotto carica</string>
     <string name="settings_autolock_desc">Impedisce il blocco del dispositivo quando si è nella schermata del lettore.</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">Server non connesso</string>
+    <string name="external_server_missing_message">Questo libro viene riprodotto in streaming dal tuo server %1$s. Connettilo su questo dispositivo per riprodurre il libro.</string>
+    <string name="external_server_missing_message_address">Questo libro viene riprodotto in streaming dal tuo server %1$s all\'indirizzo %2$s. Aggiungi quel server su questo dispositivo per riprodurre il libro.</string>
+    <string name="external_server_missing_connect">Connetti</string>
+    <plurals name="library_move_name_taken">
+        <item quantity="one">%1$d elemento non è stato spostato: nella destinazione ce n\'è già uno con lo stesso nome.</item>
+        <item quantity="other">%1$d elementi non sono stati spostati: nella destinazione ce ne sono già altri con gli stessi nomi.</item>
+    </plurals>
+    <plurals name="library_shallow_delete_name_taken">
+        <item quantity="one">La cartella non è stata eliminata: %1$d elemento al suo interno ha lo stesso nome di uno nella libreria. Prima rinominalo o spostalo.</item>
+        <item quantity="other">La cartella non è stata eliminata: %1$d elementi al suo interno hanno gli stessi nomi di altri nella libreria. Prima rinominali o spostali.</item>
+    </plurals>
 </resources>

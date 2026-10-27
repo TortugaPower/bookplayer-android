@@ -211,14 +211,12 @@
     <string name="sync_task_fetch_library">Получить библиотеку</string>
     <string name="sync_task_upload_audio">Загрузить аудио</string>
     <string name="sync_task_download_audio">Скачать аудио</string>
-    <string name="sync_task_sync_identifiers">Синхронизировать идентификаторы</string>
     <string name="sync_task_match_library_ids">Сопоставить ID библиотеки</string>
     <string name="sync_task_upload_external_resource">Загрузить внешний ресурс</string>
     <string name="sync_task_delete_external_resource">Удалить внешний ресурс</string>
     <string name="sync_task_hardcover_auto_match">Автоматическое сопоставление Hardcover</string>
     <string name="sync_task_hardcover_update_status">Обновить статус Hardcover</string>
     <string name="sync_task_external_update">Обновление внешнего статуса</string>
-    <string name="sync_task_set_external_resource_to_download">Статус загрузки внешнего ресурса</string>
 
     <!-- Profile Stats -->
     <string name="profile_overview">ОБЗОР</string>
@@ -443,4 +441,21 @@
     <string name="settings_disable_autolock">Отключить автоблокировку</string>
     <string name="settings_autolock_only_on_power">Только при подключении к сети</string>
     <string name="settings_autolock_desc">Предотвращать блокировку устройства на экране плеера.</string>
+    <!-- Cross-device media-server book whose server isn't configured on this device -->
+    <string name="external_server_missing_title">Сервер не подключён</string>
+    <string name="external_server_missing_message">Эта книга транслируется с вашего сервера %1$s. Подключите его на этом устройстве, чтобы воспроизвести книгу.</string>
+    <string name="external_server_missing_message_address">Эта книга транслируется с вашего сервера %1$s по адресу %2$s. Добавьте этот сервер на этом устройстве, чтобы воспроизвести книгу.</string>
+    <string name="external_server_missing_connect">Подключиться</string>
+    <plurals name="library_move_name_taken">
+        <item quantity="one">%1$d элемент не перемещён: там уже есть элемент с таким же именем.</item>
+        <item quantity="few">%1$d элемента не перемещены: там уже есть элементы с такими же именами.</item>
+        <item quantity="many">%1$d элементов не перемещено: там уже есть элементы с такими же именами.</item>
+        <item quantity="other">%1$d элемента не перемещено: там уже есть элементы с такими же именами.</item>
+    </plurals>
+    <plurals name="library_shallow_delete_name_taken">
+        <item quantity="one">Папка не удалена: в ней %1$d элемент с таким же именем, как у элемента в библиотеке. Сначала переименуйте или переместите его.</item>
+        <item quantity="few">Папка не удалена: в ней %1$d элемента с такими же именами, как у элементов в библиотеке. Сначала переименуйте или переместите их.</item>
+        <item quantity="many">Папка не удалена: в ней %1$d элементов с такими же именами, как у элементов в библиотеке. Сначала переименуйте или переместите их.</item>
+        <item quantity="other">Папка не удалена: в ней %1$d элемента с такими же именами, как у элементов в библиотеке. Сначала переименуйте или переместите их.</item>
+    </plurals>
 </resources>

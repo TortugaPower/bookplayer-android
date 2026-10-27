@@ -1,21 +1,11 @@
 package com.tortugapower.audiobookplayer.network
 
 import com.tortugapower.audiobookplayer.model.*
-import okhttp3.RequestBody
 import retrofit2.Response
 import retrofit2.http.*
 
 @JvmSuppressWildcards
 interface LibraryApi {
-    @PUT
-    suspend fun uploadFile(
-        @Url url: String,
-        @Body file: RequestBody
-    ): Response<Unit>
-
-    @GET("/v1/library/keys")
-    suspend fun getSyncedIdentifiers(): Response<IdentifiersResponse>
-
     @GET("/v1/library")
     suspend fun getContents(
         @Query("relativePath") path: String,
@@ -49,11 +39,12 @@ interface LibraryApi {
     @HTTP(method = "DELETE", path = "/v1/library/folder_in_out", hasBody = true)
     suspend fun shallowDeleteFolder(@Body params: Map<String, Any?>): Response<Unit>
 
+    // The server filters by uuid when it is a valid UUID (ours always are), else by relativePath.
     @GET("/v1/library/bookmarks")
     suspend fun getBookmarks(
         @Query("relativePath") path: String,
         @Query("uuid") uuid: String?
-    ): Response<List<Map<String, Any>>>
+    ): Response<com.tortugapower.audiobookplayer.model.BookmarksResponse>
 
     @PUT("/v1/library/bookmark")
     suspend fun setBookmark(@Body params: Map<String, Any?>): Response<Unit>
@@ -64,15 +55,14 @@ interface LibraryApi {
     @POST("/v1/library/uuids")
     suspend fun matchUuids(@Body params: Map<String, Any?>): Response<MatchUuidsResponse>
 
+    // `{uuids: [...]}`: which of this device's items the server doesn't know, and which of its books it
+    // holds no file for (bookplayer-api docs/multipart-uploads.md, the missing-items pass)
+    @POST("/v1/library/status")
+    suspend fun itemsStatus(@Body params: Map<String, Any?>): Response<ItemsStatusResponse>
+
     @PUT("/v1/library/external")
     suspend fun uploadExternalResource(@Body params: Map<String, Any?>): Response<Unit>
 
     @HTTP(method = "DELETE", path = "/v1/library/external", hasBody = true)
     suspend fun deleteExternalResource(@Body params: Map<String, Any?>): Response<Unit>
-
-    // Dual-purpose (see ExternalSetResponse): `{uuid}` requests a presigned PUT URL for the item's
-    // source file; `{uuid, uploaded: true}` confirms the upload (server flips the external resource
-    // to "downloaded" and the item to synced=true atomically).
-    @POST("/v1/library/external_set")
-    suspend fun setExternalResourceToDownload(@Body params: Map<String, Any?>): Response<ExternalSetResponse>
 }

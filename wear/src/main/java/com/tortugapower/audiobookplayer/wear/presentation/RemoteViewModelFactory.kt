@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.tortugapower.audiobookplayer.wear.data.DataLayerRemoteContextRepository
+import com.tortugapower.audiobookplayer.wear.data.WearPhoneApp
 import com.tortugapower.audiobookplayer.wear.data.WearRemoteClient
 
 /**
@@ -18,6 +19,7 @@ class RemoteViewModelFactory(private val application: Application) : ViewModelPr
             return RemoteViewModel(
                 DataLayerRemoteContextRepository(application),
                 WearRemoteClient(application),
+                WearPhoneApp(application),
             ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")

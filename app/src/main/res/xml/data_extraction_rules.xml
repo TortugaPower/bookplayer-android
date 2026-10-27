@@ -4,16 +4,11 @@
    for details.
 -->
 <data-extraction-rules>
+    <!-- The library sync's state (SyncStateStore): a restored install must sync like a fresh one -->
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="file" path="datastore/sync_state.preferences_pb"/>
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="file" path="datastore/sync_state.preferences_pb"/>
     </device-transfer>
-    -->
 </data-extraction-rules>

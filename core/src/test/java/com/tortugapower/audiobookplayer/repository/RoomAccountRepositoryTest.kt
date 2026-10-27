@@ -29,6 +29,11 @@ class RoomAccountRepositoryTest {
         override suspend fun getAccount(): AccountEntity? = stored
         override suspend fun saveAccount(account: AccountEntity) { stored = account }
         override suspend fun deleteAccount() { stored = null }
+        override suspend fun updateTier(tier: AccountTier): Int {
+            val current = stored ?: return 0
+            stored = current.copy(tier = tier)
+            return 1
+        }
     }
 
     private val dao = FakeAccountDao()

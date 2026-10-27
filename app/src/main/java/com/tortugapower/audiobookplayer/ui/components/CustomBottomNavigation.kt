@@ -47,10 +47,9 @@ sealed class Screen(
         icon = { Icon(Icons.Default.Person, contentDescription = stringResource(R.string.profile_title)) },
     ) {
         override fun isSelected(currentRoute: String?): Boolean {
-            return currentRoute == route || 
-                   currentRoute == "accountDetails" || 
-                   currentRoute == "queuedTasks" || 
-                   currentRoute?.startsWith("taskDetail/") == true
+            return currentRoute == route ||
+                   currentRoute == "accountDetails" ||
+                   currentRoute == "queuedTasks"
         }
     }
 

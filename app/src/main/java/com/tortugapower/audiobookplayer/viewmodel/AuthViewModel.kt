@@ -76,15 +76,8 @@ class AuthViewModel(
      * silently dropped the server's guidance (e.g. "an account with this email already exists")
      * and surfaced a bare status code instead.
      */
-    private fun <T> parseServerError(response: retrofit2.Response<T>): Pair<String?, String?> {
-        val raw = runCatching { response.errorBody()?.string() }.getOrNull() ?: return null to null
-        return runCatching {
-            val obj = gson.fromJson(raw, com.google.gson.JsonObject::class.java)
-            val message = obj.get("message")?.takeIf { it.isJsonPrimitive }?.asString
-            val code = obj.get("error")?.takeIf { it.isJsonPrimitive }?.asString
-            message to code
-        }.getOrDefault(null to null)
-    }
+    private fun <T> parseServerError(response: retrofit2.Response<T>): Pair<String?, String?> =
+        com.tortugapower.audiobookplayer.network.ApiError.parse(response).let { it.message to it.code }
 
     fun onEmailContinue(context: Context) {
         validationError = null
@@ -408,7 +401,9 @@ class AuthViewModel(
             email = response.email,
             apiToken = response.token,
             revenuecatId = response.revenuecatId,
-            tier = if (response.hasSubscription) AccountTier.PRO else AccountTier.FREE
+            // The server's flag doesn't tell PRO from LITE: RevenueCat's reading sets the tier, and a guessed PRO
+            // would start the first sync's file uploads for a LITE account. Only builds without RevenueCat guess.
+            tier = if (response.hasSubscription && !SubscriptionManager.isConfigured) AccountTier.PRO else AccountTier.FREE
         )
     }
 

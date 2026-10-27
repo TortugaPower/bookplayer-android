@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.ui.screens.player
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
@@ -26,8 +27,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -50,12 +58,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tortugapower.audiobookplayer.R
+import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
+import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import com.tortugapower.audiobookplayer.viewmodel.PlayerViewModel
@@ -65,6 +81,7 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.ui.graphics.vector.ImageVector
 import android.content.Intent
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -218,6 +235,13 @@ fun BookmarksListSheet(
 ) {
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     val sheetState = rememberModalBottomSheetState()
+    var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
+    // A confirmed delete keeps its row swiped away until Room drops it from the list; snapping it back
+    // first would slide it in, then make it vanish.
+    var confirmedDeleteId by remember { mutableStateOf<Long?>(null) }
+
+    // iOS parity: opening the list refreshes it from the cloud (a no-op without an active sync account).
+    LaunchedEffect(Unit) { viewModel.refreshBookmarksFromCloud() }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -265,36 +289,147 @@ fun BookmarksListSheet(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(bookmarks) { bookmark ->
-                    Surface(
-                        onClick = { viewModel.seekToBookmark(bookmark) },
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .padding(16.dp)
-                                .fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = formatTime((bookmark.time * 1000).toLong()),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (bookmark.note != null && bookmark.note!!.isNotEmpty()) {
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    text = bookmark.note!!,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1
-                                )
+                items(bookmarks, key = { it.id }) { bookmark ->
+                    BookmarkRow(
+                        bookmark = bookmark,
+                        pendingDelete = bookmarkToDelete?.id == bookmark.id || confirmedDeleteId == bookmark.id,
+                        onSeek = { viewModel.seekToBookmark(bookmark) },
+                        onEditNote = { viewModel.editBookmarkNote(bookmark) },
+                        onRequestDelete = { bookmarkToDelete = bookmark }
+                    )
+                }
+            }
+        }
+    }
+
+    bookmarkToDelete?.let { bookmark ->
+        AlertDialog(
+            onDismissRequest = { bookmarkToDelete = null },
+            title = {
+                Text(stringResource(R.string.player_bookmark_delete_title, formatTime((bookmark.time * 1000).toLong())))
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmedDeleteId = bookmark.id
+                    viewModel.deleteBookmark(bookmark)
+                    bookmarkToDelete = null
+                }) { Text(stringResource(R.string.common_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { bookmarkToDelete = null }) { Text(stringResource(R.string.common_cancel)) }
+            }
+        )
+    }
+}
+
+/**
+ * One bookmark: tap seeks, the pencil edits the note, an end-to-start swipe asks to delete (iOS's
+ * swipe actions). Both actions are also exposed as accessibility actions, since a swipe is not
+ * reachable with TalkBack or switch access.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BookmarkRow(
+    bookmark: BookmarkEntity,
+    pendingDelete: Boolean,
+    onSeek: () -> Unit,
+    onEditNote: () -> Unit,
+    onRequestDelete: () -> Unit
+) {
+    val dismissState = rememberSwipeToDismissBoxState()
+    LaunchedEffect(dismissState.currentValue) {
+        if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) onRequestDelete()
+    }
+    // The confirmation was dismissed without deleting: snap the row back into place.
+    LaunchedEffect(pendingDelete) {
+        if (!pendingDelete && dismissState.currentValue != SwipeToDismissBoxValue.Settled) dismissState.reset()
+    }
+    val editLabel = stringResource(R.string.player_bookmark_edit_note)
+    val deleteLabel = stringResource(R.string.player_bookmark_delete)
+
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = false,
+        backgroundContent = {
+            // Same reveal as the library rows: a neutral strip with one icon that tints and grows once
+            // the drag crosses the commit threshold — the row itself is opaque (below), so only the
+            // uncovered strip ever shows.
+            if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                val crossedThreshold = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+                val iconScale by animateFloatAsState(
+                    targetValue = if (crossedThreshold) 1.2f else 1f,
+                    label = "bookmarkSwipeIconScale"
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            if (crossedThreshold) MaterialTheme.colorScheme.errorContainer
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                            RoundedCornerShape(12.dp)
+                        ),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = if (crossedThreshold) MaterialTheme.colorScheme.onErrorContainer
+                               else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(end = 24.dp)
+                            .graphicsLayer {
+                                scaleX = iconScale
+                                scaleY = iconScale
                             }
-                        }
-                    }
+                    )
+                }
+            }
+        }
+    ) {
+        Surface(
+            onClick = onSeek,
+            // The other sheets paint rows as a 5% onSurface wash; here that wash must be flattened onto
+            // the sheet color, or the delete strip shows through the row while it slides.
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+                .compositeOver(MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    customActions = listOf(
+                        CustomAccessibilityAction(editLabel) { onEditNote(); true },
+                        CustomAccessibilityAction(deleteLabel) { onRequestDelete(); true }
+                    )
+                }
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 4.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = formatTime((bookmark.time * 1000).toLong()),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                val note = bookmark.note
+                if (!note.isNullOrEmpty()) {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = note,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+                IconButton(onClick = onEditNote) {
+                    Icon(Icons.Default.Edit, contentDescription = editLabel, tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -356,17 +491,15 @@ fun PlayerControlsSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(stringResource(R.string.player_set_speed), style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    "${if (currentSpeed % 1.0f == 0.0f) currentSpeed.toInt() else currentSpeed}x",
-                    fontWeight = FontWeight.Bold
-                )
+                Text(formatSpeed(currentSpeed), fontWeight = FontWeight.Bold)
             }
 
             BookPlayerSlider(
                 value = currentSpeed,
                 onValueChange = {
-                    currentSpeed = it
-                    viewModel.setPlaybackSpeed(context, it)
+                    // Steps of 0.1, as the iOS slider
+                    currentSpeed = (it * 10).roundToInt() / 10f
+                    viewModel.setPlaybackSpeed(context, currentSpeed)
                 },
                 valueRange = 0.5f..4.0f
             )
@@ -386,8 +519,9 @@ fun PlayerControlsSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Steps of 0.05, as the iOS buttons (its slider moves by 0.1)
                 QuickSpeedButton(icon = Icons.Default.Remove) {
-                    currentSpeed = (currentSpeed - 0.1f).coerceAtLeast(0.5f)
+                    currentSpeed = PlaybackManager.roundedSpeed(currentSpeed - 0.05f).toFloat().coerceAtLeast(0.5f)
                     viewModel.setPlaybackSpeed(context, currentSpeed)
                 }
                 QuickSpeedLabelButton(formatSpeed(viewModel.quickAction1), currentSpeed == viewModel.quickAction1) {
@@ -403,7 +537,7 @@ fun PlayerControlsSheet(
                     viewModel.setPlaybackSpeed(context, viewModel.quickAction3)
                 }
                 QuickSpeedButton(icon = Icons.Default.Add) {
-                    currentSpeed = (currentSpeed + 0.1f).coerceAtMost(4.0f)
+                    currentSpeed = PlaybackManager.roundedSpeed(currentSpeed + 0.05f).toFloat().coerceAtMost(4.0f)
                     viewModel.setPlaybackSpeed(context, currentSpeed)
                 }
             }

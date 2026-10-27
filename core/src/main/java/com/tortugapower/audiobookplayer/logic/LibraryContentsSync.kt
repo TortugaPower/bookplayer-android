@@ -49,8 +49,9 @@ object LibraryContentsSync {
                 if (localByPath != null && localByPath.uuid != uuid) {
                     // Conflict found: same path, different UUID. Server wins.
                     Log.d("LibraryContentsSync", "⚔️ Path conflict for '${remote.title}': local=${localByPath.uuid} server=$uuid. Migrating...")
-                    libraryDao.migrateItemUuid(localByPath.uuid, uuid!!)
-                    syncTaskRepository?.migrateTaskUuid(localByPath.uuid, uuid!!)
+                    if (libraryDao.migrateItemUuid(localByPath.uuid, uuid!!)) {
+                        syncTaskRepository?.migrateTaskUuid(localByPath.uuid, uuid!!)
+                    }
                 }
             }
         }
@@ -80,7 +81,11 @@ object LibraryContentsSync {
             isFinished = remote.isFinished,
             lastPlayDate = remote.lastPlayDateTimestamp?.let { (it * 1000).toLong() } ?: local?.lastPlayDate,
             parentFolderUuid = local?.parentFolderUuid,
-            type = type
+            type = type,
+            // The server just listed it
+            serverKnown = true,
+            // Same rule as artwork/lastPlayDate: a server null must not wipe a speed set on this device.
+            speed = remote.speed ?: local?.speed
         )
 
         if (isNew) {

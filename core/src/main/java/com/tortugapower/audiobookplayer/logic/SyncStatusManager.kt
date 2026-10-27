@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.logic
 
+import androidx.annotation.VisibleForTesting
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,11 +23,49 @@ object SyncStatusManager {
     fun isCancelRequested(taskId: String): Boolean = _cancelRequests.value.contains(taskId)
     fun clearCancel(taskId: String) { _cancelRequests.update { it - taskId } }
 
+    /**
+     * A download that failed for good and was dropped (iOS's download error): the app says so once.
+     * [expiredServer] names the media server that rejected the sign-in: trying again won't help until the
+     * user signs in again, so the app says that instead.
+     */
+    data class DownloadFailure(val uuid: String, val title: String, val expiredServer: String? = null)
+
+    private val _downloadFailures = MutableStateFlow<List<DownloadFailure>>(emptyList())
+    /**
+     * The dropped downloads the user hasn't been told about yet, oldest first. They wait here (a rotation, or
+     * the app away from the screen) until the app shows them and hands them to [dismissDownloadFailures].
+     */
+    val downloadFailures: StateFlow<List<DownloadFailure>> = _downloadFailures.asStateFlow()
+
+    fun notifyDownloadFailed(failure: DownloadFailure) {
+        _downloadFailures.update { it + failure }
+    }
+
+    /** [shown] were shown (the oldest pending ones); any that came in since stay, and a repeated call does nothing */
+    fun dismissDownloadFailures(shown: List<DownloadFailure>) {
+        _downloadFailures.update { if (it.take(shown.size) == shown) it.drop(shown.size) else it }
+    }
+
+    // How often one library level's contents (and the sort-preferences pull that rides the same cadence)
+    // may be fetched: 60 s, matching iOS's per-level list sync throttle.
+    internal const val FETCH_THROTTLE_MS = 60_000L
+
+    // Test seam for the fetch throttles (same idea as StorageMonitor.availableBytesProvider).
+    @VisibleForTesting
+    @Volatile
+    internal var clock: () -> Long = { System.currentTimeMillis() }
+
+    /**
+     * Forgets every fetch timestamp: a lapse lets the listings and the preferences pull it held back run as soon
+     * as the account is back (SyncQueueReset). Tests use it so a test clock can't leave a future stamp behind.
+     */
+    internal fun resetFetchThrottles() {
+        _lastPathFetchTimestamps.value = emptyMap()
+        synchronized(this) { lastFetchPreferencesTimestamp = 0L }
+    }
+
     // Map of relativePath to last fetch timestamp
     private val _lastPathFetchTimestamps = MutableStateFlow<Map<String, Long>>(emptyMap())
-    
-    // Last timestamp for account-wide sync (identifiers)
-    private var lastSyncIdentifiersTimestamp: Long = 0L
 
     fun updateLastSyncTimestamp(timestamp: Long) {
         _lastSyncTimestamp.value = timestamp
@@ -34,28 +73,21 @@ object SyncStatusManager {
 
     fun canFetchContents(path: String): Boolean {
         val lastFetch = _lastPathFetchTimestamps.value[path] ?: 0L
-        return (System.currentTimeMillis() - lastFetch) > 30_000 // 30 seconds throttle
+        return (clock() - lastFetch) > FETCH_THROTTLE_MS
     }
 
     fun markPathAsFetched(path: String) {
-        _lastPathFetchTimestamps.update { it + (path to System.currentTimeMillis()) }
-    }
-
-    fun canSyncIdentifiers(): Boolean {
-        return (System.currentTimeMillis() - lastSyncIdentifiersTimestamp) > 30_000
-    }
-
-    fun markIdentifiersAsSynced() {
-        lastSyncIdentifiersTimestamp = System.currentTimeMillis()
+        _lastPathFetchTimestamps.update { it + (path to clock()) }
     }
 
     fun checkAndMarkFetchContents(path: String): Boolean {
         var allowed = false
+        val now = clock()
         _lastPathFetchTimestamps.update { map ->
             val lastFetch = map[path] ?: 0L
-            if ((System.currentTimeMillis() - lastFetch) > 30_000) {
+            if ((now - lastFetch) > FETCH_THROTTLE_MS) {
                 allowed = true
-                map + (path to System.currentTimeMillis())
+                map + (path to now)
             } else {
                 allowed = false
                 map
@@ -64,22 +96,20 @@ object SyncStatusManager {
         return allowed
     }
 
-    @Synchronized
-    fun checkAndMarkSyncIdentifiers(): Boolean {
-        if (canSyncIdentifiers()) {
-            markIdentifiersAsSynced()
-            return true
-        }
-        return false
-    }
-
-    // Debounce for pulling user preferences (sort rules) — same 30s throttle as contents fetch.
+    // Debounce for pulling user preferences (sort rules) — same throttle as the contents fetch.
     private var lastFetchPreferencesTimestamp: Long = 0L
+
+    /** A forced pull just ran: start the cooldown so a regular pull right after it (a library visit) is skipped. */
+    @Synchronized
+    fun markFetchPreferences() {
+        lastFetchPreferencesTimestamp = clock()
+    }
 
     @Synchronized
     fun checkAndMarkFetchPreferences(): Boolean {
-        if ((System.currentTimeMillis() - lastFetchPreferencesTimestamp) > 30_000) {
-            lastFetchPreferencesTimestamp = System.currentTimeMillis()
+        val now = clock()
+        if ((now - lastFetchPreferencesTimestamp) > FETCH_THROTTLE_MS) {
+            lastFetchPreferencesTimestamp = now
             return true
         }
         return false

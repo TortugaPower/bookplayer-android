@@ -10,6 +10,8 @@ import com.tortugapower.audiobookplayer.datalayer.WatchRemoteCodec
 import com.tortugapower.audiobookplayer.datalayer.WearDataLayer
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.SleepTimerManager
+import io.sentry.Breadcrumb
+import io.sentry.Sentry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,6 +35,10 @@ class WearCommandListenerService : WearableListenerService(), RemotePlaybackActi
     override fun onMessageReceived(event: MessageEvent) {
         if (event.path != WearDataLayer.PATH_COMMAND) return
         val command = WatchRemoteCodec.decodeCommand(event.data) ?: return
+        // A remote resume is the gesture-less kind Android 12+ can refuse to promote (ANDROID-BOOKPLAYER-21):
+        // the kind of command goes on the breadcrumb trail so a refusal report says where it came from.
+        // The kind only — never the item.
+        Sentry.addBreadcrumb(Breadcrumb.info("watch command: ${command.type}").apply { category = "wear" })
         mainHandler.post { WearCommandMapper.dispatch(command, this) }
     }
 

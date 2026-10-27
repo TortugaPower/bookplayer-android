@@ -2,11 +2,15 @@ package com.tortugapower.audiobookplayer.logic
 
 import android.content.ClipData
 import android.content.Context
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.os.Parcelable
 import android.os.Build
 import android.text.format.Formatter
 import androidx.core.content.FileProvider
+import io.sentry.Breadcrumb
+import io.sentry.Sentry
 import com.tortugapower.audiobookplayer.BuildConfig
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.AppDatabase
@@ -172,5 +176,32 @@ fun buildSupportEmailIntents(context: Context, account: AccountEntity?): List<In
             clipData = ClipData.newRawUri("build-info.txt", attachment)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }.takeIf { it.resolveActivity(pm) != null }
+    }
+}
+
+/**
+ * Starts the support-email composer from [buildSupportEmailIntents]'s result: one app → its composer
+ * directly; several → an email-only picker. Returns false when there is nothing to start — no email
+ * app, or the one that resolved a moment ago is gone by the time it is launched (uninstalled or
+ * disabled in between: `startActivity` then throws [ActivityNotFoundException], the crash class of
+ * ANDROID-BOOKPLAYER-1P/-1R) — so the caller shows the clipboard fallback either way, as iOS does when
+ * `canSendMail()` is false. Only the missing-app failure is absorbed; anything else still propagates.
+ */
+fun launchSupportEmail(context: Context, intents: List<Intent>): Boolean {
+    if (intents.isEmpty()) return false
+    val intent = if (intents.size == 1) {
+        intents.first()
+    } else {
+        Intent.createChooser(intents.first(), null).apply {
+            val rest = intents.drop(1)
+            putExtra(Intent.EXTRA_INITIAL_INTENTS, Array<Parcelable>(rest.size) { rest[it] })
+        }
+    }
+    return try {
+        context.startActivity(intent)
+        true
+    } catch (e: ActivityNotFoundException) {
+        Sentry.addBreadcrumb(Breadcrumb.info("no app to send the support email").apply { category = "links" })
+        false
     }
 }

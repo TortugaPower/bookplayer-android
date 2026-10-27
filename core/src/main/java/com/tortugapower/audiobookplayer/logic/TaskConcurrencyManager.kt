@@ -11,12 +11,42 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
+
+/** The engine running in this process, for what must stop its workers from outside: a lapse wipes lanes mid-run */
+object SyncEngine {
+    private val running = AtomicReference<TaskConcurrencyManager?>(null)
+    val current: TaskConcurrencyManager? get() = running.get()
+
+    internal fun started(engine: TaskConcurrencyManager) = running.set(engine)
+
+    internal fun stopped(engine: TaskConcurrencyManager) {
+        running.compareAndSet(engine, null)
+    }
+}
+
 class TaskConcurrencyManager(
     private val context: Context,
     private val repository: SyncTaskRepository,
     private val accountRepository: com.tortugapower.audiobookplayer.repository.AccountRepository,
     private val processors: List<TaskProcessor>,
-    private var maxQueues: Int = 3
+    // One per lane that's usually busy at once: sync, file transfers, book uploads, a media server
+    private var maxQueues: Int = 4,
+    // Off on the watch: it has no Queued Tasks screen to show or retry a parked task, so a coded
+    // failure there drops the task instead (SyncFailurePolicy)
+    private val parkingEnabled: Boolean = true,
+    // A fresh RevenueCat read after the API rejects the account (true active, false inactive, null
+    // unreachable). Updating the tier runs the lapse path when it's inactive.
+    private val verifySyncEntitlement: suspend () -> Boolean? = { null },
+    // Told about a park worth reporting, off the worker (the target reports it; :core never
+    // initializes Sentry). The pause carries the task's earlier report, if any.
+    private val onTaskPaused: suspend (task: SyncTaskEntity, pause: TaskPause) -> Unit = { _, _ -> },
+    // Told when the sync lane empties (its last task, parked ones included, is gone): the phone starts a
+    // pending first sync or a due missing-items pass then, as both need that lane empty
+    private val onSyncLaneDrained: () -> Unit = {},
+    // Returns once this launch's tier reading is stored (SubscriptionManager): until then the stored tier is
+    // last session's, and a lapse while the app was closed would run work it should hold
+    private val awaitTierReady: suspend () -> Unit = {},
 ) : TaskConcurrencyService {
 
     // A full disk turns the engine's own bookkeeping writes into SQLiteFullException; those are
@@ -24,6 +54,7 @@ class TaskConcurrencyManager(
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + StorageMonitor.exceptionHandler { context })
     private var collectorJob: Job? = null
     private var isProcessing = false
+    private var syncLaneBusy = false // the task collector's own: it runs one emission at a time
 
     private val _activeQueues = MutableStateFlow<Set<String>>(emptySet())
     override val activeQueues: Flow<Set<String>> = _activeQueues.asStateFlow()
@@ -55,22 +86,45 @@ class TaskConcurrencyManager(
         Log.d(TAG, "🔄 startProcessing() called. Current state: isProcessing=$isProcessing")
         if (isProcessing) return
         isProcessing = true
+        SyncEngine.started(this)
         
-        serviceScope.launch {
+        collectorJob = serviceScope.launch {
+            awaitTierReady()
             // Reset any tasks that were left in RUNNING state (e.g., from a crash)
             Log.d(TAG, "🧹 Resetting hung RUNNING tasks to PENDING...")
             repository.resetRunningTasks()
+            // An older build queued book uploads in the file lane, ahead of the downloads behind them
+            repository.moveToLane(SyncTaskFactory.JOB_UPLOAD_FILE, SyncTaskFactory.QUEUE_UPLOAD)
+            // and covers in the file lane, where they could reach the server before their item's registration
+            repository.moveToLane(SyncTaskFactory.JOB_UPLOAD_ARTWORK, SyncTaskFactory.QUEUE_SYNC)
+            // Jobs this build no longer runs (also done at app launch: held, they don't start the engine)
+            SyncTaskRetirement.cleanUp(repository)
             
             Log.d(TAG, "📡 Starting queue worker manager...")
             
-            // Watch for all pending tasks to know which queues need workers
+            // A tier change can release work held by the tier policy (a subscription back after a lapse);
+            // the task list doesn't re-emit for it
+            launch {
+                accountRepository.getAccountFlow().map { it?.tier }.distinctUntilChanged().drop(1).collect {
+                    requestWorkerScan()
+                }
+            }
+
+            // Watch the queue to know which lanes need workers: only lanes with something runnable
+            // (getAllTasks is in queue order)
             repository.getAllTasks().collect { tasks ->
                 if (!isProcessing) return@collect
-                
-                val pendingTasks = tasks.filter { it.status == SyncTaskStatus.PENDING }
-                val activeQueueKeys = pendingTasks.map { it.queueKey }.distinct()
-                
-                for (queueKey in activeQueueKeys) {
+                // The same "still to go through" the first sync and the pass wait on (countQueuedTasksInQueue)
+                val syncBusy = tasks.any {
+                    it.queueKey == SyncTaskFactory.QUEUE_SYNC &&
+                        (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING || it.pauseScope != null)
+                }
+                if (syncLaneBusy && !syncBusy) onSyncLaneDrained()
+                syncLaneBusy = syncBusy
+                if (tasks.any { it.jobType == SyncTaskFactory.JOB_DOWNLOAD_FILE && it.status == SyncTaskStatus.PENDING }) {
+                    dropDownloadsTheTierCantRun()
+                }
+                for (queueKey in SyncTaskPicker.lanesWithWork(tasks, startPolicy(tasks))) {
                     startQueueWorkerIfAbsent(queueKey)
                 }
             }
@@ -79,7 +133,8 @@ class TaskConcurrencyManager(
 
     private fun startQueueWorker(queueKey: String) {
         Log.d(TAG, "👷 Starting persistent worker for queue: $queueKey")
-        val job = serviceScope.launch {
+        // Registered before it runs, so its own cleanup always finds it
+        val job = serviceScope.launch(start = CoroutineStart.LAZY) {
             // Wait for available global slot
             queueSemaphore.acquire()
             try {
@@ -92,7 +147,14 @@ class TaskConcurrencyManager(
                         // Re-fetch the next runnable pending task for this queue. File uploads are
                         // SKIPPED (not the whole queue) while held on cellular, so a user-triggered
                         // download sharing this queue still runs; the skipped uploads wait for Wi-Fi.
-                        val pending = repository.getTasksInQueueByStatus(queueKey, SyncTaskStatus.PENDING)
+                        // What the lane may run, in order: parked tasks are skipped or stop the lane, and an
+                        // account pause holds the BookPlayer-server work (read per pick: any lane can park one)
+                        val pending = SyncTaskPicker.runnable(
+                            queueKey,
+                            repository.getQueueCandidates(queueKey),
+                            repository.hasAccountPause(),
+                            tierPolicy(),
+                        )
                         // Storage: nothing runs while the disk is critically full (every task ends in a
                         // DB write), and file downloads wait while a transfer is known not to fit. The
                         // host is restarted when storage recovers (see the app's StorageMonitor observer).
@@ -123,6 +185,8 @@ class TaskConcurrencyManager(
                         break
                     }
 
+                    // The pick already held what the tier can't run (a lapse found at launch keeps the tasks
+                    // for when the subscription is back); re-checked here against the account read just above
                     if (isHardcoverQueue || TaskAccessPolicy.canExecuteTask(account?.tier, task.jobType)) {
                         val success = executeTask(task)
                         if (!success) {
@@ -132,18 +196,34 @@ class TaskConcurrencyManager(
                             delay(300) // Small breather between tasks
                         }
                     } else {
-                        Log.w(TAG, "🚫 Policy restricted task ${task.jobType} for queue $queueKey. Discarding.")
-                        repository.deleteTask(task)
+                        Log.w(TAG, "🚫 Tier holds ${task.jobType} for queue $queueKey. Worker retiring.")
+                        break
                     }
                 }
             } finally {
-                _activeQueues.update { it - queueKey }
                 queueSemaphore.release()
-                queueJobs.remove(queueKey)
+                // Only itself: a cancelled worker can end after the lane's next one has started, which
+                // keeps the lane active
+                queueJobs.remove(queueKey, coroutineContext.job)
+                _activeQueues.update { if (queueJobs[queueKey] == null) it - queueKey else it }
             }
         }
         queueJobs[queueKey] = job
+        job.start()
     }
+
+    /**
+     * Stops [lanes]' workers and waits for them to end (a while at most): deleting a task doesn't stop the worker
+     * running it. The task each was running stays RUNNING, for the caller to delete. A lane gets a worker again
+     * for whatever the stored tier still lets it run, so the caller stores the tier first.
+     */
+    suspend fun cancelLanes(lanes: Set<String>) {
+        val workers = lanes.mapNotNull { queueJobs[it] }
+        workers.forEach { it.cancel() }
+        withTimeoutOrNull(CANCEL_TIMEOUT_MS) { workers.joinAll() }
+    }
+
+    suspend fun cancelAllLanes() = cancelLanes(queueJobs.keys.toSet())
 
     /**
      * Re-scan pending tasks and (re)start workers for any queue lacking one. Called when connectivity
@@ -153,9 +233,10 @@ class TaskConcurrencyManager(
     fun requestWorkerScan() {
         if (!isProcessing) return
         serviceScope.launch {
-            repository.getPendingTasks()
-                .map { it.queueKey }
-                .distinct()
+            awaitTierReady()
+            dropDownloadsTheTierCantRun()
+            val tasks = repository.getAllTasks().first()
+            SyncTaskPicker.lanesWithWork(tasks, startPolicy(tasks))
                 .forEach { queueKey -> startQueueWorkerIfAbsent(queueKey) }
         }
     }
@@ -163,6 +244,7 @@ class TaskConcurrencyManager(
     override fun stopProcessing() {
         Log.d(TAG, "🛑 stopProcessing() called")
         isProcessing = false
+        SyncEngine.stopped(this)
         queueJobs.values.forEach { it.cancel() }
         queueJobs.clear()
         collectorJob?.cancel()
@@ -180,19 +262,19 @@ class TaskConcurrencyManager(
     internal suspend fun executeTask(task: SyncTaskEntity): Boolean {
         Log.d(TAG, "🚀 Executing task: ${task.jobType} [ID: ${task.id}, Attempt: ${task.attempts + 1}]")
         
+        // Targeted writes, here and after the run: a whole-row update from this copy would undo
+        // whatever changed the task meanwhile (a uuid migration from the sync lane, saved upload state)
         val updatedTask = task.copy(status = SyncTaskStatus.RUNNING, attempts = task.attempts + 1)
-        repository.updateTask(updatedTask)
+        repository.markTaskRunning(task.id)
 
         val processor = processors.find { it.canHandle(task.jobType) }
         
         if (processor == null) {
-            val errorMsg = "No processor found for job type: ${task.jobType}"
-            Log.e(TAG, "⚠️ Task stalled: $errorMsg. Retrying later...")
-            repository.updateTask(updatedTask.copy(
-                status = SyncTaskStatus.PENDING,
-                errorMessage = errorMsg
-            ))
-            return false
+            // Every processor is registered when the host starts, so this is a job type this build no
+            // longer runs (a retired job left in the queue by an older version): it can never succeed
+            Log.w(TAG, "🗑️ No processor for job type ${task.jobType}. Discarding.")
+            repository.deleteTask(updatedTask)
+            return true
         }
 
         return try {
@@ -214,19 +296,122 @@ class TaskConcurrencyManager(
                 false
             } else {
                 Log.w(TAG, "⚠️ Task failed (processor returned false): ${task.jobType}. Retrying...")
-                repository.updateTask(updatedTask.copy(
-                    status = SyncTaskStatus.PENDING,
-                    errorMessage = "Processor returned failure"
-                ))
+                repository.markTaskPending(task.id, "Processor returned failure")
                 false
             }
+        } catch (e: UploadsHeldException) {
+            // Waiting for Wi-Fi isn't a failure: back to pending with no error line, and the worker moves
+            // straight on (its picker holds the upload)
+            SyncStatusManager.clearTaskProgress(task.id)
+            repository.markTaskPending(task.id, null)
+            true
         } catch (e: Exception) {
-            Log.e(TAG, "💥 Task threw exception: ${task.jobType}. Retrying...", e)
-            repository.updateTask(updatedTask.copy(
-                status = SyncTaskStatus.PENDING,
-                errorMessage = e.message ?: "Unknown error"
-            ))
-            false
+            // A cancelled worker (the host stopping, or its lane wiped) leaves the task RUNNING for
+            // resetRunningTasks or the wipe; a cancellation the processor raised itself (a timeout) is an
+            // ordinary failure
+            if (!currentCoroutineContext().isActive) SyncStatusManager.clearTaskProgress(task.id)
+            currentCoroutineContext().ensureActive()
+            handleFailure(task, e)
         }
+    }
+
+    /**
+     * Retries, parks or drops a task whose processor threw, per [SyncFailurePolicy]. Returns true when the
+     * worker may move straight on (the task is parked or gone), false for the usual retry delay.
+     */
+    private suspend fun handleFailure(task: SyncTaskEntity, error: Exception): Boolean {
+        val failure = SyncFailurePolicy.codedFailure(error)
+        return when (val action = SyncFailurePolicy.action(error, task.jobType, parkingEnabled)) {
+            SyncFailureAction.Retry -> {
+                Log.e(TAG, "💥 Task threw exception: ${task.jobType}. Retrying...", error)
+                repository.markTaskPending(task.id, error.message ?: "Unknown error")
+                false
+            }
+            is SyncFailureAction.Park -> {
+                // A newer push of the same preference was queued while this one ran: resumed later, this
+                // older value would overwrite it, so it's superseded rather than parked (the enqueue-time
+                // supersede can't see a push that was still running)
+                if (task.jobType == SyncTaskFactory.JOB_UPLOAD_PREFERENCE &&
+                    repository.getPendingTaskByTypeAndTaskId(task.jobType, task.taskID) != null
+                ) {
+                    Log.w(TAG, "🗑️ ${task.jobType} task ${task.id} failed with ${failure?.code}; a newer push supersedes it")
+                    repository.deleteTask(task)
+                    return true
+                }
+                val pause = park(task, action.scope, requireNotNull(failure))
+                if (pause != null && failure.code != SyncFailurePolicy.FILE_TOO_LARGE) reportPause(task, pause)
+                true
+            }
+            // Every server lane holds behind it until the launch retry or the user's Retry. Off the
+            // worker, RevenueCat is read fresh: an inactive answer updates the tier (the lapse path).
+            // Active, or the check failed: the server disagrees with RevenueCat, so it's reported.
+            SyncFailureAction.VerifyAccount -> {
+                val pause = park(task, TaskPauseScope.ACCOUNT, requireNotNull(failure))
+                serviceScope.launch {
+                    val active = verifySyncEntitlement()
+                    Log.w(TAG, "Account rejected by the API; RevenueCat says sync is ${active ?: "unknown"}")
+                    if (pause != null && active != false) onTaskPaused(task, pause)
+                }
+                true
+            }
+            SyncFailureAction.Drop -> {
+                Log.w(TAG, "🗑️ ${task.jobType} task ${task.id} failed with ${failure?.code}; nowhere to park it. Discarding.")
+                repository.deleteTask(task)
+                true
+            }
+        }
+    }
+
+    /**
+     * What a lane's worker could pick now, for deciding which lanes get one: the tier's policy, and file
+     * uploads held to Wi-Fi left out, so a lane holding only those doesn't start a worker that would
+     * pick nothing (the network callback rescans when Wi-Fi returns). The connectivity check runs only
+     * when an upload is queued.
+     */
+    private suspend fun startPolicy(tasks: List<SyncTaskEntity>): (String) -> Boolean {
+        val tier = tierPolicy()
+        val hold = tasks.any { it.status == SyncTaskStatus.PENDING && UploadDataPolicy.isFileUploadJob(it.jobType) } &&
+            UploadDataPolicy.shouldHoldUploads(context)
+        return { jobType -> tier(jobType) && !(hold && UploadDataPolicy.isFileUploadJob(jobType)) }
+    }
+
+    /** The tier's task policy, read now (TaskAccessPolicy; hardcover and media-server jobs always run) */
+    private suspend fun tierPolicy(): (String) -> Boolean {
+        val tier = accountRepository.getAccount()?.tier
+        return { jobType -> TaskAccessPolicy.canExecuteTask(tier, jobType) }
+    }
+
+    /**
+     * A lapse found at launch holds sync tasks but drops queued downloads (the user's decision): they're
+     * transfers the user started, not changes the server needs, and a held cloud download's signed URL would
+     * have expired by the time the subscription is back. The row goes back to its cloud state, to tap again.
+     * Only with an account read: a missing one (signed out, or unreadable) is no lapse.
+     */
+    private suspend fun dropDownloadsTheTierCantRun() {
+        val tier = accountRepository.getAccount()?.tier ?: return
+        if (!TaskAccessPolicy.canExecuteTask(tier, SyncTaskFactory.JOB_DOWNLOAD_FILE)) {
+            val dropped = repository.deletePendingTasksOfType(SyncTaskFactory.JOB_DOWNLOAD_FILE)
+            if (dropped > 0) Log.w(TAG, "🗑️ Dropped $dropped queued download(s) the $tier tier can't run")
+        }
+    }
+
+    /** The stored pause, or null when the task is gone (removed meanwhile) */
+    private suspend fun park(task: SyncTaskEntity, scope: TaskPauseScope, failure: CodedFailure): TaskPause? {
+        // The code only: the API's message names files
+        Log.w(TAG, "⏸️ Parking ${task.jobType} task ${task.id} (${scope.name}): failed with ${failure.code}")
+        val pausedAt = System.currentTimeMillis()
+        if (!repository.parkTask(task.id, scope, failure, pausedAt)) return null
+        // A resume keeps the report's event id, so a task parked again carries it
+        return TaskPause(scope, failure.code, failure.message, failure.httpStatus, pausedAt, task.sentryEventId)
+    }
+
+    private fun reportPause(task: SyncTaskEntity, pause: TaskPause) {
+        serviceScope.launch { onTaskPaused(task, pause) }
+    }
+
+    private companion object {
+        // A processor that ignores cancellation can't hold up a lapse or a sign-out: its writes after the
+        // wipe are by id, on rows already gone
+        const val CANCEL_TIMEOUT_MS = 5_000L
     }
 }
