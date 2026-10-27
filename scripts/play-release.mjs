@@ -418,12 +418,17 @@ export async function main(argv = process.argv.slice(2)) {
   log(lines.join('\n'));
   // A green run would otherwise hide it: a release not sent for review sits there until someone sends it
   if (!sentForReview) log('::warning::Committed but NOT sent for review: send it from Play Console → Publishing overview');
-  if (mismatches.length) throw new Error(`submitted, but the read-back after committing failed:\n  ${mismatches.join('\n  ')}`);
+  if (mismatches.length) {
+    throw Object.assign(new Error(`submitted, but the read-back after committing failed:\n  ${mismatches.join('\n  ')}`),
+      { summarized: true });
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
     console.error(`\n${error.message}`);
+    // The run page shows the summary, not the log: a commit that may have gone through must be seen there
+    if (!error.summarized) summary(['## Google Play: failed', '', '```', error.message, '```']);
     process.exit(1);
   });
 }
