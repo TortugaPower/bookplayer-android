@@ -381,8 +381,13 @@ export async function main(argv = process.argv.slice(2)) {
     }
   }
 
-  // 8. What Play stored
-  const mismatches = await verifyAfterCommit(play, plan);
+  // 8. What Play stored. It's submitted by now, so a failed read-back still gets the summary below
+  let mismatches;
+  try {
+    mismatches = await verifyAfterCommit(play, plan);
+  } catch (error) {
+    mismatches = [`couldn't read the tracks back: ${error.message}`];
+  }
   const lines = [`## Google Play: ${plan[0].release.name} submitted at ${USER_FRACTION * 100}%`, ''];
   lines.push(sentForReview
     ? 'Sent for review. With Managed publishing off, Google\'s approval publishes it to 1% of users.'
@@ -393,11 +398,13 @@ export async function main(argv = process.argv.slice(2)) {
   }
   if (replaced.length) lines.push(`Replaced: ${replaced.join('; ')}`, '');
   if (mismatches.length) {
-    lines.push('**Submitted, but Play stored something different:**', ...mismatches.map((m) => `- ${m}`));
+    lines.push('**Submitted, but the read-back after committing failed:**', ...mismatches.map((m) => `- ${m}`));
   }
   summary(lines);
   log(lines.join('\n'));
-  if (mismatches.length) throw new Error(`submitted, but the read-back after committing differs:\n  ${mismatches.join('\n  ')}`);
+  // A green run would otherwise hide it: a release not sent for review sits there until someone sends it
+  if (!sentForReview) log('::warning::Committed but NOT sent for review: send it from Play Console → Publishing overview');
+  if (mismatches.length) throw new Error(`submitted, but the read-back after committing failed:\n  ${mismatches.join('\n  ')}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
