@@ -71,10 +71,12 @@ installed from Play aren't. With `search_traces` (period `14d`): query
 Count people, not events (one device can crash in a loop), and only people who installed from Play: every Sentry
 query below carries `isSideLoaded:false`. Ignore events from emulators (`simulator: true`) or `environment: dev`.
 
-a. **Crashes new in NEW**: `search_issues` with `firstRelease:<NEW release> level:fatal`.
+a. **Crashes new in NEW**: `search_issues` with `firstRelease:<NEW release> level:fatal`. This list still holds
+   crashes only Google's sideloaded devices hit; (b) sorts them out.
 b. For each of those, **who hit it on NEW**: `search_errors`, query
    `level:fatal isSideLoaded:false issue:<ID> release:<NEW release>`, fields `count_unique(user)`, period `14d`, and
-   again with period `24h`. Read the stack (`get_sentry_resource`) and the code in the repo to classify it:
+   again with period `24h`. A crash with 0 people over 14 days is left out from here on: it isn't one of "the
+   crashes from (a)" below. Read the stack (`get_sentry_resource`) and the code in the repo to classify the rest:
    - **startup**: it crashes while the app starts: `Application`, an `Activity` or `ContentProvider` being created,
      dependency wiring, opening or migrating the database, or within a few seconds of launch;
    - **data**: the crash itself can leave the person's data wrong or lost: a database migration failing, a write
@@ -92,8 +94,9 @@ Decide, first match wins:
    `node scripts/play-rollout.mjs halt` (REPORT-ONLY: `halt --dry-run`) and notify: "HALTED <NEW>: <ID> <title>,
    <N> people, <startup|data>" (REPORT-ONLY: "WOULD HALT …").
 2. **Hold** and notify, naming each reason, when any of these holds:
-   - a crash from (a) whose first event on NEW was in the last 24 hours (a new kind of crash: a person looks at it
-     before more people get the version; it no longer holds the next day unless it grows);
+   - a crash from (a) whose people all came in the last 24 hours, so (b) counts the same for 24 hours and 14 days (a
+     new kind of crash: a person looks at it before more people get the version; it no longer holds the next day
+     unless it grows);
    - a crash from (a) that hit 3 or more people in the last 24 hours;
    - a startup or data crash from (a) that has hit 1 or 2 people (it would halt at 3);
    - NEW's crash rate from (c) is at least twice PREV's, with 3 or more crashed people on NEW.
