@@ -124,7 +124,18 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   (manifest components, Room `_Impl`, the Wear ongoing-activity surface) needs a keep rule AND an
   entry in `scripts/audit-mapping.sh`, which fails CI when such a class is renamed or moved.
 - **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest`, `lintDevDebug`, then an
-  unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17.
+  unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17. It also runs the
+  release script's unit tests (`node --test scripts/play-release.test.mjs`).
+- **Release** (`.github/workflows/release.yml`, on a `release-*` branch): tests and lint, the signed prod
+  bundles, then `scripts/play-release.mjs` submits phone (`production`) and watch (`wear:production`) in ONE
+  Play edit as a **1% staged rollout**, each with its notes from `distribution/whatsnew/{phone,wear}/whatsnew-en-US`
+  (written by the release skill; at most 500 characters, checked before the build). Both tracks are read back
+  and the edit validated before committing (any difference = nothing submitted), and read back again after.
+  Managed publishing is off, so Google's approval publishes it to 1%; raising the rollout is separate. A
+  rollout still in progress on a track is replaced by the new release. A newer run cancels one that is still
+  building, never one that is submitting (its submit waits instead). The Play key is a secret of the
+  `play-release` environment (`release-*` branches only), read by the submit job alone. The CI service
+  account needs Play's "Release to production, exclude devices, and use Play App Signing" permission.
 
 ## Conventions
 
