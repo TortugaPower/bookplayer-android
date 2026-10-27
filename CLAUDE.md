@@ -125,7 +125,7 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   entry in `scripts/audit-mapping.sh`, which fails CI when such a class is renamed or moved.
 - **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest`, `lintDevDebug`, then an
   unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17. It also runs the
-  release script's unit tests (`node --test scripts/`).
+  release script's unit tests (`node --test scripts/play-release.test.mjs`).
 - **Release** (`.github/workflows/release.yml`, on a `release-*` branch): tests and lint, the signed prod
   bundles, then `scripts/play-release.mjs` submits phone (`production`) and watch (`wear:production`) in ONE
   Play edit as a **1% staged rollout**, each with its notes from `distribution/whatsnew/{phone,wear}/whatsnew-en-US`

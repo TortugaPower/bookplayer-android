@@ -1,11 +1,11 @@
-// Unit tests for scripts/play-release.mjs (no network). Run with: node --test scripts/
+// Unit tests for scripts/play-release.mjs (no network). Run with: node --test scripts/play-release.test.mjs
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  NOTES_LIMIT, USER_FRACTION, differences, gradleVersion, newRelease, normalizeNotes, planTrack, readNotes,
+  NOTES_LIMIT, USER_FRACTION, commitFailure, differences, gradleVersion, newRelease, normalizeNotes, planTrack, readNotes,
 } from './play-release.mjs';
 
 function notesDir(files) {
@@ -87,4 +87,14 @@ test('read-back: a match has no differences; each field is checked', () => {
   assert.match(differences(track({ releaseNotes: [{ language: 'en-US', text: 'Other' }] }), expected)[0], /release notes differ/);
   assert.match(differences(track({ releaseNotes: [] }), expected)[0], /release notes differ/);
   assert.match(differences({ track: 'production', releases: [] }, expected)[0], /release 26 is missing/);
+});
+
+test('commit failure: only Play refusing to send for review is retried; no refusal means it may have committed', () => {
+  const failed = (status, message) => Object.assign(new Error(`POST /edits/1:commit → HTTP ${status}: ${message}`), { status });
+  assert.equal(commitFailure(failed(400, 'Changes cannot be sent for review automatically. Please set the query '
+    + 'parameter changesNotSentForReview to true.')), 'review');
+  assert.equal(commitFailure(failed(403, 'The caller does not have permission')), 'refused');
+  assert.equal(commitFailure(failed(500, 'Internal error')), 'unknown');
+  assert.equal(commitFailure(failed(503, 'changesNotSentForReview')), 'unknown');
+  assert.equal(commitFailure(new TypeError('fetch failed')), 'unknown');
 });

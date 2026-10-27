@@ -10,7 +10,7 @@
 // Inputs: PLAY_SERVICE_ACCOUNT_JSON (env); versionName/versionCode from app/ and wear/build.gradle.kts; the prodRelease
 // bundles and R8 mappings; notes from distribution/whatsnew/{phone,wear}/whatsnew-en-US (written by the release skill).
 //
-// Order. An edit that is deleted or fails to commit publishes nothing and burns no version code:
+// Order. An edit that is deleted, or whose commit Play refuses, publishes nothing and burns no version code:
 //   1. notes present, not empty, at most 500 characters (Play's limit); bundles and mappings built
 //   2. open an edit, read both tracks
 //   3. upload both bundles and their mappings; Play must report the expected version codes
@@ -19,7 +19,8 @@
 //   5. read both tracks back inside the edit; anything different → delete the edit and fail
 //   6. validate the edit
 //   7. commit, sent for review. With a rejected change on file Play refuses that from the API, so the whole edit is
-//      redone and committed NOT sent for review, and the summary says to send it from Play Console
+//      redone and committed NOT sent for review, and the summary says to send it from Play Console. Any other failed
+//      commit is final; one without Play's refusal (a 5xx, a dropped connection) may have gone through, so it says so
 //   8. read both tracks back in a fresh edit (deleted afterwards)
 // With Managed publishing off, Google's approval publishes the release at 1%; raising it is a separate job.
 
@@ -180,7 +181,9 @@ export class Play {
     }
     if (!res.ok) {
       const where = url.replace(HOST, '').split('?')[0];
-      throw new Error(`${method} ${where} → HTTP ${res.status}: ${parsed.error?.message || text.slice(0, 300)}`);
+      const error = new Error(`${method} ${where} → HTTP ${res.status}: ${parsed.error?.message || text.slice(0, 300)}`);
+      error.status = res.status;
+      throw error;
     }
     return parsed;
   }
@@ -219,6 +222,15 @@ export class Play {
   }
 }
 
+/**
+ * Why a commit failed. A 4xx is Play refusing it, so nothing was stored: `review` when it refuses only to send it for
+ * review, `refused` otherwise. Anything else (a 5xx, a dropped connection) may have committed anyway: `unknown`.
+ */
+export function commitFailure(error) {
+  if (!(error.status >= 400 && error.status < 500)) return 'unknown';
+  return /changesNotSentForReview/.test(error.message) ? 'review' : 'refused';
+}
+
 /** Runs `work` in a new edit and deletes the edit afterwards unless `work` committed it. */
 async function inEdit(play, work) {
   const edit = await play.openEdit();
@@ -239,9 +251,9 @@ function log(message) {
 }
 
 class StepError extends Error {
-  constructor(step, message, { commitFailed = false } = {}) {
+  constructor(step, message, { commitFailure } = {}) {
     super(`${step}: ${message}`);
-    this.commitFailed = commitFailed;
+    this.commitFailure = commitFailure;
   }
 }
 
@@ -283,7 +295,12 @@ async function submitInEdit(play, plan, { notSentForReview }) {
     try {
       await play.commit(edit, notSentForReview);
     } catch (error) {
-      throw new StepError('commit', error.message, { commitFailed: true });
+      const failure = commitFailure(error);
+      const message = failure === 'unknown'
+        ? `${error.message}\n  Play didn't refuse it, so it may have gone through: check both tracks in Play Console before `
+          + 'running this again (a re-run after a commit that went through fails with "version code has already been used")'
+        : error.message;
+      throw new StepError('commit', message, { commitFailure: failure });
     }
     state.committed = true;
     log(`  committed${notSentForReview ? ' (NOT sent for review)' : ', sent for review'}`);
@@ -347,19 +364,20 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   // 2–7. Sent for review first; Play refuses that while a rejected change is on file, so then the whole edit is redone
-  // and committed without sending (a failed commit leaves nothing behind)
+  // and committed without sending. Only that refusal is retried: it stored nothing
   let replaced;
   let sentForReview = true;
   try {
     replaced = await submitInEdit(play, plan, { notSentForReview: false });
   } catch (error) {
-    if (!error.commitFailed) throw error;
-    log(`Commit sent for review was refused (${error.message}); redoing the edit to commit it without sending`);
+    if (error.commitFailure !== 'review') throw error;
+    log(`Play won't send this for review (${error.message}); redoing the edit to commit it without sending`);
     try {
       replaced = await submitInEdit(play, plan, { notSentForReview: true });
       sentForReview = false;
     } catch (second) {
-      throw new Error(`both commits failed, nothing was submitted:\n  sent for review: ${error.message}\n  not sent: ${second.message}`);
+      throw new Error(`sent for review, refused: ${error.message}\nnot sent for review: ${second.message}`
+        + `${second.commitFailure === 'unknown' ? '' : '\nNothing was submitted.'}`);
     }
   }
 

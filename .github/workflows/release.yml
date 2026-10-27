@@ -1,6 +1,6 @@
 # Release automation — the Android equivalent of the iOS Xcode Cloud `release-*` hook.
 #
-# Push a branch named `release-*` (or run manually via workflow_dispatch) and this workflow:
+# Push a branch named `release-*` (or run it manually on that branch via workflow_dispatch) and this workflow:
 #   1. runs the unit-test + lint bar,
 #   2. builds BOTH signed prod bundles (:app phone + :wear watch),
 #   3. attaches them to the run as artifacts, and
@@ -32,7 +32,7 @@
 # NOTE: a submitted versionCode is burned permanently, even if the release is later rejected —
 # bump versionCode in app/build.gradle.kts and wear/build.gradle.kts BEFORE pushing the release
 # branch, or the Play step fails with "version code has already been used". A run that fails
-# before Play's commit submits nothing.
+# before Play's commit, or whose commit Play refuses, submits nothing.
 
 name: Release
 
@@ -41,8 +41,15 @@ on:
     branches: [ 'release-*' ]
   workflow_dispatch:
 
+# One release at a time: Play's tracks are shared, so a second run waits instead of racing the first.
+concurrency:
+  group: play-release
+  cancel-in-progress: false
+
 jobs:
   release:
+    # A manual run submits to production too, so it only runs on a release branch.
+    if: startsWith(github.ref, 'refs/heads/release-')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -60,6 +67,11 @@ jobs:
           # Full history: `sentry-cli releases set-commits --auto` below walks from the previous
           # release's commit to HEAD, and a shallow clone has neither.
           fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
 
       # The release notes are checked before ~10 minutes of build: missing, empty or over Play's
       # 500 characters fails here (no network, nothing uploaded).
