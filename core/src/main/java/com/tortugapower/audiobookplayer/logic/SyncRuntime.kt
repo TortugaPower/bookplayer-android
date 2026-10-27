@@ -103,14 +103,10 @@ class SyncRuntime(
         engine.startProcessing()
     }
 
-    /**
-     * [engine] failed in its own work: its workers stop (waited on a while, so a new engine's start doesn't reset a row
-     * one of them still runs), it stops, and its network callback goes. Once per engine.
-     */
+    /** [engine] failed in its own work: it stops for good, its workers waited on, and its network callback goes. Once per engine. */
     private suspend fun retire(engine: TaskConcurrencyManager, e: Throwable) {
         if (!_engine.compareAndSet(engine, null)) return
-        engine.cancelAllLanes()
-        engine.stopProcessing()
+        engine.stopAndWait()
         unwatchNetwork(engine)
         started.set(false)
         fail(e, "Sync engine failed")

@@ -12,6 +12,10 @@ import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
@@ -207,6 +211,39 @@ class TaskConcurrencyManagerLifecycleTest {
         freeSpace()
         until { failures.isNotEmpty() }
         assertEquals("bad row", failures.single().message)
+    }
+
+    /**
+     * Replacing a failed engine: nothing new starts while its workers wind down, so no task runs ahead of one a
+     * cancelled worker left RUNNING
+     */
+    @Test fun stopAndWait_startsNothingNew_whileItsWorkersWindDown() = runBlocking {
+        val slowStarted = CompletableDeferred<Unit>()
+        val ran = Collections.synchronizedList(mutableListOf<String>())
+        val slowThenQuick = object : TaskProcessor {
+            override suspend fun process(task: SyncTaskEntity): Boolean {
+                ran += task.id
+                if (task.id == "slow") {
+                    slowStarted.complete(Unit)
+                    // A processor that doesn't stop at once when cancelled
+                    withContext(NonCancellable) { delay(1_500) }
+                }
+                return true
+            }
+            override fun canHandle(jobType: String): Boolean = jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE
+        }
+        val manager = TaskConcurrencyManager(context, repository, NoAccount(), listOf(slowThenQuick)).also { engines += it }
+        manager.startProcessing()
+        repository.saveTask(push("slow"))
+        slowStarted.await()
+
+        val stopping = launch(Dispatchers.Default) { manager.stopAndWait() }
+        delay(200)
+        repository.saveTask(push("later").copy(queueKey = "audiobookshelf"))
+        stopping.join()
+        delay(300)
+
+        assertEquals(listOf("slow"), ran.toList())
     }
 
     /** A full disk holds every lane and their workers retire: space coming back runs what they held */

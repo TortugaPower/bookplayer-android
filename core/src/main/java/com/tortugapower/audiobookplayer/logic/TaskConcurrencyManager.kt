@@ -76,6 +76,7 @@ class TaskConcurrencyManager(
             }
         }
     )
+    @Volatile
     private var isProcessing = false
     // An engine runs once: started, then stopped for good (a new start means a new engine)
     private var stopped = false
@@ -114,10 +115,10 @@ class TaskConcurrencyManager(
     // and a double start wastes a queueSemaphore slot until the orphaned worker retires.
     private val workerStartLock = Any()
 
-    /** Atomically starts a worker for [queueKey] unless one is already active. */
+    /** Atomically starts a worker for [queueKey] unless one is already active, or the engine is stopping. */
     private fun startQueueWorkerIfAbsent(queueKey: String) {
         synchronized(workerStartLock) {
-            if (queueJobs[queueKey]?.isActive == true) return
+            if (!isProcessing || queueJobs[queueKey]?.isActive == true) return
             startQueueWorker(queueKey)
         }
     }
@@ -374,6 +375,21 @@ class TaskConcurrencyManager(
     fun retryWaitingNow() {
         if (!isProcessing) return
         serviceScope.launch { SyncRetryWake.retryAllNow(repository) }
+    }
+
+    /**
+     * Stops the engine for good, waiting (a while at most) for its workers to end: nothing new starts first, so no
+     * task runs ahead of one a cancelled worker left RUNNING, and a new engine's start doesn't reset a row one of them
+     * still runs. For whoever replaces this engine (SyncRuntime, after a failure).
+     */
+    suspend fun stopAndWait() {
+        synchronized(workerStartLock) {
+            isProcessing = false
+            stopped = true
+        }
+        SyncEngine.stopped(this)
+        cancelAllLanes()
+        stopProcessing()
     }
 
     /**
