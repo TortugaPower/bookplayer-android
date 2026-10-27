@@ -1,14 +1,20 @@
 # Release automation — the Android equivalent of the iOS Xcode Cloud `release-*` hook.
 #
 # Push a branch named `release-*` (or run it manually on that branch via workflow_dispatch) and this workflow:
+#   build job
 #   1. runs the unit-test + lint bar,
 #   2. builds BOTH signed prod bundles (:app phone + :wear watch),
-#   3. attaches them to the run as artifacts, and
+#   3. attaches them and their R8 mappings to the run as artifacts;
+#   submit job
 #   4. submits phone (`production`) and watch (`wear:production`) TOGETHER, in one Play edit, as
 #      a 1% staged rollout with each track's release notes (distribution/whatsnew/, written by the
 #      release skill), verified before and after submitting (scripts/play-release.mjs). Managed
 #      publishing is off, so Google's approval publishes it to 1% of users; raising the rollout
 #      is a separate job. A rollout still in progress on a track is replaced by the new release.
+#
+# A newer run cancels one that is still building, so the newest push is what ships. It never
+# cancels one that is submitting: a cancel during Play's commit could leave a release submitted
+# with no summary saying so. The newer run's submit waits for it instead.
 #
 # ── One-time setup ────────────────────────────────────────────────────────────────────────────
 # 1. Service account: create one in Google Cloud, then Play Console → Users & permissions →
@@ -41,15 +47,14 @@ on:
     branches: [ 'release-*' ]
   workflow_dispatch:
 
-# One release at a time: Play's tracks are shared, so a second run waits instead of racing the first.
-concurrency:
-  group: play-release
-  cancel-in-progress: false
-
 jobs:
-  release:
+  build:
     # A manual run submits to production too, so it only runs on a release branch.
     if: startsWith(github.ref, 'refs/heads/release-')
+    # A newer run (any release branch) cancels this one while it builds; its submit job then never starts.
+    concurrency:
+      group: release-build
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -147,7 +152,7 @@ jobs:
           # cover everything since the previous tag instead of only HEAD.
           npx --yes @sentry/cli@2 releases set-commits "$RELEASE" --auto --ignore-missing --initial-depth 300
 
-      # The bundles stay downloadable from the run even if the Play upload below fails.
+      # The bundles stay downloadable from the run even if the Play submit fails.
       # Nothing reaches Play if a class another process resolves by name lost its name (see
       # scripts/audit-mapping.sh — the check that would have caught the 1.1.2 wear rejection).
       - name: Audit R8 mapping (cross-process keeps)
@@ -162,8 +167,8 @@ jobs:
             wear/build/outputs/bundle/prodRelease/wear-prod-release.aab
           if-no-files-found: error
 
-      # R8 deobfuscation mappings, kept downloadable from the run; each track upload below also
-      # sends its own mapping to Play. The :app mapping additionally lands in Sentry during the
+      # R8 deobfuscation mappings, kept downloadable from the run; the submit job also sends each
+      # one to Play with its bundle. The :app mapping additionally lands in Sentry during the
       # bundle build (Sentry gradle plugin).
       - name: Attach R8 mappings to the run
         uses: actions/upload-artifact@v4
@@ -173,6 +178,35 @@ jobs:
             app/build/outputs/mapping/prodRelease/mapping.txt
             wear/build/outputs/mapping/prodRelease/mapping.txt
           if-no-files-found: error
+
+  submit:
+    needs: build
+    # Never cancelled by a newer run (see the header): the newer run's submit waits for this one.
+    concurrency:
+      group: release-submit
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # The same commit as the build: the script reads the versions from the gradle files and the
+      # notes from distribution/whatsnew/.
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      # Back to the paths the build wrote them to, which is where the script looks.
+      - name: Download bundles
+        uses: actions/download-artifact@v4
+        with:
+          name: release-bundles
+
+      - name: Download R8 mappings
+        uses: actions/download-artifact@v4
+        with:
+          name: r8-mappings
 
       # One Play edit for both tracks (phone -> production, watch -> wear:production): upload both
       # bundles with their R8 mappings, set each track to its completed release + this one at 1%
