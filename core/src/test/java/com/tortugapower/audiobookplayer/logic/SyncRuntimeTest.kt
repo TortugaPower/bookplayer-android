@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
+import android.database.sqlite.SQLiteFullException
 import android.os.Looper
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -12,6 +13,8 @@ import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +50,7 @@ class SyncRuntimeTest {
     private lateinit var repository: RoomSyncTaskRepository
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val engines = Collections.synchronizedList(mutableListOf<TaskConcurrencyManager>())
+    private val defaultBytes = StorageMonitor.availableBytesProvider
 
     @Before fun setUp() {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
@@ -56,6 +60,8 @@ class SyncRuntimeTest {
     @After fun tearDown() {
         scope.cancel()
         engines.forEach { it.stopProcessing() }
+        StorageMonitor.availableBytesProvider = defaultBytes
+        StorageMonitor.resetForTest()
         db.close()
     }
 
@@ -192,7 +198,7 @@ class SyncRuntimeTest {
             assertEquals("bad row", reported.single().message)
             assertTrue("not fatal", crashed.isEmpty())
             until { runtime.engine.value == null }
-            assertNull("retired", SyncEngine.current)
+            until { SyncEngine.current == null }
             until { networkCallbacks().isEmpty() }
 
             runtime.onAppOpened()
@@ -245,6 +251,60 @@ class SyncRuntimeTest {
         delay(300)
 
         assertSame(current, runtime.engine.value)
+    }
+
+    /** An app open while a failed engine winds down isn't lost: a new engine is built once the old one is down */
+    @Test fun anAppOpen_whileAFailedEngineWindsDown_buildsANewOne() = runBlocking {
+        val failureHooks = Collections.synchronizedList(mutableListOf<(Throwable) -> Unit>())
+        val slowStarted = CompletableDeferred<Unit>()
+        val slow = object : TaskProcessor {
+            override suspend fun process(task: SyncTaskEntity): Boolean {
+                slowStarted.complete(Unit)
+                // A worker that doesn't stop at once: the old engine takes a while to wind down
+                withContext(NonCancellable) { delay(1_500) }
+                return true
+            }
+            override fun canHandle(jobType: String): Boolean = jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE
+        }
+        var builds = 0
+        val runtime = SyncRuntime(context, scope, buildEngine = { onFailure ->
+            builds++
+            failureHooks += onFailure
+            TaskConcurrencyManager(context, repository, ProAccounts(), listOf(slow), onFailure = onFailure).also { engines += it }
+        })
+        runtime.start()
+        until { runtime.engine.value != null }
+        queuePush("slow")
+        slowStarted.await()
+
+        failureHooks.single()(IllegalStateException("broke"))
+        until { runtime.engine.value == null }
+        runtime.onAppOpened()
+        assertEquals("not while the old one winds down", 1, builds)
+
+        until { runtime.engine.value != null }
+        assertEquals(2, builds)
+    }
+
+    /** A build a full disk broke isn't a failure: when space is back it's built again, no app open needed */
+    @Test fun aBuildAFullDiskBroke_runsAgain_whenSpaceIsBack() = runBlocking {
+        val reported = Collections.synchronizedList(mutableListOf<Throwable>())
+        var builds = 0
+        val runtime = SyncRuntime(context, scope, buildEngine = { onFailure ->
+            if (++builds == 1) throw SQLiteFullException("database or disk is full")
+            TaskConcurrencyManager(context, repository, ProAccounts(), listOf(Pushes()), onFailure = onFailure).also { engines += it }
+        }, onFailed = { reported += it })
+        runtime.start()
+        until { StorageMonitor.isCritical }
+        delay(300)
+        assertNull(runtime.engine.value)
+
+        StorageMonitor.availableBytesProvider = { Long.MAX_VALUE }
+        StorageMonitor.refresh(context)
+
+        until { runtime.engine.value != null }
+        assertEquals(2, builds)
+        assertTrue("a full disk isn't reported", reported.isEmpty())
     }
 
     private fun networkCallbacks() =
