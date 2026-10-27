@@ -249,7 +249,8 @@ export async function inEdit(play, work) {
     return await work(edit, state);
   } finally {
     if (!state.committed) {
-      await play.deleteEdit(edit).catch((error) => log(`  (couldn't delete edit ${edit}: ${error.message})`));
+      // stderr: play-rollout.mjs keeps stdout for its result
+      await play.deleteEdit(edit).catch((error) => console.error(`  (couldn't delete edit ${edit}: ${error.message})`));
     }
   }
 }
