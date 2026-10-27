@@ -360,8 +360,9 @@ from the background because playback holds a foreground service. That's why the 
 * The budget's 24 h bookkeeping survives until a reboot or an uninstall: reboot between runs.
 * ANDROID-BOOKPLAYER-2E (a background ANR in the host's `onCreate` while building the network clients' TLS on the
   main thread) isn't reproducible on the emulator. It's gone with the same change, since nothing is built in the
-  host or on the main thread. Unit tests: `SyncRuntimeTest` (one engine, built off the main thread, storage
-  gating), `TaskConcurrencyServiceHostTest` (no lifecycle path reads an engine).
+  host or on the main thread. Unit tests: `SyncRuntimeTest` (one engine, built off the main thread, a failed build
+  reported and retried), `TaskConcurrencyManagerLifecycleTest` (runs once, no worker before the start-up steps, a
+  full disk waited out), `TaskConcurrencyServiceHostTest` (no lifecycle path reads an engine).
 
 ### Not yet scripted
 

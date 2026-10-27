@@ -189,17 +189,22 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   - The engine and the first sync wait for this launch's reading
     (`SubscriptionManager.awaitTierReady`), so they never act on last session's tier.
 - **One sync engine per process** (`SyncRuntime` in `:core`, iOS's model). It's built at every process start, off
-  the main thread (building the network clients sets up TLS: ANDROID-BOOKPLAYER-2E) once storage isn't critical,
-  and runs for the life of the process. Never build a `TaskConcurrencyManager` anywhere else: its start resets the
-  tasks a killed process left RUNNING, so a second engine would run them twice, and `SyncEngine.current` (lapse
-  and sign-out wipes) would only stop one.
+  the main thread (building the network clients sets up TLS: ANDROID-BOOKPLAYER-2E), and runs for the life of the
+  process; a failed build is reported (`onBuildFailed` → Sentry) and tried again on the next task or app open.
+  Never build a `TaskConcurrencyManager` anywhere else: its start resets the tasks a killed process left RUNNING,
+  so a second engine would run them twice, and `SyncEngine.current` (lapse and sign-out wipes) would only stop one.
+  - An engine runs once: started, then stopped for good (a start after a stop does nothing). No worker starts before
+    its start-up steps (the reset, lane moves, retirement) have run: every worker start waits on them. A write that
+    fails on a full disk is recorded and the step runs again once space is back, so the engine never silently
+    stops; space coming back also rescans the lanes a full disk held.
   - `TaskConcurrencyServiceHost` only keeps the process alive while lanes work. `SyncKeepAlive` starts it when a
     lane gets a worker, and it stops itself after a minute idle. It holds no engine, so a refused, timed-out or
     stopped service leaves the engine running (ANDROID-BOOKPLAYER-2F was the service reading an engine a refused
     promotion never built).
   - What the old start/stop cycle covered is explicit: the runtime's `SyncNetworkCallback` rescans on network
-    changes and cuts backoffs short on a new validated network; storage recovery rescans; the cellular-upload
-    setting calls `requestWorkerScan()`.
+    changes and cuts backoffs short on a new validated network; the engine rescans on storage recovery; the
+    cellular-upload setting calls `requestWorkerScan()`. `SyncKeepAlive` also starts the service again on a new task
+    or an app open while lanes work, since a start can fail while a lane stays busy for hours.
   - The watch still builds its engine in `WearSyncServiceHost` (it promotes after building, so it never had -2F)
     until it moves onto `SyncRuntime`.
 - **Covers ride the sync lane** (iOS): `upload_artwork` queues behind its item's registration, so the server

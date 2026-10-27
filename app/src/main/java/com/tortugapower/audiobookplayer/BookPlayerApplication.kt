@@ -38,7 +38,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.map
 import com.tortugapower.audiobookplayer.logic.StorageMonitor
 
 class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwner {
@@ -190,11 +189,11 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
                 }
             }
         }
-        // The process's one sync engine (SyncRuntime): built off the main thread once storage allows, then running
-        // for the life of the process. A new task makes sure it's started, and that the sync service is up if lanes
+        // The process's one sync engine (SyncRuntime): built off the main thread, then running for the life of the
+        // process. A new task makes sure it's started, and that the sync service is up if lanes
         // work (SyncKeepAlive).
         syncRuntime = SyncRuntime(
-            this, appScope, StorageMonitor.state.map { it.isCritical },
+            this, appScope,
             buildEngine = { PhoneSyncEngine.build(this, syncTaskRepository, accountRepository, firstSync, syncPauseReporter) },
             onBuildFailed = { io.sentry.Sentry.captureException(it) },
         )
