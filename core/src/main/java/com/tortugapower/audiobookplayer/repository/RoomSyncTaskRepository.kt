@@ -58,6 +58,20 @@ class RoomSyncTaskRepository(
         syncTaskDao.markTaskPending(id, errorMessage)
     }
 
+    override suspend fun markTaskRetrying(id: String, errorMessage: String, failureStreak: Int, nextAttemptAt: Long) =
+        withContext(Dispatchers.IO) {
+            syncTaskDao.markTaskRetrying(id, errorMessage, failureStreak, nextAttemptAt)
+        }
+
+    override suspend fun clearRetryWaits(): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.clearRetryWaits()
+    }
+
+    override suspend fun clearRetryWait(id: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.clearRetryWait(id)
+        Unit
+    }
+
     override suspend fun updatePendingTaskPayload(task: SyncTaskEntity, payload: String): Boolean =
         withContext(Dispatchers.IO) {
             syncTaskDao.updatePendingPayload(task.id, payload) > 0

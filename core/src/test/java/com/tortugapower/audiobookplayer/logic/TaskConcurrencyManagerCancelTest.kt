@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -21,7 +22,8 @@ import org.robolectric.RobolectricTestRunner
 /**
  * Locks in [TaskConcurrencyManager.executeTask]'s terminal-vs-retry decision when a processor returns
  * false: a cancelled task (cancel flag set) is deleted (no retry) and its flag cleared, while an ordinary
- * failure is re-queued (PENDING) for retry. This is the manager side of on-watch download cancellation.
+ * failure is re-queued (PENDING) to retry after its backoff. This is the manager side of on-watch download
+ * cancellation.
  */
 @RunWith(RobolectricTestRunner::class)
 class TaskConcurrencyManagerCancelTest {
@@ -49,7 +51,7 @@ class TaskConcurrencyManagerCancelTest {
 
         val result = manager(repo).executeTask(task())
 
-        assertFalse(result)
+        assertTrue("nothing to wait for: the worker moves straight on", result)
         assertTrue("cancelled task is deleted", repo.deleted.any { it.taskID == uuid })
         assertFalse("cancelled task is NOT re-queued for retry", repo.reQueuedToPending)
         assertFalse("cancel flag is cleared", SyncStatusManager.isCancelRequested(uuid))
@@ -62,11 +64,12 @@ class TaskConcurrencyManagerCancelTest {
 
         assertFalse(result)
         assertTrue("failed task is re-queued for retry", repo.reQueuedToPending)
+        assertEquals("its first failure in a row", 1, repo.retryStreak)
         assertTrue("failed task is not deleted", repo.deleted.isEmpty())
     }
 
     @Test fun `a job type no processor handles is dropped, not retried`() = runBlocking {
-        // A retired job left in the queue by an older version would otherwise retry every 5 s forever
+        // A retired job left in the queue by an older version would otherwise retry forever
         val repo = RecordingSyncTaskRepository()
 
         val result = manager(repo).executeTask(task().copy(id = "row-r", jobType = "set_external_resource_to_download"))
@@ -99,11 +102,16 @@ class TaskConcurrencyManagerCancelTest {
 private class RecordingSyncTaskRepository : SyncTaskRepository {
     val deleted = mutableListOf<SyncTaskEntity>()
     var reQueuedToPending = false
+    var retryStreak = 0
     override suspend fun updateTask(task: SyncTaskEntity) {
         if (task.status == SyncTaskStatus.PENDING) reQueuedToPending = true
     }
     override suspend fun markTaskRunning(id: String) {}
     override suspend fun markTaskPending(id: String, errorMessage: String?) { reQueuedToPending = true }
+    override suspend fun markTaskRetrying(id: String, errorMessage: String, failureStreak: Int, nextAttemptAt: Long) {
+        reQueuedToPending = true
+        retryStreak = failureStreak
+    }
     override suspend fun deleteTask(task: SyncTaskEntity) { deleted += task }
     override fun getAllTasks(): Flow<List<SyncTaskEntity>> = emptyFlow()
     override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = null

@@ -168,4 +168,54 @@ class SyncTaskPickerTest {
         )
         assertEquals(emptyList<String>(), SyncTaskPicker.lanesWithWork(tasks))
     }
+
+    // A task waiting out a backoff (SyncBackoff) is passed over like a parked one: its scope decides
+
+    private val now = 1_000_000L
+
+    private fun waiting(id: String, until: Long, jobType: String = SyncTaskFactory.JOB_MOVE) =
+        pending(id, jobType).copy(failureStreak = 1, nextAttemptAt = until)
+
+    @Test fun nextDue_runsTheFirstTask_whenNothingWaits() {
+        assertEquals(LanePick.Run(pending("a")), SyncTaskPicker.nextDue(listOf(pending("a"), pending("b")), now))
+    }
+
+    @Test fun nextDue_aWaitingTaskThatChangesNoStructure_isSkipped() {
+        val tasks = listOf(waiting("a", now + 5_000, SyncTaskFactory.JOB_UPDATE), pending("b"))
+        assertEquals(LanePick.Run(pending("b")), SyncTaskPicker.nextDue(tasks, now))
+    }
+
+    /** Later tasks build on what it would have changed */
+    @Test fun nextDue_aWaitingStructuralTask_holdsTheLaneBehindIt() {
+        val tasks = listOf(waiting("a", now + 5_000), pending("b"))
+        assertEquals(LanePick.Wait(now + 5_000), SyncTaskPicker.nextDue(tasks, now))
+    }
+
+    /** The lane looks again at the first wait to end: a skipped task ahead of the one holding the lane */
+    @Test fun nextDue_waitsForTheEarliestWait_untilTheTaskHoldingTheLane() {
+        val tasks = listOf(
+            waiting("a", now + 3_000, SyncTaskFactory.JOB_UPDATE),
+            waiting("b", now + 9_000),
+            waiting("c", now + 1_000, SyncTaskFactory.JOB_UPDATE), // behind the held lane: not considered
+        )
+        assertEquals(LanePick.Wait(now + 3_000), SyncTaskPicker.nextDue(tasks, now))
+        assertEquals(
+            LanePick.Wait(now + 2_000),
+            SyncTaskPicker.nextDue(listOf(waiting("x", now + 5_000, SyncTaskFactory.JOB_UPDATE), waiting("y", now + 2_000, SyncTaskFactory.JOB_UPDATE)), now),
+        )
+    }
+
+    @Test fun nextDue_aTaskWhoseWaitIsOver_runs() {
+        assertEquals(LanePick.Run(waiting("a", now)), SyncTaskPicker.nextDue(listOf(waiting("a", now)), now))
+    }
+
+    /** A wait longer than any backoff means the clock moved back: the task runs rather than stalling */
+    @Test fun nextDue_aWaitPastTheCap_runs() {
+        val stale = waiting("a", now + SyncBackoff.MAX_DELAY_MS + 1)
+        assertEquals(LanePick.Run(stale), SyncTaskPicker.nextDue(listOf(stale), now))
+    }
+
+    @Test fun nextDue_nothingToRun_retiresTheWorker() {
+        assertEquals(LanePick.Idle, SyncTaskPicker.nextDue(emptyList(), now))
+    }
 }

@@ -200,6 +200,13 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             override fun onStart(owner: LifecycleOwner) {
                 forcePreferencesPull()
                 appScope.launch(Dispatchers.IO) { parkedTaskRetry.onForeground(StorageMonitor.isCritical) }
+                // Every time the app is opened, tasks waiting out a backoff retry now (their streak kept).
+                // Not while storage is critical: the engine holds all work then.
+                appScope.launch(Dispatchers.IO) {
+                    if (!StorageMonitor.isCritical) {
+                        com.tortugapower.audiobookplayer.logic.SyncRetryWake.retryAllNow(syncTaskRepository)
+                    }
+                }
             }
         })
         appScope.launch {

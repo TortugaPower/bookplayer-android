@@ -46,6 +46,13 @@ class TaskConcurrencyManagerParkingTest {
         override suspend fun markTaskRunning(id: String) {}
         val requeueErrors = mutableListOf<String?>()
         override suspend fun markTaskPending(id: String, errorMessage: String?) { requeued += id; requeueErrors += errorMessage }
+        /** Retried after a backoff: the id and its streak */
+        val retried = mutableListOf<Pair<String, Int>>()
+        val retryAt = mutableListOf<Long>()
+        override suspend fun markTaskRetrying(id: String, errorMessage: String, failureStreak: Int, nextAttemptAt: Long) {
+            retried += id to failureStreak
+            retryAt += nextAttemptAt
+        }
         override suspend fun deleteTask(task: SyncTaskEntity) { deleted += task.id }
         override fun getAllTasks(): Flow<List<SyncTaskEntity>> = emptyFlow()
         override suspend fun getPendingTasks(): List<SyncTaskEntity> = error("unused")
@@ -105,6 +112,7 @@ class TaskConcurrencyManagerParkingTest {
         assertEquals(TaskPauseScope.LANE, repo.parked.single().scope)
         assertEquals("item_not_found", repo.parked.single().failure.code)
         assertTrue(repo.requeued.isEmpty())
+        assertTrue(repo.retried.isEmpty())
     }
 
     @Test fun aCodedFailureOnALeafTask_parksItAlone() {
@@ -239,21 +247,40 @@ class TaskConcurrencyManagerParkingTest {
         assertTrue(repo.parked.isEmpty())
     }
 
+    /** It waits out its first backoff (SyncBackoff): 5 s, spread ±20% */
     @Test fun anUncodedFailure_orAMediaServerPush_retries() {
+        val before = System.currentTimeMillis()
         val (result, repo) = run(SyncTaskFactory.JOB_MOVE) { throw IOException("timeout") }
         assertFalse(result)
-        assertEquals(listOf("row-move"), repo.requeued)
+        assertEquals(listOf("row-move" to 1), repo.retried)
+        assertTrue(repo.retryAt.single() in before + 4_000..System.currentTimeMillis() + 6_000)
+        assertTrue(repo.requeued.isEmpty())
 
         val (_, pushRepo) = run(SyncTaskFactory.JOB_EXTERNAL_UPDATE) { throw coded("item_not_found") }
-        assertEquals(listOf("row-external_update"), pushRepo.requeued)
+        assertEquals(listOf("row-external_update" to 1), pushRepo.retried)
         assertTrue(pushRepo.parked.isEmpty())
+    }
+
+    /** The streak is the task's own, so the wait grows with each failure in a row */
+    @Test fun aTaskThatFailedBefore_waitsLonger() = runBlocking {
+        val repo = RecordingRepository()
+        val manager = TaskConcurrencyManager(
+            ApplicationProvider.getApplicationContext(), repo, NoAccountRepository(),
+            listOf(ThrowingProcessor(SyncTaskFactory.JOB_MOVE) { throw IOException("timeout") }),
+        )
+        val before = System.currentTimeMillis()
+        assertFalse(manager.executeTask(task(SyncTaskFactory.JOB_MOVE).copy(failureStreak = 3)))
+
+        assertEquals(listOf("row-move" to 4), repo.retried)
+        // The 4th in a row: 40 s, spread ±20%
+        assertTrue(repo.retryAt.single() in before + 32_000..System.currentTimeMillis() + 48_000)
     }
 
     /** A timeout inside a processor throws a CancellationException while the worker is still running */
     @Test fun aCancellationTheProcessorRaisedItself_isAnOrdinaryFailure() {
         val (result, repo) = run(SyncTaskFactory.JOB_MOVE) { throw CancellationException("timed out") }
         assertFalse(result)
-        assertEquals(listOf("row-move"), repo.requeued)
+        assertEquals(listOf("row-move" to 1), repo.retried)
     }
 
     /** The host stopping cancels the worker mid-task: the task stays RUNNING for resetRunningTasks */
@@ -278,7 +305,7 @@ class TaskConcurrencyManagerParkingTest {
         worker.join()
 
         assertTrue(thrown is CancellationException)
-        assertTrue("not re-queued", repo.requeued.isEmpty())
+        assertTrue("not re-queued", repo.requeued.isEmpty() && repo.retried.isEmpty())
         assertNull(repo.parked.firstOrNull())
     }
 }
