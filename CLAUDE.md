@@ -295,8 +295,8 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     once `DownloadFileProcessor` has verified and moved the file into place, the phone queues the upload
     from the sync lane (`queue_file_upload`, which checks PRO and the file). The watch uploads nothing.
     1.2's stream-to-cloud pipe (`upload_stream_file`, server route `external_set`) is gone: the engine
-    turns queued pipe tasks into that step and drops their confirmations (`SyncTaskRetirement`, at app launch and at
-    engine start: a held retired task never starts the engine, and in the sync lane it holds back every refresh).
+    turns queued pipe tasks into that step and drops their confirmations (`SyncTaskRetirement`, at engine start,
+    which is every process start: left in the sync lane, a retired task would hold back every refresh).
 
 ## Git
 

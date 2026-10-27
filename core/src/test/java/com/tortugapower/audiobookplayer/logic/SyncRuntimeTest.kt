@@ -154,25 +154,35 @@ class SyncRuntimeTest {
         until { pushes.ran.contains("held") }
     }
 
-    /** A build that throws leaves no engine: the next start (a new task, an app open) tries again */
-    @Test fun aFailedBuild_isTriedAgain_byTheNextStart() = runBlocking {
-        val failures = Collections.synchronizedList(mutableListOf<Throwable>())
-        val failing = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e -> failures += e })
+    /**
+     * A build that throws is reported, never fatal (it runs at every process start, playback-only ones included),
+     * and leaves no engine: the next start (a new task, an app open) tries again
+     */
+    @Test fun aFailedBuild_isReported_andTriedAgain_byTheNextStart() = runBlocking {
+        val reported = Collections.synchronizedList(mutableListOf<Throwable>())
+        val crashed = Collections.synchronizedList(mutableListOf<Throwable>())
+        val watched = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e -> crashed += e })
         var attempts = 0
-        val runtime = SyncRuntime(context, failing, MutableStateFlow(false), buildEngine = {
-            if (++attempts == 1) error("first build fails")
-            TaskConcurrencyManager(context, repository, ProAccounts(), listOf(Pushes())).also { engines += it }
-        })
+        val runtime = SyncRuntime(
+            context, watched, MutableStateFlow(false),
+            buildEngine = {
+                if (++attempts == 1) error("first build fails")
+                TaskConcurrencyManager(context, repository, ProAccounts(), listOf(Pushes())).also { engines += it }
+            },
+            onBuildFailed = { reported += it },
+        )
         try {
             runtime.start()
-            until { failures.isNotEmpty() }
+            until { reported.isNotEmpty() }
+            assertEquals("first build fails", reported.single().message)
+            assertTrue("not rethrown", crashed.isEmpty())
             assertNull(runtime.engine.value)
 
             runtime.start()
             until { runtime.engine.value != null }
             assertEquals(2, attempts)
         } finally {
-            failing.cancel()
+            watched.cancel()
         }
     }
 

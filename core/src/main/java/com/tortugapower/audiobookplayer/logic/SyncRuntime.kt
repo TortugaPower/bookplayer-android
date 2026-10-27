@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +42,8 @@ interface SyncRuntimeOwner {
  *   space comes back.
  * @param buildEngine the target's engine, with its processors. Called once, on [buildDispatcher]: building the
  *   network clients sets up TLS, which stalled the main thread (ANDROID-BOOKPLAYER-2E).
+ * @param onBuildFailed told when [buildEngine] (or the engine's start) threw for a reason other than a full disk, so
+ *   the target can report it (`:core` never initializes Sentry). The next [start] tries again.
  */
 class SyncRuntime(
     private val context: Context,
@@ -48,6 +51,7 @@ class SyncRuntime(
     private val storageCritical: Flow<Boolean>,
     private val buildEngine: () -> TaskConcurrencyManager,
     private val buildDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val onBuildFailed: (Throwable) -> Unit = {},
 ) {
     private val started = AtomicBoolean(false)
     private val _engine = MutableStateFlow<TaskConcurrencyManager?>(null)
@@ -66,12 +70,23 @@ class SyncRuntime(
         if (!started.compareAndSet(false, true)) return
         scope.launch(buildDispatcher) {
             storageCritical.first { !it }
-            val engine = try {
-                buildEngine().also { it.startProcessing() }
+            var engine: TaskConcurrencyManager? = null
+            try {
+                engine = buildEngine()
+                engine.startProcessing()
             } catch (e: Throwable) {
+                engine?.stopProcessing()
                 // The next new task, or the next app open, tries again
                 started.set(false)
-                throw e
+                if (e is CancellationException) throw e
+                // Never fatal: this runs at every process start, playback-only ones included, and a crash here
+                // would stop playback each time. A full disk is recorded (the engine waits for space); anything
+                // else is reported.
+                if (!StorageMonitor.reportFailure(context, e)) {
+                    Log.e("SyncRuntime", "Sync engine not built", e)
+                    onBuildFailed(e)
+                }
+                return@launch
             }
             _engine.value = engine
             watchNetwork(engine)
