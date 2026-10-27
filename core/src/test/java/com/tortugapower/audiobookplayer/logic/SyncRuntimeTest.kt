@@ -206,11 +206,14 @@ class SyncRuntimeTest {
         }
     }
 
-    /** The same failure every time: reported once per process, however often the app is opened */
+    /**
+     * The same failure every time: reported once per process, however often the app is opened, even when its message
+     * changes (it may name a row or a path)
+     */
     @Test fun theSameFailure_isReportedOnce() = runBlocking {
         val reported = Collections.synchronizedList(mutableListOf<Throwable>())
         var attempts = 0
-        val runtime = SyncRuntime(context, scope, buildEngine = { attempts++; error("always fails") }, onFailed = { reported += it })
+        val runtime = SyncRuntime(context, scope, buildEngine = { error("bad row ${++attempts}") }, onFailed = { reported += it })
 
         runtime.start()
         until { attempts == 1 }

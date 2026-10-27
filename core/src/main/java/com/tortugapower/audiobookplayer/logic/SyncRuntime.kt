@@ -122,7 +122,14 @@ class SyncRuntime(
         if (StorageMonitor.reportFailure(context, e)) return
         failed.set(true)
         Log.e("SyncRuntime", what, e)
-        if (reported.add("${e.javaClass.name}: ${e.message}")) onFailed(e)
+        if (reported.add(signature(e))) onFailed(e)
+    }
+
+    // The same failure: the same exception, its root cause thrown from the same place. Not the message, which may
+    // name a row or a path that changes every time.
+    private fun signature(e: Throwable): String {
+        val root = generateSequence(e) { it.cause }.take(8).last()
+        return "${e.javaClass.name}|${root.javaClass.name}@${root.stackTrace.firstOrNull()}"
     }
 
     private fun watchNetwork(engine: TaskConcurrencyManager) {
