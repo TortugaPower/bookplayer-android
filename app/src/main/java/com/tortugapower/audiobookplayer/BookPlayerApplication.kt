@@ -203,7 +203,6 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
             syncRuntime.start()
             SyncKeepAlive.startIfLanesWork(syncRuntime.activeQueues.value, startSyncService)
         }
-        syncRuntime.start()
         // The sync service keeps the process alive while lanes work; it stops itself once they've been idle a minute
         appScope.launch { SyncKeepAlive.startWhenLanesWork(syncRuntime.activeQueues, startSyncService) }
 
@@ -216,7 +215,9 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
             override fun onStart(owner: LifecycleOwner) {
                 forcePreferencesPull()
                 appScope.launch(Dispatchers.IO) { parkedTaskRetry.onForeground(StorageMonitor.isCritical) }
-                // In the foreground a start is always allowed: one refused in the background gets its retry here
+                // An engine whose build failed is tried again; and in the foreground a start of the sync service is
+                // always allowed, so one refused in the background gets its retry here
+                syncRuntime.start()
                 SyncKeepAlive.startIfLanesWork(syncRuntime.activeQueues.value, startSyncService)
                 // Every time the app is opened, tasks waiting out a backoff retry now (their streak kept).
                 // Not while storage is critical: the engine holds all work then.
@@ -247,6 +248,8 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
 
         // Crash/error reporting
         initSentry(accountRepository)
+        // After Sentry: a build that fails right away is reported (SyncRuntime's onBuildFailed)
+        syncRuntime.start()
     }
 
     private fun initSentry(accountRepository: AccountRepository) {

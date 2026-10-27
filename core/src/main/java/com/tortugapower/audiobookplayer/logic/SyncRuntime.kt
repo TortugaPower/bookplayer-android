@@ -90,8 +90,12 @@ class SyncRuntime(
             }
             _engine.value = engine
             watchNetwork(engine)
-            // A full disk holds every lane: when space is back, they look at their tasks again
-            storageCritical.distinctUntilChanged().drop(1).filter { !it }.collect { engine.requestWorkerScan() }
+            // A full disk holds every lane, and a write that failed on it may have stopped the task watcher: when
+            // space is back, the watcher runs again and the lanes look at their tasks
+            storageCritical.distinctUntilChanged().drop(1).filter { !it }.collect {
+                engine.resumeWatching()
+                engine.requestWorkerScan()
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
+import android.database.sqlite.SQLiteFullException
 import android.os.Looper
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -10,6 +11,7 @@ import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
+import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -184,6 +186,41 @@ class SyncRuntimeTest {
         } finally {
             watched.cancel()
         }
+    }
+
+    /**
+     * A write in the engine's task watcher can fail on a full disk; the scope records it instead of crashing, and
+     * the watcher is gone. When space is back it watches again (a service restart used to build a new engine)
+     */
+    @Test fun aWatcherAFullDiskStopped_watchesAgain_whenSpaceIsBack() = runBlocking {
+        val failsOnce = object : SyncTaskRepository by repository {
+            var failed = false
+            override suspend fun resetRunningTasks() {
+                if (!failed) {
+                    failed = true
+                    throw SQLiteFullException("database or disk is full")
+                }
+                repository.resetRunningTasks()
+            }
+        }
+        val pushes = Pushes()
+        val runtime = SyncRuntime(context, scope, StorageMonitor.state.map { it.isCritical }, buildEngine = {
+            TaskConcurrencyManager(context, failsOnce, ProAccounts(), listOf(pushes)).also { engines += it }
+        })
+        runtime.start()
+        until { StorageMonitor.isCritical }
+        queuePush("queued")
+        delay(500)
+        assertTrue("no watcher: nothing starts it", pushes.ran.isEmpty())
+
+        StorageMonitor.availableBytesProvider = { Long.MAX_VALUE }
+        StorageMonitor.refresh(context)
+        until { pushes.ran.contains("queued") }
+
+        // A rescan alone runs what was already queued; once that worker retires, a new task needs the watcher
+        until { runtime.activeQueues.value.isEmpty() }
+        queuePush("after")
+        until { pushes.ran.contains("after") }
     }
 
     @Test fun itsLanes_areTheEngines() = runBlocking {

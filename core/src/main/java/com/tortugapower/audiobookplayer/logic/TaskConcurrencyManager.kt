@@ -109,19 +109,40 @@ class TaskConcurrencyManager(
         if (isProcessing) return
         isProcessing = true
         SyncEngine.started(this)
-        
+        launchWatcher()
+    }
+
+    /**
+     * The task watcher stopped (a write in it failed on a full disk, which the scope records instead of crashing):
+     * starts it again, and its start-up steps too if they never finished. Called when storage recovers; does nothing
+     * while it runs.
+     */
+    fun resumeWatching() {
+        if (!isProcessing || collectorJob?.isActive == true) return
+        Log.w(TAG, "Task watcher had stopped; starting it again")
+        launchWatcher()
+    }
+
+    // Set once the start-up steps below have run: they reset RUNNING rows, safe only before any worker exists
+    @Volatile
+    private var prepared = false
+
+    private fun launchWatcher() {
         collectorJob = serviceScope.launch {
             awaitTierReady()
-            // Reset any tasks that were left in RUNNING state (e.g., from a crash)
-            Log.d(TAG, "🧹 Resetting hung RUNNING tasks to PENDING...")
-            repository.resetRunningTasks()
-            // An older build queued book uploads in the file lane, ahead of the downloads behind them
-            repository.moveToLane(SyncTaskFactory.JOB_UPLOAD_FILE, SyncTaskFactory.QUEUE_UPLOAD)
-            // and covers in the file lane, where they could reach the server before their item's registration
-            repository.moveToLane(SyncTaskFactory.JOB_UPLOAD_ARTWORK, SyncTaskFactory.QUEUE_SYNC)
-            // Jobs this build no longer runs, converted or dropped before any lane picks them (the engine starts
-            // at every process start, SyncRuntime)
-            SyncTaskRetirement.cleanUp(repository)
+            if (!prepared) {
+                // Reset any tasks that were left in RUNNING state (e.g., from a crash)
+                Log.d(TAG, "🧹 Resetting hung RUNNING tasks to PENDING...")
+                repository.resetRunningTasks()
+                // An older build queued book uploads in the file lane, ahead of the downloads behind them
+                repository.moveToLane(SyncTaskFactory.JOB_UPLOAD_FILE, SyncTaskFactory.QUEUE_UPLOAD)
+                // and covers in the file lane, where they could reach the server before their item's registration
+                repository.moveToLane(SyncTaskFactory.JOB_UPLOAD_ARTWORK, SyncTaskFactory.QUEUE_SYNC)
+                // Jobs this build no longer runs, converted or dropped before any lane picks them (the engine starts
+                // at every process start, SyncRuntime)
+                SyncTaskRetirement.cleanUp(repository)
+                prepared = true
+            }
             
             Log.d(TAG, "📡 Starting queue worker manager...")
             
