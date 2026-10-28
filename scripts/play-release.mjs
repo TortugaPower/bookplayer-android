@@ -242,14 +242,15 @@ export function commitFailure(error) {
 }
 
 /** Runs `work` in a new edit and deletes the edit afterwards unless `work` committed it. */
-async function inEdit(play, work) {
+export async function inEdit(play, work) {
   const edit = await play.openEdit();
   const state = { committed: false };
   try {
     return await work(edit, state);
   } finally {
     if (!state.committed) {
-      await play.deleteEdit(edit).catch((error) => log(`  (couldn't delete edit ${edit}: ${error.message})`));
+      // stderr: play-rollout.mjs keeps stdout for its result
+      await play.deleteEdit(edit).catch((error) => console.error(`  (couldn't delete edit ${edit}: ${error.message})`));
     }
   }
 }
