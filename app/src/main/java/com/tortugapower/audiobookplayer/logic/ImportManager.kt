@@ -430,7 +430,7 @@ object ImportManager : ImportService {
         scope.launch {
             val createdItems = mutableListOf<LibraryItemEntity>()
             try {
-                importAcceptedFiles(context, targetFolderPath, createdItems)
+                importAcceptedFiles(context, targetFolderPath, createdItems, importedFiles)
 
                 if (createdItems.isNotEmpty()) {
                     importCompletion = ImportCompletion(
@@ -453,10 +453,85 @@ object ImportManager : ImportService {
         }
     }
 
+    /**
+     * Imports what a Transfer from Computer session received, skipping the import sheet (iOS parity: the
+     * Transfer sheet's Done hands its files straight to the import). [receive] ends the session and hands over
+     * its folder of complete files (`BrowserDropServer.finish`), or null when nothing arrived. It runs here,
+     * not in the sheet's scope, so the import outlives the sheet that started it.
+     *
+     * The folder's top-level files and folders go through the same steps as picked files: archives are
+     * expanded, a folder becomes a folder item, and the placement prompt follows. The folder is deleted after.
+     */
+    override fun importReceived(context: Context, targetFolderPath: String?, receive: suspend () -> File?) {
+        scope.launch {
+            val folder = try {
+                receive()
+            } catch (e: Exception) {
+                android.util.Log.e("ImportManager", "Transfer couldn't hand over its files", e)
+                null
+            } ?: return@launch
+            importReceivedFolder(context, folder, targetFolderPath)
+        }
+    }
+
+    @androidx.annotation.VisibleForTesting
+    internal suspend fun importReceivedFolder(context: Context, folder: File, targetFolderPath: String?) {
+        isImporting = true
+        val createdItems = mutableListOf<LibraryItemEntity>()
+        try {
+            val staged = withContext(Dispatchers.IO) { stageReceived(context, folder) }
+            importAcceptedFiles(context, targetFolderPath, createdItems, staged)
+            if (createdItems.isNotEmpty()) {
+                importCompletion = ImportCompletion(
+                    items = createdItems.toList(),
+                    suggestedName = ImportArchiveUtils.stripExtension(suggestedFolderName ?: createdItems.first().title),
+                    basePath = targetFolderPath
+                )
+            }
+        } finally {
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { folder.deleteRecursively() }
+            suggestedFolderName = null
+            processingFileName = null
+            isImporting = false
+        }
+    }
+
+    /**
+     * Moves the received folder's top-level entries into the backup folder, as [startImport] copies picked
+     * files there, with the same check against the library: a book whose file is already here is skipped, and
+     * one whose file was offloaded gets it back. Folders stage whole, to import as one folder item each.
+     */
+    private suspend fun stageReceived(context: Context, folder: File): List<ImportFile> {
+        val backupDir = File(context.filesDir, "BPBackup").apply { mkdirs() }
+        val processedDir = File(context.filesDir, "Processed")
+        val libraryDao = AppDatabase.getDatabase(context).libraryDao()
+        val staged = mutableListOf<ImportFile>()
+        for (entry in ImportArchiveUtils.topLevelEntries(folder)) {
+            var isFileOnly = false
+            if (entry.isFile && !ImportArchiveUtils.isArchive(entry.name)) {
+                val existingItem = libraryDao.getItemByFileName(entry.name)
+                if (existingItem != null) {
+                    val stored = File(processedDir, existingItem.relativePath?.takeIf { it.isNotEmpty() } ?: entry.name)
+                    if (stored.exists()) continue
+                    isFileOnly = true
+                }
+            }
+            val destination = if (entry.isDirectory) ImportArchiveUtils.uniqueDirectory(backupDir, entry.name)
+                              else ImportArchiveUtils.uniqueDestination(backupDir, entry.name)
+            if (!entry.renameTo(destination)) {
+                entry.copyRecursively(destination, overwrite = false)
+                entry.deleteRecursively()
+            }
+            staged += ImportFile(destination.name, destination, isFileOnly = isFileOnly)
+        }
+        return expandArchives(context, staged, libraryDao)
+    }
+
     private suspend fun importAcceptedFiles(
         context: Context,
         targetFolderPath: String?,
-        createdItems: MutableList<LibraryItemEntity>
+        createdItems: MutableList<LibraryItemEntity>,
+        files: List<ImportFile>
     ) {
         val processedDir = File(context.filesDir, "Processed")
         if (!processedDir.exists()) processedDir.mkdirs()
@@ -476,7 +551,7 @@ object ImportManager : ImportService {
                           else File(processedDir, targetFolderPath).apply { if (!exists()) mkdirs() }
 
             // iOS parity: locale-aware, numeric-friendly order ("Chapter 2" < "Chapter 10").
-            val orderedFiles = importedFiles.sortedWith(
+            val orderedFiles = files.sortedWith(
                 compareBy(ImportArchiveUtils.naturalOrderComparator) { it.name }
             )
 

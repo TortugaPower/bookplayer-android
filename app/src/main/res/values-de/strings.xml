@@ -448,4 +448,38 @@
         <item quantity="one">Der Ordner wurde nicht gelöscht: %1$d Element darin hat denselben Namen wie eines in der Bibliothek. Benennen Sie es zuerst um oder verschieben Sie es.</item>
         <item quantity="other">Der Ordner wurde nicht gelöscht: %1$d Elemente darin haben dieselben Namen wie Elemente in der Bibliothek. Benennen Sie sie zuerst um oder verschieben Sie sie.</item>
     </plurals>
+
+    <!-- Transfer from Computer -->
+    <string name="transfer_title">Vom Computer übertragen</string>
+    <string name="transfer_instructions">Öffne auf einem Computer im selben Netzwerk diese Adresse in einem Browser:</string>
+    <string name="transfer_no_address">Verbinde dich mit einem WLAN, um Dateien von einem Computer zu empfangen.</string>
+    <string name="transfer_footer">Lass diesen Bildschirm geöffnet, während die Dateien hochgeladen werden.</string>
+    <string name="transfer_server_url_accessibility">Übertragungsadresse</string>
+    <string name="transfer_server_copy_button">Adresse kopieren</string>
+    <string name="transfer_server_copied_button">Kopiert</string>
+    <plurals name="transfer_folder_files">
+        <item quantity="one">%1$d Datei</item>
+        <item quantity="other">%1$d Dateien</item>
+    </plurals>
+    <string name="transfer_server_web_subtitle">Lege Hörbuchdateien oder -ordner hier ab. Sie erscheinen auf dem Übertragungsbildschirm deines Telefons.</string>
+    <string name="transfer_server_web_folder_hint">Die Ordnerstruktur bleibt erhalten.</string>
+    <string name="transfer_server_web_drop_title">Hier ablegen</string>
+    <string name="transfer_server_web_choose_files">Dateien auswählen</string>
+    <string name="transfer_server_web_choose_folder">Ordner auswählen</string>
+    <string name="transfer_server_web_retry">Fehlgeschlagene wiederholen</string>
+    <string name="transfer_server_web_uploading">Wird hochgeladen</string>
+    <string name="transfer_server_web_uploaded">Hochgeladen</string>
+    <string name="transfer_server_web_failed">Fehlgeschlagen</string>
+    <string name="transfer_server_web_queue_empty">Warte auf Dateien…</string>
+    <string name="transfer_server_web_skipped">Nicht unterstützte Dateien übersprungen: %d</string>
+    <string name="transfer_web_queued">Wartet</string>
+    <string name="transfer_web_summary">%1$d von %2$d hochgeladen</string>
+    <string name="transfer_web_waiting">Warte auf BookPlayer…</string>
+    <string name="transfer_web_unreachable">BookPlayer ist nicht erreichbar. Lass den Übertragungsbildschirm geöffnet; Uploads werden automatisch fortgesetzt.</string>
+    <string name="transfer_web_not_enough_space">Nicht genug Speicherplatz auf dem Gerät</string>
+    <string name="transfer_web_too_large">Zu groß</string>
+    <string name="transfer_web_unsupported">Dateityp nicht unterstützt</string>
+    <string name="transfer_web_path_conflict">Eine andere Datei oder ein anderer Ordner, den du gesendet hast, heißt bereits so</string>
+    <string name="transfer_web_done_hint">Bestätige danach in BookPlayer, um die Dateien zu importieren.</string>
+    <string name="transfer_web_load_error">BookPlayer ist nicht erreichbar. Prüfe, ob der Übertragungsbildschirm noch geöffnet ist.</string>
 </resources>

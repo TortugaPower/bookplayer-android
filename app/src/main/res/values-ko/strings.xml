@@ -444,4 +444,37 @@
     <plurals name="library_shallow_delete_name_taken">
         <item quantity="other">폴더를 삭제하지 못했습니다. 폴더 안의 %1$d개 항목과 같은 이름의 항목이 라이브러리에 이미 있습니다. 먼저 이름을 변경하거나 이동하세요.</item>
     </plurals>
+
+    <!-- Transfer from Computer -->
+    <string name="transfer_title">컴퓨터에서 전송</string>
+    <string name="transfer_instructions">같은 네트워크에 있는 컴퓨터의 브라우저에서 이 주소를 여세요:</string>
+    <string name="transfer_no_address">컴퓨터에서 파일을 받으려면 Wi‑Fi에 연결하세요.</string>
+    <string name="transfer_footer">업로드하는 동안 이 화면을 열어 두세요.</string>
+    <string name="transfer_server_url_accessibility">전송 주소</string>
+    <string name="transfer_server_copy_button">주소 복사</string>
+    <string name="transfer_server_copied_button">복사됨</string>
+    <plurals name="transfer_folder_files">
+        <item quantity="other">파일 %1$d개</item>
+    </plurals>
+    <string name="transfer_server_web_subtitle">오디오북 파일이나 폴더를 끌어다 놓으세요. 휴대폰의 전송 화면에 표시됩니다.</string>
+    <string name="transfer_server_web_folder_hint">폴더 구조가 유지됩니다.</string>
+    <string name="transfer_server_web_drop_title">여기에 놓기</string>
+    <string name="transfer_server_web_choose_files">파일 선택</string>
+    <string name="transfer_server_web_choose_folder">폴더 선택</string>
+    <string name="transfer_server_web_retry">실패한 항목 다시 시도</string>
+    <string name="transfer_server_web_uploading">업로드 중</string>
+    <string name="transfer_server_web_uploaded">업로드됨</string>
+    <string name="transfer_server_web_failed">실패</string>
+    <string name="transfer_server_web_queue_empty">파일을 기다리는 중…</string>
+    <string name="transfer_server_web_skipped">지원되지 않는 파일 건너뜀: %d</string>
+    <string name="transfer_web_queued">대기 중</string>
+    <string name="transfer_web_summary">%2$d개 중 %1$d개 업로드됨</string>
+    <string name="transfer_web_waiting">BookPlayer를 기다리는 중…</string>
+    <string name="transfer_web_unreachable">BookPlayer에 연결할 수 없습니다. 전송 화면을 열어 두면 업로드가 자동으로 다시 시작됩니다.</string>
+    <string name="transfer_web_not_enough_space">기기에 공간이 부족합니다</string>
+    <string name="transfer_web_too_large">너무 큼</string>
+    <string name="transfer_web_unsupported">지원되지 않는 파일 형식</string>
+    <string name="transfer_web_path_conflict">보낸 다른 파일이나 폴더에 이미 같은 이름이 있습니다</string>
+    <string name="transfer_web_done_hint">완료되면 BookPlayer에서 확인해 파일을 가져오세요.</string>
+    <string name="transfer_web_load_error">BookPlayer에 연결할 수 없습니다. 전송 화면이 아직 열려 있는지 확인하세요.</string>
 </resources>

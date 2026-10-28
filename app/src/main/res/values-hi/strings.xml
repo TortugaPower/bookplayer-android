@@ -448,4 +448,38 @@
         <item quantity="one">फ़ोल्डर नहीं हटाया गया: इसमें मौजूद %1$d वस्तु का नाम लाइब्रेरी की एक वस्तु के नाम जैसा ही है। पहले उसका नाम बदलें या उसे स्थानांतरित करें।</item>
         <item quantity="other">फ़ोल्डर नहीं हटाया गया: इसमें मौजूद %1$d वस्तुओं के नाम लाइब्रेरी की वस्तुओं के नामों जैसे ही हैं। पहले उनका नाम बदलें या उन्हें स्थानांतरित करें।</item>
     </plurals>
+
+    <!-- Transfer from Computer -->
+    <string name="transfer_title">कंप्यूटर से ट्रांसफ़र करें</string>
+    <string name="transfer_instructions">उसी नेटवर्क पर किसी कंप्यूटर के ब्राउज़र में यह पता खोलें:</string>
+    <string name="transfer_no_address">कंप्यूटर से फ़ाइलें पाने के लिए वाई‑फ़ाई से कनेक्ट करें।</string>
+    <string name="transfer_footer">अपलोड पूरा होने तक यह स्क्रीन खुली रखें।</string>
+    <string name="transfer_server_url_accessibility">ट्रांसफ़र का पता</string>
+    <string name="transfer_server_copy_button">पता कॉपी करें</string>
+    <string name="transfer_server_copied_button">कॉपी हो गया</string>
+    <plurals name="transfer_folder_files">
+        <item quantity="one">%1$d फ़ाइल</item>
+        <item quantity="other">%1$d फ़ाइलें</item>
+    </plurals>
+    <string name="transfer_server_web_subtitle">ऑडियोबुक फ़ाइलें या फ़ोल्डर यहाँ छोड़ें। वे आपके फ़ोन की ट्रांसफ़र स्क्रीन पर दिखेंगे।</string>
+    <string name="transfer_server_web_folder_hint">फ़ोल्डर की संरचना बनी रहती है।</string>
+    <string name="transfer_server_web_drop_title">यहाँ छोड़ें</string>
+    <string name="transfer_server_web_choose_files">फ़ाइलें चुनें</string>
+    <string name="transfer_server_web_choose_folder">फ़ोल्डर चुनें</string>
+    <string name="transfer_server_web_retry">विफल को फिर से आज़माएँ</string>
+    <string name="transfer_server_web_uploading">अपलोड हो रहा है</string>
+    <string name="transfer_server_web_uploaded">अपलोड हो गया</string>
+    <string name="transfer_server_web_failed">विफल</string>
+    <string name="transfer_server_web_queue_empty">फ़ाइलों का इंतज़ार…</string>
+    <string name="transfer_server_web_skipped">असमर्थित फ़ाइलें छोड़ी गईं: %d</string>
+    <string name="transfer_web_queued">प्रतीक्षा में</string>
+    <string name="transfer_web_summary">%2$d में से %1$d अपलोड हुईं</string>
+    <string name="transfer_web_waiting">BookPlayer का इंतज़ार…</string>
+    <string name="transfer_web_unreachable">BookPlayer तक नहीं पहुँच पा रहे। उसकी ट्रांसफ़र स्क्रीन खुली रखें; अपलोड अपने आप फिर शुरू होंगे।</string>
+    <string name="transfer_web_not_enough_space">डिवाइस पर पर्याप्त जगह नहीं है</string>
+    <string name="transfer_web_too_large">बहुत बड़ी है</string>
+    <string name="transfer_web_unsupported">यह फ़ाइल प्रकार समर्थित नहीं है</string>
+    <string name="transfer_web_path_conflict">आपकी भेजी गई किसी दूसरी फ़ाइल या फ़ोल्डर का भी यही नाम है</string>
+    <string name="transfer_web_done_hint">काम पूरा होने पर फ़ाइलें इंपोर्ट करने के लिए BookPlayer में पुष्टि करें।</string>
+    <string name="transfer_web_load_error">BookPlayer तक नहीं पहुँच पा रहे। जाँचें कि उसकी ट्रांसफ़र स्क्रीन अब भी खुली है।</string>
 </resources>

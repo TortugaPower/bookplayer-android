@@ -448,4 +448,39 @@
         <item quantity="one">La cartella non è stata eliminata: %1$d elemento al suo interno ha lo stesso nome di uno nella libreria. Prima rinominalo o spostalo.</item>
         <item quantity="other">La cartella non è stata eliminata: %1$d elementi al suo interno hanno gli stessi nomi di altri nella libreria. Prima rinominali o spostali.</item>
     </plurals>
+
+    <!-- Transfer from Computer -->
+    <string name="transfer_title">Trasferisci dal computer</string>
+    <string name="transfer_instructions">Su un computer della stessa rete, apri questo indirizzo in un browser:</string>
+    <string name="transfer_no_address">Connettiti a una rete Wi‑Fi per ricevere file da un computer.</string>
+    <string name="transfer_footer">Tieni aperta questa schermata durante il caricamento dei file.</string>
+    <string name="transfer_server_url_accessibility">Indirizzo di trasferimento</string>
+    <string name="transfer_server_copy_button">Copia indirizzo</string>
+    <string name="transfer_server_copied_button">Copiato</string>
+    <plurals name="transfer_folder_files">
+        <item quantity="one">%1$d file</item>
+        <item quantity="many">%1$d di file</item>
+        <item quantity="other">%1$d file</item>
+    </plurals>
+    <string name="transfer_server_web_subtitle">Trascina file o cartelle di audiolibri. Appariranno nella schermata di trasferimento del tuo telefono.</string>
+    <string name="transfer_server_web_folder_hint">La struttura delle cartelle viene mantenuta.</string>
+    <string name="transfer_server_web_drop_title">Trascina qui</string>
+    <string name="transfer_server_web_choose_files">Scegli file</string>
+    <string name="transfer_server_web_choose_folder">Scegli cartella</string>
+    <string name="transfer_server_web_retry">Riprova non riusciti</string>
+    <string name="transfer_server_web_uploading">Caricamento</string>
+    <string name="transfer_server_web_uploaded">Caricato</string>
+    <string name="transfer_server_web_failed">Non riuscito</string>
+    <string name="transfer_server_web_queue_empty">In attesa di file…</string>
+    <string name="transfer_server_web_skipped">File non supportati ignorati: %d</string>
+    <string name="transfer_web_queued">In attesa</string>
+    <string name="transfer_web_summary">%1$d di %2$d caricati</string>
+    <string name="transfer_web_waiting">In attesa di BookPlayer…</string>
+    <string name="transfer_web_unreachable">Impossibile raggiungere BookPlayer. Tieni aperta la sua schermata di trasferimento; i caricamenti riprenderanno da soli.</string>
+    <string name="transfer_web_not_enough_space">Spazio insufficiente sul dispositivo</string>
+    <string name="transfer_web_too_large">Troppo grande</string>
+    <string name="transfer_web_unsupported">Tipo di file non supportato</string>
+    <string name="transfer_web_path_conflict">Un altro file o cartella che hai inviato ha già questo nome</string>
+    <string name="transfer_web_done_hint">Quando hai finito, conferma in BookPlayer per importare i file.</string>
+    <string name="transfer_web_load_error">Impossibile raggiungere BookPlayer. Controlla che la sua schermata di trasferimento sia ancora aperta.</string>
 </resources>

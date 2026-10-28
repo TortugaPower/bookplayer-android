@@ -82,6 +82,9 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
 
         // Provide :core with the app context + flavored BuildConfig before anything touches the network.
         com.tortugapower.audiobookplayer.core.CoreContext.init(this)
+        // A Transfer from Computer session the app was killed in left its staging behind, and an import of
+        // one that never finished, its handed-over folder: both live in the server's staging root.
+        com.tortugapower.browserdrop.BrowserDropServer.removeLeftovers(this)
         // Measure storage before anything can write: at zero bytes free the database can't open, and
         // MainActivity shows the storage screen instead of the app (Sentry ANDROID-BOOKPLAYER-10/-12).
         StorageMonitor.refresh(this)

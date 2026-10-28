@@ -23,6 +23,9 @@ object ImportArchiveUtils {
         "mkv", "m4v", "mov"
     )
 
+    /** Every extension an import takes: the audio files and the archives they come in. Lowercase, no dot. */
+    val IMPORTABLE_EXTENSIONS: Set<String> get() = AUDIO_EXTENSIONS + ARCHIVE_EXTENSIONS
+
     fun isArchive(fileName: String): Boolean =
         fileName.substringAfterLast('.', "").lowercase() in ARCHIVE_EXTENSIONS
 

@@ -458,4 +458,40 @@
         <item quantity="many">Папка не удалена: в ней %1$d элементов с такими же именами, как у элементов в библиотеке. Сначала переименуйте или переместите их.</item>
         <item quantity="other">Папка не удалена: в ней %1$d элемента с такими же именами, как у элементов в библиотеке. Сначала переименуйте или переместите их.</item>
     </plurals>
+
+    <!-- Transfer from Computer -->
+    <string name="transfer_title">Передача с компьютера</string>
+    <string name="transfer_instructions">На компьютере в той же сети откройте этот адрес в браузере:</string>
+    <string name="transfer_no_address">Подключитесь к Wi‑Fi, чтобы получать файлы с компьютера.</string>
+    <string name="transfer_footer">Не закрывайте этот экран, пока загружаются файлы.</string>
+    <string name="transfer_server_url_accessibility">Адрес передачи</string>
+    <string name="transfer_server_copy_button">Скопировать адрес</string>
+    <string name="transfer_server_copied_button">Скопировано</string>
+    <plurals name="transfer_folder_files">
+        <item quantity="one">%1$d файл</item>
+        <item quantity="few">%1$d файла</item>
+        <item quantity="many">%1$d файлов</item>
+        <item quantity="other">%1$d файла</item>
+    </plurals>
+    <string name="transfer_server_web_subtitle">Перетащите файлы или папки аудиокниг. Они появятся на экране передачи на вашем телефоне.</string>
+    <string name="transfer_server_web_folder_hint">Структура папки сохранится.</string>
+    <string name="transfer_server_web_drop_title">Перетащите сюда</string>
+    <string name="transfer_server_web_choose_files">Выбрать файлы</string>
+    <string name="transfer_server_web_choose_folder">Выбрать папку</string>
+    <string name="transfer_server_web_retry">Повторить ошибки</string>
+    <string name="transfer_server_web_uploading">Загрузка</string>
+    <string name="transfer_server_web_uploaded">Загружено</string>
+    <string name="transfer_server_web_failed">Ошибка</string>
+    <string name="transfer_server_web_queue_empty">Ожидание файлов…</string>
+    <string name="transfer_server_web_skipped">Пропущено неподдерживаемых файлов: %d</string>
+    <string name="transfer_web_queued">В ожидании</string>
+    <string name="transfer_web_summary">Загружено %1$d из %2$d</string>
+    <string name="transfer_web_waiting">Ожидание BookPlayer…</string>
+    <string name="transfer_web_unreachable">Нет связи с BookPlayer. Не закрывайте в нём экран передачи — загрузка продолжится сама.</string>
+    <string name="transfer_web_not_enough_space">Недостаточно места на устройстве</string>
+    <string name="transfer_web_too_large">Слишком большой</string>
+    <string name="transfer_web_unsupported">Тип файла не поддерживается</string>
+    <string name="transfer_web_path_conflict">Другой отправленный файл или папка уже называется так</string>
+    <string name="transfer_web_done_hint">Когда закончите, подтвердите в BookPlayer, чтобы импортировать файлы.</string>
+    <string name="transfer_web_load_error">Нет связи с BookPlayer. Проверьте, что экран передачи в нём всё ещё открыт.</string>
 </resources>
