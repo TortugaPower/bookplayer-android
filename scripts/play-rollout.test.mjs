@@ -2,13 +2,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  LADDER, describeTracks, mismatch, nextRung, planHalt, planStep, rolloutOf, serviceAccountJson,
+  LADDER, describeTracks, main, mismatch, nextRung, parseArgs, planHalt, planStep, rolloutOf, serviceAccountJson,
 } from './play-rollout.mjs';
 
 const live = (code) => ({ name: '1.3.0', versionCodes: [String(code)], status: 'completed', releaseNotes: [{ language: 'en-US', text: 'Old' }] });
 const rolling = (code, userFraction, status = 'inProgress') => ({
   name: '1.4.0', versionCodes: [String(code)], status, userFraction, releaseNotes: [{ language: 'en-US', text: 'New' }],
 });
+const CODES = ['26', '100016'];
 const tracks = (fraction, { status, wearFraction = fraction } = {}) => [
   { track: 'production', releases: [live(25), rolling(26, fraction, status)] },
   { track: 'wear:production', releases: [live(100015), rolling(100016, wearFraction, status)] },
@@ -40,7 +41,7 @@ test('status: each track with its rollout, its live release and the next rung', 
 });
 
 test('step: both tracks move to the next rung, keeping the live release and the notes', () => {
-  const changes = planStep(tracks(0.02), 0.02);
+  const changes = planStep(tracks(0.02), 0.02, CODES);
   assert.deepEqual(changes.map((c) => c.track), ['production', 'wear:production']);
   assert.deepEqual(changes[0].releases, [live(25), rolling(26, 0.05)]);
   assert.deepEqual(changes[1].expected, rolling(100016, 0.05));
@@ -50,21 +51,51 @@ test('step to 100%: the release completes and replaces the old one; a draft stay
   const draft = { name: '1.5.0', versionCodes: ['27'], status: 'draft' };
   const input = tracks(0.5);
   input[0].releases.push(draft);
-  const [phone] = planStep(input, 0.5);
+  const [phone] = planStep(input, 0.5, CODES);
   const { userFraction, ...completed } = { ...rolling(26, 0.5), status: 'completed' };
   assert.equal(userFraction, 0.5);
   assert.deepEqual(phone.releases, [draft, completed]);
   assert.equal('userFraction' in phone.expected, false);
 });
 
-test('step refuses, changing nothing, unless both tracks roll out one release at --expect', () => {
-  assert.throws(() => planStep(tracks(0.05), 0.02), /production: at 5%, not the expected 2%/);
-  assert.throws(() => planStep(tracks(0.02, { wearFraction: 0.05 }), 0.02), /wear:production: at 5%/);
-  assert.throws(() => planStep(tracks(0.02, { status: 'halted' }), 0.02), /a person resumes a halted rollout/);
-  assert.throws(() => planStep([{ track: 'production', releases: [live(25)] }], 0.02), /nothing is rolling out/);
+test('step refuses, changing nothing, unless both tracks roll out the expected build at --expect', () => {
+  assert.throws(() => planStep(tracks(0.05), 0.02, CODES), /production: at 5%, not the expected 2%/);
+  assert.throws(() => planStep(tracks(0.02, { wearFraction: 0.05 }), 0.02, CODES), /wear:production: at 5%/);
+  assert.throws(() => planStep(tracks(0.02, { status: 'halted' }), 0.02, CODES), /a person resumes a halted rollout/);
+  assert.throws(() => planStep([{ track: 'production', releases: [live(25)] }], 0.02, ['26']), /nothing is rolling out/);
   const mixed = tracks(0.02);
   mixed[1].releases[1].name = '1.4.1';
-  assert.throws(() => planStep(mixed, 0.02), /different releases/);
+  assert.throws(() => planStep(mixed, 0.02, CODES), /different releases/);
+});
+
+test('step refuses a build it was not told about: a release submitted after status was read', () => {
+  assert.throws(() => planStep(tracks(0.01), 0.01, ['27', '100016']),
+    /production: rolling out 1.4.0 \(26\) inProgress at 1%, not the expected 27/);
+  assert.throws(() => planStep(tracks(0.01), 0.01, ['26', '100017']), /wear:production: rolling out .*not the expected 100017/);
+  assert.throws(() => planStep(tracks(0.01), 0.01), /one expected versionCode per track/);
+  assert.throws(() => planStep(tracks(0.01), 0.01, ['26']), /one expected versionCode per track/);
+});
+
+test('arguments: anything unknown is refused, so a mistyped --dry-run never makes a real change', async () => {
+  assert.deepEqual(parseArgs(['status']), { command: 'status', dryRun: false });
+  assert.deepEqual(parseArgs(['step', '--expect', '0.02', '--expect-codes', '26,100016', '--dry-run']),
+    { command: 'step', dryRun: true, expect: 0.02, codes: CODES });
+  assert.deepEqual(parseArgs(['halt', '--dry-run']), { command: 'halt', dryRun: true });
+  for (const typo of ['--dryrun', '--dry_run', '-n', 'dry-run']) {
+    assert.throws(() => parseArgs(['step', '--expect', '0.02', '--expect-codes', '26,100016', typo]), /unknown argument/);
+    assert.throws(() => parseArgs(['halt', typo]), /unknown argument/);
+  }
+  assert.throws(() => parseArgs(['status', '--dry-run']), /unknown argument "--dry-run" for status/);
+  assert.throws(() => parseArgs(['halt', '--expect', '0.02']), /unknown argument "--expect" for halt/);
+  assert.throws(() => parseArgs(['step', '--expect-codes', '26,100016']), /step needs --expect/);
+  assert.throws(() => parseArgs(['step', '--expect', '1', '--expect-codes', '26,100016']), /step needs --expect/);
+  assert.throws(() => parseArgs(['step', '--expect', '0.02']), /step needs --expect-codes/);
+  assert.throws(() => parseArgs(['step', '--expect', '0.02', '--expect-codes', '26']), /step needs --expect-codes/);
+  assert.throws(() => parseArgs(['step', '--expect', '0.02', '--expect-codes', '26,abc']), /step needs --expect-codes/);
+  assert.throws(() => parseArgs(['step', '--expect']), /unknown argument "--expect"/);
+  assert.throws(() => parseArgs(['resume']), /usage/);
+  // Refused before signing in: no key is set here, so reaching Play would fail differently
+  await assert.rejects(main(['step', '--expect', '0.02', '--expect-codes', '26,100016', '--dryrun']), /unknown argument "--dryrun"/);
 });
 
 test('halt: a rollout in progress halts at its fraction; halted or nothing rolling out is no change', () => {

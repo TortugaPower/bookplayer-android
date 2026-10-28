@@ -94,6 +94,9 @@ b. For each of those, **who hit it on NEW**: `search_errors`, query
 c. **Crash rate against PREV**, last 7 days: crashed people per release (`search_errors`,
    `level:fatal isSideLoaded:false release:[<NEW release>,<PREV release>]`, fields `release, count_unique(user)`)
    divided by active people per release (step 2's `search_traces` query for both releases, period `7d`).
+   This is on purpose the only rule for a crash PREV also had, even a little: one that NEW makes worse holds through
+   this rate but never halts on its own (comparing every crash between releases was considered and left out: too
+   noisy at a few percent).
 
 Decide, first match wins:
 
@@ -109,9 +112,11 @@ Decide, first match wins:
    - NEW's crash rate from (c) is at least twice PREV's, with 3 or more crashed people on NEW.
    A person who wants it stopped halts it in Play Console; the routine then stays quiet (step 1).
 3. **Weekend**: on Saturday or Sunday (America/Guayaquil), never step. Report what you saw. Quiet.
-4. **Step**: run `node scripts/play-rollout.mjs step --expect <userFraction>`, passing the fraction exactly as
-   `status` printed it (REPORT-ONLY: add `--dry-run`). Notify "<NEW>: <from>% → <to>%" plus one line on what you
-   checked (REPORT-ONLY: "WOULD STEP …"). At 100% the release completes: say "<NEW> is fully released".
+4. **Step**: run `node scripts/play-rollout.mjs step --expect <userFraction> --expect-codes <phone>,<watch>`, the
+   fraction and both tracks' versionCodes exactly as `status` printed them (REPORT-ONLY: add `--dry-run`). The codes
+   tie the step to the build you judged: one submitted since `status` makes it refuse. Notify "<NEW>: <from>% →
+   <to>%" plus one line on what you checked (REPORT-ONLY: "WOULD STEP …"). At 100% the release completes: say
+   "<NEW> is fully released".
 
 If `step` or `halt` refuses ("not stepping") the rollout changed since `status`: report its message and notify. If it
 fails with "may have gone through", run `status` again, report both and notify.

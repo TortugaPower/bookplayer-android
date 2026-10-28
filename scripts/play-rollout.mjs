@@ -2,13 +2,15 @@
 // Moves a staged rollout on Google Play along: the release play-release.mjs submitted at 1% on `production` (phone)
 // and `wear:production` (watch), both tracks together. Run by the daily rollout routine, or by hand.
 //
-//   node scripts/play-rollout.mjs status                           both tracks as JSON (what the routine reads)
-//   node scripts/play-rollout.mjs step --expect 0.02 [--dry-run]   the next rung: 1 → 2 → 5 → 10 → 25 → 50 → 100%
-//   node scripts/play-rollout.mjs halt [--dry-run]                 stops it reaching anyone new
+//   node scripts/play-rollout.mjs status        both tracks as JSON (what the routine reads)
+//   node scripts/play-rollout.mjs step --expect 0.02 --expect-codes 26,100016 [--dry-run]
+//                                               the next rung: 1 → 2 → 5 → 10 → 25 → 50 → 100%
+//   node scripts/play-rollout.mjs halt [--dry-run]   stops it reaching anyone new
 //
-// `step` moves only when both tracks are rolling out the same release at exactly --expect, so a change made in Play
-// Console, or a second run, never skips a rung. At 100% the release becomes the track's completed release, replacing
-// the old one. There is no resume: a person resumes a halted rollout in Play Console.
+// `step` moves only when both tracks are rolling out the build it was told about (--expect-codes: phone, then watch)
+// at exactly --expect, so a change made in Play Console, a release submitted meanwhile, or a second run never moves
+// the wrong build or skips a rung. At 100% the release becomes the track's completed release, replacing the old one.
+// There is no resume: a person resumes a halted rollout in Play Console. Any argument it doesn't know is refused.
 // Every change is read back inside the edit and the edit validated before committing, then read back after.
 // --dry-run does the same and deletes the edit instead of committing it.
 //
@@ -57,20 +59,23 @@ export function describeTracks(tracks) {
 
 /**
  * One change per track for `step`: the rollout at the next rung, or completed at 100% (the old completed release
- * goes; anything else, like a draft, stays). Throws, changing nothing, unless both tracks roll out one release at
- * `expect`.
+ * goes; anything else, like a draft, stays). Throws, changing nothing, unless every track rolls out the build in
+ * `codes` (one versionCode per track, in order) at `expect`, all of one release.
  */
-export function planStep(tracks, expect) {
+export function planStep(tracks, expect, codes) {
+  if (codes?.length !== tracks.length) throw new Error(`step needs one expected versionCode per track (${tracks.length})`);
   const rollouts = tracks.map((track) => ({ track, rollout: rolloutOf(track) }));
   const problems = [];
-  for (const { track, rollout } of rollouts) {
+  rollouts.forEach(({ track, rollout }, i) => {
     if (!rollout) problems.push(`${track.track}: nothing is rolling out`);
-    else if (rollout.status !== 'inProgress') {
+    else if (JSON.stringify(rollout.versionCodes) !== JSON.stringify([String(codes[i])])) {
+      problems.push(`${track.track}: rolling out ${describeRelease(rollout)}, not the expected ${codes[i]}`);
+    } else if (rollout.status !== 'inProgress') {
       problems.push(`${track.track}: ${describeRelease(rollout)} (a person resumes a halted rollout in Play Console)`);
     } else if (!same(Number(rollout.userFraction), expect)) {
       problems.push(`${track.track}: at ${percent(rollout.userFraction)}, not the expected ${percent(expect)}`);
     }
-  }
+  });
   if (!problems.length && new Set(rollouts.map(({ rollout }) => rollout.name)).size > 1) {
     problems.push(`the tracks roll out different releases: ${rollouts.map(({ rollout }) => describeRelease(rollout)).join('; ')}`);
   }
@@ -123,6 +128,34 @@ export function mismatch(track, expected) {
     : same(Number(stored.userFraction), expected.userFraction);
   if (stored.status === expected.status && fractionMatches) return null;
   return `${track.track}: Play has ${describeRelease(stored)}, expected ${describeRelease(expected)}`;
+}
+
+const USAGE = 'usage: play-rollout.mjs status\n'
+  + '       play-rollout.mjs step --expect <fraction> --expect-codes <phone code>,<watch code> [--dry-run]\n'
+  + '       play-rollout.mjs halt [--dry-run]';
+
+/** The command line, refusing anything it doesn't know: a mistyped --dry-run must never make a real change. */
+export function parseArgs(argv) {
+  const [command, ...rest] = argv;
+  if (!['status', 'step', 'halt'].includes(command)) throw new Error(USAGE);
+  const options = { command, dryRun: false };
+  for (let i = 0; i < rest.length; i += 1) {
+    const arg = rest[i];
+    if (arg === '--dry-run' && command !== 'status') options.dryRun = true;
+    else if (arg === '--expect' && command === 'step' && i + 1 < rest.length) options.expect = Number(rest[++i]);
+    else if (arg === '--expect-codes' && command === 'step' && i + 1 < rest.length) {
+      options.codes = rest[++i].split(',').map((code) => code.trim());
+    } else throw new Error(`unknown argument ${JSON.stringify(arg)} for ${command}\n${USAGE}`);
+  }
+  if (command === 'step') {
+    if (!(options.expect > 0 && options.expect < 1)) {
+      throw new Error(`step needs --expect, the current fraction (0.01 for 1%)\n${USAGE}`);
+    }
+    if (options.codes?.length !== TRACKS.length || !options.codes.every((code) => /^\d+$/.test(code))) {
+      throw new Error(`step needs --expect-codes, the versionCodes rolling out (phone,watch)\n${USAGE}`);
+    }
+  }
+  return options;
 }
 
 /** The service account key from the environment. */
@@ -178,13 +211,7 @@ async function change(play, plan, { dryRun }) {
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const [command, ...rest] = argv;
-  const dryRun = rest.includes('--dry-run');
-  const expectAt = rest.indexOf('--expect');
-  const expect = expectAt >= 0 ? Number(rest[expectAt + 1]) : undefined;
-  const usage = 'usage: play-rollout.mjs status | step --expect <fraction> [--dry-run] | halt [--dry-run]';
-  if (!['status', 'step', 'halt'].includes(command)) throw new Error(usage);
-  if (command === 'step' && !(expect > 0 && expect < 1)) throw new Error(`step needs --expect, the current fraction (0.01 for 1%)\n${usage}`);
+  const { command, dryRun, expect, codes } = parseArgs(argv);
 
   const { token, email } = await accessToken(serviceAccountJson());
   const play = new Play(token);
@@ -196,7 +223,7 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
 
-  const plan = command === 'step' ? (tracks) => planStep(tracks, expect) : planHalt;
+  const plan = command === 'step' ? (tracks) => planStep(tracks, expect, codes) : planHalt;
   const changes = await change(play, plan, { dryRun });
   if (!changes.length) {
     console.log('nothing to halt: no track has a rollout in progress');
