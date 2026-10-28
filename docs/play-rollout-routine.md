@@ -71,8 +71,15 @@ installed from Play aren't. With `search_traces` (period `14d`): query
 Count people, not events (one device can crash in a loop), and only people who installed from Play: every Sentry
 query below carries `isSideLoaded:false`. Ignore events from emulators (`simulator: true`) or `environment: dev`.
 
-a. **Crashes new in NEW**: `search_issues` with `firstRelease:<NEW release> level:fatal`. This list still holds
-   crashes only Google's sideloaded devices hit; (b) sorts them out.
+a. **Crashes new or back in NEW**, two kinds, treated the same from here on:
+   - **new**: `search_issues` with `firstRelease:<NEW release> level:fatal`. This list still holds crashes only
+     Google's sideloaded devices hit; (b) sorts them out.
+   - **back**: a crash that happens on NEW, wasn't first seen there, and hit nobody on PREV in the last 14 days. It
+     had gone, fixed in an earlier release or just quiet, and NEW brought it back. List the crashes on each release
+     with `search_errors`, query `level:fatal isSideLoaded:false release:<release>`, fields
+     `issue, count_unique(user)`, period `14d`, limit 100: once for NEW, once for PREV. The back ones are on NEW's
+     list but neither on PREV's nor new. Decide this from those lists, never from Sentry's "regressed" status:
+     Sentry sets it after a single event, even from a test device, and drops it after a week.
 b. For each of those, **who hit it on NEW**: `search_errors`, query
    `level:fatal isSideLoaded:false issue:<ID> release:<NEW release>`, fields `count_unique(user)`, period `14d`, and
    again with period `24h`. A crash with 0 people over 14 days is left out from here on: it isn't one of "the
@@ -92,7 +99,7 @@ Decide, first match wins:
 
 1. **Halt** when one crash from (a) is startup or data AND has hit 3 or more people on NEW (14 days). Run
    `node scripts/play-rollout.mjs halt` (REPORT-ONLY: `halt --dry-run`) and notify: "HALTED <NEW>: <ID> <title>,
-   <N> people, <startup|data>" (REPORT-ONLY: "WOULD HALT …").
+   <new|back>, <N> people, <startup|data>" (REPORT-ONLY: "WOULD HALT …").
 2. **Hold** and notify, naming each reason, when any of these holds:
    - a crash from (a) whose people all came in the last 24 hours, so (b) counts the same for 24 hours and 14 days (a
      new kind of crash: a person looks at it before more people get the version; it no longer holds the next day
@@ -124,5 +131,5 @@ fails with "may have gone through", run `status` again, report both and notify.
 ## Report
 
 End with a short plain-text report: the mode; both tracks from `status`; the live check (people on NEW); each crash
-from (a) with its people (14 days and 24 hours) and class; the crash rates; the decision and why; the command run
-and its output.
+from (a), new or back, with its people (14 days and 24 hours) and class; the crash rates; the decision and why; the
+command run and its output.
