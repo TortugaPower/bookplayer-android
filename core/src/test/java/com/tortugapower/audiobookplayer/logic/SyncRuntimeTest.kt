@@ -242,7 +242,7 @@ class SyncRuntimeTest {
         }, onFailed = { firstFailed.complete(Unit) })
         runtime.start()
         // Reported once the runtime has taken the failure in: an open before then is the failed build's
-        firstFailed.await()
+        withTimeout(5_000) { firstFailed.await() }
         runtime.onAppOpened()
         until { runtime.engine.value != null }
         val current = runtime.engine.value
