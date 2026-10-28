@@ -4,7 +4,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Read the active connection's metered state and observe network changes for the data-usage
-         upload gate (UploadDataPolicy / TaskConcurrencyServiceHost). Declared explicitly rather than
+         upload gate (UploadDataPolicy / SyncRuntime's network callback). Declared explicitly rather than
          relying on transitive manifest merge from other libraries. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Keeps the CPU and (for streamed books) the Wi-Fi radio awake so audio keeps playing with the

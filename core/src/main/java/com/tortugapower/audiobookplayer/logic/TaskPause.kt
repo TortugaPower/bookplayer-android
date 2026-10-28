@@ -77,17 +77,6 @@ object SyncTaskPicker {
     }
 
     /**
-     * Whether a freshly started engine would start a worker, for the launch gate: [lanesWithWork] over
-     * the queue as the engine sees it once it has reset the RUNNING rows a killed process left behind.
-     * Work held by the tier doesn't count, so a lapsed account's queue doesn't start the sync service
-     * on every launch to sit idle.
-     */
-    fun hasStartableWork(tasks: List<SyncTaskEntity>, canRun: (jobType: String) -> Boolean): Boolean {
-        val asStarted = tasks.map { if (it.status == SyncTaskStatus.RUNNING) it.copy(status = SyncTaskStatus.PENDING) else it }
-        return lanesWithWork(asStarted, canRun).isNotEmpty()
-    }
-
-    /**
      * [canRun] is the account's tier policy (TaskAccessPolicy): a task the tier can't run is held, not
      * dropped, so it goes out once the subscription is back. A tier allows all of a lane's structural
      * jobs or none of them, so holding one never runs a later one out of order.

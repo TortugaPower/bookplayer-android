@@ -56,13 +56,34 @@ class TaskConcurrencyManager(
     // Returns once this launch's tier reading is stored (SubscriptionManager): until then the stored tier is
     // last session's, and a lapse while the app was closed would run work it should hold
     private val awaitTierReady: suspend () -> Unit = {},
+    // Told when the engine's own work fails for a reason other than a full disk (its start-up steps, its queue
+    // watcher, a scan, a worker's bookkeeping; a task's failure is the policy's, not this): whoever runs the engine
+    // retires it rather than letting the process crash (SyncRuntime). Without it, such a failure crashes as before.
+    private val onFailure: ((Throwable) -> Unit)? = null,
 ) : TaskConcurrencyService {
 
     // A full disk turns the engine's own bookkeeping writes into SQLiteFullException; those are
-    // recorded (and the storage state flips) instead of killing the process.
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + StorageMonitor.exceptionHandler { context })
-    private var collectorJob: Job? = null
+    // recorded (and the storage state flips) instead of killing the process. Any other failure goes to
+    // [onFailure], or crashes when nobody runs the engine to retire it.
+    private val serviceScope = CoroutineScope(
+        Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { coroutineContext, e ->
+            val report = onFailure
+            if (report == null || StorageMonitor.isStorageFailure(e)) {
+                StorageMonitor.exceptionHandler { context }.handleException(coroutineContext, e)
+            } else {
+                Log.e(TAG, "Sync engine failed", e)
+                report(e)
+            }
+        }
+    )
+    // Set and cleared under workerStartLock; read anywhere
+    @Volatile
     private var isProcessing = false
+    // An engine runs once: started, then stopped for good (a new start means a new engine). Under workerStartLock.
+    private var stopped = false
+    // Completed once the start-up steps have run. No worker starts before: those steps reset the rows a killed
+    // process left RUNNING, which is only safe while nothing runs them.
+    private val ready = CompletableDeferred<Unit>()
     private var syncLaneBusy = false // the task collector's own: it runs one emission at a time
 
     private val _activeQueues = MutableStateFlow<Set<String>>(emptySet())
@@ -92,26 +113,38 @@ class TaskConcurrencyManager(
 
     // Guards the is-a-worker-already-running check + job registration as one atomic step: the
     // getAllTasks collector and requestWorkerScan (network callback) can race the same queue key,
-    // and a double start wastes a queueSemaphore slot until the orphaned worker retires.
+    // and a double start wastes a queueSemaphore slot until the orphaned worker retires. Starting and
+    // stopping the engine take it too, so a start never runs an engine a stop on another thread ended.
     private val workerStartLock = Any()
 
-    /** Atomically starts a worker for [queueKey] unless one is already active. */
+    /** Atomically starts a worker for [queueKey] unless one is already active, or the engine is stopping. */
     private fun startQueueWorkerIfAbsent(queueKey: String) {
         synchronized(workerStartLock) {
-            if (queueJobs[queueKey]?.isActive == true) return
+            if (!isProcessing || queueJobs[queueKey]?.isActive == true) return
             startQueueWorker(queueKey)
         }
     }
     private val TAG = "TaskConcurrencyManager"
 
+    /**
+     * Starts the engine: once, for the life of the engine (a start after [stopProcessing] does nothing). It prepares
+     * the queue (resets what a killed process left running, moves and retires old builds' tasks), then watches it
+     * and starts a worker for each lane with work. A write that fails on a full disk doesn't stop it: the step is
+     * recorded and runs again once space is back.
+     */
     override fun startProcessing() {
         Log.d(TAG, "🔄 startProcessing() called. Current state: isProcessing=$isProcessing")
-        if (isProcessing) return
-        isProcessing = true
-        SyncEngine.started(this)
-        
-        collectorJob = serviceScope.launch {
-            awaitTierReady()
+        synchronized(workerStartLock) {
+            if (isProcessing || stopped) return
+            isProcessing = true
+            SyncEngine.started(this)
+        }
+        serviceScope.launch { run() }
+    }
+
+    private suspend fun run() = coroutineScope {
+        awaitTierReady()
+        whenStored {
             // Reset any tasks that were left in RUNNING state (e.g., from a crash)
             Log.d(TAG, "🧹 Resetting hung RUNNING tasks to PENDING...")
             repository.resetRunningTasks()
@@ -119,49 +152,83 @@ class TaskConcurrencyManager(
             repository.moveToLane(SyncTaskFactory.JOB_UPLOAD_FILE, SyncTaskFactory.QUEUE_UPLOAD)
             // and covers in the file lane, where they could reach the server before their item's registration
             repository.moveToLane(SyncTaskFactory.JOB_UPLOAD_ARTWORK, SyncTaskFactory.QUEUE_SYNC)
-            // Jobs this build no longer runs (also done at app launch: held, they don't start the engine)
+            // Jobs this build no longer runs, converted or dropped before any lane picks them (the engine starts
+            // at every process start, SyncRuntime)
             SyncTaskRetirement.cleanUp(repository)
-            
-            Log.d(TAG, "📡 Starting queue worker manager...")
-            
-            // A tier change can release work held by the tier policy (a subscription back after a lapse);
-            // the task list doesn't re-emit for it
-            launch {
+        }
+        ready.complete(Unit)
+
+        Log.d(TAG, "📡 Starting queue worker manager...")
+
+        // Each watcher waits out a full disk on its own: one failing there never stops the others. Any other
+        // failure fails them all, and the engine with them (onFailure)
+
+        // A tier change can release work held by the tier policy (a subscription back after a lapse);
+        // the task list doesn't re-emit for it
+        launch {
+            whenStored {
                 accountRepository.getAccountFlow().map { it?.tier }.distinctUntilChanged().drop(1).collect {
                     requestWorkerScan()
                 }
             }
+        }
+        // A full disk holds every lane (StoragePolicy), and their workers retire: when space is back, they look
+        // at their tasks again
+        launch {
+            StorageMonitor.state.map { it.isCritical }.distinctUntilChanged().drop(1).filter { !it }.collect {
+                requestWorkerScan()
+            }
+        }
 
-            // What each lane last held, so only the lanes whose tasks changed cue their waiting worker: a busy
-            // lane writes on every task, and a waiting worker would redo its pick for each write
-            var laneContents = emptyMap<String, Int>()
+        whenStored { watchQueue() }
+    }
 
-            // Watch the queue to know which lanes need workers: only lanes with something runnable
-            // (getAllTasks is in queue order)
-            repository.getAllTasks().collect { tasks ->
-                if (!isProcessing) return@collect
-                // A task queued behind one waiting out a backoff may be due now, or a wait was cut short
-                val contents = laneContents(tasks)
-                val changed = (contents.keys + laneContents.keys).filter { contents[it] != laneContents[it] }
-                laneContents = contents
-                if (changed.isNotEmpty()) {
-                    laneCues.update { cues ->
-                        cues.copy(perLane = cues.perLane + changed.associateWith { (cues.perLane[it] ?: 0L) + 1 })
-                    }
+    /**
+     * Runs [step]; a write in it that fails on a full disk is recorded (the storage state flips), and [step] runs
+     * again once space is back. Anything else fails the engine's scope as before.
+     */
+    private suspend fun whenStored(step: suspend () -> Unit) {
+        while (true) {
+            try {
+                step()
+                return
+            } catch (e: Exception) {
+                if (e is CancellationException || !StorageMonitor.reportFailure(context, e)) throw e
+                StorageMonitor.state.first { !it.isCritical }
+            }
+        }
+    }
+
+    // Watch the queue to know which lanes need workers: only lanes with something runnable
+    // (getAllTasks is in queue order)
+    private suspend fun watchQueue() {
+        // What each lane last held, so only the lanes whose tasks changed cue their waiting worker: a busy
+        // lane writes on every task, and a waiting worker would redo its pick for each write
+        var laneContents = emptyMap<String, Int>()
+
+        repository.getAllTasks().collect { tasks ->
+            if (!isProcessing) return@collect
+            // A task queued behind one waiting out a backoff may be due now, or a wait was cut short
+            val contents = laneContents(tasks)
+            val changed = (contents.keys + laneContents.keys).filter { contents[it] != laneContents[it] }
+            laneContents = contents
+            if (changed.isNotEmpty()) {
+                laneCues.update { cues ->
+                    cues.copy(perLane = cues.perLane + changed.associateWith { (cues.perLane[it] ?: 0L) + 1 })
                 }
-                // The same "still to go through" the first sync and the pass wait on (countQueuedTasksInQueue)
-                val syncBusy = tasks.any {
-                    it.queueKey == SyncTaskFactory.QUEUE_SYNC &&
-                        (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING || it.pauseScope != null)
-                }
-                if (syncLaneBusy && !syncBusy) onSyncLaneDrained()
-                syncLaneBusy = syncBusy
-                if (tasks.any { it.jobType == SyncTaskFactory.JOB_DOWNLOAD_FILE && it.status == SyncTaskStatus.PENDING }) {
-                    dropDownloadsTheTierCantRun()
-                }
-                for (queueKey in SyncTaskPicker.lanesWithWork(tasks, startPolicy(tasks))) {
-                    startQueueWorkerIfAbsent(queueKey)
-                }
+            }
+            // The same "still to go through" the first sync and the pass wait on (countQueuedTasksInQueue)
+            val syncBusy = tasks.any {
+                it.queueKey == SyncTaskFactory.QUEUE_SYNC &&
+                    (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING || it.pauseScope != null)
+            }
+            if (syncLaneBusy && !syncBusy) onSyncLaneDrained()
+            syncLaneBusy = syncBusy
+            if (tasks.any { it.jobType == SyncTaskFactory.JOB_DOWNLOAD_FILE && it.status == SyncTaskStatus.PENDING }) {
+                dropDownloadsTheTierCantRun()
+            }
+            for (queueKey in SyncTaskPicker.lanesWithWork(tasks, startPolicy(tasks))) {
+                startQueueWorkerIfAbsent(queueKey)
             }
         }
     }
@@ -196,7 +263,7 @@ class TaskConcurrencyManager(
                         )
                         // Storage: nothing runs while the disk is critically full (every task ends in a
                         // DB write), and file downloads wait while a transfer is known not to fit. The
-                        // host is restarted when storage recovers (see the app's StorageMonitor observer).
+                        // runtime rescans the lanes when storage recovers (SyncRuntime).
                         val runnable = StoragePolicy.runnable(pending, StorageMonitor.state.value)
                         // Only pay for the settings/connectivity check when this queue actually holds a
                         // file upload that could be gated.
@@ -301,7 +368,8 @@ class TaskConcurrencyManager(
         if (!isProcessing) return
         laneCues.update { it.copy(everyLane = it.everyLane + 1) }
         serviceScope.launch {
-            awaitTierReady()
+            // Not before the start-up steps (this launch's tier included): the task watcher starts the workers then
+            ready.await()
             dropDownloadsTheTierCantRun()
             val tasks = repository.getAllTasks().first()
             SyncTaskPicker.lanesWithWork(tasks, startPolicy(tasks))
@@ -318,14 +386,34 @@ class TaskConcurrencyManager(
         serviceScope.launch { SyncRetryWake.retryAllNow(repository) }
     }
 
+    /**
+     * Stops the engine for good, waiting (a while at most) for its workers to end: nothing new starts first, so no
+     * task runs ahead of one a cancelled worker left RUNNING, and a new engine's start doesn't reset a row one of them
+     * still runs. For whoever replaces this engine (SyncRuntime, after a failure).
+     */
+    suspend fun stopAndWait() {
+        markStopped()
+        cancelAllLanes()
+        stopProcessing()
+    }
+
+    /**
+     * Stops the engine for good: its workers, the watcher, and anything still waiting to scan. A cancelled worker
+     * leaves its task RUNNING, for the next engine's start to reset.
+     */
     override fun stopProcessing() {
         Log.d(TAG, "🛑 stopProcessing() called")
-        isProcessing = false
-        SyncEngine.stopped(this)
+        markStopped()
         queueJobs.values.forEach { it.cancel() }
         queueJobs.clear()
-        collectorJob?.cancel()
-        collectorJob = null
+        serviceScope.cancel()
+    }
+
+    // Nothing starts after this: no new worker, and no start of the engine
+    private fun markStopped() = synchronized(workerStartLock) {
+        isProcessing = false
+        stopped = true
+        SyncEngine.stopped(this)
     }
 
     override fun setMaxConcurrentQueues(n: Int) {

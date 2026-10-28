@@ -62,12 +62,14 @@ app/                       # phone app — depends on :core
                            #   Method/Password/Headers screens, QuickConnectSheet, AuthTabWebAuthenticator)
     viewmodel/             # ViewModels + their Factories
     service/               # AudioPlayerService (subclasses :core MediaPlaybackService; adds Android Auto browse +
-                           #   MediaBrowseTree); sync foreground Service (TaskConcurrencyServiceHost)
+                           #   MediaBrowseTree)
     wear/                  # phone side of Wear: auth handoff (WearAuthListenerService) + remote-control
                            #   (WearRemotePublisher pushes state via DataClient; WearCommandListenerService
                            #   drives PlaybackManager from watch commands; WearStateBuilder/WearCommandMapper)
     widget/                # home-screen widget
-    logic/                 # phone-only: ThemeManager, import, app-icon, tip/billing, support, passkey,
+    logic/                 # phone-only: the sync keep-alive (TaskConcurrencyServiceHost, SyncKeepAlive) and
+                           #   PhoneSyncEngine (the phone's processors for SyncRuntime),
+                           #   ThemeManager, import, app-icon, tip/billing, support, passkey,
                            #   ShortcutHelper (pinned home-screen shortcuts; dynamic launcher shortcuts
                            #   live in MainActivity), PlaybackManagerSyncCoordinator (PlaybackManager/
                            #   SleepTimerManager moved to :core)
@@ -195,8 +197,29 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     deleting a task doesn't stop the worker running it. Sign-out does the same for every lane
     (`SyncQueueReset.clearAll`), on the phone and the watch.
   - A sign-in or sign-out starts a new epoch: RevenueCat answers to calls made before it are dropped.
-  - The engine, the launch gate and the first sync wait for this launch's reading
+  - The engine and the first sync wait for this launch's reading
     (`SubscriptionManager.awaitTierReady`), so they never act on last session's tier.
+- **One sync engine per process** (`SyncRuntime` in `:core`, iOS's model). It's built at every process start, off
+  the main thread (building the network clients sets up TLS: ANDROID-BOOKPLAYER-2E), and runs for the life of the
+  process. It's never fatal: a failure building it, or in its own work once running (start-up steps, queue watcher,
+  scans; not a task's failure), is reported once per process (`onFailed` → Sentry), the engine retires, and the next
+  app open builds a new one (not every new task: a failure that happens every time would loop).
+  Never build a `TaskConcurrencyManager` anywhere else: its start resets the tasks a killed process left RUNNING,
+  so a second engine would run them twice, and `SyncEngine.current` (lapse and sign-out wipes) would only stop one.
+  - An engine runs once: started, then stopped for good (a start after a stop does nothing). No worker starts before
+    its start-up steps (the reset, lane moves, retirement) have run: every worker start waits on them. A write that
+    fails on a full disk is recorded and the step runs again once space is back, so the engine never silently
+    stops; space coming back also rescans the lanes a full disk held.
+  - `TaskConcurrencyServiceHost` only keeps the process alive while lanes work. `SyncKeepAlive` starts it when the
+    lanes go from idle to busy, and it stops itself after a minute idle. It holds no engine, so a refused, timed-out or
+    stopped service leaves the engine running (ANDROID-BOOKPLAYER-2F was the service reading an engine a refused
+    promotion never built).
+  - What the old start/stop cycle covered is explicit: the runtime's `SyncNetworkCallback` rescans on network
+    changes and cuts backoffs short on a new validated network; the engine rescans on storage recovery; the
+    cellular-upload setting calls `requestWorkerScan()`. `SyncKeepAlive` also starts the service again on a new task
+    or an app open while lanes work, since a start can fail while a lane stays busy for hours.
+  - The watch still builds its engine in `WearSyncServiceHost` (it promotes after building, so it never had -2F)
+    until it moves onto `SyncRuntime`.
 - **Covers ride the sync lane** (iOS): `upload_artwork` queues behind its item's registration, so the server
   never gets a cover for an item it doesn't hold yet (`item_not_found`). The engine moves an older build's
   file-lane covers there at start. Only book files wait for Wi-Fi (`UploadDataPolicy`): a cover held in the
@@ -290,8 +313,8 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     once `DownloadFileProcessor` has verified and moved the file into place, the phone queues the upload
     from the sync lane (`queue_file_upload`, which checks PRO and the file). The watch uploads nothing.
     1.2's stream-to-cloud pipe (`upload_stream_file`, server route `external_set`) is gone: the engine
-    turns queued pipe tasks into that step and drops their confirmations (`SyncTaskRetirement`, at app launch and at
-    engine start: a held retired task never starts the engine, and in the sync lane it holds back every refresh).
+    turns queued pipe tasks into that step and drops their confirmations (`SyncTaskRetirement`, at engine start,
+    which is every process start: left in the sync lane, a retired task would hold back every refresh).
 
 ## Git
 
