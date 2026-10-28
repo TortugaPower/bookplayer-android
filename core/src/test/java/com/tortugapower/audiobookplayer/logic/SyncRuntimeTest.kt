@@ -218,15 +218,13 @@ class SyncRuntimeTest {
      */
     @Test fun theSameFailure_isReportedOnce() = runBlocking {
         val reported = Collections.synchronizedList(mutableListOf<Throwable>())
-        var attempts = 0
-        val runtime = SyncRuntime(context, scope, buildEngine = { error("bad row ${++attempts}") }, onFailed = { reported += it })
+        val attempts = AtomicInteger()
+        val runtime = SyncRuntime(context, scope, buildEngine = { error("bad row ${attempts.incrementAndGet()}") }, onFailed = { reported += it })
 
         runtime.start()
-        until { attempts == 1 }
-        runtime.onAppOpened()
-        until { attempts == 2 }
-        runtime.onAppOpened()
-        until { attempts == 3 }
+        until { reported.isNotEmpty() }
+        // An open while a build is on its way is that build's: the app is opened until two more have failed
+        until { runtime.onAppOpened(); attempts.get() >= 3 }
         delay(200)
 
         assertEquals(1, reported.size)
@@ -235,14 +233,16 @@ class SyncRuntimeTest {
     /** A late failure report from an engine already replaced retires nothing */
     @Test fun aReplacedEnginesFailure_leavesTheCurrentOneRunning() = runBlocking {
         val failureHooks = Collections.synchronizedList(mutableListOf<(Throwable) -> Unit>())
+        val firstFailed = CompletableDeferred<Unit>()
         var builds = 0
         val runtime = SyncRuntime(context, scope, buildEngine = { onFailure ->
             failureHooks += onFailure
             if (++builds == 1) error("first build fails")
             TaskConcurrencyManager(context, repository, ProAccounts(), listOf(Pushes()), onFailure = onFailure).also { engines += it }
-        })
+        }, onFailed = { firstFailed.complete(Unit) })
         runtime.start()
-        until { builds == 1 }
+        // Reported once the runtime has taken the failure in: an open before then is the failed build's
+        withTimeout(5_000) { firstFailed.await() }
         runtime.onAppOpened()
         until { runtime.engine.value != null }
         val current = runtime.engine.value

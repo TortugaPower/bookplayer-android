@@ -136,10 +136,11 @@ class SyncRuntime(
 
     private fun run(engine: TaskConcurrencyManager) {
         state = State.Running(engine)
-        _engine.value = engine
         // Before it starts: a failure in its start-up always finds the callback to remove
         watchNetwork(engine)
         engine.startProcessing()
+        // Last: whoever reads the engine finds it started, its network watched
+        _engine.value = engine
     }
 
     private fun buildFailed(e: Throwable) {

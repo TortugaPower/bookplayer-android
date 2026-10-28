@@ -11,8 +11,9 @@ import org.junit.Test
 
 class SyncTaskPickerTest {
 
+    // createdAt is fixed (it defaults to the clock): two copies of a task built a millisecond apart aren't equal
     private fun pending(id: String, jobType: String = SyncTaskFactory.JOB_MOVE) = SyncTaskEntity(
-        id = id, taskID = id, queueKey = "lane", jobType = jobType, position = 0, payload = "{}",
+        id = id, taskID = id, queueKey = "lane", jobType = jobType, position = 0, payload = "{}", createdAt = 0,
     )
 
     private fun parked(id: String, scope: String?, jobType: String = SyncTaskFactory.JOB_MOVE) =
