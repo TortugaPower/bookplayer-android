@@ -135,7 +135,7 @@ class StandaloneViewModel(
     }
 
     fun cancelDownload(row: LibraryRow) = withItem(row) { item ->
-        OfflineDownloadManager.cancelDownload(libraryRepository, syncTaskRepository, item)
+        OfflineDownloadManager.cancelDownload(appContext, libraryRepository, syncTaskRepository, item)
     }
 
     fun removeDownload(row: LibraryRow) = withItem(row) { item ->

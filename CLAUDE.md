@@ -246,6 +246,17 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     cellular-upload setting calls `requestWorkerScan()`.
   - The watch still builds its engine in `WearSyncServiceHost` (it promotes after building, so it never had -2F)
     until it moves onto `SyncRuntime`.
+- **Downloads resume where they stopped** (`DownloadResume`; iOS needs none, its background URLSession keeps
+  going). A download writes `Downloading/<task row id>.part`, and before the first byte saves the server's validator
+  in its task's payload (`saveDownloadValidator`, as an upload keeps its `MultipartUploadState`): the strong ETag
+  (S3), else the Last-Modified date (Jellyfin sends no ETag; Audiobookshelf's is weak, which `If-Range` can't use).
+  A retry asks for the rest `If-Range` it; S3 honors that, though its docs don't say so. Only a 206 from the part's
+  end with the same validator is joined to the part: anything else starts over from byte 0, so the worst case is a
+  second download, never a book joined from two files. The part stays for a dropped connection, a stopped run or
+  no room yet; any other way out deletes it. A task removed without running (a cancel while it waits, a sign-out)
+  leaves its part, so `DownloadParts.sweep` drops the parts no task owns on every download run, at every engine
+  start, after a cancel and after a sign-out. A cloud link is
+  signed again on every attempt (`BookUrlRefresh`): a retry can come long after the queued one expired.
 - **Covers ride the sync lane** (iOS): `upload_artwork` queues behind its item's registration, so the server
   never gets a cover for an item it doesn't hold yet (`item_not_found`). The engine moves an older build's
   file-lane covers there at start. Only book files wait for Wi-Fi (`UploadDataPolicy`): a cover held in the

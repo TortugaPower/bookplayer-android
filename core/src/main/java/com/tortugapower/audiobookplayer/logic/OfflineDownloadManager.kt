@@ -148,9 +148,11 @@ object OfflineDownloadManager {
 
     /**
      * Cancel [item]'s download: request cooperative cancellation for any in-flight file (so a running
-     * [DownloadFileProcessor] aborts) and delete any still-pending download task row.
+     * [DownloadFileProcessor] aborts) and delete any still-pending download task row, with the part a pending
+     * one kept for its next attempt ([DownloadParts]).
      */
     suspend fun cancelDownload(
+        context: Context,
         libraryRepository: LibraryRepository,
         syncTaskRepository: SyncTaskRepository,
         item: LibraryItemEntity,
@@ -165,6 +167,7 @@ object OfflineDownloadManager {
             syncTaskRepository.getPendingTaskByTypeAndTaskId(SyncTaskFactory.JOB_DOWNLOAD_FILE, book.uuid)
                 ?.let { syncTaskRepository.deleteTask(it) }
         }
+        DownloadParts.sweep(context, syncTaskRepository)
     }
 
     /** Delete [item]'s downloaded file(s) from disk (state flips back to not-downloaded via file-existence). */

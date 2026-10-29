@@ -155,6 +155,9 @@ class TaskConcurrencyManager(
             // Jobs this build no longer runs, converted or dropped before any lane picks them (the engine starts
             // at every process start, SyncRuntime)
             SyncTaskRetirement.cleanUp(repository)
+            // A download's part is kept for its next attempt: one whose task went without running (a cancel, a
+            // sign-out, in a process that ended before any download swept it) is dropped here
+            DownloadParts.sweep(context, repository)
         }
         ready.complete(Unit)
 

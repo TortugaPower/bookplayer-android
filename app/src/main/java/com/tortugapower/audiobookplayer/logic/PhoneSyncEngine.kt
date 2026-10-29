@@ -30,7 +30,7 @@ internal object PhoneSyncEngine {
             ArtworkUploadProcessor(context),
             DeleteBookmarkProcessor(),
             SetBookmarkProcessor(),
-            DownloadFileProcessor(context, syncTasks = repository),
+            DownloadFileProcessor(context, syncTasks = repository, queuesUploads = true),
             MatchUuidsProcessor(context, repository),
             HardcoverProcessor(context),
             UploadExternalResourceProcessor(),
