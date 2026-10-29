@@ -22,7 +22,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.io.File
@@ -306,11 +305,7 @@ class DownloadFileProcessor(
     /** Whether a streamed book's upload is queued once it's downloaded: on the phone. The watch uploads nothing, as on iOS. */
     private val queuesUploads: Boolean = false,
     /** The book's cloud listing, with its file's URL freshly signed. Null or a throw when it isn't available. */
-    private val fetchCloudFile: suspend (LibraryItemEntity) -> ContentsResponse? = { book ->
-        withTimeoutOrNull(LOOKUP_TIMEOUT_MS) {
-            NetworkClient.libraryApi.getRemoteFileURL(path = book.relativePath ?: "", uuid = book.uuid)
-        }?.takeIf { it.isSuccessful }?.body()
-    },
+    private val fetchCloudFile: suspend (LibraryItemEntity) -> ContentsResponse? = BookUrlRefresh.cloudListing(LOOKUP_TIMEOUT_MS),
 ) : TaskProcessor {
     companion object {
         // One base client for every download (and retry); per-server variants derive via newBuilder(),
@@ -322,7 +317,7 @@ class DownloadFileProcessor(
 
         // Nobody waits on a background download, unlike playback (MediaServerStreams' 5 s cap): give a slow home
         // server the HTTP client's own timeouts, or it times out on every run and holds up the file queue.
-        private const val LOOKUP_TIMEOUT_MS = 30_000L
+        internal const val LOOKUP_TIMEOUT_MS = 30_000L
 
         /** `application/` types that are text, never audio: a server's error or login page */
         private val TEXT_APPLICATION_SUBTYPES = setOf("json", "xml", "xhtml+xml")
@@ -402,13 +397,15 @@ class DownloadFileProcessor(
 
         // A cloud link is signed again on every attempt, as playback does (BookUrlRefresh): a retry or a resume can come
         // long after the link queued with the task expired, and a book queued without one gets one. A link on the
-        // book's saved media server isn't the cloud's. One the cloud can't sign now stays as queued. Only this attempt
-        // uses it: nothing is stored, since writing back the book read above could undo a position saved meanwhile,
-        // and playback signs its own.
+        // book's saved media server isn't the cloud's. One the cloud can't sign now stays as queued. Stored as links
+        // only (LibraryDao.updateLinks), never by writing back the book read above.
         if (book != null && (owner == null || ExternalServiceUtils.downloadHeadersFor(serverRepository, owner.resource, remoteURL) == null)) {
-            if (BookUrlRefresh(fetchCloudFile, saveBook = {}).refresh(book, externalUrl = null)) {
-                remoteURL = book.remoteURL.orEmpty()
-            }
+            val libraryDao = AppDatabase.getDatabase(context).libraryDao()
+            val signed = BookUrlRefresh(
+                fetchCloudFile,
+                saveLinks = { uuid, url, artwork -> libraryDao.updateLinks(uuid, url, artwork) },
+            ).refresh(book, externalUrl = null)
+            if (signed) remoteURL = book.remoteURL.orEmpty()
         }
 
         if (remoteURL.isEmpty() || relativePath.isNullOrEmpty()) {

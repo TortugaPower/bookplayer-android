@@ -30,7 +30,8 @@ class VolumeUrlRefreshTest {
     private fun cloud(vararg items: SyncableItem) = ContentsResponse(content = items.toList(), lastItemPlayed = null)
 
     private class Calls {
-        val saved = mutableListOf<LibraryItemEntity>()
+        /** The uuid and file URL of each book whose links were stored */
+        val saved = mutableListOf<Pair<String, String>>()
         val streamedAsked = mutableListOf<List<String>>()
         val order = mutableListOf<String>()
     }
@@ -45,7 +46,7 @@ class VolumeUrlRefreshTest {
         insertMissing = { _, _ -> calls.order += "insert" },
         booksIn = { calls.order += "read"; books.map { it.copy() } },
         saveStreams = { asked -> calls.streamedAsked += asked.map { it.uuid }; streamed },
-        saveBook = { calls.saved += it },
+        saveLinks = { uuid, url, _ -> calls.saved += uuid to url },
         isDownloaded = { it.uuid in downloaded },
     )
 
@@ -65,8 +66,7 @@ class VolumeUrlRefreshTest {
 
         val cloudServed = refresh(calls, { cloud(remote("c1", "https://s3/c1"), remote("c2", "https://s3/c2")) }, streamed = setOf("c1")).refresh("Vol")
 
-        assertEquals(listOf("c2"), calls.saved.map { it.uuid })
-        assertEquals("https://s3/c2", calls.saved.single().remoteURL)
+        assertEquals(listOf("c2" to "https://s3/c2"), calls.saved)
         assertTrue(cloudServed)
     }
 

@@ -3,10 +3,10 @@ package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
 import android.util.Log
+import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
-import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.first
@@ -97,7 +97,7 @@ object OfflineDownloadManager {
                 // just-completed/failed download and left the flag set): clear it before enqueuing, so this
                 // task's first read-loop iteration doesn't abort itself.
                 SyncStatusManager.clearCancel(book.uuid)
-                SyncTaskFactory.createDownloadFileTask(syncTaskRepository, freshUrlFor(libraryRepository, book, externalUrls[book.uuid]))
+                SyncTaskFactory.createDownloadFileTask(syncTaskRepository, freshUrlFor(context, book, externalUrls[book.uuid]))
             }
         } finally {
             synchronized(enqueuing) { claimed.forEach { enqueuing.remove(it.uuid) } }
@@ -105,45 +105,27 @@ object OfflineDownloadManager {
     }
 
     /**
-     * The book with a DOWNLOAD-ready remoteURL. External-server (Jellyfin/ABS) items keep the URL from
-     * [LibraryRepository.resolveStreamingUrl]; BookPlayer-cloud items get a FRESH presigned URL from the API,
-     * because the stored one is a signed URL that expires (S3 rejects an expired presigned URL with HTTP 400,
-     * which otherwise makes the download task fail-and-retry forever with no progress). Mirrors
-     * [PlaybackManager]'s streaming refresh. On any network failure, falls back to the resolved item.
-     * [externalUrl] is the book's media-server URL, already looked up by the caller.
+     * The book with a DOWNLOAD-ready remoteURL, as playback resolves it ([BookUrlRefresh]): media server first (LAN
+     * speed, zero S3 egress), a URL [externalUrl] the caller already looked up. Only when NO saved server can serve the
+     * item (e.g. a second device that never configured one) does the BookPlayer cloud copy's link, signed now, take
+     * its place: that's how a streamed book whose file is in the cloud downloads from it. The new links are stored as
+     * links only (`LibraryDao.updateLinks`): writing the book back would also send its progress to the server. A link
+     * the cloud can't sign now leaves the stored one (each download attempt signs its own anyway).
      */
-    private suspend fun freshUrlFor(libraryRepository: LibraryRepository, book: LibraryItemEntity, externalUrl: String?): LibraryItemEntity {
-        // Media-server-first: a resolvable Jellyfin/ABS server keeps its own URL (LAN speed, zero S3
-        // egress). Only when NO saved server can serve the item (e.g. a second device that never
-        // configured one) fall through to the presigned refresh — that's how a streamed book whose file
-        // is in the cloud downloads from it. The lookup both resolves the URL and acts as the
-        // guard (callers already skip books whose file is local, so no local-file short-circuit needed).
-        if (externalUrl != null) {
-            book.remoteURL = externalUrl
-            return book
-        }
-        val resolved = book
-        return try {
-            val response = NetworkClient.libraryApi.getRemoteFileURL(
-                path = resolved.relativePath ?: "",
-                uuid = resolved.uuid,
-            )
-            val remote = if (response.isSuccessful) {
-                response.body()?.content?.firstOrNull {
-                    it.uuid == resolved.uuid || it.relativePath == resolved.relativePath
-                }
-            } else {
-                null
-            }
-            if (remote != null && !remote.remoteURL.isNullOrEmpty()) {
-                resolved.remoteURL = remote.remoteURL
-                libraryRepository.updateItem(resolved) // persist the fresh URL for consistency
-            }
-            resolved
+    private suspend fun freshUrlFor(context: Context, book: LibraryItemEntity, externalUrl: String?): LibraryItemEntity {
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        try {
+            BookUrlRefresh(
+                fetchCloudFile = BookUrlRefresh.cloudListing(DownloadFileProcessor.LOOKUP_TIMEOUT_MS),
+                saveLinks = { uuid, url, artwork -> dao.updateLinks(uuid, url, artwork) },
+            ).refresh(book, externalUrl)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.w("OfflineDownloadManager", "getRemoteFileURL failed for ${resolved.relativePath}", e)
-            resolved
+            StorageMonitor.reportFailure(context, e)
+            Log.w("OfflineDownloadManager", "Couldn't store the new link of ${book.relativePath}", e)
         }
+        return book
     }
 
     /**

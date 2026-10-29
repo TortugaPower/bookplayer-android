@@ -28,14 +28,17 @@ class BookUrlRefreshTest {
 
     private fun cloud(vararg items: SyncableItem) = ContentsResponse(content = items.toList(), lastItemPlayed = null)
 
+    /** A book's stored links: what saveLinks gets, never the whole book */
+    private data class Links(val uuid: String, val remoteURL: String, val artworkURL: String?)
+
     private class Calls {
         var cloudAsked = 0
-        val saved = mutableListOf<LibraryItemEntity>()
+        val saved = mutableListOf<Links>()
     }
 
     private fun refresh(calls: Calls, contents: suspend () -> ContentsResponse?) = BookUrlRefresh(
         fetchCloudFile = { calls.cloudAsked++; contents() },
-        saveBook = { calls.saved += it },
+        saveLinks = { uuid, url, artwork -> calls.saved += Links(uuid, url, artwork) },
     )
 
     /** The bug: only a listing stores a URL, so a book this device uploaded and offloaded had none and never played */
@@ -48,7 +51,7 @@ class BookUrlRefreshTest {
         assertTrue(cloudServed)
         assertEquals(1, calls.cloudAsked)
         assertEquals("https://s3/signed", book.remoteURL)
-        assertEquals(listOf(book), calls.saved)
+        assertEquals("a listing without a cover keeps the stored one", listOf(Links("b1", "https://s3/signed", null)), calls.saved)
     }
 
     /** A stored URL is signed and expires: every load asks for a fresh one */
@@ -61,6 +64,7 @@ class BookUrlRefreshTest {
         assertTrue(cloudServed)
         assertEquals("https://s3/fresh", book.remoteURL)
         assertEquals("https://s3/cover", book.artworkURL)
+        assertEquals(listOf(Links("b1", "https://s3/fresh", "https://s3/cover")), calls.saved)
     }
 
     @Test fun `a saved media server streams it, and the cloud isn't asked`() = runBlocking {
@@ -72,7 +76,7 @@ class BookUrlRefreshTest {
         assertFalse(cloudServed)
         assertEquals(0, calls.cloudAsked)
         assertEquals("http://jellyfin/stream", book.remoteURL)
-        assertEquals(listOf(book), calls.saved)
+        assertEquals(listOf(Links("b1", "http://jellyfin/stream", null)), calls.saved)
     }
 
     /** No cloud copy (no answer, an answer without a URL, or a failed request): the book is left as it was */

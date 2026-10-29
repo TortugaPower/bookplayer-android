@@ -1744,7 +1744,7 @@ object PlaybackManager {
         val remote = subItems.filter { sub -> sub.relativePath?.let { File(processedDir, it).isFile } != true }
         val urls = repo.externalStreamUrlsFor(remote, onSessionExpired)
         val dao = AppDatabase.getDatabase(context).libraryDao()
-        urls.forEach { (uuid, url) -> dao.updateRemoteURL(uuid, url) }
+        urls.forEach { (uuid, url) -> dao.updateLinks(uuid, url, artworkURL = null) }
         return urls.keys
     }
 
@@ -1787,10 +1787,13 @@ object PlaybackManager {
             // book has no file of its own: its sub-books are resolved below.
             val externalUrl = if (isBound) null else repo.externalStreamUrlsFor(listOf(item), onSessionExpired)[item.uuid]
             val resolvedItem = item.also { if (externalUrl != null) it.remoteURL = externalUrl }
+            // The fresh links are stored as links only, never by writing the book back (LibraryDao.updateLinks): the
+            // re-read below then has them, with the position as it is now
+            val dao = AppDatabase.getDatabase(context).libraryDao()
+            val saveLinks: suspend (String, String, String?) -> Unit = { uuid, url, artwork -> dao.updateLinks(uuid, url, artwork) }
 
             try {
                 if (isBound) {
-                    val dao = AppDatabase.getDatabase(context).libraryDao()
                     cloudServed = VolumeUrlRefresh(
                         // Bounded so a slow/unreachable server can't hang playback (OkHttp also has timeouts).
                         fetchContents = { path ->
@@ -1824,7 +1827,7 @@ object PlaybackManager {
                         },
                         booksIn = { path -> repo.getItemsInPathSync(path) },
                         saveStreams = { books -> saveSubStreams(context, repo, books, processedDir, onSessionExpired) },
-                        saveBook = { book -> repo.updateItem(book) },
+                        saveLinks = saveLinks,
                         isDownloaded = { book -> book.relativePath?.let { File(processedDir, it).isFile } == true },
                     ).refresh(resolvedItem.relativePath ?: "")
                     android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
@@ -1834,18 +1837,14 @@ object PlaybackManager {
                     cloudServed = BookUrlRefresh(
                         // Bounded like the volume's fetch: it now runs for books with no stored URL too, such as a
                         // media-server book whose server isn't saved here, which should reach its prompt promptly.
-                        fetchCloudFile = { book ->
-                            kotlinx.coroutines.withTimeoutOrNull(CONTENTS_FETCH_TIMEOUT_MS) {
-                                NetworkClient.libraryApi.getRemoteFileURL(path = book.relativePath ?: "", uuid = book.uuid)
-                            }?.takeIf { it.isSuccessful }?.body()
-                        },
-                        saveBook = { book -> repo.updateItem(book) },
+                        fetchCloudFile = BookUrlRefresh.cloudListing(CONTENTS_FETCH_TIMEOUT_MS),
+                        saveLinks = saveLinks,
                     ).refresh(resolvedItem, externalUrl)
                     if (cloudServed) android.util.Log.d("PlaybackManager", "✅ Refreshed remote URL for single item: ${resolvedItem.title}")
                 }
             } catch (e: Exception) {
-                // Fallback: update DB with resolved Jellyfin/ABS streaming URLs even if cloud fetch fails
-                repo.updateItem(resolvedItem)
+                // Each link was stored as it was resolved: what's left plays from what's stored
+                StorageMonitor.reportFailure(context, e)
                 android.util.Log.e("PlaybackManager", "❌ Failed to refresh remote URL(s): ${e.message}")
             }
             if (reportsStreamAuthError(userInitiated, lookupRejected, cloudServed)) reportExternalStreamAuthError()
