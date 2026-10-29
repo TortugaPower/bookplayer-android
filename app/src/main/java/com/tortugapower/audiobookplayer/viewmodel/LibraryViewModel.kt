@@ -200,7 +200,7 @@ class LibraryViewModel(
     /** Cancel an in-flight download (iOS parity: the options dialog's "Cancel download"). */
     fun cancelDownload(item: LibraryItemEntity) {
         viewModelScope.launch(Dispatchers.IO) {
-            OfflineDownloadManager.cancelDownload(repository, syncTaskRepository, item)
+            OfflineDownloadManager.cancelDownload(appContext, repository, syncTaskRepository, item)
         }
     }
 

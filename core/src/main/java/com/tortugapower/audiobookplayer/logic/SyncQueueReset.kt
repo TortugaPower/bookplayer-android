@@ -39,5 +39,7 @@ object SyncQueueReset {
     suspend fun clearAll(repository: SyncTaskRepository) {
         SyncEngine.current?.cancelAllLanes()
         repository.deleteAllTasks()
+        // The downloads' parts, kept for attempts that won't come now
+        com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull?.let { DownloadParts.sweep(it, repository) }
     }
 }

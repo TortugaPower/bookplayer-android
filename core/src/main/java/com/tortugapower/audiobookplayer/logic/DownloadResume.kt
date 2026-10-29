@@ -1,12 +1,16 @@
 package com.tortugapower.audiobookplayer.logic
 
+import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Resuming a download where its last attempt stopped (HTTP `Range`), so a big book on a dropping connection, or in the
  * short windows a background app gets, still finishes instead of starting over at byte 0 each time. The bytes so far
- * stay in the task's part file ([DownloadFileProcessor.partFile]); the task keeps what the server called them, their
+ * stay in the task's part file ([DownloadParts.file]); the task keeps what the server called them, their
  * validator, in its payload ([DownloadFilePayload]), as an upload keeps its [MultipartUploadState]. A resume asks for
  * the rest `If-Range` that validator: a file changed since comes back whole, and the download starts over from it.
  * S3 honors `If-Range` though its docs don't list it (tried on a presigned GET, 2026-10-29); Jellyfin (ASP.NET) and
@@ -36,6 +40,36 @@ object DownloadResume {
     }
 
     private val CONTENT_RANGE = Regex("""bytes (\d+)-(\d+)/(\d+|\*)""")
+}
+
+/**
+ * A download's part files, `Downloading/<task row id>.part` (the same volume as `Processed/`, for the move). A part is
+ * kept for its task's next attempt, so whatever removes a download task without running it (a cancel while it waits
+ * out a retry, a sign-out) leaves its part behind, maybe hundreds of MB that show nowhere as a book: [sweep] drops
+ * those on every download run, at every engine start, after a cancel and after a sign-out.
+ */
+object DownloadParts {
+    internal const val DIR = "Downloading"
+    private const val SUFFIX = ".part"
+
+    fun file(context: Context, taskRowId: String): File = File(File(context.filesDir, DIR), "$taskRowId$SUFFIX")
+
+    /**
+     * The tasks whose part a run is writing. A stopped run can outlive its cancel: a blocking read only ends when it
+     * returns. Until it does, its task's next run waits, and [sweep] leaves the part alone.
+     */
+    internal val writing: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /** Drops the parts no download task owns any more (and an older build's, named per run), except one a run is writing */
+    suspend fun sweep(context: Context, tasks: SyncTaskRepository) {
+        val parts = File(context.filesDir, DIR).listFiles()?.takeIf { it.isNotEmpty() } ?: return
+        val owned = tasks.taskRowIds(SyncTaskFactory.JOB_DOWNLOAD_FILE)
+        parts.forEach { part ->
+            val taskRowId = part.name.removeSuffix(SUFFIX).takeIf { part.name.endsWith(SUFFIX) }
+            if (taskRowId != null && (taskRowId in owned || taskRowId in writing)) return@forEach
+            part.delete()
+        }
+    }
 }
 
 /** The download task's payload, and the validator of its part's bytes */

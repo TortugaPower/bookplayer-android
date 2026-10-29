@@ -57,7 +57,7 @@ class DownloadFileProcessorTest {
         // Robolectric's StatFs reports no free space; the storage guard would refuse every download.
         StorageMonitor.availableBytesProvider = { Long.MAX_VALUE / 2 }
         partsDir().deleteRecursively()
-        DownloadFileProcessor.writing.clear()
+        DownloadParts.writing.clear()
         SyncStatusManager.clearCancel(uuid)
     }
 
@@ -486,7 +486,7 @@ class DownloadFileProcessorTest {
         )
     }
 
-    private fun partsDir() = File(context.filesDir, DownloadFileProcessor.PARTS_DIR)
+    private fun partsDir() = File(context.filesDir, DownloadParts.DIR)
 
     @Test fun `a verified download is moved into place, leaving no part file`() = runBlocking {
         insertCloudBook(duration = 600.0)
@@ -721,7 +721,7 @@ class DownloadFileProcessorTest {
 
     // ---- Resuming (HTTP Range, If-Range the part's validator: DownloadResume) ----
 
-    private fun part(task: SyncTaskEntity) = DownloadFileProcessor.partFile(context, task.id)
+    private fun part(task: SyncTaskEntity) = DownloadParts.file(context, task.id)
 
     private suspend fun storedValidator(task: SyncTaskEntity) =
         DownloadFilePayload.validator(AppDatabase.getDatabase(context).syncTaskDao().getTaskById(task.id)!!.payload)
@@ -937,11 +937,13 @@ class DownloadFileProcessorTest {
     @Test fun `a part another run is still writing waits`() = runBlocking {
         insertCloudBook(duration = 0.0)
         val task = withPart(bookDownloadTask(cloud.url("/book.m4b").toString()), "audio-", "\"v1\"")
-        DownloadFileProcessor.writing += task.id
+        DownloadParts.writing += task.id
+        var cloudAsked = 0
 
-        assertFalse(processor().process(task))
+        assertFalse(processor(fetchCloudFile = { cloudAsked++; null }).process(task))
 
         assertEquals(0, cloud.requestCount)
+        assertEquals("not even the link signed", 0, cloudAsked)
         assertEquals("audio-", part(task).readText())
     }
 

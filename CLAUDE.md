@@ -253,7 +253,9 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   A retry asks for the rest `If-Range` it; S3 honors that, though its docs don't say so. Only a 206 from the part's
   end with the same validator is joined to the part: anything else starts over from byte 0, so the worst case is a
   second download, never a book joined from two files. The part stays for a dropped connection, a stopped run or
-  no room yet; any other way out deletes it, and every run sweeps the parts whose task is gone. A cloud link is
+  no room yet; any other way out deletes it. A task removed without running (a cancel while it waits, a sign-out)
+  leaves its part, so `DownloadParts.sweep` drops the parts no task owns on every download run, at every engine
+  start, after a cancel and after a sign-out. A cloud link is
   signed again on every attempt (`BookUrlRefresh`): a retry can come long after the queued one expired.
 - **Covers ride the sync lane** (iOS): `upload_artwork` queues behind its item's registration, so the server
   never gets a cover for an item it doesn't hold yet (`item_not_found`). The engine moves an older build's

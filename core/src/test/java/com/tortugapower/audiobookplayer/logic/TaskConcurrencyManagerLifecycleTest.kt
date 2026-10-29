@@ -97,6 +97,23 @@ class TaskConcurrencyManagerLifecycleTest {
         StorageMonitor.refresh(context)
     }
 
+    /** A part kept for a download whose task went without running (a cancel, a sign-out) goes at the next engine start */
+    @Test fun theStartUpSteps_dropTheDownloadPartsNoTaskOwns() = runBlocking {
+        val download = SyncTaskEntity(
+            id = "dl-1", taskID = "book-1", queueKey = SyncTaskFactory.QUEUE_FILE, jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE,
+            // Any row owns its part; a failed one just isn't picked up meanwhile
+            position = 0, payload = "{}", status = SyncTaskStatus.FAILED,
+        )
+        repository.saveTask(download)
+        val kept = DownloadParts.file(context, download.id).apply { parentFile?.mkdirs(); writeText("its next attempt's") }
+        val orphan = DownloadParts.file(context, "dl-cancelled").apply { writeText("nobody's") }
+
+        engine(repository, Pushes()).startProcessing()
+
+        until { !orphan.exists() }
+        assertTrue(kept.exists())
+    }
+
     /** A new start means a new engine: one that was stopped stays stopped */
     @Test fun anEngineRunsOnce() = runBlocking {
         val pushes = Pushes()

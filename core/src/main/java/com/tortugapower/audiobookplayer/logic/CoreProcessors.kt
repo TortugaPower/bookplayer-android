@@ -324,20 +324,6 @@ class DownloadFileProcessor(
         // server the HTTP client's own timeouts, or it times out on every run and holds up the file queue.
         private const val LOOKUP_TIMEOUT_MS = 30_000L
 
-        /** Where a download is written until it passes its checks (same volume as `Processed/`, for the move) */
-        internal const val PARTS_DIR = "Downloading"
-        private const val PART_SUFFIX = ".part"
-
-        /** The task's download until it passes its checks: one per task, so a later attempt resumes it */
-        internal fun partFile(context: Context, taskRowId: String): File =
-            File(File(context.filesDir, PARTS_DIR), "$taskRowId$PART_SUFFIX")
-
-        /**
-         * The tasks whose part a run is writing. A stopped run can outlive its cancel: a blocking read only ends when
-         * it returns. Until it does, its task's next run waits, and the sweep leaves the part alone.
-         */
-        internal val writing: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
-
         /** `application/` types that are text, never audio: a server's error or login page */
         private val TEXT_APPLICATION_SUBTYPES = setOf("json", "xml", "xhtml+xml")
 
@@ -359,6 +345,20 @@ class DownloadFileProcessor(
     }
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
+        // One run at a time per task (DownloadParts.writing): a stopped run's blocking read can outlive its cancel,
+        // still writing the part. The next run waits for it, before asking any server for anything.
+        if (!DownloadParts.writing.add(task.id)) {
+            Log.w("DownloadFileProcessor", "⏳ A stopped run of download ${task.id} is still writing its part: trying later")
+            return false
+        }
+        return try {
+            download(task)
+        } finally {
+            DownloadParts.writing.remove(task.id)
+        }
+    }
+
+    private suspend fun download(task: SyncTaskEntity): Boolean {
         val gson = Gson()
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
@@ -416,11 +416,7 @@ class DownloadFileProcessor(
         }
 
         val destFile = OfflineDownloadManager.processedFile(context, relativePath)
-        val part = partFile(context, task.id)
-        if (!writing.add(task.id)) {
-            Log.w("DownloadFileProcessor", "⏳ A stopped run of $relativePath is still writing its part: trying later")
-            return false
-        }
+        val part = DownloadParts.file(context, task.id)
         val saved = DownloadFilePayload.validator(task.payload)
         // Where this attempt starts: the part's end, when its validator was saved (a part without one can't be checked)
         var offset = if (saved != null && part.isFile) part.length() else 0L
@@ -430,7 +426,7 @@ class DownloadFileProcessor(
         var moved = false
 
         return try {
-            sweepParts()
+            DownloadParts.sweep(context, syncTasks)
             part.parentFile?.mkdirs()
             var httpResponse = execute(owner, remoteURL, offset, saved)
             if (httpResponse.code == 404 && owner != null) {
@@ -591,7 +587,6 @@ class DownloadFileProcessor(
             // A part the next attempt resumes stays: a dropped connection, a stopped run, no room yet. Every
             // other way out but the move drops it: the download is done with, or its part can't be resumed.
             if (!moved && !(keepPart && resumable)) part.delete()
-            writing.remove(task.id)
         }
     }
 
@@ -667,21 +662,6 @@ class DownloadFileProcessor(
         } catch (e: Exception) {
             StorageMonitor.reportFailure(context, e)
             Log.e("DownloadFileProcessor", "Couldn't queue the upload of downloaded $uuid", e)
-        }
-    }
-
-    /**
-     * Drops the parts no download task owns any more (one dropped, cancelled or finished meanwhile, or a part an
-     * older build named per run), except one a run is writing. On every run: a part belongs to its task, which
-     * outlives the process.
-     */
-    private suspend fun sweepParts() {
-        val parts = File(context.filesDir, PARTS_DIR).listFiles() ?: return
-        val owned = syncTasks.taskRowIds(SyncTaskFactory.JOB_DOWNLOAD_FILE)
-        parts.forEach { file ->
-            val taskRowId = file.name.removeSuffix(PART_SUFFIX).takeIf { file.name.endsWith(PART_SUFFIX) }
-            if (taskRowId != null && (taskRowId in owned || taskRowId in writing)) return@forEach
-            file.delete()
         }
     }
 

@@ -103,7 +103,7 @@ class OfflineDownloadOrchestrationTest {
     @Test fun `cancelDownload deletes a PENDING task and requests cancel (covers the pending-to-running race)`() = runBlocking {
         val pending = downloadTask(SyncTaskStatus.PENDING)
         val syncRepo = FakeSyncTaskRepository(pending = pending)
-        OfflineDownloadManager.cancelDownload(FakeLibraryRepository(), syncRepo, book())
+        OfflineDownloadManager.cancelDownload(context, FakeLibraryRepository(), syncRepo, book())
 
         assertEquals(listOf(pending), syncRepo.deleted)
         // requestCancel is always set — if the task just flipped to RUNNING, its read loop still aborts.
@@ -111,9 +111,33 @@ class OfflineDownloadOrchestrationTest {
         assertTrue(SyncStatusManager.isCancelRequested(uuid))
     }
 
+    /** A download waiting out a retry kept its part for the next attempt, which won't come now */
+    @Test fun `cancelDownload drops the part a pending download kept`() = runBlocking {
+        val pending = downloadTask(SyncTaskStatus.PENDING)
+        val part = DownloadParts.file(context, pending.id).apply { parentFile?.mkdirs(); writeText("partial") }
+
+        OfflineDownloadManager.cancelDownload(context, FakeLibraryRepository(), FakeSyncTaskRepository(pending = pending), book())
+
+        assertFalse(part.exists())
+    }
+
+    /** A running download drops its own part when it stops for the cancel: the run that's writing it is left alone */
+    @Test fun `cancelDownload leaves a running download's part to it`() = runBlocking {
+        val running = downloadTask(SyncTaskStatus.RUNNING)
+        val part = DownloadParts.file(context, running.id).apply { parentFile?.mkdirs(); writeText("partial") }
+        DownloadParts.writing += running.id
+        try {
+            OfflineDownloadManager.cancelDownload(context, FakeLibraryRepository(), FakeSyncTaskRepository(pending = null), book())
+
+            assertTrue(part.exists())
+        } finally {
+            DownloadParts.writing -= running.id
+        }
+    }
+
     @Test fun `cancelDownload requests cooperative cancel for a running download`() = runBlocking {
         val syncRepo = FakeSyncTaskRepository(pending = null) // PENDING-only lookup → null means it's running
-        OfflineDownloadManager.cancelDownload(FakeLibraryRepository(), syncRepo, book())
+        OfflineDownloadManager.cancelDownload(context, FakeLibraryRepository(), syncRepo, book())
 
         assertTrue(syncRepo.deleted.isEmpty())
         assertTrue("running download must be cooperatively cancelled", SyncStatusManager.isCancelRequested(uuid))
@@ -158,6 +182,8 @@ private class FakeSyncTaskRepository(private val pending: SyncTaskEntity? = null
     override suspend fun saveTask(task: SyncTaskEntity) { saved += task }
     override suspend fun deleteTask(task: SyncTaskEntity) { deleted += task }
     override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = pending
+    override suspend fun taskRowIds(jobType: String): Set<String> =
+        (listOfNotNull(pending) + saved - deleted.toSet()).filter { it.jobType == jobType }.mapTo(mutableSetOf()) { it.id }
     override fun getAllTasks(): Flow<List<SyncTaskEntity>> = flowOf(listOfNotNull(pending) + saved)
     override suspend fun getPendingTasks(): List<SyncTaskEntity> = error("unused")
     override suspend fun getTasksByStatus(status: SyncTaskStatus): List<SyncTaskEntity> = error("unused")
