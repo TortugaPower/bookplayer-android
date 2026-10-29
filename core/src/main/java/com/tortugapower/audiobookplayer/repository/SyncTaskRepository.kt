@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.repository
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.CodedFailure
+import com.tortugapower.audiobookplayer.logic.DownloadFilePayload
 import com.tortugapower.audiobookplayer.logic.MultipartUploadState
 import com.tortugapower.audiobookplayer.logic.TaskPauseScope
 import com.tortugapower.audiobookplayer.logic.UploadFilePayload
@@ -134,6 +135,20 @@ interface SyncTaskRepository {
         updateTask(task.copy(payload = UploadFilePayload.withState(task.payload, state)))
         return true
     }
+
+    /**
+     * Writes the validator of a running download's part into its stored payload, the rest untouched, as
+     * [saveUploadState]. False when the task is gone: cancelled, or cleared by a sign-out or a lapse, so stop.
+     */
+    suspend fun saveDownloadValidator(id: String, validator: String?): Boolean {
+        val task = getTaskById(id) ?: return false
+        updateTask(task.copy(payload = DownloadFilePayload.withValidator(task.payload, validator)))
+        return true
+    }
+
+    /** The row ids of [jobType]'s tasks, whatever their status: the ones a download's part can belong to */
+    suspend fun taskRowIds(jobType: String): Set<String> =
+        SyncTaskStatus.entries.flatMap { getTasksByStatus(it) }.filter { it.jobType == jobType }.mapTo(mutableSetOf()) { it.id }
 
     /**
      * The lane's tasks still to go through, parked ones included: what blocks a library fetch, since a

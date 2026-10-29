@@ -157,6 +157,14 @@ class RoomSyncTaskRepository(
         syncTaskDao.saveUploadState(id, state)
     }
 
+    override suspend fun saveDownloadValidator(id: String, validator: String?): Boolean = withContext(Dispatchers.IO) {
+        syncTaskDao.saveDownloadValidator(id, validator)
+    }
+
+    override suspend fun taskRowIds(jobType: String): Set<String> = withContext(Dispatchers.IO) {
+        syncTaskDao.taskRowIds(jobType).toSet()
+    }
+
     override suspend fun countQueuedTasksInQueue(queueKey: String): Int = withContext(Dispatchers.IO) {
         syncTaskDao.countQueuedTasksInQueue(queueKey)
     }

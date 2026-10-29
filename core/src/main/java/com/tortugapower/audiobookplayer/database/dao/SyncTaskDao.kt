@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.database.dao
 import androidx.room.*
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.logic.DownloadFilePayload
 import com.tortugapower.audiobookplayer.logic.MultipartUploadState
 import com.tortugapower.audiobookplayer.logic.UploadFilePayload
 import kotlinx.coroutines.flow.Flow
@@ -226,6 +227,17 @@ interface SyncTaskDao {
         val row = getTaskById(id) ?: return false
         return saveTaskPayload(id, UploadFilePayload.withState(row.payload, state)) > 0
     }
+
+    /** Writes the validator of a running download's part into its stored payload, as [saveUploadState]. False when the task is gone. */
+    @Transaction
+    suspend fun saveDownloadValidator(id: String, validator: String?): Boolean {
+        val row = getTaskById(id) ?: return false
+        return saveTaskPayload(id, DownloadFilePayload.withValidator(row.payload, validator)) > 0
+    }
+
+    /** The row ids of [jobType]'s tasks, whatever their status */
+    @Query("SELECT id FROM sync_tasks WHERE jobType = :jobType")
+    suspend fun taskRowIds(jobType: String): List<String>
 
     /** Rewrites a queued task's payload while it's still pending: 0 once it has started or parked */
     @Query("UPDATE sync_tasks SET payload = :payload WHERE id = :id AND status = 'PENDING'")
