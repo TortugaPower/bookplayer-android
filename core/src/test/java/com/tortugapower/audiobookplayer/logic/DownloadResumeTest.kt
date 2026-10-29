@@ -37,6 +37,11 @@ class DownloadResumeTest {
         assertNull(DownloadResume.continuedLength("bytes 0-10/11", "\"v1\"", null, 6, "\"v1\""))
     }
 
+    /** A proxy that limits ranges can answer the open-ended request with less: the download would end short */
+    @Test fun `bytes that stop before the file's end don't`() {
+        assertNull(DownloadResume.continuedLength("bytes 6-8/11", "\"v1\"", null, 6, "\"v1\""))
+    }
+
     /** A server or a proxy that ignored If-Range: the rest of a file that changed */
     @Test fun `another file's bytes don't`() {
         assertNull(DownloadResume.continuedLength("bytes 6-10/11", "\"v2\"", null, 6, "\"v1\""))

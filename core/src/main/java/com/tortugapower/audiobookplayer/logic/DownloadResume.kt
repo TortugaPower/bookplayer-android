@@ -6,6 +6,8 @@ import com.google.gson.JsonObject
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Resuming a download where its last attempt stopped (HTTP `Range`), so a big book on a dropping connection, or in the
@@ -26,16 +28,18 @@ object DownloadResume {
         etag?.trim()?.takeIf { it.startsWith("\"") } ?: lastModified?.trim()?.takeIf { it.isNotEmpty() }
 
     /**
-     * The file's whole length when a 206 continues the part: from the part's end ([offset]), of the file the part was
-     * saved from ([validator]). The answer's own validator is checked too, in case a server or a proxy in front of it
-     * ignored `If-Range` and sent the rest of a file that changed. Null otherwise: the part is dropped, and the
-     * download starts over.
+     * The file's whole length when a 206 continues the part: from the part's end ([offset]) to the file's, of the file
+     * the part was saved from ([validator]). The answer's own validator is checked too, in case a server or a proxy in
+     * front of it ignored `If-Range` and sent the rest of a file that changed; and its end, since a proxy that limits
+     * ranges can answer the open-ended request with less (the download would end short and be dropped). Null
+     * otherwise: the part is dropped, and the download starts over.
      */
     fun continuedLength(contentRange: String?, etag: String?, lastModified: String?, offset: Long, validator: String): Long? {
         val range = CONTENT_RANGE.matchEntire(contentRange?.trim() ?: return null) ?: return null
         val start = range.groupValues[1].toLongOrNull() ?: return null
+        val end = range.groupValues[2].toLongOrNull() ?: return null
         val total = range.groupValues[3].toLongOrNull() ?: return null
-        if (start != offset || validator(etag, lastModified) != validator) return null
+        if (start != offset || end != total - 1 || validator(etag, lastModified) != validator) return null
         return total
     }
 
@@ -60,9 +64,12 @@ object DownloadParts {
      */
     internal val writing: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
-    /** Drops the parts no download task owns any more (and an older build's, named per run), except one a run is writing */
-    suspend fun sweep(context: Context, tasks: SyncTaskRepository) {
-        val parts = File(context.filesDir, DIR).listFiles()?.takeIf { it.isNotEmpty() } ?: return
+    /**
+     * Drops the parts no download task owns any more (and an older build's, named per run), except one a run is
+     * writing. Off the caller's thread: a sign-out calls it from the main one, and a part can be hundreds of MB.
+     */
+    suspend fun sweep(context: Context, tasks: SyncTaskRepository) = withContext(Dispatchers.IO) {
+        val parts = File(context.filesDir, DIR).listFiles()?.takeIf { it.isNotEmpty() } ?: return@withContext
         val owned = tasks.taskRowIds(SyncTaskFactory.JOB_DOWNLOAD_FILE)
         parts.forEach { part ->
             val taskRowId = part.name.removeSuffix(SUFFIX).takeIf { part.name.endsWith(SUFFIX) }
