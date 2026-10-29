@@ -162,6 +162,56 @@ class BootTests(unittest.TestCase):
                          "adb shell ls failed: no such file")
 
 
+class FakeEmulator:
+    """Just enough of an Emulator for run_with_retry: its steps raise, its dropbox holds `crashes`."""
+
+    def __init__(self, crashes=()):
+        self.crashes, self.logs, self.resets = list(crashes), Path("."), 0
+
+    def now(self):
+        return "2026-10-29 00:00:00"
+
+    def app_failures(self, since):
+        return self.crashes, []
+
+    def save_diagnostics(self, stem):
+        pass
+
+    def screenshot(self, path):
+        pass
+
+    def reset(self):
+        self.resets += 1
+        raise rc.SetupError("the emulator failed twice: it didn't boot within 300 s")
+
+
+class RetryTests(unittest.TestCase):
+    def chain(self):
+        def ok(e):
+            pass
+
+        def fails(e):
+            raise rc.StepError("never saw the Library within 45 s")
+
+        return [("fresh", [("candidate", ok)]), ("import", [("candidate", fails)]), ("playback", [("candidate", ok)])]
+
+    def test_a_retry_that_cannot_run_keeps_the_first_attempt_unconfirmed(self):
+        e = FakeEmulator()
+        with mock.patch.object(rc.time, "sleep"), self.assertRaises(rc.RetryCouldNotRun) as raised:
+            rc.run_with_retry("Phone API 28", e, self.chain(), {})
+        self.assertEqual(e.resets, 1)
+        self.assertEqual([(row[1], row[2]) for row in raised.exception.rows],
+                         [("fresh", "passed"), ("import", "not run"), ("playback", "not run")])
+        self.assertIn("failed once; the retry on a wiped emulator couldn't run. First attempt: never saw the Library",
+                      raised.exception.rows[1][3])
+
+    def test_a_crash_fails_without_a_retry(self):
+        e = FakeEmulator(crashes=[("data_app_crash", "Process: com.tortugapower.audiobookplayer\n\nboom")])
+        rows, _ = rc.run_with_retry("Phone API 28", e, self.chain(), {})
+        self.assertEqual(e.resets, 0)
+        self.assertEqual(rows[0][2], "failed")  # the crash is in the dropbox from the first step on
+
+
 class OutcomeTests(unittest.TestCase):
     def test_a_failure_wins_over_a_device_that_could_not_run(self):
         failed = [("Phone API 28", "fresh", "failed", "crash: boom"), ("Watch API 30", "fresh", "not run", "")]

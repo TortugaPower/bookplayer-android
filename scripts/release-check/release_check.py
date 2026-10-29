@@ -899,6 +899,14 @@ def watch_upgrade(previous, previous_apk, apk):
 # MARK: - Running scenarios
 
 
+class RetryCouldNotRun(SetupError):
+    """The wiped emulator for a retry couldn't be set up; carries the rows the first attempt saw."""
+
+    def __init__(self, message, rows):
+        super().__init__(message)
+        self.rows = rows
+
+
 class StepFailure:
     def __init__(self, message, crashed, previous=None):
         # previous: the previous release's tag when the step ran on it rather than on this build
@@ -989,7 +997,16 @@ def run_with_retry(label, e, chain, mappings):
         log(f"{label}: crashed, no retry")
         return describe(label, first), first
     log(f"{label}: failed without a crash, retrying once on a wiped emulator")
-    second = run_chain(e, chain, mappings, attempt=2)
+    try:
+        second = run_chain(e, chain, mappings, attempt=2)
+    except (SetupError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        # Without a crash the first failure counts only if it happens again, so it stays unconfirmed: the device
+        # couldn't run, and the report keeps what the first attempt saw
+        rows = [(label, scenario, "not run",
+                 f"failed once; the retry on a wiped emulator couldn't run. First attempt: {result.message}")
+                if isinstance(result, StepFailure) else row
+                for (scenario, result), row in zip(first.items(), describe(label, first))]
+        raise RetryCouldNotRun(f"the retry's emulator couldn't be set up: {error}", rows) from error
     results = []
     for scenario, result in second.items():
         earlier = first.get(scenario)
@@ -1102,14 +1119,19 @@ def check(args):
             log(f"{label}: booting {device.avd}")
             e.boot()
             chain = (phone_chain if device.kind == "phone" else watch_chain)(e, signed[device.kind])
-            rows, _ = run_with_retry(label, e, chain, mappings)
-            rows += run_upgrade(label, e, device, previous_tags, previous_apks, signed[device.kind], mappings)
-            for row in rows:
-                log(f"{row[0]} {row[1]}: {row[2]}")
-            results += rows
+            # Each part's rows are kept as soon as it ends: a later part that can't run must not lose a failure
+            for part in (lambda: run_with_retry(label, e, chain, mappings)[0],
+                         lambda: run_upgrade(label, e, device, previous_tags, previous_apks, signed[device.kind],
+                                             mappings)):
+                rows = part()
+                for row in rows:
+                    log(f"{row[0]} {row[1]}: {row[2]}")
+                results += rows
         except Exception as error:  # noqa: BLE001 — a device that can't run never loses the others' results
             # Keep what already ran and carry on with the other devices; the report says what couldn't run. An
             # unexpected error is a bug in this script, which must never read as a failed release
+            if isinstance(error, RetryCouldNotRun):
+                results += error.rows
             if not isinstance(error, (SetupError, subprocess.TimeoutExpired, subprocess.CalledProcessError)):
                 (logs / "traceback.txt").write_text(traceback.format_exc())
                 error = f"unexpected {type(error).__name__}: {error} (traceback in {logs / 'traceback.txt'})"
