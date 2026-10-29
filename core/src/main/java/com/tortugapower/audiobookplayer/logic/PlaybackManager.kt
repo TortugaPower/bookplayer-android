@@ -42,8 +42,8 @@ object PlaybackManager {
     // Chosen to line up with Media3's built-in ICON_PLAYBACK_SPEED_* glyphs so the button shows the speed.
     private val SPEED_PRESETS = listOf(0.8f, 1.0f, 1.2f, 1.5f, 1.8f, 2.0f)
 
-    // Upper bound on the on-play contents fetch for an offloaded bound book, so a slow server can't
-    // hang playback (fail-soft: fall through to whatever's local).
+    // Upper bound on the on-play cloud fetch (an offloaded bound book's contents, a single book's signed URL),
+    // so a slow server can't hang playback (fail-soft: fall through to whatever else plays it).
     private const val CONTENTS_FETCH_TIMEOUT_MS = 15_000L
 
     // Cap the per-process "already attempted remote chapter fetch" dedup set (cleared on overflow).
@@ -1832,9 +1832,12 @@ object PlaybackManager {
                     // Media-server-first: a saved Jellyfin/ABS server keeps streaming (LAN speed, zero S3
                     // egress), and the BookPlayer cloud copy plays only what no server serves, stored URL or not.
                     cloudServed = BookUrlRefresh(
+                        // Bounded like the volume's fetch: it now runs for books with no stored URL too, such as a
+                        // media-server book whose server isn't saved here, which should reach its prompt promptly.
                         fetchCloudFile = { book ->
-                            NetworkClient.libraryApi.getRemoteFileURL(path = book.relativePath ?: "", uuid = book.uuid)
-                                .takeIf { it.isSuccessful }?.body()
+                            kotlinx.coroutines.withTimeoutOrNull(CONTENTS_FETCH_TIMEOUT_MS) {
+                                NetworkClient.libraryApi.getRemoteFileURL(path = book.relativePath ?: "", uuid = book.uuid)
+                            }?.takeIf { it.isSuccessful }?.body()
                         },
                         saveBook = { book -> repo.updateItem(book) },
                     ).refresh(resolvedItem, externalUrl)
