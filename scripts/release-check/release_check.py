@@ -39,7 +39,8 @@ when they're missing, the tag is built once the same way. A passing run caches t
 The skill runs the check before its version bump, so this build usually has the previous release's versionCode
 and installs over it as an update of the same version; nothing in the app keys off the versionCode.
 
-Exit code 0 = passed; 1 = a check failed; 2 = the check couldn't run (setup problem).
+Exit code 0 = passed; 1 = a check failed (even if some device couldn't run); 2 = the check couldn't run (a setup
+problem, or a bug in this script).
 The report is written to <out>/report.md (and report.json).
 """
 
@@ -199,15 +200,21 @@ def release_properties():
     if not source.exists():
         raise SetupError(f"{source} doesn't exist: the release build reads its keys from it")
     lines = source.read_text().splitlines()
-    values = {}
-    for line in lines:
-        if "=" in line and not line.lstrip().startswith("#"):
-            key, value = line.split("=", 1)
-            values[key.strip()] = value.strip()
+    values = dict(entry for entry in map(property_entry, lines) if entry)
     missing = [key for key in RELEASE_KEYS if not values.get(key)]
     if missing:
         raise SetupError(f"{source} has no {', '.join(missing)}: the release build needs them")
-    return "\n".join(line for line in lines if line.split("=", 1)[0].strip() != "SENTRY_AUTH_TOKEN") + "\n"
+    return "\n".join(line for line in lines if (property_entry(line) or ("",))[0] != "SENTRY_AUTH_TOKEN") + "\n"
+
+
+def property_entry(line):
+    """A properties line's (key, value), or None for a blank or comment line. Like java.util.Properties (which the
+    build reads it with), the key ends at the first `=`, `:` or whitespace."""
+    stripped = line.strip()
+    if not stripped or stripped[0] in "#!":
+        return None
+    match = re.match(r"([^=:\s]+)\s*[=:]?\s*(.*)", stripped)
+    return (match.group(1), match.group(2).strip()) if match else None
 
 
 # MARK: - Building
@@ -518,8 +525,8 @@ class Emulator:
         self.adb("install", *(["-r"] if replace else []), "--no-incremental", str(apk), timeout=INSTALL_TIMEOUT)
 
     def launch(self):
-        component = self.shell(f"cmd package resolve-activity --brief -c android.intent.category.LAUNCHER {PACKAGE}")
-        component = component.strip().splitlines()[-1]
+        lines = self.shell(f"cmd package resolve-activity --brief -c android.intent.category.LAUNCHER {PACKAGE}")
+        component = (lines.strip().splitlines() or [""])[-1]
         if "/" not in component:
             raise StepError(f"the app has no launcher activity ({component})")
         result = self.shell(f"am start -W -n {component}", timeout=UI_TIMEOUT)
@@ -1027,7 +1034,7 @@ def check(args):
         log(f"{row[0]} {row[1]}: {row[2]}")
     if any(status == "failed" for _, _, status, _ in results):
         notes.append("emulator scenarios not run: fix the build first")
-        write_report(out, started, tag, results, notes, passed=False)
+        write_report(out, started, tag, results, notes)
         return 1
 
     previous_signed = {}
@@ -1060,8 +1067,12 @@ def check(args):
             for row in rows:
                 log(f"{row[0]} {row[1]}: {row[2]}")
             results += rows
-        except (SetupError, subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
-            # Keep what already ran and carry on with the other devices; the report says what couldn't run
+        except Exception as error:  # noqa: BLE001 — a device that can't run never loses the others' results
+            # Keep what already ran and carry on with the other devices; the report says what couldn't run. An
+            # unexpected error is a bug in this script, which must never read as a failed release
+            if not isinstance(error, (SetupError, subprocess.TimeoutExpired, subprocess.CalledProcessError)):
+                (logs / "traceback.txt").write_text(traceback.format_exc())
+                error = f"unexpected {type(error).__name__}: {error} (traceback in {logs / 'traceback.txt'})"
             setup_errors.append(f"{label} could not run: {error}")
             log(setup_errors[-1])
             ran = {scenario for row_label, scenario, _, _ in results if row_label == label}
@@ -1072,8 +1083,8 @@ def check(args):
             e.kill()
 
     notes += setup_errors
-    passed = not setup_errors and all(status in ("passed", "retried", "skipped") for _, _, status, _ in results)
-    if passed and args.version:
+    code, _ = outcome(results, could_not_run=bool(setup_errors))
+    if code == 0 and args.version:
         # Reused as the next release's "previous" only if <version>'s tag turns out to be this commit plus the
         # version bump (see cached_build)
         cache_build(candidate, args.version, commit)
@@ -1081,8 +1092,8 @@ def check(args):
     if not args.keep_build:
         shutil.rmtree(work, ignore_errors=True)
 
-    write_report(out, started, tag, results, notes, passed, could_not_run=bool(setup_errors))
-    return 2 if setup_errors else (0 if passed else 1)
+    write_report(out, started, tag, results, notes, could_not_run=bool(setup_errors))
+    return code
 
 
 def prune_cache(keep):
@@ -1091,16 +1102,23 @@ def prune_cache(keep):
             shutil.rmtree(entry, ignore_errors=True)
 
 
+def outcome(results, could_not_run):
+    """(exit code, verdict). A failure wins over a device that couldn't run: a real regression must never read as
+    a setup problem to rerun."""
+    if any(status == "failed" for _, _, status, _ in results):
+        return 1, "FAILED (some devices could not run)" if could_not_run else "FAILED"
+    if could_not_run:
+        return 2, "COULD NOT RUN (partial results)"
+    warnings = any(status in ("retried", "skipped") for _, _, status, _ in results)
+    return 0, "PASSED (with warnings)" if warnings else "PASSED"
+
+
 ICONS = {"passed": "✅", "retried": "⚠️", "skipped": "⚠️", "failed": "❌", "not run": "➖"}
 
 
-def write_report(out, started, tag, results, notes, passed, could_not_run=False):
+def write_report(out, started, tag, results, notes, could_not_run=False):
     minutes = (datetime.datetime.now() - started).total_seconds() / 60
-    warnings = any(status in ("retried", "skipped") for _, _, status, _ in results)
-    if could_not_run:
-        verdict = "COULD NOT RUN (partial results)"
-    else:
-        verdict = "FAILED" if not passed else ("PASSED (with warnings)" if warnings else "PASSED")
+    code, verdict = outcome(results, could_not_run)
     lines = [f"# Release check: {verdict}", "",
              f"Previous release for the upgrade scenario: {tag}. Took {minutes:.1f} min.", ""]
     lines += [f"- {note}" for note in notes] + ([""] if notes else [])
@@ -1113,7 +1131,7 @@ def write_report(out, started, tag, results, notes, passed, could_not_run=False)
             lines += ["", f"## {label} · {scenario} ({status})", "", "```", message, "```"]
     (out / "report.md").write_text("\n".join(lines) + "\n")
     (out / "report.json").write_text(json.dumps({
-        "passed": passed, "could_not_run": could_not_run, "previous": tag, "notes": notes,
+        "passed": code == 0, "could_not_run": could_not_run, "previous": tag, "notes": notes,
         "results": [{"device": l, "scenario": s, "status": st, "message": m} for l, s, st, m in results],
     }, indent=2))
     print("\n".join(lines))

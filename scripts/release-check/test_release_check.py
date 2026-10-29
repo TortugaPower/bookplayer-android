@@ -89,6 +89,46 @@ class RowTests(unittest.TestCase):
         self.assertIsNone(rc.app_node([rc.Node("Library", "", "com.android.launcher", (0, 0, 1, 1))], text="Library"))
 
 
+class PropertiesTests(unittest.TestCase):
+    def test_keys_end_at_equals_colon_or_whitespace(self):
+        for line in ("SENTRY_AUTH_TOKEN=abc", "SENTRY_AUTH_TOKEN = abc", "SENTRY_AUTH_TOKEN: abc",
+                     "SENTRY_AUTH_TOKEN abc", "  SENTRY_AUTH_TOKEN=abc"):
+            self.assertEqual(rc.property_entry(line), ("SENTRY_AUTH_TOKEN", "abc"), line)
+        for line in ("", "   ", "# SENTRY_AUTH_TOKEN=abc", "! SENTRY_AUTH_TOKEN=abc"):
+            self.assertIsNone(rc.property_entry(line), line)
+
+    def test_the_build_worktree_never_gets_the_sentry_token(self):
+        text = "\n".join(["sdk.dir=/sdk", "SENTRY_AUTH_TOKEN: secret", "SENTRY_AUTH_TOKEN secret",
+                          *(f"{key}={key.lower()}" for key in rc.RELEASE_KEYS)])
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "local.properties").write_text(text)
+            with mock.patch.object(rc, "main_checkout", return_value=Path(folder)):
+                copied = rc.release_properties()
+        self.assertNotIn("secret", copied)
+        self.assertIn("sdk.dir=/sdk", copied)
+
+    def test_a_missing_release_key_is_named(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "local.properties").write_text("PROD_BASE_URL: https://api\nSENTRY_DSN=\n")
+            with mock.patch.object(rc, "main_checkout", return_value=Path(folder)):
+                with self.assertRaisesRegex(rc.SetupError, "SENTRY_DSN, REVENUECAT_API_KEY, GOOGLE_CLIENT_ID"):
+                    rc.release_properties()
+
+
+class OutcomeTests(unittest.TestCase):
+    def test_a_failure_wins_over_a_device_that_could_not_run(self):
+        failed = [("Phone API 28", "fresh", "failed", "crash: boom"), ("Watch API 30", "fresh", "not run", "")]
+        self.assertEqual(rc.outcome(failed, could_not_run=True), (1, "FAILED (some devices could not run)"))
+        self.assertEqual(rc.outcome(failed, could_not_run=False), (1, "FAILED"))
+
+    def test_could_not_run_then_warnings_then_pass(self):
+        passed = [("Phone API 28", "fresh", "passed", "")]
+        self.assertEqual(rc.outcome(passed, could_not_run=True), (2, "COULD NOT RUN (partial results)"))
+        self.assertEqual(rc.outcome(passed + [("Phone API 28", "upgrade", "retried", "x")], could_not_run=False),
+                         (0, "PASSED (with warnings)"))
+        self.assertEqual(rc.outcome(passed, could_not_run=False), (0, "PASSED"))
+
+
 def elf(align):
     """A minimal 64-bit ELF with one PT_LOAD segment aligned to `align`."""
     header = bytearray(64)
