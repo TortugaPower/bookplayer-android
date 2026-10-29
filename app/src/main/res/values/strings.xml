@@ -292,6 +292,10 @@
     <string name="library_sort_reverse_order">Reverse Order</string>
     <string name="library_show_progress_percentage">Show progress as percentage</string>
     <string name="library_show_original_file_name">Show original file name</string>
+    <string name="layout_options_title">Layout options</string>
+    <string name="layout_list_option">List</string>
+    <string name="layout_grid_option">Grid</string>
+    <string name="layout_covers_option">Covers</string>
     <string name="library_folder_name_label">Folder Name</string>
     <string name="library_folder_name_error">Use only letters, numbers, \'-\' or \'_\'</string>
     <string name="library_folder_name_exists_error">A folder or file with this name already exists</string>

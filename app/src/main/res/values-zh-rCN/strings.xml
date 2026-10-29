@@ -478,4 +478,8 @@
     <string name="transfer_web_path_conflict">你发送的另一个文件或文件夹已使用此名称</string>
     <string name="transfer_web_done_hint">完成后，请在 BookPlayer 中确认以导入文件。</string>
     <string name="transfer_web_load_error">无法连接 BookPlayer。请检查其传输界面是否仍处于打开状态。</string>
+    <string name="layout_options_title">布局选项</string>
+    <string name="layout_list_option">列表</string>
+    <string name="layout_grid_option">网格</string>
+    <string name="layout_covers_option">封面</string>
 </resources>

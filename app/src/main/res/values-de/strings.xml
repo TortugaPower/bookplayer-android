@@ -483,4 +483,8 @@
     <string name="transfer_web_path_conflict">Eine andere Datei oder ein anderer Ordner, den du gesendet hast, heißt bereits so</string>
     <string name="transfer_web_done_hint">Bestätige danach in BookPlayer, um die Dateien zu importieren.</string>
     <string name="transfer_web_load_error">BookPlayer ist nicht erreichbar. Prüfe, ob der Übertragungsbildschirm noch geöffnet ist.</string>
+    <string name="layout_options_title">Darstellungsoptionen</string>
+    <string name="layout_list_option">Liste</string>
+    <string name="layout_grid_option">Raster</string>
+    <string name="layout_covers_option">Cover</string>
 </resources>

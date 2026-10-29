@@ -219,6 +219,15 @@ object PlaybackSettingsManager {
         context.dataStore.edit { it[SHOW_ORIGINAL_FILE_NAME] = enabled }
     }
 
+    // The Library tab's layout (iOS parity: the Options sheet's layout picker). Stored as iOS's raw value.
+    private val LIBRARY_LAYOUT = stringPreferencesKey("library_layout")
+
+    fun getLibraryLayout(context: Context): Flow<LibraryLayout> =
+        context.dataStore.data.map { LibraryLayout.fromRawValue(it[LIBRARY_LAYOUT]) }
+    suspend fun setLibraryLayout(context: Context, layout: LibraryLayout) {
+        context.dataStore.edit { it[LIBRARY_LAYOUT] = layout.rawValue }
+    }
+
     // Data usage: whether background FILE uploads may run over a metered (cellular) connection.
     // Default OFF — uploads wait for un-metered Wi-Fi. Downloads are user-triggered and unaffected.
     private val UPLOAD_USING_CELLULAR_DATA = booleanPreferencesKey("upload_using_cellular_data")

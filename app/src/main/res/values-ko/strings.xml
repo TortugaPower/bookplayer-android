@@ -478,4 +478,8 @@
     <string name="transfer_web_path_conflict">보낸 다른 파일이나 폴더에 이미 같은 이름이 있습니다</string>
     <string name="transfer_web_done_hint">완료되면 BookPlayer에서 확인해 파일을 가져오세요.</string>
     <string name="transfer_web_load_error">BookPlayer에 연결할 수 없습니다. 전송 화면이 아직 열려 있는지 확인하세요.</string>
+    <string name="layout_options_title">레이아웃 옵션</string>
+    <string name="layout_list_option">목록</string>
+    <string name="layout_grid_option">격자</string>
+    <string name="layout_covers_option">표지</string>
 </resources>

@@ -475,6 +475,17 @@ class LibraryViewModel(
         }
     }
 
+    /** List, grid of cards, or grid of covers (Options sheet). */
+    val libraryLayout: StateFlow<com.tortugapower.audiobookplayer.logic.LibraryLayout> =
+        com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.getLibraryLayout(appContext)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.tortugapower.audiobookplayer.logic.LibraryLayout.LIST)
+
+    fun setLibraryLayout(layout: com.tortugapower.audiobookplayer.logic.LibraryLayout) {
+        viewModelScope.launch {
+            com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.setLibraryLayout(appContext, layout)
+        }
+    }
+
     /** One-off reverse of the current order; flips the location to a custom (manual) order. */
     fun reverseOrder() {
         // ioDispatcher: reverseOrder computes the current (collator-sorted, when automatic) order

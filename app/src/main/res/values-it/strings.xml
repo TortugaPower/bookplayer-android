@@ -484,4 +484,8 @@
     <string name="transfer_web_path_conflict">Un altro file o cartella che hai inviato ha già questo nome</string>
     <string name="transfer_web_done_hint">Quando hai finito, conferma in BookPlayer per importare i file.</string>
     <string name="transfer_web_load_error">Impossibile raggiungere BookPlayer. Controlla che la sua schermata di trasferimento sia ancora aperta.</string>
+    <string name="layout_options_title">Opzioni di visualizzazione</string>
+    <string name="layout_list_option">Elenco</string>
+    <string name="layout_grid_option">Griglia</string>
+    <string name="layout_covers_option">Copertine</string>
 </resources>

@@ -495,4 +495,8 @@
     <string name="transfer_web_path_conflict">Другой отправленный файл или папка уже называется так</string>
     <string name="transfer_web_done_hint">Когда закончите, подтвердите в BookPlayer, чтобы импортировать файлы.</string>
     <string name="transfer_web_load_error">Нет связи с BookPlayer. Проверьте, что экран передачи в нём всё ещё открыт.</string>
+    <string name="layout_options_title">Параметры отображения</string>
+    <string name="layout_list_option">Список</string>
+    <string name="layout_grid_option">Сетка</string>
+    <string name="layout_covers_option">Обложки</string>
 </resources>

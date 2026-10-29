@@ -507,4 +507,8 @@
     <string name="transfer_web_path_conflict">يوجد ملف أو مجلد آخر أرسلته بهذا الاسم</string>
     <string name="transfer_web_done_hint">عند الانتهاء، أكّد في BookPlayer لاستيراد الملفات.</string>
     <string name="transfer_web_load_error">تعذّر الوصول إلى BookPlayer. تحقق من أن شاشة النقل فيه لا تزال مفتوحة.</string>
+    <string name="layout_options_title">خيارات العرض</string>
+    <string name="layout_list_option">قائمة</string>
+    <string name="layout_grid_option">شبكة</string>
+    <string name="layout_covers_option">الأغلفة</string>
 </resources>

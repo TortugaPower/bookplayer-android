@@ -76,6 +76,8 @@ import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.tortugapower.audiobookplayer.logic.ItemArtwork
+import com.tortugapower.audiobookplayer.logic.LibraryLayout
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import com.tortugapower.audiobookplayer.logic.hasQueuedUploadTask
 import com.tortugapower.audiobookplayer.logic.removeLocalFile
 import com.tortugapower.audiobookplayer.R
@@ -134,6 +136,7 @@ fun LibraryScreen(
     val canSyncLibrary = account?.tier == AccountTier.PRO || account?.tier == AccountTier.LITE
 
     val isRefreshing by libraryViewModel.isRefreshing.collectAsState()
+    val libraryLayout by libraryViewModel.libraryLayout.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val syncTasksBusyMessage = stringResource(R.string.library_sync_tasks_busy)
     val syncPausedMessage = stringResource(R.string.sync_paused_alert_title)
@@ -1112,6 +1115,34 @@ fun LibraryScreen(
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
+                // Densest first, as iOS (after Pocket Casts) orders them.
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.layout_options_title)) },
+                    trailingContent = {
+                        val options = listOf(
+                            Triple(LibraryLayout.COVERS, Icons.Default.Apps, R.string.layout_covers_option),
+                            Triple(LibraryLayout.GRID, Icons.Default.GridView, R.string.layout_grid_option),
+                            Triple(LibraryLayout.LIST, Icons.AutoMirrored.Filled.FormatListBulleted, R.string.layout_list_option),
+                        )
+                        SingleChoiceSegmentedButtonRow {
+                            options.forEachIndexed { index, (option, icon, label) ->
+                                SegmentedButton(
+                                    selected = libraryLayout == option,
+                                    onClick = { libraryViewModel.setLibraryLayout(option) },
+                                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                                    // The icons say it all; the selected segment's fill shows which is on.
+                                    icon = {},
+                                ) {
+                                    Icon(icon, contentDescription = stringResource(label))
+                                }
+                            }
+                        }
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
                 val showPercentage by libraryViewModel.showProgressAsPercentage.collectAsState()
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.library_show_progress_percentage)) },
@@ -1498,6 +1529,37 @@ fun LibraryScreen(
                     pathItems.toMutableStateList() 
                 }
 
+                // What a tap and a long press do, in the list and the grid alike.
+                val onItemClick: (LibraryItemEntity) -> Unit = { item ->
+                    if (isSelectMode) {
+                        selectedItemUuids = if (item.uuid in selectedItemUuids) {
+                            selectedItemUuids - item.uuid
+                        } else {
+                            selectedItemUuids + item.uuid
+                        }
+                    } else {
+                        if (item.type == ItemType.FOLDER) {
+                            libraryViewModel.navigateTo(item.relativePath ?: "")
+                        } else {
+                            val isCurrentlyPlaying = PlaybackManager.currentItem.value?.uuid == item.uuid
+                            if (isCurrentlyPlaying) {
+                                PlaybackManager.setShowPlayer(true)
+                                if (PlaybackManager.player?.isPlaying == false) {
+                                    PlaybackManager.player?.play()
+                                }
+                            } else {
+                                PlaybackManager.playItem(context, item)
+                            }
+                        }
+                    }
+                }
+                val onItemLongClick: (LibraryItemEntity) -> Unit = { item ->
+                    if (!isSelectMode) {
+                        isSelectMode = true
+                        selectedItemUuids = setOf(item.uuid)
+                    }
+                }
+
                 if (pathItems.isEmpty()) {
                     // Scrollable so pull-to-refresh works on an empty folder (the main reason to refresh).
                     Box(
@@ -1516,6 +1578,22 @@ fun LibraryScreen(
                             )
                         }
                     }
+                } else if (libraryLayout != LibraryLayout.LIST) {
+                    LibraryTileGrid(
+                        items = pathItems,
+                        layout = libraryLayout,
+                        isSelectMode = isSelectMode,
+                        selectedItemUuids = selectedItemUuids,
+                        libraryViewModel = libraryViewModel,
+                        canDownload = canSyncLibrary,
+                        bottomInset = LocalMiniPlayerInset.current,
+                        onClick = onItemClick,
+                        onLongClick = onItemLongClick,
+                        onOptions = { item ->
+                            itemForSwipeOptions = item
+                            showSwipeOptionsDialog = true
+                        },
+                    )
                 } else {
                     val lazyListState = rememberLazyListState()
                 
@@ -1630,35 +1708,8 @@ fun LibraryScreen(
                                                 )
                                             }
                                         } else Modifier,
-                                        onClick = {
-                                            if (isSelectMode) {
-                                                selectedItemUuids = if (isSelected) {
-                                                    selectedItemUuids - item.uuid
-                                                } else {
-                                                    selectedItemUuids + item.uuid
-                                                }
-                                            } else {
-                                                if (item.type == ItemType.FOLDER) {
-                                                    libraryViewModel.navigateTo(item.relativePath ?: "")
-                                                } else {
-                                                    val isCurrentlyPlaying = PlaybackManager.currentItem.value?.uuid == item.uuid
-                                                    if (isCurrentlyPlaying) {
-                                                        PlaybackManager.setShowPlayer(true)
-                                                        if (PlaybackManager.player?.isPlaying == false) {
-                                                            PlaybackManager.player?.play()
-                                                        }
-                                                    } else {
-                                                        PlaybackManager.playItem(context, item)
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        onLongClick = {
-                                            if (!isSelectMode) {
-                                                isSelectMode = true
-                                                selectedItemUuids = setOf(item.uuid)
-                                            }
-                                        }
+                                        onClick = { onItemClick(item) },
+                                        onLongClick = { onItemLongClick(item) }
                                     )
                                 }
                             }
@@ -1706,29 +1757,10 @@ fun LibraryListItem(
 
     val externalResources = item.externalResources
 
-    // Aggregate download state (units, task queue, disk truth), derived in the ViewModel OFF the main
-    // thread — the same `:core` derivation Wear uses; this composable only collects state and never
-    // stats the disk. Reactive end to end: the units flow re-emits when a just-signed-in BOUND's
-    // sub-books land, and the task flow re-emits on queue changes (tap → downloading; tasks drained →
-    // disk truth re-checked). Null until the first computation lands: render neither the cloud badge
-    // nor the ring rather than guessing (prevents a wrong-icon flash while rows scroll in).
-    val downloadState by remember(item.uuid, item.relativePath, item.type) {
-        libraryViewModel?.itemDownloadStateFlow(item)
-            ?: kotlinx.coroutines.flow.flowOf(null)
-    }.collectAsState(initial = null)
-    val isDownloading = downloadState?.isDownloading == true
-
-    // Whole-item ring fraction (a 2-file bound book fills 0→50%→100%, mirroring Wear/iOS): pure math
-    // over the aggregate + the live per-chunk progress of the in-flight files. No disk IO here — the
-    // downloaded-unit count came from the ViewModel; completed files count as whole units.
-    val taskProgress by SyncStatusManager.taskProgress.collectAsState()
-    val downloadProgress: Float? = downloadState?.takeIf { it.isDownloading }?.let { state ->
-        com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.downloadProgressFraction(
-            downloadedUnits = state.downloadedUnits,
-            totalUnits = state.totalUnits,
-            inProgressSum = state.inFlightUuids.sumOf { taskProgress[it] ?: 0.0 },
-        )
-    }
+    // Download state and ring fraction, derived off the main thread (shared with the grid's tiles).
+    val download = rememberItemDownload(item, libraryViewModel)
+    val isDownloading = download.isDownloading
+    val downloadProgress: Float? = download.progress
 
     // Highlight the row of the book currently loaded in the player (library and search share
     // this row composable).
@@ -1742,39 +1774,12 @@ fun LibraryListItem(
     val showProgressAsPercentage by remember(libraryViewModel) {
         libraryViewModel?.showProgressAsPercentage ?: MutableStateFlow(false)
     }.collectAsState()
-    // Books carry an original file name; folders/bound volumes don't, so they keep their title.
-    val displayTitle = item.originalFileName
-        ?.takeIf { showOriginalFileName && item.type != ItemType.FOLDER && it.isNotBlank() }
-        ?: item.title
+    val displayTitle = itemDisplayTitle(item, showOriginalFileName)
 
-    val durationText = if (item.duration > 0) {
-        val h = (item.duration / 3600).toInt()
-        val m = ((item.duration % 3600) / 60).toInt()
-        val s = (item.duration % 60).toInt()
-        if (h > 0) stringResource(R.string.duration_hms, h, m, s) else stringResource(R.string.duration_ms, m, s)
-    } else ""
-
-    // Shared helper localizes container bare counts ("N Files"/"N Chapters" — every surface uses
-    // the same mapping); blanks fall back per type.
-    val authorText = com.tortugapower.audiobookplayer.logic.LibraryContentsSync
-        .displayDetails(context, item.type, item.author)
-        ?.takeIf { it.isNotBlank() }
-        ?: if (item.type == ItemType.FOLDER) stringResource(R.string.library_folder_empty)
-           else stringResource(R.string.library_unknown_author)
-
-    val progressText = if (item.isFinished) {
-        stringResource(R.string.common_completed)
-    } else {
-        "${(item.percentCompleted.coerceIn(0.0, 1.0) * 100).toInt()}% ${stringResource(R.string.common_completed).lowercase()}"
-    }
-
-    val showCloud = downloadState?.isLocal == false
-
-    val combinedDescription = if (showCloud && !canDownload) {
-        "${item.title}. $authorText. $durationText. $progressText. ${stringResource(R.string.library_audio_unavailable)}"
-    } else {
-        "${item.title}. $authorText. $durationText. $progressText"
-    }
+    val durationText = itemDurationText(item)
+    val authorText = itemDetailsText(item)
+    val showCloud = download.showCloud
+    val combinedDescription = itemAccessibilityDescription(item, download, canDownload)
 
     Row(
         modifier = modifier
@@ -1842,36 +1847,7 @@ fun LibraryListItem(
                 artworkModifier.clearAndSetSemantics { }
             }
         ) {
-            if (item.artworkURL != null) {
-                AsyncImage(
-                    model = item.artworkURL,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else if (
-                (item.type == ItemType.BOOK || item.type == ItemType.BOUND || item.type == ItemType.FOLDER) &&
-                (!item.relativePath.isNullOrEmpty() || !item.remoteURL.isNullOrEmpty())
-            ) {
-                // No stored artworkURL: resolve the embedded cover via CoverArtResolver (iOS parity —
-                // covers PRO cloud items not yet downloaded). BOOK reads its own file; BOUND loops its
-                // sub-books; FOLDER recurses its contents (handleDirectory). Keyed by relativePath so the
-                // decoded cover is reused from the memory cache.
-                val artworkCacheKey = item.relativePath?.takeIf { it.isNotEmpty() } ?: item.remoteURL
-                val artworkRequest = remember(item.relativePath, item.remoteURL) {
-                    ImageRequest.Builder(context)
-                        .data(ItemArtwork(item.uuid, item.relativePath, item.remoteURL))
-                        .memoryCacheKey(artworkCacheKey)
-                        .crossfade(true)
-                        .build()
-                }
-                AsyncImage(
-                    model = artworkRequest,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
+            LibraryItemArtworkImage(item, ContentScale.Crop)
 
             if (downloadProgress != null) {
                 // Download Progress Overlay
