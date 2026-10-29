@@ -2,6 +2,7 @@ package com.tortugapower.audiobookplayer
 
 import android.app.Application
 import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import coil.ImageLoader
@@ -9,6 +10,7 @@ import coil.ImageLoaderFactory
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
+import com.tortugapower.audiobookplayer.logic.PlaybackForeground
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.ParkedTaskRetry
 import com.tortugapower.audiobookplayer.logic.PreferencesPullTriggers
@@ -16,7 +18,6 @@ import com.tortugapower.audiobookplayer.logic.PhoneSyncEngine
 import com.tortugapower.audiobookplayer.logic.SyncKeepAlive
 import com.tortugapower.audiobookplayer.logic.SyncPauseReporter
 import com.tortugapower.audiobookplayer.logic.SyncRuntime
-import com.tortugapower.audiobookplayer.logic.SyncRuntimeOwner
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
@@ -37,10 +38,13 @@ import io.sentry.protocol.User
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.tortugapower.audiobookplayer.logic.StorageMonitor
 
-class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwner {
+class BookPlayerApplication : Application(), ImageLoaderFactory {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main + StorageMonitor.exceptionHandler { this })
 
     companion object {
@@ -61,7 +65,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
         private set
 
     /** The process's one sync engine. Set in [onCreate]. */
-    override lateinit var syncRuntime: SyncRuntime
+    private lateinit var syncRuntime: SyncRuntime
+
+    /** Starts the sync service when a transfer needs it to keep the process alive. Set in [onCreate]. */
+    internal lateinit var syncKeepAlive: SyncKeepAlive
         private set
 
     /**
@@ -190,8 +197,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
             }
         }
         // The process's one sync engine (SyncRuntime): built off the main thread, then running for the life of the
-        // process. A new task makes sure it's started, and that the sync service is up if lanes
-        // work (SyncKeepAlive).
+        // process. A new task makes sure it's started.
         syncRuntime = SyncRuntime(
             this, appScope,
             buildEngine = { onFailure ->
@@ -199,13 +205,18 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
             },
             onFailed = { io.sentry.Sentry.captureException(it) },
         )
-        val startSyncService = { TaskConcurrencyServiceHost.start(this) }
-        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
-            syncRuntime.start()
-            SyncKeepAlive.startIfLanesWork(syncRuntime.activeQueues.value, startSyncService)
-        }
-        // The sync service keeps the process alive while lanes work; it stops itself once they've been idle a minute
-        appScope.launch { SyncKeepAlive.startWhenLanesWork(syncRuntime.activeQueues, startSyncService) }
+        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = { syncRuntime.start() }
+        // The sync service keeps the process alive while a transfer runs in the background, unless playback does
+        syncKeepAlive = SyncKeepAlive(
+            appScope,
+            visible = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
+                .map { it.isAtLeast(Lifecycle.State.STARTED) }
+                .stateIn(appScope, SharingStarted.Eagerly, false),
+            playing = PlaybackForeground.inForeground,
+            lanes = syncRuntime.laneStates,
+            startService = { TaskConcurrencyServiceHost.start(this) },
+        )
+        PlaybackForeground.onLeaving = syncKeepAlive::onPlaybackLeavingForeground
 
         // The one automatic retry of parked tasks, when the app is first opened in this process
         val parkedTaskRetry = ParkedTaskRetry(
@@ -216,10 +227,8 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, SyncRuntimeOwne
             override fun onStart(owner: LifecycleOwner) {
                 forcePreferencesPull()
                 appScope.launch(Dispatchers.IO) { parkedTaskRetry.onForeground(StorageMonitor.isCritical) }
-                // An engine that failed is built again (only here, not for every new task); and in the foreground a
-                // start of the sync service is always allowed, so one refused in the background gets its retry here
+                // An engine that failed is built again (only here, not for every new task)
                 syncRuntime.onAppOpened()
-                SyncKeepAlive.startIfLanesWork(syncRuntime.activeQueues.value, startSyncService)
                 // Every time the app is opened, tasks waiting out a backoff retry now (their streak kept).
                 // Not while storage is critical: the engine holds all work then.
                 appScope.launch(Dispatchers.IO) {

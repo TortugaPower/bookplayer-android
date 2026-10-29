@@ -226,14 +226,24 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     its start-up steps (the reset, lane moves, retirement) have run: every worker start waits on them. A write that
     fails on a full disk is recorded and the step runs again once space is back, so the engine never silently
     stops; space coming back also rescans the lanes a full disk held.
-  - `TaskConcurrencyServiceHost` only keeps the process alive while lanes work. `SyncKeepAlive` starts it when the
-    lanes go from idle to busy, and it stops itself after a minute idle. It holds no engine, so a refused, timed-out or
+  - `TaskConcurrencyServiceHost` (the dataSync service) only keeps the process alive, and only for a transfer in
+    the background (`SyncKeepAlivePolicy`): an `upload` or `file` lane working (not waiting out a backoff), the app
+    off screen, and playback not in the foreground (`PlaybackForeground`: media3's `startInForegroundRequired`, so it
+    covers the paused window). Anything else (the sync lane, media-server progress pushes) never starts it, so
+    background listening doesn't spend the 6 h/day dataSync budget. It holds no engine, so a refused, timed-out or
     stopped service leaves the engine running (ANDROID-BOOKPLAYER-2F was the service reading an engine a refused
-    promotion never built).
+    promotion never built). It stops itself once nothing has needed it for a minute. Its notification has its own id
+    (`SyncServiceNotification.ID`, the watch's sync service too): media3's playback notification is 1001, and with one
+    id they were one notification, so the service stopping removed a paused book's notification. On Android 13+ the
+    notice needs the notification permission: the phone asks once, the first time a transfer runs with the app on
+    screen (`NotificationPermissionPrompt`); without it the service runs with its notice hidden.
+  - Android allows that start from the background only at a few moments, so `SyncKeepAlive` starts it as the app
+    leaves the screen, and as playback leaves the foreground: `PlaybackForeground.onLeaving` runs before media3
+    demotes, while the app still holds a foreground service. A refused start isn't retried until the app next leaves
+    the screen; the engine keeps running while the process lives.
   - What the old start/stop cycle covered is explicit: the runtime's `SyncNetworkCallback` rescans on network
     changes and cuts backoffs short on a new validated network; the engine rescans on storage recovery; the
-    cellular-upload setting calls `requestWorkerScan()`. `SyncKeepAlive` also starts the service again on a new task
-    or an app open while lanes work, since a start can fail while a lane stays busy for hours.
+    cellular-upload setting calls `requestWorkerScan()`.
   - The watch still builds its engine in `WearSyncServiceHost` (it promotes after building, so it never had -2F)
     until it moves onto `SyncRuntime`.
 - **Covers ride the sync lane** (iOS): `upload_artwork` queues behind its item's registration, so the server

@@ -9,28 +9,44 @@ import android.util.Log
 import io.sentry.Breadcrumb
 import io.sentry.Sentry
 import androidx.core.app.NotificationCompat
+import androidx.annotation.StringRes
+import com.tortugapower.audiobookplayer.BookPlayerApplication
 import com.tortugapower.audiobookplayer.MainActivity
+import com.tortugapower.audiobookplayer.R
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.flowOf
 
 /**
- * Keeps the process alive while the sync engine's lanes work: Android stops a backgrounded app otherwise. Started
- * when the lanes go busy (SyncKeepAlive), it stops itself once the lanes have been idle a minute. The engine
- * isn't here: it runs in the process (SyncRuntime), so this service builds nothing and a refused, timed-out or
- * stopped one leaves the engine running.
+ * Keeps the process alive while a transfer runs in the background: Android stops a backgrounded app otherwise.
+ * Started when a transfer needs it (SyncKeepAlive), it stops itself once nothing has needed it for a minute. The
+ * engine isn't here: it runs in the process (SyncRuntime), so this service builds nothing and a refused, timed-out
+ * or stopped one leaves the engine running.
  */
 class TaskConcurrencyServiceHost : Service() {
 
     companion object {
         private const val CHANNEL_ID = "task_concurrency_channel"
-        private const val NOTIFICATION_ID = 1001
 
-        // How long activeQueues must stay empty before the service stops itself. Long enough to
-        // ride out the gaps between chained tasks (fetch → downloads) so a running sync doesn't
-        // churn stop/start; short enough that an idle app stops burning the Android 15+ dataSync
-        // budget within the first minute.
+        // How long nothing must need the service before it stops itself. Long enough to ride out the gap
+        // between one download and the next, and a quick look at the app: stopped in the background, it
+        // can't start again until the app leaves the screen once more. Short enough that the Android 15+
+        // dataSync budget isn't spent for nothing.
         private const val IDLE_STOP_GRACE_MS = 60_000L
+
+        /** The notification's text for the transfer lanes kept alive */
+        @StringRes
+        internal fun noticeFor(transfers: Set<String>): Int {
+            val downloading = SyncTaskFactory.QUEUE_FILE in transfers
+            val uploading = SyncTaskFactory.QUEUE_UPLOAD in transfers
+            return when {
+                downloading && uploading -> R.string.sync_notification_transferring
+                downloading -> R.string.sync_notification_downloading
+                uploading -> R.string.sync_notification_uploading
+                else -> R.string.sync_notification_syncing
+            }
+        }
 
         // Cheap running check so bursty lane changes don't spam startForegroundService while the
         // service is already up. Racy by nature — a stale false just means one redundant,
@@ -42,9 +58,9 @@ class TaskConcurrencyServiceHost : Service() {
             if (isAlive) return
             val intent = Intent(context, TaskConcurrencyServiceHost::class.java)
             // A background start of a dataSync FGS throws ForegroundServiceStartNotAllowedException
-            // on API 31+ (e.g. a progress-sync task enqueued from playback while the app is
-            // backgrounded). Swallow it: the engine keeps running in the process meanwhile, and the
-            // next new task, app open or idle-to-busy change tries again (SyncKeepAlive) — never crash for it.
+            // on API 31+ when no exemption covers it, or once the dataSync budget is spent. Swallow
+            // it: the engine keeps running in the process meanwhile, and the next time the app leaves
+            // the screen with a transfer running tries again (SyncKeepAlive) — never crash for it.
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)
@@ -65,6 +81,9 @@ class TaskConcurrencyServiceHost : Service() {
         Log.d(TAG, "⚙️ TaskConcurrencyServiceHost.onCreate()")
         isAlive = true
         createNotificationChannel()
+        // A plain Application (tests) has no keep-alive: nothing to keep alive
+        val transfers: StateFlow<Set<String>> =
+            (application as? BookPlayerApplication)?.syncKeepAlive?.transfers ?: MutableStateFlow(emptySet())
 
         // Promote FIRST. startForegroundService() gives us a few seconds to call startForeground(),
         // measured from the start request — and this runs on the main thread, which may be busy with
@@ -80,7 +99,7 @@ class TaskConcurrencyServiceHost : Service() {
         // carries no cause on Android 12+, so the crash has to say which service was promoting.
         Sentry.addBreadcrumb(Breadcrumb.info("promote TaskConcurrencyServiceHost").apply { category = "fgs" })
         try {
-            startForeground(NOTIFICATION_ID, createNotification("Starting sync..."))
+            startForeground(SyncServiceNotification.ID, createNotification(noticeFor(transfers.value)))
         } catch (e: IllegalStateException) {
             Log.w(TAG, "Foreground promotion denied (dataSync budget exhausted?): ${e.message}")
             Sentry.addBreadcrumb(Breadcrumb.info("promotion denied: ${e.message}").apply { category = "fgs" })
@@ -91,33 +110,30 @@ class TaskConcurrencyServiceHost : Service() {
             return
         }
 
-        // Observe the engine's lanes to update the notification — and to stop the service once work
-        // dries up. Android 15+ gives dataSync services a 6h/day budget that burns on wall-clock
-        // time, not work: an always-on "Idle" host exhausts it daily and gets killed mid-run
-        // (ANDROID-BOOKPLAYER-8) or refused promotion (ANDROID-BOOKPLAYER-9). collectLatest makes
-        // the grace delay self-cancelling — any queue going active restarts the block.
-        val activeQueues = (application as? SyncRuntimeOwner)?.syncRuntime?.activeQueues ?: flowOf(emptySet())
+        // Follow what the service keeps alive, for the notification, and stop once nothing needs it.
+        // Android 15+ gives dataSync services a 6h/day budget that burns on wall-clock time, not work:
+        // an always-on host exhausts it daily and gets killed mid-run (ANDROID-BOOKPLAYER-8) or refused
+        // promotion (ANDROID-BOOKPLAYER-9). collectLatest makes the grace delay self-cancelling — a
+        // transfer needing the service again restarts the block.
         serviceScope.launch {
-            activeQueues.collectLatest { activeQueues ->
-                if (activeQueues.isEmpty()) {
-                    updateNotification("Idle")
+            transfers.collectLatest { transfers ->
+                updateNotification(noticeFor(transfers))
+                if (transfers.isEmpty()) {
                     delay(IDLE_STOP_GRACE_MS)
-                    Log.d(TAG, "💤 No active queues for ${IDLE_STOP_GRACE_MS / 1000}s — stopping service to preserve the dataSync budget")
+                    Log.d(TAG, "💤 Not needed for ${IDLE_STOP_GRACE_MS / 1000}s — stopping service to preserve the dataSync budget")
                     // Cleared BEFORE stopping so a lane going active mid-teardown isn't skipped by
                     // start()'s isAlive fast-path — its startForegroundService recreates us.
                     isAlive = false
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
-                } else {
-                    updateNotification("Processing: ${activeQueues.joinToString(", ")}")
                 }
             }
         }
     }
 
     // NOT_STICKY: a sticky null-intent restart arrives from the BACKGROUND, where dataSync
-    // promotion is refused (budget/exemption) — it can only churn, never do useful work. A lane
-    // getting a worker starts the service explicitly anyway (SyncKeepAlive).
+    // promotion is refused (budget/exemption) — it can only churn, never do useful work. A transfer
+    // needing the service starts it explicitly anyway (SyncKeepAlive).
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
 
     // Android 15 calls this when the dataSync time budget runs out MID-RUN; not stopping within
@@ -142,35 +158,31 @@ class TaskConcurrencyServiceHost : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "Background Tasks"
-            val descriptionText = "Shows progress of background synchronization and tasks"
-            val importance = NotificationManager.IMPORTANCE_LOW
-            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
-                description = descriptionText
-            }
+            val channel = NotificationChannel(
+                CHANNEL_ID, getString(R.string.sync_notification_channel), NotificationManager.IMPORTANCE_LOW,
+            )
             val notificationManager: NotificationManager =
                 getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
     }
 
-    private fun createNotification(content: String): Notification {
+    private fun createNotification(@StringRes text: Int): Notification {
         val pendingIntent: PendingIntent =
             Intent(this, MainActivity::class.java).let { notificationIntent ->
                 PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE)
             }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("BookPlayer Sync")
-            .setContentText(content)
+            .setContentTitle(getString(text))
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
     }
 
-    private fun updateNotification(content: String) {
+    private fun updateNotification(@StringRes text: Int) {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(NOTIFICATION_ID, createNotification(content))
+        notificationManager.notify(SyncServiceNotification.ID, createNotification(text))
     }
 }
