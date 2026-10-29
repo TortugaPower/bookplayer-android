@@ -15,6 +15,8 @@
 #                  only keeps the process alive while lanes work (SyncKeepAlive), so a task that's done in a moment
 #                  (this one: its empty payload names no server) may not bring it up at all. Launch 1 → HOST STARTED:
 #                  no; launches 2 and 3 → LEFTOVER RUN: yes (the engine took the row), HOST STARTED either way.
+# Since BKPLY-454 the host comes up only for a transfer with the app off screen (SyncKeepAlivePolicy), and a launch
+#                  puts the app on screen: every launch → HOST STARTED: no; launches 2 and 3 → LEFTOVER RUN: yes.
 set -euo pipefail
 
 PKG=${1:-com.tortugapower.audiobookplayer}

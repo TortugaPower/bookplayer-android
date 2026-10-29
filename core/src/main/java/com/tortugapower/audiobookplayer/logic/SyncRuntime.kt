@@ -22,11 +22,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** An Application running the process's sync engine: its sync service reads the lanes from here */
-interface SyncRuntimeOwner {
-    val syncRuntime: SyncRuntime
-}
-
 /**
  * The process's one sync engine, as on iOS: built off the main thread, then running for the life of the process. A
  * foreground service only keeps the process alive while lanes work; the engine never lives inside one. So a refused,
@@ -84,11 +79,11 @@ class SyncRuntime(
     /** The engine, while one runs */
     val engine: StateFlow<TaskConcurrencyManager?> = _engine.asStateFlow()
 
-    /** The engine's lanes with a worker: none while no engine runs */
+    /** What each lane with a worker is doing (working, or waiting out a backoff): none while no engine runs */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val activeQueues: StateFlow<Set<String>> = _engine
-        .flatMapLatest { it?.activeQueues ?: flowOf(emptySet()) }
-        .stateIn(scope, SharingStarted.Eagerly, emptySet())
+    val laneStates: StateFlow<Map<String, LaneState>> = _engine
+        .flatMapLatest { it?.laneStates ?: flowOf(emptyMap()) }
+        .stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
     init {
         scope.launch {

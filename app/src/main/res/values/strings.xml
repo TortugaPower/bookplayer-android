@@ -316,6 +316,12 @@
     </plurals>
     <string name="sync_paused_alert_title">Sync is paused until a queued task is resolved</string>
     <string name="sync_tasks_view_title">View tasks</string>
+    <!-- The notification shown while a download or upload keeps running with the app in the background, and its channel's name in the system settings -->
+    <string name="sync_notification_channel">Downloads and uploads</string>
+    <string name="sync_notification_downloading">Downloading books</string>
+    <string name="sync_notification_uploading">Uploading books</string>
+    <string name="sync_notification_transferring">Downloading and uploading books</string>
+    <string name="sync_notification_syncing">Syncing your library</string>
     <string name="library_jump_to_start">Jump to start</string>
     <string name="library_cancel_download">Cancel download</string>
     <string name="library_remove_from_device">Remove from device</string>

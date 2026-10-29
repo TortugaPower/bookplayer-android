@@ -14,6 +14,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- The sync service's notice during a transfer (Android 13+; playback's notification is exempt). Asked the
+         first time a transfer runs with the app on screen (NotificationPermissionPrompt). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Lets us resolve/launch email apps (package visibility, API 30+) for the support email. -->
     <queries>

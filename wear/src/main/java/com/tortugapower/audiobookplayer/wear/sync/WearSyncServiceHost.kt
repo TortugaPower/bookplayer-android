@@ -32,6 +32,7 @@ import com.tortugapower.audiobookplayer.logic.RenameFolderProcessor
 import com.tortugapower.audiobookplayer.logic.SetBookmarkProcessor
 import com.tortugapower.audiobookplayer.logic.ShallowDeleteProcessor
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
+import com.tortugapower.audiobookplayer.logic.SyncServiceNotification
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyManager
 import com.tortugapower.audiobookplayer.logic.UpdateProcessor
 import com.tortugapower.audiobookplayer.logic.UploadExternalResourceProcessor
@@ -131,7 +132,7 @@ class WearSyncServiceHost : Service() {
         // Same Android 15 dataSync-budget guard as the phone host (TaskConcurrencyServiceHost):
         // promotion can throw once the 6h/day budget is exhausted even when the START was legal.
         try {
-            startForeground(NOTIFICATION_ID, buildNotification())
+            startForeground(SyncServiceNotification.ID, buildNotification())
         } catch (e: IllegalStateException) {
             Log.w(TAG, "Foreground promotion denied (dataSync budget exhausted?): ${e.message}")
             isAlive = false
@@ -211,7 +212,6 @@ class WearSyncServiceHost : Service() {
 
     companion object {
         private const val CHANNEL_ID = "wear_task_concurrency_channel"
-        private const val NOTIFICATION_ID = 1001
 
         // Same values/semantics as the phone host (TaskConcurrencyServiceHost).
         private const val IDLE_STOP_GRACE_MS = 60_000L

@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -26,14 +27,22 @@ import com.tortugapower.audiobookplayer.logic.PlayerUiSignals
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.logic.SleepTimerManager
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.activity.result.contract.ActivityResultContracts
+import com.tortugapower.audiobookplayer.logic.NotificationPermissionPrompt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
 
     /** True while the storage gate is showing instead of the app (see onCreate). */
     private var storageGateShown = false
+
+    // The sync service's notice during a transfer needs it on Android 13+ (NotificationPermissionPrompt)
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -93,6 +102,18 @@ class MainActivity : ComponentActivity() {
         setContent {
             BookPlayerTheme {
                 MainScreen()
+            }
+        }
+
+        // The first transfer running with the app on screen, the user's or one the app queued itself (an imported book's
+        // upload), is when to ask for the notifications its notice needs
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                (application as BookPlayerApplication).syncKeepAlive.transferOnScreen.filter { it }.collect {
+                    NotificationPermissionPrompt.maybeAsk(this@MainActivity) {
+                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
             }
         }
     }

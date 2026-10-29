@@ -29,7 +29,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -313,14 +312,13 @@ class SyncRuntimeTest {
     @Test fun itsLanes_areTheEngines() = runBlocking {
         val pushes = Pushes(hold = true)
         val runtime = runtime(pushes)
-        assertEquals(emptySet<String>(), runtime.activeQueues.value)
+        assertEquals(emptyMap<String, LaneState>(), runtime.laneStates.value)
 
         runtime.start()
         until { runtime.engine.value != null }
         queuePush("p")
         pushes.started.await()
 
-        until { runtime.activeQueues.value == setOf("jellyfin") }
-        assertFalse(runtime.activeQueues.value.isEmpty())
+        until { runtime.laneStates.value == mapOf("jellyfin" to LaneState.Working) }
     }
 }

@@ -112,6 +112,9 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Robolectric tests that resolve real resources (the sync service's localized notification) need them
+        // packaged for unit tests, as in :core.
+        unitTests.isIncludeAndroidResources = true
     }
 
     lint {
@@ -121,10 +124,6 @@ android {
         // this AGP/Lint version (a known broken detector), which hard-fails `lintDevDebug` in CI
         // regardless of abortOnError. We don't use LiveData, so disabling it is safe.
         disable += "NullSafeMutableLiveData"
-    }
-
-    testOptions {
-        unitTests.isReturnDefaultValues = true
     }
 }
 
