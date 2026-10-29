@@ -279,7 +279,10 @@ def build(ref, work, name, audit=False):
             for module in ("app", "wear"):
                 result = subprocess.run(["bash", "scripts/audit-mapping.sh", module], cwd=worktree, text=True,
                                         capture_output=True)
-                audits.append((module, result.returncode == 0, (result.stdout + result.stderr).strip()))
+                output = (result.stdout + result.stderr).strip()
+                if result.returncode == 2:  # it couldn't find the mapping or merged manifest it reads
+                    raise SetupError(f"scripts/audit-mapping.sh {module} couldn't run: {output}")
+                audits.append((module, result.returncode == 0, output))
         return products, audits
     finally:
         subprocess.run(["git", "-C", str(REPO), "worktree", "remove", "--force", str(worktree)], capture_output=True)
@@ -1010,24 +1013,35 @@ def run_with_retry(label, e, chain, mappings):
                 if isinstance(result, StepFailure) else row
                 for (scenario, result), row in zip(first.items(), describe(label, first))]
         raise RetryCouldNotRun(f"the retry's emulator couldn't be set up: {error}", rows) from error
+    # A failure without a crash counts only when the retry repeats it: same scenario, same build. Anything else the
+    # retry shows is unconfirmed, and every message from either attempt stays in the report
     results, unconfirmed = [], []
     for scenario, result in second.items():
         earlier = first.get(scenario)
-        if result is None and isinstance(earlier, StepFailure):
-            results.append((label, scenario, "retried", f"passed on retry; first attempt: {earlier.message}"))
-        elif isinstance(result, StepFailure) and isinstance(earlier, StepFailure):
-            both = f"second attempt: {result.message}\nfirst attempt: {earlier.message}"
-            if result.crashed or result.previous == earlier.previous:
-                results.append((label, scenario, "failed", f"failed twice; {both}"))
+        first_message = f"\nfirst attempt: {earlier.message}" if isinstance(earlier, StepFailure) else ""
+        if result is None:
+            results.append((label, scenario, "retried", f"passed on retry; first attempt: {earlier.message}")
+                           if isinstance(earlier, StepFailure) else (label, scenario, "passed", ""))
+        elif isinstance(result, StepFailure):
+            repeated = isinstance(earlier, StepFailure) and result.previous == earlier.previous
+            if repeated or result.crashed:
+                results.append((label, scenario, "failed",
+                                f"{'failed twice' if repeated else 'crashed on the retry'}; second attempt: "
+                                f"{result.message}{first_message}"))
             else:
-                # The upgrade's two steps run on different builds: one failure of each confirms neither
-                unconfirmed.append(scenario)
+                # The upgrade's two steps run on different builds, and a scenario can fail on the retry alone
+                why = ("the two attempts failed on different builds" if isinstance(earlier, StepFailure)
+                       else "it failed on the retry only")
+                unconfirmed.append(f"{scenario}: {why}")
                 results.append((label, scenario, "not run",
-                                f"the two attempts failed on different builds, so neither failure is confirmed; {both}"))
+                                f"{why}, so the failure isn't confirmed; second attempt: {result.message}{first_message}"))
+        elif isinstance(earlier, StepFailure):
+            results.append((label, scenario, "not run",
+                            f"failed once; the retry stopped at an earlier scenario. First attempt: {earlier.message}"))
         else:
             results += describe(label, {scenario: result})
     if unconfirmed:
-        raise RetryCouldNotRun(f"{', '.join(unconfirmed)}: the two attempts failed on different builds", results)
+        raise RetryCouldNotRun("; ".join(unconfirmed), results)
     return results, second
 
 

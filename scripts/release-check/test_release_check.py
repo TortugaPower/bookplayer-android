@@ -208,6 +208,44 @@ class RetryTests(unittest.TestCase):
         self.assertIn("failed once; the retry on a wiped emulator couldn't run. First attempt: never saw the Library",
                       raised.exception.rows[1][3])
 
+    def test_a_failure_in_another_scenario_on_the_retry_confirms_nothing(self):
+        # attempt 1: fresh passes, import fails; attempt 2: fresh fails (and import doesn't run)
+        e = FakeEmulator()
+        e.reset_fails = False
+        fresh_calls = iter([False, True])
+
+        def fresh(e):
+            if next(fresh_calls):
+                raise rc.StepError("the app isn't running")
+
+        def import_book(e):
+            raise rc.StepError("never saw the import sheet's Accept within 45 s")
+
+        chain = [("fresh", [("candidate", fresh)]), ("import", [("candidate", import_book)])]
+        with mock.patch.object(rc.time, "sleep"), self.assertRaisesRegex(rc.RetryCouldNotRun, "fresh: it failed on the retry only") as raised:
+            rc.run_with_retry("Phone API 28", e, chain, {})
+        rows = raised.exception.rows
+        self.assertEqual([(row[1], row[2]) for row in rows], [("fresh", "not run"), ("import", "not run")])
+        self.assertIn("First attempt: never saw the import sheet's Accept", rows[1][3])  # nothing hidden
+
+    def test_a_crash_on_the_retry_alone_still_fails(self):
+        e = FakeEmulator()
+        e.reset_fails = False
+        attempts = iter([False, True])
+
+        def fresh(e):
+            if next(attempts):
+                e.crashes = [("data_app_crash", "Process: com.tortugapower.audiobookplayer\n\nboom")]
+
+        def import_book(e):
+            raise rc.StepError("never saw the import sheet's Accept within 45 s")
+
+        chain = [("fresh", [("candidate", fresh)]), ("import", [("candidate", import_book)])]
+        with mock.patch.object(rc.time, "sleep"):
+            rows, _ = rc.run_with_retry("Phone API 28", e, chain, {})
+        self.assertEqual([(row[1], row[2]) for row in rows], [("fresh", "failed"), ("import", "not run")])
+        self.assertTrue(rows[0][3].startswith("crashed on the retry"))
+
     def test_a_crash_fails_without_a_retry(self):
         e = FakeEmulator(crashes=[("data_app_crash", "Process: com.tortugapower.audiobookplayer\n\nboom")])
         rows, _ = rc.run_with_retry("Phone API 28", e, self.chain(), {})
