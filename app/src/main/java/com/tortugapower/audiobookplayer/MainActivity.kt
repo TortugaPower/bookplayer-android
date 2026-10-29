@@ -105,7 +105,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // A transfer the user has just started is the moment to ask for the notifications its notice needs
+        // The first transfer running with the app on screen, the user's or one the app queued itself (an imported book's
+        // upload), is when to ask for the notifications its notice needs
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 (application as BookPlayerApplication).syncKeepAlive.transferOnScreen.filter { it }.collect {

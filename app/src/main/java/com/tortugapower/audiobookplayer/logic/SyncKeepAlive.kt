@@ -32,7 +32,7 @@ internal class SyncKeepAlive(
         .stateIn(scope, SharingStarted.Eagerly, SyncKeepAlivePolicy.transfersToKeepAlive(visible.value, playing.value, lanes.value))
 
     /**
-     * Whether a transfer runs with the app on screen: the user has just started one, the moment to ask for the
+     * Whether a transfer runs with the app on screen, the user's or one the app queued itself: when to ask for the
      * notifications its notice needs (NotificationPermissionPrompt)
      */
     val transferOnScreen: StateFlow<Boolean> = combine(visible, lanes) { visible, lanes ->

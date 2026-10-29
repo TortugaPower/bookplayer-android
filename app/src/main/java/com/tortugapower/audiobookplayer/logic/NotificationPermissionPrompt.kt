@@ -12,10 +12,10 @@ import kotlinx.coroutines.flow.map
 
 /**
  * Asks for the notification permission (Android 13+) the first time a transfer runs with the app on screen
- * ([SyncKeepAlive.transferOnScreen]): the user has just started a download or an upload, and without the permission
- * the sync service's notice ("Downloading books") stays hidden once the app leaves. The service runs either way, and
- * playback's notification needs no permission. Asked once: a denial stands, and the system's app settings can still
- * turn notifications on.
+ * ([SyncKeepAlive.transferOnScreen]): a download the user started, or an upload the app queued itself (an imported
+ * book's). Without the permission the sync service's notice ("Downloading books") stays hidden once the app leaves.
+ * The service runs either way, and playback's notification needs no permission. Asked once: a denial stands, and the
+ * system's app settings can still turn notifications on.
  */
 object NotificationPermissionPrompt {
     internal val ASKED = booleanPreferencesKey("notification_permission_asked")
