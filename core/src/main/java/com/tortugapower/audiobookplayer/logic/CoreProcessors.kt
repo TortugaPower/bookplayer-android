@@ -317,7 +317,7 @@ class DownloadFileProcessor(
 
         // Nobody waits on a background download, unlike playback (MediaServerStreams' 5 s cap): give a slow home
         // server the HTTP client's own timeouts, or it times out on every run and holds up the file queue.
-        internal const val LOOKUP_TIMEOUT_MS = 30_000L
+        private const val LOOKUP_TIMEOUT_MS = 30_000L
 
         /** `application/` types that are text, never audio: a server's error or login page */
         private val TEXT_APPLICATION_SUBTYPES = setOf("json", "xml", "xhtml+xml")

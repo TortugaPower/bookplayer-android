@@ -43,6 +43,11 @@ data class ItemDownloadState(
  */
 object OfflineDownloadManager {
 
+    // The cloud link signed while a tap queues its downloads, one book after the other: bounded like playback's, not
+    // the 30 s a background download waits, so a slow API holds up the next book's task less. Each download attempt
+    // signs its own link anyway.
+    private const val SIGN_TIMEOUT_MS = 15_000L
+
     /** The Processed file for [relativePath]. */
     fun processedFile(context: Context, relativePath: String): File =
         File(File(context.filesDir, "Processed"), relativePath)
@@ -116,7 +121,7 @@ object OfflineDownloadManager {
         val dao = AppDatabase.getDatabase(context).libraryDao()
         try {
             BookUrlRefresh(
-                fetchCloudFile = BookUrlRefresh.cloudListing(DownloadFileProcessor.LOOKUP_TIMEOUT_MS),
+                fetchCloudFile = BookUrlRefresh.cloudListing(SIGN_TIMEOUT_MS),
                 saveLinks = { uuid, url, artwork -> dao.updateLinks(uuid, url, artwork) },
             ).refresh(book, externalUrl)
         } catch (e: kotlinx.coroutines.CancellationException) {
