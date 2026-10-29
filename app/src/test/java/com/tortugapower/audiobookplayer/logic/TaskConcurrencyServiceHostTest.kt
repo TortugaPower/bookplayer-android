@@ -51,6 +51,14 @@ class TaskConcurrencyServiceHostTest {
         assertEquals(R.string.sync_notification_downloading, TaskConcurrencyServiceHost.noticeFor(setOf("file")))
         assertEquals(R.string.sync_notification_uploading, TaskConcurrencyServiceHost.noticeFor(setOf("upload")))
         assertEquals(R.string.sync_notification_transferring, TaskConcurrencyServiceHost.noticeFor(setOf("file", "upload")))
-        assertEquals(R.string.sync_notification_syncing, TaskConcurrencyServiceHost.noticeFor(emptySet()))
+    }
+
+    /** The app back on screen leaves nothing to keep alive, while its download still runs: the text stays */
+    @Test fun withNothingToKeepAlive_theNotificationKeepsItsText() {
+        assertEquals(
+            R.string.sync_notification_downloading,
+            TaskConcurrencyServiceHost.noticeFor(emptySet(), shown = R.string.sync_notification_downloading),
+        )
+        assertEquals("nothing shown yet", R.string.sync_notification_syncing, TaskConcurrencyServiceHost.noticeFor(emptySet()))
     }
 }

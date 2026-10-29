@@ -35,16 +35,19 @@ class TaskConcurrencyServiceHost : Service() {
         // dataSync budget isn't spent for nothing.
         private const val IDLE_STOP_GRACE_MS = 60_000L
 
-        /** The notification's text for the transfer lanes kept alive */
+        /**
+         * The notification's text for the transfer lanes kept alive. With none it keeps the text [shown]: the app
+         * back on screen needs no service, but its download may well still run, for the minute before it stops.
+         */
         @StringRes
-        internal fun noticeFor(transfers: Set<String>): Int {
+        internal fun noticeFor(transfers: Set<String>, @StringRes shown: Int? = null): Int {
             val downloading = SyncTaskFactory.QUEUE_FILE in transfers
             val uploading = SyncTaskFactory.QUEUE_UPLOAD in transfers
             return when {
                 downloading && uploading -> R.string.sync_notification_transferring
                 downloading -> R.string.sync_notification_downloading
                 uploading -> R.string.sync_notification_uploading
-                else -> R.string.sync_notification_syncing
+                else -> shown ?: R.string.sync_notification_syncing
             }
         }
 
@@ -98,8 +101,9 @@ class TaskConcurrencyServiceHost : Service() {
         // Breadcrumb, not a log: "Bad notification for startForeground" (Sentry ANDROID-BOOKPLAYER-1E)
         // carries no cause on Android 12+, so the crash has to say which service was promoting.
         Sentry.addBreadcrumb(Breadcrumb.info("promote TaskConcurrencyServiceHost").apply { category = "fgs" })
+        var notice = noticeFor(transfers.value)
         try {
-            startForeground(SyncServiceNotification.ID, createNotification(noticeFor(transfers.value)))
+            startForeground(SyncServiceNotification.ID, createNotification(notice))
         } catch (e: IllegalStateException) {
             Log.w(TAG, "Foreground promotion denied (dataSync budget exhausted?): ${e.message}")
             Sentry.addBreadcrumb(Breadcrumb.info("promotion denied: ${e.message}").apply { category = "fgs" })
@@ -117,7 +121,8 @@ class TaskConcurrencyServiceHost : Service() {
         // transfer needing the service again restarts the block.
         serviceScope.launch {
             transfers.collectLatest { transfers ->
-                updateNotification(noticeFor(transfers))
+                notice = noticeFor(transfers, shown = notice)
+                updateNotification(notice)
                 if (transfers.isEmpty()) {
                     delay(IDLE_STOP_GRACE_MS)
                     Log.d(TAG, "💤 Not needed for ${IDLE_STOP_GRACE_MS / 1000}s — stopping service to preserve the dataSync budget")
