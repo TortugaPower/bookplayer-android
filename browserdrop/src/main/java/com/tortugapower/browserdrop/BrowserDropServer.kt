@@ -452,8 +452,12 @@ class BrowserDropServer internal constructor(
             val trashPrefix = "${stagingRoot.name}.trash-"
             if (stagingRoot.exists()) {
                 val trash = File(parent, trashPrefix + UUID.randomUUID())
-                // Not renamed: deleted where it is, as before, rather than kept.
-                if (!stagingRoot.renameTo(trash)) stagingRoot.deleteRecursively()
+                if (!stagingRoot.renameTo(trash)) {
+                    // Not renamed: what's in it now is deleted where it is, still in the background. A server
+                    // started meanwhile makes a session folder of its own, which isn't in this list.
+                    val leftovers = stagingRoot.listFiles().orEmpty()
+                    inBackground { leftovers.forEach { it.deleteRecursively() } }
+                }
             }
             // This launch's trash, and any an earlier launch was killed before it finished deleting.
             val trash = parent.listFiles { file -> file.name.startsWith(trashPrefix) }.orEmpty()

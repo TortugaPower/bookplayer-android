@@ -215,9 +215,11 @@ browserdrop/               # standalone library (no :core/:app deps), package co
   whose `TransferViewModel` runs one `:browserdrop` session (keyed per opening, so it survives a configuration
   change). The server pauses when the app goes to the background (`ProcessLifecycleOwner`) and resumes on the
   same port. Done calls `ImportManager.importReceived`: the session's folder imports without the import sheet
-  (folders become folder items, archives expand, files already here are skipped), then the placement prompt.
-  The server's calls run in a scope that outlives the ViewModel, so Done/Cancel still close its sockets. Staging
-  is wiped in `Application.onCreate`. The page's text is `transfer_*web*` strings (iOS keys; `%d` → `{count}`).
+  (folders become folder items, archives expand; as on iOS, a book already here imports as a copy, `name-1`,
+  and an offloaded one gets its file back), then the placement prompt. Imports run one at a time
+  (`importLock`). The server's calls run in a scope that outlives the ViewModel, so Done/Cancel still close its
+  sockets. It serves only connections on an address the sheet shows (or loopback), never cellular or a global
+  IPv6 address. Staging is moved aside in `Application.onCreate` and deleted in the background. The page's text is `transfer_*web*` strings (iOS keys; `%d` → `{count}`).
 - **Media-server connection flow** (Jellyfin / AudiobookShelf; mirrors iOS, so check the iOS `develop`
   branch before changing behavior): one `ConnectionFlowSheet` (own `NavHost`) serves both Add Server and
   re-auth. Address → Connect **probes** the server (`ExternalService.probe` → `ServerCapabilities`) →
