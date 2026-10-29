@@ -140,6 +140,28 @@ class LeftoverTests(unittest.TestCase):
                 self.emulator().stop_leftovers()
 
 
+class BootTests(unittest.TestCase):
+    def test_a_failed_preparation_is_retried_and_named(self):
+        emulator = LeftoverTests().emulator()
+        failure = rc.subprocess.CalledProcessError(1, ["adb", "-s", "emulator-5606", "root"], "",
+                                                   "adbd cannot run as root in production builds")
+        with tempfile.TemporaryDirectory() as folder, \
+                mock.patch.object(rc.Emulator, "stop_leftovers"), mock.patch.object(rc.Emulator, "kill"), \
+                mock.patch.object(rc.Emulator, "wait_booted", return_value=True), \
+                mock.patch.object(rc.Emulator, "prepare", side_effect=failure) as prepare, \
+                mock.patch.object(rc.subprocess, "Popen"):
+            emulator.logs = Path(folder)
+            with self.assertRaisesRegex(rc.SetupError, "preparing it: adb root failed: adbd cannot run as root"):
+                emulator.boot()
+        self.assertEqual(prepare.call_count, 2)
+
+    def test_adb_errors_name_the_command_without_the_serial(self):
+        self.assertEqual(rc.adb_error(rc.subprocess.TimeoutExpired("adb root", 300)), "adb root timed out after 300 s")
+        self.assertEqual(rc.adb_error(rc.subprocess.CalledProcessError(1, ["adb", "-s", "emulator-5600", "shell", "ls"],
+                                                                        b"", b"no such file")),
+                         "adb shell ls failed: no such file")
+
+
 class OutcomeTests(unittest.TestCase):
     def test_a_failure_wins_over_a_device_that_could_not_run(self):
         failed = [("Phone API 28", "fresh", "failed", "crash: boom"), ("Watch API 30", "fresh", "not run", "")]

@@ -110,6 +110,18 @@ def run(cmd, timeout=None, **kwargs):
     return subprocess.run(cmd, check=True, text=True, capture_output=True, timeout=timeout, **kwargs).stdout
 
 
+def adb_error(error):
+    """What an adb command that failed or timed out was, and its output: `adb shell … failed: …`."""
+    cmd = error.cmd if isinstance(error.cmd, (list, tuple)) else str(error.cmd).split()
+    args = cmd[3:] if len(cmd) > 3 and cmd[1] == "-s" else cmd[1:]  # without the adb path and `-s <serial>`
+    if isinstance(error, subprocess.TimeoutExpired):
+        return f"adb {' '.join(map(str, args))} timed out after {error.timeout} s"
+    output = error.stderr or error.stdout or ""
+    if isinstance(output, bytes):
+        output = output.decode(errors="replace")
+    return f"adb {' '.join(map(str, args))} failed: {output.strip()[:500]}"
+
+
 def git(*args):
     return run(["git", "-C", str(REPO), *args]).strip()
 
@@ -439,7 +451,9 @@ class Emulator:
                                  "and run the check again")
 
     def boot(self):
-        """Boots the AVD wiped. One that doesn't come up is killed and booted once more."""
+        """Boots the AVD wiped and prepares it. One that doesn't come up, or can't be prepared, is killed and booted
+        once more; the error says what went wrong each time."""
+        problems = []
         for attempt in (1, 2):
             self.stop_leftovers()
             with open(self.logs / f"emulator-attempt{attempt}.log", "a") as out:
@@ -447,19 +461,31 @@ class Emulator:
                     [str(EMULATOR), "-avd", self.device.avd, "-port", str(self.port), "-no-window", "-no-boot-anim",
                      "-no-snapshot", "-wipe-data", "-gpu", "swiftshader_indirect"],
                     stdout=out, stderr=subprocess.STDOUT)
-            deadline = time.time() + BOOT_TIMEOUT
-            while time.time() < deadline and self.process.poll() is None:
+            if self.wait_booted():
                 try:
-                    if self.shell("getprop sys.boot_completed", timeout=10).strip() == "1":
-                        self.prepare()
-                        return
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                    pass
-                time.sleep(2)
-            log(f"{self.device.label}: emulator didn't boot (attempt {attempt})")
+                    self.prepare()
+                    return
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+                    problems.append(f"preparing it: {adb_error(error)}")
+            else:
+                problems.append(f"it didn't boot within {BOOT_TIMEOUT} s")
+            log(f"{self.device.label}: {problems[-1]} (attempt {attempt})")
             self.kill()
-        raise SetupError(f"{self.device.label}: the emulator didn't boot within {BOOT_TIMEOUT} s, twice "
+        raise SetupError(f"{self.device.label}: the emulator failed twice: {'; then '.join(problems)} "
                          f"(see {self.logs}/emulator-attempt*.log)")
+
+    def wait_booted(self):
+        """True once Android reports its boot completed, False when it doesn't within BOOT_TIMEOUT or the emulator
+        exits."""
+        deadline = time.time() + BOOT_TIMEOUT
+        while time.time() < deadline and self.process.poll() is None:
+            try:
+                if self.shell("getprop sys.boot_completed", timeout=10).strip() == "1":
+                    return True
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                pass  # not up yet: adb lists the emulator as offline, or not at all
+            time.sleep(2)
+        return False
 
     def prepare(self):
         if self.device.kind == "phone":
@@ -776,10 +802,11 @@ def import_book(e):
 
 
 def play_book(e):
-    """Taps the book's row, waits until it plays, then pauses it."""
+    """Taps the book's row, waits until it plays, then pauses it with the media key: while the player's progress
+    moves, uiautomator on API 28 often can't dump the screen, so the Pause button can't be found reliably."""
     e.tap(e.wait_for(book_row, f"the {BOOK} row"))
     e.wait_playing()
-    e.tap(e.wait_for(lambda nodes: app_node(nodes, desc="Pause"), "the player's Pause"))
+    e.shell("input keyevent KEYCODE_MEDIA_PAUSE")
     e.wait_paused()
 
 
@@ -886,10 +913,8 @@ def run_step(e, build, step, mappings, stem):
         step(e)
     except StepError as err:
         error = str(err)
-    except subprocess.CalledProcessError as err:
-        error = f"adb {' '.join(map(str, err.cmd[3:]))} failed: {(err.stderr or err.stdout or '').strip()[:500]}"
-    except subprocess.TimeoutExpired as err:
-        error = f"adb {' '.join(map(str, err.cmd[3:]))} timed out after {err.timeout} s"
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as err:
+        error = adb_error(err)
     crashes, anrs = e.app_failures(since)
     if error and not crashes:
         # A crash can land in the dropbox a moment after the step gave up; a crash must never be retried

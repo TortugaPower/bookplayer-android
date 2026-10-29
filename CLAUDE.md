@@ -137,7 +137,7 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   and at targetSdk (16 KB pages), and fresh launch and upgrade on the watch at both. A crash fails at once; any
   other failure gets one retry on a wiped emulator. The upgrade starts from the previous release's tag, built once
   and cached in `~/Library/Caches/BookPlayerReleaseCheckAndroid`. It drives the UI by its English labels (`Library`,
-  `Accept`, `Import Complete`, `Pause`, `Chapters`, a row's "N% completed"): renaming one means updating the script.
+  `Accept`, `Import Complete`, `Chapters`, a row's "N% completed"): renaming one means updating the script.
 - **Release** (`.github/workflows/release.yml`, on a `release-*` branch): tests and lint, the signed prod
   bundles, then `scripts/play-release.mjs` submits phone (`production`) and watch (`wear:production`) in ONE
   Play edit as a **1% staged rollout**, each with its notes from `distribution/whatsnew/{phone,wear}/whatsnew-en-US`
