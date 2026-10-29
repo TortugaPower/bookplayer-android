@@ -182,7 +182,10 @@ class FakeEmulator:
 
     def reset(self):
         self.resets += 1
-        raise rc.SetupError("the emulator failed twice: it didn't boot within 300 s")
+        if self.reset_fails:
+            raise rc.SetupError("the emulator failed twice: it didn't boot within 300 s")
+
+    reset_fails = True
 
 
 class RetryTests(unittest.TestCase):
@@ -210,6 +213,31 @@ class RetryTests(unittest.TestCase):
         rows, _ = rc.run_with_retry("Phone API 28", e, self.chain(), {})
         self.assertEqual(e.resets, 0)
         self.assertEqual(rows[0][2], "failed")  # the crash is in the dropbox from the first step on
+
+
+class UpgradeTests(unittest.TestCase):
+    def upgrade(self, seed, upgrade):
+        e = FakeEmulator()
+        e.reset_fails = False
+        device = rc.Device("phone", 28, ("google_apis",), "pixel_7", "4096M", "4G")
+        chain = lambda tag, previous_apk, apk: [("upgrade", [(tag, seed), ("candidate", upgrade)])]
+        with mock.patch.object(rc, "phone_upgrade", chain), mock.patch.object(rc.time, "sleep"):
+            return rc.run_upgrade("Phone API 28", e, device, ["1.3.0"], lambda tag, kind: Path("x.apk"), Path("y.apk"), {})
+
+    def ok(self, e):
+        pass
+
+    def no_label(self, e):
+        raise rc.StepError("never saw the import sheet's Accept within 45 s")
+
+    def test_a_previous_release_that_cannot_be_seeded_leaves_the_upgrade_untested(self):
+        rows = self.upgrade(self.no_label, self.ok)
+        self.assertEqual([(row[1], row[2]) for row in rows], [("upgrade", "skipped")])
+        self.assertIn("not tested: previous release 1.3.0 couldn't be seeded on Phone API 28", rows[0][3])
+
+    def test_a_failure_on_this_build_still_fails(self):
+        rows = self.upgrade(self.ok, self.no_label)
+        self.assertEqual([(row[1], row[2]) for row in rows], [("upgrade", "failed")])
 
 
 class OutcomeTests(unittest.TestCase):

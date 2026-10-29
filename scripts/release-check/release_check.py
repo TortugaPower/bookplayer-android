@@ -32,7 +32,9 @@ frames, de-obfuscated with that build's R8 mapping. A crash fails the check at o
 (app not responding) included, gets one retry on a wiped emulator: the check fails only if it fails again, and a
 scenario that passes the second time is reported as "passed on retry" with the first failure, so nothing is
 hidden. If the previous release itself crashes on a device, the upgrade starts from the release before it; if
-that one crashes too, the upgrade is reported as not tested there instead of failing this build.
+that one crashes too, the upgrade is reported as not tested there instead of failing this build. So is an
+upgrade whose previous release fails to seed without crashing (twice), e.g. after this release renamed a label
+the script drives: only what fails on this build fails the check.
 
 The previous release's APKs and mappings are cached in ~/Library/Caches/BookPlayerReleaseCheckAndroid/<tag>/;
 when they're missing, the tag is built once the same way. A passing run caches this build under --version.
@@ -1024,7 +1026,9 @@ def run_upgrade(label, e, device, previous_tags, previous_apks, apk, mappings):
     """The upgrade scenario, seeded with the newest of `previous_tags` that doesn't crash on this device.
 
     A previous release that crashes here can't have left its users any data to upgrade, so the release before it
-    is the real starting point. A crash of THIS build still fails.
+    is the real starting point. One that fails to seed without crashing, twice, is no fault of this build either
+    (seeding drives its UI, and a label this release renames can't match it): the upgrade is reported as not
+    tested. Only what fails on THIS build fails the upgrade.
     """
     crashed = []
     for tag in previous_tags:
@@ -1036,6 +1040,9 @@ def run_upgrade(label, e, device, previous_tags, previous_apks, apk, mappings):
             log(f"{label}: previous release {tag} crashed, upgrading from the release before it")
             crashed.append(tag)
             continue
+        if isinstance(failure, StepFailure) and failure.previous:
+            rows = [(label, "upgrade", "skipped",
+                     f"not tested: previous release {tag} couldn't be seeded on {label}; {rows[0][3] if rows else ''}")]
         if crashed:
             origin = f"from {tag} ({', '.join(crashed)} crashed on {label})"
             rows = [(l, s, st, f"{origin}; {m}" if m else origin) for l, s, st, m in rows]
