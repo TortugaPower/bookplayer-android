@@ -524,8 +524,9 @@ object ImportManager : ImportService {
 
     /**
      * Moves the received folder's top-level entries into the backup folder, as [startImport] copies picked
-     * files there, with the same check against the library: a book whose file is already here is skipped, and
-     * one whose file was offloaded gets it back. Folders stage whole, to import as one folder item each.
+     * files there. iOS parity (`ImportOperation.hasExistingBook`): a book whose file was offloaded gets it back,
+     * and one whose file is already here imports again as a copy (`name-1`), unlike the import sheet, which
+     * skips it. Folders stage whole, to import as one folder item each.
      */
     private suspend fun stageReceived(context: Context, folder: File, suggestName: (String) -> Unit): List<ImportFile> {
         val backupDir = File(context.filesDir, "BPBackup").apply { mkdirs() }
@@ -538,8 +539,7 @@ object ImportManager : ImportService {
                 val existingItem = libraryDao.getItemByFileName(entry.name)
                 if (existingItem != null) {
                     val stored = File(processedDir, existingItem.relativePath?.takeIf { it.isNotEmpty() } ?: entry.name)
-                    if (stored.exists()) continue
-                    isFileOnly = true
+                    isFileOnly = !stored.exists()
                 }
             }
             val destination = if (entry.isDirectory) ImportArchiveUtils.uniqueDirectory(backupDir, entry.name)

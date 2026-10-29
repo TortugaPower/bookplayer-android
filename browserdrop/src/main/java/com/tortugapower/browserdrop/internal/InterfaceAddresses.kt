@@ -1,6 +1,9 @@
 package com.tortugapower.browserdrop.internal
 
 import com.tortugapower.browserdrop.Address
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetAddress
 
 /** The addresses a computer on the same network can open the page at. */
 internal object InterfaceAddresses {
@@ -37,6 +40,26 @@ internal object InterfaceAddresses {
                 if (entry.pathKind == null && tetheringPrefixes.any { entry.name.startsWith(it) }) Address.Kind.HOTSPOT
                 else Address.Kind.OTHER
         }
+    }
+
+    /**
+     * Whether a connection that arrived on [local] came in on one of the [shown] addresses, or on loopback. The
+     * socket listens on every interface, cellular included, where a carrier that lets incoming IPv6 through
+     * would let anyone upload; a computer on the network always connects to an address the app shows.
+     */
+    fun isShown(local: InetAddress, shown: List<Address>): Boolean {
+        val address = unmapped(local)
+        if (address.isLoopbackAddress) return true
+        val host = (address as? Inet4Address)?.hostAddress ?: return false
+        return shown.any { it.host == host }
+    }
+
+    /** `::ffff:192.168.1.20`, as a dual-stack socket can report an IPv4 connection, as `192.168.1.20`. */
+    private fun unmapped(address: InetAddress): InetAddress {
+        if (address !is Inet6Address) return address
+        val bytes = address.address
+        val isMapped = (0 until 10).all { bytes[it] == 0.toByte() } && bytes[10] == 0xff.toByte() && bytes[11] == 0xff.toByte()
+        return if (isMapped) InetAddress.getByAddress(bytes.copyOfRange(12, 16)) else address
     }
 
     /** Usable addresses on [port], best first: Wi-Fi, wired, hotspot, other; then by interface name. */

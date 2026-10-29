@@ -3,6 +3,7 @@ package com.tortugapower.browserdrop
 import com.tortugapower.browserdrop.internal.ContentType
 import com.tortugapower.browserdrop.internal.HttpRequestHead
 import com.tortugapower.browserdrop.internal.HttpResponse
+import com.tortugapower.browserdrop.internal.InterfaceAddresses
 import com.tortugapower.browserdrop.internal.PageConfig
 import com.tortugapower.browserdrop.internal.PathRules
 import com.tortugapower.browserdrop.internal.RequestRules
@@ -50,6 +51,11 @@ internal class Listener(private val server: BrowserDropServer, private val serve
                 break
             }
             if (!register(socket)) break
+            // Only on an address the app shows (or loopback): not on cellular, nor a global IPv6 address.
+            if (!InterfaceAddresses.isShown(socket.localAddress, server.addresses.value)) {
+                unregister(socket)
+                continue
+            }
             // Over the cap: closed right away, so other devices on the network can't exhaust our descriptors.
             if (server.activeConnections.incrementAndGet() > maximum) {
                 server.activeConnections.decrementAndGet()

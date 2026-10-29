@@ -267,6 +267,8 @@ class BrowserDropServer internal constructor(
             _state.value = State.Running(bound.port)
             _addresses.value = current
         }
+        // Once the addresses are known: a connection is only served on one of them.
+        bound.start()
         return current
     }
 
@@ -311,7 +313,7 @@ class BrowserDropServer internal constructor(
             val deadline = System.nanoTime() + if (index == 0) 1_000_000_000L else 0L
             while (true) {
                 try {
-                    return Listener(this, bind(port)).also { it.start() }
+                    return Listener(this, bind(port))
                 } catch (e: BindException) {
                     if (port == 0 || System.nanoTime() >= deadline) break
                     delay(20)

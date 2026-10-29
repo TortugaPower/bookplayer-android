@@ -74,7 +74,7 @@ class ImportManagerReceivedTest {
         assertEquals("Shelf", ImportManager.importCompletion!!.basePath)
     }
 
-    @Test fun `a book already in the library with its file is skipped`() = runBlocking {
+    @Test fun `a book already in the library with its file imports as a copy`() = runBlocking {
         File(context.filesDir, "Processed/kept.mp3").apply { parentFile!!.mkdirs() }.writeText("old")
         runBlocking(Dispatchers.IO) {
             dao.insertItem(
@@ -85,9 +85,26 @@ class ImportManagerReceivedTest {
 
         ImportManager.importReceivedFolder(context, folder, targetFolderPath = null)
 
-        assertEquals(listOf("fresh.mp3"), ImportManager.importCompletion!!.items.map { it.relativePath })
+        // iOS parity: a second item beside the first, which keeps its file.
+        assertEquals(listOf("fresh.mp3", "kept-1.mp3"), ImportManager.importCompletion!!.items.mapNotNull { it.relativePath }.sorted())
         assertEquals("old", File(context.filesDir, "Processed/kept.mp3").readText())
+        assertEquals("new", File(context.filesDir, "Processed/kept-1.mp3").readText())
         assertFalse(folder.exists())
+    }
+
+    @Test fun `an offloaded book gets its file back`() = runBlocking {
+        runBlocking(Dispatchers.IO) {
+            dao.insertItem(
+                LibraryItemEntity(uuid = "gone", title = "gone", originalFileName = "gone.mp3", relativePath = "gone.mp3", type = ItemType.BOOK)
+            )
+        }
+        val folder = receivedFolder("gone.mp3" to "back")
+
+        ImportManager.importReceivedFolder(context, folder, targetFolderPath = null)
+
+        assertEquals("back", File(context.filesDir, "Processed/gone.mp3").readText())
+        assertNull(ImportManager.importCompletion) // No new item.
+        assertEquals(1, runBlocking(Dispatchers.IO) { dao.getAllItemsSync() }.size)
     }
 
     @Test fun `a received archive names the placement prompt`() = runBlocking {
