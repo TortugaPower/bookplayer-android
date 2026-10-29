@@ -902,7 +902,8 @@ def watch_upgrade(previous, previous_apk, apk):
 
 
 class RetryCouldNotRun(SetupError):
-    """The wiped emulator for a retry couldn't be set up; carries the rows the first attempt saw."""
+    """A retry that couldn't confirm or clear a failure (its wiped emulator couldn't be set up, or it failed on the
+    other build of the upgrade); carries the rows the attempts saw."""
 
     def __init__(self, message, rows):
         super().__init__(message)
@@ -1009,16 +1010,24 @@ def run_with_retry(label, e, chain, mappings):
                 if isinstance(result, StepFailure) else row
                 for (scenario, result), row in zip(first.items(), describe(label, first))]
         raise RetryCouldNotRun(f"the retry's emulator couldn't be set up: {error}", rows) from error
-    results = []
+    results, unconfirmed = [], []
     for scenario, result in second.items():
         earlier = first.get(scenario)
         if result is None and isinstance(earlier, StepFailure):
             results.append((label, scenario, "retried", f"passed on retry; first attempt: {earlier.message}"))
         elif isinstance(result, StepFailure) and isinstance(earlier, StepFailure):
-            results.append((label, scenario, "failed",
-                            f"failed twice; second attempt: {result.message}\nfirst attempt: {earlier.message}"))
+            both = f"second attempt: {result.message}\nfirst attempt: {earlier.message}"
+            if result.crashed or result.previous == earlier.previous:
+                results.append((label, scenario, "failed", f"failed twice; {both}"))
+            else:
+                # The upgrade's two steps run on different builds: one failure of each confirms neither
+                unconfirmed.append(scenario)
+                results.append((label, scenario, "not run",
+                                f"the two attempts failed on different builds, so neither failure is confirmed; {both}"))
         else:
             results += describe(label, {scenario: result})
+    if unconfirmed:
+        raise RetryCouldNotRun(f"{', '.join(unconfirmed)}: the two attempts failed on different builds", results)
     return results, second
 
 

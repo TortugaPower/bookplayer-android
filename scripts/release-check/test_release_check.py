@@ -239,6 +239,22 @@ class UpgradeTests(unittest.TestCase):
         rows = self.upgrade(self.ok, self.no_label)
         self.assertEqual([(row[1], row[2]) for row in rows], [("upgrade", "failed")])
 
+    def flaky(self, *attempts):
+        """A step that passes or fails per attempt, in order (True = fails)."""
+        calls = iter(attempts)
+
+        def step(e):
+            if next(calls):
+                self.no_label(e)
+        return step
+
+    def test_failures_on_different_builds_confirm_neither(self):
+        # this build fails, then the previous release; and the other way round
+        for seed, upgrade in ((self.flaky(False, True), self.flaky(True)), (self.flaky(True, False), self.flaky(True))):
+            with self.assertRaisesRegex(rc.RetryCouldNotRun, "the two attempts failed on different builds") as raised:
+                self.upgrade(seed, upgrade)
+            self.assertEqual([(row[1], row[2]) for row in raised.exception.rows], [("upgrade", "not run")])
+
 
 class OutcomeTests(unittest.TestCase):
     def test_a_failure_wins_over_a_device_that_could_not_run(self):
