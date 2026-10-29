@@ -18,7 +18,8 @@ internal class VolumeUrlRefresh(
     private val booksIn: suspend (volumePath: String) -> List<LibraryItemEntity>,
     /** Saves the media-server URL of each not-downloaded book a saved server streams; returns their uuids. */
     private val saveStreams: suspend (books: List<LibraryItemEntity>) -> Set<String>,
-    private val saveBook: suspend (LibraryItemEntity) -> Unit,
+    /** Stores a book's new links, as [BookUrlRefresh] does (`LibraryDao.updateLinks`) */
+    private val saveLinks: suspend (uuid: String, remoteURL: String, artworkURL: String?) -> Unit,
     private val isDownloaded: (LibraryItemEntity) -> Boolean,
 ) {
     /**
@@ -41,10 +42,12 @@ internal class VolumeUrlRefresh(
         val cloudFilled = mutableSetOf<String>()
         contents?.content?.forEach { remote ->
             val book = books.find { it.uuid == remote.uuid || it.relativePath == remote.relativePath }
-            if (book != null && book.uuid !in streamed && !remote.remoteURL.isNullOrEmpty()) {
-                book.remoteURL = remote.remoteURL
-                if (!remote.artworkURL.isNullOrEmpty()) book.artworkURL = remote.artworkURL
-                saveBook(book)
+            val url = remote.remoteURL?.takeIf { it.isNotEmpty() }
+            if (book != null && book.uuid !in streamed && url != null) {
+                val artwork = remote.artworkURL?.takeIf { it.isNotEmpty() }
+                book.remoteURL = url
+                if (artwork != null) book.artworkURL = artwork
+                saveLinks(book.uuid, url, artwork)
                 cloudFilled += book.uuid
             }
         }

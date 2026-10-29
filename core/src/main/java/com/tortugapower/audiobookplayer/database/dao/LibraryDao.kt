@@ -96,9 +96,15 @@ interface LibraryDao {
     @Update
     suspend fun updateItem(item: LibraryItemEntity)
 
-    /** Just the URL a book streams from: a looked-up media-server URL is local, never synced. */
-    @Query("UPDATE library_items SET remoteURL = :url WHERE uuid = :uuid")
-    suspend fun updateRemoteURL(uuid: String, url: String?)
+    /**
+     * A book's freshly issued links and nothing else: a media server's stream URL, or a cloud listing's signed file
+     * URL with its cover's ([artworkURL]; the stored one is kept when null). The one way to store a link: it's local,
+     * since the server issued it, so it's never synced; and it never goes through a whole-row update, which writes back
+     * the row as read before the lookup (stale by then if a position was saved meanwhile) and, through
+     * `SyncingLibraryRepository`, sends that row to the server as the book's progress.
+     */
+    @Query("UPDATE library_items SET remoteURL = :remoteURL, artworkURL = COALESCE(:artworkURL, artworkURL) WHERE uuid = :uuid")
+    suspend fun updateLinks(uuid: String, remoteURL: String?, artworkURL: String?)
 
     @Delete
     suspend fun deleteItem(item: LibraryItemEntity)

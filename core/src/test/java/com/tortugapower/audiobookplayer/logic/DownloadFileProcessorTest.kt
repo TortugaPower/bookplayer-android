@@ -984,8 +984,23 @@ class DownloadFileProcessorTest {
         )
 
         assertEquals("/signed-now.m4b", cloud.takeRequest().path)
-        // Only the download uses it: the book read at its start is never written back over a position saved meanwhile
-        assertNull(AppDatabase.getDatabase(context).libraryDao().getItemById(uuid)!!.remoteURL)
+        assertEquals(cloud.url("/signed-now.m4b").toString(), AppDatabase.getDatabase(context).libraryDao().getItemById(uuid)!!.remoteURL)
+    }
+
+    /** The link is stored alone (LibraryDao.updateLinks): the book read before signing never overwrites a newer position */
+    @Test fun `a position saved while the link is signed stays`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setBody("audio-bytes"))
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        val signing: suspend (LibraryItemEntity) -> ContentsResponse? = {
+            // Playback saves a position while the API signs the link
+            dao.updateItem(dao.getItemById(uuid)!!.copy(currentTime = 600.0))
+            cloudListing(cloud.url("/signed-now.m4b").toString())
+        }
+
+        assertTrue(processor(fetchCloudFile = signing).process(bookDownloadTask(cloud.url("/expired.m4b").toString())))
+
+        assertEquals(600.0, dao.getItemById(uuid)!!.currentTime, 0.0)
     }
 
     /** Only a listing stores a link: a book this device uploaded was queued with none */
