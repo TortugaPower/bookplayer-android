@@ -432,6 +432,9 @@ class Emulator:
                 subprocess.run([str(ADB), "-s", serial, "emu", "kill"], capture_output=True, timeout=30)
                 time.sleep(3)
             elif serial == self.serial:
+                # A nameless entry is usually an emulator that was just killed, still listed as `offline`
+                if not name and self.wait_unlisted():
+                    continue
                 raise SetupError(f"port {self.port} is taken by another emulator ({name or 'unknown'}); stop it "
                                  "and run the check again")
 
@@ -492,6 +495,18 @@ class Emulator:
                 self.process.kill()
                 self.process.wait()
             self.process = None
+        self.wait_unlisted()
+
+    def wait_unlisted(self, timeout=30):
+        """Waits until adb no longer lists this serial (it keeps a killed emulator as `offline` for a few
+        seconds); True once it's gone."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            listed = [line.split("\t")[0] for line in run([str(ADB), "devices"], timeout=ADB_TIMEOUT).splitlines()[1:]]
+            if self.serial not in listed:
+                return True
+            time.sleep(2)
+        return False
 
     def reset(self):
         self.kill()

@@ -115,6 +115,31 @@ class PropertiesTests(unittest.TestCase):
                     rc.release_properties()
 
 
+class LeftoverTests(unittest.TestCase):
+    def emulator(self):
+        return rc.Emulator(rc.Device("watch", 36, ("android-wear",), "wearos_small_round", "2048M", "2G"), 5606, Path("."))
+
+    def adb(self, listings):
+        """A fake `run` for adb: `devices` answers from `listings` in turn, `emu avd name` fails (offline)."""
+        def run(cmd, timeout=None, **kwargs):
+            if cmd[1:] == ["devices"]:
+                return "List of devices attached\n" + (listings.pop(0) if len(listings) > 1 else listings[0])
+            raise rc.subprocess.CalledProcessError(1, cmd, "", "error: device offline")
+        return run
+
+    def test_a_just_killed_emulator_still_listed_offline_is_waited_out(self):
+        listings = ["emulator-5606\toffline\n", "emulator-5606\toffline\n", "emulator-5554\tdevice\n"]
+        with mock.patch.object(rc, "run", self.adb(listings)), mock.patch.object(rc.time, "sleep"):
+            self.emulator().stop_leftovers()
+
+    def test_a_port_that_stays_taken_stops_the_check(self):
+        clock = iter(range(0, 1000, 5))
+        with mock.patch.object(rc, "run", self.adb(["emulator-5606\toffline\n"])), \
+                mock.patch.object(rc.time, "sleep"), mock.patch.object(rc.time, "time", lambda: next(clock)):
+            with self.assertRaisesRegex(rc.SetupError, "port 5606 is taken by another emulator"):
+                self.emulator().stop_leftovers()
+
+
 class OutcomeTests(unittest.TestCase):
     def test_a_failure_wins_over_a_device_that_could_not_run(self):
         failed = [("Phone API 28", "fresh", "failed", "crash: boom"), ("Watch API 30", "fresh", "not run", "")]
