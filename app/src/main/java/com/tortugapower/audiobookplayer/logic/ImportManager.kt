@@ -82,71 +82,80 @@ object ImportManager : ImportService {
     override fun startImport(context: Context, uris: List<Uri>) {
         scope.launch {
             importsRunning++
-            val backupDir = File(context.filesDir, "BPBackup")
-            if (!backupDir.exists()) backupDir.mkdirs()
-
-            val newFiles = mutableListOf<ImportFile>()
-            val database = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
-            val libraryDao = database.libraryDao()
-            
-            var currentSkipped = 0
-            val stagedFiles = withContext(Dispatchers.IO) {
-                val processedDir = File(context.filesDir, "Processed")
-                uris.forEach { uri ->
-                    val fileName = resolveImportFileName(context, uri) ?: run {
-                        currentSkipped++
-                        return@forEach
-                    }
-
-                    // Archives skip the duplicate check: their fate is decided per extracted entry.
-                    val existingItem = if (ImportArchiveUtils.isArchive(fileName)) null else libraryDao.getItemByFileName(fileName)
-                    var isFileOnly = false
-                    if (existingItem != null) {
-                        val relativePath = existingItem.relativePath
-                        val destFileInProcessed = if (!relativePath.isNullOrEmpty()) File(processedDir, relativePath) else File(processedDir, fileName)
-                        if (destFileInProcessed.exists()) {
-                            currentSkipped++
-                            return@forEach
-                        }
-                        isFileOnly = true
-                    }
-
-                    // Refuse a file that can't fit with headroom to spare: an import that fills the disk
-                    // takes the database down with it. It counts as skipped; the storage banner explains.
-                    val size = try {
-                        context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
-                    } catch (e: Exception) {
-                        -1L
-                    }
-                    if (size > 0 && !StorageMonitor.hasRoomFor(context, size)) {
-                        StorageMonitor.noteTransferDoesNotFit(context, size)
-                        currentSkipped++
-                        return@forEach
-                    }
-
-                    val destFile = ImportArchiveUtils.uniqueDestination(backupDir, fileName)
-
-                    try {
-                        context.contentResolver.openInputStream(uri)?.use { input ->
-                            FileOutputStream(destFile).use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        newFiles.add(ImportFile(destFile.name, destFile, isFileOnly = isFileOnly))
-                    } catch (e: Exception) {
-                        StorageMonitor.reportFailure(context, e) // ENOSPC mid-copy: storage state, not a silent skip
-                        destFile.delete()
-                        e.printStackTrace()
-                    }
-                }
-                expandArchives(context, newFiles, libraryDao)
+            // A failure is reported by the scope's handler and the app carries on: the overlay must not stay up.
+            try {
+                stagePicked(context, uris)
+            } finally {
+                importsRunning--
             }
-
-            importedFiles = importedFiles + stagedFiles
-            skippedItemsCount += currentSkipped
-            importsRunning--
-            showImportSheet = true
         }
+    }
+
+    /** Copies what the user picked into the backup folder, expands archives, and shows the import sheet. */
+    private suspend fun stagePicked(context: Context, uris: List<Uri>) {
+        val backupDir = File(context.filesDir, "BPBackup")
+        if (!backupDir.exists()) backupDir.mkdirs()
+
+        val newFiles = mutableListOf<ImportFile>()
+        val database = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
+        val libraryDao = database.libraryDao()
+        
+        var currentSkipped = 0
+        val stagedFiles = withContext(Dispatchers.IO) {
+            val processedDir = File(context.filesDir, "Processed")
+            uris.forEach { uri ->
+                val fileName = resolveImportFileName(context, uri) ?: run {
+                    currentSkipped++
+                    return@forEach
+                }
+
+                // Archives skip the duplicate check: their fate is decided per extracted entry.
+                val existingItem = if (ImportArchiveUtils.isArchive(fileName)) null else libraryDao.getItemByFileName(fileName)
+                var isFileOnly = false
+                if (existingItem != null) {
+                    val relativePath = existingItem.relativePath
+                    val destFileInProcessed = if (!relativePath.isNullOrEmpty()) File(processedDir, relativePath) else File(processedDir, fileName)
+                    if (destFileInProcessed.exists()) {
+                        currentSkipped++
+                        return@forEach
+                    }
+                    isFileOnly = true
+                }
+
+                // Refuse a file that can't fit with headroom to spare: an import that fills the disk
+                // takes the database down with it. It counts as skipped; the storage banner explains.
+                val size = try {
+                    context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+                } catch (e: Exception) {
+                    -1L
+                }
+                if (size > 0 && !StorageMonitor.hasRoomFor(context, size)) {
+                    StorageMonitor.noteTransferDoesNotFit(context, size)
+                    currentSkipped++
+                    return@forEach
+                }
+
+                val destFile = ImportArchiveUtils.uniqueDestination(backupDir, fileName)
+
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(destFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    newFiles.add(ImportFile(destFile.name, destFile, isFileOnly = isFileOnly))
+                } catch (e: Exception) {
+                    StorageMonitor.reportFailure(context, e) // ENOSPC mid-copy: storage state, not a silent skip
+                    destFile.delete()
+                    e.printStackTrace()
+                }
+            }
+            expandArchives(context, newFiles, libraryDao)
+        }
+
+        importedFiles = importedFiles + stagedFiles
+        skippedItemsCount += currentSkipped
+        showImportSheet = true
     }
 
     /**
