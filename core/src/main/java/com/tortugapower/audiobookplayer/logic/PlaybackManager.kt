@@ -42,8 +42,8 @@ object PlaybackManager {
     // Chosen to line up with Media3's built-in ICON_PLAYBACK_SPEED_* glyphs so the button shows the speed.
     private val SPEED_PRESETS = listOf(0.8f, 1.0f, 1.2f, 1.5f, 1.8f, 2.0f)
 
-    // Upper bound on the on-play contents fetch for an offloaded bound book, so a slow server can't
-    // hang playback (fail-soft: fall through to whatever's local).
+    // Upper bound on the on-play cloud fetch (an offloaded bound book's contents, a single book's signed URL),
+    // so a slow server can't hang playback (fail-soft: fall through to whatever else plays it).
     private const val CONTENTS_FETCH_TIMEOUT_MS = 15_000L
 
     // Cap the per-process "already attempted remote chapter fetch" dedup set (cleared on overflow).
@@ -1828,33 +1828,20 @@ object PlaybackManager {
                         isDownloaded = { book -> book.relativePath?.let { File(processedDir, it).isFile } == true },
                     ).refresh(resolvedItem.relativePath ?: "")
                     android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
-                } else if (!resolvedItem.remoteURL.isNullOrEmpty()) {
-                    // Media-server-first: refresh the BookPlayer presigned URL only when no saved
-                    // Jellyfin/ABS server can serve the item — that's how a streamed book whose file is in
-                    // the cloud plays from it on a device without the server configured, while devices WITH the
-                    // server keep streaming from it (LAN speed, zero S3 egress).
-                    if (externalUrl == null) {
-                        // Only query Bookplayer API signed URLs if it's not a Jellyfin/Audiobookshelf item
-                        val response = NetworkClient.libraryApi.getRemoteFileURL(
-                            path = resolvedItem.relativePath ?: "",
-                            uuid = resolvedItem.uuid
-                        )
-                        if (response.isSuccessful && response.body() != null) {
-                            val body = response.body()!!
-                            val remoteItem = body.content.firstOrNull { it.uuid == resolvedItem.uuid || it.relativePath == resolvedItem.relativePath }
-                            if (remoteItem != null && !remoteItem.remoteURL.isNullOrEmpty()) {
-                                resolvedItem.remoteURL = remoteItem.remoteURL
-                                if (!remoteItem.artworkURL.isNullOrEmpty()) {
-                                    resolvedItem.artworkURL = remoteItem.artworkURL
-                                }
-                                repo.updateItem(resolvedItem)
-                                cloudServed = true
-                                android.util.Log.d("PlaybackManager", "✅ Refreshed remote URL for single item: ${resolvedItem.title}")
-                            }
-                        }
-                    } else {
-                        repo.updateItem(resolvedItem)
-                    }
+                } else {
+                    // Media-server-first: a saved Jellyfin/ABS server keeps streaming (LAN speed, zero S3
+                    // egress), and the BookPlayer cloud copy plays only what no server serves, stored URL or not.
+                    cloudServed = BookUrlRefresh(
+                        // Bounded like the volume's fetch: it now runs for books with no stored URL too, such as a
+                        // media-server book whose server isn't saved here, which should reach its prompt promptly.
+                        fetchCloudFile = { book ->
+                            kotlinx.coroutines.withTimeoutOrNull(CONTENTS_FETCH_TIMEOUT_MS) {
+                                NetworkClient.libraryApi.getRemoteFileURL(path = book.relativePath ?: "", uuid = book.uuid)
+                            }?.takeIf { it.isSuccessful }?.body()
+                        },
+                        saveBook = { book -> repo.updateItem(book) },
+                    ).refresh(resolvedItem, externalUrl)
+                    if (cloudServed) android.util.Log.d("PlaybackManager", "✅ Refreshed remote URL for single item: ${resolvedItem.title}")
                 }
             } catch (e: Exception) {
                 // Fallback: update DB with resolved Jellyfin/ABS streaming URLs even if cloud fetch fails
