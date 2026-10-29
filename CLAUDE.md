@@ -127,7 +127,17 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   entry in `scripts/audit-mapping.sh`, which fails CI when such a class is renamed or moved.
 - **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest`, `lintDevDebug`, then an
   unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17. It also runs the
-  release scripts' unit tests (`node --test scripts/play-release.test.mjs scripts/play-rollout.test.mjs`).
+  release scripts' unit tests (`node --test scripts/play-release.test.mjs scripts/play-rollout.test.mjs`, and
+  `python3 -I -B -m unittest discover -s scripts/release-check`).
+- **Release check** (`scripts/release-check/release_check.py`): the release skill runs it on the Mac before
+  anything is committed or pushed; never CI. It builds HEAD's prodRelease phone and watch apps the way Play
+  delivers them (R8, bundletool's universal APK; debug-signed; no Sentry mapping upload) and checks their 64-bit
+  native libraries for 16 KB pages and the mapping audit. Then, on emulators it creates and wipes
+  (`bp-release-check-*`, ports 5600+), it runs fresh launch, import, playback and upgrade on the phone at minSdk
+  and at targetSdk (16 KB pages), and fresh launch and upgrade on the watch at both. A crash fails at once; any
+  other failure gets one retry on a wiped emulator. The upgrade starts from the previous release's tag, built once
+  and cached in `~/Library/Caches/BookPlayerReleaseCheckAndroid`. It drives the UI by its English labels (`Library`,
+  `Accept`, `Import Complete`, `Chapters`, a row's "N% completed"): renaming one means updating the script.
 - **Release** (`.github/workflows/release.yml`, on a `release-*` branch): tests and lint, the signed prod
   bundles, then `scripts/play-release.mjs` submits phone (`production`) and watch (`wear:production`) in ONE
   Play edit as a **1% staged rollout**, each with its notes from `distribution/whatsnew/{phone,wear}/whatsnew-en-US`
