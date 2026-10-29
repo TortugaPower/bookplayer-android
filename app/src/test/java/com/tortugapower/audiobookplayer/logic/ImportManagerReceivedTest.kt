@@ -90,6 +90,23 @@ class ImportManagerReceivedTest {
         assertFalse(folder.exists())
     }
 
+    @Test fun `a received archive names the placement prompt`() = runBlocking {
+        val folder = File(context.cacheDir, "received-${System.nanoTime()}").apply { mkdirs() }
+        java.util.zip.ZipOutputStream(File(folder, "Transfer Book.zip").outputStream()).use { zip ->
+            for (name in listOf("01.mp3", "02.mp3")) {
+                zip.putNextEntry(java.util.zip.ZipEntry(name))
+                zip.write(name.toByteArray())
+                zip.closeEntry()
+            }
+        }
+
+        ImportManager.importReceivedFolder(context, folder, targetFolderPath = null)
+
+        val completion = ImportManager.importCompletion!!
+        assertEquals(listOf("01.mp3", "02.mp3"), completion.items.mapNotNull { it.relativePath }.sorted())
+        assertEquals("Transfer Book", completion.suggestedName)
+    }
+
     @Test fun `nothing handed over imports nothing`() {
         ImportManager.importReceived(context, null) { null }
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()

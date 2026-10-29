@@ -4,7 +4,6 @@ import android.app.Application
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -329,22 +328,25 @@ private fun NoAddress() {
 
 @Composable
 private fun TransferListItem(row: TransferViewModel.Row, onRemove: () -> Unit) {
+    // The button's 48dp target takes most of the row's padding: a file's row stays as tall, and the icon as far
+    // from the file icon.
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 16.dp),
+            .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = Icons.Default.RemoveCircle,
-            contentDescription = stringResource(R.string.common_remove),
-            tint = MaterialTheme.colorScheme.error,
-            modifier = Modifier
-                .size(28.dp)
-                .clickable { onRemove() }
-        )
+        IconButton(onClick = onRemove) {
+            Icon(
+                imageVector = Icons.Default.RemoveCircle,
+                // Says what it removes: TalkBack reads it apart from the row's title.
+                contentDescription = "${stringResource(R.string.common_remove)}, ${row.title}",
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(28.dp)
+            )
+        }
 
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(6.dp))
 
         Icon(
             imageVector = if (row.isFolder) Icons.Filled.Folder else Icons.Filled.AudioFile,

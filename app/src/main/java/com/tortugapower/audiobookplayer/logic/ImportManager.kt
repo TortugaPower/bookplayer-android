@@ -19,6 +19,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
 import java.io.File
@@ -37,8 +39,13 @@ object ImportManager : ImportService {
     override var importedFiles by mutableStateOf<List<ImportFile>>(emptyList())
         private set
 
-    override var isImporting by mutableStateOf(false)
-        private set
+    // Staging a pick and importing a transfer can overlap: the overlay stays up until the last one ends.
+    private var importsRunning by mutableIntStateOf(0)
+    override val isImporting: Boolean get() = importsRunning > 0
+
+    // One import into the library at a time: two at once would each read the folder's highest rank and hand
+    // out the same ones, and share the progress shown on the import sheet.
+    private val importLock = Mutex()
 
     override var activeDownloadCount by mutableIntStateOf(0)
         private set
@@ -74,7 +81,7 @@ object ImportManager : ImportService {
 
     override fun startImport(context: Context, uris: List<Uri>) {
         scope.launch {
-            isImporting = true
+            importsRunning++
             val backupDir = File(context.filesDir, "BPBackup")
             if (!backupDir.exists()) backupDir.mkdirs()
 
@@ -137,7 +144,7 @@ object ImportManager : ImportService {
 
             importedFiles = importedFiles + stagedFiles
             skippedItemsCount += currentSkipped
-            isImporting = false
+            importsRunning--
             showImportSheet = true
         }
     }
@@ -428,27 +435,29 @@ object ImportManager : ImportService {
 
     override fun acceptImport(context: Context, targetFolderPath: String?) {
         scope.launch {
-            val createdItems = mutableListOf<LibraryItemEntity>()
-            try {
-                importAcceptedFiles(context, targetFolderPath, createdItems, importedFiles)
+            importLock.withLock {
+                val createdItems = mutableListOf<LibraryItemEntity>()
+                try {
+                    importAcceptedFiles(context, targetFolderPath, createdItems, importedFiles)
 
-                if (createdItems.isNotEmpty()) {
-                    importCompletion = ImportCompletion(
-                        items = createdItems.toList(),
-                        suggestedName = ImportArchiveUtils.stripExtension(
-                            suggestedFolderName ?: createdItems.first().title
-                        ),
-                        basePath = targetFolderPath
-                    )
+                    if (createdItems.isNotEmpty()) {
+                        importCompletion = ImportCompletion(
+                            items = createdItems.toList(),
+                            suggestedName = ImportArchiveUtils.stripExtension(
+                                suggestedFolderName ?: createdItems.first().title
+                            ),
+                            basePath = targetFolderPath
+                        )
+                    }
+                } finally {
+                    // Always return the sheet to a clean state — a failure part-way through must not
+                    // leave it stuck showing a spinner with no way to recover.
+                    suggestedFolderName = null
+                    processingFileName = null
+                    importedFiles = emptyList()
+                    skippedItemsCount = 0
+                    showImportSheet = false
                 }
-            } finally {
-                // Always return the sheet to a clean state — a failure part-way through must not
-                // leave it stuck showing a spinner with no way to recover.
-                suggestedFolderName = null
-                processingFileName = null
-                importedFiles = emptyList()
-                skippedItemsCount = 0
-                showImportSheet = false
             }
         }
     }
@@ -476,23 +485,31 @@ object ImportManager : ImportService {
 
     @androidx.annotation.VisibleForTesting
     internal suspend fun importReceivedFolder(context: Context, folder: File, targetFolderPath: String?) {
-        isImporting = true
+        importsRunning++
         val createdItems = mutableListOf<LibraryItemEntity>()
         try {
-            val staged = withContext(Dispatchers.IO) { stageReceived(context, folder) }
-            importAcceptedFiles(context, targetFolderPath, createdItems, staged)
-            if (createdItems.isNotEmpty()) {
-                importCompletion = ImportCompletion(
-                    items = createdItems.toList(),
-                    suggestedName = ImportArchiveUtils.stripExtension(suggestedFolderName ?: createdItems.first().title),
-                    basePath = targetFolderPath
-                )
+            importLock.withLock {
+                // Its own, not the shared field: that one belongs to the files waiting on the import sheet.
+                var suggestedName: String? = null
+                val staged = withContext(Dispatchers.IO) {
+                    stageReceived(context, folder) { suggestedName = it }
+                }
+                try {
+                    importAcceptedFiles(context, targetFolderPath, createdItems, staged)
+                } finally {
+                    processingFileName = null
+                }
+                if (createdItems.isNotEmpty()) {
+                    importCompletion = ImportCompletion(
+                        items = createdItems.toList(),
+                        suggestedName = ImportArchiveUtils.stripExtension(suggestedName ?: createdItems.first().title),
+                        basePath = targetFolderPath
+                    )
+                }
             }
         } finally {
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { folder.deleteRecursively() }
-            suggestedFolderName = null
-            processingFileName = null
-            isImporting = false
+            importsRunning--
         }
     }
 
@@ -501,7 +518,7 @@ object ImportManager : ImportService {
      * files there, with the same check against the library: a book whose file is already here is skipped, and
      * one whose file was offloaded gets it back. Folders stage whole, to import as one folder item each.
      */
-    private suspend fun stageReceived(context: Context, folder: File): List<ImportFile> {
+    private suspend fun stageReceived(context: Context, folder: File, suggestName: (String) -> Unit): List<ImportFile> {
         val backupDir = File(context.filesDir, "BPBackup").apply { mkdirs() }
         val processedDir = File(context.filesDir, "Processed")
         val libraryDao = AppDatabase.getDatabase(context).libraryDao()
@@ -524,7 +541,7 @@ object ImportManager : ImportService {
             }
             staged += ImportFile(destination.name, destination, isFileOnly = isFileOnly)
         }
-        return expandArchives(context, staged, libraryDao)
+        return expandArchives(context, staged, libraryDao, suggestName)
     }
 
     private suspend fun importAcceptedFiles(
@@ -862,7 +879,9 @@ object ImportManager : ImportService {
     internal suspend fun expandArchives(
         context: Context,
         files: List<ImportFile>,
-        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
+        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao,
+        // Where an archive's name goes as the suggested folder name: the import sheet's, unless told otherwise.
+        suggestName: (String) -> Unit = { suggestedFolderName = it }
     ): List<ImportFile> {
         val queue = ArrayDeque(files)
         val result = mutableListOf<ImportFile>()
@@ -878,7 +897,7 @@ object ImportManager : ImportService {
                 continue
             }
 
-            suggestedFolderName = ImportArchiveUtils.stripExtension(entry.name)
+            suggestName(ImportArchiveUtils.stripExtension(entry.name))
 
             val tempDir = File(context.cacheDir, "ImportExtract/${java.util.UUID.randomUUID()}")
             tempDir.mkdirs()

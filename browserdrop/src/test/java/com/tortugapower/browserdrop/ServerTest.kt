@@ -215,10 +215,22 @@ class ServerTest {
 
     @Test
     fun removeLeftoversEmptiesTheStagingRoot() {
-        val root = makeTemporaryDirectory()
+        val parent = makeTemporaryDirectory()
+        val root = File(parent, "browserdrop")
         Staging.create(root)
-        BrowserDropServer.removeLeftovers(root)
+        // Trash an earlier launch was killed before it finished deleting.
+        File(parent, "browserdrop.trash-earlier/Book").mkdirs()
+        val unrelated = File(parent, "other").apply { mkdirs() }
+
+        val deferred = mutableListOf<() -> Unit>()
+        BrowserDropServer.removeLeftovers(root) { deferred += it }
+        // Out of the way at once, so a new session starts empty; nothing deleted yet.
         assertFalse(root.exists())
+        assertEquals(2, parent.list()!!.count { it.startsWith("browserdrop.trash-") })
+
+        deferred.forEach { it() }
+        assertEquals(listOf("other"), parent.list()!!.toList())
+        assertTrue(unrelated.exists())
     }
 
     // MARK: - Uploads

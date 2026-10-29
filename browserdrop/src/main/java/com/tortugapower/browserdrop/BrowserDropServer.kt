@@ -29,7 +29,9 @@ import java.io.IOException
 import java.net.BindException
 import java.net.InetSocketAddress
 import java.net.ServerSocket
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -431,12 +433,29 @@ class BrowserDropServer internal constructor(
         /**
          * Removes staging left by a session that never finished or cancelled (the app was killed, for example),
          * and any handed-over folder the app didn't move or delete. Call it at launch, before creating a server.
+         *
+         * Safe on the main thread: the root is renamed out of the way, one call however much it holds, and its
+         * files are deleted on a background thread. A server started right after gets a new, empty root.
          */
         fun removeLeftovers(context: Context) = removeLeftovers(defaultStagingRoot(context))
 
         /** [removeLeftovers] for a custom [Configuration.stagingRoot]. */
-        fun removeLeftovers(stagingRoot: File) {
-            stagingRoot.deleteRecursively()
+        fun removeLeftovers(stagingRoot: File) = removeLeftovers(stagingRoot) { delete ->
+            thread(name = "BrowserDrop leftovers", isDaemon = true) { delete() }
+        }
+
+        /** [removeLeftovers], with the deletion handed to [inBackground]. */
+        internal fun removeLeftovers(stagingRoot: File, inBackground: (() -> Unit) -> Unit) {
+            val parent = stagingRoot.absoluteFile.parentFile ?: return
+            val trashPrefix = "${stagingRoot.name}.trash-"
+            if (stagingRoot.exists()) {
+                val trash = File(parent, trashPrefix + UUID.randomUUID())
+                // Not renamed: deleted where it is, as before, rather than kept.
+                if (!stagingRoot.renameTo(trash)) stagingRoot.deleteRecursively()
+            }
+            // This launch's trash, and any an earlier launch was killed before it finished deleting.
+            val trash = parent.listFiles { file -> file.name.startsWith(trashPrefix) }.orEmpty()
+            if (trash.isNotEmpty()) inBackground { trash.forEach { it.deleteRecursively() } }
         }
     }
 }
