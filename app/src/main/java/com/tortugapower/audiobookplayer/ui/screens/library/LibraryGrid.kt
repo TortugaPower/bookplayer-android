@@ -151,7 +151,7 @@ fun LibraryTileGrid(
     }
 }
 
-enum class TileStyle { CARD, COVER }
+private enum class TileStyle { CARD, COVER }
 
 /**
  * One item in the grid. A folder's cover is a stack: two dimmed leaves peek above it, each a step

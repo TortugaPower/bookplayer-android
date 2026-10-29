@@ -73,9 +73,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import com.tortugapower.audiobookplayer.logic.ItemArtwork
 import com.tortugapower.audiobookplayer.logic.LibraryLayout
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import com.tortugapower.audiobookplayer.logic.hasQueuedUploadTask
@@ -91,7 +88,6 @@ import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
 import com.tortugapower.audiobookplayer.logic.sort.SortType
 import com.tortugapower.audiobookplayer.repository.BoundConversionException
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
-import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
@@ -1560,6 +1556,8 @@ fun LibraryScreen(
                     }
                 }
 
+                // A local, so the branches below can tell an unread layout from a read one.
+                val layout = libraryLayout
                 if (pathItems.isEmpty()) {
                     // Scrollable so pull-to-refresh works on an empty folder (the main reason to refresh).
                     Box(
@@ -1578,10 +1576,13 @@ fun LibraryScreen(
                             )
                         }
                     }
-                } else if (libraryLayout != LibraryLayout.LIST) {
+                } else if (layout == null) {
+                    // The stored layout arrives within a frame or two: nothing until then, not the list.
+                    Box(modifier = Modifier.fillMaxSize())
+                } else if (layout != LibraryLayout.LIST) {
                     LibraryTileGrid(
                         items = pathItems,
-                        layout = libraryLayout,
+                        layout = layout,
                         isSelectMode = isSelectMode,
                         selectedItemUuids = selectedItemUuids,
                         libraryViewModel = libraryViewModel,

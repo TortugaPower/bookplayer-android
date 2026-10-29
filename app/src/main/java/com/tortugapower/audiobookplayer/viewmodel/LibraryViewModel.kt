@@ -475,10 +475,13 @@ class LibraryViewModel(
         }
     }
 
-    /** List, grid of cards, or grid of covers (Options sheet). */
-    val libraryLayout: StateFlow<com.tortugapower.audiobookplayer.logic.LibraryLayout> =
+    /**
+     * List, grid of cards, or grid of covers (Options sheet). Null until the stored choice is read, so the
+     * screen never shows the list for a moment at launch before switching to a grid.
+     */
+    val libraryLayout: StateFlow<com.tortugapower.audiobookplayer.logic.LibraryLayout?> =
         com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.getLibraryLayout(appContext)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.tortugapower.audiobookplayer.logic.LibraryLayout.LIST)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun setLibraryLayout(layout: com.tortugapower.audiobookplayer.logic.LibraryLayout) {
         viewModelScope.launch {
