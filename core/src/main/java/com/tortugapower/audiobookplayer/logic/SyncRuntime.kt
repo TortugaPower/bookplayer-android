@@ -85,6 +85,19 @@ class SyncRuntime(
         .flatMapLatest { it?.laneStates ?: flowOf(emptyMap()) }
         .stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
+    /** Whether the running engine has looked at the queue once ([TaskConcurrencyManager.scanned]): false while none runs */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val scanned: StateFlow<Boolean> = _engine
+        .flatMapLatest { it?.scanned ?: flowOf(false) }
+        .stateIn(scope, SharingStarted.Eagerly, false)
+
+    /**
+     * The drains the queue needs ([TaskConcurrencyManager.nextDrain]). Null until an engine has looked at the queue
+     * ([scanned]): before its start-up steps, nothing is known, and a process a drain just started would otherwise
+     * cancel that very drain
+     */
+    suspend fun nextDrain(): SyncDrainPolicy.Needs? = _engine.value?.takeIf { it.scanned.value }?.nextDrain()
+
     init {
         scope.launch {
             StorageMonitor.state.map { it.isCritical }.distinctUntilChanged().filter { !it }.collect {

@@ -93,6 +93,13 @@ class TaskConcurrencyManager(
     /** Each lane with a worker: working, or waiting out a backoff (and until when) */
     val laneStates: StateFlow<Map<String, LaneState>> = _laneStates.asStateFlow()
 
+    private val _scanned = MutableStateFlow(false)
+    /**
+     * Whether the engine has looked at the queue once, after its start-up steps, and started the lanes with work:
+     * until then, no lane working says nothing (a drain started with the process waits for it)
+     */
+    val scanned: StateFlow<Boolean> = _scanned.asStateFlow()
+
     /**
      * Cues for a worker waiting out a backoff to look at its lane again: its own lane's tasks changed (a new
      * one, a cleared wait), or a rescan was asked for, which every lane answers
@@ -233,6 +240,7 @@ class TaskConcurrencyManager(
             for (queueKey in SyncTaskPicker.lanesWithWork(tasks, startPolicy(tasks))) {
                 startQueueWorkerIfAbsent(queueKey)
             }
+            _scanned.value = true
         }
     }
 
@@ -256,18 +264,7 @@ class TaskConcurrencyManager(
                         // Re-fetch the next runnable pending task for this queue. File uploads are
                         // SKIPPED (not the whole queue) while held on cellular, so a user-triggered
                         // download sharing this queue still runs; the skipped uploads wait for Wi-Fi.
-                        // What the lane may run, in order: parked tasks are skipped or stop the lane, and an
-                        // account pause holds the BookPlayer-server work (read per pick: any lane can park one)
-                        val pending = SyncTaskPicker.runnable(
-                            queueKey,
-                            repository.getQueueCandidates(queueKey),
-                            repository.hasAccountPause(),
-                            tierPolicy(),
-                        )
-                        // Storage: nothing runs while the disk is critically full (every task ends in a
-                        // DB write), and file downloads wait while a transfer is known not to fit. The
-                        // runtime rescans the lanes when storage recovers (SyncRuntime).
-                        val runnable = StoragePolicy.runnable(pending, StorageMonitor.state.value)
+                        val runnable = runnableIn(queueKey)
                         // Only pay for the settings/connectivity check when this queue actually holds a
                         // file upload that could be gated.
                         val allowed = if (runnable.any { UploadDataPolicy.isFileUploadJob(it.jobType) } &&
@@ -556,6 +553,38 @@ class TaskConcurrencyManager(
      * pick nothing (the network callback rescans when Wi-Fi returns). The connectivity check runs only
      * when an upload is queued.
      */
+    /**
+     * What [queueKey]'s worker may run, in order: parked tasks are skipped or stop the lane, an account pause holds
+     * the BookPlayer-server work (read per pick: any lane can park one), the tier holds what it can't run, and
+     * storage holds everything while the disk is critically full (every task ends in a DB write) and file downloads
+     * while a transfer is known not to fit (the runtime rescans the lanes when storage recovers, SyncRuntime)
+     */
+    private suspend fun runnableIn(queueKey: String): List<SyncTaskEntity> {
+        val pending = SyncTaskPicker.runnable(
+            queueKey,
+            repository.getQueueCandidates(queueKey),
+            repository.hasAccountPause(),
+            tierPolicy(),
+        )
+        return StoragePolicy.runnable(pending, StorageMonitor.state.value)
+    }
+
+    /**
+     * When drains are due for what's queued (SyncDrainPolicy): each lane's next run by the rules its worker picks
+     * with, as the network will let its book uploads go and as it will hold them for Wi-Fi
+     */
+    suspend fun nextDrain(now: Long = System.currentTimeMillis()): SyncDrainPolicy.Needs {
+        val lanes = repository.getActiveQueueKeys().map { queueKey ->
+            val runnable = runnableIn(queueKey)
+            val withoutUploads = runnable.filterNot { UploadDataPolicy.isFileUploadJob(it.jobType) }
+            SyncDrainPolicy.LaneDue(
+                any = SyncDrainPolicy.dueAt(SyncTaskPicker.nextDue(runnable, now), now),
+                withoutUploads = SyncDrainPolicy.dueAt(SyncTaskPicker.nextDue(withoutUploads, now), now),
+            )
+        }
+        return SyncDrainPolicy.needs(lanes, PlaybackSettingsManager.getUploadUsingCellularData(context).first())
+    }
+
     private suspend fun startPolicy(tasks: List<SyncTaskEntity>): (String) -> Boolean {
         val tier = tierPolicy()
         val hold = tasks.any { it.status == SyncTaskStatus.PENDING && UploadDataPolicy.isFileUploadJob(it.jobType) } &&

@@ -16,6 +16,7 @@ import com.tortugapower.audiobookplayer.R
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 
 /**
@@ -51,11 +52,25 @@ class TaskConcurrencyServiceHost : Service() {
             }
         }
 
+        private val _running = MutableStateFlow(false)
+
+        /** Whether the service is up: it keeps the process alive, so no sync drain runs meanwhile (SyncKeepAlive) */
+        val running: StateFlow<Boolean> = _running.asStateFlow()
+
         // Cheap running check so bursty lane changes don't spam startForegroundService while the
         // service is already up. Racy by nature — a stale false just means one redundant,
         // idempotent start().
+        private var isAlive: Boolean
+            get() = _running.value
+            set(value) { _running.value = value }
+
+        /**
+         * Told when Android won't let the service keep a transfer alive: its start was refused (the dataSync budget
+         * spent, or no exemption), or it ended the service (the budget ran out). The transfer goes to sync drains
+         * (SyncKeepAlive.onServiceUnavailable) until the app is next opened, which resets the budget.
+         */
         @Volatile
-        private var isAlive = false
+        var onUnavailable: (() -> Unit)? = null
 
         fun start(context: Context) {
             if (isAlive) return
@@ -72,6 +87,7 @@ class TaskConcurrencyServiceHost : Service() {
                 }
             } catch (e: Exception) {
                 Log.w("TaskConcurrencyServiceHost", "Sync service not started (likely a background start)", e)
+                onUnavailable?.invoke()
             }
         }
     }
@@ -111,6 +127,7 @@ class TaskConcurrencyServiceHost : Service() {
             // twin catch): a start() during teardown must not be skipped by the fast-path.
             isAlive = false
             stopSelf()
+            onUnavailable?.invoke()
             return
         }
 
@@ -151,6 +168,7 @@ class TaskConcurrencyServiceHost : Service() {
         isAlive = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+        onUnavailable?.invoke()
     }
 
     override fun onDestroy() {

@@ -15,6 +15,9 @@ import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.ParkedTaskRetry
 import com.tortugapower.audiobookplayer.logic.PreferencesPullTriggers
 import com.tortugapower.audiobookplayer.logic.PhoneSyncEngine
+import com.tortugapower.audiobookplayer.logic.StorageGuardedExecutor
+import com.tortugapower.audiobookplayer.logic.SyncDrain
+import com.tortugapower.audiobookplayer.logic.SyncDrainScheduler
 import com.tortugapower.audiobookplayer.logic.SyncKeepAlive
 import com.tortugapower.audiobookplayer.logic.SyncPauseReporter
 import com.tortugapower.audiobookplayer.logic.SyncRuntime
@@ -38,13 +41,17 @@ import io.sentry.protocol.User
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import androidx.work.Configuration
+import androidx.work.WorkManager
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.tortugapower.audiobookplayer.logic.StorageMonitor
 
-class BookPlayerApplication : Application(), ImageLoaderFactory {
+class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.Provider {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main + StorageMonitor.exceptionHandler { this })
 
     companion object {
@@ -70,6 +77,26 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
     /** Starts the sync service when a transfer needs it to keep the process alive. Set in [onCreate]. */
     internal lateinit var syncKeepAlive: SyncKeepAlive
         private set
+
+    /** Runs the sync engine while nothing else keeps the process alive (SyncDrainWorker). Set in [onCreate]. */
+    internal lateinit var syncDrain: SyncDrain
+        private set
+
+    /**
+     * WorkManager starts on demand, with this (the manifest drops its start-up initializer, which wrote its database
+     * at every process start). A full disk under its database is reported, never a crash: at its start (the
+     * handlers), and in its own bookkeeping (StorageGuardedExecutor), which a pending drain runs before our code.
+     */
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setInitializationExceptionHandler { e -> onWorkManagerFailed(e) }
+            .setSchedulingExceptionHandler { e -> onWorkManagerFailed(e) }
+            .setTaskExecutor(StorageGuardedExecutor(Dispatchers.Default.asExecutor()) { e -> StorageMonitor.reportFailure(this, e) })
+            .build()
+
+    private fun onWorkManagerFailed(e: Throwable) {
+        if (!StorageMonitor.reportFailure(this, e)) io.sentry.Sentry.captureException(e)
+    }
 
     /**
      * App-wide Coil loader with our [EmbeddedArtworkFetcher] registered, so the library list can resolve
@@ -206,17 +233,38 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             onFailed = { io.sentry.Sentry.captureException(it) },
         )
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = { syncRuntime.start() }
-        // The sync service keeps the process alive while a transfer runs in the background, unless playback does
+        val visible = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
+            .map { it.isAtLeast(Lifecycle.State.STARTED) }
+            .stateIn(appScope, SharingStarted.Eagerly, false)
+        // Sync drains (WorkManager jobs) run the engine while nothing else keeps the process alive
+        syncDrain = SyncDrain(
+            keptAlive = combine(visible, PlaybackForeground.inForeground, TaskConcurrencyServiceHost.running) { visible, playing, service ->
+                visible || playing || service
+            }.stateIn(appScope, SharingStarted.Eagerly, false),
+            scanned = syncRuntime.scanned,
+            lanes = syncRuntime.laneStates,
+            startEngine = { syncRuntime.start() },
+        )
+        val drainScheduler = SyncDrainScheduler(
+            needs = { syncRuntime.nextDrain() },
+            workManager = { WorkManager.getInstance(this) },
+            onFailed = { io.sentry.Sentry.captureException(it) },
+        )
+        // The sync service keeps the process alive while a transfer runs in the background, unless playback does;
+        // drains take whatever else is left
         syncKeepAlive = SyncKeepAlive(
             appScope,
-            visible = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
-                .map { it.isAtLeast(Lifecycle.State.STARTED) }
-                .stateIn(appScope, SharingStarted.Eagerly, false),
+            visible = visible,
             playing = PlaybackForeground.inForeground,
             lanes = syncRuntime.laneStates,
+            serviceRunning = TaskConcurrencyServiceHost.running,
+            draining = syncDrain.draining,
+            scanned = syncRuntime.scanned,
             startService = { TaskConcurrencyServiceHost.start(this) },
+            scheduleDrains = { drainScheduler.schedule() },
         )
         PlaybackForeground.onLeaving = syncKeepAlive::onPlaybackLeavingForeground
+        TaskConcurrencyServiceHost.onUnavailable = syncKeepAlive::onServiceUnavailable
 
         // The one automatic retry of parked tasks, when the app is first opened in this process
         val parkedTaskRetry = ParkedTaskRetry(

@@ -239,8 +239,24 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     screen (`NotificationPermissionPrompt`); without it the service runs with its notice hidden.
   - Android allows that start from the background only at a few moments, so `SyncKeepAlive` starts it as the app
     leaves the screen, and as playback leaves the foreground: `PlaybackForeground.onLeaving` runs before media3
-    demotes, while the app still holds a foreground service. A refused start isn't retried until the app next leaves
-    the screen; the engine keeps running while the process lives.
+    demotes, while the app still holds a foreground service. A refused start, or a service Android ends when its
+    budget runs out (`TaskConcurrencyServiceHost.onUnavailable`), hands its transfers to drains until the app is next
+    opened (which resets the budget).
+  - **Sync drains** (`SyncDrain`, `SyncDrainWorker`: WorkManager) take everything else once nothing keeps the process
+    alive (no app on screen, no playback in the foreground, no service): the sync lane, media-server pushes, lanes
+    waiting out a backoff (the in-process wait stops while the device sleeps), book uploads held for Wi-Fi, and
+    transfers the service can't carry. `SyncKeepAlive` schedules them (`SyncDrainScheduler`) from the stored queue
+    (`TaskConcurrencyManager.nextDrain`, by the lanes' own pick rules; what the process knew of its lanes dies with
+    it): two unique works, one on any network, one that waits for an unmetered network for held uploads, each due now
+    or at the earliest retry. A drain runs the engine until no lane works, then the next is scheduled; Android ends a
+    job after 10 minutes and WorkManager runs it again (downloads resume, uploads continue from S3's parts). Never
+    while something else keeps the process alive, and the service isn't started while one runs: Android 16 counts a
+    job started while the app is visible, or running beside a foreground service, against the app's job quota.
+  - WorkManager starts on demand (`BookPlayerApplication` is its `Configuration.Provider`; the manifest removes its
+    start-up initializer, which wrote its database at every process start and was the first thing to die on a full
+    disk). Its database failing to open is reported (`setInitializationExceptionHandler`), and nothing schedules a
+    drain while storage is critical. Its consumer rules keep the worker's name, which it stores across app updates;
+    `scripts/audit-mapping.sh` pins it.
   - What the old start/stop cycle covered is explicit: the runtime's `SyncNetworkCallback` rescans on network
     changes and cuts backoffs short on a new validated network; the engine rescans on storage recovery; the
     cellular-upload setting calls `requestWorkerScan()`.

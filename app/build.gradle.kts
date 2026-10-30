@@ -162,6 +162,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     // ProcessLifecycleOwner: the app-foreground signal that re-syncs preferences and the visible level.
     implementation(libs.androidx.lifecycle.process)
+    // The sync drain (SyncDrainWorker): runs the engine when nothing else keeps the process alive
+    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
@@ -205,6 +207,7 @@ dependencies {
     testImplementation(libs.robolectric)          // Intent-building tests (JVM)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.androidx.work.testing)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

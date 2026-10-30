@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.pm.ServiceInfo
 import com.tortugapower.audiobookplayer.R
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -40,6 +41,32 @@ class TaskConcurrencyServiceHostTest {
         assertTrue(shadowOf(service).isStoppedBySelf)
         assertTrue(shadowOf(service).isForegroundStopped)
         controller.destroy()
+    }
+
+    /** Up, it keeps the process alive: no sync drain runs beside it (Android 16 job quota) */
+    @Test fun itSaysWhileItRuns() {
+        val controller = Robolectric.buildService(TaskConcurrencyServiceHost::class.java).create()
+        assertTrue(TaskConcurrencyServiceHost.running.value)
+
+        controller.get().onTimeout(1, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        controller.destroy()
+        assertFalse(TaskConcurrencyServiceHost.running.value)
+    }
+
+    /** Its budget ran out mid-run: its transfers go to sync drains until the app is next opened */
+    @Test fun onTimeout_itSaysItsUnavailable() {
+        var told = 0
+        TaskConcurrencyServiceHost.onUnavailable = { told++ }
+        try {
+            val controller = Robolectric.buildService(TaskConcurrencyServiceHost::class.java).create()
+
+            controller.get().onTimeout(1, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            controller.destroy()
+
+            assertEquals(1, told)
+        } finally {
+            TaskConcurrencyServiceHost.onUnavailable = null
+        }
     }
 
     @Test fun destroyedWithoutEverPromoting_doesNotThrow() {
