@@ -15,8 +15,9 @@ import kotlinx.coroutines.launch
 
 /**
  * Keeps the sync engine's work going once the app leaves the screen (SyncKeepAlivePolicy): starts the sync service
- * (TaskConcurrencyServiceHost) when a transfer needs it, and tells the service what it's keeping alive, so it stops
- * itself once nothing is; and schedules sync drains (SyncDrainScheduler) for whatever is left to them.
+ * (SyncKeepAliveService: the target's TaskConcurrencyServiceHost or WearSyncServiceHost) when a transfer needs it,
+ * and tells the service what it's keeping alive, so it stops itself once nothing is; and schedules sync drains
+ * (SyncDrainScheduler) for whatever is left to them.
  *
  * Android allows a foreground service to start from the background only at a few moments. The two that matter here
  * are when the app has just left the screen, and while playback holds the foreground. So the service starts as the
@@ -75,7 +76,7 @@ class SyncKeepAlive(
         }
     }
 
-    /** Android refused the service or ended it (TaskConcurrencyServiceHost.onUnavailable): drains carry the transfers */
+    /** Android refused the service or ended it (SyncKeepAliveService.onUnavailable): drains carry the transfers */
     fun onServiceUnavailable() {
         serviceUnavailable.value = true
     }
