@@ -21,6 +21,8 @@ import com.tortugapower.audiobookplayer.logic.SyncDrainScheduler
 import com.tortugapower.audiobookplayer.logic.SyncKeepAlive
 import com.tortugapower.audiobookplayer.logic.SyncPauseReporter
 import com.tortugapower.audiobookplayer.logic.SyncRuntime
+import com.tortugapower.audiobookplayer.logic.SyncRuntimeHost
+import com.tortugapower.audiobookplayer.logic.SyncKeepAliveService
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
@@ -51,7 +53,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.tortugapower.audiobookplayer.logic.StorageMonitor
 
-class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.Provider {
+class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.Provider, SyncRuntimeHost {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main + StorageMonitor.exceptionHandler { this })
 
     companion object {
@@ -75,11 +77,11 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.P
     private lateinit var syncRuntime: SyncRuntime
 
     /** Starts the sync service when a transfer needs it to keep the process alive. Set in [onCreate]. */
-    internal lateinit var syncKeepAlive: SyncKeepAlive
+    override lateinit var syncKeepAlive: SyncKeepAlive
         private set
 
     /** Runs the sync engine while nothing else keeps the process alive (SyncDrainWorker). Set in [onCreate]. */
-    internal lateinit var syncDrain: SyncDrain
+    override lateinit var syncDrain: SyncDrain
         private set
 
     /**
@@ -241,7 +243,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.P
             .stateIn(appScope, SharingStarted.Eagerly, false)
         // Sync drains (WorkManager jobs) run the engine while nothing else keeps the process alive
         syncDrain = SyncDrain(
-            keptAlive = combine(visible, PlaybackForeground.inForeground, TaskConcurrencyServiceHost.running) { visible, playing, service ->
+            keptAlive = combine(visible, PlaybackForeground.inForeground, SyncKeepAliveService.running) { visible, playing, service ->
                 visible || playing || service
             }.stateIn(appScope, SharingStarted.Eagerly, false),
             scanned = syncRuntime.scanned,
@@ -262,14 +264,14 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.P
             visible = visible,
             playing = PlaybackForeground.inForeground,
             lanes = syncRuntime.laneStates,
-            serviceRunning = TaskConcurrencyServiceHost.running,
+            serviceRunning = SyncKeepAliveService.running,
             draining = syncDrain.draining,
             scanned = syncRuntime.scanned,
             startService = { TaskConcurrencyServiceHost.start(this) },
             scheduleDrains = { drainScheduler.schedule() },
         )
         PlaybackForeground.onLeaving = syncKeepAlive::onPlaybackLeavingForeground
-        TaskConcurrencyServiceHost.onUnavailable = syncKeepAlive::onServiceUnavailable
+        SyncKeepAliveService.onUnavailable = syncKeepAlive::onServiceUnavailable
 
         // The one automatic retry of parked tasks, when the app is first opened in this process
         val parkedTaskRetry = ParkedTaskRetry(

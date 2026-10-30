@@ -34,8 +34,7 @@ class RoomSyncTaskRepository(
 
     override suspend fun saveTask(task: SyncTaskEntity) = withContext(Dispatchers.IO) {
         syncTaskDao.insertAtEnd(task)
-        // The sync foreground service stops itself when idle (dataSync budget, Android 15+);
-        // every new task must be able to bring it back up.
+        // Every new task makes sure the engine runs (the target's SyncRuntime)
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.notifyWorkEnqueued()
     }
 
