@@ -259,9 +259,12 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     disk). Its database failing to open is reported (`setInitializationExceptionHandler`), and nothing schedules a
     drain while storage is critical. Its consumer rules keep the worker's name, which it stores across app updates;
     `scripts/audit-mapping.sh` pins it.
-  - What the old start/stop cycle covered is explicit: the runtime's `SyncNetworkCallback` rescans on network
+  - What the old start/stop cycle covered is explicit: the runtime's `SyncNetworkWatch` rescans on network
     changes and cuts backoffs short on a new validated network; the engine rescans on storage recovery; the
-    cellular-upload setting calls `requestWorkerScan()`.
+    cellular-upload setting calls `requestWorkerScan()`. It follows the app's default network (`SyncNetworkCallback`)
+    and, on Android 12+, the physical one (`PhysicalNetworkCallback`): behind an always-on VPN the default network is
+    the VPN, which never changes when the connection under it drops and comes back. Android 9-11 have no public way to
+    follow that one, so there a VPN still hides it.
   - The watch still builds its engine in `WearSyncServiceHost` (it promotes after building, so it never had -2F)
     until it moves onto `SyncRuntime`.
 - **Downloads resume where they stopped** (`DownloadResume`; iOS needs none, its background URLSession keeps

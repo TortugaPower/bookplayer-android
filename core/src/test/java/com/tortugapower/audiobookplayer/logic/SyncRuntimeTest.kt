@@ -203,7 +203,7 @@ class SyncRuntimeTest {
             runtime.onAppOpened()
             until { runtime.engine.value != null }
             assertEquals(2, builds)
-            assertEquals("the new engine's", 1, networkCallbacks().size)
+            assertEquals("the new engine's", 1, networkCallbacks().count { it is SyncNetworkCallback })
             queuePush("p")
             until { pushes.ran.contains("p") }
         } finally {

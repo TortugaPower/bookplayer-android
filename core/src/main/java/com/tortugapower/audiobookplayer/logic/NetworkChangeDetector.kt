@@ -1,8 +1,8 @@
 package com.tortugapower.audiobookplayer.logic
 
 /**
- * Tells when the device's network changed in a way worth retrying on: a new default network that has
- * internet access. A network coming back after a loss, or a switch between Wi-Fi and cellular, is a change;
+ * Tells when the device's network changed in a way worth retrying on: a new network that has internet access, as a
+ * listener follows it (the app's default network, or the physical one under a VPN). A network coming back after a loss, or a switch between Wi-Fi and cellular, is a change;
  * the callback Android sends as soon as a default-network listener is registered, for the network that was
  * already up, isn't. Every job but a held book upload (UploadDataPolicy) can use whichever network is up, so
  * a task that failed on the old one may go through on the new one.
@@ -17,18 +17,35 @@ class NetworkChangeDetector<N : Any> {
     private var current: N? = null
     // The new default network, until it's validated and its change has been reported
     private var changedTo: N? = null
+    // The networks up at registration, when the listener first reports one of them without saying which
+    private var upAtRegistration: Set<N>? = null
 
     /** Right before registering the listener: the network up now, or null when there's none */
     @Synchronized
     fun onRegistering(activeNetwork: N?) {
         current = activeNetwork
         changedTo = null
+        upAtRegistration = null
+    }
+
+    /**
+     * Right before registering a listener that first reports one of the networks up now without saying which (a best
+     * match, such as the physical network under a VPN): [upNow]. Reported first, one of them is no change; a network
+     * that isn't among them came up since (the one up was lost before the listener reported it, and came back)
+     */
+    @Synchronized
+    fun onRegisteringAmong(upNow: Set<N>) {
+        current = null
+        changedTo = null
+        upAtRegistration = upNow
     }
 
     /** [network] became the default */
     @Synchronized
     fun onAvailable(network: N) {
-        if (network != current) changedTo = network
+        val upNow = upAtRegistration
+        upAtRegistration = null
+        if (upNow?.contains(network) != true && network != current) changedTo = network
         current = network
     }
 

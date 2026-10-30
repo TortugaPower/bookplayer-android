@@ -42,6 +42,23 @@ class NetworkChangeDetectorTest {
         assertTrue(detector.becomesDefault("cellular"))
     }
 
+    /** A best-match listener first reports one of the networks up at registration, without saying which: no change */
+    @Test fun theFirstReport_amongTheNetworksUp_isNoChange() {
+        val detector = NetworkChangeDetector<String>()
+        detector.onRegisteringAmong(setOf("wifi", "cellular"))
+
+        assertFalse(detector.becomesDefault("cellular"))
+        assertTrue("a switch after it", detector.becomesDefault("wifi"))
+    }
+
+    /** The network up at registration was lost before the listener reported it: the connection coming back is a change */
+    @Test fun theFirstReport_ofANetworkNotUpAtRegistration_isAChange() {
+        val detector = NetworkChangeDetector<String>()
+        detector.onRegisteringAmong(setOf("wifi"))
+
+        assertTrue(detector.becomesDefault("wifi, connected again"))
+    }
+
     @Test fun losingAnotherNetwork_keepsTheCurrentOne() {
         val detector = NetworkChangeDetector<String>()
         detector.onRegistering("wifi")
