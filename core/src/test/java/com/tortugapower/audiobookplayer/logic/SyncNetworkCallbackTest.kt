@@ -84,7 +84,6 @@ class SyncNetworkCallbackTest {
 
     private val wifi: Network = ShadowNetwork.newInstance(1)
     private val cellular: Network = ShadowNetwork.newInstance(2)
-    private val vpn: Network = ShadowNetwork.newInstance(3)
     private val wifiAgain: Network = ShadowNetwork.newInstance(4)
     private val connectivity get() = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
@@ -93,6 +92,12 @@ class SyncNetworkCallbackTest {
     private suspend fun notRetried(why: String) {
         delay(500)
         assertTrue(why, pushes.ran.isEmpty())
+    }
+
+    /** A validated network with internet that isn't a VPN */
+    private fun physicalCaps(): NetworkCapabilities = caps(true, NetworkCapabilities.TRANSPORT_WIFI).also {
+        shadowOf(it).addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        shadowOf(it).addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
     }
 
     /** The physical network, as the device reports it: available, then its capabilities */
@@ -131,7 +136,7 @@ class SyncNetworkCallbackTest {
      */
     @Test fun behindAVpn_theConnectionComingBack_retriesTheWaitingTasks() = runBlocking {
         val physical = PhysicalNetworkCallback(engine)
-        physical.onRegistering(vpn, caps(true, NetworkCapabilities.TRANSPORT_VPN, NetworkCapabilities.TRANSPORT_WIFI))
+        physical.onRegistering(setOf(wifi))
         physical.connects(wifi)
         notRetried("the network already up")
 
@@ -143,17 +148,17 @@ class SyncNetworkCallbackTest {
         retried()
     }
 
-    @Test fun behindAVpnWithNoConnectionUnderIt_theFirstOneIsAChange() = runBlocking {
+    @Test fun withNoConnectionUp_theFirstOneIsAChange() = runBlocking {
         val physical = PhysicalNetworkCallback(engine)
-        physical.onRegistering(vpn, caps(true, NetworkCapabilities.TRANSPORT_VPN))
+        physical.onRegistering(emptySet())
 
         physical.connects(wifi)
         retried()
     }
 
-    @Test fun withoutAVpn_theActiveNetworkIsThePhysicalOne() = runBlocking {
+    @Test fun aSwitch_fromTheNetworkUpAtRegistration_retries() = runBlocking {
         val physical = PhysicalNetworkCallback(engine)
-        physical.onRegistering(wifi, caps(true, NetworkCapabilities.TRANSPORT_WIFI))
+        physical.onRegistering(setOf(wifi))
         physical.connects(wifi)
         notRetried("the network already up")
 
@@ -166,7 +171,7 @@ class SyncNetworkCallbackTest {
         val default = SyncNetworkCallback(engine)
         val physical = PhysicalNetworkCallback(engine)
         default.onRegistering(wifi)
-        physical.onRegistering(wifi, caps(true, NetworkCapabilities.TRANSPORT_WIFI))
+        physical.onRegistering(setOf(wifi))
 
         default.onAvailable(cellular)
         default.onCapabilitiesChanged(cellular, caps(true, NetworkCapabilities.TRANSPORT_CELLULAR))
@@ -200,20 +205,33 @@ class SyncNetworkCallbackTest {
         assertEquals(listOf(SyncNetworkCallback::class), shadowOf(connectivity).networkCallbacks.map { it::class })
     }
 
-    /** Starting behind a VPN that carries a connection: the physical network the watch is first told of is that one */
-    @Config(sdk = [35])
-    @Test fun theWatch_startsFromTheConnectionUnderAVpn() = runBlocking {
-        val active = connectivity.activeNetwork!!
-        shadowOf(connectivity).setNetworkCapabilities(
-            active, caps(true, NetworkCapabilities.TRANSPORT_VPN, NetworkCapabilities.TRANSPORT_WIFI),
-        )
+    /** The device's networks when the watch starts: the first one a physical connection, the others a VPN */
+    private fun startTheWatch(): Pair<Network, PhysicalNetworkCallback> {
+        val networks = connectivity.allNetworks.toList()
+        shadowOf(connectivity).setNetworkCapabilities(networks.first(), physicalCaps())
+        networks.drop(1).forEach { shadowOf(connectivity).setNetworkCapabilities(it, caps(true, NetworkCapabilities.TRANSPORT_VPN)) }
         SyncNetworkWatch(engine).register(connectivity)
-        val physical = shadowOf(connectivity).networkCallbacks.filterIsInstance<PhysicalNetworkCallback>().single()
+        return networks.first() to shadowOf(connectivity).networkCallbacks.filterIsInstance<PhysicalNetworkCallback>().single()
+    }
 
-        physical.connects(wifi)
+    /** The physical networks up when the watch starts (behind a VPN, the active network is the VPN): reported, no change */
+    @Config(sdk = [35])
+    @Test fun theWatch_startsFromThePhysicalNetworksUp() = runBlocking {
+        val (up, physical) = startTheWatch()
+
+        physical.connects(up)
         notRetried("the connection already up")
 
-        physical.onLost(wifi)
+        physical.onLost(up)
+        physical.connects(wifiAgain)
+        retried()
+    }
+
+    /** Lost between the watch's look at the networks and its registration: the connection coming back is a change */
+    @Config(sdk = [35])
+    @Test fun aConnectionLostBeforeTheWatchHeardOfIt_comingBack_retries() = runBlocking {
+        val (_, physical) = startTheWatch()
+
         physical.connects(wifiAgain)
         retried()
     }

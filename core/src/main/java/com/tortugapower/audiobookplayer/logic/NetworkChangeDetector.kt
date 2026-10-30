@@ -17,32 +17,35 @@ class NetworkChangeDetector<N : Any> {
     private var current: N? = null
     // The new default network, until it's validated and its change has been reported
     private var changedTo: N? = null
-    // One was up at registration, not known by name: the first network reported is that one
-    private var firstIsCurrent = false
+    // The networks up at registration, when the listener first reports one of them without saying which
+    private var upAtRegistration: Set<N>? = null
 
     /** Right before registering the listener: the network up now, or null when there's none */
     @Synchronized
     fun onRegistering(activeNetwork: N?) {
         current = activeNetwork
         changedTo = null
-        firstIsCurrent = false
+        upAtRegistration = null
     }
 
     /**
-     * Right before registering the listener, when a network is up that can't be named (the physical one under a VPN):
-     * the first network the listener reports is that one, no change
+     * Right before registering a listener that first reports one of the networks up now without saying which (a best
+     * match, such as the physical network under a VPN): [upNow]. Reported first, one of them is no change; a network
+     * that isn't among them came up since (the one up was lost before the listener reported it, and came back)
      */
     @Synchronized
-    fun onRegisteringOneUp() {
+    fun onRegisteringAmong(upNow: Set<N>) {
         current = null
         changedTo = null
-        firstIsCurrent = true
+        upAtRegistration = upNow
     }
 
     /** [network] became the default */
     @Synchronized
     fun onAvailable(network: N) {
-        if (firstIsCurrent) firstIsCurrent = false else if (network != current) changedTo = network
+        val upNow = upAtRegistration
+        upAtRegistration = null
+        if (upNow?.contains(network) != true && network != current) changedTo = network
         current = network
     }
 

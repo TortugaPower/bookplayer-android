@@ -27,7 +27,7 @@ class SyncNetworkWatch(engine: TaskConcurrencyManager) {
         default.onRegistering(active)
         register(default) { connectivity.registerDefaultNetworkCallback(it) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            physical.onRegistering(active, active?.let { connectivity.getNetworkCapabilities(it) })
+            physical.onRegistering(physicalNetworksUp(connectivity))
             // Any network with internet that isn't a VPN: the best of them is the one a VPN runs over
             val request = NetworkRequest.Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -42,6 +42,18 @@ class SyncNetworkWatch(engine: TaskConcurrencyManager) {
         registered.forEach { runCatching { connectivity.unregisterNetworkCallback(it) } }
         registered.clear()
     }
+
+    // The validated networks with internet that aren't a VPN. Behind a VPN the active network is the VPN, and a callback
+    // only reports what comes after its registration: this list is what names the ones up before it
+    @Suppress("DEPRECATION")
+    private fun physicalNetworksUp(connectivity: ConnectivityManager): Set<Network> =
+        connectivity.allNetworks.filter { network ->
+            connectivity.getNetworkCapabilities(network)?.let {
+                it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    it.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                    it.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            } == true
+        }.toSet()
 
     private fun register(callback: ConnectivityManager.NetworkCallback, registration: (ConnectivityManager.NetworkCallback) -> Unit) {
         runCatching { registration(callback) }
@@ -93,16 +105,10 @@ class PhysicalNetworkCallback(private val engine: TaskConcurrencyManager) : Conn
     private val changes = NetworkChangeDetector<Network>()
 
     /**
-     * Right before registering: the physical network up now, whose first callback is no change. The app's [active]
-     * network is that one, unless it's a VPN: then one is up when the VPN carries a physical transport ([activeCaps]),
-     * and the first network reported is that one
+     * Right before registering: the physical networks up now (validated). The first callback reports one of them, no
+     * change; a network that isn't among them came up since
      */
-    fun onRegistering(active: Network?, activeCaps: NetworkCapabilities?) = when {
-        active == null || activeCaps == null -> changes.onRegistering(null)
-        !activeCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> changes.onRegistering(active)
-        PHYSICAL_TRANSPORTS.any { activeCaps.hasTransport(it) } -> changes.onRegisteringOneUp()
-        else -> changes.onRegistering(null)
-    }
+    fun onRegistering(upNow: Set<Network>) = changes.onRegisteringAmong(upNow)
 
     override fun onAvailable(network: Network) = changes.onAvailable(network)
 
@@ -112,11 +118,5 @@ class PhysicalNetworkCallback(private val engine: TaskConcurrencyManager) : Conn
         if (changes.onCapabilitiesChanged(network, caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))) {
             engine.retryWaitingNow()
         }
-    }
-
-    private companion object {
-        val PHYSICAL_TRANSPORTS = listOf(
-            NetworkCapabilities.TRANSPORT_WIFI, NetworkCapabilities.TRANSPORT_CELLULAR, NetworkCapabilities.TRANSPORT_ETHERNET,
-        )
     }
 }
