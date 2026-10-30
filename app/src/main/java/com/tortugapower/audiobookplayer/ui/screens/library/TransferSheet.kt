@@ -16,11 +16,12 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LaptopChromebook
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -175,7 +176,9 @@ private fun AddressInstructions(url: String) {
             )
         }
         Spacer(modifier = Modifier.height(16.dp))
-        OutlinedButton(
+        // In the accent, as on iOS: Material3's default label color is onSurfaceVariant, the theme's secondary
+        // gray, which reads as disabled.
+        TextButton(
             onClick = {
                 clipboard.setText(AnnotatedString(url))
                 showsCopied = true
@@ -184,7 +187,8 @@ private fun AddressInstructions(url: String) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM
                     else HapticFeedbackConstants.KEYBOARD_TAP
                 )
-            }
+            },
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
         ) {
             Icon(
                 if (showsCopied) Icons.Default.Check else Icons.Default.ContentCopy,
