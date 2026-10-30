@@ -26,7 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -1594,6 +1593,8 @@ fun LibraryScreen(
                             itemForSwipeOptions = item
                             showSwipeOptionsDialog = true
                         },
+                        // The swipe dialog's Delete, straight to its confirmation.
+                        onDelete = { item -> itemsToDelete = listOf(item) },
                     )
                 } else {
                     val lazyListState = rememberLazyListState()
@@ -1756,17 +1757,18 @@ fun LibraryListItem(
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val context = LocalContext.current
 
-    val externalResources = item.externalResources
+    // Only the media servers it streams from: a Hardcover link isn't where the audio comes from.
+    val mediaServer = mediaServerProvider(item)
 
     // Download state and ring fraction, derived off the main thread (shared with the grid's tiles).
     val download = rememberItemDownload(item, libraryViewModel)
     val isDownloading = download.isDownloading
     val downloadProgress: Float? = download.progress
 
-    // Highlight the row of the book currently loaded in the player (library and search share
-    // this row composable).
+    // Highlight the book loaded in the player, or the folder holding it (library and search share this
+    // row composable), as the grid does.
     val currentPlayingItem by PlaybackManager.currentItem.collectAsState()
-    val isCurrentlyPlaying = currentPlayingItem?.uuid == item.uuid
+    val isCurrentlyPlaying = isPlayingOrHoldsPlaying(item, currentPlayingItem)
 
     // Library display prefs (Options sheet). Default off when no ViewModel (e.g. previews).
     val showOriginalFileName by remember(libraryViewModel) {
@@ -1867,26 +1869,10 @@ fun LibraryListItem(
                     )
                 }
             } else if (showCloud) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val path = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(size.width, size.height * 0.3f)
-                        lineTo(size.width, size.height)
-                        lineTo(size.width * 0.3f, size.height)
-                        close()
-                    }
-                    drawPath(path, Color.Black.copy(alpha = 0.65f))
-                }
-                Icon(
-                    // LITE/PRO: tappable cloud (downloadable). FREE/signed-out: the file is missing
-                    // and can't be re-fetched — an error badge, not a dead download button.
-                    imageVector = if (canDownload) Icons.Outlined.Cloud else Icons.Outlined.ErrorOutline,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(4.dp)
-                        .size(16.dp),
-                    tint = if (canDownload) Color(0xFF4285F4) else MaterialTheme.colorScheme.error
-                )
+                DownloadCorner(item, canDownload, box = 56.dp, modifier = Modifier.align(Alignment.BottomEnd))
+            }
+            if (isCurrentlyPlaying) {
+                PlayingWash()
             }
             if (item.type == ItemType.FOLDER) {
                 // Small circular corner badge, mirroring iOS's integrations-list folder badge
@@ -1939,77 +1925,21 @@ fun LibraryListItem(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (externalResources.isNotEmpty()) {
-                    externalResources.forEachIndexed { index, resource ->
-                        if (index > 0) {
-                            Text(
-                                text = "•",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        
-                        val tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            when (resource.providerName.lowercase()) {
-                                "jellyfin" -> {
-                                    Box(
-                                        modifier = Modifier.size(12.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Canvas(modifier = Modifier.fillMaxSize()) {
-                                            val path = androidx.compose.ui.graphics.Path().apply {
-                                                moveTo(size.width / 2f, 1f)
-                                                lineTo(size.width - 1f, size.height - 1f)
-                                                lineTo(1f, size.height - 1f)
-                                                close()
-                                            }
-                                            drawPath(
-                                                path = path,
-                                                color = tint,
-                                                style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                                    width = 1.5.dp.toPx(),
-                                                    join = androidx.compose.ui.graphics.StrokeJoin.Round
-                                                )
-                                            )
-                                        }
-                                    }
-                                }
-                                "audiobookshelf" -> {
-                                    Icon(
-                                        imageVector = Icons.Default.Book,
-                                        contentDescription = null,
-                                        tint = tint,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
-                                else -> {
-                                    Icon(
-                                        imageVector = Icons.Default.Layers,
-                                        contentDescription = null,
-                                        tint = tint,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
-                            }
-                            
-                            val providerLabel = resource.providerName.lowercase().replaceFirstChar {
-                                if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString()
-                            }
-                            
-                            Text(
-                                text = providerLabel,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1
-                            )
-                        }
+                if (mediaServer != null) {
+                    val tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        MediaServerGlyph(mediaServer, tint, Modifier.size(12.dp))
+                        Text(
+                            text = mediaServer.replaceFirstChar { it.titlecase(java.util.Locale.getDefault()) },
+                            color = tint,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1
+                        )
                     }
-                    
+
                     Text(
                         text = "•",
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),

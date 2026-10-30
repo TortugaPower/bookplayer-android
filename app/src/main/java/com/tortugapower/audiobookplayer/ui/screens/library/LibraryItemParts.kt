@@ -1,14 +1,32 @@
 package com.tortugapower.audiobookplayer.ui.screens.library
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.tortugapower.audiobookplayer.R
@@ -133,3 +151,102 @@ fun itemAccessibilityDescription(item: LibraryItemEntity, download: ItemDownload
     val base = "${item.title}. ${itemDetailsText(item)}. ${itemDurationText(item)}. $progressText"
     return if (download.showCloud && !canDownload) "$base. ${stringResource(R.string.library_audio_unavailable)}" else base
 }
+
+/**
+ * Whether the item is the playing book or holds it at any depth, so the folder (or volume) leading to it is
+ * marked too (iOS `getPathForParentOfPlayingItem`). At a level, only one item can hold it.
+ */
+fun isPlayingOrHoldsPlaying(item: LibraryItemEntity, playing: LibraryItemEntity?): Boolean {
+    if (playing == null) return false
+    if (playing.uuid == item.uuid) return true
+    val playingPath = playing.relativePath ?: return false
+    val path = item.relativePath?.takeIf { it.isNotEmpty() } ?: return false
+    return playingPath.startsWith("$path/")
+}
+
+/** The playing item's mark over its artwork, with the accent title: a 30% accent wash (iOS parity). */
+@Composable
+fun PlayingWash(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)))
+}
+
+/**
+ * The media server an item streams from: Jellyfin or Audiobookshelf, never a Hardcover link (iOS
+ * `streamingResource`). Lowercased; null for any other item.
+ */
+fun mediaServerProvider(item: LibraryItemEntity): String? =
+    item.externalResources.map { it.providerName.lowercase() }.firstOrNull { it in MEDIA_SERVER_PROVIDERS }
+
+private val MEDIA_SERVER_PROVIDERS = setOf("jellyfin", "audiobookshelf")
+
+/** A media server's mark: Jellyfin's triangle, Audiobookshelf's book. */
+@Composable
+fun MediaServerGlyph(provider: String, tint: Color, modifier: Modifier = Modifier) {
+    if (provider == "jellyfin") {
+        Canvas(modifier = modifier) {
+            val inset = size.minDimension / 12f
+            val path = Path().apply {
+                moveTo(size.width / 2f, inset)
+                lineTo(size.width - inset, size.height - inset)
+                lineTo(inset, size.height - inset)
+                close()
+            }
+            drawPath(
+                path = path,
+                color = tint,
+                style = Stroke(width = size.minDimension / 8f, join = StrokeJoin.Round)
+            )
+        }
+    } else {
+        Icon(imageVector = Icons.Default.Book, contentDescription = null, tint = tint, modifier = modifier)
+    }
+}
+
+/**
+ * The download corner, the same in the list and the grid (iOS `ItemArtworkView.downloadCorner`): a dark
+ * triangle in the bottom-right, its legs [LEG_FRACTION] of [box], with the cloud, the media server's mark for
+ * an item streamed from one, or an error mark when this account can't download. [box] 56dp is a list row's;
+ * a tile's grows with its cover, and the glyph with it.
+ */
+@Composable
+fun DownloadCorner(item: LibraryItemEntity, canDownload: Boolean, box: Dp, modifier: Modifier = Modifier) {
+    val scale = box / 56.dp
+    Box(modifier = modifier.size(box)) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val start = 1f - LEG_FRACTION
+            val path = Path().apply {
+                moveTo(size.width, size.height * start)
+                lineTo(size.width, size.height)
+                lineTo(size.width * start, size.height)
+                close()
+            }
+            drawPath(path, Color.Black.copy(alpha = 0.65f))
+        }
+        val glyphModifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(4.dp * scale)
+            .size(16.dp * scale)
+        val provider = mediaServerProvider(item)
+        when {
+            // Signed out or FREE: the file is missing and can't be fetched again.
+            !canDownload -> Icon(
+                imageVector = Icons.Outlined.ErrorOutline,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = glyphModifier
+            )
+            provider != null -> MediaServerGlyph(provider, DOWNLOAD_TINT, glyphModifier)
+            else -> Icon(
+                imageVector = Icons.Outlined.Cloud,
+                contentDescription = null,
+                tint = DOWNLOAD_TINT,
+                modifier = glyphModifier
+            )
+        }
+    }
+}
+
+/** How far the download corner's triangle runs along each edge of its box. */
+const val LEG_FRACTION = 0.7f
+
+private val DOWNLOAD_TINT = Color(0xFF4285F4)

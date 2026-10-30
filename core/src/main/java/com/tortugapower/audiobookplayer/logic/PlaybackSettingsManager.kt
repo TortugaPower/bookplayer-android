@@ -219,8 +219,9 @@ object PlaybackSettingsManager {
         context.dataStore.edit { it[SHOW_ORIGINAL_FILE_NAME] = enabled }
     }
 
-    // The Library tab's layout (iOS parity: the Options sheet's layout picker). Stored as iOS's raw value.
-    private val LIBRARY_LAYOUT = stringPreferencesKey("library_layout")
+    // The Library tab's layout (iOS parity: the Options sheet's layout picker). Stored as iOS's raw value under
+    // the server's key (iOS `Constants.UserDefaults.libraryLayout`), so syncing it later needs no migration.
+    private val LIBRARY_LAYOUT = stringPreferencesKey("library_layout:style")
 
     fun getLibraryLayout(context: Context): Flow<LibraryLayout> =
         context.dataStore.data.map { LibraryLayout.fromRawValue(it[LIBRARY_LAYOUT]) }

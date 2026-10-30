@@ -29,8 +29,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -93,10 +91,11 @@ fun LibraryTileGrid(
     onClick: (LibraryItemEntity) -> Unit,
     onLongClick: (LibraryItemEntity) -> Unit,
     onOptions: (LibraryItemEntity) -> Unit,
+    onDelete: (LibraryItemEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val style = if (layout == LibraryLayout.COVERS) TileStyle.COVER else TileStyle.CARD
-    // Cards grow with the text size, as their text does: at the largest sizes, one or two to a row.
+    // Tiles grow with the text size (iOS `@ScaledMetric`): at the largest sizes, fewer and bigger to a row.
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 2f)
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -106,7 +105,7 @@ fun LibraryTileGrid(
         // About 150dp a card, 100dp a cover (140dp on a tablet), never wider than the screen.
         val minimumWidth = when (style) {
             TileStyle.CARD -> 150.dp * fontScale
-            TileStyle.COVER -> if (maxWidth >= 600.dp) 140.dp else 100.dp
+            TileStyle.COVER -> (if (maxWidth >= 600.dp) 140.dp else 100.dp) * fontScale
         }.coerceAtMost(available)
         val columns = max(1, ((available + spacing) / (minimumWidth + spacing)).toInt())
         val tileWidth = (available - spacing * (columns - 1)) / columns
@@ -140,6 +139,7 @@ fun LibraryTileGrid(
                             onClick = { onClick(item) },
                             onLongClick = { onLongClick(item) },
                             onOptions = { onOptions(item) },
+                            onDelete = { onDelete(item) },
                             modifier = Modifier
                                 .width(tileWidth)
                                 .fillMaxHeight()
@@ -170,12 +170,14 @@ private fun LibraryTile(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onOptions: () -> Unit,
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
     val download = rememberItemDownload(item, libraryViewModel)
     val currentPlayingItem by PlaybackManager.currentItem.collectAsState()
-    val isHighlighted = currentPlayingItem?.uuid == item.uuid
+    // The playing book, or the folder holding it, as in the list.
+    val isHighlighted = isPlayingOrHoldsPlaying(item, currentPlayingItem)
     val showOriginalFileName by libraryViewModel.showOriginalFileName.collectAsState()
     val showPercentage by libraryViewModel.showProgressAsPercentage.collectAsState()
 
@@ -186,6 +188,7 @@ private fun LibraryTile(
 
     val description = itemAccessibilityDescription(item, download, canDownload)
     val optionsLabel = stringResource(R.string.library_options_title)
+    val deleteLabel = stringResource(R.string.common_delete)
 
     Box(modifier = modifier.padding(top = stackStep * 2)) {
         if (isFolder) {
@@ -216,8 +219,11 @@ private fun LibraryTile(
                     if (isSelectMode) {
                         selected = isSelected
                     } else {
-                        // The list's swipe, which a grid doesn't have: the item's options.
-                        customActions = listOf(CustomAccessibilityAction(optionsLabel) { onOptions(); true })
+                        // The list's swipe, which a grid doesn't have: the item's options, and Delete (iOS parity).
+                        customActions = listOf(
+                            CustomAccessibilityAction(optionsLabel) { onOptions(); true },
+                            CustomAccessibilityAction(deleteLabel) { onDelete(); true }
+                        )
                     }
                 }
         ) {
@@ -231,6 +237,7 @@ private fun LibraryTile(
                 showPercentage = showPercentage,
                 isSelectMode = isSelectMode,
                 isSelected = isSelected,
+                title = itemDisplayTitle(item, showOriginalFileName),
                 download = download,
                 canDownload = canDownload,
                 onDownload = { libraryViewModel.startDownload(item) }
@@ -272,6 +279,7 @@ private fun TileCover(
     showPercentage: Boolean,
     isSelectMode: Boolean,
     isSelected: Boolean,
+    title: String,
     download: ItemDownloadUi,
     canDownload: Boolean,
     onDownload: () -> Unit
@@ -283,6 +291,9 @@ private fun TileCover(
             .then(if (style == TileStyle.COVER) Modifier.clip(RoundedCornerShape(8.dp)) else Modifier)
             .then(if (item.artworkURL == null) Modifier.background(placeholderBrush()) else Modifier)
     ) {
+        if (style == TileStyle.COVER && item.artworkURL == null) {
+            PlaceholderText(item, title, Modifier.align(Alignment.BottomStart))
+        }
         if (isFolder) {
             // Not cropped to the shorter shape: fitted, on a blurred copy of itself (blur needs Android 12;
             // before it the copy is only dimmed).
@@ -311,11 +322,18 @@ private fun TileCover(
         }
 
         DownloadMark(
+            item = item,
+            style = style,
+            tileWidth = tileWidth,
             download = download,
             canDownload = canDownload,
             onDownload = onDownload,
             modifier = Modifier.align(Alignment.BottomEnd)
         )
+
+        if (isHighlighted) {
+            PlayingWash()
+        }
 
         if (isSelectMode) {
             SelectionMark(isSelected)
@@ -377,11 +395,15 @@ private fun ProgressMark(
 }
 
 /**
- * The download corner, as the list's artwork has it: a ring while downloading, else a cloud for audio that
- * isn't on the device (tap to download), or an error mark when this account can't download it.
+ * The list's download corner grown with the cover (iOS `ItemArtworkView`): its triangle runs 30% along each
+ * edge of a cover alone and 25% of a card's, and its whole box downloads on a tap. A ring over the cover while
+ * downloading.
  */
 @Composable
 private fun DownloadMark(
+    item: LibraryItemEntity,
+    style: TileStyle,
+    tileWidth: Dp,
     download: ItemDownloadUi,
     canDownload: Boolean,
     onDownload: () -> Unit,
@@ -405,31 +427,51 @@ private fun DownloadMark(
         }
     } else if (download.showCloud) {
         val downloadLabel = stringResource(R.string.common_download)
-        Box(
-            modifier = modifier
-                .padding(6.dp)
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.6f))
-                .then(
-                    if (canDownload && !download.isDownloading) {
-                        Modifier.clickable(onClickLabel = downloadLabel, onClick = onDownload)
-                            .semantics { contentDescription = downloadLabel }
-                    } else {
-                        Modifier.clearAndSetSemantics { }
-                    }
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                // Signed out or FREE: the file is missing and can't be fetched again, an error mark rather
-                // than a download button that does nothing.
-                imageVector = if (canDownload) Icons.Outlined.Cloud else Icons.Outlined.ErrorOutline,
-                contentDescription = null,
-                tint = if (canDownload) Color(0xFF4285F4) else MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(18.dp)
+        val legs = if (style == TileStyle.COVER) 0.3f else 0.25f
+        DownloadCorner(
+            item = item,
+            canDownload = canDownload,
+            box = tileWidth * (legs / LEG_FRACTION),
+            modifier = modifier.then(
+                if (canDownload && !download.isDownloading) {
+                    Modifier.clickable(onClickLabel = downloadLabel, onClick = onDownload)
+                        .semantics { contentDescription = downloadLabel }
+                } else {
+                    Modifier.clearAndSetSemantics { }
+                }
             )
-        }
+        )
+    }
+}
+
+/**
+ * A cover alone with no artwork: nothing else on screen names it, so the author, then the title, in white at
+ * the bottom (iOS's `cover` placeholder).
+ */
+@Composable
+private fun PlaceholderText(item: LibraryItemEntity, title: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(8.dp)
+            .clearAndSetSemantics { },
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = itemDetailsText(item),
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.copy(alpha = 0.7f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = title.ifBlank { stringResource(R.string.library_unknown_title) },
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -470,8 +512,8 @@ private fun TileDetails(item: LibraryItemEntity, title: String, isHighlighted: B
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         val duration = itemDurationText(item)
         if (duration.isNotEmpty()) {
