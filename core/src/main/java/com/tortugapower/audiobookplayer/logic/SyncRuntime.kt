@@ -2,8 +2,6 @@ package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
 import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -70,7 +68,7 @@ class SyncRuntime(
     @OptIn(ExperimentalCoroutinesApi::class)
     private val serial = Dispatchers.Default.limitedParallelism(1)
     private var state: State = State.Idle
-    private val networkCallbacks = HashMap<TaskConcurrencyManager, SyncNetworkCallback>()
+    private val networkWatches = HashMap<TaskConcurrencyManager, SyncNetworkWatch>()
     // The failures already reported in this process
     private val reported = HashSet<String>()
 
@@ -198,49 +196,13 @@ class SyncRuntime(
 
     private fun watchNetwork(engine: TaskConcurrencyManager) {
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
-        val callback = SyncNetworkCallback(engine)
-        callback.onRegistering(connectivity.activeNetwork)
-        runCatching { connectivity.registerDefaultNetworkCallback(callback) }
-            .onSuccess { networkCallbacks[engine] = callback }
-            .onFailure { Log.w("SyncRuntime", "Network callback not registered", it) }
+        val watch = SyncNetworkWatch(engine)
+        if (watch.register(connectivity)) networkWatches[engine] = watch
     }
 
     private fun unwatchNetwork(engine: TaskConcurrencyManager) {
-        val callback = networkCallbacks.remove(engine) ?: return
+        val watch = networkWatches.remove(engine) ?: return
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
-        runCatching { connectivity.unregisterNetworkCallback(callback) }
-    }
-}
-
-/**
- * The engine's view of the device's network. Any network becoming the default rescans the lanes: the task list
- * doesn't re-emit for a network change, and uploads held on cellular may go on Wi-Fi. A new default network, once
- * validated, also cuts backoffs short (NetworkChangeDetector), since a task that failed on the old one may go
- * through on it.
- */
-class SyncNetworkCallback(private val engine: TaskConcurrencyManager) : ConnectivityManager.NetworkCallback() {
-    private val changes = NetworkChangeDetector<Network>()
-    // The default network's metered state: only a metered → unmetered flip can release held uploads
-    private var lastNotMetered: Boolean? = null
-
-    /** Right before registering: the network up now, whose first callback is no change */
-    fun onRegistering(activeNetwork: Network?) = changes.onRegistering(activeNetwork)
-
-    override fun onAvailable(network: Network) {
-        changes.onAvailable(network)
-        engine.requestWorkerScan()
-    }
-
-    override fun onLost(network: Network) = changes.onLost(network)
-
-    override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-        if (changes.onCapabilitiesChanged(network, caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))) {
-            engine.retryWaitingNow()
-        }
-        // Capability callbacks fire constantly (bandwidth estimates, validation), and each scan reads the queue
-        val notMetered = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-        val becameUnmetered = notMetered && lastNotMetered != true
-        lastNotMetered = notMetered
-        if (becameUnmetered) engine.requestWorkerScan()
+        watch.unregister(connectivity)
     }
 }

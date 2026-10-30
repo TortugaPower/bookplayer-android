@@ -42,6 +42,24 @@ class NetworkChangeDetectorTest {
         assertTrue(detector.becomesDefault("cellular"))
     }
 
+    /** Under a VPN, the physical network up at registration can't be named: the first one reported is that one */
+    @Test fun aNetworkUpThatCantBeNamed_isNoChange_whenFirstReported() {
+        val detector = NetworkChangeDetector<String>()
+        detector.onRegisteringOneUp()
+
+        assertFalse(detector.becomesDefault("wifi"))
+        assertTrue("a switch after it", detector.becomesDefault("cellular"))
+    }
+
+    @Test fun aNetworkUpThatCantBeNamed_comingBackAfterALoss_isAChange() {
+        val detector = NetworkChangeDetector<String>()
+        detector.onRegisteringOneUp()
+        detector.becomesDefault("wifi")
+        detector.onLost("wifi")
+
+        assertTrue(detector.becomesDefault("wifi, connected again"))
+    }
+
     @Test fun losingAnotherNetwork_keepsTheCurrentOne() {
         val detector = NetworkChangeDetector<String>()
         detector.onRegistering("wifi")

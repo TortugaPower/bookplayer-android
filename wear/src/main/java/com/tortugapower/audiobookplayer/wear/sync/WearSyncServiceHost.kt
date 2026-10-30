@@ -26,7 +26,7 @@ import com.tortugapower.audiobookplayer.logic.MatchUuidsProcessor
 import com.tortugapower.audiobookplayer.logic.MetadataUploadProcessor
 import com.tortugapower.audiobookplayer.logic.MoveProcessor
 import com.tortugapower.audiobookplayer.logic.MultipartUploadProcessor
-import com.tortugapower.audiobookplayer.logic.SyncNetworkCallback
+import com.tortugapower.audiobookplayer.logic.SyncNetworkWatch
 import com.tortugapower.audiobookplayer.logic.QueueFileUploadProcessor
 import com.tortugapower.audiobookplayer.logic.RenameFolderProcessor
 import com.tortugapower.audiobookplayer.logic.SetBookmarkProcessor
@@ -67,10 +67,10 @@ class WearSyncServiceHost : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private var connectivityManager: android.net.ConnectivityManager? = null
-    // Same network wake-ups as the phone's engine (SyncNetworkCallback): uploads held on a metered network
+    // Same network wake-ups as the phone's engine (SyncNetworkWatch): uploads held on a metered network
     // (UploadDataPolicy) only resume when something rescans the queue, and a new validated network cuts
     // backoffs short. Without it, a held upload on an LTE watch waits for an app restart.
-    private var networkCallback: SyncNetworkCallback? = null
+    private var networkWatch: SyncNetworkWatch? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -123,10 +123,8 @@ class WearSyncServiceHost : Service() {
 
         connectivityManager = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
         connectivityManager?.let {
-            val callback = SyncNetworkCallback(taskConcurrencyManager)
-            // Registering reports the network already up: that's no change, so it cuts no backoff short
-            callback.onRegistering(it.activeNetwork)
-            runCatching { it.registerDefaultNetworkCallback(callback) }.onSuccess { networkCallback = callback }
+            val watch = SyncNetworkWatch(taskConcurrencyManager)
+            if (watch.register(it)) networkWatch = watch
         }
 
         // Same Android 15 dataSync-budget guard as the phone host (TaskConcurrencyServiceHost):
@@ -176,7 +174,7 @@ class WearSyncServiceHost : Service() {
 
     override fun onDestroy() {
         isAlive = false
-        networkCallback?.let { callback -> connectivityManager?.let { runCatching { it.unregisterNetworkCallback(callback) } } }
+        networkWatch?.let { watch -> connectivityManager?.let { watch.unregister(it) } }
         taskConcurrencyManager.stopProcessing()
         serviceScope.cancel()
         super.onDestroy()
