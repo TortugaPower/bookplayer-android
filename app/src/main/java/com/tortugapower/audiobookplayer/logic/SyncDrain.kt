@@ -65,8 +65,12 @@ internal class SyncDrain(
             // Nothing runs on a critically full disk (every task ends in a DB write): the next app open takes it from there
             if (isStorageCritical()) return
             startEngine()
-            // A fresh process builds its engine first: no lane working means nothing until it has looked at the queue
-            withTimeoutOrNull(ENGINE_SCAN_TIMEOUT_MS) { scanned.first { it } } ?: return
+            // A fresh process builds its engine first: no lane working means nothing until it has looked at the queue.
+            // Something taking over meanwhile (the app opened) ends it then, not once the engine is built
+            withTimeoutOrNull(ENGINE_SCAN_TIMEOUT_MS) {
+                combine(scanned, keptAlive) { scanned, keptAlive -> scanned || keptAlive }.first { it }
+            } ?: return
+            if (keptAlive.value) return
             // A live process's lanes wait on a clock that stops while the device sleeps: the retry this drain came for
             // can still be waiting there
             rescan()

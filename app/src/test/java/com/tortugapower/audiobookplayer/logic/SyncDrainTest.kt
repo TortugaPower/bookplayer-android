@@ -143,6 +143,20 @@ class SyncDrainTest {
         assertTrue(drain.hasReturned(id))
     }
 
+    /** A process the job started while the app opens: the job would run beside the visible app until the engine is built */
+    @Test fun `something taking over before the engine has looked at the queue ends it`() = runTest {
+        val run = launch { drain.run(id) }
+        runCurrent()
+        assertTrue(run.isActive)
+
+        keptAlive.value = true
+        runCurrent()
+
+        assertTrue(run.isCompleted)
+        assertEquals(0, rescans)
+        assertFalse(drain.draining.value)
+    }
+
     @Test fun `an engine that never looks at the queue doesn't hold the job`() = runTest {
         val run = launch { drain.run(id) }
         advanceTimeBy(60_001)
