@@ -37,4 +37,23 @@ class SyncKeepAlivePolicyTest {
         assertEquals(emptySet<String>(), keepAlive(lanes = arrayOf("file" to waiting)))
         assertEquals(setOf("upload"), keepAlive(lanes = arrayOf("file" to waiting, "upload" to working)))
     }
+
+    /** A drain keeps the process alive already, or Android won't have the service: drains carry the transfer */
+    @Test fun aServiceThatCantBeUsed_keepsNoTransfer() {
+        assertEquals(
+            emptySet<String>(),
+            SyncKeepAlivePolicy.transfersToKeepAlive(visible = false, playing = false, mapOf("file" to working), serviceUsable = false),
+        )
+    }
+
+    /** With nothing keeping the process alive, and no drain running (one schedules the next as it ends), drains take the queue */
+    @Test fun withNothingKeepingTheProcessAlive_theQueueIsLeftToDrains() {
+        assertEquals(true, SyncKeepAlivePolicy.leftToDrains(visible = false, playing = false, serviceRunning = false, serviceTransfers = emptySet(), draining = false))
+
+        assertEquals(false, SyncKeepAlivePolicy.leftToDrains(visible = true, playing = false, serviceRunning = false, serviceTransfers = emptySet(), draining = false))
+        assertEquals(false, SyncKeepAlivePolicy.leftToDrains(visible = false, playing = true, serviceRunning = false, serviceTransfers = emptySet(), draining = false))
+        assertEquals("the service is up", false, SyncKeepAlivePolicy.leftToDrains(visible = false, playing = false, serviceRunning = true, serviceTransfers = emptySet(), draining = false))
+        assertEquals("the service is starting for a transfer", false, SyncKeepAlivePolicy.leftToDrains(visible = false, playing = false, serviceRunning = false, serviceTransfers = setOf("file"), draining = false))
+        assertEquals(false, SyncKeepAlivePolicy.leftToDrains(visible = false, playing = false, serviceRunning = false, serviceTransfers = emptySet(), draining = true))
+    }
 }

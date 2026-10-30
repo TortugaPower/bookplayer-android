@@ -17,6 +17,8 @@
 #     class an activity-alias targets) — the OS starts them by name; AGP's generated rules keep
 #     them, this pins that;
 #   * Room's database class and its generated _Impl (looked up by name at runtime);
+#   * app only: the WorkManager worker (SyncDrainWorker), whose name WorkManager stores in its own
+#     database and resolves after an app update (its consumer rules keep ListenableWorker names);
 #   * wear only: everything under androidx.wear.ongoing.* and androidx.versionedparcelable.*.
 # R8 synthetics ($$ExternalSyntheticLambda, $$Lambda, $-CC, -$$Nest$) are skipped: they are
 # generated, never resolved by name. Add a surface here when you add a keep rule for a by-name
@@ -69,6 +71,8 @@ required.update({
     "com.tortugapower.audiobookplayer.database.AppDatabase",
     "com.tortugapower.audiobookplayer.database.AppDatabase_Impl",
 })
+if module == "app":
+    required.add("com.tortugapower.audiobookplayer.logic.SyncDrainWorker")
 prefixes = ["androidx.wear.ongoing.", "androidx.versionedparcelable."] if module == "wear" else []
 for original in mapping:
     if any(original.startswith(p) for p in prefixes) and not SYNTHETIC.search(original):
