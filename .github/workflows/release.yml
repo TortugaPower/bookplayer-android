@@ -123,7 +123,7 @@ jobs:
       # Same bar as ci.yml: :app/:wear tests via the dev flavor (no secrets needed), :core is
       # flavorless, plus lint. A release build never ships from a red tree.
       - name: Run unit tests
-        run: ./gradlew testDevDebugUnitTest :core:testDebugUnitTest --stacktrace
+        run: ./gradlew testDevDebugUnitTest :core:testDebugUnitTest :browserdrop:testDebugUnitTest --stacktrace
 
       - name: Lint
         run: ./gradlew lintDevDebug --stacktrace

@@ -468,4 +468,43 @@
         <item quantity="many">لم يتم حذف المجلد: يحتوي على %1$d عنصرًا بأسماء مستخدمة بالفعل في المكتبة. أعد تسميتها أو انقلها أولاً.</item>
         <item quantity="other">لم يتم حذف المجلد: يحتوي على %1$d عنصر بأسماء مستخدمة بالفعل في المكتبة. أعد تسميتها أو انقلها أولاً.</item>
     </plurals>
+
+    <!-- Transfer from Computer -->
+    <string name="transfer_title">النقل من الكمبيوتر</string>
+    <string name="transfer_instructions">على كمبيوتر متصل بالشبكة نفسها، افتح هذا العنوان في متصفح:</string>
+    <string name="transfer_no_address">اتصل بشبكة Wi‑Fi لاستلام الملفات من كمبيوتر.</string>
+    <string name="transfer_footer">أبقِ هذه الشاشة مفتوحة أثناء رفع الملفات.</string>
+    <string name="transfer_server_url_accessibility_value">عنوان النقل، %1$s</string>
+    <string name="import_remove_item_accessibility">إزالة، %1$s</string>
+    <string name="transfer_server_copy_button">نسخ العنوان</string>
+    <string name="transfer_server_copied_button">تم النسخ</string>
+    <plurals name="transfer_folder_files">
+        <item quantity="zero">%1$d ملف</item>
+        <item quantity="one">ملف واحد</item>
+        <item quantity="two">ملفان</item>
+        <item quantity="few">%1$d ملفات</item>
+        <item quantity="many">%1$d ملفًا</item>
+        <item quantity="other">%1$d ملف</item>
+    </plurals>
+    <string name="transfer_server_web_subtitle">أفلت ملفات الكتب الصوتية أو مجلداتها. ستظهر في شاشة الاستيراد في التطبيق على هاتفك.</string>
+    <string name="transfer_server_web_folder_hint">يُحتفظ ببنية المجلدات.</string>
+    <string name="transfer_server_web_drop_title">أفلت هنا</string>
+    <string name="transfer_server_web_choose_files">اختر ملفات</string>
+    <string name="transfer_server_web_choose_folder">اختر مجلدًا</string>
+    <string name="transfer_server_web_retry">إعادة محاولة الفاشلة</string>
+    <string name="transfer_server_web_uploading">جارٍ الرفع</string>
+    <string name="transfer_server_web_uploaded">تم الرفع</string>
+    <string name="transfer_server_web_failed">فشل</string>
+    <string name="transfer_server_web_queue_empty">في انتظار الملفات…</string>
+    <string name="transfer_server_web_skipped">تم تخطي الملفات غير المدعومة: %d</string>
+    <string name="transfer_web_queued">في الانتظار</string>
+    <string name="transfer_web_summary">تم رفع %1$d من %2$d</string>
+    <string name="transfer_web_waiting">في انتظار BookPlayer…</string>
+    <string name="transfer_web_unreachable">تعذّر الوصول إلى BookPlayer. أبقِ شاشة النقل فيه مفتوحة؛ سيُستأنف الرفع تلقائيًا.</string>
+    <string name="transfer_web_not_enough_space">لا توجد مساحة كافية على الجهاز</string>
+    <string name="transfer_web_too_large">كبير جدًا</string>
+    <string name="transfer_web_unsupported">نوع الملف غير مدعوم</string>
+    <string name="transfer_web_path_conflict">يوجد ملف أو مجلد آخر أرسلته بهذا الاسم</string>
+    <string name="transfer_web_done_hint">عند الانتهاء، أكّد في BookPlayer لاستيراد الملفات.</string>
+    <string name="transfer_web_load_error">تعذّر الوصول إلى BookPlayer. تحقق من أن شاشة النقل فيه لا تزال مفتوحة.</string>
 </resources>

@@ -448,4 +448,40 @@
         <item quantity="one">La carpeta no se eliminó: %1$d de sus elementos tiene el mismo nombre que otro en la biblioteca. Cámbiale el nombre o muévelo primero.</item>
         <item quantity="other">La carpeta no se eliminó: %1$d de sus elementos tienen los mismos nombres que otros en la biblioteca. Cámbiales el nombre o muévelos primero.</item>
     </plurals>
+
+    <!-- Transfer from Computer -->
+    <string name="transfer_title">Transferir desde la computadora</string>
+    <string name="transfer_instructions">En una computadora de la misma red, abre esta dirección en un navegador:</string>
+    <string name="transfer_no_address">Conéctate a una red Wi‑Fi para recibir archivos desde una computadora.</string>
+    <string name="transfer_footer">Mantén esta pantalla abierta mientras se suben los archivos.</string>
+    <string name="transfer_server_url_accessibility_value">Dirección de transferencia, %1$s</string>
+    <string name="import_remove_item_accessibility">Quitar, %1$s</string>
+    <string name="transfer_server_copy_button">Copiar dirección</string>
+    <string name="transfer_server_copied_button">Copiada</string>
+    <plurals name="transfer_folder_files">
+        <item quantity="one">%1$d archivo</item>
+        <item quantity="many">%1$d de archivos</item>
+        <item quantity="other">%1$d archivos</item>
+    </plurals>
+    <string name="transfer_server_web_subtitle">Suelta archivos o carpetas de audiolibros. Aparecerán en la pantalla de importación de la app en tu teléfono.</string>
+    <string name="transfer_server_web_folder_hint">Se conserva la estructura de carpetas.</string>
+    <string name="transfer_server_web_drop_title">Suelta aquí</string>
+    <string name="transfer_server_web_choose_files">Elegir archivos</string>
+    <string name="transfer_server_web_choose_folder">Elegir carpeta</string>
+    <string name="transfer_server_web_retry">Reintentar fallidos</string>
+    <string name="transfer_server_web_uploading">Subiendo</string>
+    <string name="transfer_server_web_uploaded">Subido</string>
+    <string name="transfer_server_web_failed">Error</string>
+    <string name="transfer_server_web_queue_empty">Esperando archivos…</string>
+    <string name="transfer_server_web_skipped">Archivos no compatibles omitidos: %d</string>
+    <string name="transfer_web_queued">En espera</string>
+    <string name="transfer_web_summary">%1$d de %2$d subidos</string>
+    <string name="transfer_web_waiting">Esperando a BookPlayer…</string>
+    <string name="transfer_web_unreachable">No se puede conectar con BookPlayer. Mantén abierta su pantalla de transferencia; las subidas se reanudarán solas.</string>
+    <string name="transfer_web_not_enough_space">No hay suficiente espacio en el dispositivo</string>
+    <string name="transfer_web_too_large">Demasiado grande</string>
+    <string name="transfer_web_unsupported">Tipo de archivo no compatible</string>
+    <string name="transfer_web_path_conflict">Otro archivo o carpeta que enviaste ya tiene este nombre</string>
+    <string name="transfer_web_done_hint">Cuando termines, confirma en BookPlayer para importar los archivos.</string>
+    <string name="transfer_web_load_error">No se puede conectar con BookPlayer. Comprueba que su pantalla de transferencia siga abierta.</string>
 </resources>

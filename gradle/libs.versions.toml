@@ -66,6 +66,8 @@ wearProtolayout = "1.4.1"
 wearWatchface = "1.2.1"
 # Bridges a suspend block to the ListenableFuture TileService.onTileRequest returns; matches coroutines 1.7.3.
 coroutinesGuava = "1.7.3"
+# @ColorInt and friends, for :browserdrop (matches what the AndroidX libraries already resolve).
+androidxAnnotation = "1.9.1"
 
 [libraries]
 purchases = { group = "com.revenuecat.purchases", name = "purchases", version.ref = "revenuecat" }
@@ -107,6 +109,8 @@ androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.re
 androidx-media = { group = "androidx.media", name = "media", version.ref = "media" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutinesTest" }
+androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidxAnnotation" }
 kotlinx-coroutines-guava = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-guava", version.ref = "coroutinesGuava" }
 androidx-wear-tiles = { group = "androidx.wear.tiles", name = "tiles", version.ref = "wearTiles" }
 androidx-wear-protolayout = { group = "androidx.wear.protolayout", name = "protolayout", version.ref = "wearProtolayout" }

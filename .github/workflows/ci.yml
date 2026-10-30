@@ -41,10 +41,10 @@ jobs:
       - name: Assemble devDebug
         run: ./gradlew assembleDevDebug --stacktrace
 
-      # :app/:wear tests via testDevDebugUnitTest; :core is a flavorless library, so its tests live
-      # under testDebugUnitTest and must be invoked explicitly.
+      # :app/:wear tests via testDevDebugUnitTest; :core and :browserdrop are flavorless libraries, so
+      # their tests live under testDebugUnitTest and must be invoked explicitly.
       - name: Run unit tests
-        run: ./gradlew testDevDebugUnitTest :core:testDebugUnitTest --stacktrace
+        run: ./gradlew testDevDebugUnitTest :core:testDebugUnitTest :browserdrop:testDebugUnitTest --stacktrace
 
       - name: Lint
         run: ./gradlew lintDevDebug --stacktrace

@@ -110,6 +110,7 @@ fun LibraryScreen(
     viewModel: LibraryViewModel? = null,
     onNavigateToMediaServers: () -> Unit = {},
     onNavigateToQueuedTasks: () -> Unit = {},
+    onTransferFromComputer: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -1430,6 +1431,14 @@ fun LibraryScreen(
                                 ))
                             },
                             leadingIcon = { Icon(Icons.Default.FileDownload, null) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.transfer_title)) },
+                            onClick = {
+                                showMenu = false
+                                onTransferFromComputer()
+                            },
+                            leadingIcon = { Icon(Icons.Default.LaptopChromebook, null) },
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.library_download_from_url)) },

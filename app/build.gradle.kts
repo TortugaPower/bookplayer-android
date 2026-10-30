@@ -156,6 +156,8 @@ sentry {
 dependencies {
 
     implementation(project(":core"))
+    // Transfer from Computer: the upload-only server the Transfer sheet runs (the Android port of SwiftBrowserDrop).
+    implementation(project(":browserdrop"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

@@ -23,11 +23,14 @@ iOS BookPlayer app and shares the same BookPlayer backend (sync, auth, subscript
 
 ## Project layout
 
-Three Gradle modules: **`:core`** (a Compose-free, playback-capable Android library holding the sharable
+Four Gradle modules: **`:core`** (a Compose-free, playback-capable Android library holding the sharable
 layers), **`:app`** (the phone app), and **`:wear`** (the Wear OS app). Both `:app` and `:wear` depend
 on `:core`. `:wear` boots its own `WearApp` Application that wires `:core` (Room + network + RevenueCat)
 the same way the phone does; its UI is tier-gated (PRO → standalone, else → phone remote) with the
 per-mode experiences and the phone→watch sign-in handoff still landing in later slices.
+**`:browserdrop`** is the upload-only HTTP server behind Transfer from Computer, the Android port of
+[SwiftBrowserDrop](https://github.com/TortugaPower/SwiftBrowserDrop): it depends on nothing of ours (only
+coroutines), serves the same upload page as iOS, and the app owns the sheet and the import handoff.
 
 ```
 core/                      # shared Android library — NO Compose, NO app types (Media3 IS allowed: playback lives here)
@@ -83,6 +86,13 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
                            #   DataClient), WearRemoteClient (send commands), shared WearableExt helpers
     presentation/          # Wear Compose UI (MainActivity, WatchMode gate, WearRootViewModel; RemoteViewModel
                            #   + RemoteNavHost: RemoteList/NowPlaying/PlaybackControls/ChapterList screens)
+browserdrop/               # standalone library (no :core/:app deps), package com.tortugapower.browserdrop
+  src/main/java/.../browserdrop/  # BrowserDropServer (public API, session lifecycle) + Types; Connections.kt
+                           #   (Listener + per-request Connection: routing, upload streaming, refusals);
+                           #   internal/ = HTTP parsing, path/request rules, Staging, addresses, Platform
+                           #   (the Android seam: assets, free space, ConnectivityManager; faked in JVM tests)
+  src/main/assets/browserdrop/page/  # SwiftBrowserDrop's upload page, copied unchanged by
+                           #   scripts/sync-browserdrop-page.sh <ref> (browserdrop/PAGE_SOURCE records the commit)
 ```
 
 ## Module conventions (`:core` / `:app`)
@@ -282,6 +292,16 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   never gets a cover for an item it doesn't hold yet (`item_not_found`). The engine moves an older build's
   file-lane covers there at start. Only book files wait for Wi-Fi (`UploadDataPolicy`): a cover held in the
   sync lane would hold back every listing.
+- **Transfer from Computer** (iOS `TransferViewModel`/`TransferView`): the library menu opens `TransferSheet`
+  (the import sheet's shell, `ImportConfirmationSheet`, which `ImportSheet` uses too, as iOS shares
+  `ImportConfirmationView`). Each opening is one `TransferSession` with its own `:browserdrop` server, kept across a
+  configuration change by one `TransferViewModel` (fixed key), which lets the ended one go. The server pauses when the app goes to the background (`ProcessLifecycleOwner`) and resumes on the
+  same port. Done calls `ImportManager.importReceived`: the session's folder imports without the import sheet
+  (folders become folder items, archives expand; as on iOS, a book already here imports as a copy, `name-1`,
+  and an offloaded one gets its file back), then the placement prompt. Imports run one at a time
+  (`importLock`). The server's calls run in a scope that outlives the ViewModel, so Done/Cancel still close its
+  sockets. It serves only connections on an address the sheet shows (or loopback), never cellular or a global
+  IPv6 address. Staging is moved aside in `Application.onCreate` and deleted in the background. The page's text is `transfer_*web*` strings (iOS keys; `%d` → `{count}`).
 - **Media-server connection flow** (Jellyfin / AudiobookShelf; mirrors iOS, so check the iOS `develop`
   branch before changing behavior): one `ConnectionFlowSheet` (own `NavHost`) serves both Add Server and
   re-auth. Address → Connect **probes** the server (`ExternalService.probe` → `ServerCapabilities`) →
