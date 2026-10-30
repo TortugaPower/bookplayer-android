@@ -462,7 +462,7 @@
         <item quantity="many">%1$d de archivos</item>
         <item quantity="other">%1$d archivos</item>
     </plurals>
-    <string name="transfer_server_web_subtitle">Suelta archivos o carpetas de audiolibros. Aparecerán en la pantalla de transferencia de tu teléfono.</string>
+    <string name="transfer_server_web_subtitle">Suelta archivos o carpetas de audiolibros. Aparecerán en la pantalla de importación de la app en tu teléfono.</string>
     <string name="transfer_server_web_folder_hint">Se conserva la estructura de carpetas.</string>
     <string name="transfer_server_web_drop_title">Suelta aquí</string>
     <string name="transfer_server_web_choose_files">Elegir archivos</string>

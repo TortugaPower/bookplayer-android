@@ -462,7 +462,7 @@
         <item quantity="many">%1$d di file</item>
         <item quantity="other">%1$d file</item>
     </plurals>
-    <string name="transfer_server_web_subtitle">Trascina file o cartelle di audiolibri. Appariranno nella schermata di trasferimento del tuo telefono.</string>
+    <string name="transfer_server_web_subtitle">Trascina file o cartelle di audiolibri. Appariranno nella schermata di importazione dell’app sul tuo telefono.</string>
     <string name="transfer_server_web_folder_hint">La struttura delle cartelle viene mantenuta.</string>
     <string name="transfer_server_web_drop_title">Trascina qui</string>
     <string name="transfer_server_web_choose_files">Scegli file</string>

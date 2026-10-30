@@ -390,7 +390,7 @@
         <item quantity="one">%1$d file</item>
         <item quantity="other">%1$d files</item>
     </plurals>
-    <string name="transfer_server_web_subtitle">Drop audiobook files or folders. They appear on the Transfer screen on your phone.</string>
+    <string name="transfer_server_web_subtitle">Drop audiobook files or folders. They appear in the app’s import screen on your phone.</string>
     <string name="transfer_server_web_folder_hint">Folder structure is preserved.</string>
     <string name="transfer_server_web_drop_title">Drop here</string>
     <string name="transfer_server_web_choose_files">Choose files</string>

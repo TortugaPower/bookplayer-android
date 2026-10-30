@@ -461,7 +461,7 @@
         <item quantity="one">%1$d फ़ाइल</item>
         <item quantity="other">%1$d फ़ाइलें</item>
     </plurals>
-    <string name="transfer_server_web_subtitle">ऑडियोबुक फ़ाइलें या फ़ोल्डर यहाँ छोड़ें। वे आपके फ़ोन की ट्रांसफ़र स्क्रीन पर दिखेंगे।</string>
+    <string name="transfer_server_web_subtitle">ऑडियोबुक फ़ाइलें या फ़ोल्डर यहाँ छोड़ें। वे आपके फ़ोन पर ऐप की इंपोर्ट स्क्रीन में दिखेंगे।</string>
     <string name="transfer_server_web_folder_hint">फ़ोल्डर की संरचना बनी रहती है।</string>
     <string name="transfer_server_web_drop_title">यहाँ छोड़ें</string>
     <string name="transfer_server_web_choose_files">फ़ाइलें चुनें</string>

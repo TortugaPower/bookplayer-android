@@ -456,7 +456,7 @@
     <plurals name="transfer_folder_files">
         <item quantity="other">%1$d 个文件</item>
     </plurals>
-    <string name="transfer_server_web_subtitle">拖放有声书文件或文件夹。它们会出现在手机的传输界面中。</string>
+    <string name="transfer_server_web_subtitle">拖放有声书文件或文件夹。它们会出现在手机上本应用的导入界面中。</string>
     <string name="transfer_server_web_folder_hint">会保留文件夹结构。</string>
     <string name="transfer_server_web_drop_title">拖放到此处</string>
     <string name="transfer_server_web_choose_files">选取文件</string>

@@ -461,7 +461,7 @@
         <item quantity="one">%1$d Datei</item>
         <item quantity="other">%1$d Dateien</item>
     </plurals>
-    <string name="transfer_server_web_subtitle">Lege Hörbuchdateien oder -ordner hier ab. Sie erscheinen auf dem Übertragungsbildschirm deines Telefons.</string>
+    <string name="transfer_server_web_subtitle">Lege Hörbuchdateien oder -ordner hier ab. Sie erscheinen im Importbildschirm der App auf deinem Telefon.</string>
     <string name="transfer_server_web_folder_hint">Die Ordnerstruktur bleibt erhalten.</string>
     <string name="transfer_server_web_drop_title">Hier ablegen</string>
     <string name="transfer_server_web_choose_files">Dateien auswählen</string>

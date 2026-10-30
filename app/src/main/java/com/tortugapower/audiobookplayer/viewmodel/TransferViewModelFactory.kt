@@ -7,27 +7,25 @@ import com.tortugapower.audiobookplayer.logic.ImportArchiveUtils
 import com.tortugapower.audiobookplayer.logic.ImportManager
 import com.tortugapower.browserdrop.BrowserDropServer
 
-/** One Transfer session's server: the page in the app's language and theme, taking what an import takes. */
-class TransferViewModelFactory(
-    private val application: Application,
-    private val pageSettings: BrowserDropServer.PageSettings
-) : ViewModelProvider.Factory {
+/** Each Transfer session gets its own server, taking what an import takes, with that opening's page. */
+class TransferViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(TransferViewModel::class.java)) {
-            val server = BrowserDropServer(
-                application,
-                BrowserDropServer.Configuration(
-                    allowedExtensions = ImportArchiveUtils.IMPORTABLE_EXTENSIONS,
-                    pageSettings = pageSettings
-                )
-            )
             @Suppress("UNCHECKED_CAST")
-            return TransferViewModel(
-                server = server,
-                importReceived = { targetFolderPath, receive ->
-                    ImportManager.importReceived(application, targetFolderPath, receive)
-                }
-            ) as T
+            return TransferViewModel { pageSettings ->
+                TransferSession(
+                    server = BrowserDropServer(
+                        application,
+                        BrowserDropServer.Configuration(
+                            allowedExtensions = ImportArchiveUtils.IMPORTABLE_EXTENSIONS,
+                            pageSettings = pageSettings
+                        )
+                    ),
+                    importReceived = { targetFolderPath, receive ->
+                        ImportManager.importReceived(application, targetFolderPath, receive)
+                    }
+                )
+            } as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

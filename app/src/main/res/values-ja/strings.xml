@@ -456,7 +456,7 @@
     <plurals name="transfer_folder_files">
         <item quantity="other">%1$d個のファイル</item>
     </plurals>
-    <string name="transfer_server_web_subtitle">オーディオブックのファイルやフォルダをドロップしてください。電話の転送画面に表示されます。</string>
+    <string name="transfer_server_web_subtitle">オーディオブックのファイルやフォルダをドロップしてください。電話のアプリの読み込み画面に表示されます。</string>
     <string name="transfer_server_web_folder_hint">フォルダ構成はそのまま保持されます。</string>
     <string name="transfer_server_web_drop_title">ここにドロップ</string>
     <string name="transfer_server_web_choose_files">ファイルを選択</string>

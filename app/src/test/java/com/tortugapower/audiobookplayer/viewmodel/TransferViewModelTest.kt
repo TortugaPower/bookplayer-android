@@ -6,7 +6,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.test.core.app.ApplicationProvider
-import com.tortugapower.audiobookplayer.viewmodel.TransferViewModel.Row
+import com.tortugapower.audiobookplayer.viewmodel.TransferSession.Row
 import com.tortugapower.browserdrop.BrowserDropServer
 import com.tortugapower.browserdrop.BrowserDropServer.State
 import kotlinx.coroutines.CoroutineScope
@@ -16,7 +16,9 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -28,7 +30,7 @@ import java.io.File
 import java.net.Socket
 import java.nio.file.Files
 
-/** The Transfer session's logic against a real server on 127.0.0.1, and the pure helpers the sheet shows. */
+/** The Transfer session's logic against a real server on 127.0.0.1, the ViewModel keeping it, and the sheet's helpers. */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class)
 class TransferViewModelTest {
@@ -56,7 +58,7 @@ class TransferViewModelTest {
         stagingRoot.deleteRecursively()
     }
 
-    private fun makeViewModel() = TransferViewModel(
+    private fun makeSession(server: BrowserDropServer = this.server) = TransferSession(
         server = server,
         importReceived = { target, receive -> synchronized(imports) { imports += target to receive } },
         appLifecycle = lifecycle,
@@ -85,14 +87,14 @@ class TransferViewModelTest {
     }
 
     @Test fun `the session starts with the app in the foreground`() {
-        val viewModel = makeViewModel()
+        val session = makeSession()
         lifecycle.currentState = Lifecycle.State.STARTED
-        awaitUntil("running") { viewModel.status.value == TransferViewModel.Status.RUNNING }
+        awaitUntil("running") { session.status.value == TransferSession.Status.RUNNING }
         assertTrue(server.state.value is State.Running)
     }
 
     @Test fun `the background pauses the session and coming back resumes it on the same port`() {
-        makeViewModel()
+        makeSession()
         lifecycle.currentState = Lifecycle.State.STARTED
         awaitUntil("running") { server.state.value is State.Running }
         val port = port()
@@ -108,27 +110,27 @@ class TransferViewModelTest {
     }
 
     @Test fun `removing a folder row drops its files`() {
-        val viewModel = makeViewModel()
+        val session = makeSession()
         lifecycle.currentState = Lifecycle.State.STARTED
         awaitUntil("running") { server.state.value is State.Running }
         upload("Book/01.mp3", "a")
         upload("Book/02.mp3", "b")
         upload("loose.mp3", "c")
 
-        viewModel.remove("Book")
+        session.remove("Book")
         awaitUntil("removed") { server.receivedFiles.value.size == 1 }
         assertEquals(listOf("loose.mp3"), server.receivedFiles.value.map { it.relativePath })
     }
 
     @Test fun `done hands the received folder to the import, once`() {
-        val viewModel = makeViewModel()
+        val session = makeSession()
         lifecycle.currentState = Lifecycle.State.STARTED
         awaitUntil("running") { server.state.value is State.Running }
         upload("Book/01.mp3", "a")
 
-        viewModel.confirm("Shelf")
-        viewModel.confirm("Shelf")
-        viewModel.discard()
+        session.confirm("Shelf")
+        session.confirm("Shelf")
+        session.discard()
 
         val (target, receive) = synchronized(imports) { imports.single() }
         assertEquals("Shelf", target)
@@ -143,21 +145,43 @@ class TransferViewModelTest {
     }
 
     @Test fun `cancel throws the files away`() {
-        val viewModel = makeViewModel()
+        val session = makeSession()
         lifecycle.currentState = Lifecycle.State.STARTED
         awaitUntil("running") { server.state.value is State.Running }
         upload("a.mp3", "a")
 
-        viewModel.discard()
+        session.discard()
         awaitUntil("closed") { server.state.value == State.Closed }
         assertTrue(synchronized(imports) { imports.isEmpty() })
         awaitUntil("staging deleted") { stagingRoot.list().isNullOrEmpty() }
     }
 
+    @Test fun `the ViewModel keeps an opening's session, and ends it for the next opening`() {
+        val nextServer = BrowserDropServer(
+            context,
+            BrowserDropServer.Configuration(ports = listOf(0), allowedExtensions = setOf("mp3"), stagingRoot = stagingRoot)
+        )
+        val made = mutableListOf<TransferSession>()
+        val viewModel = TransferViewModel { makeSession(if (made.isEmpty()) server else nextServer).also { made += it } }
+        val settings = BrowserDropServer.PageSettings()
+        lifecycle.currentState = Lifecycle.State.STARTED
+
+        val first = viewModel.session("first", settings)
+        assertSame(first, viewModel.session("first", settings)) // A configuration change asks again.
+        awaitUntil("running") { server.state.value is State.Running }
+
+        val second = viewModel.session("second", settings)
+        assertNotSame(first, second)
+        assertEquals(2, made.size)
+        awaitUntil("first session ended") { server.state.value == State.Closed }
+        awaitUntil("second session running") { nextServer.state.value is State.Running }
+        runBlocking { nextServer.cancel() }
+    }
+
     // --- Pure helpers ---
 
     @Test fun `rows show top-level files, and folders with their file count, sorted by title`() {
-        val rows = TransferViewModel.rows(
+        val rows = TransferSession.rows(
             listOf("Book 10/01.mp3", "b.mp3", "Book 2/Disc 1/01.mp3", "Book 2/Disc 2/01.mp3", "a.mp3")
         )
         assertEquals(

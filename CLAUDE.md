@@ -211,9 +211,10 @@ browserdrop/               # standalone library (no :core/:app deps), package co
   never gets a cover for an item it doesn't hold yet (`item_not_found`). The engine moves an older build's
   file-lane covers there at start. Only book files wait for Wi-Fi (`UploadDataPolicy`): a cover held in the
   sync lane would hold back every listing.
-- **Transfer from Computer** (iOS `TransferViewModel`/`TransferView`): the library menu opens `TransferSheet`,
-  whose `TransferViewModel` runs one `:browserdrop` session (keyed per opening, so it survives a configuration
-  change). The server pauses when the app goes to the background (`ProcessLifecycleOwner`) and resumes on the
+- **Transfer from Computer** (iOS `TransferViewModel`/`TransferView`): the library menu opens `TransferSheet`
+  (the import sheet's shell, `ImportConfirmationSheet`, which `ImportSheet` uses too, as iOS shares
+  `ImportConfirmationView`). Each opening is one `TransferSession` with its own `:browserdrop` server, kept across a
+  configuration change by one `TransferViewModel` (fixed key), which lets the ended one go. The server pauses when the app goes to the background (`ProcessLifecycleOwner`) and resumes on the
   same port. Done calls `ImportManager.importReceived`: the session's folder imports without the import sheet
   (folders become folder items, archives expand; as on iOS, a book already here imports as a copy, `name-1`,
   and an offloaded one gets its file back), then the placement prompt. Imports run one at a time

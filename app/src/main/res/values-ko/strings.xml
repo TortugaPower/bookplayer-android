@@ -456,7 +456,7 @@
     <plurals name="transfer_folder_files">
         <item quantity="other">파일 %1$d개</item>
     </plurals>
-    <string name="transfer_server_web_subtitle">오디오북 파일이나 폴더를 끌어다 놓으세요. 휴대폰의 전송 화면에 표시됩니다.</string>
+    <string name="transfer_server_web_subtitle">오디오북 파일이나 폴더를 끌어다 놓으세요. 휴대폰에서 앱의 가져오기 화면에 표시됩니다.</string>
     <string name="transfer_server_web_folder_hint">폴더 구조가 유지됩니다.</string>
     <string name="transfer_server_web_drop_title">여기에 놓기</string>
     <string name="transfer_server_web_choose_files">파일 선택</string>

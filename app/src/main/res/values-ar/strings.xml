@@ -485,7 +485,7 @@
         <item quantity="many">%1$d ملفًا</item>
         <item quantity="other">%1$d ملف</item>
     </plurals>
-    <string name="transfer_server_web_subtitle">أفلت ملفات الكتب الصوتية أو مجلداتها. ستظهر في شاشة النقل على هاتفك.</string>
+    <string name="transfer_server_web_subtitle">أفلت ملفات الكتب الصوتية أو مجلداتها. ستظهر في شاشة الاستيراد في التطبيق على هاتفك.</string>
     <string name="transfer_server_web_folder_hint">يُحتفظ ببنية المجلدات.</string>
     <string name="transfer_server_web_drop_title">أفلت هنا</string>
     <string name="transfer_server_web_choose_files">اختر ملفات</string>

@@ -245,7 +245,8 @@ internal class Connection(
                 }
             }
 
-            val failure = streamBody(upload, body, incomingFile, staging)
+            val file = ReceivedFile(relativePath, size)
+            val failure = streamBody(upload, file, body, incomingFile, staging)
             // Out of the in-flight list before the final event, so no list shows it once it's finished or failed.
             removeFromInFlight(upload)
 
@@ -261,8 +262,6 @@ internal class Connection(
                 return
             }
 
-            val file = ReceivedFile(relativePath, size)
-            synchronized(server.lock) { server.addReceivedFile(file) }
             server.emit(Event.UploadFinished(file))
             send(HttpResponse.json(201, mapOf("path" to relativePath)))
         } finally {
@@ -271,8 +270,17 @@ internal class Connection(
         }
     }
 
-    /** Streams the body into [incomingFile] and stores it; returns why it failed, or null for a stored file. */
-    private fun streamBody(upload: Upload, body: ByteArray, incomingFile: File, staging: Staging): FailureReason? {
+    /**
+     * Streams the body into [incomingFile] and stores it as [file], adding it to the received files; returns why it
+     * failed, or null for a stored file.
+     */
+    private fun streamBody(
+        upload: Upload,
+        file: ReceivedFile,
+        body: ByteArray,
+        incomingFile: File,
+        staging: Staging
+    ): FailureReason? {
         val size = upload.size
         val progressStep = maxOf(512L shl 10, size / 100)
         var received = 0L
@@ -321,9 +329,17 @@ internal class Connection(
         }
         if (failure != null) return failure
 
-        // Checked again here, where it can't race: another upload may have taken the name meanwhile.
+        // Checked again here, where it can't race: another upload may have taken the name meanwhile. Listed in the
+        // same step, so a removal can't come between them and leave a row with no file.
         return try {
-            synchronized(server.stagingLock) { staging.commit(incomingFile, upload.relativePath) }
+            synchronized(server.stagingLock) {
+                staging.commit(incomingFile, upload.relativePath)
+                synchronized(server.lock) {
+                    // Out of the in-flight list as it joins the received ones, so no list shows it twice.
+                    if (server.inFlight.remove(upload.id) != null) server.publishProgress()
+                    server.addReceivedFile(file)
+                }
+            }
             null
         } catch (e: Staging.PathConflict) {
             FailureReason.PATH_CONFLICT

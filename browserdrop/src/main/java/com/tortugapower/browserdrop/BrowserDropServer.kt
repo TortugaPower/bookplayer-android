@@ -86,7 +86,10 @@ class BrowserDropServer internal constructor(
     /** Guards the state below, never held across a suspension or I/O. */
     internal val lock = Any()
 
-    /** Serializes what reads or changes staging: a check and its commit, a commit and a removal. */
+    /**
+     * Serializes what reads or changes staging: a check and its commit, a commit and a removal, each with its change
+     * to the received files. Taken before [lock], never inside it.
+     */
     internal val stagingLock = Any()
 
     internal var staging: Staging? = null
@@ -235,10 +238,13 @@ class BrowserDropServer internal constructor(
         val current = synchronized(lock) { staging } ?: return@withLock
         val segments = PathRules.segments(relativePath) ?: return@withLock
         withContext(dispatcher) {
-            synchronized(stagingLock) { current.removeItem(segments.joinToString("/")) }
-            // Check the disk rather than the names: on a case-insensitive volume `book` removes `Book/01.mp3`.
-            synchronized(lock) {
-                _receivedFiles.value = _receivedFiles.value.filter { current.containsFile(it.relativePath) }
+            // One step with the list, as an upload's commit is (always staging, then state), so no commit lands between.
+            synchronized(stagingLock) {
+                current.removeItem(segments.joinToString("/"))
+                // Check the disk rather than the names: on a case-insensitive volume `book` removes `Book/01.mp3`.
+                synchronized(lock) {
+                    _receivedFiles.value = _receivedFiles.value.filter { current.containsFile(it.relativePath) }
+                }
             }
         }
     }

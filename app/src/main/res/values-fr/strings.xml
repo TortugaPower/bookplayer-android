@@ -462,7 +462,7 @@
         <item quantity="many">%1$d de fichiers</item>
         <item quantity="other">%1$d fichiers</item>
     </plurals>
-    <string name="transfer_server_web_subtitle">Déposez des fichiers ou des dossiers de livres audio. Ils apparaîtront sur l’écran de transfert de votre téléphone.</string>
+    <string name="transfer_server_web_subtitle">Déposez des fichiers ou des dossiers de livres audio. Ils apparaîtront dans l’écran d’importation de l’app sur votre téléphone.</string>
     <string name="transfer_server_web_folder_hint">La structure des dossiers est conservée.</string>
     <string name="transfer_server_web_drop_title">Déposez ici</string>
     <string name="transfer_server_web_choose_files">Choisir des fichiers</string>

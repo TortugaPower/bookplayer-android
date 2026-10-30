@@ -473,7 +473,7 @@
         <item quantity="many">%1$d файлов</item>
         <item quantity="other">%1$d файла</item>
     </plurals>
-    <string name="transfer_server_web_subtitle">Перетащите файлы или папки аудиокниг. Они появятся на экране передачи на вашем телефоне.</string>
+    <string name="transfer_server_web_subtitle">Перетащите файлы или папки аудиокниг. Они появятся на экране импорта в приложении.</string>
     <string name="transfer_server_web_folder_hint">Структура папки сохранится.</string>
     <string name="transfer_server_web_drop_title">Перетащите сюда</string>
     <string name="transfer_server_web_choose_files">Выбрать файлы</string>
