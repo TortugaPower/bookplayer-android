@@ -244,10 +244,12 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.P
             scanned = syncRuntime.scanned,
             lanes = syncRuntime.laneStates,
             startEngine = { syncRuntime.start() },
+            rescan = { syncRuntime.rescan() },
         )
         val drainScheduler = SyncDrainScheduler(
             needs = { syncRuntime.nextDrain() },
             workManager = { WorkManager.getInstance(this) },
+            hasReturned = syncDrain::hasReturned,
             onFailed = { io.sentry.Sentry.captureException(it) },
         )
         // The sync service keeps the process alive while a transfer runs in the background, unless playback does;

@@ -7,6 +7,7 @@ import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountEntity
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import kotlinx.coroutines.CompletableDeferred
@@ -139,6 +140,55 @@ class TaskConcurrencyManagerNextDrainTest {
         assertEquals(LaneState.Working, withTimeout(5_000) { seen.await() })
         release.complete(Unit)
         watch.cancel()
+    }
+
+    private fun blockingUntil(release: CompletableDeferred<Unit>, handles: String) = object : TaskProcessor {
+        override suspend fun process(task: SyncTaskEntity): Boolean { release.await(); return true }
+        override fun canHandle(jobType: String) = jobType == handles
+    }
+
+    /**
+     * Its row is RUNNING, which the queue reads leave out: with nothing behind it, a transfer the service can't carry
+     * any more (refused, timed out) or a drain Android stopped would otherwise leave nothing to keep the process alive
+     */
+    @Test fun theTaskAWorkerRuns_isDueNow() = runBlocking {
+        repository.saveTask(push("p"))
+        val release = CompletableDeferred<Unit>()
+        val engine = TaskConcurrencyManager(
+            context, repository, Account(null), listOf(blockingUntil(release, SyncTaskFactory.JOB_EXTERNAL_UPDATE)),
+        ).also { engines += it }
+        engine.startProcessing()
+        withTimeout(5_000) { while (repository.getTaskById("p")?.status != SyncTaskStatus.RUNNING) delay(20) }
+
+        val needs = engine.nextDrain(now)
+        release.complete(Unit)
+
+        assertEquals(SyncDrainPolicy.Needs(anyNetwork = now, unmeteredOnly = null), needs)
+    }
+
+    /** As a queued one: a book upload under way waits for Wi-Fi once uploads are held for it */
+    @Test fun aBookUploadAWorkerRuns_isDueOnAnUnmeteredNetwork() = runBlocking {
+        PlaybackSettingsManager.setUploadUsingCellularData(context, true)
+        repository.saveTask(upload("u"))
+        val release = CompletableDeferred<Unit>()
+        val engine = TaskConcurrencyManager(
+            context, repository, Account(AccountTier.PRO), listOf(blockingUntil(release, SyncTaskFactory.JOB_UPLOAD_FILE)),
+        ).also { engines += it }
+        engine.startProcessing()
+        withTimeout(5_000) { while (repository.getTaskById("u")?.status != SyncTaskStatus.RUNNING) delay(20) }
+
+        PlaybackSettingsManager.setUploadUsingCellularData(context, false)
+        val needs = engine.nextDrain(now)
+        release.complete(Unit)
+
+        assertEquals(SyncDrainPolicy.Needs(anyNetwork = null, unmeteredOnly = now), needs)
+    }
+
+    /** A dead process's: the next engine's start resets it, and the queue reads see it then */
+    @Test fun aRunningRowNoWorkerHereRuns_needsNoDrain() = runBlocking {
+        repository.saveTask(push("p").copy(status = SyncTaskStatus.RUNNING))
+
+        assertEquals(SyncDrainPolicy.Needs.NONE, engine().nextDrain(now))
     }
 
     /** A drain started with the process waits for this before trusting that no lane works */

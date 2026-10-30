@@ -246,10 +246,12 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     alive (no app on screen, no playback in the foreground, no service): the sync lane, media-server pushes, lanes
     waiting out a backoff (the in-process wait stops while the device sleeps), book uploads held for Wi-Fi, and
     transfers the service can't carry. `SyncKeepAlive` schedules them (`SyncDrainScheduler`) from the stored queue
-    (`TaskConcurrencyManager.nextDrain`, by the lanes' own pick rules; what the process knew of its lanes dies with
-    it): two unique works, one on any network, one that waits for an unmetered network for held uploads, each due now
-    or at the earliest retry. A drain runs the engine until no lane works, then the next is scheduled; Android ends a
-    job after 10 minutes and WorkManager runs it again (downloads resume, uploads continue from S3's parts). Never
+    (`TaskConcurrencyManager.nextDrain`, by the lanes' own pick rules, plus the tasks this engine's workers run now;
+    what the process knew of its lanes dies with it): two unique works, one on any network, one that waits for an
+    unmetered network for held uploads, each due now or at the earliest retry. A drain has the lanes pick again by the
+    wall clock (`rescan`: a live process's waits stop while the device sleeps), runs the engine until no lane works or
+    is due, then the next is scheduled; Android ends a job after 10 minutes and WorkManager runs it again (downloads
+    resume, uploads continue from S3's parts). Never
     while something else keeps the process alive, and the service isn't started while one runs: Android 16 counts a
     job started while the app is visible, or running beside a foreground service, against the app's job quota.
   - WorkManager starts on demand (`BookPlayerApplication` is its `Configuration.Provider`; the manifest removes its

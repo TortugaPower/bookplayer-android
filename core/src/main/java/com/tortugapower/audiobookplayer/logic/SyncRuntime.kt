@@ -98,6 +98,11 @@ class SyncRuntime(
      */
     suspend fun nextDrain(): SyncDrainPolicy.Needs? = _engine.value?.takeIf { it.scanned.value }?.nextDrain()
 
+    /** A sync drain's start: the running engine's lanes pick again by the wall clock ([TaskConcurrencyManager.rescan]) */
+    suspend fun rescan() {
+        _engine.value?.rescan()
+    }
+
     init {
         scope.launch {
             StorageMonitor.state.map { it.isCritical }.distinctUntilChanged().filter { !it }.collect {

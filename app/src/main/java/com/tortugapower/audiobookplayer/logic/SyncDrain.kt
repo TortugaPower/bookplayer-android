@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /**
@@ -36,10 +37,15 @@ internal class SyncDrain(
     private val scanned: StateFlow<Boolean>,
     private val lanes: StateFlow<Map<String, LaneState>>,
     private val startEngine: () -> Unit,
+    /** The running engine's lanes pick again by the wall clock (SyncRuntime.rescan) */
+    private val rescan: suspend () -> Unit,
     private val isStorageCritical: () -> Boolean = { StorageMonitor.isCritical },
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    // Drains running now (the one on any network and the one on Wi-Fi can overlap), and [draining] with it
+    // Drains running now (the one on any network and the one on Wi-Fi can overlap), and [draining] with it; and the
+    // ones that have returned (one per drain this process ran)
     private var running = 0
+    private val returned = HashSet<UUID>()
     private val lock = Any()
 
     private val _draining = MutableStateFlow(false)
@@ -47,26 +53,39 @@ internal class SyncDrain(
     /** Whether a drain runs: it keeps the process alive, transfers included, so the service isn't started meanwhile */
     val draining: StateFlow<Boolean> = _draining.asStateFlow()
 
-    suspend fun run() {
-        // Nothing runs on a critically full disk (every task ends in a DB write): the next app open takes it from there
-        if (isStorageCritical()) return
-        count(+1)
+    /** Runs WorkManager's drain [id] */
+    suspend fun run(id: UUID) {
+        synchronized(lock) {
+            running++
+            _draining.value = true
+        }
         try {
+            // Nothing runs on a critically full disk (every task ends in a DB write): the next app open takes it from there
+            if (isStorageCritical()) return
             startEngine()
             // A fresh process builds its engine first: no lane working means nothing until it has looked at the queue
             withTimeoutOrNull(ENGINE_SCAN_TIMEOUT_MS) { scanned.first { it } } ?: return
+            // A live process's lanes wait on a clock that stops while the device sleeps: the retry this drain came for
+            // can still be waiting there
+            rescan()
             combine(keptAlive, lanes) { keptAlive, lanes ->
-                keptAlive || lanes.values.none { it == LaneState.Working }
+                keptAlive || lanes.values.none { it.holdsDrain() }
             }.first { it }
         } finally {
-            count(-1)
+            // With the count: [draining] ending sets off the next schedule, which must know this drain has returned
+            synchronized(lock) {
+                returned += id
+                running--
+                _draining.value = running > 0
+            }
         }
     }
 
-    private fun count(change: Int) = synchronized(lock) {
-        running += change
-        _draining.value = running > 0
-    }
+    /** Whether WorkManager's drain [id] has run here and returned: WorkManager lists it as running a moment longer */
+    fun hasReturned(id: UUID): Boolean = synchronized(lock) { id in returned }
+
+    // A lane working, or one whose retry is due, about to pick it
+    private fun LaneState.holdsDrain() = this == LaneState.Working || (this is LaneState.Waiting && until <= clock())
 
     companion object {
         // Building the engine sets up its network clients and runs its start-up steps: well under this
@@ -77,9 +96,10 @@ internal class SyncDrain(
 /**
  * Schedules the sync drains the stored queue needs (SyncDrainPolicy.Needs), each a unique work: one on any network,
  * and one that waits for an unmetered network, for book uploads held for Wi-Fi. Called only while no drain runs in
- * this process (SyncKeepAlive), the one WorkManager runs them in: a drain WorkManager still lists as running has
- * returned and waits for WorkManager to record it, so it's treated as done (left running, its lane waiting out a
- * backoff would change no more, and nothing would schedule the next). A pending drain is kept when it runs no later
+ * this process (SyncKeepAlive), the one WorkManager runs them in. WorkManager lists a drain as running from just
+ * before its worker runs until a moment after it returns: one that has returned here is done (left alone, a lane
+ * waiting out a backoff would change no more, and nothing would schedule the next); any other is starting, and is left
+ * to run (replacing it would stop it; its end schedules the next). A pending drain is kept when it runs no later
  * than needed (an early run finds nothing due and reschedules), replaced when it would run too late, and cancelled
  * when nothing needs it. A failure is reported once per process (each schedule would report it again).
  * Never on a critically full disk: WorkManager's own database would be the first write to fail. And with nothing
@@ -89,6 +109,8 @@ internal class SyncDrainScheduler(
     /** Null while nothing is known yet (no engine has looked at the queue): nothing changes then */
     private val needs: suspend () -> SyncDrainPolicy.Needs?,
     private val workManager: () -> WorkManager,
+    /** Whether a drain has run in this process and returned (SyncDrain.hasReturned) */
+    private val hasReturned: (UUID) -> Boolean,
     private val clock: () -> Long = System::currentTimeMillis,
     private val isStorageCritical: () -> Boolean = { StorageMonitor.isCritical },
     private val isWorkManagerStarted: () -> Boolean = { WorkManager.isInitialized() },
@@ -114,8 +136,9 @@ internal class SyncDrainScheduler(
     }
 
     private suspend fun update(workManager: WorkManager, name: String, at: Long?, network: NetworkType) {
-        val existing = workManager.getWorkInfosForUniqueWorkFlow(name).first()
-            .filter { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
+        val drains = workManager.getWorkInfosForUniqueWorkFlow(name).first()
+        if (drains.any { it.state == WorkInfo.State.RUNNING && !hasReturned(it.id) }) return
+        val existing = drains.filter { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
         if (at == null) {
             if (existing.isNotEmpty()) workManager.cancelUniqueWork(name)
             return
@@ -149,7 +172,7 @@ internal class SyncDrainScheduler(
 class SyncDrainWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         try {
-            (applicationContext as? BookPlayerApplication)?.syncDrain?.run()
+            (applicationContext as? BookPlayerApplication)?.syncDrain?.run(id)
         } catch (e: CancellationException) {
             // Android ended it (its 10 minutes, a lost network, its quota): WorkManager runs it again
             Log.w("SyncDrainWorker", "Sync drain stopped (reason $stopReason)")

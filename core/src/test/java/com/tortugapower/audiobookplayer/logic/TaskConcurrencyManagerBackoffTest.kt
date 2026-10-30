@@ -222,6 +222,26 @@ class TaskConcurrencyManagerBackoffTest {
         until { pushes.ran.contains("push2") }
     }
 
+    /**
+     * A sync drain's start: a lane waiting out a backoff picks again, by the wall clock (its wait runs on a clock that
+     * stops while the device sleeps, so the retry the drain came for can still be waiting)
+     */
+    @Test fun aRescan_hasAWaitingLanePickAgain() = runBlocking {
+        val counting = CountingPicks(repository)
+        val pushes = Jobs(SyncTaskFactory.JOB_EXTERNAL_UPDATE, failing = setOf("push"))
+        val manager = TaskConcurrencyManager(context, counting, ProAccounts(), listOf(pushes))
+            .also { engines += it; it.startProcessing() }
+        queue("push", SyncTaskFactory.JOB_EXTERNAL_UPDATE, lane = "jellyfin")
+        until { manager.laneStates.value["jellyfin"] is LaneState.Waiting }
+        // The failure's own write cues the lane once: past it, nothing else would
+        delay(500)
+        val picksWhileWaiting = counting.picks.getValue("jellyfin")
+
+        manager.rescan()
+
+        until { counting.picks.getValue("jellyfin") > picksWhileWaiting }
+    }
+
     /** The wait is stored on the task: a new engine (the service restarted, the process died) keeps it */
     @Test fun aStoredWait_outlivesTheEngine() = runBlocking {
         val waitEnd = System.currentTimeMillis() + 60 * 60 * 1_000L

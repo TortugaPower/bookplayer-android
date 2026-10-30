@@ -369,9 +369,23 @@ class TaskConcurrencyManager(
      * and when a wait is cut short (SyncRetryWake).
      */
     fun requestWorkerScan() {
-        if (!isProcessing) return
+        scan()
+    }
+
+    /**
+     * [requestWorkerScan] for a sync drain's start, returning once every lane with work has its worker. A worker
+     * waiting out a backoff picks again by the wall clock: its wait runs on a clock that stops while the device sleeps,
+     * so the retry the drain came for can still be waiting here. That pick runs on the worker's own thread: until then,
+     * its lane shows Waiting with its time passed.
+     */
+    suspend fun rescan() {
+        scan()?.join()
+    }
+
+    private fun scan(): Job? {
+        if (!isProcessing) return null
         laneCues.update { it.copy(everyLane = it.everyLane + 1) }
-        serviceScope.launch {
+        return serviceScope.launch {
             // Not before the start-up steps (this launch's tier included): the task watcher starts the workers then
             ready.await()
             dropDownloadsTheTierCantRun()
@@ -569,10 +583,18 @@ class TaskConcurrencyManager(
 
     /**
      * When drains are due for what's queued (SyncDrainPolicy): each lane's next run by the rules its worker picks
-     * with, as the network will let its book uploads go and as it will hold them for Wi-Fi
+     * with, as the network will let its book uploads go and as it will hold them for Wi-Fi. The tasks this engine's
+     * workers run now are due now: their rows are RUNNING, which the queue reads leave out (a RUNNING row no worker
+     * here runs is a dead process's, which the next engine's start resets)
      */
     suspend fun nextDrain(now: Long = System.currentTimeMillis()): SyncDrainPolicy.Needs {
-        val lanes = repository.getActiveQueueKeys().map { queueKey ->
+        val running = repository.getTasksByStatus(SyncTaskStatus.RUNNING)
+            .filter { queueJobs[it.queueKey]?.isActive == true }
+            .map { task ->
+                val bookUpload = UploadDataPolicy.isFileUploadJob(task.jobType)
+                SyncDrainPolicy.LaneDue(any = now, withoutUploads = if (bookUpload) null else now)
+            }
+        val queued = repository.getActiveQueueKeys().map { queueKey ->
             val runnable = runnableIn(queueKey)
             val withoutUploads = runnable.filterNot { UploadDataPolicy.isFileUploadJob(it.jobType) }
             SyncDrainPolicy.LaneDue(
@@ -580,7 +602,7 @@ class TaskConcurrencyManager(
                 withoutUploads = SyncDrainPolicy.dueAt(SyncTaskPicker.nextDue(withoutUploads, now), now),
             )
         }
-        return SyncDrainPolicy.needs(lanes, PlaybackSettingsManager.getUploadUsingCellularData(context).first())
+        return SyncDrainPolicy.needs(running + queued, PlaybackSettingsManager.getUploadUsingCellularData(context).first())
     }
 
     /**

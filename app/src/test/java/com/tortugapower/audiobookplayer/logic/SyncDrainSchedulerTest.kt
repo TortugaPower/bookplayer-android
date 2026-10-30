@@ -24,6 +24,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.UUID
 
 /** The drains the stored queue needs, as WorkManager unique works (SyncDrainScheduler) */
 @RunWith(RobolectricTestRunner::class)
@@ -33,6 +34,7 @@ class SyncDrainSchedulerTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val now = 1_000_000L
     private val later = now + 600_000
+    private val returned = mutableSetOf<UUID>()
 
     @Before fun setUp() {
         WorkManagerTestInitHelper.initializeTestWorkManager(
@@ -42,8 +44,8 @@ class SyncDrainSchedulerTest {
     }
 
     private fun scheduler(needs: SyncDrainPolicy.Needs) = SyncDrainScheduler(
-        needs = { needs }, workManager = { WorkManager.getInstance(context) }, clock = { now }, isStorageCritical = { false },
-        isWorkManagerStarted = { true },
+        needs = { needs }, workManager = { WorkManager.getInstance(context) }, hasReturned = { it in returned }, clock = { now },
+        isStorageCritical = { false }, isWorkManagerStarted = { true },
     )
 
     private fun drains(name: String): List<WorkInfo> =
@@ -122,7 +124,7 @@ class SyncDrainSchedulerTest {
         val pending = drains(SyncDrainScheduler.ANY_NETWORK).single().id
 
         SyncDrainScheduler(
-            needs = { null }, workManager = { WorkManager.getInstance(context) }, clock = { now },
+            needs = { null }, workManager = { WorkManager.getInstance(context) }, hasReturned = { false }, clock = { now },
             isStorageCritical = { false }, isWorkManagerStarted = { true },
         ).schedule()
 
@@ -135,6 +137,7 @@ class SyncDrainSchedulerTest {
         SyncDrainScheduler(
             needs = { SyncDrainPolicy.Needs(now, null) },
             workManager = { touched++; WorkManager.getInstance(context) },
+            hasReturned = { false },
             isStorageCritical = { true },
         ).schedule()
 
@@ -147,6 +150,7 @@ class SyncDrainSchedulerTest {
         SyncDrainScheduler(
             needs = { SyncDrainPolicy.Needs.NONE },
             workManager = { touched++; WorkManager.getInstance(context) },
+            hasReturned = { false },
             isStorageCritical = { false },
             isWorkManagerStarted = { false },
         ).schedule()
@@ -154,16 +158,19 @@ class SyncDrainSchedulerTest {
         assertEquals(0, touched)
     }
 
-    /**
-     * The drain that just ended can still be listed as running: WorkManager hasn't recorded it yet. It has returned
-     * (the scheduler runs only while no drain runs here), so the next one is scheduled: a lane waiting out a backoff
-     * changes no more, and nothing else would
-     */
-    @Test fun `a drain still listed as running doesn't hold up the next`() = runBlocking {
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            SyncDrainScheduler.ANY_NETWORK, ExistingWorkPolicy.REPLACE, OneTimeWorkRequestBuilder<StillRecording>().build(),
-        )
+    private fun listedAsRunning(): UUID {
+        val drain = OneTimeWorkRequestBuilder<StillRecording>().build()
+        WorkManager.getInstance(context).enqueueUniqueWork(SyncDrainScheduler.ANY_NETWORK, ExistingWorkPolicy.REPLACE, drain)
         assertEquals(WorkInfo.State.RUNNING, drains(SyncDrainScheduler.ANY_NETWORK).single().state)
+        return drain.id
+    }
+
+    /**
+     * The drain that just ended can still be listed as running: WorkManager hasn't recorded it yet. It has returned, so
+     * the next one is scheduled: a lane waiting out a backoff changes no more, and nothing else would
+     */
+    @Test fun `a drain that has returned here doesn't hold up the next`() = runBlocking {
+        returned += listedAsRunning()
 
         scheduler(SyncDrainPolicy.Needs(anyNetwork = later, unmeteredOnly = null)).schedule()
 
@@ -172,12 +179,28 @@ class SyncDrainSchedulerTest {
         assertEquals(600_000L, next.initialDelayMillis)
     }
 
+    /**
+     * WorkManager lists a drain as running just before its worker runs: replacing it would stop it as it starts. It
+     * runs the engine, and its end schedules the next
+     */
+    @Test fun `a drain starting is left to run`() = runBlocking {
+        val starting = listedAsRunning()
+
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = now, unmeteredOnly = null)).schedule()
+        scheduler(SyncDrainPolicy.Needs.NONE).schedule()
+
+        val drain = drains(SyncDrainScheduler.ANY_NETWORK).single()
+        assertEquals(starting, drain.id)
+        assertEquals(WorkInfo.State.RUNNING, drain.state)
+    }
+
     /** Each schedule would report it again: once per process, as the sync runtime reports its failures */
     @Test fun `a failure is reported once`() = runBlocking {
         val failures = mutableListOf<Throwable>()
         val failing = SyncDrainScheduler(
             needs = { SyncDrainPolicy.Needs(now, null) },
             workManager = { throw IllegalStateException("WorkManager is not initialized") },
+            hasReturned = { false },
             isStorageCritical = { false },
             onFailed = { failures += it },
         )
@@ -194,6 +217,7 @@ class SyncDrainSchedulerTest {
         SyncDrainScheduler(
             needs = { SyncDrainPolicy.Needs(now, null) },
             workManager = { throw IllegalStateException("WorkManager is not initialized") },
+            hasReturned = { false },
             isStorageCritical = { false },
             onFailed = { failures += it },
         ).schedule()
