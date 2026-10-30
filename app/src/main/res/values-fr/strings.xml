@@ -454,7 +454,8 @@
     <string name="transfer_instructions">Sur un ordinateur du même réseau, ouvrez cette adresse dans un navigateur :</string>
     <string name="transfer_no_address">Connectez-vous au Wi‑Fi pour recevoir des fichiers depuis un ordinateur.</string>
     <string name="transfer_footer">Laissez cet écran ouvert pendant l’envoi des fichiers.</string>
-    <string name="transfer_server_url_accessibility">Adresse de transfert</string>
+    <string name="transfer_server_url_accessibility_value">Adresse de transfert, %1$s</string>
+    <string name="import_remove_item_accessibility">Retirer, %1$s</string>
     <string name="transfer_server_copy_button">Copier l’adresse</string>
     <string name="transfer_server_copied_button">Copiée</string>
     <plurals name="transfer_folder_files">

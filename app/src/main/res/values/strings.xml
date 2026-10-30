@@ -383,7 +383,10 @@
     <string name="transfer_instructions">On a computer on the same network, open this address in a browser:</string>
     <string name="transfer_no_address">Connect to Wi‑Fi to receive files from a computer.</string>
     <string name="transfer_footer">Keep this screen open while uploading.</string>
-    <string name="transfer_server_url_accessibility">Transfer address</string>
+    <!-- Spoken for the address: its label, then the address. -->
+    <string name="transfer_server_url_accessibility_value">Transfer address, %1$s</string>
+    <!-- Spoken for an import row's remove button: what it does, then the row's title. -->
+    <string name="import_remove_item_accessibility">Remove, %1$s</string>
     <string name="transfer_server_copy_button">Copy address</string>
     <string name="transfer_server_copied_button">Copied</string>
     <plurals name="transfer_folder_files">

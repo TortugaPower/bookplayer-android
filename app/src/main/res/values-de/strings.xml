@@ -454,7 +454,8 @@
     <string name="transfer_instructions">Öffne auf einem Computer im selben Netzwerk diese Adresse in einem Browser:</string>
     <string name="transfer_no_address">Verbinde dich mit einem WLAN, um Dateien von einem Computer zu empfangen.</string>
     <string name="transfer_footer">Lass diesen Bildschirm geöffnet, während die Dateien hochgeladen werden.</string>
-    <string name="transfer_server_url_accessibility">Übertragungsadresse</string>
+    <string name="transfer_server_url_accessibility_value">Übertragungsadresse, %1$s</string>
+    <string name="import_remove_item_accessibility">Entfernen, %1$s</string>
     <string name="transfer_server_copy_button">Adresse kopieren</string>
     <string name="transfer_server_copied_button">Kopiert</string>
     <plurals name="transfer_folder_files">

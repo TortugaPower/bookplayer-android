@@ -43,6 +43,7 @@ class TransferSession(
     private val sessionScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 ) {
 
+    /** STARTING until listening, and again whenever it stops (background, interruption) until it's back. */
     enum class Status { STARTING, RUNNING }
 
     /** A row of the list: a file at the top, or a folder with how many files it holds. [id] is its path. */
@@ -75,6 +76,7 @@ class TransferSession(
     private val lifecycleObserver = object : DefaultLifecycleObserver {
         override fun onStart(owner: LifecycleOwner) = listen()
         override fun onStop(owner: LifecycleOwner) {
+            notListening()
             sessionScope.launch { server.pause() }
         }
     }
@@ -82,8 +84,10 @@ class TransferSession(
     init {
         sessionScope.launch {
             server.events.collect { event ->
+                if (event !is Event.Interrupted) return@collect
+                notListening()
                 // Back while in the foreground; in the background, coming back resumes it.
-                if (event is Event.Interrupted && appLifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) listen()
+                if (appLifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) listen()
             }
         }
         appLifecycle.addObserver(lifecycleObserver)
@@ -122,6 +126,14 @@ class TransferSession(
         appLifecycle.removeObserver(lifecycleObserver)
         stateScope.cancel()
         return true
+    }
+
+    /**
+     * The server stopped listening and has no address to show: the spinner, not "Connect to Wi‑Fi", until [listen]
+     * has it back.
+     */
+    private fun notListening() {
+        if (!hasEnded) _status.value = Status.STARTING
     }
 
     /** Starts the session the first time, and listens again after the background or an interruption. */

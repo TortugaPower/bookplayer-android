@@ -474,7 +474,8 @@
     <string name="transfer_instructions">على كمبيوتر متصل بالشبكة نفسها، افتح هذا العنوان في متصفح:</string>
     <string name="transfer_no_address">اتصل بشبكة Wi‑Fi لاستلام الملفات من كمبيوتر.</string>
     <string name="transfer_footer">أبقِ هذه الشاشة مفتوحة أثناء رفع الملفات.</string>
-    <string name="transfer_server_url_accessibility">عنوان النقل</string>
+    <string name="transfer_server_url_accessibility_value">عنوان النقل، %1$s</string>
+    <string name="import_remove_item_accessibility">إزالة، %1$s</string>
     <string name="transfer_server_copy_button">نسخ العنوان</string>
     <string name="transfer_server_copied_button">تم النسخ</string>
     <plurals name="transfer_folder_files">

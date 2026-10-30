@@ -199,7 +199,7 @@ private fun ImportConfirmationListItem(row: ImportConfirmationRow, onRemove: () 
             Icon(
                 imageVector = Icons.Default.RemoveCircle,
                 // Says what it removes: TalkBack reads it apart from the row's title.
-                contentDescription = "${stringResource(R.string.common_remove)}, ${row.title}",
+                contentDescription = stringResource(R.string.import_remove_item_accessibility, row.title),
                 tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(28.dp)
             )

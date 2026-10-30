@@ -450,7 +450,8 @@
     <string name="transfer_instructions">同じネットワーク上のコンピュータで、このアドレスをブラウザで開いてください:</string>
     <string name="transfer_no_address">コンピュータからファイルを受け取るには、Wi-Fiに接続してください。</string>
     <string name="transfer_footer">ファイルのアップロード中はこの画面を開いたままにしてください。</string>
-    <string name="transfer_server_url_accessibility">転送アドレス</string>
+    <string name="transfer_server_url_accessibility_value">転送アドレス、%1$s</string>
+    <string name="import_remove_item_accessibility">削除、%1$s</string>
     <string name="transfer_server_copy_button">アドレスをコピー</string>
     <string name="transfer_server_copied_button">コピーしました</string>
     <plurals name="transfer_folder_files">

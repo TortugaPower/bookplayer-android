@@ -450,7 +450,8 @@
     <string name="transfer_instructions">在同一网络中的电脑上，用浏览器打开此地址：</string>
     <string name="transfer_no_address">连接无线局域网以接收来自电脑的文件。</string>
     <string name="transfer_footer">上传文件时请保持此界面打开。</string>
-    <string name="transfer_server_url_accessibility">传输地址</string>
+    <string name="transfer_server_url_accessibility_value">传输地址，%1$s</string>
+    <string name="import_remove_item_accessibility">移除，%1$s</string>
     <string name="transfer_server_copy_button">复制地址</string>
     <string name="transfer_server_copied_button">已复制</string>
     <plurals name="transfer_folder_files">

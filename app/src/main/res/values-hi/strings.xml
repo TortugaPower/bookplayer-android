@@ -454,7 +454,8 @@
     <string name="transfer_instructions">उसी नेटवर्क पर किसी कंप्यूटर के ब्राउज़र में यह पता खोलें:</string>
     <string name="transfer_no_address">कंप्यूटर से फ़ाइलें पाने के लिए वाई‑फ़ाई से कनेक्ट करें।</string>
     <string name="transfer_footer">अपलोड पूरा होने तक यह स्क्रीन खुली रखें।</string>
-    <string name="transfer_server_url_accessibility">ट्रांसफ़र का पता</string>
+    <string name="transfer_server_url_accessibility_value">ट्रांसफ़र का पता, %1$s</string>
+    <string name="import_remove_item_accessibility">हटाएं, %1$s</string>
     <string name="transfer_server_copy_button">पता कॉपी करें</string>
     <string name="transfer_server_copied_button">कॉपी हो गया</string>
     <plurals name="transfer_folder_files">

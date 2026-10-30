@@ -162,7 +162,7 @@ private fun AddressInstructions(url: String) {
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(16.dp))
-        val addressLabel = stringResource(R.string.transfer_server_url_accessibility)
+        val addressLabel = stringResource(R.string.transfer_server_url_accessibility_value, url)
         SelectionContainer {
             Text(
                 text = url,
@@ -171,7 +171,7 @@ private fun AddressInstructions(url: String) {
                 fontWeight = FontWeight.Medium,
                 fontFamily = FontFamily.Monospace,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.semantics { contentDescription = "$addressLabel, $url" }
+                modifier = Modifier.semantics { contentDescription = addressLabel }
             )
         }
         Spacer(modifier = Modifier.height(16.dp))

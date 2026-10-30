@@ -464,7 +464,8 @@
     <string name="transfer_instructions">На компьютере в той же сети откройте этот адрес в браузере:</string>
     <string name="transfer_no_address">Подключитесь к Wi‑Fi, чтобы получать файлы с компьютера.</string>
     <string name="transfer_footer">Не закрывайте этот экран, пока загружаются файлы.</string>
-    <string name="transfer_server_url_accessibility">Адрес передачи</string>
+    <string name="transfer_server_url_accessibility_value">Адрес передачи, %1$s</string>
+    <string name="import_remove_item_accessibility">Удалить, %1$s</string>
     <string name="transfer_server_copy_button">Скопировать адрес</string>
     <string name="transfer_server_copied_button">Скопировано</string>
     <plurals name="transfer_folder_files">

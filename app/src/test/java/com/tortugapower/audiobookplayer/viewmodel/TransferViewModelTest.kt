@@ -94,7 +94,7 @@ class TransferViewModelTest {
     }
 
     @Test fun `the background pauses the session and coming back resumes it on the same port`() {
-        makeSession()
+        val session = makeSession()
         lifecycle.currentState = Lifecycle.State.STARTED
         awaitUntil("running") { server.state.value is State.Running }
         val port = port()
@@ -102,8 +102,11 @@ class TransferViewModelTest {
 
         lifecycle.currentState = Lifecycle.State.CREATED
         awaitUntil("paused") { server.state.value == State.Paused }
+        // No address while paused: the spinner, not "Connect to Wi-Fi".
+        assertEquals(TransferSession.Status.STARTING, session.status.value)
         lifecycle.currentState = Lifecycle.State.STARTED
-        awaitUntil("running again") { server.state.value is State.Running }
+        awaitUntil("running again") { session.status.value == TransferSession.Status.RUNNING }
+        assertTrue(server.state.value is State.Running)
 
         assertEquals(port, port())
         assertEquals(listOf("a.mp3"), server.receivedFiles.value.map { it.relativePath })
