@@ -4,7 +4,6 @@ import android.os.Build
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -153,6 +152,10 @@ fun LibraryTileGrid(
 
 private enum class TileStyle { CARD, COVER }
 
+/** The progress mark's size on a cover alone (a list row's), and its inset from the cover's corner. */
+private val COVER_MARK_SIZE = 24.dp
+private val MARK_INSET = 8.dp
+
 /**
  * One item in the grid. A folder's cover is a stack: two dimmed leaves peek above it, each a step
  * narrower, and the front cover is shorter by the stack's height, so every tile in a row is as tall.
@@ -239,8 +242,7 @@ private fun LibraryTile(
                 isSelected = isSelected,
                 title = itemDisplayTitle(item, showOriginalFileName),
                 download = download,
-                canDownload = canDownload,
-                onDownload = { libraryViewModel.startDownload(item) }
+                canDownload = canDownload
             )
             if (style == TileStyle.CARD) {
                 TileDetails(item, itemDisplayTitle(item, showOriginalFileName), isHighlighted)
@@ -281,8 +283,7 @@ private fun TileCover(
     isSelected: Boolean,
     title: String,
     download: ItemDownloadUi,
-    canDownload: Boolean,
-    onDownload: () -> Unit
+    canDownload: Boolean
 ) {
     Box(
         modifier = Modifier
@@ -292,7 +293,7 @@ private fun TileCover(
             .then(if (item.artworkURL == null) Modifier.background(placeholderBrush()) else Modifier)
     ) {
         if (style == TileStyle.COVER && item.artworkURL == null) {
-            PlaceholderText(item, title, Modifier.align(Alignment.BottomStart))
+            PlaceholderText(item, title)
         }
         if (isFolder) {
             // Not cropped to the shorter shape: fitted, on a blurred copy of itself (blur needs Android 12;
@@ -311,6 +312,20 @@ private fun TileCover(
             LibraryItemArtworkImage(item, ContentScale.Crop)
         }
 
+        DownloadMark(
+            item = item,
+            style = style,
+            tileWidth = tileWidth,
+            download = download,
+            canDownload = canDownload,
+            modifier = Modifier.align(Alignment.BottomEnd)
+        )
+
+        // Over the artwork and the corner, under the progress mark (iOS draws the mark above it).
+        if (isHighlighted) {
+            PlayingWash()
+        }
+
         if (!isSelectMode) {
             ProgressMark(
                 item = item,
@@ -320,24 +335,10 @@ private fun TileCover(
                 showPercentage = showPercentage,
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(8.dp)
+                    .padding(MARK_INSET)
                     // The tile's description already says it.
                     .clearAndSetSemantics { }
             )
-        }
-
-        DownloadMark(
-            item = item,
-            style = style,
-            tileWidth = tileWidth,
-            download = download,
-            canDownload = canDownload,
-            onDownload = onDownload,
-            modifier = Modifier.align(Alignment.BottomEnd)
-        )
-
-        if (isHighlighted) {
-            PlayingWash()
         }
 
         if (isSelectMode) {
@@ -364,7 +365,7 @@ private fun ProgressMark(
     val isFinished = item.isFinished || progress >= 1.0
     if (!isFinished && progress <= 0.0) return
 
-    val size = if (style == TileStyle.CARD) maxOf(24.dp, tileWidth * 0.15f) else 24.dp
+    val size = if (style == TileStyle.CARD) maxOf(COVER_MARK_SIZE, tileWidth * 0.15f) else COVER_MARK_SIZE
     val tint = if (isHighlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     val background = MaterialTheme.colorScheme.surface
 
@@ -401,8 +402,8 @@ private fun ProgressMark(
 
 /**
  * The list's download corner grown with the cover (iOS `ItemArtworkView`): its triangle runs 30% along each
- * edge of a cover alone and 25% of a card's, and its whole box downloads on a tap. A ring over the cover while
- * downloading.
+ * edge of a cover alone and 25% of a card's. It only shows the state, as on iOS: a tap anywhere on a tile does
+ * what the tile does, and downloading is in the item's options. A ring over the cover while downloading.
  */
 @Composable
 private fun DownloadMark(
@@ -411,7 +412,6 @@ private fun DownloadMark(
     tileWidth: Dp,
     download: ItemDownloadUi,
     canDownload: Boolean,
-    onDownload: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val progress = download.progress
@@ -431,20 +431,13 @@ private fun DownloadMark(
             )
         }
     } else if (download.showCloud) {
-        val downloadLabel = stringResource(R.string.common_download)
         val legs = if (style == TileStyle.COVER) 0.3f else 0.25f
         DownloadCorner(
             item = item,
             canDownload = canDownload,
             box = tileWidth * (legs / LEG_FRACTION),
-            modifier = modifier.then(
-                if (canDownload && !download.isDownloading) {
-                    Modifier.clickable(onClickLabel = downloadLabel, onClick = onDownload)
-                        .semantics { contentDescription = downloadLabel }
-                } else {
-                    Modifier.clearAndSetSemantics { }
-                }
-            )
+            // The tile's description already says when its audio can't be played.
+            modifier = modifier.clearAndSetSemantics { }
         )
     }
 }
@@ -454,29 +447,37 @@ private fun DownloadMark(
  * the bottom (iOS's `cover` placeholder).
  */
 @Composable
-private fun PlaceholderText(item: LibraryItemEntity, title: String, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(8.dp)
+private fun PlaceholderText(item: LibraryItemEntity, title: String) {
+    // Kept below the progress mark: a folder's front cover is shorter, and at larger text sizes three title
+    // lines and the author would otherwise reach it. The title gets the lines that fit, up to three, worked
+    // out from the space here, not from a measured size.
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(start = 8.dp, end = 8.dp, bottom = 8.dp, top = MARK_INSET + COVER_MARK_SIZE + 4.dp)
             .clearAndSetSemantics { },
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+        contentAlignment = Alignment.BottomStart
     ) {
-        Text(
-            text = itemDetailsText(item),
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.7f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = title.ifBlank { stringResource(R.string.library_unknown_title) },
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis
-        )
+        val style = MaterialTheme.typography.labelSmall
+        val lineHeight = with(LocalDensity.current) { style.lineHeight.toDp() }
+        val titleLines = ((maxHeight - lineHeight - 2.dp) / lineHeight).toInt().coerceIn(1, 3)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = itemDetailsText(item),
+                style = style,
+                color = Color.White.copy(alpha = 0.7f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = title.ifBlank { stringResource(R.string.library_unknown_title) },
+                style = style,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                maxLines = titleLines,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
