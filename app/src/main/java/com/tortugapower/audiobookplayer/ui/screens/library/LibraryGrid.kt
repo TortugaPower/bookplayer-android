@@ -318,6 +318,8 @@ private fun TileCover(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(8.dp)
+                    // The tile's description already says it.
+                    .clearAndSetSemantics { }
             )
         }
 
@@ -512,6 +514,8 @@ private fun TileDetails(item: LibraryItemEntity, title: String, isHighlighted: B
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            // Read once, in the tile's description, not again merged after it (as the list's row does).
+            .clearAndSetSemantics { }
             .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
