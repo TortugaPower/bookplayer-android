@@ -56,6 +56,8 @@ internal class SyncDrain(
     /** Runs WorkManager's drain [id] */
     suspend fun run(id: UUID) {
         synchronized(lock) {
+            // WorkManager runs a drain Android stopped again, under the same id
+            returned -= id
             running++
             _draining.value = true
         }

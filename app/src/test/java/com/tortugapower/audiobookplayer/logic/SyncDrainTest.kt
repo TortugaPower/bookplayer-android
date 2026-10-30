@@ -126,6 +126,23 @@ class SyncDrainTest {
         assertTrue(run.isCompleted)
     }
 
+    /** Android stopped it (its 10 minutes, a lost network): WorkManager runs it again under the same id */
+    @Test fun `a drain run again isn't taken for returned while it runs`() = runTest {
+        scanned.value = true
+        drain.run(id)
+        assertTrue(drain.hasReturned(id))
+
+        lanes.value = mapOf("upload" to LaneState.Working)
+        val again = launch { drain.run(id) }
+        runCurrent()
+        assertTrue(again.isActive)
+        assertFalse(drain.hasReturned(id))
+
+        lanes.value = emptyMap()
+        runCurrent()
+        assertTrue(drain.hasReturned(id))
+    }
+
     @Test fun `an engine that never looks at the queue doesn't hold the job`() = runTest {
         val run = launch { drain.run(id) }
         advanceTimeBy(60_001)

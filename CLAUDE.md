@@ -251,9 +251,9 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     unmetered network for held uploads, each due now or at the earliest retry. A drain has the lanes pick again by the
     wall clock (`rescan`: a live process's waits stop while the device sleeps), runs the engine until no lane works or
     is due, then the next is scheduled; Android ends a job after 10 minutes and WorkManager runs it again (downloads
-    resume, uploads continue from S3's parts). Never
-    while something else keeps the process alive, and the service isn't started while one runs: Android 16 counts a
-    job started while the app is visible, or running beside a foreground service, against the app's job quota.
+    resume, uploads continue from S3's parts). Never while something else keeps the process alive, and the service
+    isn't started while one runs: Android 16 counts a job started while the app is visible, or running beside a
+    foreground service, against the app's job quota.
   - WorkManager starts on demand (`BookPlayerApplication` is its `Configuration.Provider`; the manifest removes its
     start-up initializer, which wrote its database at every process start and was the first thing to die on a full
     disk). Its database failing to open is reported (`setInitializationExceptionHandler`), and nothing schedules a

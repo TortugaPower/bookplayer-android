@@ -91,7 +91,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.P
         get() = Configuration.Builder()
             .setInitializationExceptionHandler { e -> onWorkManagerFailed(e) }
             .setSchedulingExceptionHandler { e -> onWorkManagerFailed(e) }
-            .setTaskExecutor(StorageGuardedExecutor(Dispatchers.Default.asExecutor()) { e -> StorageMonitor.reportFailure(this, e) })
+            .setTaskExecutor(StorageGuardedExecutor(Dispatchers.IO.asExecutor()) { e -> StorageMonitor.reportFailure(this, e) })
             .build()
 
     private fun onWorkManagerFailed(e: Throwable) {
