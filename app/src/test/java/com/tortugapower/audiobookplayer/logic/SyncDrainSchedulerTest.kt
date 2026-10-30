@@ -5,6 +5,11 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Clock
 import androidx.work.Configuration
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkerParameters
+import kotlinx.coroutines.awaitCancellation
 import androidx.work.NetworkType
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -149,6 +154,40 @@ class SyncDrainSchedulerTest {
         assertEquals(0, touched)
     }
 
+    /**
+     * The drain that just ended can still be listed as running: WorkManager hasn't recorded it yet. It has returned
+     * (the scheduler runs only while no drain runs here), so the next one is scheduled: a lane waiting out a backoff
+     * changes no more, and nothing else would
+     */
+    @Test fun `a drain still listed as running doesn't hold up the next`() = runBlocking {
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            SyncDrainScheduler.ANY_NETWORK, ExistingWorkPolicy.REPLACE, OneTimeWorkRequestBuilder<StillRecording>().build(),
+        )
+        assertEquals(WorkInfo.State.RUNNING, drains(SyncDrainScheduler.ANY_NETWORK).single().state)
+
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = later, unmeteredOnly = null)).schedule()
+
+        val next = drains(SyncDrainScheduler.ANY_NETWORK).single()
+        assertEquals(WorkInfo.State.ENQUEUED, next.state)
+        assertEquals(600_000L, next.initialDelayMillis)
+    }
+
+    /** Each schedule would report it again: once per process, as the sync runtime reports its failures */
+    @Test fun `a failure is reported once`() = runBlocking {
+        val failures = mutableListOf<Throwable>()
+        val failing = SyncDrainScheduler(
+            needs = { SyncDrainPolicy.Needs(now, null) },
+            workManager = { throw IllegalStateException("WorkManager is not initialized") },
+            isStorageCritical = { false },
+            onFailed = { failures += it },
+        )
+
+        failing.schedule()
+        failing.schedule()
+
+        assertEquals(1, failures.size)
+    }
+
     /** Best effort: the next app open runs the queue anyway */
     @Test fun `a failure to schedule is reported, never thrown`() = runBlocking {
         val failures = mutableListOf<Throwable>()
@@ -161,4 +200,9 @@ class SyncDrainSchedulerTest {
 
         assertEquals(1, failures.size)
     }
+}
+
+/** A drain WorkManager still lists as running: it never returns on its own */
+class StillRecording(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result = awaitCancellation()
 }

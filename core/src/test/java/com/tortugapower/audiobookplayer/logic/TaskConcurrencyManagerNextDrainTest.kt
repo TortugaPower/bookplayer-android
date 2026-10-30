@@ -9,7 +9,11 @@ import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -112,6 +116,29 @@ class TaskConcurrencyManagerNextDrainTest {
         StorageMonitor.refresh(context)
 
         assertEquals(SyncDrainPolicy.Needs.NONE, engine().nextDrain(now))
+    }
+
+    /**
+     * A drain started with the process trusts "no lane works" once the engine has looked at the queue: the lanes that
+     * look started must show as working by then, though their workers run on another thread
+     */
+    @Test fun theLanesTheEngineStarted_areWorking_byTheTimeItHasLooked() = runBlocking {
+        repository.saveTask(push("p"))
+        val release = CompletableDeferred<Unit>()
+        val blocking = object : TaskProcessor {
+            override suspend fun process(task: SyncTaskEntity): Boolean { release.await(); return true }
+            override fun canHandle(jobType: String) = jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE
+        }
+        val engine = TaskConcurrencyManager(context, repository, Account(null), listOf(blocking)).also { engines += it }
+        // Read in the very moment the flag flips (Unconfined resumes in the thread that sets it)
+        val seen = CompletableDeferred<LaneState?>()
+        val watch = launch(Dispatchers.Unconfined) { engine.scanned.first { it }; seen.complete(engine.laneStates.value["jellyfin"]) }
+
+        engine.startProcessing()
+
+        assertEquals(LaneState.Working, withTimeout(5_000) { seen.await() })
+        release.complete(Unit)
+        watch.cancel()
     }
 
     /** A drain started with the process waits for this before trusting that no lane works */

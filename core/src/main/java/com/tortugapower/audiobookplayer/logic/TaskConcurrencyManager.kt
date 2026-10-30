@@ -252,8 +252,6 @@ class TaskConcurrencyManager(
             val slots = queueSemaphore
             var holdingSlot = false
             try {
-                _activeQueues.update { it + queueKey }
-                _laneStates.update { it + (queueKey to LaneState.Working) }
                 val mutex = queueMutexes.getOrPut(queueKey) { Mutex() }
                 
                 // Keep worker alive as long as there are pending tasks for this queue
@@ -334,14 +332,20 @@ class TaskConcurrencyManager(
                 }
             } finally {
                 if (holdingSlot) slots.release()
-                // Only itself: a cancelled worker can end after the lane's next one has started, which
-                // keeps the lane active
-                queueJobs.remove(queueKey, coroutineContext.job)
-                _activeQueues.update { if (queueJobs[queueKey] == null) it - queueKey else it }
-                _laneStates.update { if (queueJobs[queueKey] == null) it - queueKey else it }
             }
         }
         queueJobs[queueKey] = job
+        // The lane is working from here, before its worker runs (on another thread): whoever reads the lanes once this
+        // scan is done (a sync drain waiting on [scanned]) sees it. Cleared when the worker completes, whether its body
+        // ran or not (a cancel can land before it starts).
+        _activeQueues.update { it + queueKey }
+        _laneStates.update { it + (queueKey to LaneState.Working) }
+        job.invokeOnCompletion {
+            // Only itself: a cancelled worker can end after the lane's next one has started, which keeps the lane active
+            queueJobs.remove(queueKey, job)
+            _activeQueues.update { if (queueJobs[queueKey] == null) it - queueKey else it }
+            _laneStates.update { if (queueJobs[queueKey] == null) it - queueKey else it }
+        }
         job.start()
     }
 
@@ -548,12 +552,6 @@ class TaskConcurrencyManager(
     }
 
     /**
-     * What a lane's worker could pick now, for deciding which lanes get one: the tier's policy, and file
-     * uploads held to Wi-Fi left out, so a lane holding only those doesn't start a worker that would
-     * pick nothing (the network callback rescans when Wi-Fi returns). The connectivity check runs only
-     * when an upload is queued.
-     */
-    /**
      * What [queueKey]'s worker may run, in order: parked tasks are skipped or stop the lane, an account pause holds
      * the BookPlayer-server work (read per pick: any lane can park one), the tier holds what it can't run, and
      * storage holds everything while the disk is critically full (every task ends in a DB write) and file downloads
@@ -585,6 +583,12 @@ class TaskConcurrencyManager(
         return SyncDrainPolicy.needs(lanes, PlaybackSettingsManager.getUploadUsingCellularData(context).first())
     }
 
+    /**
+     * What a lane's worker could pick now, for deciding which lanes get one: the tier's policy, and file
+     * uploads held to Wi-Fi left out, so a lane holding only those doesn't start a worker that would
+     * pick nothing (the network callback rescans when Wi-Fi returns). The connectivity check runs only
+     * when an upload is queued.
+     */
     private suspend fun startPolicy(tasks: List<SyncTaskEntity>): (String) -> Boolean {
         val tier = tierPolicy()
         val hold = tasks.any { it.status == SyncTaskStatus.PENDING && UploadDataPolicy.isFileUploadJob(it.jobType) } &&

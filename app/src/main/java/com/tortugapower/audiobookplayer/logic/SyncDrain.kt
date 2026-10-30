@@ -24,8 +24,11 @@ import java.util.concurrent.TimeUnit
  * A sync drain (SyncDrainPolicy): runs the engine while nothing else keeps the process alive, until no lane works,
  * or until something else takes over (the app on screen, playback in the foreground, the sync service). Android ends
  * a job after 10 minutes and WorkManager runs it again: a download resumes where it stopped (DownloadResume), an
- * upload from the parts S3 holds. Never while something else keeps the process alive: Android 16 counts a job started
- * while the app is visible, or running beside a foreground service, against the app's job quota.
+ * upload from the parts S3 holds. It never keeps running while something else keeps the process alive: Android 16
+ * counts a job that runs beside a foreground service, or carries on after the app it started under leaves the screen,
+ * against the app's job quota. A pending drain Android starts while the app is on screen (or playback or the service
+ * holds the process) ends at once, a few milliseconds of job time; cancelling the pending ones each time the app opens
+ * would cost a WorkManager write every time.
  */
 internal class SyncDrain(
     /** The app on screen, playback in the foreground, or the sync service up */
@@ -73,9 +76,12 @@ internal class SyncDrain(
 
 /**
  * Schedules the sync drains the stored queue needs (SyncDrainPolicy.Needs), each a unique work: one on any network,
- * and one that waits for an unmetered network, for book uploads held for Wi-Fi. A running drain is left alone: it
- * schedules the next as it ends (SyncKeepAlive). A pending one is kept when it runs no later than needed (an early
- * run finds nothing due and reschedules), replaced when it would run too late, and cancelled when nothing needs it.
+ * and one that waits for an unmetered network, for book uploads held for Wi-Fi. Called only while no drain runs in
+ * this process (SyncKeepAlive), the one WorkManager runs them in: a drain WorkManager still lists as running has
+ * returned and waits for WorkManager to record it, so it's treated as done (left running, its lane waiting out a
+ * backoff would change no more, and nothing would schedule the next). A pending drain is kept when it runs no later
+ * than needed (an early run finds nothing due and reschedules), replaced when it would run too late, and cancelled
+ * when nothing needs it. A failure is reported once per process (each schedule would report it again).
  * Never on a critically full disk: WorkManager's own database would be the first write to fail. And with nothing
  * needed, WorkManager isn't started just to look: a drain an earlier process left runs, finds nothing, and ends.
  */
@@ -88,6 +94,8 @@ internal class SyncDrainScheduler(
     private val isWorkManagerStarted: () -> Boolean = { WorkManager.isInitialized() },
     private val onFailed: (Throwable) -> Unit = {},
 ) {
+    private val reported = HashSet<String>()
+
     suspend fun schedule() {
         if (isStorageCritical()) return
         try {
@@ -101,13 +109,13 @@ internal class SyncDrainScheduler(
         } catch (e: Exception) {
             // Best effort: the next app open runs the queue anyway
             Log.w(TAG, "Couldn't schedule the sync drains", e)
-            onFailed(e)
+            if (synchronized(reported) { reported.add("${e.javaClass.name}: ${e.message}") }) onFailed(e)
         }
     }
 
     private suspend fun update(workManager: WorkManager, name: String, at: Long?, network: NetworkType) {
-        val existing = workManager.getWorkInfosForUniqueWorkFlow(name).first().filter { !it.state.isFinished }
-        if (existing.any { it.state == WorkInfo.State.RUNNING }) return
+        val existing = workManager.getWorkInfosForUniqueWorkFlow(name).first()
+            .filter { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
         if (at == null) {
             if (existing.isNotEmpty()) workManager.cancelUniqueWork(name)
             return
