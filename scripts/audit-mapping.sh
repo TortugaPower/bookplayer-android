@@ -71,8 +71,8 @@ required.update({
     "com.tortugapower.audiobookplayer.database.AppDatabase",
     "com.tortugapower.audiobookplayer.database.AppDatabase_Impl",
 })
-if module == "app":
-    required.add("com.tortugapower.audiobookplayer.logic.SyncDrainWorker")
+# WorkManager stores the sync drain's worker by name in its database, across app updates (both apps run drains)
+required.add("com.tortugapower.audiobookplayer.logic.SyncDrainWorker")
 prefixes = ["androidx.wear.ongoing.", "androidx.versionedparcelable."] if module == "wear" else []
 for original in mapping:
     if any(original.startswith(p) for p in prefixes) and not SYNTHETIC.search(original):

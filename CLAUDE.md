@@ -44,7 +44,9 @@ core/                      # shared Android library — NO Compose, NO app types
     model/                 # shared data models (SyncModels, ...)
     repository/            # data access, single source of truth per domain
     logic/                 # shared domain/sync logic: SyncTaskFactory + sync processors + engine
-                           #   (CoreProcessors, TaskConcurrencyManager/Service), PlayableItem/
+                           #   (CoreProcessors, TaskConcurrencyManager/Service), the sync runtime (SyncRuntime,
+                           #   SyncKeepAlive + the SyncKeepAliveService base, sync drains: SyncDrain/
+                           #   SyncDrainScheduler/SyncDrainWorker; SyncRuntimeHost, the targets' Applications), PlayableItem/
                            #   PlayableItemBuilder/BoundTimeline, chapter extraction, settings,
                            #   SubscriptionManager, StatisticsManager, PlaybackSyncCoordinator (iface),
                            #   PlaybackManager + SleepTimerManager (the shared Media3 player orchestration,
@@ -70,7 +72,7 @@ app/                       # phone app — depends on :core
                            #   (WearRemotePublisher pushes state via DataClient; WearCommandListenerService
                            #   drives PlaybackManager from watch commands; WearStateBuilder/WearCommandMapper)
     widget/                # home-screen widget
-    logic/                 # phone-only: the sync keep-alive (TaskConcurrencyServiceHost, SyncKeepAlive) and
+    logic/                 # phone-only: the sync keep-alive service (TaskConcurrencyServiceHost) and
                            #   PhoneSyncEngine (the phone's processors for SyncRuntime),
                            #   ThemeManager, import, app-icon, tip/billing, support, passkey,
                            #   ShortcutHelper (pinned home-screen shortcuts; dynamic launcher shortcuts
@@ -80,7 +82,8 @@ app/                       # phone app — depends on :core
   src/main/res/            # values/ + 10 localized values-* dirs (ar, de, es, fr, hi, it, ja, ko, ru, zh-rCN)
 wear/                      # Wear OS app — depends on :core; shares :app's applicationId (pairing), minSdk 30
   src/main/java/com/tortugapower/audiobookplayer/wear/
-    WearApp.kt             # Application: wires :core (CoreContext/NetworkConstants/SubscriptionManager)
+    WearApp.kt             # Application: wires :core (CoreContext/NetworkConstants/SubscriptionManager) and the
+                           #   sync runtime (sync/: WearSyncEngine, WearSyncPolicy, WearSyncServiceHost)
     auth/                  # WearAuthClient: requests the sign-in handoff from the phone (Data Layer)
     data/                  # remote-control transport: RemoteContextRepository (observe phone state via
                            #   DataClient), WearRemoteClient (send commands), shared WearableExt helpers
@@ -104,7 +107,8 @@ browserdrop/               # standalone library (no :core/:app deps), package co
   auth data source + `BookTimelinePlayer` + LoudnessEnhancer + the transport-only session callback) so
   both targets reuse one player-construction codebase. Only the **concrete, manifest-registered** service
   (phone: `AudioPlayerService` adds the Auto browse tree + notification `PendingIntent`; Wear: its own)
-  stays **per-target** in `:app`/`:wear`, as does the foreground sync `Service` and the widget. The target
+  stays **per-target** in `:app`/`:wear`, as does the foreground sync `Service` (a `:core` `SyncKeepAliveService`
+  subclass with the target's notification) and the widget. The target
   injects its session-service `ComponentName` + hooks into `PlaybackManager.initialize`.
 - **Config/Context crossing the boundary is injected, not read.** Flavored `BuildConfig` values
   (`BASE_URL`, `GOOGLE_CLIENT_ID`, `REVENUECAT_API_KEY`) are passed into `:core` at startup
@@ -236,7 +240,8 @@ browserdrop/               # standalone library (no :core/:app deps), package co
     its start-up steps (the reset, lane moves, retirement) have run: every worker start waits on them. A write that
     fails on a full disk is recorded and the step runs again once space is back, so the engine never silently
     stops; space coming back also rescans the lanes a full disk held.
-  - `TaskConcurrencyServiceHost` (the dataSync service) only keeps the process alive, and only for a transfer in
+  - The dataSync service (`SyncKeepAliveService`: the phone's `TaskConcurrencyServiceHost`, the watch's
+    `WearSyncServiceHost`) only keeps the process alive, and only for a transfer in
     the background (`SyncKeepAlivePolicy`): an `upload` or `file` lane working (not waiting out a backoff), the app
     off screen, and playback not in the foreground (`PlaybackForeground`: media3's `startInForegroundRequired`, so it
     covers the paused window). Anything else (the sync lane, media-server progress pushes) never starts it, so
@@ -250,7 +255,7 @@ browserdrop/               # standalone library (no :core/:app deps), package co
   - Android allows that start from the background only at a few moments, so `SyncKeepAlive` starts it as the app
     leaves the screen, and as playback leaves the foreground: `PlaybackForeground.onLeaving` runs before media3
     demotes, while the app still holds a foreground service. A refused start, or a service Android ends when its
-    budget runs out (`TaskConcurrencyServiceHost.onUnavailable`), hands its transfers to drains until the app is next
+    budget runs out (`SyncKeepAliveService.onUnavailable`), hands its transfers to drains until the app is next
     opened (which resets the budget).
   - **Sync drains** (`SyncDrain`, `SyncDrainWorker`: WorkManager) take everything else once nothing keeps the process
     alive (no app on screen, no playback in the foreground, no service): the sync lane, media-server pushes, lanes
@@ -264,19 +269,21 @@ browserdrop/               # standalone library (no :core/:app deps), package co
     resume, uploads continue from S3's parts). Never while something else keeps the process alive, and the service
     isn't started while one runs: Android 16 counts a job started while the app is visible, or running beside a
     foreground service, against the app's job quota.
-  - WorkManager starts on demand (`BookPlayerApplication` is its `Configuration.Provider`; the manifest removes its
+  - WorkManager starts on demand (each Application is its `Configuration.Provider`; each manifest removes its
     start-up initializer, which wrote its database at every process start and was the first thing to die on a full
     disk). Its database failing to open is reported (`setInitializationExceptionHandler`), and nothing schedules a
     drain while storage is critical. Its consumer rules keep the worker's name, which it stores across app updates;
-    `scripts/audit-mapping.sh` pins it.
+    `scripts/audit-mapping.sh` pins it in both apps.
   - What the old start/stop cycle covered is explicit: the runtime's `SyncNetworkWatch` rescans on network
     changes and cuts backoffs short on a new validated network; the engine rescans on storage recovery; the
     cellular-upload setting calls `requestWorkerScan()`. It follows the app's default network (`SyncNetworkCallback`)
     and, on Android 12+, the physical one (`PhysicalNetworkCallback`): behind an always-on VPN the default network is
     the VPN, which never changes when the connection under it drops and comes back. Android 9-11 have no public way to
     follow that one, so there a VPN still hides it.
-  - The watch still builds its engine in `WearSyncServiceHost` (it promotes after building, so it never had -2F)
-    until it moves onto `SyncRuntime`.
+  - The watch runs the same runtime (`WearApp`, `WearSyncEngine`: the watch's processors), but builds its engine only
+    when there's sync (`WearSyncPolicy`): a PRO account (any other plays the phone's library), with the app on screen
+    or tasks queued; a drain starts it itself. Tiles and complications start the watch's process often. Its keep-alive
+    carries downloads (the watch uploads nothing). `:wear` has no Sentry: runtime and WorkManager failures are logged.
 - **Downloads resume where they stopped** (`DownloadResume`; iOS needs none, its background URLSession keeps
   going). A download writes `Downloading/<task row id>.part`, and before the first byte saves the server's validator
   in its task's payload (`saveDownloadValidator`, as an upload keeps its `MultipartUploadState`): the strong ETag

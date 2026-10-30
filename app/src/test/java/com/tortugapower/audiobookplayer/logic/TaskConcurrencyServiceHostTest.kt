@@ -46,17 +46,17 @@ class TaskConcurrencyServiceHostTest {
     /** Up, it keeps the process alive: no sync drain runs beside it (Android 16 job quota) */
     @Test fun itSaysWhileItRuns() {
         val controller = Robolectric.buildService(TaskConcurrencyServiceHost::class.java).create()
-        assertTrue(TaskConcurrencyServiceHost.running.value)
+        assertTrue(SyncKeepAliveService.running.value)
 
         controller.get().onTimeout(1, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         controller.destroy()
-        assertFalse(TaskConcurrencyServiceHost.running.value)
+        assertFalse(SyncKeepAliveService.running.value)
     }
 
     /** Its budget ran out mid-run: its transfers go to sync drains until the app is next opened */
     @Test fun onTimeout_itSaysItsUnavailable() {
         var told = 0
-        TaskConcurrencyServiceHost.onUnavailable = { told++ }
+        SyncKeepAliveService.onUnavailable = { told++ }
         try {
             val controller = Robolectric.buildService(TaskConcurrencyServiceHost::class.java).create()
 
@@ -65,7 +65,7 @@ class TaskConcurrencyServiceHostTest {
 
             assertEquals(1, told)
         } finally {
-            TaskConcurrencyServiceHost.onUnavailable = null
+            SyncKeepAliveService.onUnavailable = null
         }
     }
 

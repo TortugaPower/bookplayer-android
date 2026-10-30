@@ -129,8 +129,10 @@ dependencies {
     implementation(libs.androidx.wear.ongoing)
     implementation(libs.androidx.wear.remote.interactions)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    // ProcessLifecycleOwner: gate the sync foreground service on process-foreground state.
+    // ProcessLifecycleOwner: whether the app is on screen (the sync keep-alive and the engine's start).
     implementation(libs.androidx.lifecycle.process)
+    // Sync drains (:core SyncDrain): WearApp is WorkManager's Configuration.Provider
+    implementation(libs.androidx.work.runtime.ktx)
 
     // Media3 — the Wear playback service subclasses :core's MediaPlaybackService (ExoPlayer + MediaSession).
     // Types come transitively via :core (api), but declared here per the module convention (a module that

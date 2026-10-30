@@ -26,7 +26,7 @@ import kotlinx.coroutines.launch
  * while a drain runs, it is what keeps the process alive: the service isn't started then (Android 16 counts a job
  * running beside a foreground service against the app's job quota).
  */
-internal class SyncKeepAlive(
+class SyncKeepAlive(
     scope: CoroutineScope,
     private val visible: StateFlow<Boolean>,
     private val playing: StateFlow<Boolean>,

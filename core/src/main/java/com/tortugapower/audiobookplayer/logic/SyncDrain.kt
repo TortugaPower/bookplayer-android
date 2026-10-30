@@ -10,7 +10,6 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.tortugapower.audiobookplayer.BookPlayerApplication
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,7 +30,7 @@ import java.util.concurrent.TimeUnit
  * holds the process) ends at once, a few milliseconds of job time; cancelling the pending ones each time the app opens
  * would cost a WorkManager write every time.
  */
-internal class SyncDrain(
+class SyncDrain(
     /** The app on screen, playback in the foreground, or the sync service up */
     private val keptAlive: StateFlow<Boolean>,
     private val scanned: StateFlow<Boolean>,
@@ -111,7 +110,7 @@ internal class SyncDrain(
  * Never on a critically full disk: WorkManager's own database would be the first write to fail. And with nothing
  * needed, WorkManager isn't started just to look: a drain an earlier process left runs, finds nothing, and ends.
  */
-internal class SyncDrainScheduler(
+class SyncDrainScheduler(
     /** Null while nothing is known yet (no engine has looked at the queue): nothing changes then */
     private val needs: suspend () -> SyncDrainPolicy.Needs?,
     private val workManager: () -> WorkManager,
@@ -171,14 +170,14 @@ internal class SyncDrainScheduler(
 }
 
 /**
- * WorkManager's entry to a sync drain (SyncDrain). WorkManager stores this class's name in its own database and
- * resolves it after an app update, so it never moves or gets renamed (its consumer rules keep worker names;
- * scripts/audit-mapping.sh pins it).
+ * WorkManager's entry to a sync drain (SyncDrain), which it finds through the Application (SyncRuntimeHost). WorkManager
+ * stores this class's name in its own database and resolves it after an app update, so it never moves to another
+ * package or gets renamed (its consumer rules keep worker names; scripts/audit-mapping.sh pins it in both apps).
  */
 class SyncDrainWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         try {
-            (applicationContext as? BookPlayerApplication)?.syncDrain?.run(id)
+            (applicationContext as? SyncRuntimeHost)?.syncDrain?.run(id)
         } catch (e: CancellationException) {
             // Android ended it (its 10 minutes, a lost network, its quota): WorkManager runs it again
             Log.w("SyncDrainWorker", "Sync drain stopped (reason $stopReason)")

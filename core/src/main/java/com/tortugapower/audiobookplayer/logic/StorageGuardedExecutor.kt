@@ -9,7 +9,7 @@ import java.util.concurrent.Executor
  * initialization handler's reach. WorkManager tries again later; at a full disk nothing could run anyway. Anything
  * else is a bug, and still crashes.
  */
-internal class StorageGuardedExecutor(
+class StorageGuardedExecutor(
     private val base: Executor,
     /** Records a full-disk failure and says whether it was one (StorageMonitor.reportFailure) */
     private val reportedFullDisk: (Throwable) -> Boolean,
