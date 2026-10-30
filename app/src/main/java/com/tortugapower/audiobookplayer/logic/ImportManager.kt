@@ -777,11 +777,13 @@ object ImportManager : ImportService {
             }
         }
 
-        // Roll up duration / "N Files" label onto the new folder (and any ancestors). The child
-        // path form is what refreshParentMetadata walks up from.
-        val firstChild = libraryDao.getItemsInPathSync(folderPath).firstOrNull()
-        RoomLibraryRepository(context.applicationContext, libraryDao)
-            .refreshParentMetadata(firstChild?.relativePath ?: "$folderPath/")
+        // Roll up duration / "N Files" label onto every folder inside (deepest first), then the new folder and
+        // its ancestors. Walking up from one child would skip its sibling subfolders (`Book/Disc 2`). The
+        // trailing slash makes each folder the first one the walk up recomputes.
+        val subfolders = libraryDao.getDescendantsOfPath(folderPath).filter { it.type != ItemType.BOOK }
+        LibraryContentsSync.updateParentFoldersBatch(
+            libraryDao, (subfolders.mapNotNull { it.relativePath } + folderPath).map { "$it/" }
+        )
         // The stored row, with the totals the roll-up just wrote: the placement prompt moves or converts this
         // item, and writing back the entity built above would reset its count and duration.
         return libraryDao.getItemById(folderItem.uuid) ?: folderItem
