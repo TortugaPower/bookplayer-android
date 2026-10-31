@@ -109,9 +109,11 @@ class LibrarySortManager(
         val location = resolveLocation(path)
         if (!location.isWritable) return
         val visible = displayOrder(location, path)
-        if (visible.map { it.uuid } == orderedUuids) return
         val stored = visible.associateBy { it.uuid }
         val dragged = orderedUuids.toSet()
+        // Nothing moved: the items both orders hold are as they were. An item added or removed during the drag (a
+        // listing, an import, a delete) doesn't count, or a plain long press to select could switch the level to custom.
+        if (visible.map { it.uuid }.filter { it in dragged } == orderedUuids.filter { it in stored }) return
         // The ranks before the rule: switched to custom first, an automatic level would show its old ranks until
         // the new ones land.
         repository.reorderItems(orderedUuids.mapNotNull { stored[it] } + visible.filter { it.uuid !in dragged })

@@ -1593,8 +1593,9 @@ fun LibraryScreen(
                     isDragging = false
                     val order = reorderableItems.map { it.uuid }
                     // Against the order the screen showed before this drag: one still being saved, else the
-                    // library's. Let go where it started, there's nothing to save.
-                    if (order != (savingOrder ?: pathItems.map { it.uuid })) {
+                    // library's. Let go where it started (an item the library added or removed meanwhile aside, as
+                    // when a plain long press selects), there's nothing to save.
+                    if (!order.sameOrderAs(savingOrder ?: pathItems.map { it.uuid })) {
                         savingOrder = order
                         libraryViewModel.reorderItems(order) { savedOrder = order }
                     }
@@ -2039,11 +2040,13 @@ private const val SAVING_ORDER_TIMEOUT_MS = 2_000L
  * Whether these items are in [order], leaving aside any added or removed meanwhile (an item imported during
  * the save lands after the dropped ones).
  */
-private fun List<LibraryItemEntity>.showsOrder(order: List<String>): Boolean {
-    val shown = map { it.uuid }
-    val shownSet = shown.toSet()
-    val ordered = order.toSet()
-    return shown.filter { it in ordered } == order.filter { it in shownSet }
+private fun List<LibraryItemEntity>.showsOrder(order: List<String>): Boolean = map { it.uuid }.sameOrderAs(order)
+
+/** Whether the uuids both lists hold are in the same order, any only one of them holds aside. */
+private fun List<String>.sameOrderAs(other: List<String>): Boolean {
+    val mine = toSet()
+    val theirs = other.toSet()
+    return filter { it in theirs } == other.filter { it in mine }
 }
 
 /** Replaces the list's items with [items], unless it holds them already. */

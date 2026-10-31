@@ -157,6 +157,30 @@ class SyncingLibrarySortTest {
         assertTrue("no pref push", prefPushes().isEmpty())
     }
 
+    @Test fun `an unmoved drop changes nothing, though an item arrived during the drag`() = runBlocking {
+        store.set(SortLocation.Root, EffectiveSort.Automatic(SortType.metadataTitle))
+        seed("b", "Bravo", "Bravo", 0)
+        seed("a", "Alpha", "Alpha", 1)
+        seed("c", "Charlie", "Charlie", 2) // listed while the drag was held: not in the screen's order
+
+        manager.setCustomOrder(null, listOf("a", "b")) // the visible order the drag started from, unmoved
+
+        assertEquals(EffectiveSort.Automatic(SortType.metadataTitle).serialize(), prefs.getString(SortLocation.Root.storeKey))
+        assertTrue("no rank sync", updateTasksFor("a").isEmpty() && updateTasksFor("b").isEmpty())
+        assertTrue("no pref push", prefPushes().isEmpty())
+    }
+
+    @Test fun `an unmoved drop changes nothing, though an item went away during the drag`() = runBlocking {
+        store.set(SortLocation.Root, EffectiveSort.Automatic(SortType.metadataTitle))
+        seed("b", "Bravo", "Bravo", 0)
+        seed("a", "Alpha", "Alpha", 1)
+
+        manager.setCustomOrder(null, listOf("a", "b", "gone")) // "gone" was deleted while the drag was held
+
+        assertEquals(EffectiveSort.Automatic(SortType.metadataTitle).serialize(), prefs.getString(SortLocation.Root.storeKey))
+        assertTrue("no pref push", prefPushes().isEmpty())
+    }
+
     @Test fun `a drop writes ranks onto the stored items, not the copies the drag held`() = runBlocking {
         seed("a", "A", "A", 0)
         seed("b", "B", "B", 1)
