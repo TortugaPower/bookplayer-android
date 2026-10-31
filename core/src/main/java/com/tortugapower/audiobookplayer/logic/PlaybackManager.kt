@@ -131,11 +131,13 @@ object PlaybackManager {
         _missingExternalServer.value = null
     }
 
-    // Whether the most recent playItem was user-initiated (autoplay=true: taps, Auto, autoplay
-    // transitions) vs a silent load (autoplay=false: launch restore, the post-fetch last-played
-    // re-arm). Player errors from silent loads must not alert — the E2E for stable host identity
-    // caught the fetch re-arm popping the generic error on a fresh second-device sign-in before
-    // the user touched anything.
+    // Whether the load now in the player was the user's: written by playItem (its autoplay: true for a tap,
+    // Next, an autoplay transition; false for the post-fetch last-played re-arm), resolveSessionMediaItems
+    // (an Android Auto pick, true) and restoreLastPlayedItem (the launch restore, false). A player error alerts
+    // when it's true or when play was asked for since (playWhenReady, from any surface: onPlayerError,
+    // shouldAlertPlayerError). Errors from a silent load don't alert on their own: the E2E for stable host
+    // identity caught the fetch re-arm popping the generic error on a fresh second-device sign-in before the
+    // user touched anything.
     @Volatile
     private var lastLoadUserInitiated = true
 
@@ -544,6 +546,12 @@ object PlaybackManager {
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
+                        // Whether playback was asked for, from any surface (the app, the notification, the
+                        // lock screen, a headset, Auto, Wear). Read before the pause below.
+                        val playRequested = player?.playWhenReady == true
+                        // Back to paused, as iOS drops a failed item: Media3 keeps playWhenReady through an
+                        // error, so the next load of this player, even a silent one, would start playing.
+                        player?.pause()
                         playbackQueuedFlag = false
                         loadPlayPending = false
                         recomputeIsPlaying()
@@ -552,9 +560,9 @@ object PlaybackManager {
                         // errors out) — don't stack the generic dialog on top of it.
                         if (_externalStreamAuthError.value) return
                         // Silent loads (launch restore, post-fetch last-played re-arm) fail
-                        // silently: an alert with no user action reads as a random error. The
-                        // user's actual tap on the same book retries as user-initiated.
-                        if (!lastLoadUserInitiated) return
+                        // silently: an alert with no user action reads as a random error. A play
+                        // asked for afterwards retries it, and that one alerts.
+                        if (!shouldAlertPlayerError(lastLoadUserInitiated, playRequested)) return
                         scope.launch {
                             val currentItem = _currentItem.value
                             if (currentItem != null) {
@@ -679,6 +687,15 @@ object PlaybackManager {
      */
     internal fun isLoadPlay(autoplay: Boolean, loadingUuid: String, loadedUuid: String?): Boolean =
         autoplay && loadingUuid != loadedUuid
+
+    /**
+     * Whether a player error alerts (iOS alerts only when playback was queued): when the failed load was the
+     * user's own ([lastLoadUserInitiated]: a tap, Next, an autoplay transition, an Android Auto pick), or when
+     * playback was asked for ([playRequested], from any surface). A silent load (the launch restore, the re-load
+     * after a sync) fails silently until then. Pure — pinned by PlayerErrorAlertTest.
+     */
+    internal fun shouldAlertPlayerError(lastLoadUserInitiated: Boolean, playRequested: Boolean): Boolean =
+        lastLoadUserInitiated || playRequested
 
     /**
      * The speed a book loads at (iOS `SpeedService.getSpeed` + `LibraryService.getItemSpeed`): the
@@ -1143,6 +1160,10 @@ object PlaybackManager {
                 if (autoplay) {
                     player?.play()
                     _showPlayerScreen.value = true
+                } else {
+                    // A silent load never plays, as iOS's load(autoplay: false): Media3 keeps playWhenReady from
+                    // before, on after a book played to its end, so the new book would start by itself.
+                    player?.pause()
                 }
                 player?.setPlaybackSpeed(_playbackSpeed.value)
                 applyVolume(_volumeBoost.value, _playbackVolume.value)
@@ -1307,6 +1328,7 @@ object PlaybackManager {
         if (mediaItems.isEmpty()) return null
         // Only a pick that resolved loads anything: after a failed one the session keeps the loaded book
         loadPlayPending = isLoad
+        lastLoadUserInitiated = true
 
         _currentItem.value = refreshedItem
         _currentPlayable.value = playable
@@ -1379,6 +1401,8 @@ object PlaybackManager {
                 _hasPreviousItem.value = prev
                 _isTransitioning.value = true
 
+                // Silent: a book that fails to load here alerts only once the user plays it.
+                lastLoadUserInitiated = false
                 mediaController.setMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
                 mediaController.prepare()
 
