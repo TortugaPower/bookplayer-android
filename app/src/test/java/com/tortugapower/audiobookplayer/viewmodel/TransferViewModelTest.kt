@@ -39,6 +39,11 @@ class TransferViewModelTest {
     private val stagingRoot: File = Files.createTempDirectory("TransferViewModelTest-").toFile()
     private lateinit var server: BrowserDropServer
     private lateinit var lifecycle: LifecycleRegistry
+    // Held here: a LifecycleRegistry keeps its owner only weakly, and once the owner is collected every state change
+    // throws ("LifecycleOwner of this LifecycleRegistry is already garbage collected").
+    private val lifecycleOwner = object : LifecycleOwner {
+        override val lifecycle: Lifecycle get() = this@TransferViewModelTest.lifecycle
+    }
     private val imports = mutableListOf<Pair<String?, suspend () -> File?>>()
 
     @Before fun setUp() {
@@ -48,9 +53,7 @@ class TransferViewModelTest {
             context,
             BrowserDropServer.Configuration(ports = listOf(0), allowedExtensions = setOf("mp3"), stagingRoot = stagingRoot)
         )
-        lifecycle = LifecycleRegistry.createUnsafe(object : LifecycleOwner {
-            override val lifecycle: Lifecycle get() = this@TransferViewModelTest.lifecycle
-        })
+        lifecycle = LifecycleRegistry.createUnsafe(lifecycleOwner)
     }
 
     @After fun tearDown() {
