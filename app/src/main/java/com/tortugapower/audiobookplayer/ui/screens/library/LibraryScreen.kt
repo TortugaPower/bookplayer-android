@@ -9,7 +9,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
@@ -62,12 +61,15 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.runtime.collectAsState
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.tortugapower.audiobookplayer.logic.LibraryLayout
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
@@ -1516,10 +1518,31 @@ fun LibraryScreen(
             ) { path ->
                 val pathItems by remember(path) { libraryViewModel.getItemsForPath(path) }.collectAsState()
             
-                // Local state to handle reordering during selection mode
-                val reorderableItems = remember(pathItems, isSelectMode) { 
-                    pathItems.toMutableStateList() 
+                // The level's items in their order on screen. A drag moves them here and only its drop is saved,
+                // so the library's own updates meanwhile (a playing book's progress) don't undo it; between drags
+                // it follows the stored order.
+                val reorderableItems = remember(path) { pathItems.toMutableStateList() }
+                var isDragging by remember(path) { mutableStateOf(false) }
+                // A drop's order, kept on screen until the library shows it. Saving it takes more than one write
+                // (the ranks, and the switch to custom), and what the library shows between them would flash
+                // the old order.
+                var savingOrder by remember(path) { mutableStateOf<List<String>?>(null) }
+                LaunchedEffect(pathItems) {
+                    if (isDragging) return@LaunchedEffect
+                    savingOrder?.let { order ->
+                        if (!pathItems.showsOrder(order)) return@LaunchedEffect
+                        savingOrder = null
+                    }
+                    reorderableItems.replaceWith(pathItems)
                 }
+                // Should the save never show (it failed), follow the library again.
+                LaunchedEffect(savingOrder) {
+                    if (savingOrder == null) return@LaunchedEffect
+                    delay(SAVING_ORDER_TIMEOUT_MS)
+                    savingOrder = null
+                    reorderableItems.replaceWith(pathItems)
+                }
+                val canReorder by libraryViewModel.sortLocationWritable.collectAsState()
 
                 // What a tap and a long press do, in the list and the grid alike.
                 val onItemClick: (LibraryItemEntity) -> Unit = { item ->
@@ -1551,6 +1574,27 @@ fun LibraryScreen(
                         selectedItemUuids = setOf(item.uuid)
                     }
                 }
+                // A long press selects (in either layout), and moving on drags the item to a new place.
+                val onDragStarted: (LibraryItemEntity) -> Unit = { item ->
+                    isDragging = true
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    onItemLongClick(item)
+                }
+                val onMove: (Int, Int) -> Unit = { from, to ->
+                    reorderableItems.add(to, reorderableItems.removeAt(from))
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentFrequentTick)
+                }
+                val onDragStopped: () -> Unit = {
+                    isDragging = false
+                    val order = reorderableItems.map { it.uuid }
+                    if (order != pathItems.map { it.uuid }) {
+                        savingOrder = order
+                        libraryViewModel.reorderItems(order)
+                    } else {
+                        // Let go where it started: nothing to save, only what changed meanwhile to catch up on.
+                        reorderableItems.replaceWith(pathItems)
+                    }
+                }
 
                 // A local, so the branches below can tell an unread layout from a read one.
                 val layout = libraryLayout
@@ -1577,7 +1621,7 @@ fun LibraryScreen(
                     Box(modifier = Modifier.fillMaxSize())
                 } else if (layout != LibraryLayout.LIST) {
                     LibraryTileGrid(
-                        items = pathItems,
+                        items = reorderableItems,
                         layout = layout,
                         isSelectMode = isSelectMode,
                         selectedItemUuids = selectedItemUuids,
@@ -1590,10 +1634,19 @@ fun LibraryScreen(
                             itemForSwipeOptions = item
                             showSwipeOptionsDialog = true
                         },
+                        canReorder = canReorder,
+                        onMove = onMove,
+                        onDragStarted = onDragStarted,
+                        onDragStopped = onDragStopped,
                     )
                 } else {
                     val lazyListState = rememberLazyListState()
-                
+                    // Scrolls on its own near the edges while dragging, stopping short of the mini player.
+                    val listReorderState = rememberReorderableLazyListState(
+                        lazyListState = lazyListState,
+                        scrollThresholdPadding = PaddingValues(bottom = LocalMiniPlayerInset.current)
+                    ) { from, to -> onMove(from.index, to.index) }
+
                     LazyColumn(
                         state = lazyListState,
                         modifier = Modifier.fillMaxSize(),
@@ -1619,107 +1672,89 @@ fun LibraryScreen(
                                 }
                             }
 
-                            SwipeToDismissBox(
-                                state = dismissState,
-                                backgroundContent = {
-                                    // Native Material treatment (the Gmail pattern): a full-width
-                                    // tinted background with ONE icon that emphasizes once the drag
-                                    // crosses the commit threshold. M3's SwipeToDismissBox has no
-                                    // persistent "revealed buttons" state (that's iOS's swipe-actions
-                                    // pattern) — a full swipe commits the single action, which here
-                                    // opens the item's options dialog (delete lives safely inside it).
-                                    if (!isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
-                                        val crossedThreshold = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
-                                        val iconScale by animateFloatAsState(
-                                            targetValue = if (crossedThreshold) 1.2f else 1f,
-                                            label = "swipeIconScale"
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(
-                                                    if (crossedThreshold) MaterialTheme.colorScheme.primaryContainer
-                                                    else MaterialTheme.colorScheme.surfaceVariant
-                                                ),
-                                            contentAlignment = Alignment.CenterEnd
+                            ReorderableItem(listReorderState, key = item.uuid, enabled = canReorder) { isDragging ->
+                                Column {
+                                    SwipeToDismissBox(
+                                        state = dismissState,
+                                        backgroundContent = {
+                                            // Native Material treatment (the Gmail pattern): a full-width
+                                            // tinted background with ONE icon that emphasizes once the drag
+                                            // crosses the commit threshold. M3's SwipeToDismissBox has no
+                                            // persistent "revealed buttons" state (that's iOS's swipe-actions
+                                            // pattern) — a full swipe commits the single action, which here
+                                            // opens the item's options dialog (delete lives safely inside it).
+                                            if (!isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                                                val crossedThreshold = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+                                                val iconScale by animateFloatAsState(
+                                                    targetValue = if (crossedThreshold) 1.2f else 1f,
+                                                    label = "swipeIconScale"
+                                                )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(
+                                                            if (crossedThreshold) MaterialTheme.colorScheme.primaryContainer
+                                                            else MaterialTheme.colorScheme.surfaceVariant
+                                                        ),
+                                                    contentAlignment = Alignment.CenterEnd
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Info,
+                                                        contentDescription = stringResource(R.string.library_options_title),
+                                                        tint = if (crossedThreshold) MaterialTheme.colorScheme.onPrimaryContainer
+                                                               else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier
+                                                            .padding(end = 24.dp)
+                                                            .graphicsLayer {
+                                                                scaleX = iconScale
+                                                                scaleY = iconScale
+                                                            }
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        enableDismissFromStartToEnd = false,
+                                        // No swipe to options while selecting, or while the row is dragged.
+                                        enableDismissFromEndToStart = !isSelectMode && !isDragging
+                                    ) {
+                                        Surface(
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.background,
+                                            // Lifted off the list while dragged.
+                                            shadowElevation = if (isDragging) 8.dp else 0.dp,
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Info,
-                                                contentDescription = stringResource(R.string.library_options_title),
-                                                tint = if (crossedThreshold) MaterialTheme.colorScheme.onPrimaryContainer
-                                                       else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier
-                                                    .padding(end = 24.dp)
-                                                    .graphicsLayer {
-                                                        scaleX = iconScale
-                                                        scaleY = iconScale
-                                                    }
+                                            LibraryListItem(
+                                                item = item,
+                                                isSelected = isSelected,
+                                                isSelectMode = isSelectMode,
+                                                // The swipe, for TalkBack, which can't swipe a row.
+                                                onOptions = {
+                                                    itemForSwipeOptions = item
+                                                    showSwipeOptionsDialog = true
+                                                },
+                                                libraryViewModel = libraryViewModel,
+                                                canDownload = canSyncLibrary,
+                                                // Its long press selects and, moving on, drags the row to a new place.
+                                                reorderHandle = if (canReorder) {
+                                                    Modifier.longPressDraggableHandle(
+                                                        onDragStarted = { onDragStarted(item) },
+                                                        onDragStopped = onDragStopped
+                                                    )
+                                                } else {
+                                                    null
+                                                },
+                                                onClick = { onItemClick(item) },
+                                                onLongClick = { onItemLongClick(item) }
                                             )
                                         }
                                     }
-                                },
-                                enableDismissFromStartToEnd = false,
-                                // Swiping must not fight the select-mode drag-reorder gesture.
-                                enableDismissFromEndToStart = !isSelectMode
-                            ) {
-                                Surface(
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.background,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    LibraryListItem(
-                                        item = item,
-                                        isSelected = isSelected,
-                                        isSelectMode = isSelectMode,
-                                        // The swipe, for TalkBack, which can't swipe a row.
-                                        onOptions = {
-                                            itemForSwipeOptions = item
-                                            showSwipeOptionsDialog = true
-                                        },
-                                        libraryViewModel = libraryViewModel,
-                                        canDownload = canSyncLibrary,
-                                        // The reorder gesture lives on the drag HANDLE (immediate drag, like
-                                        // iOS edit-mode handles) — not as a hidden long-press on the row.
-                                        dragHandleModifier = if (isSelectMode) {
-                                            Modifier.pointerInput(item.uuid, reorderableItems) {
-                                                var dragAccumulator = 0f
-                                                detectDragGestures(
-                                                    onDragStart = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) },
-                                                    onDragEnd = { libraryViewModel.reorderItems(reorderableItems.toList()) },
-                                                    onDragCancel = { libraryViewModel.reorderItems(reorderableItems.toList()) },
-                                                    onDrag = { change, dragAmount ->
-                                                        change.consume()
-                                                        dragAccumulator += dragAmount.y
-
-                                                        val currentIndex = reorderableItems.indexOfFirst { it.uuid == item.uuid }
-                                                        if (currentIndex == -1) return@detectDragGestures
-
-                                                        val threshold = with(density) { 64.dp.toPx() }
-
-                                                        if (dragAccumulator > threshold && currentIndex < reorderableItems.size - 1) {
-                                                            reorderableItems[currentIndex] = reorderableItems[currentIndex + 1]
-                                                            reorderableItems[currentIndex + 1] = item
-                                                            dragAccumulator = 0f
-                                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                                        } else if (dragAccumulator < -threshold && currentIndex > 0) {
-                                                            reorderableItems[currentIndex] = reorderableItems[currentIndex - 1]
-                                                            reorderableItems[currentIndex - 1] = item
-                                                            dragAccumulator = 0f
-                                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                                        }
-                                                    }
-                                                )
-                                            }
-                                        } else Modifier,
-                                        onClick = { onItemClick(item) },
-                                        onLongClick = { onItemLongClick(item) }
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = if (isSelectMode) 120.dp else 80.dp),
+                                        thickness = 0.5.dp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                                     )
                                 }
                             }
-                            HorizontalDivider(
-                                modifier = Modifier.padding(start = if (isSelectMode) 120.dp else 80.dp),
-                                thickness = 0.5.dp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                            )
                         }
                     }
                 }
@@ -1744,10 +1779,11 @@ fun LibraryListItem(
     isSelected: Boolean = false,
     isSelectMode: Boolean = false,
     modifier: Modifier = Modifier,
-    // Attached to the trailing reorder handle in select mode — the caller supplies the drag gesture.
-    dragHandleModifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
+    // The long press that selects and, moving on, drags the row (the caller's reorder); null where a row
+    // can't be reordered, and then a long press only selects.
+    reorderHandle: Modifier? = null,
     // The row's swipe action (its options), offered to TalkBack as the row's one action. Null where a row
     // has no swipe (search results).
     onOptions: (() -> Unit)? = null,
@@ -1795,8 +1831,8 @@ fun LibraryListItem(
                     customActions = listOf(CustomAccessibilityAction(optionsLabel) { onOptions(); true })
                 }
             }
-            .pointerInput(isSelectMode, onClick, onLongClick) {
-                if (isSelectMode) {
+            .pointerInput(isSelectMode, onClick, onLongClick, reorderHandle != null) {
+                if (isSelectMode || reorderHandle != null) {
                     detectTapGestures(onTap = { onClick() })
                 } else {
                     detectTapGestures(
@@ -1808,6 +1844,9 @@ fun LibraryListItem(
                     )
                 }
             }
+            // Inside the tap, so it sees each touch first: a long press let go without moving is used up here and
+            // doesn't also count as a tap.
+            .then(reorderHandle ?: Modifier)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1945,59 +1984,65 @@ fun LibraryListItem(
 
         Spacer(modifier = Modifier.width(8.dp))
 
-        if (isSelectMode) {
-            // 44dp touch target around the 24dp glyph so the handle is actually grabbable.
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(44.dp).then(dragHandleModifier).clearAndSetSemantics { }
-            ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clearAndSetSemantics { }
+        ) {
+            // iOS `ItemProgressView`: the wheel, or the number in between with that option (iOS
+            // `PercentageProgressView`); the check once finished, nothing before it's started.
+            val progress = if (item.isFinished) 1.0 else item.percentCompleted
+                .takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0
+            if (showProgressAsPercentage && progress > 0.0 && progress < 1.0) {
+                Text(
+                    text = "${(progress * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isCurrentlyPlaying) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            } else {
+                ProgressWheel(
+                    progress = progress,
+                    isHighlighted = isCurrentlyPlaying,
+                    modifier = Modifier.size(PROGRESS_WHEEL_SIZE)
+                )
+            }
+            
+            // Only folders trail a disclosure chevron; for books the progress wheel/checkmark
+            // floats to the right edge (no phantom 24dp placeholder holding its spot).
+            if (item.type == ItemType.FOLDER) {
                 Icon(
-                    imageVector = Icons.Default.Reorder,
+                    imageVector = Icons.Default.ChevronRight,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(24.dp)
                 )
             }
-        } else {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clearAndSetSemantics { }
-            ) {
-                // iOS `ItemProgressView`: the wheel, or the number in between with that option (iOS
-                // `PercentageProgressView`); the check once finished, nothing before it's started.
-                val progress = if (item.isFinished) 1.0 else item.percentCompleted
-                    .takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0
-                if (showProgressAsPercentage && progress > 0.0 && progress < 1.0) {
-                    Text(
-                        text = "${(progress * 100).roundToInt()}%",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isCurrentlyPlaying) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                } else {
-                    ProgressWheel(
-                        progress = progress,
-                        isHighlighted = isCurrentlyPlaying,
-                        modifier = Modifier.size(PROGRESS_WHEEL_SIZE)
-                    )
-                }
-                
-                // Only folders trail a disclosure chevron; for books the progress wheel/checkmark
-                // floats to the right edge (no phantom 24dp placeholder holding its spot).
-                if (item.type == ItemType.FOLDER) {
-                    Icon(
-                        imageVector = Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
         }
     }
+}
+
+/** How long a dropped order stays on screen waiting for the library to show it. */
+private const val SAVING_ORDER_TIMEOUT_MS = 2_000L
+
+/**
+ * Whether these items are in [order], leaving aside any added or removed meanwhile (an item imported during
+ * the save lands after the dropped ones).
+ */
+private fun List<LibraryItemEntity>.showsOrder(order: List<String>): Boolean {
+    val shown = map { it.uuid }
+    val shownSet = shown.toSet()
+    val ordered = order.toSet()
+    return shown.filter { it in ordered } == order.filter { it in shownSet }
+}
+
+/** Replaces the list's items with [items], unless it holds them already. */
+private fun <T> MutableList<T>.replaceWith(items: List<T>) {
+    if (toList() == items) return
+    clear()
+    addAll(items)
 }
 
 @Composable

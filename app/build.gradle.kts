@@ -186,6 +186,7 @@ dependencies {
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.googleid)
     implementation(libs.coil.compose)
+    implementation(libs.reorderable)
     implementation(libs.billing.ktx)
     // Play In-App Review — the post-book-finish rating prompt (ReviewPromptManager).
     implementation(libs.play.review)
