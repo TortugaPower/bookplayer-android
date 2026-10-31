@@ -296,14 +296,17 @@ private fun TileCover(
         }
         if (isFolder) {
             // Not cropped to the shorter shape: fitted, on a blurred copy of itself (blur needs Android 12;
-            // before it the copy is only dimmed).
-            LibraryItemArtworkImage(
-                item,
-                ContentScale.Crop,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(24.dp) else Modifier
-            )
+            // before it the copy is only dimmed). One painter for both, so the artwork loads once.
+            val artwork = rememberItemArtworkPainter(item)
+            artwork?.let {
+                ItemArtworkImage(
+                    it,
+                    ContentScale.Crop,
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(24.dp) else Modifier
+                )
+            }
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.2f)))
-            LibraryItemArtworkImage(item, ContentScale.Fit)
+            artwork?.let { ItemArtworkImage(it, ContentScale.Fit) }
         } else {
             LibraryItemArtworkImage(item, ContentScale.Crop)
         }

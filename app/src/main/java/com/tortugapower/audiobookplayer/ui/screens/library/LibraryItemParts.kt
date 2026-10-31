@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.ui.screens.library
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,12 +23,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ItemType
@@ -50,14 +52,18 @@ import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
  */
 @Composable
 fun LibraryItemArtworkImage(item: LibraryItemEntity, contentScale: ContentScale, modifier: Modifier = Modifier) {
+    rememberItemArtworkPainter(item, contentScale)?.let { ItemArtworkImage(it, contentScale, modifier) }
+}
+
+/**
+ * The painter behind [LibraryItemArtworkImage], null when the item has no artwork to look for. One painter loads
+ * the artwork once, so a caller drawing it twice (a folder tile's blurred backdrop) doesn't extract a cover twice.
+ */
+@Composable
+fun rememberItemArtworkPainter(item: LibraryItemEntity, contentScale: ContentScale = ContentScale.Crop): Painter? {
     val context = LocalContext.current
-    if (item.artworkURL != null) {
-        AsyncImage(
-            model = item.artworkURL,
-            contentDescription = null,
-            modifier = modifier.fillMaxSize(),
-            contentScale = contentScale
-        )
+    return if (item.artworkURL != null) {
+        rememberAsyncImagePainter(item.artworkURL, contentScale = contentScale)
     } else if (
         (item.type == ItemType.BOOK || item.type == ItemType.BOUND || item.type == ItemType.FOLDER) &&
         (!item.relativePath.isNullOrEmpty() || !item.remoteURL.isNullOrEmpty())
@@ -72,13 +78,16 @@ fun LibraryItemArtworkImage(item: LibraryItemEntity, contentScale: ContentScale,
                 .crossfade(true)
                 .build()
         }
-        AsyncImage(
-            model = artworkRequest,
-            contentDescription = null,
-            modifier = modifier.fillMaxSize(),
-            contentScale = contentScale
-        )
+        rememberAsyncImagePainter(artworkRequest, contentScale = contentScale)
+    } else {
+        null
     }
+}
+
+/** Draws a painter from [rememberItemArtworkPainter] over the whole box. */
+@Composable
+fun ItemArtworkImage(painter: Painter, contentScale: ContentScale, modifier: Modifier = Modifier) {
+    Image(painter = painter, contentDescription = null, modifier = modifier.fillMaxSize(), contentScale = contentScale)
 }
 
 /**
