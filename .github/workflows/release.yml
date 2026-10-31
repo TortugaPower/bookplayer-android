@@ -75,8 +75,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history: `sentry-cli releases set-commits --auto` below walks from the previous
-          # release's commit to HEAD, and a shallow clone has neither.
+          # Full history: the Sentry commits step below lists every commit since the previous
+          # release's tag, which a shallow clone doesn't have.
           fetch-depth: 0
 
       - name: Set up Node
@@ -137,26 +137,22 @@ jobs:
           RELEASE_STORE_FILE: release-ci.keystore
         run: ./gradlew :app:bundleProdRelease :wear:bundleProdRelease --stacktrace
 
-      # Attach this release's commits in Sentry. The Sentry gradle plugin already created the
-      # release entry during the bundle build (mapping upload); with commits attached, Sentry's
-      # GitHub integration resolves every issue whose fix commit says `Fixes ANDROID-BOOKPLAYER-<id>`
+      # Attach this release's commits in Sentry: every commit after the previous version tag, sent
+      # as one list (scripts/sentry-commits/sentry_release_commits.py; Sentry's own range lookup
+      # keeps only the newest 100). The Sentry gradle plugin already created the release entry
+      # during the bundle build (mapping upload); with commits attached, Sentry's GitHub
+      # integration resolves every issue whose fix commit says `Fixes ANDROID-BOOKPLAYER-<id>`
       # *in this release* — the right one, not the next one. The weekly crash-triage routine reads
       # those resolutions to tell regressions from old-build stragglers. Metadata only: a failure
       # here must never block shipping, hence continue-on-error.
       - name: Attach commits to the Sentry release
         continue-on-error: true
-        env:
-          SENTRY_ORG: tortuga-power
-          SENTRY_PROJECT: android-bookplayer
         run: |
           VN=$(sed -n 's/.*versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -1)
           VC=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts | head -1)
-          RELEASE="com.tortugapower.audiobookplayer@${VN}+${VC}"
-          echo "release: $RELEASE"
-          # --ignore-missing: don't fail if the previous release's commit is unknown to Sentry;
-          # --initial-depth: on the first release that carries commits, reach back far enough to
-          # cover everything since the previous tag instead of only HEAD.
-          npx --yes @sentry/cli@2 releases set-commits "$RELEASE" --auto --ignore-missing --initial-depth 300
+          python3 -I scripts/sentry-commits/sentry_release_commits.py \
+            --release "com.tortugapower.audiobookplayer@${VN}+${VC}" --version "$VN" --head "$GITHUB_SHA" \
+            --repo TortugaPower/bookplayer-android --project android-bookplayer --source git
 
       # The bundles stay downloadable from the run even if the Play submit fails.
       # Nothing reaches Play if a class another process resolves by name lost its name (see
