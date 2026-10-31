@@ -5,7 +5,6 @@ package com.tortugapower.audiobookplayer.ui.screens.library
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,13 +34,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1757,9 +1752,6 @@ fun LibraryListItem(
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val context = LocalContext.current
 
-    // Only the media servers it streams from: a Hardcover link isn't where the audio comes from.
-    val mediaServer = mediaServerProvider(item)
-
     // Download state and ring fraction, derived off the main thread (shared with the grid's tiles).
     val download = rememberItemDownload(item, libraryViewModel)
     val isDownloading = download.isDownloading
@@ -1921,39 +1913,13 @@ fun LibraryListItem(
                 overflow = TextOverflow.Ellipsis
             )
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                if (mediaServer != null) {
-                    val tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        MediaServerGlyph(mediaServer, tint, Modifier.size(12.dp))
-                        Text(
-                            text = mediaServer.replaceFirstChar { it.titlecase(java.util.Locale.getDefault()) },
-                            color = tint,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1
-                        )
-                    }
-
-                    Text(
-                        text = "•",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-
-                Text(
-                    text = authorText,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall.copy(lineHeightStyle = trimmedLineHeight),
-                    maxLines = 1
-                )
-            }
+            // The media server shows in the artwork's corner (iOS), not here.
+            Text(
+                text = authorText,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall.copy(lineHeightStyle = trimmedLineHeight),
+                maxLines = 1
+            )
 
             if (item.duration > 0) {
                 Text(
@@ -1985,36 +1951,25 @@ fun LibraryListItem(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.clearAndSetSemantics { }
             ) {
-                if (item.isFinished) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
+                // iOS `ItemProgressView`: the wheel, or the number in between with that option (iOS
+                // `PercentageProgressView`); the check once finished, nothing before it's started.
+                val progress = if (item.isFinished) 1.0 else item.percentCompleted
+                    .takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0
+                if (showProgressAsPercentage && progress > 0.0 && progress < 1.0) {
+                    Text(
+                        text = "${(progress * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isCurrentlyPlaying) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
-                } else if (showProgressAsPercentage) {
-                    // Match iOS PercentageProgressView: nothing at 0, the finished checkmark at
-                    // 100%, the number only in between (non-finite progress collapses to 0).
-                    val progress = item.percentCompleted
-                        .takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0
-                    if (progress >= 1.0) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    } else if (progress > 0.0) {
-                        Text(
-                            text = "${(progress * 100).roundToInt()}%",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                 } else {
-                    PieProgressIcon(
-                        progress = item.percentCompleted.coerceIn(0.0, 1.0).toFloat(),
-                        modifier = Modifier.size(24.dp)
+                    ProgressWheel(
+                        progress = progress,
+                        isHighlighted = isCurrentlyPlaying,
+                        modifier = Modifier.size(PROGRESS_WHEEL_SIZE)
                     )
                 }
                 
@@ -2029,41 +1984,6 @@ fun LibraryListItem(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun PieProgressIcon(
-    progress: Float,
-    modifier: Modifier = Modifier,
-    color: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-) {
-    Canvas(modifier = modifier) {
-        if (progress > 0) {
-            val strokeWidth = 1.5.dp.toPx()
-            val radius = (size.minDimension - strokeWidth) / 2
-            val center = Offset(size.width / 2, size.height / 2)
-
-            // Outer ring
-            drawCircle(
-                color = color,
-                radius = radius,
-                center = center,
-                style = Stroke(width = strokeWidth)
-            )
-
-            // Pie slice
-            val padding = 3.dp.toPx()
-            val arcRadius = radius - padding
-            drawArc(
-                color = color,
-                startAngle = -90f,
-                sweepAngle = 360f * progress,
-                useCenter = true,
-                topLeft = Offset(center.x - arcRadius, center.y - arcRadius),
-                size = Size(arcRadius * 2, arcRadius * 2)
-            )
         }
     }
 }

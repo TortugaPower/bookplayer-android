@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -41,8 +40,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -152,9 +153,11 @@ fun LibraryTileGrid(
 
 private enum class TileStyle { CARD, COVER }
 
-/** The progress mark's size on a cover alone (a list row's), and its inset from the cover's corner. */
-private val COVER_MARK_SIZE = 24.dp
+/** The progress mark's inset from the cover's corner. */
 private val MARK_INSET = 8.dp
+
+/** Darkens a folder's backdrop copy where it has pixels, before Android 12 (no blur). */
+private val UNBLURRED_COPY_DIM = ColorFilter.tint(Color.Black.copy(alpha = 0.2f), BlendMode.SrcAtop)
 
 /**
  * One item in the grid. A folder's cover is a stack: two dimmed leaves peek above it, each a step
@@ -296,18 +299,17 @@ private fun TileCover(
             PlaceholderText(item, title)
         }
         if (isFolder) {
-            // Not cropped to the shorter shape: fitted, on a blurred copy of itself (blur needs Android 12;
-            // before it the copy is only dimmed). One painter for both, so the artwork loads once.
-            val artwork = rememberItemArtworkPainter(item)
-            artwork?.let {
-                ItemArtworkImage(
-                    it,
-                    ContentScale.Crop,
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(24.dp) else Modifier
-                )
+            // Not cropped to the shorter shape: fitted, on a blurred copy of itself (iOS). Blur needs Android 12;
+            // before it the copy is dimmed instead. Only the copy: a folder without artwork keeps a book's
+            // placeholder. One painter for both, so the artwork loads once.
+            rememberItemArtworkPainter(item)?.let { artwork ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    ItemArtworkImage(artwork, ContentScale.Crop, Modifier.blur(24.dp))
+                } else {
+                    ItemArtworkImage(artwork, ContentScale.Crop, colorFilter = UNBLURRED_COPY_DIM)
+                }
+                ItemArtworkImage(artwork, ContentScale.Fit)
             }
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.2f)))
-            artwork?.let { ItemArtworkImage(it, ContentScale.Fit) }
         } else {
             LibraryItemArtworkImage(item, ContentScale.Crop)
         }
@@ -349,8 +351,8 @@ private fun TileCover(
 
 /**
  * A list row's progress mark, on the cover's corner: the wheel (or the percentage with that option), the
- * check once finished, nothing before it's started. On a light disc with a shadow, so it reads on any cover.
- * A card's grows with the card, to about 15% of its width.
+ * check once finished, nothing before it's started. On the list's background with a shadow, so it reads on
+ * any cover. A card's wheel grows with the card, to 15% of its width (iOS `LibraryTileView.progressMark`).
  */
 @Composable
 private fun ProgressMark(
@@ -365,19 +367,17 @@ private fun ProgressMark(
     val isFinished = item.isFinished || progress >= 1.0
     if (!isFinished && progress <= 0.0) return
 
-    val size = if (style == TileStyle.CARD) maxOf(COVER_MARK_SIZE, tileWidth * 0.15f) else COVER_MARK_SIZE
+    val size = if (style == TileStyle.CARD) maxOf(PROGRESS_WHEEL_SIZE, tileWidth * 0.15f) else PROGRESS_WHEEL_SIZE
     val tint = if (isHighlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     val background = MaterialTheme.colorScheme.surface
 
     when {
-        isFinished -> Icon(
-            imageVector = Icons.Default.CheckCircle,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+        isFinished -> ProgressWheel(
+            progress = 1.0,
+            isHighlighted = isHighlighted,
             modifier = modifier
                 .size(size)
                 .shadow(3.dp, CircleShape)
-                .background(background, CircleShape)
         )
         showPercentage -> Text(
             text = "${(progress * 100).roundToInt()}%",
@@ -389,12 +389,13 @@ private fun ProgressMark(
                 .background(background, CircleShape)
                 .padding(horizontal = 8.dp, vertical = 2.dp)
         )
-        else -> PieProgressIcon(
-            progress = progress.toFloat(),
-            color = tint,
+        else -> ProgressWheel(
+            progress = progress,
+            isHighlighted = isHighlighted,
             modifier = modifier
                 .size(size)
                 .shadow(3.dp, CircleShape)
+                // Under the gap inside the wheel's outline (the finished disc is opaque already).
                 .background(background, CircleShape)
         )
     }
@@ -454,7 +455,7 @@ private fun PlaceholderText(item: LibraryItemEntity, title: String) {
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .padding(start = 8.dp, end = 8.dp, bottom = 8.dp, top = MARK_INSET + COVER_MARK_SIZE + 4.dp)
+            .padding(start = 8.dp, end = 8.dp, bottom = 8.dp, top = MARK_INSET + PROGRESS_WHEEL_SIZE + 4.dp)
             .clearAndSetSemantics { },
         contentAlignment = Alignment.BottomStart
     ) {

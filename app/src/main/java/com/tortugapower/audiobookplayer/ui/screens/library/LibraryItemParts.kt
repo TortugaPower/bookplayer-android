@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.Icon
@@ -19,13 +18,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -38,6 +42,7 @@ import com.tortugapower.audiobookplayer.logic.ItemArtwork
 import com.tortugapower.audiobookplayer.logic.LibraryContentsSync
 import com.tortugapower.audiobookplayer.logic.OfflineDownloadManager
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
+import com.tortugapower.audiobookplayer.ui.theme.bpColors
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
 
 /**
@@ -86,8 +91,19 @@ fun rememberItemArtworkPainter(item: LibraryItemEntity, contentScale: ContentSca
 
 /** Draws a painter from [rememberItemArtworkPainter] over the whole box. */
 @Composable
-fun ItemArtworkImage(painter: Painter, contentScale: ContentScale, modifier: Modifier = Modifier) {
-    Image(painter = painter, contentDescription = null, modifier = modifier.fillMaxSize(), contentScale = contentScale)
+fun ItemArtworkImage(
+    painter: Painter,
+    contentScale: ContentScale,
+    modifier: Modifier = Modifier,
+    colorFilter: ColorFilter? = null
+) {
+    Image(
+        painter = painter,
+        contentDescription = null,
+        modifier = modifier.fillMaxSize(),
+        contentScale = contentScale,
+        colorFilter = colorFilter
+    )
 }
 
 /**
@@ -173,6 +189,51 @@ fun isPlayingOrHoldsPlaying(item: LibraryItemEntity, playing: LibraryItemEntity?
     return playingPath.startsWith("$path/")
 }
 
+/**
+ * An item's progress, the same in the list and the grid (iOS `CircularProgressView`): a pie in a ring,
+ * the playing item's in a bluer fill; once finished (1), an accent disc with a white check; nothing before
+ * it's started. Drawn to its size, [PROGRESS_WHEEL_SIZE] in a list row and over a cover alone.
+ */
+@Composable
+fun ProgressWheel(progress: Double, isHighlighted: Boolean, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.bpColors
+    val fill = if (isHighlighted) colors.systemFill else colors.secondarySystemFill
+    val progress = progress.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0
+    Canvas(modifier = modifier) {
+        // In iOS points: an 18pt wheel whose 1.5pt outline is centered on its edge, 19.5 across in all.
+        val unit = size.minDimension / 19.5f
+        if (progress >= 1.0) {
+            // The 19pt check image, centered on a disc as wide.
+            drawCircle(colors.accent, radius = 9.5f * unit)
+            val origin = center - Offset(9.5f * unit, 9.5f * unit)
+            val check = Path().apply {
+                moveTo(origin.x + 5f * unit, origin.y + 9.5f * unit)
+                lineTo(origin.x + 8.83f * unit, origin.y + 13f * unit)
+                lineTo(origin.x + 15f * unit, origin.y + 7f * unit)
+            }
+            drawPath(
+                path = check,
+                color = Color.White,
+                style = Stroke(width = 2f * unit, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+        } else if (progress > 0.0) {
+            drawCircle(fill, radius = 9f * unit, style = Stroke(width = 1.5f * unit))
+            drawCircle(colors.tertiarySystemBackground, radius = 7f * unit)
+            drawArc(
+                color = fill,
+                startAngle = -90f,
+                sweepAngle = 360f * progress.toFloat(),
+                useCenter = true,
+                topLeft = center - Offset(7f * unit, 7f * unit),
+                size = Size(14f * unit, 14f * unit)
+            )
+        }
+    }
+}
+
+/** The progress wheel's size in a list row and over a cover alone (iOS: 19.5pt). A card's grows with it. */
+val PROGRESS_WHEEL_SIZE = 19.5.dp
+
 /** The playing item's mark over its artwork, with the accent title: a 30% accent wash (iOS parity). */
 @Composable
 fun PlayingWash(modifier: Modifier = Modifier) {
@@ -188,38 +249,22 @@ fun mediaServerProvider(item: LibraryItemEntity): String? =
 
 private val MEDIA_SERVER_PROVIDERS = setOf("jellyfin", "audiobookshelf")
 
-/** A media server's mark: Jellyfin's triangle, Audiobookshelf's book. */
-@Composable
-fun MediaServerGlyph(provider: String, tint: Color, modifier: Modifier = Modifier) {
-    if (provider == "jellyfin") {
-        Canvas(modifier = modifier) {
-            val inset = size.minDimension / 12f
-            val path = Path().apply {
-                moveTo(size.width / 2f, inset)
-                lineTo(size.width - inset, size.height - inset)
-                lineTo(inset, size.height - inset)
-                close()
-            }
-            drawPath(
-                path = path,
-                color = tint,
-                style = Stroke(width = size.minDimension / 8f, join = StrokeJoin.Round)
-            )
-        }
-    } else {
-        Icon(imageVector = Icons.Default.Book, contentDescription = null, tint = tint, modifier = modifier)
-    }
-}
+/** A media server's logo, as iOS shows it (`MediaServerProvider.icon`): Jellyfin's or Audiobookshelf's. */
+private fun mediaServerLogo(provider: String): Int =
+    if (provider == "jellyfin") R.drawable.ic_jellyfin else R.drawable.ic_audiobookshelf
 
 /**
- * The download corner, the same in the list and the grid (iOS `ItemArtworkView.downloadCorner`): a dark
- * triangle in the bottom-right, its legs [LEG_FRACTION] of [box], with the cloud, the media server's mark for
- * an item streamed from one, or an error mark when this account can't download. [box] 56dp is a list row's;
- * a tile's grows with its cover, and the glyph with it.
+ * The download corner, the same in the list and the grid (iOS `ItemArtworkView.downloadCorner`): a triangle
+ * in the bottom-right in the list's background color, its legs [LEG_FRACTION] of [box], with the cloud, the
+ * media server's logo for an item streamed from one, or an error mark when this account can't download.
+ * [box] 56dp is a list row's; a tile's grows with its cover, and the glyph with it.
  */
 @Composable
 fun DownloadCorner(item: LibraryItemEntity, canDownload: Boolean, box: Dp, modifier: Modifier = Modifier) {
     val scale = box / 56.dp
+    val triangleColor = MaterialTheme.bpColors.systemGroupedBackground
+    // The theme's accent, as iOS's `linkColor`.
+    val glyphTint = MaterialTheme.bpColors.accent
     Box(modifier = modifier.size(box)) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val start = 1f - LEG_FRACTION
@@ -229,11 +274,14 @@ fun DownloadCorner(item: LibraryItemEntity, canDownload: Boolean, box: Dp, modif
                 lineTo(size.width * start, size.height)
                 close()
             }
-            drawPath(path, Color.Black.copy(alpha = 0.65f))
+            drawPath(path, triangleColor)
         }
+        // Every glyph's ink sits on one line, as high above the corner's bottom edge as iOS's (`downloadBadge`,
+        // in this box's units). The cloud's drawing leaves the bottom sixth of its box empty.
+        val inkBottom = 5.25.dp * scale
         val glyphModifier = Modifier
             .align(Alignment.BottomEnd)
-            .padding(4.dp * scale)
+            .padding(end = 4.dp * scale, bottom = inkBottom - 16.dp * scale / 6)
             .size(16.dp * scale)
         val provider = mediaServerProvider(item)
         when {
@@ -244,11 +292,21 @@ fun DownloadCorner(item: LibraryItemEntity, canDownload: Boolean, box: Dp, modif
                 tint = MaterialTheme.colorScheme.error,
                 modifier = glyphModifier
             )
-            provider != null -> MediaServerGlyph(provider, DOWNLOAD_TINT, glyphModifier)
+            // In the cloud's width, so their centers line up. A logo fills its own box, a fifth taller than the
+            // cloud's ink, as on iOS.
+            provider != null -> Icon(
+                painter = painterResource(mediaServerLogo(provider)),
+                contentDescription = null,
+                tint = glyphTint,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 4.dp * scale, bottom = inkBottom)
+                    .size(width = 16.dp * scale, height = 12.75.dp * scale)
+            )
             else -> Icon(
                 imageVector = Icons.Outlined.Cloud,
                 contentDescription = null,
-                tint = DOWNLOAD_TINT,
+                tint = glyphTint,
                 modifier = glyphModifier
             )
         }
@@ -257,5 +315,3 @@ fun DownloadCorner(item: LibraryItemEntity, canDownload: Boolean, box: Dp, modif
 
 /** How far the download corner's triangle runs along each edge of its box. */
 const val LEG_FRACTION = 0.7f
-
-private val DOWNLOAD_TINT = Color(0xFF4285F4)
