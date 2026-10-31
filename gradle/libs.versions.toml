@@ -11,9 +11,10 @@ espressoCore = "3.5.1"
 # the ecosystem resolves higher transitively anyway.
 lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.8.0"
-composeBom = "2024.09.01"
+# Compose 1.11 + material3 1.4.0, both stable (1.4.0 has ShortNavigationBar, the short tab bar). Compose 1.12
+# (BOM 2026.08+) needs compileSdk 37 and AGP 9.1.
+composeBom = "2026.06.01"
 wearCompose = "1.4.1"
-material3 = "1.5.0-alpha16"
 media3 = "1.11.0"
 navigationCompose = "2.7.7"
 # Chrome Auth Tab (AudiobookShelf SSO browser leg). 1.10.0 = latest stable; needs Chrome 137+ at runtime.
@@ -138,7 +139,7 @@ androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
-androidx-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
+androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
 # Wear OS Compose — the watch UI toolkit (androidx.wear.compose.material, NOT the phone's material3).
 androidx-wear-compose-material = { group = "androidx.wear.compose", name = "compose-material", version.ref = "wearCompose" }
 # Wear compose-foundation: ScalingLazyColumn + curved layout for the remote list.
