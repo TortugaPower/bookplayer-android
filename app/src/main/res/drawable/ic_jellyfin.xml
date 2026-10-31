@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Jellyfin's logo: the iOS app's jellyfin-icon symbol (Regular), cropped to its ink. Tinted where it's used. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16.00dp"
+    android:height="16dp"
+    android:viewportWidth="70.455"
+    android:viewportHeight="70.459">
+    <group
+        android:translateX="-8.002"
+        android:translateY="70.459">
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M43.2314 -70.4531C33.913 -70.4531 3.897 -16.0374 8.471 -6.8511C13.0509 2.3351 73.4705 2.2323 77.9975 -6.8511C82.5246 -15.9317 52.5585 -70.459 43.2314 -70.459ZM66.0135 -14.8219C63.0541 -8.8681 23.4644 -8.8035 20.4669 -14.8219C17.4664 -20.8433 37.1248 -56.4991 43.2402 -56.4991C49.3496 -56.4991 68.9875 -20.7817 66.0193 -14.8219ZM43.2314 -43.4552C40.137 -43.4552 30.1786 -25.3998 31.6935 -22.3494C33.2143 -19.2962 53.266 -19.3343 54.7692 -22.3494C56.2694 -25.3645 46.3316 -43.4581 43.2314 -43.4581Z" />
+    </group>
+</vector>

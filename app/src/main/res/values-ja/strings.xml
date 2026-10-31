@@ -478,4 +478,8 @@
     <string name="transfer_web_path_conflict">送信した別のファイルまたはフォルダに同じ名前があります</string>
     <string name="transfer_web_done_hint">完了したら、BookPlayerで確定してファイルを読み込んでください。</string>
     <string name="transfer_web_load_error">BookPlayerに接続できません。BookPlayerの転送画面が開いたままか確認してください。</string>
+    <string name="layout_options_title">表示オプション</string>
+    <string name="layout_list_option">リスト</string>
+    <string name="layout_grid_option">グリッド</string>
+    <string name="layout_covers_option">表紙</string>
 </resources>

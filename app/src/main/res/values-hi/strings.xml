@@ -483,4 +483,8 @@
     <string name="transfer_web_path_conflict">आपकी भेजी गई किसी दूसरी फ़ाइल या फ़ोल्डर का भी यही नाम है</string>
     <string name="transfer_web_done_hint">काम पूरा होने पर फ़ाइलें इंपोर्ट करने के लिए BookPlayer में पुष्टि करें।</string>
     <string name="transfer_web_load_error">BookPlayer तक नहीं पहुँच पा रहे। जाँचें कि उसकी ट्रांसफ़र स्क्रीन अब भी खुली है।</string>
+    <string name="layout_options_title">लेआउट विकल्प</string>
+    <string name="layout_list_option">सूची</string>
+    <string name="layout_grid_option">ग्रिड</string>
+    <string name="layout_covers_option">कवर</string>
 </resources>
