@@ -123,6 +123,13 @@ fun LibraryTileGrid(
         }.coerceAtMost(available)
         val columns = max(1, ((available + spacing) / (minimumWidth + spacing)).toInt())
         val tileWidth = (available - spacing * (columns - 1)) / columns
+        // A card's text width as the grid lays it out: its cells get the whole pixels left after the padding and
+        // spacing, the leftover ones going to the first columns, so this is the narrowest cell's, less the text's
+        // padding. Measured at it, a row's text is never taller on screen than measured.
+        val cardTextWidthPx = with(LocalDensity.current) {
+            (constraints.maxWidth - horizontalPadding.roundToPx() * 2 - spacing.roundToPx() * (columns - 1)) / columns -
+                CARD_TEXT_HORIZONTAL_PADDING.roundToPx() * 2
+        }
         val showOriginalFileName by libraryViewModel.showOriginalFileName.collectAsState()
         // Each card measures its row's texts; the cache lets a row's cards share the work.
         val textMeasurer = rememberTextMeasurer(cacheSize = 64)
@@ -153,7 +160,7 @@ fun LibraryTileGrid(
                     val rowLines = items.subList(rowStart, minOf(rowStart + columns, items.size)).map { sibling ->
                         cardLines(sibling, itemDisplayTitle(sibling, showOriginalFileName), isHighlighted = false)
                     }
-                    rememberCardTextHeight(rowLines, tileWidth, textMeasurer)
+                    rememberCardTextHeight(rowLines, cardTextWidthPx, textMeasurer)
                 } else {
                     0.dp
                 }
@@ -585,21 +592,27 @@ private fun cardLines(item: LibraryItemEntity, title: String, isHighlighted: Boo
     )
 }
 
-private val CARD_TEXT_PADDING = PaddingValues(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)
+private val CARD_TEXT_HORIZONTAL_PADDING = 12.dp
+private val CARD_TEXT_PADDING = PaddingValues(
+    start = CARD_TEXT_HORIZONTAL_PADDING,
+    end = CARD_TEXT_HORIZONTAL_PADDING,
+    top = 6.dp,
+    bottom = 10.dp
+)
 private val CARD_LINE_SPACING = 2.dp
 
 /**
- * The height [TileDetails] takes for the tallest of a row's cards ([rowLines], each card's lines) in a card [tileWidth]
- * wide, measured from the lines alone, before any layout: nothing measured on screen feeds back into it. Remembered
+ * The height [TileDetails] takes for the tallest of a row's cards ([rowLines], each card's lines) with [textWidthPx]
+ * for its text, measured from the lines alone, before any layout: nothing measured on screen feeds back into it. Remembered
  * for the row's text, so the library's updates (a playing book's progress) recompose its cards without measuring
  * them again.
  */
 @Composable
-private fun rememberCardTextHeight(rowLines: List<List<CardLine>>, tileWidth: Dp, measurer: TextMeasurer): Dp {
+private fun rememberCardTextHeight(rowLines: List<List<CardLine>>, textWidthPx: Int, measurer: TextMeasurer): Dp {
     val density = LocalDensity.current
-    return remember(rowLines, tileWidth, density) {
+    return remember(rowLines, textWidthPx, density) {
         with(density) {
-            val constraints = Constraints(maxWidth = (tileWidth - 24.dp).roundToPx().coerceAtLeast(0))
+            val constraints = Constraints(maxWidth = textWidthPx.coerceAtLeast(0))
             val padding = CARD_TEXT_PADDING.calculateTopPadding().roundToPx() +
                 CARD_TEXT_PADDING.calculateBottomPadding().roundToPx()
             rowLines.maxOf { lines ->

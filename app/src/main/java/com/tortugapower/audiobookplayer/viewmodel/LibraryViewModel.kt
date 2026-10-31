@@ -504,11 +504,15 @@ class LibraryViewModel(
     /**
      * Manual drag-and-drop reorder ([orderedUuids]: the level in its new order): persist the ranks and flip
      * the location to custom. No-op for a drop that changed nothing, and for a placeholder folder / bound
-     * volume (an unresolved location can't be re-ranked).
+     * volume (an unresolved location can't be re-ranked). [onSaved] runs once the save is done, or has failed.
      */
-    fun reorderItems(orderedUuids: List<String>) {
+    fun reorderItems(orderedUuids: List<String>, onSaved: () -> Unit = {}) {
         viewModelScope.launch {
-            sortManager?.setCustomOrder(_currentPath.value, orderedUuids)
+            try {
+                sortManager?.setCustomOrder(_currentPath.value, orderedUuids)
+            } finally {
+                onSaved()
+            }
         }
     }
 

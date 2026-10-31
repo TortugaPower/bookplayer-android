@@ -1528,6 +1528,9 @@ fun LibraryScreen(
                 // (the ranks, and the switch to custom), and what the library shows between them would flash
                 // the old order.
                 var savingOrder by remember(path) { mutableStateOf<List<String>?>(null) }
+                // The last order the library finished saving. The fallback below counts from then, not from the drop:
+                // a big level's save (a sync task for each of its items) can take seconds.
+                var savedOrder by remember(path) { mutableStateOf<List<String>?>(null) }
                 LaunchedEffect(pathItems) {
                     if (isDragging) return@LaunchedEffect
                     savingOrder?.let { order ->
@@ -1538,8 +1541,9 @@ fun LibraryScreen(
                 }
                 // Should the save never show (it failed), follow the library again; under a new drag, its drop
                 // catches up with the library itself.
-                LaunchedEffect(savingOrder) {
-                    if (savingOrder == null) return@LaunchedEffect
+                LaunchedEffect(savingOrder, savedOrder) {
+                    val order = savingOrder ?: return@LaunchedEffect
+                    if (savedOrder != order) return@LaunchedEffect
                     delay(SAVING_ORDER_TIMEOUT_MS)
                     savingOrder = null
                     if (!isDragging) reorderableItems.replaceWith(pathItems)
@@ -1591,7 +1595,7 @@ fun LibraryScreen(
                     val order = reorderableItems.map { it.uuid }
                     if (order != pathItems.map { it.uuid }) {
                         savingOrder = order
-                        libraryViewModel.reorderItems(order)
+                        libraryViewModel.reorderItems(order) { savedOrder = order }
                     } else {
                         // Let go where it started: nothing to save, only what changed meanwhile to catch up on.
                         reorderableItems.replaceWith(pathItems)
@@ -2030,7 +2034,7 @@ fun LibraryListItem(
     }
 }
 
-/** How long a dropped order stays on screen waiting for the library to show it. */
+/** How long a dropped order, once saved, stays on screen waiting for the library to show it. */
 private const val SAVING_ORDER_TIMEOUT_MS = 2_000L
 
 /**
