@@ -483,4 +483,8 @@
     <string name="layout_list_option">リスト</string>
     <string name="layout_grid_option">グリッド</string>
     <string name="layout_covers_option">表紙</string>
+    <string name="player_settings_video_playback">ビデオ再生</string>
+    <string name="player_settings_video_background_playback">バックグラウンドでビデオの音声を再生</string>
+    <string name="player_settings_video_pip">ピクチャー・イン・ピクチャー</string>
+    <string name="player_settings_video_playback_desc">アプリを離れたり画面をロックしたりしても、ビデオの音声を聴き続けます。ピクチャー・イン・ピクチャーでは、プレーヤーからアプリを離れるとビデオが小さなウインドウで表示され続けます。</string>
 </resources>

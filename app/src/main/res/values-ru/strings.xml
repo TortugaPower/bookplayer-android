@@ -500,4 +500,8 @@
     <string name="layout_list_option">Список</string>
     <string name="layout_grid_option">Сетка</string>
     <string name="layout_covers_option">Обложки</string>
+    <string name="player_settings_video_playback">Воспроизведение видео</string>
+    <string name="player_settings_video_background_playback">Продолжать звук видео в фоне</string>
+    <string name="player_settings_video_pip">Картинка в картинке</string>
+    <string name="player_settings_video_playback_desc">Продолжайте слушать звук видео, когда выходите из приложения или блокируете экран. «Картинка в картинке» оставляет видео в маленьком окне, когда вы выходите из приложения из плеера.</string>
 </resources>

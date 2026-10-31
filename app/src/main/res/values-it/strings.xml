@@ -489,4 +489,8 @@
     <string name="layout_list_option">Elenco</string>
     <string name="layout_grid_option">Griglia</string>
     <string name="layout_covers_option">Copertine</string>
+    <string name="player_settings_video_playback">Riproduzione video</string>
+    <string name="player_settings_video_background_playback">Continua l\'audio del video in background</string>
+    <string name="player_settings_video_pip">Picture in Picture</string>
+    <string name="player_settings_video_playback_desc">Continua ad ascoltare l\'audio di un video quando esci dall\'app o blocchi lo schermo. Picture in Picture mantiene il video in una piccola finestra quando esci dall\'app dal lettore.</string>
 </resources>
