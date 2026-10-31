@@ -56,6 +56,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -149,9 +150,10 @@ fun LibraryTileGrid(
             itemsIndexed(items, key = { _, item -> item.uuid }) { index, item ->
                 val textHeight = if (style == TileStyle.CARD) {
                     val rowStart = index - index % columns
-                    items.subList(rowStart, minOf(rowStart + columns, items.size)).maxOf { sibling ->
-                        cardTextHeight(sibling, itemDisplayTitle(sibling, showOriginalFileName), tileWidth, textMeasurer)
+                    val rowLines = items.subList(rowStart, minOf(rowStart + columns, items.size)).map { sibling ->
+                        cardLines(sibling, itemDisplayTitle(sibling, showOriginalFileName), isHighlighted = false)
                     }
+                    rememberCardTextHeight(rowLines, tileWidth, textMeasurer)
                 } else {
                     0.dp
                 }
@@ -271,6 +273,14 @@ private fun LibraryTile(
                     } else {
                         // The list's swipe, which a grid doesn't have: the item's options, its one action.
                         customActions = listOf(CustomAccessibilityAction(optionsLabel) { onOptions(); true })
+                        // The drag handle's long press, for TalkBack, Switch Access and Voice Access: it selects.
+                        if (dragHandle != null) {
+                            onLongClick {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onLongClick()
+                                true
+                            }
+                        }
                     }
                 }
         ) {
@@ -552,8 +562,8 @@ private fun SelectionMark(isSelected: Boolean) {
     }
 }
 
-/** One line of a card's text: what [TileDetails] draws and what [cardTextHeight] measures. */
-private class CardLine(val text: String, val style: TextStyle, val maxLines: Int, val color: Color)
+/** One line of a card's text: what [TileDetails] draws and what [rememberCardTextHeight] measures. */
+private data class CardLine(val text: String, val style: TextStyle, val maxLines: Int, val color: Color)
 
 /** A card's text: the duration, the title (the playing item's in the accent color) and the author or file count. */
 @Composable
@@ -579,27 +589,32 @@ private val CARD_TEXT_PADDING = PaddingValues(start = 12.dp, end = 12.dp, top = 
 private val CARD_LINE_SPACING = 2.dp
 
 /**
- * The height [TileDetails] takes for [item] in a card [tileWidth] wide, measured from its lines alone, before
- * any layout: a row's cards are given the tallest, and nothing measured on screen feeds back into it.
+ * The height [TileDetails] takes for the tallest of a row's cards ([rowLines], each card's lines) in a card [tileWidth]
+ * wide, measured from the lines alone, before any layout: nothing measured on screen feeds back into it. Remembered
+ * for the row's text, so the library's updates (a playing book's progress) recompose its cards without measuring
+ * them again.
  */
 @Composable
-private fun cardTextHeight(item: LibraryItemEntity, title: String, tileWidth: Dp, measurer: TextMeasurer): Dp {
-    val lines = cardLines(item, title, isHighlighted = false)
-    return with(LocalDensity.current) {
-        val constraints = Constraints(maxWidth = (tileWidth - 24.dp).roundToPx().coerceAtLeast(0))
-        val textHeight = lines.sumOf { line ->
-            measurer.measure(
-                text = line.text,
-                style = line.style,
-                overflow = TextOverflow.Ellipsis,
-                maxLines = line.maxLines,
-                constraints = constraints
-            ).size.height
+private fun rememberCardTextHeight(rowLines: List<List<CardLine>>, tileWidth: Dp, measurer: TextMeasurer): Dp {
+    val density = LocalDensity.current
+    return remember(rowLines, tileWidth, density) {
+        with(density) {
+            val constraints = Constraints(maxWidth = (tileWidth - 24.dp).roundToPx().coerceAtLeast(0))
+            val padding = CARD_TEXT_PADDING.calculateTopPadding().roundToPx() +
+                CARD_TEXT_PADDING.calculateBottomPadding().roundToPx()
+            rowLines.maxOf { lines ->
+                val textHeight = lines.sumOf { line ->
+                    measurer.measure(
+                        text = line.text,
+                        style = line.style,
+                        overflow = TextOverflow.Ellipsis,
+                        maxLines = line.maxLines,
+                        constraints = constraints
+                    ).size.height
+                }
+                textHeight + CARD_LINE_SPACING.roundToPx() * (lines.size - 1) + padding
+            }.toDp()
         }
-        val gaps = CARD_LINE_SPACING.roundToPx() * (lines.size - 1)
-        val padding = CARD_TEXT_PADDING.calculateTopPadding().roundToPx() +
-            CARD_TEXT_PADDING.calculateBottomPadding().roundToPx()
-        (textHeight + gaps + padding).toDp()
     }
 }
 

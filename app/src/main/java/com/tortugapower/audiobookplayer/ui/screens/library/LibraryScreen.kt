@@ -57,6 +57,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
@@ -1535,12 +1536,13 @@ fun LibraryScreen(
                     }
                     reorderableItems.replaceWith(pathItems)
                 }
-                // Should the save never show (it failed), follow the library again.
+                // Should the save never show (it failed), follow the library again; under a new drag, its drop
+                // catches up with the library itself.
                 LaunchedEffect(savingOrder) {
                     if (savingOrder == null) return@LaunchedEffect
                     delay(SAVING_ORDER_TIMEOUT_MS)
                     savingOrder = null
-                    reorderableItems.replaceWith(pathItems)
+                    if (!isDragging) reorderableItems.replaceWith(pathItems)
                 }
                 val canReorder by libraryViewModel.sortLocationWritable.collectAsState()
 
@@ -1829,6 +1831,10 @@ fun LibraryListItem(
                 role = Role.Button
                 if (onOptions != null && !isSelectMode) {
                     customActions = listOf(CustomAccessibilityAction(optionsLabel) { onOptions(); true })
+                }
+                // The drag handle's long press, for TalkBack, Switch Access and Voice Access: it selects.
+                if (reorderHandle != null && !isSelectMode) {
+                    onLongClick { onLongClick(); true }
                 }
             }
             .pointerInput(isSelectMode, onClick, onLongClick, reorderHandle != null) {
