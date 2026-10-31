@@ -43,8 +43,9 @@ class HardcoverAutoMatchTest {
 
     private fun processor() = HardcoverProcessor(
         context,
-        searchBooks = { _, query -> searched += query; duringSearch(); listOfNotNull(hits[query]) },
-        saveUserBookStatus = { _, _, _ -> 1 },
+        searchBooks = { query -> searched += query; duringSearch(); listOfNotNull(hits[query]) },
+        saveUserBookStatus = { _, _ -> 1 },
+        connectedUserId = { "4242" },
         downloadArtwork = { _, url, dest -> downloads += url; dest.writeText("cover"); true },
     )
 
@@ -82,6 +83,8 @@ class HardcoverAutoMatchTest {
         assertNull(linkOf("part1"))
         assertNull(linkOf("part2"))
         assertEquals("200", linkOf("other"))
+        // New links record the connected account, so a later version can tell accounts apart.
+        assertEquals("4242", dao.getExternalResource("other", "hardcover")?.hostId)
         assertNull(linkOf("none"))
     }
 

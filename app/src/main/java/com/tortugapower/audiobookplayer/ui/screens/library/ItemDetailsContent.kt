@@ -32,7 +32,7 @@ import coil.compose.AsyncImage
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
-import com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager
+import com.tortugapower.audiobookplayer.logic.HardcoverAccount
 import com.tortugapower.audiobookplayer.network.HardcoverBook
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
 import java.text.SimpleDateFormat
@@ -309,10 +309,10 @@ fun ItemDetailsContent(
             }
         }
 
-        // Hardcover Section (only for playable items with a token — folders can now open this
+        // Hardcover Section (only for playable items while connected — folders can now open this
         // sheet for renaming, and a Hardcover link makes no sense on a container)
-        val token by HardcoverSettingsManager.getToken(context).collectAsState(initial = "")
-        if (token.isNotEmpty() && (item.type == ItemType.BOOK || item.type == ItemType.BOUND)) {
+        val hardcover by remember { HardcoverAccount.connection(context) }.collectAsState(initial = null)
+        if (hardcover?.isConnected == true && (item.type == ItemType.BOOK || item.type == ItemType.BOUND)) {
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(

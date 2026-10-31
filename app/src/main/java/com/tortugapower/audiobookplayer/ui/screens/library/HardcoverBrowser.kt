@@ -29,7 +29,7 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun HardcoverBrowser(
-    token: String,
+    isConnected: Boolean,
     initialQuery: String,
     linkedBook: HardcoverBook?,
     onBookSelected: (HardcoverBook?) -> Unit,
@@ -39,18 +39,18 @@ fun HardcoverBrowser(
     var books by remember { mutableStateOf<List<HardcoverBook>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
 
-    LaunchedEffect(searchQuery, token) {
-        if (token.isBlank()) {
+    LaunchedEffect(searchQuery, isConnected) {
+        if (!isConnected) {
             books = emptyList()
             return@LaunchedEffect
         }
         isLoading = true
         if (searchQuery.isBlank()) {
-            books = HardcoverService.getPopularBooks(token)
+            books = HardcoverService.getPopularBooks()
             isLoading = false
         } else {
             delay(500) // Debounce API requests
-            books = HardcoverService.searchBooks(token, searchQuery)
+            books = HardcoverService.searchBooks(searchQuery)
             isLoading = false
         }
     }
@@ -113,7 +113,7 @@ fun HardcoverBrowser(
                 .weight(1f),
             contentAlignment = Alignment.Center
         ) {
-            if (token.isBlank()) {
+            if (!isConnected) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,

@@ -504,6 +504,16 @@
     <string name="hardcover_reading_threshold">Reading threshold</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">Sets the minimum progress percentage required before a book is marked as Currently Reading in your Hardcover library.</string>
+    <string name="hardcover_account_title">Account</string>
+    <string name="hardcover_sign_in_button">Sign In with Hardcover</string>
+    <string name="hardcover_signing_in">Signing In with Hardcover…</string>
+    <string name="hardcover_sign_in_again_button">Sign In Again</string>
+    <string name="hardcover_sign_in_again_footer">Sign in again to let BookPlayer update your reading progress on Hardcover.</string>
+    <string name="hardcover_sign_in_footer">Or paste an API key below.</string>
+    <string name="hardcover_connected">Connected to Hardcover</string>
+    <string name="hardcover_connected_as">Connected as %1$s</string>
+    <string name="hardcover_sign_in_failed_title">Couldn\'t Sign In</string>
+    <string name="hardcover_sign_in_failed_message">Hardcover didn\'t complete the sign-in. Try again.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">Media Servers</string>

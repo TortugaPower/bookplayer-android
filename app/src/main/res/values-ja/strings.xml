@@ -269,6 +269,16 @@
     <string name="hardcover_reading_threshold">読書しきい値</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">Hardcoverライブラリで本を読書中にするために必要な最小進捗率を設定します。</string>
+    <string name="hardcover_account_title">アカウント</string>
+    <string name="hardcover_sign_in_button">Hardcoverでサインイン</string>
+    <string name="hardcover_signing_in">Hardcoverでサインイン中…</string>
+    <string name="hardcover_sign_in_again_button">もう一度サインイン</string>
+    <string name="hardcover_sign_in_again_footer">BookPlayerがHardcoverの読書の進捗を更新できるよう、もう一度サインインしてください。</string>
+    <string name="hardcover_sign_in_footer">または、下にAPIキーを貼り付けてください。</string>
+    <string name="hardcover_connected">Hardcoverに接続済み</string>
+    <string name="hardcover_connected_as">%1$sとして接続済み</string>
+    <string name="hardcover_sign_in_failed_title">サインインできませんでした</string>
+    <string name="hardcover_sign_in_failed_message">Hardcoverでサインインが完了しませんでした。もう一度お試しください。</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">メディアサーバー</string>
