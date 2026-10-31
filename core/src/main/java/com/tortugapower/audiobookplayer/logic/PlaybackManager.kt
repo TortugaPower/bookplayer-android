@@ -9,6 +9,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import com.tortugapower.audiobookplayer.logic.VideoTracks.hasPlayableVideo
 import com.tortugapower.audiobookplayer.core.R
 import androidx.media3.session.MediaController
@@ -301,6 +302,10 @@ object PlaybackManager {
     private val _hasVideo = MutableStateFlow(false)
     val hasVideo: StateFlow<Boolean> = _hasVideo.asStateFlow()
 
+    /** The loaded video's size, [VideoSize.UNKNOWN] until its first frame is decoded (the PiP window's shape). */
+    private val _videoSize = MutableStateFlow(VideoSize.UNKNOWN)
+    val videoSize: StateFlow<VideoSize> = _videoSize.asStateFlow()
+
     private var lastPauseTime: Long = 0
     private var smartRewindEnabled = true
     private var smartRewindLimit = 30
@@ -422,6 +427,7 @@ object PlaybackManager {
                 val mediaController = controllerFuture?.get() ?: return@addListener
                 player = mediaController
                 _hasVideo.value = mediaController.currentTracks.hasPlayableVideo()
+                _videoSize.value = mediaController.videoSize
 
                 // Add listener once
                 mediaController.addListener(object : Player.Listener {
@@ -504,6 +510,10 @@ object PlaybackManager {
 
                     override fun onTracksChanged(tracks: Tracks) {
                         _hasVideo.value = tracks.hasPlayableVideo()
+                    }
+
+                    override fun onVideoSizeChanged(videoSize: VideoSize) {
+                        _videoSize.value = videoSize
                     }
 
                     override fun onPlaybackStateChanged(state: Int) {

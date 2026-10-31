@@ -42,6 +42,13 @@ class PictureInPicturePolicyTest {
         assertEquals(4_184 to 10_000, PictureInPicturePolicy.aspectRatio(1000, 3000))
     }
 
+    @Test fun `anamorphic video takes its displayed shape, not its stored one`() {
+        // 1440x1080 stored with 4:3-wide pixels displays as 1920x1080 (16:9).
+        assertEquals(17_778 to 10_000, PictureInPicturePolicy.aspectRatio(1440, 1080, 4f / 3f))
+        // A missing or invalid pixel ratio counts as square.
+        assertEquals(16 to 9, PictureInPicturePolicy.aspectRatio(16, 9, 0f))
+    }
+
     @Test fun `aspect ratio is unknown without a real size`() {
         assertNull(PictureInPicturePolicy.aspectRatio(0, 0))
         assertNull(PictureInPicturePolicy.aspectRatio(1920, 0))

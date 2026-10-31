@@ -274,6 +274,21 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.P
         SyncKeepAliveService.onUnavailable = syncKeepAlive::onServiceUnavailable
 
         // The one automatic retry of parked tasks, when the app is first opened in this process
+        // With "Continue Video Audio in Background" off, a playing video pauses when the app leaves the
+        // foreground. Registered here, once per process: an activity-held observer was removed by the
+        // root activity's onDestroy before the delayed process ON_STOP on Android 9–11.
+        val videoBackgroundPlayback = com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
+            .getVideoBackgroundPlayback(this)
+            .stateIn(appScope, SharingStarted.Eagerly, true)
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            com.tortugapower.audiobookplayer.logic.VideoBackgroundPause(
+                backgroundPlaybackEnabled = { videoBackgroundPlayback.value },
+                hasVideo = { PlaybackManager.hasVideo.value },
+                isPlaying = { PlaybackManager.isPlaying.value },
+                pause = { PlaybackManager.pause() },
+            )
+        )
+
         val parkedTaskRetry = ParkedTaskRetry(
             resumeAllPaused = syncTaskRepository::resumeAllPaused,
             wakeEngine = { com.tortugapower.audiobookplayer.logic.SyncEngineWaker.notifyWorkEnqueued() },

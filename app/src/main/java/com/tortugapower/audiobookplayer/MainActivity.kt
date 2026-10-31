@@ -48,8 +48,6 @@ import android.os.Build
 import android.util.Rational
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.ProcessLifecycleOwner
 import com.tortugapower.audiobookplayer.logic.PictureInPicturePolicy
 import com.tortugapower.audiobookplayer.ui.components.LocalIsInPictureInPicture
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,10 +62,7 @@ class MainActivity : ComponentActivity() {
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     // --- Video playback settings (Settings → Player Controls → Video Playback) ---------------------
-    // Mirrors of the two prefs, kept current by observeVideoPlayback() so the lifecycle callbacks
-    // below can read them synchronously.
-    private var videoBackgroundPlayback = true
-    private var videoPictureInPicture = false
+    // The background-audio pause is process-wide (VideoBackgroundPause, in the Application).
     /** Whether leaving the app right now should shrink into a PiP window (PictureInPicturePolicy). */
     private var pipEligible = false
     private val isInPictureInPicture = MutableStateFlow(false)
@@ -80,19 +75,6 @@ class MainActivity : ComponentActivity() {
                 PictureInPicturePolicy.CONTROL_REWIND -> PlaybackManager.seekBackward()
                 PictureInPicturePolicy.CONTROL_FORWARD -> PlaybackManager.seekForward()
             }
-        }
-    }
-
-    /** With background playback OFF, a playing video pauses when the WHOLE app leaves the foreground
-     *  (iOS: didEnterBackground). App-level, not activity-level: a file picker or the Auth Tab covering
-     *  this activity is not "leaving the app", and a PiP window keeps the activity started anyway. */
-    private val appBackgroundObserver = LifecycleEventObserver { _, event ->
-        if (event == Lifecycle.Event.ON_STOP &&
-            PictureInPicturePolicy.shouldPauseOnBackground(
-                videoBackgroundPlayback, PlaybackManager.hasVideo.value, PlaybackManager.isPlaying.value
-            )
-        ) {
-            PlaybackManager.pause()
         }
     }
 
@@ -155,7 +137,6 @@ class MainActivity : ComponentActivity() {
             this, pipControlReceiver, IntentFilter(PictureInPicturePolicy.ACTION_PIP),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
-        ProcessLifecycleOwner.get().lifecycle.addObserver(appBackgroundObserver)
         observeVideoPlayback()
 
         setContent {
@@ -188,15 +169,19 @@ class MainActivity : ComponentActivity() {
     /** Keep the PiP eligibility and params current so the OS can auto-enter (S+) or we can on leave. */
     private fun observeVideoPlayback() {
         lifecycleScope.launch {
-            combine(
+            val settings = combine(
                 PlaybackSettingsManager.getVideoBackgroundPlayback(this@MainActivity),
                 PlaybackSettingsManager.getVideoPictureInPicture(this@MainActivity),
+            ) { background, pip -> background to pip }
+            combine(
+                settings,
                 PlaybackManager.hasVideo,
                 PlaybackManager.isPlaying,
                 PlaybackManager.showPlayerScreen,
-            ) { background, pip, hasVideo, playing, playerShown ->
-                videoBackgroundPlayback = background
-                videoPictureInPicture = pip
+                // The size arrives with the first decoded frame, after the tracks: the params are pushed
+                // again then, so the window gets the video's shape.
+                PlaybackManager.videoSize,
+            ) { (background, pip), hasVideo, playing, playerShown, _ ->
                 PictureInPicturePolicy.shouldEnter(
                     supported = pipSupported(),
                     pipEnabled = pip,
@@ -219,8 +204,8 @@ class MainActivity : ComponentActivity() {
 
     private fun buildPictureInPictureParams(autoEnter: Boolean): PictureInPictureParams {
         val builder = PictureInPictureParams.Builder().setActions(pipActions())
-        val size = PlaybackManager.player?.videoSize
-        PictureInPicturePolicy.aspectRatio(size?.width ?: 0, size?.height ?: 0)?.let { (num, den) ->
+        val size = PlaybackManager.videoSize.value
+        PictureInPicturePolicy.aspectRatio(size.width, size.height, size.pixelWidthHeightRatio)?.let { (num, den) ->
             builder.setAspectRatio(Rational(num, den))
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -381,7 +366,6 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         // Playback itself lives in the service; only this activity's PiP/background hooks go.
         if (!storageGateShown) {
-            ProcessLifecycleOwner.get().lifecycle.removeObserver(appBackgroundObserver)
             unregisterReceiver(pipControlReceiver)
         }
     }

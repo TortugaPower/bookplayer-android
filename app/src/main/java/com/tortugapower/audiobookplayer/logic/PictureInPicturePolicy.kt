@@ -33,14 +33,17 @@ object PictureInPicturePolicy {
     private const val MAX_RATIO = 2.39
 
     /**
-     * The (numerator, denominator) PiP aspect ratio for a video of [width]×[height]: the video's own
-     * ratio, clamped into the range the platform accepts; null when the size is not known yet.
+     * The (numerator, denominator) PiP aspect ratio for a video of [width]×[height] stored pixels whose
+     * pixels are [pixelWidthHeightRatio] wide (anamorphic video has non-square pixels): the shape it's
+     * displayed in, clamped into the range the platform accepts; null when the size is not known yet.
      */
-    fun aspectRatio(width: Int, height: Int): Pair<Int, Int>? {
+    fun aspectRatio(width: Int, height: Int, pixelWidthHeightRatio: Float = 1f): Pair<Int, Int>? {
         if (width <= 0 || height <= 0) return null
-        val ratio = width.toDouble() / height
+        val pixelRatio = if (pixelWidthHeightRatio > 0f) pixelWidthHeightRatio.toDouble() else 1.0
+        val ratio = width * pixelRatio / height
         val clamped = ratio.coerceIn(1 / MAX_RATIO, MAX_RATIO)
-        return if (clamped == ratio) width to height else (clamped * 10_000).roundToInt() to 10_000
+        return if (clamped == ratio && pixelRatio == 1.0) width to height
+        else (clamped * 10_000).roundToInt() to 10_000
     }
 
     /** With background playback off, a PLAYING video pauses when the whole app leaves the foreground. */
