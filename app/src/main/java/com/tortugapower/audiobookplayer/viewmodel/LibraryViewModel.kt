@@ -426,8 +426,13 @@ class LibraryViewModel(
      */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val sortLocationWritable: StateFlow<Boolean> = _currentPath
-        .mapLatest { path -> sortManager?.resolveLocation(path)?.isWritable ?: false }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+        // Not writable until a level resolves: it would otherwise keep the last level's answer meanwhile, and a drag
+        // started then on a level whose order can't be saved would snap back.
+        .transformLatest { path ->
+            emit(false)
+            emit(sortManager?.resolveLocation(path)?.isWritable ?: false)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /**
      * Pull synced preferences for the level being visited — debounced and skipped when we have an

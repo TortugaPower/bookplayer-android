@@ -1674,7 +1674,7 @@ fun LibraryScreen(
                                 }
                             }
 
-                            ReorderableItem(listReorderState, key = item.uuid, enabled = canReorder) { isDragging ->
+                            ReorderableItem(listReorderState, key = item.uuid, enabled = canReorder) { isRowDragging ->
                                 Column {
                                     SwipeToDismissBox(
                                         state = dismissState,
@@ -1717,12 +1717,12 @@ fun LibraryScreen(
                                         },
                                         enableDismissFromStartToEnd = false,
                                         // No swipe to options while selecting, or while the row is dragged.
-                                        enableDismissFromEndToStart = !isSelectMode && !isDragging
+                                        enableDismissFromEndToStart = !isSelectMode && !isRowDragging
                                     ) {
                                         Surface(
                                             color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.background,
                                             // Lifted off the list while dragged.
-                                            shadowElevation = if (isDragging) 8.dp else 0.dp,
+                                            shadowElevation = if (isRowDragging) 8.dp else 0.dp,
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             LibraryListItem(
