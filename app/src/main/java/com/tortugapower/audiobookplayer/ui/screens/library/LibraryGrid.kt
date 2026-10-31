@@ -91,7 +91,6 @@ fun LibraryTileGrid(
     onClick: (LibraryItemEntity) -> Unit,
     onLongClick: (LibraryItemEntity) -> Unit,
     onOptions: (LibraryItemEntity) -> Unit,
-    onDelete: (LibraryItemEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val style = if (layout == LibraryLayout.COVERS) TileStyle.COVER else TileStyle.CARD
@@ -139,7 +138,6 @@ fun LibraryTileGrid(
                             onClick = { onClick(item) },
                             onLongClick = { onLongClick(item) },
                             onOptions = { onOptions(item) },
-                            onDelete = { onDelete(item) },
                             modifier = Modifier
                                 .width(tileWidth)
                                 .fillMaxHeight()
@@ -176,7 +174,6 @@ private fun LibraryTile(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onOptions: () -> Unit,
-    onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -194,7 +191,6 @@ private fun LibraryTile(
 
     val description = itemAccessibilityDescription(item, download, canDownload)
     val optionsLabel = stringResource(R.string.library_options_title)
-    val deleteLabel = stringResource(R.string.common_delete)
 
     Box(modifier = modifier.padding(top = stackStep * 2)) {
         if (isFolder) {
@@ -225,11 +221,8 @@ private fun LibraryTile(
                     if (isSelectMode) {
                         selected = isSelected
                     } else {
-                        // The list's swipe, which a grid doesn't have: the item's options, and Delete (iOS parity).
-                        customActions = listOf(
-                            CustomAccessibilityAction(optionsLabel) { onOptions(); true },
-                            CustomAccessibilityAction(deleteLabel) { onDelete(); true }
-                        )
+                        // The list's swipe, which a grid doesn't have: the item's options, its one action.
+                        customActions = listOf(CustomAccessibilityAction(optionsLabel) { onOptions(); true })
                     }
                 }
         ) {

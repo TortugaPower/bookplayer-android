@@ -52,9 +52,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -1588,8 +1590,6 @@ fun LibraryScreen(
                             itemForSwipeOptions = item
                             showSwipeOptionsDialog = true
                         },
-                        // The swipe dialog's Delete, straight to its confirmation.
-                        onDelete = { item -> itemsToDelete = listOf(item) },
                     )
                 } else {
                     val lazyListState = rememberLazyListState()
@@ -1645,7 +1645,7 @@ fun LibraryScreen(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Info,
-                                                contentDescription = stringResource(R.string.library_see_details),
+                                                contentDescription = stringResource(R.string.library_options_title),
                                                 tint = if (crossedThreshold) MaterialTheme.colorScheme.onPrimaryContainer
                                                        else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier
@@ -1670,6 +1670,11 @@ fun LibraryScreen(
                                         item = item,
                                         isSelected = isSelected,
                                         isSelectMode = isSelectMode,
+                                        // The swipe, for TalkBack, which can't swipe a row.
+                                        onOptions = {
+                                            itemForSwipeOptions = item
+                                            showSwipeOptionsDialog = true
+                                        },
                                         libraryViewModel = libraryViewModel,
                                         canDownload = canSyncLibrary,
                                         // The reorder gesture lives on the drag HANDLE (immediate drag, like
@@ -1743,6 +1748,9 @@ fun LibraryListItem(
     dragHandleModifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
+    // The row's swipe action (its options), offered to TalkBack as the row's one action. Null where a row
+    // has no swipe (search results).
+    onOptions: (() -> Unit)? = null,
     libraryViewModel: com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel? = null,
     // Tier gate for the artwork's cloud-download affordance. For FREE/signed-out users a missing
     // file can't be re-fetched (TaskAccessPolicy discards their download tasks), so the overlay
@@ -1775,6 +1783,7 @@ fun LibraryListItem(
     val authorText = itemDetailsText(item)
     val showCloud = download.showCloud
     val combinedDescription = itemAccessibilityDescription(item, download, canDownload)
+    val optionsLabel = stringResource(R.string.library_options_title)
 
     Row(
         modifier = modifier
@@ -1782,6 +1791,9 @@ fun LibraryListItem(
             .semantics(mergeDescendants = true) {
                 contentDescription = combinedDescription
                 role = Role.Button
+                if (onOptions != null && !isSelectMode) {
+                    customActions = listOf(CustomAccessibilityAction(optionsLabel) { onOptions(); true })
+                }
             }
             .pointerInput(isSelectMode, onClick, onLongClick) {
                 if (isSelectMode) {
