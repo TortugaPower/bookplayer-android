@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.ui.screens.library
 
 import android.os.Build
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,20 +10,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -56,11 +56,16 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
@@ -70,17 +75,20 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.LibraryLayout
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyGridState
 import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
  * The grid layouts (iOS `ItemListView+Grid` + `LibraryTileView`): a level's items as cards (the cover, then
  * the duration, title and author) or as covers alone, more to a row. A tap does what it does in the list,
- * and a long press starts selecting, as a row's does. Reordering stays with the list layout (as on iOS
- * before iOS 27).
+ * and a long press starts selecting, as a row's does; moving on from it drags the item to a new place, where
+ * the level's order can be saved ([canReorder]). The caller holds the order: [onMove] moves an item in it, and
+ * [onDragStopped] saves it.
  *
- * Laid out as rows, not a lazy grid: a lazy grid sizes each cell on its own, while a row here gives its
- * cards the tallest one's height, so a row lines up while each card fits its own text.
+ * A lazy grid sizes each cell on its own, so a card's text area is given its row's tallest, measured ahead from
+ * the row's texts ([cardTextHeight]): a row lines up while each card fits its own text.
  */
 @Composable
 fun LibraryTileGrid(
@@ -94,6 +102,10 @@ fun LibraryTileGrid(
     onClick: (LibraryItemEntity) -> Unit,
     onLongClick: (LibraryItemEntity) -> Unit,
     onOptions: (LibraryItemEntity) -> Unit,
+    canReorder: Boolean,
+    onMove: (from: Int, to: Int) -> Unit,
+    onDragStarted: (LibraryItemEntity) -> Unit,
+    onDragStopped: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val style = if (layout == LibraryLayout.COVERS) TileStyle.COVER else TileStyle.CARD
@@ -111,9 +123,26 @@ fun LibraryTileGrid(
         }.coerceAtMost(available)
         val columns = max(1, ((available + spacing) / (minimumWidth + spacing)).toInt())
         val tileWidth = (available - spacing * (columns - 1)) / columns
-        val rows = remember(items, columns) { items.chunked(columns) }
+        // A card's text width as the grid lays it out: its cells get the whole pixels left after the padding and
+        // spacing, the leftover ones going to the first columns, so this is the narrowest cell's, less the text's
+        // padding. Measured at it, a row's text is never taller on screen than measured.
+        val cardTextWidthPx = with(LocalDensity.current) {
+            (constraints.maxWidth - horizontalPadding.roundToPx() * 2 - spacing.roundToPx() * (columns - 1)) / columns -
+                CARD_TEXT_HORIZONTAL_PADDING.roundToPx() * 2
+        }
+        val showOriginalFileName by libraryViewModel.showOriginalFileName.collectAsState()
+        // Each card measures its row's texts; the cache lets a row's cards share the work.
+        val textMeasurer = rememberTextMeasurer(cacheSize = 64)
+        val gridState = rememberLazyGridState()
+        // Scrolls on its own near the edges while dragging, stopping short of the mini player.
+        val reorderState = rememberReorderableLazyGridState(
+            lazyGridState = gridState,
+            scrollThresholdPadding = PaddingValues(bottom = bottomInset)
+        ) { from, to -> onMove(from.index, to.index) }
 
-        LazyColumn(
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columns),
+            state = gridState,
             modifier = Modifier.fillMaxSize(),
             // Clears the floating mini player while the grid still scrolls behind it.
             contentPadding = PaddingValues(
@@ -122,30 +151,42 @@ fun LibraryTileGrid(
                 top = 8.dp,
                 bottom = bottomInset + 16.dp
             ),
+            horizontalArrangement = Arrangement.spacedBy(spacing),
             verticalArrangement = Arrangement.spacedBy(spacing)
         ) {
-            items(rows, key = { row -> row.joinToString(",") { it.uuid } }) { row ->
-                Row(
-                    modifier = Modifier.height(IntrinsicSize.Min),
-                    horizontalArrangement = Arrangement.spacedBy(spacing)
-                ) {
-                    row.forEach { item ->
-                        LibraryTile(
-                            item = item,
-                            style = style,
-                            tileWidth = tileWidth,
-                            isSelectMode = isSelectMode,
-                            isSelected = item.uuid in selectedItemUuids,
-                            libraryViewModel = libraryViewModel,
-                            canDownload = canDownload,
-                            onClick = { onClick(item) },
-                            onLongClick = { onLongClick(item) },
-                            onOptions = { onOptions(item) },
-                            modifier = Modifier
-                                .width(tileWidth)
-                                .fillMaxHeight()
-                        )
+            itemsIndexed(items, key = { _, item -> item.uuid }) { index, item ->
+                val textHeight = if (style == TileStyle.CARD) {
+                    val rowStart = index - index % columns
+                    val rowLines = items.subList(rowStart, minOf(rowStart + columns, items.size)).map { sibling ->
+                        cardLines(sibling, itemDisplayTitle(sibling, showOriginalFileName), isHighlighted = false)
                     }
+                    rememberCardTextHeight(rowLines, cardTextWidthPx, textMeasurer)
+                } else {
+                    0.dp
+                }
+                ReorderableItem(reorderState, key = item.uuid, enabled = canReorder) { isDragging ->
+                    LibraryTile(
+                        item = item,
+                        style = style,
+                        tileWidth = tileWidth,
+                        textHeight = textHeight,
+                        isSelectMode = isSelectMode,
+                        isSelected = item.uuid in selectedItemUuids,
+                        isDragging = isDragging,
+                        libraryViewModel = libraryViewModel,
+                        canDownload = canDownload,
+                        onClick = { onClick(item) },
+                        onLongClick = { onLongClick(item) },
+                        onOptions = { onOptions(item) },
+                        dragHandle = if (canReorder) {
+                            Modifier.longPressDraggableHandle(
+                                onDragStarted = { onDragStarted(item) },
+                                onDragStopped = onDragStopped
+                            )
+                        } else {
+                            null
+                        }
+                    )
                 }
             }
         }
@@ -173,13 +214,17 @@ private fun LibraryTile(
     item: LibraryItemEntity,
     style: TileStyle,
     tileWidth: Dp,
+    textHeight: Dp,
     isSelectMode: Boolean,
     isSelected: Boolean,
+    isDragging: Boolean,
     libraryViewModel: LibraryViewModel,
     canDownload: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onOptions: () -> Unit,
+    // The long press that selects and, moving on, drags; null where the order can't be saved.
+    dragHandle: Modifier?,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -194,6 +239,8 @@ private fun LibraryTile(
     val stackStep = if (isFolder) (tileWidth.value * 0.045f).roundToInt().dp else 0.dp
     val coverHeight = tileWidth - stackStep * 2
     val shape = RoundedCornerShape(if (style == TileStyle.CARD) 16.dp else 8.dp)
+    // Lifted off the grid while dragged.
+    val dragElevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "dragElevation")
 
     val description = itemAccessibilityDescription(item, download, canDownload)
     val optionsLabel = stringResource(R.string.library_options_title)
@@ -206,20 +253,24 @@ private fun LibraryTile(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(if (style == TileStyle.CARD) Modifier.fillMaxHeight() else Modifier)
+                .shadow(dragElevation, shape)
                 .clip(shape)
                 .background(
                     if (style == TileStyle.CARD) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent
                 )
                 .combinedClickable(
                     onClick = onClick,
-                    onLongClick = if (isSelectMode) null else {
+                    // With a drag handle, its long press selects.
+                    onLongClick = if (isSelectMode || dragHandle != null) null else {
                         {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onLongClick()
                         }
                     }
                 )
+                // Inside the click, so it sees each touch first: a long press let go without moving is used up
+                // here and doesn't also count as a tap.
+                .then(dragHandle ?: Modifier)
                 // One element for TalkBack, the one that's tapped: its whole description, and its state.
                 .semantics {
                     contentDescription = description
@@ -229,6 +280,14 @@ private fun LibraryTile(
                     } else {
                         // The list's swipe, which a grid doesn't have: the item's options, its one action.
                         customActions = listOf(CustomAccessibilityAction(optionsLabel) { onOptions(); true })
+                        // The drag handle's long press, for TalkBack, Switch Access and Voice Access: it selects.
+                        if (dragHandle != null) {
+                            onLongClick {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onLongClick()
+                                true
+                            }
+                        }
                     }
                 }
         ) {
@@ -247,7 +306,7 @@ private fun LibraryTile(
                 canDownload = canDownload
             )
             if (style == TileStyle.CARD) {
-                TileDetails(item, itemDisplayTitle(item, showOriginalFileName), isHighlighted)
+                TileDetails(item, itemDisplayTitle(item, showOriginalFileName), isHighlighted, textHeight)
             }
         }
     }
@@ -510,42 +569,88 @@ private fun SelectionMark(isSelected: Boolean) {
     }
 }
 
+/** One line of a card's text: what [TileDetails] draws and what [rememberCardTextHeight] measures. */
+private data class CardLine(val text: String, val style: TextStyle, val maxLines: Int, val color: Color)
+
 /** A card's text: the duration, the title (the playing item's in the accent color) and the author or file count. */
 @Composable
-private fun TileDetails(item: LibraryItemEntity, title: String, isHighlighted: Boolean) {
-    // A third line at the largest text sizes, where wrapping beats cutting a title short.
+private fun cardLines(item: LibraryItemEntity, title: String, isHighlighted: Boolean): List<CardLine> {
+    val secondary = MaterialTheme.colorScheme.onSurfaceVariant
+    // A third title line at the largest text sizes, where wrapping beats cutting a title short.
     val titleLines = if (LocalDensity.current.fontScale >= 1.3f) 3 else 2
+    return listOfNotNull(
+        itemDurationText(item).takeIf { it.isNotEmpty() }?.let {
+            CardLine(it, MaterialTheme.typography.bodySmall, 1, secondary)
+        },
+        CardLine(
+            text = title.ifBlank { stringResource(R.string.library_unknown_title) },
+            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+            maxLines = titleLines,
+            color = if (isHighlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+        ),
+        CardLine(itemDetailsText(item), MaterialTheme.typography.bodySmall, 2, secondary)
+    )
+}
+
+private val CARD_TEXT_HORIZONTAL_PADDING = 12.dp
+private val CARD_TEXT_PADDING = PaddingValues(
+    start = CARD_TEXT_HORIZONTAL_PADDING,
+    end = CARD_TEXT_HORIZONTAL_PADDING,
+    top = 6.dp,
+    bottom = 10.dp
+)
+private val CARD_LINE_SPACING = 2.dp
+
+/**
+ * The height [TileDetails] takes for the tallest of a row's cards ([rowLines], each card's lines) with [textWidthPx]
+ * for its text, measured from the lines alone, before any layout: nothing measured on screen feeds back into it. Remembered
+ * for the row's text, so the library's updates (a playing book's progress) recompose its cards without measuring
+ * them again.
+ */
+@Composable
+private fun rememberCardTextHeight(rowLines: List<List<CardLine>>, textWidthPx: Int, measurer: TextMeasurer): Dp {
+    val density = LocalDensity.current
+    return remember(rowLines, textWidthPx, density) {
+        with(density) {
+            val constraints = Constraints(maxWidth = textWidthPx.coerceAtLeast(0))
+            val padding = CARD_TEXT_PADDING.calculateTopPadding().roundToPx() +
+                CARD_TEXT_PADDING.calculateBottomPadding().roundToPx()
+            rowLines.maxOf { lines ->
+                val textHeight = lines.sumOf { line ->
+                    measurer.measure(
+                        text = line.text,
+                        style = line.style,
+                        overflow = TextOverflow.Ellipsis,
+                        maxLines = line.maxLines,
+                        constraints = constraints
+                    ).size.height
+                }
+                textHeight + CARD_LINE_SPACING.roundToPx() * (lines.size - 1) + padding
+            }.toDp()
+        }
+    }
+}
+
+@Composable
+private fun TileDetails(item: LibraryItemEntity, title: String, isHighlighted: Boolean, rowHeight: Dp) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            // As tall as the row's tallest card text, so the row's cards line up.
+            .heightIn(min = rowHeight)
             // Read once, in the tile's description, not again merged after it (as the list's row does).
             .clearAndSetSemantics { }
-            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+            .padding(CARD_TEXT_PADDING),
+        verticalArrangement = Arrangement.spacedBy(CARD_LINE_SPACING)
     ) {
-        val duration = itemDurationText(item)
-        if (duration.isNotEmpty()) {
+        cardLines(item, title, isHighlighted).forEach { line ->
             Text(
-                text = duration,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
+                text = line.text,
+                style = line.style,
+                color = line.color,
+                maxLines = line.maxLines,
+                overflow = TextOverflow.Ellipsis
             )
         }
-        Text(
-            text = title.ifBlank { stringResource(R.string.library_unknown_title) },
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Bold,
-            color = if (isHighlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            maxLines = titleLines,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = itemDetailsText(item),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
     }
 }

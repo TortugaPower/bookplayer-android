@@ -96,6 +96,18 @@ interface LibraryDao {
     @Update
     suspend fun updateItem(item: LibraryItemEntity)
 
+    @Query("UPDATE library_items SET orderRank = :rank WHERE uuid = :uuid")
+    suspend fun setOrderRank(uuid: String, rank: Int)
+
+    /**
+     * Ranks [uuids] in that order. In one transaction, so a list observing the table never sees part of the change,
+     * and only the rank: writing whole items would undo a progress write that landed since they were read.
+     */
+    @Transaction
+    suspend fun setOrderRanks(uuids: List<String>) {
+        uuids.forEachIndexed { rank, uuid -> setOrderRank(uuid, rank) }
+    }
+
     /**
      * A book's freshly issued links and nothing else: a media server's stream URL, or a cloud listing's signed file
      * URL with its cover's ([artworkURL]; the stored one is kept when null). The one way to store a link: it's local,

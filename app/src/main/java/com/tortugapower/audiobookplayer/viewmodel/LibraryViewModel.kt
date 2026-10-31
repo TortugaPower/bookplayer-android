@@ -20,6 +20,11 @@ import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
+import android.util.Log
 import kotlinx.coroutines.withTimeoutOrNull
 
 class LibraryViewModel(
@@ -426,8 +431,13 @@ class LibraryViewModel(
      */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val sortLocationWritable: StateFlow<Boolean> = _currentPath
-        .mapLatest { path -> sortManager?.resolveLocation(path)?.isWritable ?: false }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+        // Not writable until a level resolves: it would otherwise keep the last level's answer meanwhile, and a drag
+        // started then on a level whose order can't be saved would snap back.
+        .transformLatest { path ->
+            emit(false)
+            emit(sortManager?.resolveLocation(path)?.isWritable ?: false)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /**
      * Pull synced preferences for the level being visited — debounced and skipped when we have an
@@ -497,14 +507,30 @@ class LibraryViewModel(
     }
 
     /**
-     * Manual drag-and-drop reorder: persist the moved ranks and flip the location to custom. No-op
-     * for a placeholder folder / bound volume (an unresolved location can't be re-ranked).
+     * Manual drag-and-drop reorder ([orderedUuids]: the level in its new order): persist the ranks and flip
+     * the location to custom. No-op for a drop that changed nothing, and for a placeholder folder / bound
+     * volume (an unresolved location can't be re-ranked). [onSaved] runs once the save is done, or has failed.
      */
-    fun reorderItems(items: List<LibraryItemEntity>) {
+    fun reorderItems(orderedUuids: List<String>, onSaved: () -> Unit = {}) {
+        val path = _currentPath.value
         viewModelScope.launch {
-            sortManager?.setCustomOrder(_currentPath.value, items)
+            try {
+                // One save at a time, in drop order; off the main thread, since it sorts the whole level.
+                reorderLock.withLock {
+                    withContext(ioDispatcher) { sortManager?.setCustomOrder(path, orderedUuids) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The screen goes back to the stored order.
+                Log.w("LibraryViewModel", "Couldn't save a reorder", e)
+            } finally {
+                onSaved()
+            }
         }
     }
+
+    private val reorderLock = Mutex()
 
     fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String) {
         viewModelScope.launch {

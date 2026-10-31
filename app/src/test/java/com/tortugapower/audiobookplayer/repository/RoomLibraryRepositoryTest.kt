@@ -376,6 +376,10 @@ class RoomLibraryRepositoryTest {
             items[item.uuid] = item
         }
 
+        override suspend fun setOrderRank(uuid: String, rank: Int) {
+            items[uuid]?.let { items[uuid] = it.copy(orderRank = rank) }
+        }
+
         override suspend fun updateLinks(uuid: String, remoteURL: String?, artworkURL: String?) {
             items[uuid]?.let { items[uuid] = it.copy(remoteURL = remoteURL, artworkURL = artworkURL ?: it.artworkURL) }
         }

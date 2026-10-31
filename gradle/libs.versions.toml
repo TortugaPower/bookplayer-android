@@ -44,6 +44,8 @@ retrofit = "2.11.0"
 credential = "1.2.2"
 googleid = "1.1.1"
 coil = "2.6.0"
+# Drag to reorder in the library's lazy list and grid (Compose has no reorder API). Needs Compose >= 1.7.
+reorderable = "3.1.0"
 # Play requires Billing Library >= 8.0.0 from Aug 30, 2026; must stay on the same major
 # as the BillingClient bundled by RevenueCat (purchases 9.x -> BC 8.x).
 billing = "8.3.0"
@@ -78,6 +80,7 @@ sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "
 sentry-okhttp = { group = "io.sentry", name = "sentry-okhttp", version.ref = "sentry" }
 konfetti-compose = { group = "nl.dionsegijn", name = "konfetti-compose", version.ref = "konfetti" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+reorderable = { group = "sh.calvin.reorderable", name = "reorderable", version.ref = "reorderable" }
 billing-ktx = { group = "com.android.billingclient", name = "billing-ktx", version.ref = "billing" }
 billing = { group = "com.android.billingclient", name = "billing", version.ref = "billing" }
 androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "fragment" }

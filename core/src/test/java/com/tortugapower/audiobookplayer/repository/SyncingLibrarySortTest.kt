@@ -133,15 +133,79 @@ class SyncingLibrarySortTest {
     @Test fun `manual drag sets custom, writes ranks, schedules updates, and pushes the pref`() = runBlocking {
         seed("a", "A", "A", 0)
         seed("b", "B", "B", 1)
-        val reordered = listOf(db.libraryDao().getItemById("b")!!, db.libraryDao().getItemById("a")!!)
 
-        manager.setCustomOrder(null, reordered)
+        manager.setCustomOrder(null, listOf("b", "a"))
 
         assertEquals("custom", prefs.getString(SortLocation.Root.storeKey))
         assertEquals(0, rankOf("b"))
         assertEquals(1, rankOf("a"))
         assertTrue(updateTasksFor("a").isNotEmpty() && updateTasksFor("b").isNotEmpty())
         assertEquals("custom", payloadOf(prefPushes().single())["value"])
+    }
+
+    @Test fun `a drop back where it started changes nothing, not even an automatic rule`() = runBlocking {
+        store.set(SortLocation.Root, EffectiveSort.Automatic(SortType.metadataTitle))
+        seed("b", "Bravo", "Bravo", 0)
+        seed("a", "Alpha", "Alpha", 1)
+
+        manager.setCustomOrder(null, listOf("a", "b")) // the visible (title) order, unchanged
+
+        assertEquals(EffectiveSort.Automatic(SortType.metadataTitle).serialize(), prefs.getString(SortLocation.Root.storeKey))
+        assertEquals(0, rankOf("b"))
+        assertEquals(1, rankOf("a"))
+        assertTrue("no rank sync", updateTasksFor("a").isEmpty() && updateTasksFor("b").isEmpty())
+        assertTrue("no pref push", prefPushes().isEmpty())
+    }
+
+    @Test fun `an unmoved drop changes nothing, though an item arrived during the drag`() = runBlocking {
+        store.set(SortLocation.Root, EffectiveSort.Automatic(SortType.metadataTitle))
+        seed("b", "Bravo", "Bravo", 0)
+        seed("a", "Alpha", "Alpha", 1)
+        seed("c", "Charlie", "Charlie", 2) // listed while the drag was held: not in the screen's order
+
+        manager.setCustomOrder(null, listOf("a", "b")) // the visible order the drag started from, unmoved
+
+        assertEquals(EffectiveSort.Automatic(SortType.metadataTitle).serialize(), prefs.getString(SortLocation.Root.storeKey))
+        assertTrue("no rank sync", updateTasksFor("a").isEmpty() && updateTasksFor("b").isEmpty())
+        assertTrue("no pref push", prefPushes().isEmpty())
+    }
+
+    @Test fun `an unmoved drop changes nothing, though an item went away during the drag`() = runBlocking {
+        store.set(SortLocation.Root, EffectiveSort.Automatic(SortType.metadataTitle))
+        seed("b", "Bravo", "Bravo", 0)
+        seed("a", "Alpha", "Alpha", 1)
+
+        manager.setCustomOrder(null, listOf("a", "b", "gone")) // "gone" was deleted while the drag was held
+
+        assertEquals(EffectiveSort.Automatic(SortType.metadataTitle).serialize(), prefs.getString(SortLocation.Root.storeKey))
+        assertTrue("no pref push", prefPushes().isEmpty())
+    }
+
+    @Test fun `a drop writes ranks onto the stored items, not the copies the drag held`() = runBlocking {
+        seed("a", "A", "A", 0)
+        seed("b", "B", "B", 1)
+        // Played on while the drag was held: the stored item moved past what the screen's copy had.
+        val playing = db.libraryDao().getItemById("a")!!
+        playing.currentTime = 120.0
+        db.libraryDao().updateItem(playing)
+
+        manager.setCustomOrder(null, listOf("b", "a"))
+
+        assertEquals(120.0, db.libraryDao().getItemById("a")!!.currentTime, 0.0)
+        assertEquals(0, rankOf("b"))
+        assertEquals(1, rankOf("a"))
+    }
+
+    @Test fun `an item that arrived during the drag keeps its place after the dragged ones`() = runBlocking {
+        seed("a", "A", "A", 0)
+        seed("b", "B", "B", 1)
+        seed("new", "New", "New", 2) // imported while the drag was held: not in the screen's order
+
+        manager.setCustomOrder(null, listOf("b", "a"))
+
+        assertEquals(0, rankOf("b"))
+        assertEquals(1, rankOf("a"))
+        assertEquals(2, rankOf("new"))
     }
 
     @Test fun `reverse order reverses the visible order and transitions to custom`() = runBlocking {

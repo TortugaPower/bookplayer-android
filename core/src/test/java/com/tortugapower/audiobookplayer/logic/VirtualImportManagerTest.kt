@@ -358,6 +358,7 @@ class VirtualImportManagerTest {
         override suspend fun getMaxPathOrderRank(path: String): Int? =
             items.values.filter { it.relativePath?.substringBeforeLast('/', "") == path }.maxOfOrNull { it.orderRank }
         override suspend fun updateItem(item: LibraryItemEntity) = TODO()
+        override suspend fun setOrderRank(uuid: String, rank: Int) = TODO()
         override suspend fun updateLinks(uuid: String, remoteURL: String?, artworkURL: String?) = TODO()
         override suspend fun deleteItem(item: LibraryItemEntity) = TODO()
         override suspend fun deleteItems(items: List<LibraryItemEntity>) = TODO()
