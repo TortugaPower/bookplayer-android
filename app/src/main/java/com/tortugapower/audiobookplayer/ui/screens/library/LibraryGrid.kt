@@ -39,11 +39,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -60,6 +62,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import com.tortugapower.audiobookplayer.R
 import com.tortugapower.audiobookplayer.database.entities.ItemType
@@ -153,6 +156,9 @@ private enum class TileStyle { CARD, COVER }
 
 /** The progress mark's inset from the cover's corner. */
 private val MARK_INSET = 8.dp
+
+/** Lifts the progress mark off its cover: iOS's shadow, black at 50%, a 3 blur, 2 down. */
+private val MARK_SHADOW = Shadow(radius = 3.dp, color = Color.Black.copy(alpha = 0.5f), offset = DpOffset(0.dp, 2.dp))
 
 /** Darkens a folder's backdrop copy where it has pixels, before Android 12 (no blur). */
 private val UNBLURRED_COPY_DIM = ColorFilter.tint(Color.Black.copy(alpha = 0.2f), BlendMode.SrcAtop)
@@ -370,7 +376,7 @@ private fun ProgressMark(
             isHighlighted = isHighlighted,
             modifier = modifier
                 .size(size)
-                .shadow(3.dp, CircleShape)
+                .dropShadow(CircleShape, MARK_SHADOW)
         )
         showPercentage -> Text(
             text = "${(progress * 100).roundToInt()}%",
@@ -378,7 +384,7 @@ private fun ProgressMark(
             fontWeight = FontWeight.SemiBold,
             color = tint,
             modifier = modifier
-                .shadow(3.dp, CircleShape)
+                .dropShadow(CircleShape, MARK_SHADOW)
                 .background(background, CircleShape)
                 .padding(horizontal = 8.dp, vertical = 2.dp)
         )
@@ -387,7 +393,7 @@ private fun ProgressMark(
             isHighlighted = isHighlighted,
             modifier = modifier
                 .size(size)
-                .shadow(3.dp, CircleShape)
+                .dropShadow(CircleShape, MARK_SHADOW)
                 // Under the gap inside the wheel's outline (the finished disc is opaque already).
                 .background(background, CircleShape)
         )
