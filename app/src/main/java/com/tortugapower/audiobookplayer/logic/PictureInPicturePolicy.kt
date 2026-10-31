@@ -41,10 +41,17 @@ object PictureInPicturePolicy {
         if (width <= 0 || height <= 0) return null
         val pixelRatio = if (pixelWidthHeightRatio > 0f) pixelWidthHeightRatio.toDouble() else 1.0
         val ratio = width * pixelRatio / height
-        val clamped = ratio.coerceIn(1 / MAX_RATIO, MAX_RATIO)
-        return if (clamped == ratio && pixelRatio == 1.0) width to height
-        else (clamped * 10_000).roundToInt() to 10_000
+        if (ratio in (1 / MAX_RATIO)..MAX_RATIO && pixelRatio == 1.0) return width to height
+        // Over 10,000ths, rounded and then held inside the limits: rounding the clamped value alone gave
+        // 4184/10000 for a tall video, below the platform's 1/2.39 minimum, which it rejects (and crashed).
+        val numerator = (ratio * RATIO_SCALE).roundToInt().coerceIn(MIN_NUMERATOR, MAX_NUMERATOR)
+        return numerator to RATIO_SCALE
     }
+
+    private const val RATIO_SCALE = 10_000
+    /** The smallest and largest numerators over [RATIO_SCALE] the platform accepts (ceil / floor of the limits). */
+    private val MIN_NUMERATOR = kotlin.math.ceil(RATIO_SCALE / MAX_RATIO).toInt()
+    private val MAX_NUMERATOR = kotlin.math.floor(RATIO_SCALE * MAX_RATIO).toInt()
 
     /** With background playback off, a PLAYING video pauses when the whole app leaves the foreground. */
     fun shouldPauseOnBackground(backgroundPlaybackEnabled: Boolean, hasVideo: Boolean, isPlaying: Boolean): Boolean =

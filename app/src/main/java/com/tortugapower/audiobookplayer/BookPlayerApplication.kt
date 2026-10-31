@@ -12,6 +12,8 @@ import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
 import com.tortugapower.audiobookplayer.logic.PlaybackForeground
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
+import com.tortugapower.audiobookplayer.logic.VideoBackgroundPause
 import com.tortugapower.audiobookplayer.logic.ParkedTaskRetry
 import com.tortugapower.audiobookplayer.logic.PreferencesPullTriggers
 import com.tortugapower.audiobookplayer.logic.PhoneSyncEngine
@@ -273,15 +275,13 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.P
         PlaybackForeground.onLeaving = syncKeepAlive::onPlaybackLeavingForeground
         SyncKeepAliveService.onUnavailable = syncKeepAlive::onServiceUnavailable
 
-        // The one automatic retry of parked tasks, when the app is first opened in this process
         // With "Continue Video Audio in Background" off, a playing video pauses when the app leaves the
         // foreground. Registered here, once per process: an activity-held observer was removed by the
         // root activity's onDestroy before the delayed process ON_STOP on Android 9–11.
-        val videoBackgroundPlayback = com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
-            .getVideoBackgroundPlayback(this)
+        val videoBackgroundPlayback = PlaybackSettingsManager.getVideoBackgroundPlayback(this)
             .stateIn(appScope, SharingStarted.Eagerly, true)
         ProcessLifecycleOwner.get().lifecycle.addObserver(
-            com.tortugapower.audiobookplayer.logic.VideoBackgroundPause(
+            VideoBackgroundPause(
                 backgroundPlaybackEnabled = { videoBackgroundPlayback.value },
                 hasVideo = { PlaybackManager.hasVideo.value },
                 isPlaying = { PlaybackManager.isPlaying.value },
@@ -289,6 +289,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.P
             )
         )
 
+        // The one automatic retry of parked tasks, when the app is first opened in this process
         val parkedTaskRetry = ParkedTaskRetry(
             resumeAllPaused = syncTaskRepository::resumeAllPaused,
             wakeEngine = { com.tortugapower.audiobookplayer.logic.SyncEngineWaker.notifyWorkEnqueued() },

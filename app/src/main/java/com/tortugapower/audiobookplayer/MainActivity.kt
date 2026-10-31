@@ -191,13 +191,14 @@ class MainActivity : ComponentActivity() {
                     playerScreenVisible = playerShown,
                 )
             }.collect { eligible ->
+                val wasEligible = pipEligible
                 pipEligible = eligible
                 // Re-pushed on every change so the play/pause button and aspect ratio stay current
                 // while the PiP window is showing, too.
                 if (eligible || isInPictureInPicture.value) applyPictureInPictureParams(eligible)
-                else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && pipSupported()) {
-                    setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(false).build())
-                }
+                // Auto-enter is turned off once, when eligibility ends: not on every play/pause of an
+                // audiobook (each push is a binder call), and never for someone who never had a video.
+                else if (wasEligible) applyPictureInPictureParams(autoEnter = false)
             }
         }
     }
@@ -222,6 +223,9 @@ class MainActivity : ComponentActivity() {
         } catch (e: IllegalStateException) {
             // Activity not yet attached / already finishing; the next state change re-applies.
             android.util.Log.w("MainActivity", "PiP params rejected", e)
+        } catch (e: IllegalArgumentException) {
+            // A shape this device's narrower range refuses (some makers narrow 1:2.39 .. 2.39:1): no PiP, no crash.
+            android.util.Log.w("MainActivity", "PiP params rejected", e)
         }
     }
 
@@ -233,6 +237,8 @@ class MainActivity : ComponentActivity() {
             try {
                 enterPictureInPictureMode(buildPictureInPictureParams(autoEnter = false))
             } catch (e: IllegalStateException) {
+                android.util.Log.w("MainActivity", "Could not enter PiP", e)
+            } catch (e: IllegalArgumentException) {
                 android.util.Log.w("MainActivity", "Could not enter PiP", e)
             }
         }

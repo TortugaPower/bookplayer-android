@@ -38,8 +38,21 @@ class PictureInPicturePolicyTest {
     @Test fun `aspect ratio is clamped into the platform's range`() {
         // 3.0:1 is wider than 2.39:1 → clamped to 2.39.
         assertEquals(23_900 to 10_000, PictureInPicturePolicy.aspectRatio(3000, 1000))
-        // 1:3 is taller than 1:2.39 → clamped to 1/2.39.
-        assertEquals(4_184 to 10_000, PictureInPicturePolicy.aspectRatio(1000, 3000))
+        // 1:3 is taller than 1:2.39 → clamped to 1/2.39, rounded UP: 4184/10000 is below the platform's
+        // minimum (0.41841…) and was rejected with an IllegalArgumentException.
+        assertEquals(4_185 to 10_000, PictureInPicturePolicy.aspectRatio(1000, 3000))
+    }
+
+    @Test fun `a ratio never rounds outside the platform's range`() {
+        val min = 1 / 2.39
+        // From very tall to very wide, including shapes just inside each limit that round across it.
+        val shapes = listOf(1 to 100, 100_000 to 239_005, 1000 to 2390, 239_005 to 100_000, 2390 to 1000, 100 to 1)
+        for ((w, h) in shapes) {
+            val (num, den) = PictureInPicturePolicy.aspectRatio(w, h, 1.0001f)!!
+            val ratio = num.toFloat() / den
+            assertTrue("$w x $h -> $ratio", java.lang.Float.compare(min.toFloat(), ratio) <= 0)
+            assertTrue("$w x $h -> $ratio", java.lang.Float.compare(ratio, 2.39f) <= 0)
+        }
     }
 
     @Test fun `anamorphic video takes its displayed shape, not its stored one`() {
