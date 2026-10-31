@@ -150,6 +150,7 @@
     <!-- Library -->
     <string name="library_title_default">Bibliothèque</string>
     <string name="library_create_folder_title">Créer un dossier</string>
+    <string name="library_options_title">Options</string>
     <string name="library_folder_name_label">Nom du dossier</string>
     <string name="library_folder_name_error">Utilisez uniquement des lettres, des chiffres, \'-\' ou \'_\'</string>
     <string name="search_prompt">Rechercher dans votre bibliothèque</string>
