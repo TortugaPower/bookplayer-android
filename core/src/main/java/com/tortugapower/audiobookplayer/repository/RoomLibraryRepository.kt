@@ -449,10 +449,10 @@ class RoomLibraryRepository(
 
     override suspend fun reorderItems(items: List<LibraryItemEntity>) {
         withContext(Dispatchers.IO) {
-            items.forEachIndexed { index, item ->
-                item.orderRank = index
-                libraryDao.updateItem(item)
-            }
+            items.forEachIndexed { index, item -> item.orderRank = index }
+            // One transaction: written one at a time, the library re-reads between writes, and two items sharing a
+            // rank show in their old order for a frame, so a drop flashes.
+            libraryDao.updateItems(items)
         }
     }
 

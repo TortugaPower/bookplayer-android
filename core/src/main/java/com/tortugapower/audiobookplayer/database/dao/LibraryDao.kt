@@ -96,6 +96,10 @@ interface LibraryDao {
     @Update
     suspend fun updateItem(item: LibraryItemEntity)
 
+    /** In one transaction, so a list observing the table never sees part of the change. */
+    @Update
+    suspend fun updateItems(items: List<LibraryItemEntity>)
+
     /**
      * A book's freshly issued links and nothing else: a media server's stream URL, or a cloud listing's signed file
      * URL with its cover's ([artworkURL]; the stored one is kept when null). The one way to store a link: it's local,

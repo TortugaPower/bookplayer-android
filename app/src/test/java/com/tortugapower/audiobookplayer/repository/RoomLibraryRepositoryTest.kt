@@ -376,6 +376,10 @@ class RoomLibraryRepositoryTest {
             items[item.uuid] = item
         }
 
+        override suspend fun updateItems(items: List<LibraryItemEntity>) {
+            items.forEach { updateItem(it) }
+        }
+
         override suspend fun updateLinks(uuid: String, remoteURL: String?, artworkURL: String?) {
             items[uuid]?.let { items[uuid] = it.copy(remoteURL = remoteURL, artworkURL = artworkURL ?: it.artworkURL) }
         }
