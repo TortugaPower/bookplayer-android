@@ -277,6 +277,16 @@
     <string name="hardcover_reading_threshold">Порог чтения</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">Устанавливает минимальный процент прогресса, необходимый для того, чтобы книга была отмечена как «Читаю сейчас» в вашей библиотеке Hardcover.</string>
+    <string name="hardcover_account_title">Учётная запись</string>
+    <string name="hardcover_sign_in_button">Войти через Hardcover</string>
+    <string name="hardcover_signing_in">Вход через Hardcover…</string>
+    <string name="hardcover_sign_in_again_button">Войти снова</string>
+    <string name="hardcover_sign_in_again_footer">Войдите снова, чтобы BookPlayer мог обновлять ваш прогресс чтения в Hardcover.</string>
+    <string name="hardcover_sign_in_footer">Или вставьте ключ API ниже.</string>
+    <string name="hardcover_connected">Подключено к Hardcover</string>
+    <string name="hardcover_connected_as">Подключено как %1$s</string>
+    <string name="hardcover_sign_in_failed_title">Не удалось войти</string>
+    <string name="hardcover_sign_in_failed_message">Hardcover не завершил вход. Повторите попытку.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">Медиасерверы</string>

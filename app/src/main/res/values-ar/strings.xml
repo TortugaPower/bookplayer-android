@@ -283,6 +283,16 @@
     <string name="hardcover_reading_threshold">حد القراءة</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">يحدد الحد الأدنى لنسبة تقدم القراءة المطلوبة قبل وضع علامة على الكتاب كـ يقرأ حاليًا في مكتبة Hardcover الخاصة بك.</string>
+    <string name="hardcover_account_title">الحساب</string>
+    <string name="hardcover_sign_in_button">تسجيل الدخول باستخدام Hardcover</string>
+    <string name="hardcover_signing_in">جارٍ تسجيل الدخول باستخدام Hardcover…</string>
+    <string name="hardcover_sign_in_again_button">تسجيل الدخول مرة أخرى</string>
+    <string name="hardcover_sign_in_again_footer">سجّل الدخول مرة أخرى للسماح لـ BookPlayer بتحديث تقدّم قراءتك على Hardcover.</string>
+    <string name="hardcover_sign_in_footer">أو الصق مفتاح API أدناه.</string>
+    <string name="hardcover_connected">متصل بـ Hardcover</string>
+    <string name="hardcover_connected_as">متصل باسم %1$s</string>
+    <string name="hardcover_sign_in_failed_title">تعذّر تسجيل الدخول</string>
+    <string name="hardcover_sign_in_failed_message">لم يُكمل Hardcover تسجيل الدخول. حاول مرة أخرى.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">خوادم الوسائط</string>

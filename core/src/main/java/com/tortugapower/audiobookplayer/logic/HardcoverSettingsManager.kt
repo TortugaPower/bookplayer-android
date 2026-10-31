@@ -6,7 +6,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 object HardcoverSettingsManager {
-    private val HARDCOVER_TOKEN = stringPreferencesKey("hardcover_token")
+    /** The pasted API key (`hc_pat_…`), stored bare. An OAuth sign-in lives in [HardcoverAccount]. */
+    internal val HARDCOVER_TOKEN = stringPreferencesKey("hardcover_token")
     private val AUTO_MATCH_BOOKS = booleanPreferencesKey("hardcover_auto_match")
     private val AUTO_ADD_TO_WANT_TO_READ = booleanPreferencesKey("hardcover_auto_add_want_to_read")
     private val READING_THRESHOLD = floatPreferencesKey("hardcover_reading_threshold")

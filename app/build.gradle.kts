@@ -42,6 +42,9 @@ android {
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${localProp("GOOGLE_CLIENT_ID")}\"")
         buildConfigField("String", "SENTRY_DSN", "\"${localProp("SENTRY_DSN")}\"")
         buildConfigField("String", "REVENUECAT_API_KEY", "\"${localProp("REVENUECAT_API_KEY")}\"")
+        // The public client id of BookPlayer's Hardcover OAuth app (no secret: a public "native" client).
+        // Empty hides "Sign In with Hardcover"; API keys still work.
+        buildConfigField("String", "HARDCOVER_CLIENT_ID", "\"${localProp("HARDCOVER_CLIENT_ID")}\"")
     }
 
     flavorDimensions += "env"

@@ -19,8 +19,10 @@ import kotlinx.coroutines.flow.first
 class HardcoverProcessor(
     private val context: Context,
     // Test seams: these reach Hardcover over the network.
-    private val searchBooks: suspend (token: String, query: String) -> List<HardcoverBook> = HardcoverService::searchBooks,
-    private val saveUserBookStatus: suspend (token: String, bookId: Int, statusId: Int) -> Int? = HardcoverService::saveUserBookStatus,
+    private val searchBooks: suspend (query: String) -> List<HardcoverBook> = HardcoverService::searchBooks,
+    private val saveUserBookStatus: suspend (bookId: Int, statusId: Int) -> Int? = HardcoverService::saveUserBookStatus,
+    /** The connected account's Hardcover user id, written as new links' `hostId`; null offline (fine). */
+    private val connectedUserId: suspend () -> String? = HardcoverAccount::fetchConnectedUserId,
     private val downloadArtwork: (Context, String, java.io.File) -> Boolean = ArtworkManager::downloadAndSaveArtwork,
 ) : TaskProcessor {
     private val gson = Gson()
@@ -29,10 +31,9 @@ class HardcoverProcessor(
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
         
-        val token = HardcoverSettingsManager.getToken(context).first()
-        if (token.isBlank()) {
+        if (!HardcoverAccount.isConnected(context)) {
             // iOS no-ops all Hardcover work when unauthorized; discard so the queue doesn't wedge.
-            Log.w("HardcoverProcessor", "Hardcover API token is blank, discarding task: ${task.jobType}")
+            Log.w("HardcoverProcessor", "Not connected to Hardcover, discarding task: ${task.jobType}")
             return true
         }
 
@@ -44,7 +45,7 @@ class HardcoverProcessor(
                 // One import's items; a task queued before batches carries one.
                 val uuids = (payload["itemUuids"] as? List<*>)?.filterIsInstance<String>()
                     ?: listOfNotNull(payload["itemUuid"] as? String)
-                autoMatch(token, uuids, libraryDao)
+                autoMatch(uuids, libraryDao)
                 true
             }
 
@@ -66,7 +67,7 @@ class HardcoverProcessor(
                 try {
                     val hardcoverBookId = resource.providerId.toIntOrNull()
                     if (hardcoverBookId != null) {
-                        val userBookId = HardcoverService.saveUserBookStatus(token, hardcoverBookId, statusId)
+                        val userBookId = saveUserBookStatus(hardcoverBookId, statusId)
                         if (userBookId != null) {
                             Log.d("HardcoverProcessor", "Successfully updated Hardcover status (userBookId: $userBookId)")
                         } else {
@@ -90,13 +91,13 @@ class HardcoverProcessor(
      * of the batch also got is skipped (most likely parts of one book: linking each to it would be wrong), and
      * the rest are linked. An item already linked (a re-run of an interrupted batch) is left alone.
      */
-    private suspend fun autoMatch(token: String, uuids: List<String>, libraryDao: LibraryDao) {
+    private suspend fun autoMatch(uuids: List<String>, libraryDao: LibraryDao) {
         val hits = mutableListOf<Pair<LibraryItemEntity, HardcoverBook>>()
         for (uuid in uuids) {
             val item = libraryDao.getItemById(uuid) ?: continue // deleted since
             if (libraryDao.getExternalResource(uuid, "hardcover") != null) continue
             val query = HardcoverService.buildSearchString(item.title, searchAuthor(item, libraryDao) ?: "")
-            val hit = searchBooks(token, query).firstOrNull()
+            val hit = searchBooks(query).firstOrNull()
             if (hit == null) {
                 Log.d("HardcoverProcessor", "No Hardcover match found for: ${item.title}")
                 continue
@@ -107,10 +108,10 @@ class HardcoverProcessor(
         if (unique.size < hits.size) {
             Log.i("HardcoverProcessor", "Skipped ${hits.size - unique.size} items whose Hardcover match another item of the import also got")
         }
-        unique.forEach { (item, hit) -> link(token, item, hit, libraryDao) }
+        unique.forEach { (item, hit) -> link(item, hit, libraryDao) }
     }
 
-    private suspend fun link(token: String, item: LibraryItemEntity, hit: HardcoverBook, libraryDao: LibraryDao) {
+    private suspend fun link(item: LibraryItemEntity, hit: HardcoverBook, libraryDao: LibraryDao) {
         Log.d("HardcoverProcessor", "Auto-matched '${item.title}' to '${hit.title}' (ID: ${hit.id})")
         val database = AppDatabase.getDatabase(context)
         val syncTaskRepository = RoomSyncTaskRepository(database.syncTaskDao())
@@ -121,7 +122,9 @@ class HardcoverProcessor(
             providerName = "hardcover",
             providerId = hit.id,
             syncStatus = if (autoAddWantToRead) "library" else "synced",
-            libraryItemUuid = item.uuid
+            libraryItemUuid = item.uuid,
+            // Best effort: offline, the link is made without its account.
+            hostId = connectedUserId()
         )
         libraryDao.insertExternalResource(externalResource)
         // iOS parity: the link reaches the cloud now, as a manual one does, not at the next account-wide sync.
@@ -157,7 +160,7 @@ class HardcoverProcessor(
                 return
             }
             try {
-                val userBookId = saveUserBookStatus(token, bookId, 1)
+                val userBookId = saveUserBookStatus(bookId, 1)
                 if (userBookId == null) Log.e("HardcoverProcessor", "Failed to add '${item.title}' to Hardcover Want to Read")
             } catch (e: Exception) {
                 Log.e("HardcoverProcessor", "Error registering matched book as Want to Read", e)

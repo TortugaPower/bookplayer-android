@@ -124,12 +124,14 @@ class RoomLibraryRepositoryTest {
     // --- Hardcover progress transitions (updateItemProgress) ---
 
     private val syncTasks = FakeSyncTaskRepository()
-    private var hardcoverToken = "test-token"
+    private var hardcoverConnected = true
+    private val progressSent = mutableListOf<Pair<String, Double>>()
     private val hardcoverRepository = RoomLibraryRepository(
         android.content.ContextWrapper(null),
         fakeDao,
-        hardcoverTokenProvider = { hardcoverToken },
+        hardcoverConnectedProvider = { hardcoverConnected },
         readingThresholdProvider = { 0.5f },
+        hardcoverProgressListener = { uuid, percent -> progressSent += uuid to percent },
         syncTaskRepositoryProvider = { syncTasks }
     ) { timeCurrent }
 
@@ -206,14 +208,44 @@ class RoomLibraryRepositoryTest {
     }
 
     @Test
-    fun testUpdateItemProgress_blankToken_skipsHardcoverSync() = runBlocking {
+    fun testUpdateItemProgress_notConnected_skipsHardcoverSync() = runBlocking {
         seedHardcoverBook(status = "synced")
-        hardcoverToken = ""
+        hardcoverConnected = false
 
         hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 100.0, isFinished = true)
 
         assertTrue(fakeDao.insertedExternalResources.isEmpty())
         assertTrue(syncTasks.tasks.isEmpty())
+    }
+
+    @Test
+    fun testUpdateItemProgress_reading_sendsPercentForTheRead() = runBlocking {
+        seedHardcoverBook(status = "reading")
+
+        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 60.0, isFinished = false)
+
+        assertEquals(listOf("book-1" to 60.0), progressSent)
+    }
+
+    @Test
+    fun testUpdateItemProgress_crossingThreshold_sendsPercentWithTheStatus() = runBlocking {
+        seedHardcoverBook(status = "synced")
+
+        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 60.0, isFinished = false)
+
+        assertEquals(listOf("book-1" to 60.0), progressSent)
+    }
+
+    @Test
+    fun testUpdateItemProgress_notReading_sendsNoPercent() = runBlocking {
+        seedHardcoverBook(status = "synced")
+        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 20.0, isFinished = false)
+        seedHardcoverBook(status = "read")
+        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 60.0, isFinished = false)
+        seedHardcoverBook(status = "reading")
+        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 100.0, isFinished = true)
+
+        assertTrue(progressSent.isEmpty())
     }
 
     @Test

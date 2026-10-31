@@ -271,6 +271,16 @@
     <string name="hardcover_reading_threshold">Leseschwelle</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">Legt den minimalen Fortschrittsprozentsatz fest, der erforderlich ist, bevor ein Buch in Ihrer Hardcover-Bibliothek als Wird gerade gelesen markiert wird.</string>
+    <string name="hardcover_account_title">Konto</string>
+    <string name="hardcover_sign_in_button">Mit Hardcover anmelden</string>
+    <string name="hardcover_signing_in">Anmeldung mit Hardcover…</string>
+    <string name="hardcover_sign_in_again_button">Erneut anmelden</string>
+    <string name="hardcover_sign_in_again_footer">Melde dich erneut an, damit BookPlayer deinen Lesefortschritt auf Hardcover aktualisieren kann.</string>
+    <string name="hardcover_sign_in_footer">Oder füge unten einen API-Schlüssel ein.</string>
+    <string name="hardcover_connected">Mit Hardcover verbunden</string>
+    <string name="hardcover_connected_as">Verbunden als %1$s</string>
+    <string name="hardcover_sign_in_failed_title">Anmeldung fehlgeschlagen</string>
+    <string name="hardcover_sign_in_failed_message">Hardcover hat die Anmeldung nicht abgeschlossen. Versuche es erneut.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">Medienserver</string>

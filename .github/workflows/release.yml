@@ -32,6 +32,7 @@
 #      PROD_BASE_URL               \
 #      GOOGLE_CLIENT_ID             > same values as local.properties
 #      REVENUECAT_API_KEY          /
+#      HARDCOVER_CLIENT_ID         Hardcover OAuth app's public client id (empty hides its sign-in)
 #      SENTRY_DSN
 #      SENTRY_AUTH_TOKEN           Sentry token (project:releases) — R8 mapping upload to Sentry
 #
@@ -67,6 +68,7 @@ jobs:
       PROD_BASE_URL: ${{ secrets.PROD_BASE_URL }}
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       REVENUECAT_API_KEY: ${{ secrets.REVENUECAT_API_KEY }}
+      HARDCOVER_CLIENT_ID: ${{ secrets.HARDCOVER_CLIENT_ID }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
@@ -97,7 +99,7 @@ jobs:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
           missing=""
-          for name in PROD_BASE_URL GOOGLE_CLIENT_ID REVENUECAT_API_KEY SENTRY_DSN \
+          for name in PROD_BASE_URL GOOGLE_CLIENT_ID REVENUECAT_API_KEY HARDCOVER_CLIENT_ID SENTRY_DSN \
                       SENTRY_AUTH_TOKEN \
                       RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD \
                       RELEASE_KEYSTORE_BASE64; do
