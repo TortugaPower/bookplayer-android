@@ -646,15 +646,18 @@ class LibraryViewModel(
 
     fun saveHardcoverLink(itemUuid: String, bookId: String) {
         viewModelScope.launch {
-            val token = com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getToken(appContext).first()
-            val book = com.tortugapower.audiobookplayer.network.HardcoverService.getBook(token, bookId)
+            val connected = com.tortugapower.audiobookplayer.logic.HardcoverAccount.isConnected(appContext)
+            val book = com.tortugapower.audiobookplayer.network.HardcoverService.getBook(bookId)
+            // New links record the connected account (iOS parity); best effort, null offline.
+            val hostId = if (connected) com.tortugapower.audiobookplayer.logic.HardcoverAccount.fetchConnectedUserId() else null
             val artworkUrl = book?.image?.url
 
             val entity = com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity(
                 providerName = "hardcover",
                 providerId = bookId,
                 syncStatus = ExternalResourceEntity.STATUS_SYNCED,
-                libraryItemUuid = itemUuid
+                libraryItemUuid = itemUuid,
+                hostId = hostId
             )
             repository.saveExternalResource(entity)
 
@@ -682,7 +685,7 @@ class LibraryViewModel(
 
             // Set book status as 'Want to Read' (status code 1) on Hardcover if preference is enabled
             val autoAdd = com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getAutoAddToWantToRead(appContext).first()
-            if (autoAdd && token.isNotBlank()) {
+            if (autoAdd && connected) {
                 com.tortugapower.audiobookplayer.logic.SyncTaskFactory.createHardcoverUpdateStatusTask(
                     syncTaskRepository,
                     itemUuid,

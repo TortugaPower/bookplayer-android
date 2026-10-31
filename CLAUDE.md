@@ -364,6 +364,23 @@ browserdrop/               # standalone library (no :core/:app deps), package co
       (`Title-1`, `ImportArchiveUtils.uniqueDirectory`). The name must also be free in the library: a
       streamed volume of that title has no folder on disk, and the paths would collide.
     - Zips the user imports keep their folders, and an untagged folder stays a FOLDER.
+  - **Hardcover connects by OAuth or an API key, one account at a time** (iOS `HardcoverOAuth` /
+    `HardcoverService`; spec: the "Hardcover OAuth & Progress Sync" doc). Authorization code + PKCE with a
+    public client (`HardcoverOAuth`, client id injected from `BuildConfig.HARDCOVER_CLIENT_ID`; empty hides
+    the button), its browser leg in the Auth Tab like media-server SSO (no Auth Tab, no sign-in button;
+    the `bookplayer://hardcover/callback` redirect never reaches the manifest's deep link). A sign-in
+    replaces the API key; OAuth wins when both exist (`HardcoverAccount.credential`).
+    - The token set is one Keystore-encrypted DataStore value (`hardcover_session`). `HardcoverOAuthSession`
+      refreshes one at a time (refresh tokens rotate; a spent one revokes the sign-in), never retries a
+      refresh, stores the new pair before using it, and only `invalid_grant` ends the sign-in. A 401 on an
+      OAuth call refreshes once and retries once (`HardcoverService.execute`). Never log a code or token.
+    - A sign-in missing a scope added since (refreshes keep the first grant) shows Sign In Again, and
+      progress (needs `read:library`) is skipped, not sent to a 403.
+    - New links carry the account's Hardcover user id (`me`) as `hostId`; one account per item stays the rule.
+    - A Currently Reading book's percentage goes on Hardcover's read in progress (`HardcoverProgressSync`, fed
+      by `RoomLibraryRepository.updateItemProgress`, flushed on pause): the first now, then every 120 s per
+      book, measured against the read's edition (else the first fallback with a length, written with it),
+      only forward and short of the end (`HardcoverReadProgress`). Hardcover failures never touch playback.
   - **Hardcover auto-match runs once per import** (iOS parity: `HardcoverService.processAutoMatch`).
     - `ImportManager` queues one `JOB_HARDCOVER_AUTO_MATCH` task covering every item the import created
       at the top level: books, folders, volumes and streamed items. A task queued in the older

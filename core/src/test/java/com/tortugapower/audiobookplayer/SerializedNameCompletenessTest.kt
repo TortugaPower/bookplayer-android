@@ -46,6 +46,9 @@ import com.tortugapower.audiobookplayer.network.HardcoverAuthor
 import com.tortugapower.audiobookplayer.network.HardcoverBook
 import com.tortugapower.audiobookplayer.network.HardcoverContribution
 import com.tortugapower.audiobookplayer.network.HardcoverImage
+import com.tortugapower.audiobookplayer.network.HardcoverTokenSet
+import com.tortugapower.audiobookplayer.network.HardcoverUser
+import com.tortugapower.audiobookplayer.network.ReadInProgressData
 import com.tortugapower.audiobookplayer.network.PreferenceEntryDto
 import com.tortugapower.audiobookplayer.network.PreferencesResponse
 import com.tortugapower.audiobookplayer.network.services.AudiobookshelfAudioFile
@@ -125,6 +128,13 @@ class SerializedNameCompletenessTest {
         HardcoverAuthor::class.java,
         HardcoverContribution::class.java,
         HardcoverImage::class.java,
+        HardcoverTokenSet::class.java,
+        HardcoverUser::class.java,
+        ReadInProgressData::class.java,
+        ReadInProgressData.UserBook::class.java,
+        ReadInProgressData.Book::class.java,
+        ReadInProgressData.Read::class.java,
+        ReadInProgressData.Edition::class.java,
         HardcoverBook::class.java,
         // network/GitHubApi.kt
         GitHubContributor::class.java,

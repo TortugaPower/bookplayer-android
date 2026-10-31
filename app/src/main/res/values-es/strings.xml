@@ -275,6 +275,16 @@
     <string name="hardcover_reading_threshold">Umbral de lectura</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">Establece el porcentaje mínimo de progreso requerido para que un libro se marque como Leyendo actualmente en tu biblioteca de Hardcover.</string>
+    <string name="hardcover_account_title">Cuenta</string>
+    <string name="hardcover_sign_in_button">Iniciar sesión con Hardcover</string>
+    <string name="hardcover_signing_in">Iniciando sesión con Hardcover…</string>
+    <string name="hardcover_sign_in_again_button">Volver a iniciar sesión</string>
+    <string name="hardcover_sign_in_again_footer">Vuelve a iniciar sesión para que BookPlayer actualice tu progreso de lectura en Hardcover.</string>
+    <string name="hardcover_sign_in_footer">O pega una clave de API abajo.</string>
+    <string name="hardcover_connected">Conectado a Hardcover</string>
+    <string name="hardcover_connected_as">Conectado como %1$s</string>
+    <string name="hardcover_sign_in_failed_title">No se pudo iniciar sesión</string>
+    <string name="hardcover_sign_in_failed_message">Hardcover no completó el inicio de sesión. Inténtalo de nuevo.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">Servidores multimedia</string>

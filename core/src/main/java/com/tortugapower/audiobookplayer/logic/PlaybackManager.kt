@@ -427,7 +427,9 @@ object PlaybackManager {
                         _isPlaying.value = playing
                         if (!playing) {
                             lastPauseTime = System.currentTimeMillis()
-                            updateProgress(appContext)
+                            // A pause sends the Hardcover progress the 2-minute schedule held back, once this
+                            // last position is recorded.
+                            updateProgress(appContext, afterSave = HardcoverProgressSync::onPause)
                         } else {
                             // Real playback has started — the load/buffering "queued" window is over.
                             playbackQueuedFlag = false
@@ -954,20 +956,27 @@ object PlaybackManager {
         }
     }
 
-    private fun updateProgress(context: Context, itemToUpdate: LibraryItemEntity? = null, forceFinished: Boolean = false) {
-        if (_isTransitioning.value) return
+    private fun updateProgress(
+        context: Context,
+        itemToUpdate: LibraryItemEntity? = null,
+        forceFinished: Boolean = false,
+        afterSave: (() -> Unit)? = null,
+    ) {
+        // Nothing to save still runs [afterSave]: it waits for a save, not on one.
+        fun skip() { afterSave?.invoke() }
+        if (_isTransitioning.value) return skip()
 
-        val item = itemToUpdate ?: _currentItem.value ?: return
-        val p = player ?: return
+        val item = itemToUpdate ?: _currentItem.value ?: return skip()
+        val p = player ?: return skip()
         
         // Safety: Only update if the player is actually on an item in this context
         val isPlayerActive = p.playbackState == Player.STATE_READY || p.playbackState == Player.STATE_BUFFERING
-        if (!isPlayerActive && !forceFinished) return
+        if (!isPlayerActive && !forceFinished) return skip()
 
         val timeline = _currentPlayable.value?.timeline
         if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND &&
             (timeline == null || timeline.isEmpty)) {
-            return // timeline not built yet (rare, e.g. a persist racing the load); next tick persists
+            return skip() // timeline not built yet (rare, e.g. a persist racing the load); next tick persists
         }
         // Whole-book seconds, inverting whatever window the session presents (book/chapter/single) on the
         // calling (main) thread before any IO hop.
@@ -977,7 +986,11 @@ object PlaybackManager {
         val isFinished = forceFinished || (currentPos >= totalDuration - 1.0 && totalDuration > 0)
 
         scope.launch(Dispatchers.IO) {
-            getRepository(context).updateItemProgress(item.uuid, currentPos, isFinished)
+            try {
+                getRepository(context).updateItemProgress(item.uuid, currentPos, isFinished)
+            } finally {
+                afterSave?.invoke()
+            }
         }
     }
 

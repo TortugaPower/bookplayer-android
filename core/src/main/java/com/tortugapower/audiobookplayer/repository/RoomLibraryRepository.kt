@@ -27,12 +27,15 @@ class RoomLibraryRepository(
     // Injectable like timeProvider: DataStore and Room aren't available in unit tests, and the
     // Hardcover progress transitions below need to be testable. timeProvider stays last so
     // existing trailing-lambda call sites keep compiling.
-    private val hardcoverTokenProvider: suspend () -> String = {
-        com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getToken(context).first()
+    private val hardcoverConnectedProvider: suspend () -> Boolean = {
+        com.tortugapower.audiobookplayer.logic.HardcoverAccount.isConnected(context)
     },
     private val readingThresholdProvider: suspend () -> Float = {
         com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getReadingThreshold(context).first()
     },
+    /** A Currently Reading book's progress (uuid, percent 0–100), for its read on Hardcover. */
+    private val hardcoverProgressListener: (String, Double) -> Unit =
+        com.tortugapower.audiobookplayer.logic.HardcoverProgressSync::onProgress,
     syncTaskRepositoryProvider: (() -> SyncTaskRepository)? = null,
     private val timeProvider: () -> Long = { System.currentTimeMillis() }
 ) : LibraryRepository {
@@ -163,8 +166,7 @@ class RoomLibraryRepository(
             try {
                 val hardcoverResource = libraryDao.getExternalResource(uuid, "hardcover")
                 if (hardcoverResource != null) {
-                    val hardcoverToken = hardcoverTokenProvider()
-                    if (hardcoverToken.isNotBlank()) {
+                    if (hardcoverConnectedProvider()) {
                         if (isFinished) {
                             if (hardcoverResource.syncStatus != "read") {
                                 libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "read"))
@@ -172,10 +174,15 @@ class RoomLibraryRepository(
                             }
                         } else {
                             val threshold = readingThresholdProvider()
-                            if (item.percentCompleted >= threshold && hardcoverResource.syncStatus != "reading" && hardcoverResource.syncStatus != "read") {
+                            var status = hardcoverResource.syncStatus
+                            if (item.percentCompleted >= threshold && status != "reading" && status != "read") {
                                 libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "reading"))
                                 SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, uuid, 2)
+                                status = "reading"
                             }
+                            // iOS parity: the listening percentage goes on Hardcover's read in progress, which
+                            // only a Currently Reading book has (the status change starts it).
+                            if (status == "reading") hardcoverProgressListener(uuid, item.percentCompleted * 100)
                         }
                     }
                 }
