@@ -131,11 +131,13 @@ object PlaybackManager {
         _missingExternalServer.value = null
     }
 
-    // Whether the most recent playItem was user-initiated (autoplay=true: taps, Auto, autoplay
-    // transitions) vs a silent load (autoplay=false: launch restore, the post-fetch last-played
-    // re-arm). Player errors from silent loads must not alert — the E2E for stable host identity
-    // caught the fetch re-arm popping the generic error on a fresh second-device sign-in before
-    // the user touched anything.
+    // Whether the load now in the player was the user's: written by playItem (its autoplay: true for a tap,
+    // Next, an autoplay transition; false for the post-fetch last-played re-arm), resolveSessionMediaItems
+    // (an Android Auto pick, true) and restoreLastPlayedItem (the launch restore, false). A player error alerts
+    // when it's true or when play was asked for since (playWhenReady, from any surface: onPlayerError,
+    // shouldAlertPlayerError). Errors from a silent load don't alert on their own: the E2E for stable host
+    // identity caught the fetch re-arm popping the generic error on a fresh second-device sign-in before the
+    // user touched anything.
     @Volatile
     private var lastLoadUserInitiated = true
 
@@ -1158,6 +1160,10 @@ object PlaybackManager {
                 if (autoplay) {
                     player?.play()
                     _showPlayerScreen.value = true
+                } else {
+                    // A silent load never plays, as iOS's load(autoplay: false): Media3 keeps playWhenReady from
+                    // before, on after a book played to its end, so the new book would start by itself.
+                    player?.pause()
                 }
                 player?.setPlaybackSpeed(_playbackSpeed.value)
                 applyVolume(_volumeBoost.value, _playbackVolume.value)
