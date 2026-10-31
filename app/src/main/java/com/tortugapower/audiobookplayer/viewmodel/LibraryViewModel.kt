@@ -20,6 +20,11 @@ import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
+import android.util.Log
 import kotlinx.coroutines.withTimeoutOrNull
 
 class LibraryViewModel(
@@ -507,14 +512,25 @@ class LibraryViewModel(
      * volume (an unresolved location can't be re-ranked). [onSaved] runs once the save is done, or has failed.
      */
     fun reorderItems(orderedUuids: List<String>, onSaved: () -> Unit = {}) {
+        val path = _currentPath.value
         viewModelScope.launch {
             try {
-                sortManager?.setCustomOrder(_currentPath.value, orderedUuids)
+                // One save at a time, in drop order; off the main thread, since it sorts the whole level.
+                reorderLock.withLock {
+                    withContext(ioDispatcher) { sortManager?.setCustomOrder(path, orderedUuids) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The screen goes back to the stored order.
+                Log.w("LibraryViewModel", "Couldn't save a reorder", e)
             } finally {
                 onSaved()
             }
         }
     }
+
+    private val reorderLock = Mutex()
 
     fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String) {
         viewModelScope.launch {

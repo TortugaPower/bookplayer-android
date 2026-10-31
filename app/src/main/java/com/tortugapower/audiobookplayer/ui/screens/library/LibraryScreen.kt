@@ -1519,10 +1519,10 @@ fun LibraryScreen(
             ) { path ->
                 val pathItems by remember(path) { libraryViewModel.getItemsForPath(path) }.collectAsState()
             
-                // The level's items in their order on screen. A drag moves them here and only its drop is saved,
-                // so the library's own updates meanwhile (a playing book's progress) don't undo it; between drags
-                // it follows the stored order.
-                val reorderableItems = remember(path) { pathItems.toMutableStateList() }
+                // The screen's own copy of the level's order: what it shows while a drag moves the items, and after
+                // the drop until the library shows the new order, so the library's updates meanwhile (a playing
+                // book's progress) don't undo it. Otherwise it shows the library's items as they come.
+                val reorderableItems = remember(path) { mutableStateListOf<LibraryItemEntity>() }
                 var isDragging by remember(path) { mutableStateOf(false) }
                 // A drop's order, kept on screen until the library shows it. Saving it takes more than one write
                 // (the ranks, and the switch to custom), and what the library shows between them would flash
@@ -1531,22 +1531,19 @@ fun LibraryScreen(
                 // The last order the library finished saving. The fallback below counts from then, not from the drop:
                 // a big level's save (a sync task for each of its items) can take seconds.
                 var savedOrder by remember(path) { mutableStateOf<List<String>?>(null) }
-                LaunchedEffect(pathItems) {
-                    if (isDragging) return@LaunchedEffect
-                    savingOrder?.let { order ->
-                        if (!pathItems.showsOrder(order)) return@LaunchedEffect
-                        savingOrder = null
-                    }
-                    reorderableItems.replaceWith(pathItems)
+                val shownItems: List<LibraryItemEntity> =
+                    if (isDragging || savingOrder != null) reorderableItems else pathItems
+                LaunchedEffect(pathItems, isDragging) {
+                    val order = savingOrder ?: return@LaunchedEffect
+                    if (!isDragging && pathItems.showsOrder(order)) savingOrder = null
                 }
-                // Should the save never show (it failed), follow the library again; under a new drag, its drop
-                // catches up with the library itself.
+                // Should the save never show (it failed), follow the library again; under a new drag, the screen
+                // keeps its order, and the drop is compared with the library's.
                 LaunchedEffect(savingOrder, savedOrder) {
                     val order = savingOrder ?: return@LaunchedEffect
                     if (savedOrder != order) return@LaunchedEffect
                     delay(SAVING_ORDER_TIMEOUT_MS)
                     savingOrder = null
-                    if (!isDragging) reorderableItems.replaceWith(pathItems)
                 }
                 val canReorder by libraryViewModel.sortLocationWritable.collectAsState()
 
@@ -1582,6 +1579,8 @@ fun LibraryScreen(
                 }
                 // A long press selects (in either layout), and moving on drags the item to a new place.
                 val onDragStarted: (LibraryItemEntity) -> Unit = { item ->
+                    // From here the screen shows its copy: the library's order, or the one still being saved.
+                    if (savingOrder == null) reorderableItems.replaceWith(pathItems)
                     isDragging = true
                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                     onItemLongClick(item)
@@ -1593,12 +1592,11 @@ fun LibraryScreen(
                 val onDragStopped: () -> Unit = {
                     isDragging = false
                     val order = reorderableItems.map { it.uuid }
-                    if (order != pathItems.map { it.uuid }) {
+                    // Against the order the screen showed before this drag: one still being saved, else the
+                    // library's. Let go where it started, there's nothing to save.
+                    if (order != (savingOrder ?: pathItems.map { it.uuid })) {
                         savingOrder = order
                         libraryViewModel.reorderItems(order) { savedOrder = order }
-                    } else {
-                        // Let go where it started: nothing to save, only what changed meanwhile to catch up on.
-                        reorderableItems.replaceWith(pathItems)
                     }
                 }
 
@@ -1627,7 +1625,7 @@ fun LibraryScreen(
                     Box(modifier = Modifier.fillMaxSize())
                 } else if (layout != LibraryLayout.LIST) {
                     LibraryTileGrid(
-                        items = reorderableItems,
+                        items = shownItems,
                         layout = layout,
                         isSelectMode = isSelectMode,
                         selectedItemUuids = selectedItemUuids,
@@ -1660,7 +1658,7 @@ fun LibraryScreen(
                         // while the list still scrolls behind the pill.
                         contentPadding = PaddingValues(bottom = LocalMiniPlayerInset.current)
                     ) {
-                        itemsIndexed(reorderableItems, key = { _, it -> it.uuid }) { index, item ->
+                        itemsIndexed(shownItems, key = { _, it -> it.uuid }) { index, item ->
                             val isSelected = selectedItemUuids.contains(item.uuid)
                             val dismissState = rememberSwipeToDismissBoxState()
 
