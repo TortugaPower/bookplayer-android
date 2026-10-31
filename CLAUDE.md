@@ -142,7 +142,7 @@ browserdrop/               # standalone library (no :core/:app deps), package co
 - **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest`, `lintDevDebug`, then an
   unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17. It also runs the
   release scripts' unit tests (`node --test scripts/play-release.test.mjs scripts/play-rollout.test.mjs`, and
-  `python3 -I -B -m unittest discover -s scripts/release-check`).
+  `python3 -I -B -m unittest discover -s` over `scripts/release-check` and `scripts/sentry-commits`).
 - **Release check** (`scripts/release-check/release_check.py`): the release skill runs it on the Mac before
   anything is committed or pushed; never CI. It builds HEAD's prodRelease phone and watch apps the way Play
   delivers them (R8, bundletool's universal APK; debug-signed; no Sentry mapping upload) and checks their 64-bit
@@ -413,7 +413,11 @@ browserdrop/               # standalone library (no :core/:app deps), package co
   `Fixes ANDROID-BOOKPLAYER-<id>` on its own line in the **commit body** (the short id is in the
   Sentry issue URL; one id per line, or comma-separated after a single `Fixes`). `release.yml`
   attaches each release's commits in Sentry, and Sentry's GitHub integration then marks the issue
-  *resolved in the release that actually ships the commit* — not the next one. Consequences:
+  *resolved in the release that actually ships the commit* — not the next one. The commits are every
+  one after the previous version tag, sent as one list by `scripts/sentry-commits/sentry_release_commits.py`
+  (the same file as the iOS repo's `ci_scripts/`; change both). Don't hand Sentry a ref range instead
+  (`sentry-cli releases set-commits --auto`, `--commit A..B`): it keeps only the newest 100 commits, and
+  `--local` files them under a repository named "origin" that isn't linked to GitHub. Consequences:
   - Put it in the fix commit itself, not only the PR description: PRs land as merge commits, so
     the PR body never reaches git history.
   - Never plain-"Resolve" an issue in the Sentry UI on this project — `1.0.0+14` stragglers reopen
