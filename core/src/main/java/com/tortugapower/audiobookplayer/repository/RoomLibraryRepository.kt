@@ -136,8 +136,10 @@ class RoomLibraryRepository(
      */
     override suspend fun updateItemFinished(item: LibraryItemEntity) {
         withContext(Dispatchers.IO) {
-            recordCompletion(item)
+            val wasFinished = libraryDao.getItemById(item.uuid)?.isFinished ?: return@withContext
             libraryDao.setFinished(item.uuid, item.isFinished, item.currentTime, item.percentCompleted)
+            // The same as any finish (iOS markAsCompleted): a completion, Hardcover's read status, the folders' progress
+            afterProgressSaved(libraryDao.getItemById(item.uuid) ?: return@withContext, wasFinished)
         }
     }
 

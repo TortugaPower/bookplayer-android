@@ -47,10 +47,13 @@ class SyncingLibraryRepository(
         }
     }
 
+    // To our server with its folders' rolled-up progress (iOS markAsCompleted), not to media servers: iOS's reach
+    // them only from playback saves
     override suspend fun updateItemFinished(item: LibraryItemEntity) {
         delegate.updateItemFinished(item)
         if (isSubscribed()) {
-            SyncTaskFactory.createUpdateTask(syncTaskRepository, item, ItemUpdateFields.finished(item))
+            val stored = delegate.getItemById(item.uuid) ?: return
+            pushToServer(stored, ItemUpdateFields.finished(stored))
         }
     }
 
@@ -132,22 +135,25 @@ class SyncingLibraryRepository(
 
         if (isSubscribed()) {
             val item = delegate.getItemById(uuid)
-            if (item != null) {
-                SyncTaskFactory.createUpdateTask(syncTaskRepository, item, fields(item))
+            if (item != null) pushToServer(item, fields(item))
+        }
+    }
 
-                // Sync parent folders as their aggregate progress changed. Roll the leaf's lastPlayDate up
-                // to each ancestor (matches iOS, which stamps the folder's lastPlayDate on play) so folders
-                // sort by recency both locally and on the server.
-                var path = item.relativePath
-                while (path != null && path.contains('/')) {
-                    path = path.substringBeforeLast('/')
-                    val parent = delegate.getItemByPath(path)
-                    if (parent != null) {
-                        parent.lastPlayDate = item.lastPlayDate
-                        delegate.updateItem(parent)
-                        SyncTaskFactory.createUpdateTask(syncTaskRepository, parent, ItemUpdateFields.folderProgress(parent))
-                    }
-                }
+    /** Sends [item]'s [fields] to our server, and each folder above it its rolled-up progress and play date. */
+    private suspend fun pushToServer(item: LibraryItemEntity, fields: Map<String, Any?>) {
+        SyncTaskFactory.createUpdateTask(syncTaskRepository, item, fields)
+
+        // Sync parent folders as their aggregate progress changed. Roll the leaf's lastPlayDate up
+        // to each ancestor (matches iOS, which stamps the folder's lastPlayDate on play) so folders
+        // sort by recency both locally and on the server.
+        var path = item.relativePath
+        while (path != null && path.contains('/')) {
+            path = path.substringBeforeLast('/')
+            val parent = delegate.getItemByPath(path)
+            if (parent != null) {
+                parent.lastPlayDate = item.lastPlayDate
+                delegate.updateItem(parent)
+                SyncTaskFactory.createUpdateTask(syncTaskRepository, parent, ItemUpdateFields.folderProgress(parent))
             }
         }
     }

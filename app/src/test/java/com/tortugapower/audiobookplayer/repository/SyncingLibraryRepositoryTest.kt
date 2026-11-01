@@ -616,6 +616,28 @@ class SyncingLibraryRepositoryTest {
         assertEquals(listOf(true), delegate.progressWrites)
     }
 
+    /** The player's Mark as finished sends the book's finish and its folder's rolled-up progress (iOS markAsCompleted) */
+    @Test
+    fun updateItemFinished_sendsTheFinish_andTheFoldersRollUp() = runBlocking {
+        val book = speedBook(path = "Folder/book.mp3").apply {
+            isFinished = true; percentCompleted = 1.0; currentTime = 40.0; lastPlayDate = 1_700_000_000_000L
+        }
+        val folder = folder(uuid = "folder-1", path = "Folder", author = "1")
+        val delegate = FakeLibraryRepository().apply {
+            items += mapOf(book.uuid to book, folder.uuid to folder)
+            itemsByPath += mapOf("Folder/book.mp3" to book, "Folder" to folder)
+        }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.updateItemFinished(book)
+
+        val updates = syncTaskRepository.tasks.filter { it.jobType == SyncTaskFactory.JOB_UPDATE }.associateBy { it.taskID }
+        assertEquals(setOf("uuid", "relativePath", "isFinished", "currentTime", "percentCompleted"), payloadKeys(updates.getValue("book-1")))
+        assertEquals(setOf("uuid", "relativePath", "percentCompleted", "lastPlayDateTimestamp"), payloadKeys(updates.getValue("folder-1")))
+        assertTrue(syncTaskRepository.tasks.none { it.jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE })
+    }
+
     // MARK: - Bookmark pull
 
     private class RecordingFetcher(private val rows: List<SyncableBookmark>?) : BookmarkSync.Fetcher {
