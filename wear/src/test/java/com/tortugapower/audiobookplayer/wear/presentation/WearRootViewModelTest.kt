@@ -80,6 +80,7 @@ class WearRootViewModelTest {
         override suspend fun isCloudSyncActive(): Boolean = false
         override suspend fun saveItem(item: LibraryItemEntity) {}
         override suspend fun updateItem(item: LibraryItemEntity) {}
+        override suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) {}
         override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {}
         override suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity> = emptyList()
         override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) {}

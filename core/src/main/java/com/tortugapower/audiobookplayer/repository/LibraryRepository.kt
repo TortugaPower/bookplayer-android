@@ -1,7 +1,6 @@
 package com.tortugapower.audiobookplayer.repository
 
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
-import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -66,16 +65,9 @@ interface LibraryRepository {
     suspend fun updateItemArtwork(item: LibraryItemEntity) = updateItem(item)
     /**
      * The play date of the folders and volumes at [paths], saved here only: a playback save stamps every one above the
-     * book (iOS `recursiveFolderLastPlayedDateUpdate`). Defaults to saving each whole, for the test fakes; Room writes
-     * the date alone, in one statement.
+     * book (iOS `recursiveFolderLastPlayedDateUpdate`), in one statement rather than a whole-row save per folder.
      */
-    suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) {
-        paths.forEach { path ->
-            getItemByPath(path)
-                ?.takeIf { it.type == ItemType.FOLDER || it.type == ItemType.BOUND }
-                ?.let { updateItem(it.copy(lastPlayDate = lastPlayDate)) }
-        }
-    }
+    suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?)
     suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean)
     /**
      * A playback save: [currentTime], its progress and the play date, and finished once the book [reachedEnd]. It

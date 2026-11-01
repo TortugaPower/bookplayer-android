@@ -220,6 +220,7 @@ private class FakeLibraryRepository(private val lookupDelayMs: Long = 0, private
     override suspend fun isCloudSyncActive(): Boolean = error("unused")
     override suspend fun saveItem(item: LibraryItemEntity) = error("unused")
     override suspend fun updateItem(item: LibraryItemEntity) = error("unused")
+    override suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) = error("unused")
     override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) = error("unused")
     override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) = error("unused")
     override suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>) = error("unused")

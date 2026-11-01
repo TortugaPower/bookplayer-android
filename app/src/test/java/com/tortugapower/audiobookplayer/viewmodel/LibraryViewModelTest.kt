@@ -86,6 +86,7 @@ class LibraryViewModelTest {
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = null
         override suspend fun saveItem(item: LibraryItemEntity) {}
         override suspend fun updateItem(item: LibraryItemEntity) { onItemSaved(item) }
+        override suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) {}
         // Recorded so setFinishedStatus tests can assert the exact (uuid, time, finished) writes.
         val progressUpdates = mutableListOf<Triple<String, Double, Boolean>>()
         var descendantBooks: List<LibraryItemEntity> = emptyList()
