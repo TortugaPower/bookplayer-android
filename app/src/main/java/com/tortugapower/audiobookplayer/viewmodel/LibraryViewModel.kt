@@ -699,7 +699,8 @@ class LibraryViewModel(
     }
 
     fun updateArtwork(context: android.content.Context, item: LibraryItemEntity, imageUri: android.net.Uri?) {
-        viewModelScope.launch {
+        // ioDispatcher: decoding and writing the picked image, and deleting the old one, are disk work
+        viewModelScope.launch(ioDispatcher) {
             if (imageUri == null) {
                 val stored = storedForArtwork(item) ?: return@launch
                 // Delete existing artwork
@@ -732,7 +733,7 @@ class LibraryViewModel(
     }
 
     fun deleteArtwork(item: LibraryItemEntity) {
-        viewModelScope.launch {
+        viewModelScope.launch(ioDispatcher) {
             val stored = storedForArtwork(item) ?: return@launch
             com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
             stored.artworkURL = null
