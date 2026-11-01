@@ -9,6 +9,7 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
+import com.tortugapower.audiobookplayer.logic.FinishedPolicy
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.core.R
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
@@ -139,7 +140,7 @@ class RoomLibraryRepository(
             val wasFinished = libraryDao.getItemById(item.uuid)?.isFinished ?: return@withContext
             libraryDao.setFinished(item.uuid, item.isFinished, item.currentTime, item.percentCompleted)
             // The same as any finish (iOS markAsCompleted): a completion, Hardcover's read status, the folders' progress
-            afterProgressSaved(libraryDao.getItemById(item.uuid) ?: return@withContext, wasFinished)
+            afterProgressSaved(libraryDao.getItemById(item.uuid) ?: return@withContext, wasFinished, rollUpFolders = true)
         }
     }
 
@@ -183,28 +184,34 @@ class RoomLibraryRepository(
             val wasFinished = item.isFinished
             item.currentTime = currentTime
             item.isFinished = isFinished
-            item.percentCompleted = progressAt(currentTime, item.duration)
-            if (isFinished) item.percentCompleted = 1.0
+            item.percentCompleted = FinishedPolicy.progressAt(currentTime, item.duration)
             item.lastPlayDate = timeProvider()
             libraryDao.updateItem(item)
-            afterProgressSaved(item, wasFinished)
+            afterProgressSaved(item, wasFinished, rollUpFolders = true)
         }
     }
 
     override suspend fun savePlaybackProgress(uuid: String, currentTime: Double, reachedEnd: Boolean) {
         withContext(Dispatchers.IO) {
             val before = libraryDao.getItemById(uuid) ?: return@withContext
-            libraryDao.savePlaybackPosition(uuid, currentTime, progressAt(currentTime, before.duration), reachedEnd, timeProvider())
+            libraryDao.savePlaybackPosition(
+                uuid, currentTime, FinishedPolicy.progressAt(currentTime, before.duration), reachedEnd, timeProvider()
+            )
             val item = libraryDao.getItemById(uuid) ?: return@withContext
-            afterProgressSaved(item, before.isFinished)
+            // As iOS's updatePlaybackTime: the folders above roll up only when the book's whole percent (or its
+            // finished flag) changed, not on every save, which comes every ~10 s while it plays
+            val foldersChanged = wholePercent(before) != wholePercent(item) || before.isFinished != item.isFinished
+            afterProgressSaved(item, before.isFinished, rollUpFolders = foldersChanged)
         }
     }
 
-    private fun progressAt(currentTime: Double, duration: Double): Double =
-        if (duration > 0) (currentTime / duration).coerceIn(0.0, 1.0) else 0.0
+    private fun wholePercent(item: LibraryItemEntity): Int = (item.percentCompleted * 100).toInt()
 
-    /** What a saved progress leads to: a completion when the book just finished, its Hardcover status, its folders. */
-    private suspend fun afterProgressSaved(item: LibraryItemEntity, wasFinished: Boolean) {
+    /**
+     * What a saved progress leads to: a completion when the book just finished, its Hardcover status, and when
+     * [rollUpFolders], its folders' roll-up.
+     */
+    private suspend fun afterProgressSaved(item: LibraryItemEntity, wasFinished: Boolean, rollUpFolders: Boolean) {
         if (item.isFinished && !wasFinished) {
             val completion = BookCompletionEntity(
                 bookUuid = item.uuid,
@@ -240,7 +247,7 @@ class RoomLibraryRepository(
         }
 
         // Recursively update parents
-        updateParentFolders(item.relativePath)
+        if (rollUpFolders) updateParentFolders(item.relativePath)
     }
 
     // Same walk + aggregation as the sync path — LibraryContentsSync.recomputeFolder is the single

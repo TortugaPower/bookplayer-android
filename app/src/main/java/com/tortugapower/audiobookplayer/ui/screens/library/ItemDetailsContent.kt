@@ -395,7 +395,8 @@ fun ItemDetailsContent(
             )
             FooterInfoRow(
                 label = stringResource(R.string.library_progress_label), 
-                value = stringResource(R.string.library_progress_percent, (item.percentCompleted * 100).toInt())
+                // A finished book shows all of it from its flag; its stored progress is its position's
+                value = stringResource(R.string.library_progress_percent, if (item.isFinished) 100 else (item.percentCompleted * 100).toInt())
             )
             
             val lastPlay = item.lastPlayDate

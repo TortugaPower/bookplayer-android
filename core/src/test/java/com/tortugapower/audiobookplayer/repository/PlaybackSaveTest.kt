@@ -47,7 +47,8 @@ class PlaybackSaveTest {
         val stored = db.libraryDao().getItemById("a")!!
         assertEquals(true, stored.isFinished)
         assertEquals(50.0, stored.currentTime, 0.0)
-        assertEquals(1.0, stored.percentCompleted, 0.0)
+        // The position's share, as iOS stores it: its 100% shows from the flag
+        assertEquals(0.5, stored.percentCompleted, 0.0)
     }
 
     @Test fun `a book played to its end is finished, and counts as a completion`() = runBlocking {
@@ -80,5 +81,20 @@ class PlaybackSaveTest {
         repository.savePlaybackProgress("a", 40.0, reachedEnd = false)
 
         assertEquals(true, db.libraryDao().getItemById("a")!!.isFinished)
+    }
+
+    // As iOS's updatePlaybackTime: a save rolls the folders above up only when the book's whole percent changed, not
+    // on every save (every ~10 s while it plays)
+    @Test fun `a save rolls the folders up only when the book's whole percent changed`() = runBlocking {
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "f", title = "F", relativePath = "F", type = ItemType.FOLDER))
+        db.libraryDao().insertItem(
+            LibraryItemEntity(uuid = "b", title = "B", relativePath = "F/b.m4b", type = ItemType.BOOK, duration = 100.0, currentTime = 40.0, percentCompleted = 0.4)
+        )
+
+        repository.savePlaybackProgress("b", 40.5, reachedEnd = false)
+        assertEquals(0.0, db.libraryDao().getItemById("f")!!.percentCompleted, 0.0)
+
+        repository.savePlaybackProgress("b", 41.0, reachedEnd = false)
+        assertEquals(0.41, db.libraryDao().getItemById("f")!!.percentCompleted, 1e-9)
     }
 }

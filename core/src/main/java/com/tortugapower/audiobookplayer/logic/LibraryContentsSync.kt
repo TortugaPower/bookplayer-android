@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.util.Log
+import com.tortugapower.audiobookplayer.database.dao.FolderChildrenSummary
 import com.tortugapower.audiobookplayer.database.dao.LibraryDao
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
@@ -138,13 +139,12 @@ object LibraryContentsSync {
     /**
      * The local 0..1 progress fraction for a fetched item. The wire scale is ambiguous — iOS and
      * the API use 0..100, but rows last written by older Android builds hold 0..1 (they uploaded
-     * the local fraction raw) — so the finished flag wins first (matching the local playback
-     * writer, which forces finished items to 1.0), then the fraction is DERIVED from
-     * currentTime/duration (always authoritative, either scale). Duration-less unfinished items
-     * (unresolved or legacy) fall back to the wire value read as iOS's 0..100.
+     * the local fraction raw) — so the fraction is DERIVED from currentTime/duration (always
+     * authoritative, either scale), finished or not, as iOS stores it: screens show a finished
+     * book's 100% from its flag. Duration-less items (unresolved or legacy) fall back to the wire
+     * value read as iOS's 0..100.
      */
     fun normalizedRemotePercent(remote: SyncableItem): Double = when {
-        remote.isFinished -> 1.0
         remote.duration > 0 -> (remote.currentTime / remote.duration).coerceIn(0.0, 1.0)
         else -> (remote.percentCompleted / 100.0).coerceIn(0.0, 1.0)
     }
@@ -160,13 +160,15 @@ object LibraryContentsSync {
      * ([serverFolderDetails]) — the server stores client-written display text (iOS writes its
      * locale's "N files" there), never the bare count.
      */
-    fun recomputeFolder(folder: LibraryItemEntity, children: List<LibraryItemEntity>) {
-        folder.duration = children.sumOf { it.duration }
-        folder.currentTime = children.sumOf { it.currentTime }
-        folder.author = children.size.toString()
+    fun recomputeFolder(folder: LibraryItemEntity, children: FolderChildrenSummary) {
+        folder.duration = children.duration
+        folder.currentTime = children.currentTime
+        folder.author = children.count.toString()
+        // iOS calculateFolderProgress: each child counts once, a finished one as all of it (a finished book keeps
+        // its position, so the positions alone would show it part-way)
         folder.percentCompleted =
-            if (folder.duration > 0) (folder.currentTime / folder.duration).coerceIn(0.0, 1.0) else 0.0
-        folder.isFinished = children.all { it.isFinished } && children.isNotEmpty()
+            if (children.count > 0) (children.progressSum / children.count).coerceIn(0.0, 1.0) else 0.0
+        folder.isFinished = children.count > 0 && children.finishedCount == children.count
     }
 
     /**
@@ -205,12 +207,23 @@ object LibraryContentsSync {
         var path = childPath ?: return
         while (path.contains('/')) {
             path = path.substringBeforeLast('/')
-            val folder = libraryDao.getItemByPath(path) ?: continue
-            if (folder.type == ItemType.FOLDER || folder.type == ItemType.BOUND) {
-                recomputeFolder(folder, libraryDao.getItemsInPathSync(path))
-                libraryDao.updateItem(folder)
-            }
+            rollUp(libraryDao, path)
         }
+    }
+
+    /**
+     * Rolls the folder at [path] up from its children: one aggregate read, and a write of its rolled-up columns only
+     * when one changed, so an unchanged folder doesn't make the library's lists read again.
+     */
+    private suspend fun rollUp(libraryDao: LibraryDao, path: String) {
+        val folder = libraryDao.getItemByPath(path) ?: return
+        if (folder.type != ItemType.FOLDER && folder.type != ItemType.BOUND) return
+        val before = folder.copy()
+        recomputeFolder(folder, libraryDao.getFolderChildrenSummary(path))
+        if (folder == before) return
+        libraryDao.setFolderRollUp(
+            folder.uuid, folder.duration, folder.currentTime, folder.author, folder.percentCompleted, folder.isFinished
+        )
     }
 
     suspend fun updateParentFoldersBatch(libraryDao: LibraryDao, affectedPaths: Collection<String>) {
@@ -227,11 +240,7 @@ object LibraryContentsSync {
         val sortedFolders = foldersToUpdate.sortedByDescending { it.count { char -> char == '/' } }
 
         for (path in sortedFolders) {
-            val folder = libraryDao.getItemByPath(path) ?: continue
-            if (folder.type == ItemType.FOLDER || folder.type == ItemType.BOUND) {
-                recomputeFolder(folder, libraryDao.getItemsInPathSync(path))
-                libraryDao.updateItem(folder)
-            }
+            rollUp(libraryDao, path)
         }
     }
 }

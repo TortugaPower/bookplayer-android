@@ -391,6 +391,21 @@ class RoomLibraryRepositoryTest {
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> {
             return items.values.filter { it.relativePath?.startsWith(path) == true }
         }
+        override suspend fun getFolderChildrenSummary(path: String): com.tortugapower.audiobookplayer.database.dao.FolderChildrenSummary {
+            val children = getItemsInPathSync(path)
+            return com.tortugapower.audiobookplayer.database.dao.FolderChildrenSummary(
+                count = children.size,
+                duration = children.sumOf { it.duration },
+                currentTime = children.sumOf { it.currentTime },
+                progressSum = children.sumOf { if (it.isFinished) 1.0 else it.percentCompleted },
+                finishedCount = children.count { it.isFinished },
+            )
+        }
+        override suspend fun setFolderRollUp(uuid: String, duration: Double, currentTime: Double, author: String?, percentCompleted: Double, isFinished: Boolean) {
+            items[uuid]?.let {
+                items[uuid] = it.copy(duration = duration, currentTime = currentTime, author = author, percentCompleted = percentCompleted, isFinished = isFinished)
+            }
+        }
 
         override suspend fun markExternalResourceFileProcessed(id: Long): Unit = TODO()
         override suspend fun getAllUuids(): List<String> = TODO()

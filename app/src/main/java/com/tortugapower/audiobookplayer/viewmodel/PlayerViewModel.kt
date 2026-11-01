@@ -211,7 +211,7 @@ class PlayerViewModel(
             PlaybackManager.pause()
             item.isFinished = finished
             item.currentTime = newTime
-            item.percentCompleted = FinishedPolicy.progressAfter(finished, newTime, item.duration)
+            item.percentCompleted = FinishedPolicy.progressAt(newTime, item.duration)
             repository.updateItemFinished(item)
             showMoreOptions = false
             notifySeek()
