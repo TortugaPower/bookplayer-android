@@ -198,7 +198,11 @@ class PlayerViewModel(
     fun toggleFinished() {
         val item = PlaybackManager.currentItem.value ?: return
         viewModelScope.launch {
-            val position = PlaybackManager.loadedPositionSeconds() ?: item.currentTime
+            // Not ready (loading, a stream that failed): the stored row's, which playback saves keep; this copy's is
+            // the position it loaded at
+            val position = PlaybackManager.loadedPositionSeconds()
+                ?: repository.getItemById(item.uuid)?.currentTime
+                ?: item.currentTime
             val finished = !item.isFinished
             val newTime = FinishedPolicy.positionAfter(finished, position, item.duration)
             // Back to the start before the pause: the pause saves the position, and at the end that save would finish
