@@ -670,7 +670,7 @@ class LibraryViewModel(
                     }
                     if (success) {
                         item.artworkURL = destFile.absolutePath
-                        repository.updateItem(item)
+                        repository.updateItemArtwork(item)
                     }
                 }
                 
@@ -723,7 +723,7 @@ class LibraryViewModel(
                     repository.updateArtworkSync(item)
                 }
             }
-            repository.updateItem(item)
+            repository.updateItemArtwork(item)
         }
     }
 
@@ -731,7 +731,7 @@ class LibraryViewModel(
         viewModelScope.launch {
             com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
             item.artworkURL = null
-            repository.updateItem(item)
+            repository.updateItemArtwork(item)
         }
     }
 

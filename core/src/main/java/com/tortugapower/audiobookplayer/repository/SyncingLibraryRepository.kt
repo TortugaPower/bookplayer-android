@@ -37,8 +37,8 @@ class SyncingLibraryRepository(
         }
     }
 
-    // updateItem saves here only (the delegate's): its callers change what doesn't sync, an artwork above all,
-    // and iOS sends no item update for one. The changes that sync have their own methods, each sending its fields.
+    // updateItem and updateItemArtwork save here only (the delegate's): iOS sends no item update for an artwork, whose
+    // image goes up through its own upload task. The changes that sync have their own methods, each sending its fields.
 
     override suspend fun updateItemDetails(item: LibraryItemEntity) {
         delegate.updateItemDetails(item)

@@ -131,17 +131,12 @@ class RoomLibraryRepository(
     }
 
     /**
-     * Writes only the finished state and position: [item] is the player's copy, loaded before playback saved its
-     * progress and play date, and writing it whole would put those back. Its progress is set from the two.
+     * Writes only the finished state, position and progress: [item] is the player's copy, loaded before playback
+     * saved its play date, and writing it whole would put that back.
      */
     override suspend fun updateItemFinished(item: LibraryItemEntity) {
         withContext(Dispatchers.IO) {
             recordCompletion(item)
-            item.percentCompleted = when {
-                item.isFinished -> 1.0
-                item.duration > 0 -> (item.currentTime / item.duration).coerceIn(0.0, 1.0)
-                else -> 0.0
-            }
             libraryDao.setFinished(item.uuid, item.isFinished, item.currentTime, item.percentCompleted)
         }
     }
@@ -153,6 +148,16 @@ class RoomLibraryRepository(
     override suspend fun updateItemDetails(item: LibraryItemEntity) {
         withContext(Dispatchers.IO) {
             libraryDao.setDetails(item.uuid, item.title, item.author)
+        }
+    }
+
+    /**
+     * Writes only the artwork: [item] can be a copy loaded a while ago (the details sheet's, or one read before the
+     * artwork downloaded or was extracted), and writing it whole would put back the progress and play date saved since.
+     */
+    override suspend fun updateItemArtwork(item: LibraryItemEntity) {
+        withContext(Dispatchers.IO) {
+            libraryDao.setArtwork(item.uuid, item.artworkURL)
         }
     }
 

@@ -54,10 +54,15 @@ interface LibraryRepository {
     /** The title and author the user edited: saved here and sent by a syncing repository. */
     suspend fun updateItemDetails(item: LibraryItemEntity) = updateItem(item)
     /**
-     * The player's Mark as finished: its finished state and position (and the progress they make), saved here and
-     * sent by a syncing repository.
+     * The player's Mark as finished: the finished state, position and progress the caller set on [item], saved here
+     * and sent by a syncing repository.
      */
     suspend fun updateItemFinished(item: LibraryItemEntity) = updateItem(item)
+    /**
+     * An artwork set or removed: saved here only. iOS sends no item update for one; the image goes up through its
+     * own upload task.
+     */
+    suspend fun updateItemArtwork(item: LibraryItemEntity) = updateItem(item)
     suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean)
     suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity>
     suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity)

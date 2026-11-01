@@ -767,7 +767,7 @@ object PlaybackManager {
             val artworkFile = File(artworkDir, "${entity.uuid}.jpg")
             if (ArtworkManager.extractAndSaveArtwork(file, artworkFile)) {
                 entity.artworkURL = artworkFile.absolutePath
-                getRepository(context).updateItem(entity)
+                getRepository(context).updateItemArtwork(entity)
             }
         }
     }

@@ -164,6 +164,10 @@ interface LibraryDao {
     @Query("UPDATE library_items SET title = :title, author = :author WHERE uuid = :uuid")
     suspend fun setDetails(uuid: String, title: String, author: String?)
 
+    /** The artwork; the rest of the row stays as it's stored now. */
+    @Query("UPDATE library_items SET artworkURL = :artworkURL WHERE uuid = :uuid")
+    suspend fun setArtwork(uuid: String, artworkURL: String?)
+
     @Query("SELECT * FROM bookmarks WHERE bookUuid = :bookUuid ORDER BY time ASC")
     fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>>
 

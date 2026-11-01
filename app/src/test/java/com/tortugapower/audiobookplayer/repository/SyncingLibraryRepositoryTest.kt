@@ -512,7 +512,8 @@ class SyncingLibraryRepositoryTest {
         val syncTaskRepository = FakeSyncTaskRepository()
         val repository = SyncingLibraryRepository(FakeLibraryRepository(), syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
 
-        repository.updateItem(speedBook().apply { artworkURL = "/covers/book-1.jpg" })
+        repository.updateItemArtwork(speedBook().apply { artworkURL = "/covers/book-1.jpg" })
+        repository.updateItem(speedBook().apply { artworkURL = null })
 
         assertEquals(0, syncTaskRepository.tasks.size)
     }
