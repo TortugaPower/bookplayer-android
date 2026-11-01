@@ -463,26 +463,26 @@ class LibraryViewModel(
         viewModelScope.launch(ioDispatcher) { sortManager?.setCustom(_currentPath.value) }
     }
 
-    // ---- Library display prefs (Options sheet toggles) --------------------------------------
+    // ---- Library display prefs (Options sheet), synced across devices --------------------------
+
+    // Nullable like sortManager: unit tests without the app singleton read the defaults and set nothing
+    private val displayPreferences: com.tortugapower.audiobookplayer.logic.preferences.LibraryDisplayPreferences?
+        get() = runCatching { BookPlayerApplication.instance.libraryDisplayPreferences }.getOrNull()
 
     val showProgressAsPercentage: StateFlow<Boolean> =
-        com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.getShowProgressAsPercentage(appContext)
+        (displayPreferences?.observeShowProgressAsPercentage() ?: flowOf(false))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val showOriginalFileName: StateFlow<Boolean> =
-        com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.getShowOriginalFileName(appContext)
+        (displayPreferences?.observeShowOriginalFileName() ?: flowOf(false))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     fun setShowProgressAsPercentage(enabled: Boolean) {
-        viewModelScope.launch {
-            com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.setShowProgressAsPercentage(appContext, enabled)
-        }
+        viewModelScope.launch { displayPreferences?.setShowProgressAsPercentage(enabled) }
     }
 
     fun setShowOriginalFileName(enabled: Boolean) {
-        viewModelScope.launch {
-            com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.setShowOriginalFileName(appContext, enabled)
-        }
+        viewModelScope.launch { displayPreferences?.setShowOriginalFileName(enabled) }
     }
 
     /**
@@ -490,13 +490,11 @@ class LibraryViewModel(
      * screen never shows the list for a moment at launch before switching to a grid.
      */
     val libraryLayout: StateFlow<com.tortugapower.audiobookplayer.logic.LibraryLayout?> =
-        com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.getLibraryLayout(appContext)
+        (displayPreferences?.observeLayout() ?: flowOf(com.tortugapower.audiobookplayer.logic.LibraryLayout.LIST))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun setLibraryLayout(layout: com.tortugapower.audiobookplayer.logic.LibraryLayout) {
-        viewModelScope.launch {
-            com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.setLibraryLayout(appContext, layout)
-        }
+        viewModelScope.launch { displayPreferences?.setLayout(layout) }
     }
 
     /** One-off reverse of the current order; flips the location to a custom (manual) order. */

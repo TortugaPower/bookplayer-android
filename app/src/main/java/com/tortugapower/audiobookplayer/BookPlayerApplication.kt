@@ -35,6 +35,7 @@ import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
 import com.tortugapower.audiobookplayer.logic.preferences.DataStorePreferencesStore
+import com.tortugapower.audiobookplayer.logic.preferences.LibraryDisplayPreferences
 import com.tortugapower.audiobookplayer.logic.sort.LibrarySortManager
 import com.tortugapower.audiobookplayer.logic.sort.LibrarySortStore
 import io.sentry.Sentry
@@ -71,6 +72,10 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.P
 
     /** Library sort brain: sort actions + preference push/pull. Set in [onCreate]. */
     lateinit var librarySortManager: LibrarySortManager
+        private set
+
+    /** The Library tab's synced layout and display toggles. Set in [onCreate]. */
+    lateinit var libraryDisplayPreferences: LibraryDisplayPreferences
         private set
 
     /** The process's one sync engine. Set in [onCreate]. */
@@ -181,6 +186,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.P
             syncTaskRepository,
             accountRepository
         )
+        libraryDisplayPreferences = LibraryDisplayPreferences(DataStorePreferencesStore(this), syncTaskRepository, accountRepository)
         // Next/previous and end-of-book auto-advance follow the visible (effective) order.
         // Property-wired: the manager depends on the repository, so this can't be a constructor arg.
         baseLibraryRepository.effectiveSortResolver = librarySortManager::effectiveSort

@@ -140,17 +140,12 @@ class ProfileViewModel(
         SyncQueueReset.clearAll(syncTaskRepository)
         // The library stays, but the next account's server holds none of it (and the next first sync corrects
         // whatever a failed write leaves)
-        try {
-            libraryDao.clearServerKnown()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            android.util.Log.w("ProfileViewModel", "Couldn't clear the server-known flags: ${e.javaClass.simpleName}")
-        }
-        // Drop every local library_sort:* preference so the next login pulls fresh (no stale state).
-        // runCatching like LibraryViewModel's sortManager access: unit tests with a plain
-        // Application have no singleton, and logout cleanup must not abort halfway.
-        runCatching { BookPlayerApplication.instance.librarySortManager.clearLocalPreferences() }
+        cleanUp("clear the server-known flags") { libraryDao.clearServerKnown() }
+        // Drop every local library_sort:* preference so the next login pulls fresh (no stale state). Unit tests
+        // with a plain Application have no singleton: cleanUp carries on past that too.
+        cleanUp("clear the sort preferences") { BookPlayerApplication.instance.librarySortManager.clearLocalPreferences() }
+        // The layout and display toggles too (iOS wipes every synced family): back to the list, toggles off
+        cleanUp("clear the display preferences") { BookPlayerApplication.instance.libraryDisplayPreferences.clearLocal() }
         SubscriptionManager.logout()
         SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
         // AFTER the account row is gone: stop + unload the loaded book if it's now gate-blocked
@@ -158,6 +153,17 @@ class ProfileViewModel(
         // still-valid presigned URL — and, because the media service outlives an app swipe, would
         // even resume on the next launch without re-entering any gated load path.
         PlaybackManager.enforceRemoteStreamingGate(com.tortugapower.audiobookplayer.core.CoreContext.appContext)
+    }
+
+    /** A sign-out step that mustn't stop the rest when it fails, logged instead; a cancellation still cancels. */
+    private suspend fun cleanUp(what: String, step: suspend () -> Unit) {
+        try {
+            step()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("ProfileViewModel", "Couldn't $what: ${e.javaClass.simpleName}")
+        }
     }
 
     /**
