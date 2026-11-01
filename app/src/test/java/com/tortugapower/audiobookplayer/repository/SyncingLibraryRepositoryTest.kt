@@ -63,7 +63,12 @@ class SyncingLibraryRepositoryTest {
         override suspend fun getItemById(uuid: String): LibraryItemEntity? = items[uuid] ?: itemById
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = itemsByPath[path]
         override suspend fun saveItem(item: LibraryItemEntity) {}
-        override suspend fun updateItem(item: LibraryItemEntity) {}
+        val updatedItems = mutableListOf<String>()
+        override suspend fun updateItem(item: LibraryItemEntity) { updatedItems += item.uuid }
+        val folderPlayDateWrites = mutableListOf<Pair<List<String>, Long?>>()
+        override suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) {
+            folderPlayDateWrites += paths to lastPlayDate
+        }
         val progressWrites = mutableListOf<Boolean>()
         override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) { progressWrites += isFinished }
         override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) {}
@@ -660,6 +665,26 @@ class SyncingLibraryRepositoryTest {
         assertEquals(setOf("uuid", "relativePath", "percentCompleted"), payloadKeys(updates.getValue("folder-1")))
         assertEquals(null, folder.lastPlayDate)
         assertTrue(syncTaskRepository.tasks.none { it.jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE })
+    }
+
+    /** Every folder above the played book gets its play date in one write, not a whole-row save per folder */
+    @Test
+    fun updateItemProgress_stampsEveryFolderAbove_inOneWrite() = runBlocking {
+        val book = speedBook(path = "A/B/book.mp3").apply { lastPlayDate = 1_700_000_000_000L }
+        val outer = folder(uuid = "folder-a", path = "A", author = "1")
+        val inner = folder(uuid = "folder-b", path = "A/B", author = "1")
+        val delegate = FakeLibraryRepository().apply {
+            items += mapOf(book.uuid to book, outer.uuid to outer, inner.uuid to inner)
+            itemsByPath += mapOf("A/B/book.mp3" to book, "A" to outer, "A/B" to inner)
+        }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.updateItemProgress("book-1", 42.0, false)
+
+        assertEquals(listOf(listOf("A/B", "A") to 1_700_000_000_000L), delegate.folderPlayDateWrites)
+        assertTrue(delegate.updatedItems.isEmpty())
+        assertEquals(setOf("book-1", "folder-a", "folder-b"), syncTaskRepository.tasks.map { it.taskID }.toSet())
     }
 
     // MARK: - Bookmark pull

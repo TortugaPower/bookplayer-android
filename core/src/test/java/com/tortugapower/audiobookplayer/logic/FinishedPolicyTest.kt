@@ -31,9 +31,10 @@ class FinishedPolicyTest {
         assertEquals(1800.0, FinishedPolicy.positionAfter(isFinished = false, currentTime = 1800.0, duration = 3600.0), 0.0)
     }
 
-    @Test fun progress_isAllOfItOnceFinished_elseWhereItIs() {
-        assertEquals(1.0, FinishedPolicy.progressAfter(isFinished = true, currentTime = 900.0, duration = 3600.0), 0.0)
-        assertEquals(0.25, FinishedPolicy.progressAfter(isFinished = false, currentTime = 900.0, duration = 3600.0), 0.0)
-        assertEquals(0.0, FinishedPolicy.progressAfter(isFinished = false, currentTime = 0.0, duration = 0.0), 0.0)
+    // iOS stores a finished book's position's share too; screens show its 100% from the flag
+    @Test fun progress_isThePositionsShare_finishedOrNot() {
+        assertEquals(0.25, FinishedPolicy.progressAt(currentTime = 900.0, duration = 3600.0), 0.0)
+        assertEquals(1.0, FinishedPolicy.progressAt(currentTime = 3600.0, duration = 3600.0), 0.0)
+        assertEquals(0.0, FinishedPolicy.progressAt(currentTime = 0.0, duration = 0.0), 0.0)
     }
 }

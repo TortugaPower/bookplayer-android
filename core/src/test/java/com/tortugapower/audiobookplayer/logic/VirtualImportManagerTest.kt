@@ -344,6 +344,9 @@ class VirtualImportManagerTest {
         override fun getRootItems(): Flow<List<LibraryItemEntity>> = TODO()
         override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = TODO()
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = TODO()
+        override suspend fun getFolderChildrenSummary(path: String) = TODO()
+        override suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) = TODO()
+        override suspend fun setFolderRollUp(uuid: String, duration: Double, currentTime: Double, author: String?, percentCompleted: Double, isFinished: Boolean) = TODO()
         override suspend fun getRootItemsSync(): List<LibraryItemEntity> = TODO()
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = items.values.find { it.relativePath == path }
         override suspend fun getItemByFileName(fileName: String): LibraryItemEntity? = TODO()

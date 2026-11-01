@@ -86,6 +86,7 @@ class LibraryViewModelTest {
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = null
         override suspend fun saveItem(item: LibraryItemEntity) {}
         override suspend fun updateItem(item: LibraryItemEntity) { onItemSaved(item) }
+        override suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) {}
         // Recorded so setFinishedStatus tests can assert the exact (uuid, time, finished) writes.
         val progressUpdates = mutableListOf<Triple<String, Double, Boolean>>()
         var descendantBooks: List<LibraryItemEntity> = emptyList()
@@ -576,7 +577,8 @@ class LibraryViewModelTest {
 
         // Through the player's Mark as finished (iOS has one markAsFinished): no progress save
         assertEquals(
-            listOf(listOf("b1", 1800.0, true, 1.0), listOf("b2", 0.0, true, 1.0)),
+            // The position's share, as iOS stores a finished book's (its 100% shows from the flag)
+            listOf(listOf("b1", 1800.0, true, 0.5), listOf("b2", 0.0, true, 0.0)),
             libraryRepo.finishedWrites,
         )
         assertTrue(libraryRepo.progressUpdates.isEmpty())

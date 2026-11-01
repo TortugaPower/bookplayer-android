@@ -148,20 +148,19 @@ class SyncingLibraryRepository(
 
         // Sync parent folders as their aggregate progress changed. Roll the leaf's lastPlayDate up
         // to each ancestor (matches iOS, which stamps the folder's lastPlayDate on play) so folders
-        // sort by recency both locally and on the server.
-        var path = item.relativePath
-        while (path != null && path.contains('/')) {
-            path = path.substringBeforeLast('/')
-            val parent = delegate.getItemByPath(path)
-            if (parent != null) {
-                if (rollUpPlayDate) {
-                    parent.lastPlayDate = item.lastPlayDate
-                    delegate.updateItem(parent)
-                    SyncTaskFactory.createUpdateTask(syncTaskRepository, parent, ItemUpdateFields.folderProgress(parent))
-                } else {
-                    SyncTaskFactory.createUpdateTask(syncTaskRepository, parent, ItemUpdateFields.folderPercent(parent))
-                }
+        // sort by recency both locally and on the server. Stamped here in one write for all of them.
+        val ancestors = generateSequence(item.relativePath) { path -> path.substringBeforeLast('/', "").ifEmpty { null } }
+            .drop(1)
+            .toList()
+        if (rollUpPlayDate) delegate.setFoldersLastPlayDate(ancestors, item.lastPlayDate)
+        ancestors.forEach { path ->
+            val parent = delegate.getItemByPath(path) ?: return@forEach
+            val fields = if (rollUpPlayDate) {
+                ItemUpdateFields.folderProgress(parent.copy(lastPlayDate = item.lastPlayDate))
+            } else {
+                ItemUpdateFields.folderPercent(parent)
             }
+            SyncTaskFactory.createUpdateTask(syncTaskRepository, parent, fields)
         }
     }
 
