@@ -991,10 +991,14 @@ object PlaybackManager {
         val currentPos = controllerToWholeBookMs(p.currentMediaItemIndex, p.currentPosition) / 1000.0
 
         val totalDuration = item.duration
-        val isFinished = forceFinished || (currentPos >= totalDuration - 1.0 && totalDuration > 0)
+        val reachedEnd = forceFinished || (currentPos >= totalDuration - 1.0 && totalDuration > 0)
+        // The player's copy too, as iOS's markAsCompleted sets it: the player's Mark as finished/unfinished reads it
+        if (reachedEnd) item.isFinished = true
 
+        // Never un-finishes the book, as iOS's playback saves don't: Mark as unfinished, the library's Jump to start
+        // and a restart from 0 do
         scope.launch(Dispatchers.IO) {
-            getRepository(context).updateItemProgress(item.uuid, currentPos, isFinished)
+            getRepository(context).savePlaybackProgress(item.uuid, currentPos, reachedEnd)
         }
     }
 

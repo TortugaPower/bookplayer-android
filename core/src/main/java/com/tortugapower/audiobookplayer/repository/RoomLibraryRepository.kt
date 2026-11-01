@@ -181,47 +181,64 @@ class RoomLibraryRepository(
             val wasFinished = item.isFinished
             item.currentTime = currentTime
             item.isFinished = isFinished
-            item.percentCompleted = if (item.duration > 0) (currentTime / item.duration).coerceIn(0.0, 1.0) else 0.0
+            item.percentCompleted = progressAt(currentTime, item.duration)
             if (isFinished) item.percentCompleted = 1.0
-            if (isFinished && !wasFinished) {
-                val completion = BookCompletionEntity(
-                    bookUuid = item.uuid,
-                    bookTitle = item.title,
-                    authorName = item.author,
-                    completionDate = timeProvider()
-                )
-                libraryDao.insertCompletionIfMissing(completion)
-            }
             item.lastPlayDate = timeProvider()
             libraryDao.updateItem(item)
+            afterProgressSaved(item, wasFinished)
+        }
+    }
 
-            // Hardcover Progress Integration
-            try {
-                val hardcoverResource = libraryDao.getExternalResource(uuid, "hardcover")
-                if (hardcoverResource != null) {
-                    val hardcoverToken = hardcoverTokenProvider()
-                    if (hardcoverToken.isNotBlank()) {
-                        if (isFinished) {
-                            if (hardcoverResource.syncStatus != "read") {
-                                libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "read"))
-                                SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, uuid, 3)
-                            }
-                        } else {
-                            val threshold = readingThresholdProvider()
-                            if (item.percentCompleted >= threshold && hardcoverResource.syncStatus != "reading" && hardcoverResource.syncStatus != "read") {
-                                libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "reading"))
-                                SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, uuid, 2)
-                            }
+    override suspend fun savePlaybackProgress(uuid: String, currentTime: Double, reachedEnd: Boolean) {
+        withContext(Dispatchers.IO) {
+            val before = libraryDao.getItemById(uuid) ?: return@withContext
+            libraryDao.savePlaybackPosition(uuid, currentTime, progressAt(currentTime, before.duration), reachedEnd, timeProvider())
+            val item = libraryDao.getItemById(uuid) ?: return@withContext
+            afterProgressSaved(item, before.isFinished)
+        }
+    }
+
+    private fun progressAt(currentTime: Double, duration: Double): Double =
+        if (duration > 0) (currentTime / duration).coerceIn(0.0, 1.0) else 0.0
+
+    /** What a saved progress leads to: a completion when the book just finished, its Hardcover status, its folders. */
+    private suspend fun afterProgressSaved(item: LibraryItemEntity, wasFinished: Boolean) {
+        if (item.isFinished && !wasFinished) {
+            val completion = BookCompletionEntity(
+                bookUuid = item.uuid,
+                bookTitle = item.title,
+                authorName = item.author,
+                completionDate = timeProvider()
+            )
+            libraryDao.insertCompletionIfMissing(completion)
+        }
+
+        // Hardcover Progress Integration
+        try {
+            val hardcoverResource = libraryDao.getExternalResource(item.uuid, "hardcover")
+            if (hardcoverResource != null) {
+                val hardcoverToken = hardcoverTokenProvider()
+                if (hardcoverToken.isNotBlank()) {
+                    if (item.isFinished) {
+                        if (hardcoverResource.syncStatus != "read") {
+                            libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "read"))
+                            SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, item.uuid, 3)
+                        }
+                    } else {
+                        val threshold = readingThresholdProvider()
+                        if (item.percentCompleted >= threshold && hardcoverResource.syncStatus != "reading" && hardcoverResource.syncStatus != "read") {
+                            libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "reading"))
+                            SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, item.uuid, 2)
                         }
                     }
                 }
-            } catch (e: Exception) {
-                android.util.Log.e("RoomLibraryRepository", "Error tracking hardcover progress", e)
             }
-
-            // Recursively update parents
-            updateParentFolders(item.relativePath)
+        } catch (e: Exception) {
+            android.util.Log.e("RoomLibraryRepository", "Error tracking hardcover progress", e)
         }
+
+        // Recursively update parents
+        updateParentFolders(item.relativePath)
     }
 
     // Same walk + aggregation as the sync path — LibraryContentsSync.recomputeFolder is the single

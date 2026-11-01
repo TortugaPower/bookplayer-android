@@ -55,7 +55,9 @@ class SyncingLibraryRepositoryTest {
         override fun getChaptersForBook(bookUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>> = emptyFlow()
         override suspend fun insertChapters(chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}
         override suspend fun replaceChaptersForBook(bookUuid: String, chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}
-        override fun getExternalResourcesForBook(itemUuid: String): Flow<List<ExternalResourceEntity>> = emptyFlow()
+        var externalResources: List<ExternalResourceEntity> = emptyList()
+        override fun getExternalResourcesForBook(itemUuid: String): Flow<List<ExternalResourceEntity>> =
+            kotlinx.coroutines.flow.flowOf(externalResources)
 
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = emptyList()
         override suspend fun getItemById(uuid: String): LibraryItemEntity? = items[uuid] ?: itemById
@@ -548,6 +550,57 @@ class SyncingLibraryRepositoryTest {
             payloadKeys(updates.getValue("book-1"))
         )
         assertEquals(setOf("uuid", "relativePath", "percentCompleted", "lastPlayDateTimestamp"), payloadKeys(updates.getValue("folder-1")))
+    }
+
+    /**
+     * A playback save sends no finished flag (iOS `updatePlaybackTime`): sent with every save, it would un-finish a
+     * book finished on another device. The save that reached the end sends it, finished.
+     */
+    @Test
+    fun savePlaybackProgress_sendsTheFlagOnlyAtTheEnd() = runBlocking {
+        val book = speedBook().apply { lastPlayDate = 1_700_000_000_000L; isFinished = true }
+        val delegate = FakeLibraryRepository().apply { items += book.uuid to book }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.savePlaybackProgress("book-1", 42.0, reachedEnd = false)
+        assertEquals(
+            setOf("uuid", "relativePath", "currentTime", "percentCompleted", "lastPlayDateTimestamp"),
+            payloadKeys(syncTaskRepository.tasks.single())
+        )
+
+        syncTaskRepository.tasks.clear()
+        repository.savePlaybackProgress("book-1", 99.0, reachedEnd = true)
+        val payload = com.google.gson.Gson().fromJson<Map<String, Any?>>(
+            syncTaskRepository.tasks.single().payload, object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
+        )
+        assertEquals(true, payload["isFinished"])
+    }
+
+    /**
+     * A media server gets where the book is and whether this save finished it, as before, not the stored flag: a
+     * finished book played on would otherwise tell Jellyfin it's played, and ABS it's at 100%, mid-book.
+     */
+    @Test
+    fun savePlaybackProgress_ofAFinishedBook_tellsMediaServersWhereItIs() = runBlocking {
+        val book = speedBook().apply { duration = 100.0; isFinished = true; percentCompleted = 1.0 }
+        val delegate = FakeLibraryRepository().apply {
+            items += book.uuid to book
+            externalResources = listOf(
+                ExternalResourceEntity(providerName = "jellyfin", providerId = "jf-1", syncStatus = "synced", libraryItemUuid = book.uuid)
+            )
+        }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.savePlaybackProgress("book-1", 40.0, reachedEnd = false)
+
+        val push = com.google.gson.Gson().fromJson<Map<String, Any?>>(
+            syncTaskRepository.tasks.single { it.jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE }.payload,
+            object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
+        )
+        assertEquals(false, push["isFinished"])
+        assertEquals(0.4, (push["percentCompleted"] as Number).toDouble(), 0.0)
     }
 
     // MARK: - Bookmark pull

@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
+import com.tortugapower.audiobookplayer.logic.FinishedPolicy
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
@@ -181,25 +182,32 @@ class PlayerViewModel(
             }
         }
     }
+    /** Back to the start, paused, as iOS's player does (`handleJumpToStart`) */
     fun jumpToStart() {
+        PlaybackManager.pause()
         PlaybackManager.seekTo(0)
         showMoreOptions = false
         notifySeek()
     }
 
+    /**
+     * Mark as finished / unfinished, as iOS's player does (`handleMarkCompletion`): it pauses, and keeps the listening
+     * position, except that unfinishing a book at its end takes it back to the start. It never seeks to the end,
+     * which ended playback and started the next book.
+     */
     fun toggleFinished() {
         val item = PlaybackManager.currentItem.value ?: return
         viewModelScope.launch {
+            PlaybackManager.pause()
+            val position = PlaybackManager.player?.let { PlaybackManager.currentWholeBookMs() / 1000.0 } ?: item.currentTime
             item.isFinished = !item.isFinished
-            if (item.isFinished) {
-                item.currentTime = item.duration
-                item.percentCompleted = 1.0
-                PlaybackManager.seekTo((item.duration * 1000).toLong())
-            } else {
-                item.currentTime = 0.0
-                item.percentCompleted = 0.0
-                PlaybackManager.seekTo(0)
+            item.currentTime = FinishedPolicy.positionAfter(item.isFinished, position, item.duration)
+            item.percentCompleted = when {
+                item.isFinished -> 1.0
+                item.duration > 0 -> (item.currentTime / item.duration).coerceIn(0.0, 1.0)
+                else -> 0.0
             }
+            if (item.currentTime != position) PlaybackManager.seekTo((item.currentTime * 1000).toLong())
             repository.updateItemFinished(item)
             showMoreOptions = false
             notifySeek()

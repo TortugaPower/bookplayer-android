@@ -64,6 +64,14 @@ interface LibraryRepository {
      */
     suspend fun updateItemArtwork(item: LibraryItemEntity) = updateItem(item)
     suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean)
+    /**
+     * A playback save: [currentTime], its progress and the play date, and finished once the book [reachedEnd]. It
+     * never un-finishes a book, as iOS's `updatePlaybackTime` never touches the flag: a finished book stays finished
+     * while it plays on, until Mark as unfinished, the library's Jump to start or a restart from 0. Defaults to
+     * [updateItemProgress] for repositories that don't play (the test fakes).
+     */
+    suspend fun savePlaybackProgress(uuid: String, currentTime: Double, reachedEnd: Boolean) =
+        updateItemProgress(uuid, currentTime, reachedEnd)
     suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity>
     suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity)
     suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>)

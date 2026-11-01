@@ -11,7 +11,7 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 object ItemUpdateFields {
 
     /**
-     * A progress save: playback, Jump to start, Mark as finished from the library (iOS `updatePlaybackTime`,
+     * A progress save that sets the finished flag: Jump to start, Mark as finished from the library, a restart (iOS
      * `jumpToStart`, `markAsFinished`).
      */
     fun progress(item: LibraryItemEntity): Map<String, Any?> = mapOf(
@@ -20,6 +20,14 @@ object ItemUpdateFields {
         "isFinished" to item.isFinished,
         "lastPlayDateTimestamp" to lastPlayDateSeconds(item),
     )
+
+    /**
+     * A playback save (iOS `updatePlaybackTime`): the position, its progress and the play date, without the finished
+     * flag, which playback never clears; the save that reached the book's end sends it, finished (iOS
+     * `markAsCompleted`). A flag sent with every save would un-finish a book finished on another device.
+     */
+    fun playback(item: LibraryItemEntity, reachedEnd: Boolean): Map<String, Any?> =
+        progress(item) - "isFinished" + (if (reachedEnd) mapOf("isFinished" to true) else emptyMap())
 
     /**
      * A folder holding the book that played: its progress and play date, rolled up from the book (iOS
