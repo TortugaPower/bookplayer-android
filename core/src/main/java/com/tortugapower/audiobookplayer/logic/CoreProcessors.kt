@@ -707,19 +707,22 @@ class DownloadFileProcessor(
 }
 
 class UpdateProcessor : TaskProcessor {
-    private val gson = Gson()
-
     override suspend fun process(task: SyncTaskEntity): Boolean {
-        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
-        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
-
-        val response = NetworkClient.libraryApi.updateMetadata(payload)
+        val response = NetworkClient.libraryApi.updateMetadata(updateRequestBody(task.payload))
         response.throwIfCoded()
         return response.isSuccessful
     }
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_UPDATE
+    }
+
+    companion object {
+        private val gson = SyncTaskFactory.payloadGson()
+
+        /** The update's request body, its whole numbers sent whole (a rank as 4, not 4.0). */
+        internal fun updateRequestBody(payload: String): Map<String, Any?> =
+            gson.fromJson(payload, object : TypeToken<Map<String, Any?>>() {}.type)
     }
 }
 

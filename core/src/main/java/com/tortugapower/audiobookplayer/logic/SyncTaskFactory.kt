@@ -12,7 +12,10 @@ object SyncTaskFactory {
     private val gson = Gson()
 
     // Whole numbers read back whole (a rank, a play date in seconds), not as the doubles Gson defaults to.
-    private val pendingGson = com.google.gson.GsonBuilder()
+    private val pendingGson = payloadGson()
+
+    /** A Gson for a task's stored payload that reads whole numbers back whole, as they were written. */
+    internal fun payloadGson(): Gson = com.google.gson.GsonBuilder()
         .setObjectToNumberStrategy(com.google.gson.ToNumberPolicy.LONG_OR_DOUBLE)
         .create()
 
@@ -96,7 +99,9 @@ object SyncTaskFactory {
      * item's path goes with it, as on iOS, for the queued-tasks list; the server finds the item by its uuid.
      *
      * Merges into the item's pending update field by field (iOS `TasksDataManager.updateTaskModel`): a field queued
-     * before and not in [fields] still goes up, with the newer value of any field in both.
+     * before and not in [fields] still goes up, with the newer value of any field in both. Except the path, which
+     * keeps the pending update's, as iOS does: that update can sit ahead of a move queued since, and goes up
+     * before the server has moved the item. Not every server lookup is by uuid yet.
      */
     suspend fun createUpdateTask(repository: SyncTaskRepository, item: LibraryItemEntity, fields: Map<String, Any?>) {
         val payload = (mapOf("uuid" to item.uuid, "relativePath" to item.relativePath) + fields)
@@ -104,13 +109,17 @@ object SyncTaskFactory {
 
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_UPDATE, item.uuid)
         if (existingTask != null &&
-            repository.updatePendingTaskPayload(existingTask, gson.toJson(pendingPayloadOf(existingTask) + payload))
+            repository.updatePendingTaskPayload(existingTask, gson.toJson(mergedUpdate(pendingPayloadOf(existingTask), payload)))
         ) {
             android.util.Log.d("SyncTaskFactory", "🔄 Merging update task for item: ${item.uuid}")
         } else {
             enqueue(repository, QUEUE_SYNC, JOB_UPDATE, item.uuid, payload)
         }
     }
+
+    /** [pending] with [update]'s fields over it, and [pending]'s path (none if it had none). */
+    private fun mergedUpdate(pending: Map<String, Any?>, update: Map<String, Any?>): Map<String, Any?> =
+        (pending + update - "relativePath") + pending.filterKeys { it == "relativePath" }
 
     suspend fun createMoveTask(repository: SyncTaskRepository, item: LibraryItemEntity, origin: String, destination: String) {
         val payload = mapOf(

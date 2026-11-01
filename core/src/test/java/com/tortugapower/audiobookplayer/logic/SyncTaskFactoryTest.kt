@@ -359,4 +359,50 @@ class SyncTaskFactoryTest {
         assertTrue(json, json.contains("\"orderRank\":4"))
         assertFalse(json, json.contains("E9"))
     }
+
+    /** The request itself sends whole numbers whole, as the stored task holds them */
+    @Test fun anUpdateRequest_sendsWholeNumbersWhole() = runBlocking {
+        val repo = CapturingRepo()
+        val item = item(lastPlayDateMs = 1_700_000_000_000L).apply { orderRank = 4 }
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.progress(item) + ItemUpdateFields.rank(item))
+
+        val json = Gson().toJson(UpdateProcessor.updateRequestBody(repo.saved!!.payload))
+        assertTrue(json, json.contains("\"orderRank\":4,") || json.contains("\"orderRank\":4}"))
+        assertTrue(json, json.contains("\"lastPlayDateTimestamp\":1700000000"))
+        assertTrue(json, json.contains("\"currentTime\":10.0"))
+        assertFalse(json, json.contains("E9"))
+    }
+
+    /**
+     * iOS keeps a pending update's path when merging into it: it can sit ahead of a move queued since, and goes up
+     * before the server has moved the item
+     */
+    @Test fun aMerge_keepsThePendingUpdatesPath() = runBlocking {
+        val repo = PendingRepo()
+        val item = item(lastPlayDateMs = null).copy(relativePath = "Folder/book.mp3")
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.progress(item))
+        // Moved to the root since (its move queued behind the pending update), then played on
+        item.relativePath = "book.mp3"
+        item.currentTime = 42.0
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.progress(item))
+
+        val payload = payloadOf(repo.pending!!)
+        assertEquals("Folder/book.mp3", payload["relativePath"])
+        assertEquals(42.0, payload["currentTime"])
+    }
+
+    /** A pending update queued by an older build has no path: a merge into it doesn't add one */
+    @Test fun aMerge_intoAnOlderPendingUpdateWithoutAPath_addsNone() = runBlocking {
+        val repo = PendingRepo()
+        repo.pending = SyncTaskEntity(
+            id = "task-1", taskID = "u1", queueKey = SyncTaskFactory.QUEUE_SYNC, jobType = SyncTaskFactory.JOB_UPDATE,
+            payload = """{"uuid":"u1","title":"Book A","currentTime":5.0}""", position = 0
+        )
+        val item = item(lastPlayDateMs = null).copy(relativePath = "book.mp3")
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.rank(item))
+
+        val payload = payloadOf(repo.pending!!)
+        assertFalse("relativePath" in payload)
+        assertEquals("Book A", payload["title"])
+    }
 }
