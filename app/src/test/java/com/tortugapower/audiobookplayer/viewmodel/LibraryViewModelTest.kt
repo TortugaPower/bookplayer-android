@@ -76,7 +76,13 @@ class LibraryViewModelTest {
         // The stored rows, read back as fresh copies the way Room reads them
         val stored = mutableMapOf<String, LibraryItemEntity>()
         var onItemSaved: (LibraryItemEntity) -> Unit = {}
-        override suspend fun getItemById(uuid: String): LibraryItemEntity? = stored[uuid]?.copy()
+        // Yields after reading, as a database read does, so two changes can interleave
+        var yieldOnRead = false
+        override suspend fun getItemById(uuid: String): LibraryItemEntity? {
+            val row = stored[uuid]?.copy()
+            if (yieldOnRead) kotlinx.coroutines.yield()
+            return row
+        }
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = null
         override suspend fun saveItem(item: LibraryItemEntity) {}
         override suspend fun updateItem(item: LibraryItemEntity) { onItemSaved(item) }
@@ -508,20 +514,43 @@ class LibraryViewModelTest {
         servingRoot(libraryRepo, root, book(artworkURL = setSince.absolutePath))
         val model = modelWith(libraryRepo = libraryRepo)
         val shown = book(artworkURL = null)
-        val picked = java.io.File.createTempFile("picked", ".png").apply {
-            outputStream().use {
-                android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888)
-                    .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
-            }
-        }
 
-        model.updateArtwork(ApplicationProvider.getApplicationContext(), shown, android.net.Uri.fromFile(picked))
+        model.updateArtwork(ApplicationProvider.getApplicationContext(), shown, pickedImage())
         advanceUntilIdle()
 
         val newArtwork = libraryRepo.stored.getValue("b1").artworkURL
         assertFalse(setSince.exists())
         assertTrue(newArtwork != null && newArtwork != setSince.absolutePath && java.io.File(newArtwork).exists())
         assertEquals(null, shown.artworkURL)
+    }
+
+    /** A picked image: a real 8x8 PNG, for the artwork changes that decode and save one */
+    private fun pickedImage(): android.net.Uri = android.net.Uri.fromFile(
+        java.io.File.createTempFile("picked", ".png").apply {
+            outputStream().use {
+                android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888)
+                    .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+        }
+    )
+
+    // A removal tapped while a picked image is still saving waits for it: the new image is the file it deletes, and
+    // none is left behind
+    @Test fun aRemovalDuringAPick_waitsForIt_andLeavesNoFileBehind() = runTest(dispatcher) {
+        val root = MutableStateFlow<List<LibraryItemEntity>>(emptyList())
+        val libraryRepo = FakeLibraryRepository(root).apply { yieldOnRead = true }
+        servingRoot(libraryRepo, root, book(artworkURL = null))
+        val model = modelWith(libraryRepo = libraryRepo)
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val artworkDir = java.io.File(context.filesDir, "Artworks")
+        val before = artworkDir.listFiles()?.toSet() ?: emptySet()
+
+        model.updateArtwork(context, book(artworkURL = null), pickedImage())
+        model.deleteArtwork(book(artworkURL = null))
+        advanceUntilIdle()
+
+        assertEquals(null, libraryRepo.stored.getValue("b1").artworkURL)
+        assertEquals(emptySet<java.io.File>(), (artworkDir.listFiles()?.toSet() ?: emptySet()) - before)
     }
 
     // Mark-as-finished (iOS parity, LibraryService.markAsFinished): finishing keeps each book's

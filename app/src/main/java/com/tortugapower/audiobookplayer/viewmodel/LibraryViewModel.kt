@@ -698,9 +698,13 @@ class LibraryViewModel(
         }
     }
 
+    // One artwork change at a time, as when they ran on the main thread: a removal tapped while a picked image is still
+    // saving waits for it, and two picks don't both replace the same old artwork (leaving one new file behind)
+    private val artworkLock = Mutex()
+
     fun updateArtwork(context: android.content.Context, item: LibraryItemEntity, imageUri: android.net.Uri?) {
         // ioDispatcher: decoding and writing the picked image, and deleting the old one, are disk work
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch(ioDispatcher) { artworkLock.withLock {
             if (imageUri == null) {
                 val stored = storedForArtwork(item) ?: return@launch
                 // Delete existing artwork
@@ -729,16 +733,16 @@ class LibraryViewModel(
                     repository.updateItemArtwork(stored)
                 }
             }
-        }
+        } }
     }
 
     fun deleteArtwork(item: LibraryItemEntity) {
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch(ioDispatcher) { artworkLock.withLock {
             val stored = storedForArtwork(item) ?: return@launch
             com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
             stored.artworkURL = null
             repository.updateItemArtwork(stored)
-        }
+        } }
     }
 
     /**
