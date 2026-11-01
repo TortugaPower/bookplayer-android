@@ -6,7 +6,10 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -404,5 +407,57 @@ class SyncTaskFactoryTest {
         val payload = payloadOf(repo.pending!!)
         assertFalse("relativePath" in payload)
         assertEquals("Book A", payload["title"])
+    }
+
+    /** A pending update whose read is slow, as a database read is: another merge can start while it waits. */
+    private class SlowPendingRepo : SyncTaskRepository by CapturingRepo() {
+        var pending: SyncTaskEntity? = null
+        val saved = mutableListOf<SyncTaskEntity>()
+        override suspend fun saveTask(task: SyncTaskEntity) { pending = task; saved += task }
+        override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? {
+            val read = pending
+            delay(50)
+            return read
+        }
+        override suspend fun updatePendingTaskPayload(task: SyncTaskEntity, payload: String): Boolean {
+            pending = task.copy(payload = payload)
+            return true
+        }
+    }
+
+    /** A reorder and a playback save merging at once: both go up, as on iOS, whose merges run one at a time */
+    @Test fun twoMergesAtOnce_bothFieldsGoUp() = runBlocking {
+        val repo = SlowPendingRepo()
+        val item = item(lastPlayDateMs = null)
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.progress(item))
+        val reordered = item.copy(orderRank = 4)
+        val played = item.copy(currentTime = 52.0)
+
+        coroutineScope {
+            launch { SyncTaskFactory.createUpdateTask(repo, reordered, ItemUpdateFields.rank(reordered)) }
+            launch { SyncTaskFactory.createUpdateTask(repo, played, ItemUpdateFields.progress(played)) }
+        }
+
+        val payload = payloadOf(repo.pending!!)
+        assertEquals(4.0, (payload["orderRank"] as Number).toDouble(), 0.0)
+        assertEquals(52.0, payload["currentTime"])
+    }
+
+    /** Two updates at once with none pending: one task, the second merged into the first */
+    @Test fun twoUpdatesAtOnce_withNonePending_queueOneTask() = runBlocking {
+        val repo = SlowPendingRepo()
+        val item = item(lastPlayDateMs = null)
+        val reordered = item.copy(orderRank = 4)
+        val played = item.copy(currentTime = 52.0)
+
+        coroutineScope {
+            launch { SyncTaskFactory.createUpdateTask(repo, reordered, ItemUpdateFields.rank(reordered)) }
+            launch { SyncTaskFactory.createUpdateTask(repo, played, ItemUpdateFields.progress(played)) }
+        }
+
+        assertEquals(1, repo.saved.size)
+        val payload = payloadOf(repo.pending!!)
+        assertEquals(4.0, (payload["orderRank"] as Number).toDouble(), 0.0)
+        assertEquals(52.0, payload["currentTime"])
     }
 }

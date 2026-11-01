@@ -6,6 +6,8 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 object SyncTaskFactory {
@@ -18,6 +20,10 @@ object SyncTaskFactory {
     internal fun payloadGson(): Gson = com.google.gson.GsonBuilder()
         .setObjectToNumberStrategy(com.google.gson.ToNumberPolicy.LONG_OR_DOUBLE)
         .create()
+
+    // One update merge at a time, as iOS merges inside its SyncQueueRepository actor with no await in between: a merge
+    // reads the pending update and writes it back, and another running in between would lose one of the two's fields.
+    private val updateMergeLock = Mutex()
 
     private fun pendingPayloadOf(task: SyncTaskEntity): Map<String, Any?> {
         val type = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
@@ -101,19 +107,22 @@ object SyncTaskFactory {
      * Merges into the item's pending update field by field (iOS `TasksDataManager.updateTaskModel`): a field queued
      * before and not in [fields] still goes up, with the newer value of any field in both. Except the path, which
      * keeps the pending update's, as iOS does: that update can sit ahead of a move queued since, and goes up
-     * before the server has moved the item. Not every server lookup is by uuid yet.
+     * before the server has moved the item. Not every server lookup is by uuid yet. Merges run one at a time, so two
+     * at once (a playback save and a reorder) both reach the server, and queue one task when none was pending.
      */
     suspend fun createUpdateTask(repository: SyncTaskRepository, item: LibraryItemEntity, fields: Map<String, Any?>) {
         val payload = (mapOf("uuid" to item.uuid, "relativePath" to item.relativePath) + fields)
             .filterValues { it != null }
 
-        val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_UPDATE, item.uuid)
-        if (existingTask != null &&
-            repository.updatePendingTaskPayload(existingTask, gson.toJson(mergedUpdate(pendingPayloadOf(existingTask), payload)))
-        ) {
-            android.util.Log.d("SyncTaskFactory", "🔄 Merging update task for item: ${item.uuid}")
-        } else {
-            enqueue(repository, QUEUE_SYNC, JOB_UPDATE, item.uuid, payload)
+        updateMergeLock.withLock {
+            val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_UPDATE, item.uuid)
+            if (existingTask != null &&
+                repository.updatePendingTaskPayload(existingTask, gson.toJson(mergedUpdate(pendingPayloadOf(existingTask), payload)))
+            ) {
+                android.util.Log.d("SyncTaskFactory", "🔄 Merging update task for item: ${item.uuid}")
+            } else {
+                enqueue(repository, QUEUE_SYNC, JOB_UPDATE, item.uuid, payload)
+            }
         }
     }
 
