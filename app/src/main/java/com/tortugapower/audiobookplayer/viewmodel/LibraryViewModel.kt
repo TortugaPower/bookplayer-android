@@ -589,7 +589,7 @@ class LibraryViewModel(
             viewModelScope.launch {
                 item.title = newTitle
                 item.author = newAuthor
-                repository.updateItem(item)
+                repository.updateItemDetails(item)
             }
         }
     }

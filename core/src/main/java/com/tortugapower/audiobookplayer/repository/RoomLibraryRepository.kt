@@ -125,17 +125,38 @@ class RoomLibraryRepository(
 
     override suspend fun updateItem(item: LibraryItemEntity) {
         withContext(Dispatchers.IO) {
-            val oldItem = libraryDao.getItemById(item.uuid)
-            if (oldItem != null && item.isFinished && !oldItem.isFinished) {
-                val completion = BookCompletionEntity(
-                    bookUuid = item.uuid,
-                    bookTitle = item.title,
-                    authorName = item.author,
-                    completionDate = timeProvider()
-                )
-                libraryDao.insertCompletionIfMissing(completion)
-            }
+            recordCompletion(item)
             libraryDao.updateItem(item)
+        }
+    }
+
+    /**
+     * Writes only the finished state and position: [item] is the player's copy, loaded before playback saved its
+     * progress and play date, and writing it whole would put those back. Its progress is set from the two.
+     */
+    override suspend fun updateItemFinished(item: LibraryItemEntity) {
+        withContext(Dispatchers.IO) {
+            recordCompletion(item)
+            item.percentCompleted = when {
+                item.isFinished -> 1.0
+                item.duration > 0 -> (item.currentTime / item.duration).coerceIn(0.0, 1.0)
+                else -> 0.0
+            }
+            libraryDao.setFinished(item.uuid, item.isFinished, item.currentTime, item.percentCompleted)
+        }
+    }
+
+    /** A book just finished counts as a completion. */
+    private suspend fun recordCompletion(item: LibraryItemEntity) {
+        val oldItem = libraryDao.getItemById(item.uuid)
+        if (oldItem != null && item.isFinished && !oldItem.isFinished) {
+            val completion = BookCompletionEntity(
+                bookUuid = item.uuid,
+                bookTitle = item.title,
+                authorName = item.author,
+                completionDate = timeProvider()
+            )
+            libraryDao.insertCompletionIfMissing(completion)
         }
     }
 

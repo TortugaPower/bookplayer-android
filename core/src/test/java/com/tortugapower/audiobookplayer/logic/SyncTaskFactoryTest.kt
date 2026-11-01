@@ -69,7 +69,8 @@ class SyncTaskFactoryTest {
 
     @Test fun updateTask_uploadsLastPlayDateInSeconds() = runBlocking {
         val repo = CapturingRepo()
-        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = 1_700_000_000_000L))
+        val item = item(lastPlayDateMs = 1_700_000_000_000L)
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.progress(item))
         val payload = payloadOf(repo.saved!!)
         // ms → seconds; the server (and iOS) use epoch seconds.
         assertEquals(1_700_000_000.0, (payload["lastPlayDateTimestamp"] as Number).toDouble(), 0.0)
@@ -81,18 +82,19 @@ class SyncTaskFactoryTest {
         assertTrue(payloadOf(repo.saved!!).containsKey("lastPlayDateTimestamp"))
     }
 
-    @Test fun updateTask_nullLastPlayDate_isNull() = runBlocking {
+    @Test fun updateTask_neverPlayedHere_leavesTheLastPlayDateOut() = runBlocking {
         val repo = CapturingRepo()
-        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null))
-        // Present but null — the server treats absent/null as "leave unchanged".
-        assertEquals(null, payloadOf(repo.saved!!)["lastPlayDateTimestamp"])
+        val item = item(lastPlayDateMs = null)
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.progress(item))
+        // Absent: the server leaves the date set from another device.
+        assertFalse("lastPlayDateTimestamp" in payloadOf(repo.saved!!))
     }
 
     @Test fun updateTask_clearedLastPlayDate_sendsExplicitZero() = runBlocking {
         val repo = CapturingRepo()
         // Bound-volume conversions clear lastPlayDate on purpose; iOS pushes an explicit 0 so the
         // server drops its stale value instead of keeping it (null would be omitted by Gson).
-        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null), clearedLastPlayDate = true)
+        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null), ItemUpdateFields.clearedLastPlayDate())
         assertEquals(0.0, (payloadOf(repo.saved!!)["lastPlayDateTimestamp"] as Number).toDouble(), 0.0)
     }
 
@@ -122,7 +124,8 @@ class SyncTaskFactoryTest {
         // Local column is the 0..1 fraction; iOS and the API store 0..100. Uploading the raw
         // fraction made Android-played books sync to iOS as ~0% progress.
         val repo = CapturingRepo()
-        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null))
+        val item = item(lastPlayDateMs = null)
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.progress(item))
         assertEquals(50.0, (payloadOf(repo.saved!!)["percentCompleted"] as Number).toDouble(), 1e-9)
     }
 
@@ -253,40 +256,107 @@ class SyncTaskFactoryTest {
 
     @Test fun updateTask_carriesTheBookSpeed_forASpeedChange() = runBlocking {
         val repo = CapturingRepo()
-        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null).apply { speed = 1.5 }, includeSpeed = true)
+        val item = item(lastPlayDateMs = null).apply { speed = 1.5 }
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.speed(item))
         assertEquals(1.5, payloadOf(repo.saved!!)["speed"])
     }
 
     /** iOS sends the speed only when it changes: any other update would push this device's older copy */
     @Test fun updateTask_leavesTheSpeedOut_otherwise() = runBlocking {
         val repo = CapturingRepo()
-        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null).apply { speed = 1.5 })
+        val item = item(lastPlayDateMs = null).apply { speed = 1.5 }
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.progress(item))
         assertTrue("speed" !in payloadOf(repo.saved!!))
     }
 
     @Test fun updateTask_omitsSpeed_whenNeverSet() = runBlocking {
         val repo = CapturingRepo()
-        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null), includeSpeed = true)
+        val item = item(lastPlayDateMs = null)
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.speed(item))
         // A never-set speed must not push a 0/null that clears a speed set from another device.
         assertTrue("speed" !in payloadOf(repo.saved!!))
     }
 
+    /** Each change sends only its fields, with the item's uuid and path (iOS `LibraryService`'s metadata sends) */
+    @Test fun updateTask_sendsOnlyTheChangesFields() = runBlocking {
+        val item = item(lastPlayDateMs = 1_700_000_000_000L).copy(relativePath = "Book A.m4b").apply { orderRank = 3; speed = 1.5 }
+        fun keysFor(fields: Map<String, Any?>): Set<String> {
+            val repo = CapturingRepo()
+            runBlocking { SyncTaskFactory.createUpdateTask(repo, item, fields) }
+            return payloadOf(repo.saved!!).keys.map { it as String }.toSet()
+        }
+        val ids = setOf("uuid", "relativePath")
+        assertEquals(ids + setOf("currentTime", "percentCompleted", "isFinished", "lastPlayDateTimestamp"), keysFor(ItemUpdateFields.progress(item)))
+        assertEquals(ids + setOf("percentCompleted", "lastPlayDateTimestamp"), keysFor(ItemUpdateFields.folderProgress(item)))
+        assertEquals(ids + setOf("percentCompleted", "duration", "details"), keysFor(ItemUpdateFields.folderDetails(item)))
+        assertEquals(ids + "orderRank", keysFor(ItemUpdateFields.rank(item)))
+        assertEquals(ids + "speed", keysFor(ItemUpdateFields.speed(item)))
+        assertEquals(ids + setOf("title", "details"), keysFor(ItemUpdateFields.details(item)))
+        assertEquals(ids + setOf("isFinished", "currentTime", "percentCompleted"), keysFor(ItemUpdateFields.finished(item)))
+        assertEquals(ids + "type", keysFor(ItemUpdateFields.type(item)))
+    }
+
+    /** A repository holding one pending update, merging into it as Room does */
+    private class PendingRepo : SyncTaskRepository by CapturingRepo() {
+        var pending: SyncTaskEntity? = null
+        override suspend fun saveTask(task: SyncTaskEntity) { pending = task }
+        override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = pending
+        override suspend fun updatePendingTaskPayload(task: SyncTaskEntity, payload: String): Boolean {
+            pending = task.copy(payload = payload)
+            return true
+        }
+    }
+
     /** Progress ticks merge into the pending update task: a speed change queued before them still goes up */
     @Test fun aProgressUpdate_mergedIntoAPendingSpeedChange_keepsItsSpeed() = runBlocking {
-        val repo = object : SyncTaskRepository by CapturingRepo() {
-            var pending: SyncTaskEntity? = null
-            override suspend fun saveTask(task: SyncTaskEntity) { pending = task }
-            override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = pending
-            override suspend fun updatePendingTaskPayload(task: SyncTaskEntity, payload: String): Boolean {
-                pending = task.copy(payload = payload)
-                return true
-            }
-        }
-        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null).apply { speed = 1.5 }, includeSpeed = true)
-        SyncTaskFactory.createUpdateTask(repo, item(lastPlayDateMs = null).apply { currentTime = 42.0 })
+        val repo = PendingRepo()
+        val item = item(lastPlayDateMs = null).apply { speed = 1.5 }
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.speed(item))
+        item.currentTime = 42.0
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.progress(item))
 
         val payload = payloadOf(repo.pending!!)
         assertEquals(1.5, payload["speed"])
         assertEquals(42.0, payload["currentTime"])
+    }
+
+    /** iOS merges a queued update field by field: a rank queued under a pending progress save goes up with it */
+    @Test fun aRankChange_mergedIntoAPendingProgressSave_keepsBoth_andTheNewerValueWins() = runBlocking {
+        val repo = PendingRepo()
+        val item = item(lastPlayDateMs = null)
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.progress(item))
+        item.orderRank = 4
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.rank(item))
+        item.currentTime = 99.0
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.progress(item))
+
+        val payload = payloadOf(repo.pending!!)
+        assertEquals(4.0, (payload["orderRank"] as Number).toDouble(), 0.0)
+        assertEquals(99.0, payload["currentTime"])
+        assertTrue("title" !in payload)
+    }
+
+    /** A null field means "unchanged": it never clears a value a pending update already holds */
+    @Test fun aNullField_leavesThePendingValue() = runBlocking {
+        val repo = PendingRepo()
+        val played = item(lastPlayDateMs = 1_700_000_000_000L)
+        SyncTaskFactory.createUpdateTask(repo, played, ItemUpdateFields.progress(played))
+        val neverPlayed = item(lastPlayDateMs = null)
+        SyncTaskFactory.createUpdateTask(repo, neverPlayed, ItemUpdateFields.progress(neverPlayed))
+
+        assertEquals(1_700_000_000.0, (payloadOf(repo.pending!!)["lastPlayDateTimestamp"] as Number).toDouble(), 0.0)
+    }
+
+    /** A merge re-sends the queued fields as they were written: whole numbers stay whole, never 1.7E9 */
+    @Test fun aMerge_keepsWholeNumbersWhole() = runBlocking {
+        val repo = PendingRepo()
+        val item = item(lastPlayDateMs = 1_700_000_000_000L).apply { orderRank = 4 }
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.progress(item) + ItemUpdateFields.rank(item))
+        SyncTaskFactory.createUpdateTask(repo, item, ItemUpdateFields.speed(item.apply { speed = 1.5 }))
+
+        val json = repo.pending!!.payload
+        assertTrue(json, json.contains("\"lastPlayDateTimestamp\":1700000000"))
+        assertTrue(json, json.contains("\"orderRank\":4"))
+        assertFalse(json, json.contains("E9"))
     }
 }

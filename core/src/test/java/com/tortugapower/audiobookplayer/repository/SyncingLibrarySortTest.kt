@@ -143,6 +143,22 @@ class SyncingLibrarySortTest {
         assertEquals("custom", payloadOf(prefPushes().single())["value"])
     }
 
+    @Test fun `a reorder sends only the items that moved, with only their rank`() = runBlocking {
+        seed("a", "A", "A", 0)
+        seed("b", "B", "B", 1)
+        seed("c", "C", "C", 2)
+
+        manager.setCustomOrder(null, listOf("b", "a", "c"))
+
+        assertTrue("c kept its place", updateTasksFor("c").isEmpty())
+        listOf("a" to 1.0, "b" to 0.0).forEach { (uuid, rank) ->
+            val payload = payloadOf(updateTasksFor(uuid).single())
+            // iOS freezeVisibleOrder: the rank alone, so a reorder never sends this device's progress or title.
+            assertEquals(setOf("uuid", "relativePath", "orderRank"), payload.keys)
+            assertEquals(rank, (payload["orderRank"] as Number).toDouble(), 0.0)
+        }
+    }
+
     @Test fun `a drop back where it started changes nothing, not even an automatic rule`() = runBlocking {
         store.set(SortLocation.Root, EffectiveSort.Automatic(SortType.metadataTitle))
         seed("b", "Bravo", "Bravo", 0)

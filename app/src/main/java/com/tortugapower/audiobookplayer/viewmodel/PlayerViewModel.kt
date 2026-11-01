@@ -198,7 +198,7 @@ class PlayerViewModel(
                 item.currentTime = 0.0
                 PlaybackManager.seekTo(0)
             }
-            repository.updateItem(item)
+            repository.updateItemFinished(item)
             showMoreOptions = false
             notifySeek()
         }

@@ -501,6 +501,54 @@ class SyncingLibraryRepositoryTest {
         syncTaskRepository.tasks.forEach { assertFalse(it.payload.contains("\"speed\"")) }
     }
 
+    // MARK: - What an update sends (iOS LibraryService's metadata sends: only what the change touched)
+
+    private fun payloadKeys(task: SyncTaskEntity): Set<String> =
+        com.google.gson.Gson().fromJson<Map<String, Any?>>(task.payload, object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type).keys
+
+    /** An artwork change, the back-filled cover above all: iOS sends no item update for one */
+    @Test
+    fun updateItem_savesLocallyWithoutATask() = runBlocking {
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(FakeLibraryRepository(), syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.updateItem(speedBook().apply { artworkURL = "/covers/book-1.jpg" })
+
+        assertEquals(0, syncTaskRepository.tasks.size)
+    }
+
+    @Test
+    fun updateItemDetails_sendsTheTitleAndAuthorOnly() = runBlocking {
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(FakeLibraryRepository(), syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.updateItemDetails(speedBook().apply { title = "Renamed"; author = "Someone"; currentTime = 42.0 })
+
+        assertEquals(setOf("uuid", "relativePath", "title", "details"), payloadKeys(syncTaskRepository.tasks.single()))
+    }
+
+    /** A progress save sends the book's progress, and each folder above it its rolled-up progress and play date */
+    @Test
+    fun updateItemProgress_sendsProgressOnly_andTheFoldersRollUp() = runBlocking {
+        val book = speedBook(path = "Folder/book.mp3").apply { lastPlayDate = 1_700_000_000_000L; orderRank = 2 }
+        val folder = folder(uuid = "folder-1", path = "Folder", author = "1")
+        val delegate = FakeLibraryRepository().apply {
+            items += mapOf(book.uuid to book, folder.uuid to folder)
+            itemsByPath += mapOf("Folder/book.mp3" to book, "Folder" to folder)
+        }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.updateItemProgress("book-1", 42.0, false)
+
+        val updates = syncTaskRepository.tasks.filter { it.jobType == SyncTaskFactory.JOB_UPDATE }.associateBy { it.taskID }
+        assertEquals(
+            setOf("uuid", "relativePath", "currentTime", "percentCompleted", "isFinished", "lastPlayDateTimestamp"),
+            payloadKeys(updates.getValue("book-1"))
+        )
+        assertEquals(setOf("uuid", "relativePath", "percentCompleted", "lastPlayDateTimestamp"), payloadKeys(updates.getValue("folder-1")))
+    }
+
     // MARK: - Bookmark pull
 
     private class RecordingFetcher(private val rows: List<SyncableBookmark>?) : BookmarkSync.Fetcher {

@@ -425,6 +425,9 @@ class RoomLibraryRepositoryTest {
         override suspend fun updateItemSpeed(uuid: String, speed: Double) {
             items[uuid]?.let { items[uuid] = it.copy(speed = speed) }
         }
+        override suspend fun setFinished(uuid: String, isFinished: Boolean, currentTime: Double, percentCompleted: Double) {
+            items[uuid]?.let { items[uuid] = it.copy(isFinished = isFinished, currentTime = currentTime, percentCompleted = percentCompleted) }
+        }
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) = TODO()
         override suspend fun updateChaptersUuid(oldUuid: String, newUuid: String) = TODO()
         override suspend fun updateBookmarksUuid(oldUuid: String, newUuid: String) = TODO()
