@@ -146,6 +146,16 @@ class RoomLibraryRepository(
         }
     }
 
+    /**
+     * Writes only the title and author: [item] is the details sheet's copy, loaded when the sheet opened, and writing
+     * it whole would put back the progress and play date saved since.
+     */
+    override suspend fun updateItemDetails(item: LibraryItemEntity) {
+        withContext(Dispatchers.IO) {
+            libraryDao.setDetails(item.uuid, item.title, item.author)
+        }
+    }
+
     /** A book just finished counts as a completion. */
     private suspend fun recordCompletion(item: LibraryItemEntity) {
         val oldItem = libraryDao.getItemById(item.uuid)

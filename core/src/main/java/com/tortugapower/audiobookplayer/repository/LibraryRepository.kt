@@ -51,7 +51,7 @@ interface LibraryRepository {
     suspend fun saveItem(item: LibraryItemEntity)
     /** Saves [item] here. Nothing goes to the server: each change that syncs has its own method below. */
     suspend fun updateItem(item: LibraryItemEntity)
-    /** The title and author the user edited: saved like [updateItem], and sent by a syncing repository. */
+    /** The title and author the user edited: saved here and sent by a syncing repository. */
     suspend fun updateItemDetails(item: LibraryItemEntity) = updateItem(item)
     /**
      * The player's Mark as finished: its finished state and position (and the progress they make), saved here and

@@ -41,7 +41,7 @@ class SyncingLibraryRepository(
     // and iOS sends no item update for one. The changes that sync have their own methods, each sending its fields.
 
     override suspend fun updateItemDetails(item: LibraryItemEntity) {
-        delegate.updateItem(item)
+        delegate.updateItemDetails(item)
         if (isSubscribed()) {
             SyncTaskFactory.createUpdateTask(syncTaskRepository, item, ItemUpdateFields.details(item))
         }
