@@ -489,4 +489,8 @@
     <string name="layout_list_option">Lista</string>
     <string name="layout_grid_option">Cuadrícula</string>
     <string name="layout_covers_option">Portadas</string>
+    <string name="player_settings_video_playback">Reproducción de video</string>
+    <string name="player_settings_video_background_playback">Continuar el audio del video en segundo plano</string>
+    <string name="player_settings_video_pip">Imagen en imagen</string>
+    <string name="player_settings_video_playback_desc">Sigue escuchando el audio de un video al salir de la app o bloquear la pantalla. Imagen en imagen mantiene el video en una ventana pequeña al salir de la app desde el reproductor.</string>
 </resources>

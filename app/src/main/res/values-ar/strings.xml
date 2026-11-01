@@ -512,4 +512,8 @@
     <string name="layout_list_option">قائمة</string>
     <string name="layout_grid_option">شبكة</string>
     <string name="layout_covers_option">الأغلفة</string>
+    <string name="player_settings_video_playback">تشغيل الفيديو</string>
+    <string name="player_settings_video_background_playback">متابعة صوت الفيديو في الخلفية</string>
+    <string name="player_settings_video_pip">صورة داخل صورة</string>
+    <string name="player_settings_video_playback_desc">واصل الاستماع إلى صوت الفيديو عند مغادرة التطبيق أو قفل الشاشة. تُبقي ميزة صورة داخل صورة الفيديو في نافذة صغيرة عند مغادرة التطبيق من المشغّل.</string>
 </resources>
