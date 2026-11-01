@@ -97,4 +97,18 @@ class PlaybackSaveTest {
         repository.savePlaybackProgress("b", 41.0, reachedEnd = false)
         assertEquals(0.41, db.libraryDao().getItemById("f")!!.percentCompleted, 1e-9)
     }
+
+    // One statement for every folder above the book: its play date only, its rolled-up progress left as it is
+    @Test fun `the folders above get the play date in one write, and keep their progress`() = runBlocking {
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "a", title = "A", relativePath = "A", type = ItemType.FOLDER, percentCompleted = 0.3))
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "ab", title = "B", relativePath = "A/B", type = ItemType.FOLDER, percentCompleted = 0.6))
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "c", title = "C", relativePath = "C", type = ItemType.FOLDER))
+
+        repository.setFoldersLastPlayDate(listOf("A/B", "A"), 5_000L)
+
+        assertEquals(5_000L, db.libraryDao().getItemById("a")!!.lastPlayDate)
+        assertEquals(5_000L, db.libraryDao().getItemById("ab")!!.lastPlayDate)
+        assertEquals(0.3, db.libraryDao().getItemById("a")!!.percentCompleted, 0.0)
+        assertEquals(null, db.libraryDao().getItemById("c")!!.lastPlayDate)
+    }
 }

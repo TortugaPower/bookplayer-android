@@ -401,6 +401,9 @@ class RoomLibraryRepositoryTest {
                 finishedCount = children.count { it.isFinished },
             )
         }
+        override suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) {
+            items.values.filter { it.relativePath in paths }.forEach { items[it.uuid] = it.copy(lastPlayDate = lastPlayDate) }
+        }
         override suspend fun setFolderRollUp(uuid: String, duration: Double, currentTime: Double, author: String?, percentCompleted: Double, isFinished: Boolean) {
             items[uuid]?.let {
                 items[uuid] = it.copy(duration = duration, currentTime = currentTime, author = author, percentCompleted = percentCompleted, isFinished = isFinished)

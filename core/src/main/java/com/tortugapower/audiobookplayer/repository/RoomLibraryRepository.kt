@@ -154,6 +154,13 @@ class RoomLibraryRepository(
         }
     }
 
+    override suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) {
+        if (paths.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            libraryDao.setFoldersLastPlayDate(paths, lastPlayDate)
+        }
+    }
+
     /**
      * Writes only the artwork: [item] can be a copy loaded a while ago (the details sheet's, or one read before the
      * artwork downloaded or was extracted), and writing it whole would put back the progress and play date saved since.

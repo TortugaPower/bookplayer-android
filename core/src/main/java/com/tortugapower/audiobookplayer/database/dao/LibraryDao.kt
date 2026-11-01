@@ -31,6 +31,13 @@ interface LibraryDao {
     )
     suspend fun getFolderChildrenSummary(path: String): FolderChildrenSummary
 
+    /**
+     * The play date of the folders at [paths], in one statement: a playback save stamps every folder above the book,
+     * and a write per folder made the library's lists read again once per folder level.
+     */
+    @Query("UPDATE library_items SET lastPlayDate = :lastPlayDate WHERE relativePath IN (:paths) AND type IN ('FOLDER', 'BOUND')")
+    suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?)
+
     /** A folder's rolled-up columns; the rest of its row stays as it's stored now. */
     @Query(
         """UPDATE library_items SET duration = :duration, currentTime = :currentTime, author = :author,

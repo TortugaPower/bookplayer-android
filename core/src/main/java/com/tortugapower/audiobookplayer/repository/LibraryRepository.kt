@@ -63,6 +63,13 @@ interface LibraryRepository {
      * own upload task.
      */
     suspend fun updateItemArtwork(item: LibraryItemEntity) = updateItem(item)
+    /**
+     * The play date of the folders at [paths], saved here only: a playback save stamps every folder above the book
+     * (iOS `recursiveFolderLastPlayedDateUpdate`). Defaults to saving each folder whole, for the test fakes.
+     */
+    suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) {
+        paths.forEach { path -> getItemByPath(path)?.let { updateItem(it.copy(lastPlayDate = lastPlayDate)) } }
+    }
     suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean)
     /**
      * A playback save: [currentTime], its progress and the play date, and finished once the book [reachedEnd]. It
