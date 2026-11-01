@@ -587,9 +587,9 @@ class LibraryViewModel(
 
         if (titleChanged || authorChanged) {
             viewModelScope.launch {
-                item.title = newTitle
-                item.author = newAuthor
-                repository.updateItemDetails(item)
+                // An edited copy: [item] is the library list's own, and changed in place the list would already hold
+                // the new title, so the library's next emission would look unchanged and the card wouldn't redraw.
+                repository.updateItemDetails(item.copy(title = newTitle, author = newAuthor))
             }
         }
     }
@@ -698,12 +698,19 @@ class LibraryViewModel(
         }
     }
 
+    // One artwork change at a time, as when they ran on the main thread: a removal tapped while a picked image is still
+    // saving waits for it, and two picks don't both replace the same old artwork (leaving one new file behind)
+    private val artworkLock = Mutex()
+
     fun updateArtwork(context: android.content.Context, item: LibraryItemEntity, imageUri: android.net.Uri?) {
-        viewModelScope.launch {
+        // ioDispatcher: decoding and writing the picked image, and deleting the old one, are disk work
+        viewModelScope.launch(ioDispatcher) { artworkLock.withLock {
             if (imageUri == null) {
+                val stored = storedForArtwork(item) ?: return@launch
                 // Delete existing artwork
-                com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
-                item.artworkURL = null
+                com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
+                stored.artworkURL = null
+                repository.updateItemArtwork(stored)
             } else {
                 // Process and save new artwork
                 val artworkDir = java.io.File(context.filesDir, "Artworks")
@@ -715,25 +722,35 @@ class LibraryViewModel(
                 // Compress and save
                 val success = com.tortugapower.audiobookplayer.logic.ArtworkManager.compressAndSaveImage(context, imageUri, destFile)
                 if (success) {
+                    // The row as it is once the image is saved: an artwork set on it meanwhile is the file to delete
+                    val stored = storedForArtwork(item) ?: run { destFile.delete(); return@launch }
                     // Delete old artwork if exists
-                    com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
-                    item.artworkURL = destFile.absolutePath
+                    com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
+                    stored.artworkURL = destFile.absolutePath
                     
                     // Enqueue sync task for artwork (validation is inside repository)
-                    repository.updateArtworkSync(item)
+                    repository.updateArtworkSync(stored)
+                    repository.updateItemArtwork(stored)
                 }
             }
-            repository.updateItemArtwork(item)
-        }
+        } }
     }
 
     fun deleteArtwork(item: LibraryItemEntity) {
-        viewModelScope.launch {
-            com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
-            item.artworkURL = null
-            repository.updateItemArtwork(item)
-        }
+        viewModelScope.launch(ioDispatcher) { artworkLock.withLock {
+            val stored = storedForArtwork(item) ?: return@launch
+            com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
+            stored.artworkURL = null
+            repository.updateItemArtwork(stored)
+        } }
     }
+
+    /**
+     * The stored row an artwork change works on, not the sheet's [item]: that's the library list's own (changed in
+     * place, the card wouldn't redraw), and an artwork set earlier from the same sheet is only on the stored row,
+     * whose file the change must delete.
+     */
+    private suspend fun storedForArtwork(item: LibraryItemEntity): LibraryItemEntity? = repository.getItemById(item.uuid)
 
     companion object {
         /** Upper bound on how long the pull-to-refresh indicator waits for the fetch task to drain. */

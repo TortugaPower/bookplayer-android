@@ -107,4 +107,23 @@ class BoundConversionTest {
         assertEquals(ItemType.FOLDER, row.type)
         assertNull(row.lastPlayDate)
     }
+
+    // The stored rows convert, not the caller's items: those are the library list's own (changed in place, its cards
+    // wouldn't redraw), and saved whole they would put back what changed since they were read
+    @Test fun `a conversion leaves the caller's item as it was and keeps the row's newer fields`() = runBlocking {
+        val listsFolder = seed("f", "Series", ItemType.FOLDER)
+        seed("b", "Series/One.mp3", ItemType.BOOK)
+        db.libraryDao().updateItem(listsFolder.copy(title = "Renamed since"))
+
+        repository.convertFoldersToVolumes(context, listOf(listsFolder))
+        val listsVolume = db.libraryDao().getItemById("f")!!.copy(title = "Series")
+        db.libraryDao().updateItem(listsVolume.copy(title = "Renamed again"))
+        repository.convertVolumesToFolders(listOf(listsVolume))
+
+        assertEquals(ItemType.FOLDER, listsFolder.type)
+        assertEquals(ItemType.BOUND, listsVolume.type)
+        val row = db.libraryDao().getItemById("f")!!
+        assertEquals(ItemType.FOLDER, row.type)
+        assertEquals("Renamed again", row.title)
+    }
 }
