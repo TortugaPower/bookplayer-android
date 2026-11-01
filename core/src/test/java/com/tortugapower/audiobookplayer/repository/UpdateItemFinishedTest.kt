@@ -70,4 +70,21 @@ class UpdateItemFinishedTest {
         assertEquals(1.0, stored.percentCompleted, 0.0)
         assertEquals(before, playerCopy)
     }
+
+    // As any finish (iOS markAsCompleted): the folder holding the book is rolled up (finished once all its books are),
+    // and it counts
+    @Test fun `finishing a book rolls its folder up and counts a completion`() = runBlocking {
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "f", title = "F", relativePath = "F", type = ItemType.FOLDER))
+        db.libraryDao().insertItem(
+            LibraryItemEntity(uuid = "a", title = "A", relativePath = "F/a.m4b", type = ItemType.BOOK, duration = 100.0, currentTime = 40.0, percentCompleted = 0.4)
+        )
+        val playerCopy = db.libraryDao().getItemById("a")!!
+        playerCopy.isFinished = true
+        playerCopy.percentCompleted = 1.0
+
+        RoomLibraryRepository(context, db.libraryDao()).updateItemFinished(playerCopy)
+
+        assertEquals(true, db.libraryDao().getItemById("f")!!.isFinished)
+        assertEquals(true, db.libraryDao().hasCompletion("a"))
+    }
 }

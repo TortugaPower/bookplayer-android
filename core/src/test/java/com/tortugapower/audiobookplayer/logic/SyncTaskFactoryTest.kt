@@ -64,7 +64,7 @@ class SyncTaskFactoryTest {
         val repo = CapturingRepo()
         SyncTaskFactory.createExternalUpdateTask(
             repo, libraryItemUuid = "u1", providerName = "jellyfin", providerId = "jf-9", hostId = "srv-guid",
-            currentTime = 10.0, percentCompleted = 0.5, isFinished = false, lastPlayDate = 1_790_694_307_123L,
+            currentTime = 10.0, percentCompleted = 0.5, lastPlayDate = 1_790_694_307_123L,
         )
         val payload = payloadOf(repo.saved!!)
         assertEquals(1_790_694_307_123.0, payload["lastPlayDate"] as Double, 0.0)

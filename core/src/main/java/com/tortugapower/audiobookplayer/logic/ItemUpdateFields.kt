@@ -10,16 +10,21 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
  */
 object ItemUpdateFields {
 
-    /**
-     * A progress save: playback, Jump to start, Mark as finished from the library (iOS `updatePlaybackTime`,
-     * `jumpToStart`, `markAsFinished`).
-     */
+    /** A progress save that sets the finished flag: the library's Jump to start, a restart from 0 (iOS `jumpToStart`). */
     fun progress(item: LibraryItemEntity): Map<String, Any?> = mapOf(
         "currentTime" to item.currentTime,
         "percentCompleted" to percentCompleted(item),
         "isFinished" to item.isFinished,
         "lastPlayDateTimestamp" to lastPlayDateSeconds(item),
     )
+
+    /**
+     * A playback save (iOS `updatePlaybackTime`): the position, its progress and the play date, without the finished
+     * flag, which playback never clears; the save that reached the book's end sends it, finished (iOS
+     * `markAsCompleted`). A flag sent with every save would un-finish a book finished on another device.
+     */
+    fun playback(item: LibraryItemEntity, reachedEnd: Boolean): Map<String, Any?> =
+        progress(item) - "isFinished" + (if (reachedEnd) mapOf("isFinished" to true) else emptyMap())
 
     /**
      * A folder holding the book that played: its progress and play date, rolled up from the book (iOS
@@ -29,6 +34,9 @@ object ItemUpdateFields {
         "percentCompleted" to percentCompleted(folder),
         "lastPlayDateTimestamp" to lastPlayDateSeconds(folder),
     )
+
+    /** A folder holding a book just marked finished or unfinished: its rolled-up progress (iOS `markAsCompleted`). */
+    fun folderPercent(folder: LibraryItemEntity): Map<String, Any?> = mapOf("percentCompleted" to percentCompleted(folder))
 
     /**
      * A folder whose contents changed (a move, a delete): its count, length and progress (iOS
@@ -52,7 +60,10 @@ object ItemUpdateFields {
         "details" to LibraryContentsSync.serverFolderDetails(item),
     )
 
-    /** The player's Mark as finished: the flag, the position it moved to (the end, or the start), and the progress. */
+    /**
+     * Mark as finished or unfinished, from the player or the library (iOS `markAsFinished`): the flag, the position
+     * (kept, or the start for a book unfinished at its end), and the progress.
+     */
     fun finished(item: LibraryItemEntity): Map<String, Any?> = mapOf(
         "isFinished" to item.isFinished,
         "currentTime" to item.currentTime,

@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
+import com.tortugapower.audiobookplayer.logic.FinishedPolicy
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
@@ -181,25 +182,36 @@ class PlayerViewModel(
             }
         }
     }
+    /** Back to the start, paused, as iOS's player does (`handleJumpToStart`) */
     fun jumpToStart() {
+        PlaybackManager.pause()
         PlaybackManager.seekTo(0)
         showMoreOptions = false
         notifySeek()
     }
 
+    /**
+     * Mark as finished / unfinished, as iOS's player does (`handleMarkCompletion`): it pauses, and keeps the listening
+     * position, except that unfinishing a book at its end takes it back to the start. It never seeks to the end,
+     * which ended playback and started the next book.
+     */
     fun toggleFinished() {
         val item = PlaybackManager.currentItem.value ?: return
         viewModelScope.launch {
-            item.isFinished = !item.isFinished
-            if (item.isFinished) {
-                item.currentTime = item.duration
-                item.percentCompleted = 1.0
-                PlaybackManager.seekTo((item.duration * 1000).toLong())
-            } else {
-                item.currentTime = 0.0
-                item.percentCompleted = 0.0
-                PlaybackManager.seekTo(0)
-            }
+            // Not ready (loading, a stream that failed): the stored row's, which playback saves keep; this copy's is
+            // the position it loaded at
+            val position = PlaybackManager.loadedPositionSeconds()
+                ?: repository.getItemById(item.uuid)?.currentTime
+                ?: item.currentTime
+            val finished = !item.isFinished
+            val newTime = FinishedPolicy.positionAfter(finished, position, item.duration)
+            // Back to the start before the pause: the pause saves the position, and at the end that save would finish
+            // the book again after this unfinishes it
+            if (newTime != position) PlaybackManager.seekTo((newTime * 1000).toLong())
+            PlaybackManager.pause()
+            item.isFinished = finished
+            item.currentTime = newTime
+            item.percentCompleted = FinishedPolicy.progressAfter(finished, newTime, item.duration)
             repository.updateItemFinished(item)
             showMoreOptions = false
             notifySeek()

@@ -55,14 +55,17 @@ class SyncingLibraryRepositoryTest {
         override fun getChaptersForBook(bookUuid: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>> = emptyFlow()
         override suspend fun insertChapters(chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}
         override suspend fun replaceChaptersForBook(bookUuid: String, chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}
-        override fun getExternalResourcesForBook(itemUuid: String): Flow<List<ExternalResourceEntity>> = emptyFlow()
+        var externalResources: List<ExternalResourceEntity> = emptyList()
+        override fun getExternalResourcesForBook(itemUuid: String): Flow<List<ExternalResourceEntity>> =
+            kotlinx.coroutines.flow.flowOf(externalResources)
 
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = emptyList()
         override suspend fun getItemById(uuid: String): LibraryItemEntity? = items[uuid] ?: itemById
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = itemsByPath[path]
         override suspend fun saveItem(item: LibraryItemEntity) {}
         override suspend fun updateItem(item: LibraryItemEntity) {}
-        override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {}
+        val progressWrites = mutableListOf<Boolean>()
+        override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) { progressWrites += isFinished }
         override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) {}
         override suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>) {}
         // Mirrors RoomLibraryRepository: mutates each item's relativePath IN PLACE — the move test pins
@@ -570,6 +573,93 @@ class SyncingLibraryRepositoryTest {
             payloadKeys(updates.getValue("book-1"))
         )
         assertEquals(setOf("uuid", "relativePath", "percentCompleted", "lastPlayDateTimestamp"), payloadKeys(updates.getValue("folder-1")))
+    }
+
+    /**
+     * A playback save sends no finished flag (iOS `updatePlaybackTime`): sent with every save, it would un-finish a
+     * book finished on another device. The save that reached the end sends it, finished.
+     */
+    @Test
+    fun savePlaybackProgress_sendsTheFlagOnlyAtTheEnd() = runBlocking {
+        val book = speedBook().apply { lastPlayDate = 1_700_000_000_000L; isFinished = true }
+        val delegate = FakeLibraryRepository().apply { items += book.uuid to book }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.savePlaybackProgress("book-1", 42.0, reachedEnd = false)
+        assertEquals(
+            setOf("uuid", "relativePath", "currentTime", "percentCompleted", "lastPlayDateTimestamp"),
+            payloadKeys(syncTaskRepository.tasks.single())
+        )
+
+        syncTaskRepository.tasks.clear()
+        repository.savePlaybackProgress("book-1", 99.0, reachedEnd = true)
+        val payload = com.google.gson.Gson().fromJson<Map<String, Any?>>(
+            syncTaskRepository.tasks.single().payload, object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
+        )
+        assertEquals(true, payload["isFinished"])
+    }
+
+    /**
+     * A media server gets where the book is, not the stored flag (iOS sends media servers no finished flag): a
+     * finished book played on would otherwise tell ABS it's at 100% mid-book.
+     */
+    @Test
+    fun savePlaybackProgress_ofAFinishedBook_tellsMediaServersWhereItIs() = runBlocking {
+        val book = speedBook().apply { duration = 100.0; isFinished = true; percentCompleted = 1.0 }
+        val delegate = FakeLibraryRepository().apply {
+            items += book.uuid to book
+            externalResources = listOf(
+                ExternalResourceEntity(providerName = "jellyfin", providerId = "jf-1", syncStatus = "synced", libraryItemUuid = book.uuid)
+            )
+        }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.savePlaybackProgress("book-1", 40.0, reachedEnd = false)
+
+        val push = com.google.gson.Gson().fromJson<Map<String, Any?>>(
+            syncTaskRepository.tasks.single { it.jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE }.payload,
+            object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
+        )
+        assertFalse("isFinished" in push)
+        assertEquals(0.4, (push["percentCompleted"] as Number).toDouble(), 0.0)
+    }
+
+    /** A repository without its own playback save keeps a finished book finished, as the save's contract says */
+    @Test
+    fun savePlaybackProgress_byDefault_keepsAFinishedBookFinished() = runBlocking {
+        val book = speedBook().apply { isFinished = true }
+        val delegate = FakeLibraryRepository().apply { items += book.uuid to book }
+        val repository = SyncingLibraryRepository(delegate, FakeSyncTaskRepository(), FakeAccountRepository(AccountTier.FREE))
+
+        repository.savePlaybackProgress("book-1", 10.0, reachedEnd = false)
+
+        assertEquals(listOf(true), delegate.progressWrites)
+    }
+
+    /** Mark as finished sends the book's finish and its folder's rolled-up progress (iOS markAsCompleted), not to media servers */
+    @Test
+    fun updateItemFinished_sendsTheFinish_andTheFoldersRollUp() = runBlocking {
+        val book = speedBook(path = "Folder/book.mp3").apply {
+            isFinished = true; percentCompleted = 1.0; currentTime = 40.0; lastPlayDate = 1_700_000_000_000L
+        }
+        val folder = folder(uuid = "folder-1", path = "Folder", author = "1")
+        val delegate = FakeLibraryRepository().apply {
+            items += mapOf(book.uuid to book, folder.uuid to folder)
+            itemsByPath += mapOf("Folder/book.mp3" to book, "Folder" to folder)
+        }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.updateItemFinished(book)
+
+        val updates = syncTaskRepository.tasks.filter { it.jobType == SyncTaskFactory.JOB_UPDATE }.associateBy { it.taskID }
+        assertEquals(setOf("uuid", "relativePath", "isFinished", "currentTime", "percentCompleted"), payloadKeys(updates.getValue("book-1")))
+        // Its progress only: a finish doesn't change when the folder was played (the book's date could be older)
+        assertEquals(setOf("uuid", "relativePath", "percentCompleted"), payloadKeys(updates.getValue("folder-1")))
+        assertEquals(null, folder.lastPlayDate)
+        assertTrue(syncTaskRepository.tasks.none { it.jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE })
     }
 
     // MARK: - Bookmark pull

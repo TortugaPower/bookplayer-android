@@ -660,14 +660,36 @@ object PlaybackManager {
      * Whether loading [playItem]'s target should reset the position to 0:00. A finished book
      * restarts on a MANUAL tap always, and on an autoplay transition only when the restart-finished
      * preference is on (iOS parity: `autoplayRestartEnabled`); `fromBeginning` (library "Play from
-     * beginning") always restarts. Pure — pinned by PlaybackRestartDecisionTest.
+     * beginning") always restarts. A sync's re-arm of another device's last played book ([isSyncRestore]) never
+     * does: a finished book stays finished while it plays on there, and restarting it here would send 0 back.
+     * Pure — pinned by PlaybackRestartDecisionTest.
      */
     internal fun shouldRestartFromZero(
         isFinished: Boolean,
         fromBeginning: Boolean,
         isAutoplayTransition: Boolean,
         autoplayRestartFinished: Boolean,
-    ): Boolean = (isFinished && (!isAutoplayTransition || autoplayRestartFinished)) || fromBeginning
+        isSyncRestore: Boolean = false,
+    ): Boolean = (isFinished && !isSyncRestore && (!isAutoplayTransition || autoplayRestartFinished)) || fromBeginning
+
+    /**
+     * The loaded book's whole-book position in seconds, or null while the player isn't ready on it (a load or
+     * transition in flight, a stream that failed and left the player idle, a volume whose timeline isn't built):
+     * its position then isn't the book's, and can read 0.
+     */
+    fun loadedPositionSeconds(): Double? {
+        val p = player ?: return null
+        val item = _currentItem.value ?: return null
+        val timelineMissing = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND &&
+            _currentPlayable.value?.timeline?.isEmpty != false
+        if (!canReadLivePosition(_isTransitioning.value, p.playbackState, timelineMissing)) return null
+        return controllerToWholeBookMs(p.currentMediaItemIndex, p.currentPosition) / 1000.0
+    }
+
+    /** Whether the player's position is the loaded book's. Pure — pinned by LivePositionDecisionTest. */
+    internal fun canReadLivePosition(isTransitioning: Boolean, playbackState: Int, timelineMissing: Boolean): Boolean =
+        !isTransitioning && !timelineMissing &&
+            (playbackState == Player.STATE_READY || playbackState == Player.STATE_BUFFERING || playbackState == Player.STATE_ENDED)
 
     /**
      * Whether a play-intent transition should re-arm the last sleep timer: only a PLAY (not a pause),
@@ -991,10 +1013,14 @@ object PlaybackManager {
         val currentPos = controllerToWholeBookMs(p.currentMediaItemIndex, p.currentPosition) / 1000.0
 
         val totalDuration = item.duration
-        val isFinished = forceFinished || (currentPos >= totalDuration - 1.0 && totalDuration > 0)
+        val reachedEnd = forceFinished || FinishedPolicy.isAtEnd(currentPos, totalDuration)
+        // The player's copy too, as iOS's markAsCompleted sets it: the player's Mark as finished/unfinished reads it
+        if (reachedEnd) item.isFinished = true
 
+        // Never un-finishes the book, as iOS's playback saves don't: Mark as unfinished, the library's Jump to start
+        // and a restart from 0 do
         scope.launch(Dispatchers.IO) {
-            getRepository(context).updateItemProgress(item.uuid, currentPos, isFinished)
+            getRepository(context).savePlaybackProgress(item.uuid, currentPos, reachedEnd)
         }
     }
 
@@ -1044,7 +1070,7 @@ object PlaybackManager {
             }
 
             android.util.Log.d("PlaybackManager", "🔄 Syncing last played item from remote: ${item.title} at ${item.currentTime}s")
-            playItem(context, item, autoplay = false)
+            playItem(context, item, autoplay = false, isSyncRestore = true)
         }
     }
 
@@ -1057,6 +1083,8 @@ object PlaybackManager {
         // here — not by the caller mutating the entity — so the seek below can't race the async DB reset.
         fromBeginning: Boolean = false,
         isAutoplayTransition: Boolean = false,
+        // A sync placing the player at another device's last played book: a finished one isn't restarted
+        isSyncRestore: Boolean = false,
     ) {
         lastLoadUserInitiated = autoplay
         // Cleared again on every path where this load never reaches playback (storage/streaming
@@ -1076,7 +1104,8 @@ object PlaybackManager {
             updateProgress(context, itemToUpdate = _currentItem.value)
         }
         
-        val restartFromZero = shouldRestartFromZero(item.isFinished, fromBeginning, isAutoplayTransition, autoplayRestartFinished)
+        val restartFromZero =
+            shouldRestartFromZero(item.isFinished, fromBeginning, isAutoplayTransition, autoplayRestartFinished, isSyncRestore)
         if (restartFromZero) {
             item.currentTime = 0.0
             item.isFinished = false

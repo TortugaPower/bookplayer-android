@@ -372,6 +372,7 @@ class VirtualImportManagerTest {
         override suspend fun updateBookmark(bookmark: BookmarkEntity) = TODO()
         override suspend fun updateItemSpeed(uuid: String, speed: Double) = TODO()
         override suspend fun setFinished(uuid: String, isFinished: Boolean, currentTime: Double, percentCompleted: Double) = TODO()
+        override suspend fun savePlaybackPosition(uuid: String, currentTime: Double, percentCompleted: Double, reachedEnd: Boolean, lastPlayDate: Long) = TODO()
         override suspend fun setDetails(uuid: String, title: String, author: String?) = TODO()
         override suspend fun setArtwork(uuid: String, artworkURL: String?) = TODO()
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) = TODO()

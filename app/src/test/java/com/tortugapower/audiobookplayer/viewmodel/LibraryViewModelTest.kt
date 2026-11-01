@@ -94,6 +94,11 @@ class LibraryViewModelTest {
         }
         override suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity> =
             if (item.type == ItemType.BOOK) listOf(item) else descendantBooks
+        // Mark as finished's writes, (uuid, time, finished, progress)
+        val finishedWrites = mutableListOf<List<Any>>()
+        override suspend fun updateItemFinished(item: LibraryItemEntity) {
+            finishedWrites += listOf(item.uuid, item.currentTime, item.isFinished, item.percentCompleted)
+        }
         override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) {}
         override suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>) {}
         val moves = mutableListOf<Pair<List<String>, String?>>()
@@ -569,10 +574,12 @@ class LibraryViewModelTest {
         model.setFinishedStatus(listOf(folder), isFinished = true)
         advanceUntilIdle()
 
+        // Through the player's Mark as finished (iOS has one markAsFinished): no progress save
         assertEquals(
-            listOf(Triple("b1", 1800.0, true), Triple("b2", 0.0, true)),
-            libraryRepo.progressUpdates,
+            listOf(listOf("b1", 1800.0, true, 1.0), listOf("b2", 0.0, true, 1.0)),
+            libraryRepo.finishedWrites,
         )
+        assertTrue(libraryRepo.progressUpdates.isEmpty())
     }
 
     // Un-finishing rewinds to 0 ONLY when the book actually sits at the end; a mid-book position survives.
@@ -590,8 +597,8 @@ class LibraryViewModelTest {
         advanceUntilIdle()
 
         assertEquals(
-            listOf(Triple("b1", 0.0, false), Triple("b2", 1800.0, false)),
-            libraryRepo.progressUpdates,
+            listOf(listOf("b1", 0.0, false, 0.0), listOf("b2", 1800.0, false, 0.5)),
+            libraryRepo.finishedWrites,
         )
     }
 

@@ -1075,7 +1075,6 @@ class ExternalUpdateProcessor(
         val hostIdStr = payload["hostId"] as? String
         val currentTime = (payload["currentTime"] as? Double) ?: 0.0
         val percentCompleted = (payload["percentCompleted"] as? Double) ?: 0.0
-        val isFinished = (payload["isFinished"] as? Boolean) ?: false
         // Absent on tasks queued before the date was sent; the push then omits it (Jellyfin keeps its own
         // date, ABS stamps the time the push lands).
         val lastPlayDate = (payload["lastPlayDate"] as? Double)?.toLong()
@@ -1112,12 +1111,10 @@ class ExternalUpdateProcessor(
                 "jellyfin" -> {
                     val ticks = (currentTime * 10_000_000).toLong()
                     val playedPercentage = percentCompleted * 100.0
-                    val played = isFinished
 
                     val requestBody = com.tortugapower.audiobookplayer.network.services.JellyfinUserDataRequest(
                         playbackPositionTicks = ticks,
                         playedPercentage = playedPercentage,
-                        played = played,
                         lastPlayedDate = lastPlayDate?.let { java.time.Instant.ofEpochMilli(it).toString() }
                     )
 

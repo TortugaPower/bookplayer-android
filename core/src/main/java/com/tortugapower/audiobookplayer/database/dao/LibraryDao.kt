@@ -160,6 +160,22 @@ interface LibraryDao {
     @Query("UPDATE library_items SET isFinished = :isFinished, currentTime = :currentTime, percentCompleted = :percentCompleted WHERE uuid = :uuid")
     suspend fun setFinished(uuid: String, isFinished: Boolean, currentTime: Double, percentCompleted: Double)
 
+    /**
+     * A playback save: the position, its progress and the play date. The finished flag only turns on here, when the
+     * book [reachedEnd]; a finished book keeps it, and its 100%, as every finished row here holds 1.0 (the other
+     * progress writes and the server sync's `normalizedRemotePercent` store it so) while its position moves on. iOS
+     * stores the position's percentage and shows 100% from the flag; media servers get the position's percentage
+     * from Android too. One statement, so a write of the flag (Mark as finished) or of another column made while
+     * playback saved isn't undone, as saving the whole row read before would.
+     */
+    @Query(
+        """UPDATE library_items SET currentTime = :currentTime, lastPlayDate = :lastPlayDate,
+        isFinished = (isFinished OR :reachedEnd),
+        percentCompleted = CASE WHEN (isFinished OR :reachedEnd) THEN 1.0 ELSE :percentCompleted END
+        WHERE uuid = :uuid"""
+    )
+    suspend fun savePlaybackPosition(uuid: String, currentTime: Double, percentCompleted: Double, reachedEnd: Boolean, lastPlayDate: Long)
+
     /** The title and author; the rest of the row stays as it's stored now. */
     @Query("UPDATE library_items SET title = :title, author = :author WHERE uuid = :uuid")
     suspend fun setDetails(uuid: String, title: String, author: String?)

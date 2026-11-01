@@ -428,6 +428,15 @@ class RoomLibraryRepositoryTest {
         override suspend fun setFinished(uuid: String, isFinished: Boolean, currentTime: Double, percentCompleted: Double) {
             items[uuid]?.let { items[uuid] = it.copy(isFinished = isFinished, currentTime = currentTime, percentCompleted = percentCompleted) }
         }
+        override suspend fun savePlaybackPosition(uuid: String, currentTime: Double, percentCompleted: Double, reachedEnd: Boolean, lastPlayDate: Long) {
+            items[uuid]?.let {
+                val finished = it.isFinished || reachedEnd
+                items[uuid] = it.copy(
+                    currentTime = currentTime, lastPlayDate = lastPlayDate, isFinished = finished,
+                    percentCompleted = if (finished) 1.0 else percentCompleted,
+                )
+            }
+        }
         override suspend fun setDetails(uuid: String, title: String, author: String?) {
             items[uuid]?.let { items[uuid] = it.copy(title = title, author = author) }
         }
