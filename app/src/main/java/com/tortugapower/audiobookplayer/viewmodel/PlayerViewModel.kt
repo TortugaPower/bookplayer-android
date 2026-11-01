@@ -193,12 +193,14 @@ class PlayerViewModel(
             item.isFinished = !item.isFinished
             if (item.isFinished) {
                 item.currentTime = item.duration
+                item.percentCompleted = 1.0
                 PlaybackManager.seekTo((item.duration * 1000).toLong())
             } else {
                 item.currentTime = 0.0
+                item.percentCompleted = 0.0
                 PlaybackManager.seekTo(0)
             }
-            repository.updateItem(item)
+            repository.updateItemFinished(item)
             showMoreOptions = false
             notifySeek()
         }

@@ -125,17 +125,53 @@ class RoomLibraryRepository(
 
     override suspend fun updateItem(item: LibraryItemEntity) {
         withContext(Dispatchers.IO) {
-            val oldItem = libraryDao.getItemById(item.uuid)
-            if (oldItem != null && item.isFinished && !oldItem.isFinished) {
-                val completion = BookCompletionEntity(
-                    bookUuid = item.uuid,
-                    bookTitle = item.title,
-                    authorName = item.author,
-                    completionDate = timeProvider()
-                )
-                libraryDao.insertCompletionIfMissing(completion)
-            }
+            recordCompletion(item)
             libraryDao.updateItem(item)
+        }
+    }
+
+    /**
+     * Writes only the finished state, position and progress: [item] is the player's copy, loaded before playback
+     * saved its play date, and writing it whole would put that back.
+     */
+    override suspend fun updateItemFinished(item: LibraryItemEntity) {
+        withContext(Dispatchers.IO) {
+            recordCompletion(item)
+            libraryDao.setFinished(item.uuid, item.isFinished, item.currentTime, item.percentCompleted)
+        }
+    }
+
+    /**
+     * Writes only the title and author: [item] is the details sheet's copy, loaded when the sheet opened, and writing
+     * it whole would put back the progress and play date saved since.
+     */
+    override suspend fun updateItemDetails(item: LibraryItemEntity) {
+        withContext(Dispatchers.IO) {
+            libraryDao.setDetails(item.uuid, item.title, item.author)
+        }
+    }
+
+    /**
+     * Writes only the artwork: [item] can be a copy loaded a while ago (the details sheet's, or one read before the
+     * artwork downloaded or was extracted), and writing it whole would put back the progress and play date saved since.
+     */
+    override suspend fun updateItemArtwork(item: LibraryItemEntity) {
+        withContext(Dispatchers.IO) {
+            libraryDao.setArtwork(item.uuid, item.artworkURL)
+        }
+    }
+
+    /** A book just finished counts as a completion. */
+    private suspend fun recordCompletion(item: LibraryItemEntity) {
+        val oldItem = libraryDao.getItemById(item.uuid)
+        if (oldItem != null && item.isFinished && !oldItem.isFinished) {
+            val completion = BookCompletionEntity(
+                bookUuid = item.uuid,
+                bookTitle = item.title,
+                authorName = item.author,
+                completionDate = timeProvider()
+            )
+            libraryDao.insertCompletionIfMissing(completion)
         }
     }
 

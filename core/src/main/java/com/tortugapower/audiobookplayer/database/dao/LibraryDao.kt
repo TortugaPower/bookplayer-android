@@ -156,6 +156,18 @@ interface LibraryDao {
     @Query("UPDATE library_items SET speed = :speed WHERE uuid = :uuid")
     suspend fun updateItemSpeed(uuid: String, speed: Double)
 
+    /** The finished state and the position it moved to; the rest of the row stays as it's stored now. */
+    @Query("UPDATE library_items SET isFinished = :isFinished, currentTime = :currentTime, percentCompleted = :percentCompleted WHERE uuid = :uuid")
+    suspend fun setFinished(uuid: String, isFinished: Boolean, currentTime: Double, percentCompleted: Double)
+
+    /** The title and author; the rest of the row stays as it's stored now. */
+    @Query("UPDATE library_items SET title = :title, author = :author WHERE uuid = :uuid")
+    suspend fun setDetails(uuid: String, title: String, author: String?)
+
+    /** The artwork; the rest of the row stays as it's stored now. */
+    @Query("UPDATE library_items SET artworkURL = :artworkURL WHERE uuid = :uuid")
+    suspend fun setArtwork(uuid: String, artworkURL: String?)
+
     @Query("SELECT * FROM bookmarks WHERE bookUuid = :bookUuid ORDER BY time ASC")
     fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>>
 
