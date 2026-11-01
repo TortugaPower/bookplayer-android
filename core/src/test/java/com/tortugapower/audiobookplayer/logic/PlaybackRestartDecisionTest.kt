@@ -37,4 +37,12 @@ class PlaybackRestartDecisionTest {
         assertEquals(true, decide(isFinished = false, fromBeginning = true))
         assertEquals(true, decide(isFinished = true, fromBeginning = true, isAutoplayTransition = true, autoplayRestartFinished = false))
     }
+
+    // A sync placing the player at another device's last played book: a finished one stays finished while it plays
+    // on there, and a restart here would send 0 back
+    @Test fun `a sync's re-arm of a finished book doesn't restart it`() {
+        assertEquals(false, PlaybackManager.shouldRestartFromZero(
+            isFinished = true, fromBeginning = false, isAutoplayTransition = false, autoplayRestartFinished = true, isSyncRestore = true,
+        ))
+    }
 }

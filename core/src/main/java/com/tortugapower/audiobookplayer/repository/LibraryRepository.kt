@@ -49,8 +49,35 @@ interface LibraryRepository {
     suspend fun isCloudSyncActive(): Boolean
 
     suspend fun saveItem(item: LibraryItemEntity)
+    /** Saves [item] here. Nothing goes to the server: each change that syncs has its own method below. */
     suspend fun updateItem(item: LibraryItemEntity)
+    /** The title and author the user edited: saved here and sent by a syncing repository. */
+    suspend fun updateItemDetails(item: LibraryItemEntity) = updateItem(item)
+    /**
+     * The player's Mark as finished: the finished state, position and progress the caller set on [item], saved here
+     * and sent by a syncing repository.
+     */
+    suspend fun updateItemFinished(item: LibraryItemEntity) = updateItem(item)
+    /**
+     * An artwork set or removed: saved here only. iOS sends no item update for one; the image goes up through its
+     * own upload task.
+     */
+    suspend fun updateItemArtwork(item: LibraryItemEntity) = updateItem(item)
+    /**
+     * The play date of the folders and volumes at [paths], saved here only: a playback save stamps every one above the
+     * book (iOS `recursiveFolderLastPlayedDateUpdate`), in one statement rather than a whole-row save per folder. It
+     * doesn't sync, a syncing repository included: its caller queues the folders' updates.
+     */
+    suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?)
     suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean)
+    /**
+     * A playback save: [currentTime], its progress and the play date, and finished once the book [reachedEnd]. It
+     * never un-finishes a book, as iOS's `updatePlaybackTime` never touches the flag: a finished book stays finished
+     * while it plays on, until Mark as unfinished, the library's Jump to start or a restart from 0. Defaults to
+     * [updateItemProgress] with the stored flag kept, for repositories that don't play (the test fakes).
+     */
+    suspend fun savePlaybackProgress(uuid: String, currentTime: Double, reachedEnd: Boolean) =
+        updateItemProgress(uuid, currentTime, reachedEnd || getItemById(uuid)?.isFinished == true)
     suspend fun getDescendantBooks(item: LibraryItemEntity): List<LibraryItemEntity>
     suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity)
     suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>)

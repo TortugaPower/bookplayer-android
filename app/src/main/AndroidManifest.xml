@@ -4,7 +4,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Read the active connection's metered state and observe network changes for the data-usage
-         upload gate (UploadDataPolicy / TaskConcurrencyServiceHost). Declared explicitly rather than
+         upload gate (UploadDataPolicy / SyncRuntime's network callback). Declared explicitly rather than
          relying on transitive manifest merge from other libraries. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Keeps the CPU and (for streamed books) the Wi-Fi radio awake so audio keeps playing with the
@@ -14,6 +14,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- The sync service's notice during a transfer (Android 13+; playback's notification is exempt). Asked the
+         first time a transfer runs with the app on screen (NotificationPermissionPrompt). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Lets us resolve/launch email apps (package visibility, API 30+) for the support email. -->
     <queries>
@@ -280,6 +283,19 @@
             android:permission="android.permission.BIND_REMOTEVIEWS"
             android:exported="false" />
 
+
+        <!-- WorkManager starts on demand (BookPlayerApplication is its Configuration.Provider), not with every process:
+             its initializer wrote its database at each start, first to die on a full disk. The provider stays for the
+             other initializers (ProcessLifecycleOwner's). -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                tools:node="remove" />
+        </provider>
 
         <!-- Shares the generated debug .txt as a content:// URI (Settings → Support). -->
         <provider

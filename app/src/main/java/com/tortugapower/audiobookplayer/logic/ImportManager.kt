@@ -19,6 +19,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
 import java.io.File
@@ -37,8 +39,13 @@ object ImportManager : ImportService {
     override var importedFiles by mutableStateOf<List<ImportFile>>(emptyList())
         private set
 
-    override var isImporting by mutableStateOf(false)
-        private set
+    // Staging a pick and importing a transfer can overlap: the overlay stays up until the last one ends.
+    private var importsRunning by mutableIntStateOf(0)
+    override val isImporting: Boolean get() = importsRunning > 0
+
+    // One import into the library at a time: two at once would each read the folder's highest rank and hand
+    // out the same ones, and share the progress shown on the import sheet.
+    private val importLock = Mutex()
 
     override var activeDownloadCount by mutableIntStateOf(0)
         private set
@@ -74,72 +81,81 @@ object ImportManager : ImportService {
 
     override fun startImport(context: Context, uris: List<Uri>) {
         scope.launch {
-            isImporting = true
-            val backupDir = File(context.filesDir, "BPBackup")
-            if (!backupDir.exists()) backupDir.mkdirs()
-
-            val newFiles = mutableListOf<ImportFile>()
-            val database = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
-            val libraryDao = database.libraryDao()
-            
-            var currentSkipped = 0
-            val stagedFiles = withContext(Dispatchers.IO) {
-                val processedDir = File(context.filesDir, "Processed")
-                uris.forEach { uri ->
-                    val fileName = resolveImportFileName(context, uri) ?: run {
-                        currentSkipped++
-                        return@forEach
-                    }
-
-                    // Archives skip the duplicate check: their fate is decided per extracted entry.
-                    val existingItem = if (ImportArchiveUtils.isArchive(fileName)) null else libraryDao.getItemByFileName(fileName)
-                    var isFileOnly = false
-                    if (existingItem != null) {
-                        val relativePath = existingItem.relativePath
-                        val destFileInProcessed = if (!relativePath.isNullOrEmpty()) File(processedDir, relativePath) else File(processedDir, fileName)
-                        if (destFileInProcessed.exists()) {
-                            currentSkipped++
-                            return@forEach
-                        }
-                        isFileOnly = true
-                    }
-
-                    // Refuse a file that can't fit with headroom to spare: an import that fills the disk
-                    // takes the database down with it. It counts as skipped; the storage banner explains.
-                    val size = try {
-                        context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
-                    } catch (e: Exception) {
-                        -1L
-                    }
-                    if (size > 0 && !StorageMonitor.hasRoomFor(context, size)) {
-                        StorageMonitor.noteTransferDoesNotFit(context, size)
-                        currentSkipped++
-                        return@forEach
-                    }
-
-                    val destFile = ImportArchiveUtils.uniqueDestination(backupDir, fileName)
-
-                    try {
-                        context.contentResolver.openInputStream(uri)?.use { input ->
-                            FileOutputStream(destFile).use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        newFiles.add(ImportFile(destFile.name, destFile, isFileOnly = isFileOnly))
-                    } catch (e: Exception) {
-                        StorageMonitor.reportFailure(context, e) // ENOSPC mid-copy: storage state, not a silent skip
-                        destFile.delete()
-                        e.printStackTrace()
-                    }
-                }
-                expandArchives(context, newFiles, libraryDao)
+            importsRunning++
+            // A failure is reported by the scope's handler and the app carries on: the overlay must not stay up.
+            try {
+                stagePicked(context, uris)
+            } finally {
+                importsRunning--
             }
-
-            importedFiles = importedFiles + stagedFiles
-            skippedItemsCount += currentSkipped
-            isImporting = false
-            showImportSheet = true
         }
+    }
+
+    /** Copies what the user picked into the backup folder, expands archives, and shows the import sheet. */
+    private suspend fun stagePicked(context: Context, uris: List<Uri>) {
+        val backupDir = File(context.filesDir, "BPBackup")
+        if (!backupDir.exists()) backupDir.mkdirs()
+
+        val newFiles = mutableListOf<ImportFile>()
+        val database = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
+        val libraryDao = database.libraryDao()
+        
+        var currentSkipped = 0
+        val stagedFiles = withContext(Dispatchers.IO) {
+            val processedDir = File(context.filesDir, "Processed")
+            uris.forEach { uri ->
+                val fileName = resolveImportFileName(context, uri) ?: run {
+                    currentSkipped++
+                    return@forEach
+                }
+
+                // Archives skip the duplicate check: their fate is decided per extracted entry.
+                val existingItem = if (ImportArchiveUtils.isArchive(fileName)) null else libraryDao.getItemByFileName(fileName)
+                var isFileOnly = false
+                if (existingItem != null) {
+                    val relativePath = existingItem.relativePath
+                    val destFileInProcessed = if (!relativePath.isNullOrEmpty()) File(processedDir, relativePath) else File(processedDir, fileName)
+                    if (destFileInProcessed.exists()) {
+                        currentSkipped++
+                        return@forEach
+                    }
+                    isFileOnly = true
+                }
+
+                // Refuse a file that can't fit with headroom to spare: an import that fills the disk
+                // takes the database down with it. It counts as skipped; the storage banner explains.
+                val size = try {
+                    context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+                } catch (e: Exception) {
+                    -1L
+                }
+                if (size > 0 && !StorageMonitor.hasRoomFor(context, size)) {
+                    StorageMonitor.noteTransferDoesNotFit(context, size)
+                    currentSkipped++
+                    return@forEach
+                }
+
+                val destFile = ImportArchiveUtils.uniqueDestination(backupDir, fileName)
+
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(destFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    newFiles.add(ImportFile(destFile.name, destFile, isFileOnly = isFileOnly))
+                } catch (e: Exception) {
+                    StorageMonitor.reportFailure(context, e) // ENOSPC mid-copy: storage state, not a silent skip
+                    destFile.delete()
+                    e.printStackTrace()
+                }
+            }
+            expandArchives(context, newFiles, libraryDao)
+        }
+
+        importedFiles = importedFiles + stagedFiles
+        skippedItemsCount += currentSkipped
+        showImportSheet = true
     }
 
     /**
@@ -428,35 +444,120 @@ object ImportManager : ImportService {
 
     override fun acceptImport(context: Context, targetFolderPath: String?) {
         scope.launch {
-            val createdItems = mutableListOf<LibraryItemEntity>()
-            try {
-                importAcceptedFiles(context, targetFolderPath, createdItems)
+            importLock.withLock {
+                val createdItems = mutableListOf<LibraryItemEntity>()
+                try {
+                    importAcceptedFiles(context, targetFolderPath, createdItems, importedFiles)
 
+                    if (createdItems.isNotEmpty()) {
+                        importCompletion = ImportCompletion(
+                            items = createdItems.toList(),
+                            suggestedName = ImportArchiveUtils.stripExtension(
+                                suggestedFolderName ?: createdItems.first().title
+                            ),
+                            basePath = targetFolderPath
+                        )
+                    }
+                } finally {
+                    // Always return the sheet to a clean state — a failure part-way through must not
+                    // leave it stuck showing a spinner with no way to recover.
+                    suggestedFolderName = null
+                    processingFileName = null
+                    importedFiles = emptyList()
+                    skippedItemsCount = 0
+                    showImportSheet = false
+                }
+            }
+        }
+    }
+
+    /**
+     * Imports what a Transfer from Computer session received, skipping the import sheet (iOS parity: the
+     * Transfer sheet's Done hands its files straight to the import). [receive] ends the session and hands over
+     * its folder of complete files (`BrowserDropServer.finish`), or null when nothing arrived. It runs here,
+     * not in the sheet's scope, so the import outlives the sheet that started it.
+     *
+     * The folder's top-level files and folders go through the same steps as picked files: archives are
+     * expanded, a folder becomes a folder item, and the placement prompt follows. The folder is deleted after.
+     */
+    override fun importReceived(context: Context, targetFolderPath: String?, receive: suspend () -> File?) {
+        scope.launch {
+            val folder = try {
+                receive()
+            } catch (e: Exception) {
+                android.util.Log.e("ImportManager", "Transfer couldn't hand over its files", e)
+                null
+            } ?: return@launch
+            importReceivedFolder(context, folder, targetFolderPath)
+        }
+    }
+
+    @androidx.annotation.VisibleForTesting
+    internal suspend fun importReceivedFolder(context: Context, folder: File, targetFolderPath: String?) {
+        importsRunning++
+        val createdItems = mutableListOf<LibraryItemEntity>()
+        try {
+            importLock.withLock {
+                // Its own, not the shared field: that one belongs to the files waiting on the import sheet.
+                var suggestedName: String? = null
+                val staged = withContext(Dispatchers.IO) {
+                    stageReceived(context, folder) { suggestedName = it }
+                }
+                try {
+                    importAcceptedFiles(context, targetFolderPath, createdItems, staged)
+                } finally {
+                    processingFileName = null
+                }
                 if (createdItems.isNotEmpty()) {
                     importCompletion = ImportCompletion(
                         items = createdItems.toList(),
-                        suggestedName = ImportArchiveUtils.stripExtension(
-                            suggestedFolderName ?: createdItems.first().title
-                        ),
+                        suggestedName = ImportArchiveUtils.stripExtension(suggestedName ?: createdItems.first().title),
                         basePath = targetFolderPath
                     )
                 }
-            } finally {
-                // Always return the sheet to a clean state — a failure part-way through must not
-                // leave it stuck showing a spinner with no way to recover.
-                suggestedFolderName = null
-                processingFileName = null
-                importedFiles = emptyList()
-                skippedItemsCount = 0
-                showImportSheet = false
             }
+        } finally {
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { folder.deleteRecursively() }
+            importsRunning--
         }
+    }
+
+    /**
+     * Moves the received folder's top-level entries into the backup folder, as [startImport] copies picked
+     * files there. iOS parity (`ImportOperation.hasExistingBook`): a book whose file was offloaded gets it back,
+     * and one whose file is already here imports again as a copy (`name-1`), unlike the import sheet, which
+     * skips it. Folders stage whole, to import as one folder item each.
+     */
+    private suspend fun stageReceived(context: Context, folder: File, suggestName: (String) -> Unit): List<ImportFile> {
+        val backupDir = File(context.filesDir, "BPBackup").apply { mkdirs() }
+        val processedDir = File(context.filesDir, "Processed")
+        val libraryDao = AppDatabase.getDatabase(context).libraryDao()
+        val staged = mutableListOf<ImportFile>()
+        for (entry in ImportArchiveUtils.topLevelEntries(folder)) {
+            var isFileOnly = false
+            if (entry.isFile && !ImportArchiveUtils.isArchive(entry.name)) {
+                val existingItem = libraryDao.getItemByFileName(entry.name)
+                if (existingItem != null) {
+                    val stored = File(processedDir, existingItem.relativePath?.takeIf { it.isNotEmpty() } ?: entry.name)
+                    isFileOnly = !stored.exists()
+                }
+            }
+            val destination = if (entry.isDirectory) ImportArchiveUtils.uniqueDirectory(backupDir, entry.name)
+                              else ImportArchiveUtils.uniqueDestination(backupDir, entry.name)
+            if (!entry.renameTo(destination)) {
+                entry.copyRecursively(destination, overwrite = false)
+                entry.deleteRecursively()
+            }
+            staged += ImportFile(destination.name, destination, isFileOnly = isFileOnly)
+        }
+        return expandArchives(context, staged, libraryDao, suggestName)
     }
 
     private suspend fun importAcceptedFiles(
         context: Context,
         targetFolderPath: String?,
-        createdItems: MutableList<LibraryItemEntity>
+        createdItems: MutableList<LibraryItemEntity>,
+        files: List<ImportFile>
     ) {
         val processedDir = File(context.filesDir, "Processed")
         if (!processedDir.exists()) processedDir.mkdirs()
@@ -476,7 +577,7 @@ object ImportManager : ImportService {
                           else File(processedDir, targetFolderPath).apply { if (!exists()) mkdirs() }
 
             // iOS parity: locale-aware, numeric-friendly order ("Chapter 2" < "Chapter 10").
-            val orderedFiles = importedFiles.sortedWith(
+            val orderedFiles = files.sortedWith(
                 compareBy(ImportArchiveUtils.naturalOrderComparator) { it.name }
             )
 
@@ -676,11 +777,13 @@ object ImportManager : ImportService {
             }
         }
 
-        // Roll up duration / "N Files" label onto the new folder (and any ancestors). The child
-        // path form is what refreshParentMetadata walks up from.
-        val firstChild = libraryDao.getItemsInPathSync(folderPath).firstOrNull()
-        RoomLibraryRepository(context.applicationContext, libraryDao)
-            .refreshParentMetadata(firstChild?.relativePath ?: "$folderPath/")
+        // Roll up duration / "N Files" label onto every folder inside (deepest first), then the new folder and
+        // its ancestors. Walking up from one child would skip its sibling subfolders (`Book/Disc 2`). The
+        // trailing slash makes each folder the first one the walk up recomputes.
+        val subfolders = libraryDao.getDescendantsOfPath(folderPath).filter { it.type != ItemType.BOOK }
+        LibraryContentsSync.updateParentFoldersBatch(
+            libraryDao, (subfolders.mapNotNull { it.relativePath } + folderPath).map { "$it/" }
+        )
         // The stored row, with the totals the roll-up just wrote: the placement prompt moves or converts this
         // item, and writing back the entity built above would reset its count and duration.
         return libraryDao.getItemById(folderItem.uuid) ?: folderItem
@@ -787,7 +890,9 @@ object ImportManager : ImportService {
     internal suspend fun expandArchives(
         context: Context,
         files: List<ImportFile>,
-        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao
+        libraryDao: com.tortugapower.audiobookplayer.database.dao.LibraryDao,
+        // Where an archive's name goes as the suggested folder name: the import sheet's, unless told otherwise.
+        suggestName: (String) -> Unit = { suggestedFolderName = it }
     ): List<ImportFile> {
         val queue = ArrayDeque(files)
         val result = mutableListOf<ImportFile>()
@@ -803,7 +908,7 @@ object ImportManager : ImportService {
                 continue
             }
 
-            suggestedFolderName = ImportArchiveUtils.stripExtension(entry.name)
+            suggestName(ImportArchiveUtils.stripExtension(entry.name))
 
             val tempDir = File(context.cacheDir, "ImportExtract/${java.util.UUID.randomUUID()}")
             tempDir.mkdirs()

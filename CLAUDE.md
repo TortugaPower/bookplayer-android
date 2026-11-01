@@ -23,11 +23,14 @@ iOS BookPlayer app and shares the same BookPlayer backend (sync, auth, subscript
 
 ## Project layout
 
-Three Gradle modules: **`:core`** (a Compose-free, playback-capable Android library holding the sharable
+Four Gradle modules: **`:core`** (a Compose-free, playback-capable Android library holding the sharable
 layers), **`:app`** (the phone app), and **`:wear`** (the Wear OS app). Both `:app` and `:wear` depend
 on `:core`. `:wear` boots its own `WearApp` Application that wires `:core` (Room + network + RevenueCat)
 the same way the phone does; its UI is tier-gated (PRO → standalone, else → phone remote) with the
 per-mode experiences and the phone→watch sign-in handoff still landing in later slices.
+**`:browserdrop`** is the upload-only HTTP server behind Transfer from Computer, the Android port of
+[SwiftBrowserDrop](https://github.com/TortugaPower/SwiftBrowserDrop): it depends on nothing of ours (only
+coroutines), serves the same upload page as iOS, and the app owns the sheet and the import handoff.
 
 ```
 core/                      # shared Android library — NO Compose, NO app types (Media3 IS allowed: playback lives here)
@@ -41,7 +44,9 @@ core/                      # shared Android library — NO Compose, NO app types
     model/                 # shared data models (SyncModels, ...)
     repository/            # data access, single source of truth per domain
     logic/                 # shared domain/sync logic: SyncTaskFactory + sync processors + engine
-                           #   (CoreProcessors, TaskConcurrencyManager/Service), PlayableItem/
+                           #   (CoreProcessors, TaskConcurrencyManager/Service), the sync runtime (SyncRuntime,
+                           #   SyncKeepAlive + the SyncKeepAliveService base, sync drains: SyncDrain/
+                           #   SyncDrainScheduler/SyncDrainWorker; SyncRuntimeHost, the targets' Applications), PlayableItem/
                            #   PlayableItemBuilder/BoundTimeline, chapter extraction, settings,
                            #   SubscriptionManager, StatisticsManager, PlaybackSyncCoordinator (iface),
                            #   PlaybackManager + SleepTimerManager (the shared Media3 player orchestration,
@@ -62,12 +67,14 @@ app/                       # phone app — depends on :core
                            #   Method/Password/Headers screens, QuickConnectSheet, AuthTabWebAuthenticator)
     viewmodel/             # ViewModels + their Factories
     service/               # AudioPlayerService (subclasses :core MediaPlaybackService; adds Android Auto browse +
-                           #   MediaBrowseTree); sync foreground Service (TaskConcurrencyServiceHost)
+                           #   MediaBrowseTree)
     wear/                  # phone side of Wear: auth handoff (WearAuthListenerService) + remote-control
                            #   (WearRemotePublisher pushes state via DataClient; WearCommandListenerService
                            #   drives PlaybackManager from watch commands; WearStateBuilder/WearCommandMapper)
     widget/                # home-screen widget
-    logic/                 # phone-only: ThemeManager, import, app-icon, tip/billing, support, passkey,
+    logic/                 # phone-only: the sync keep-alive service (TaskConcurrencyServiceHost) and
+                           #   PhoneSyncEngine (the phone's processors for SyncRuntime),
+                           #   ThemeManager, import, app-icon, tip/billing, support, passkey,
                            #   ShortcutHelper (pinned home-screen shortcuts; dynamic launcher shortcuts
                            #   live in MainActivity), PlaybackManagerSyncCoordinator (PlaybackManager/
                            #   SleepTimerManager moved to :core)
@@ -75,12 +82,20 @@ app/                       # phone app — depends on :core
   src/main/res/            # values/ + 10 localized values-* dirs (ar, de, es, fr, hi, it, ja, ko, ru, zh-rCN)
 wear/                      # Wear OS app — depends on :core; shares :app's applicationId (pairing), minSdk 30
   src/main/java/com/tortugapower/audiobookplayer/wear/
-    WearApp.kt             # Application: wires :core (CoreContext/NetworkConstants/SubscriptionManager)
+    WearApp.kt             # Application: wires :core (CoreContext/NetworkConstants/SubscriptionManager) and the
+                           #   sync runtime (sync/: WearSyncEngine, WearSyncPolicy, WearSyncServiceHost)
     auth/                  # WearAuthClient: requests the sign-in handoff from the phone (Data Layer)
     data/                  # remote-control transport: RemoteContextRepository (observe phone state via
                            #   DataClient), WearRemoteClient (send commands), shared WearableExt helpers
     presentation/          # Wear Compose UI (MainActivity, WatchMode gate, WearRootViewModel; RemoteViewModel
                            #   + RemoteNavHost: RemoteList/NowPlaying/PlaybackControls/ChapterList screens)
+browserdrop/               # standalone library (no :core/:app deps), package com.tortugapower.browserdrop
+  src/main/java/.../browserdrop/  # BrowserDropServer (public API, session lifecycle) + Types; Connections.kt
+                           #   (Listener + per-request Connection: routing, upload streaming, refusals);
+                           #   internal/ = HTTP parsing, path/request rules, Staging, addresses, Platform
+                           #   (the Android seam: assets, free space, ConnectivityManager; faked in JVM tests)
+  src/main/assets/browserdrop/page/  # SwiftBrowserDrop's upload page, copied unchanged by
+                           #   scripts/sync-browserdrop-page.sh <ref> (browserdrop/PAGE_SOURCE records the commit)
 ```
 
 ## Module conventions (`:core` / `:app`)
@@ -92,7 +107,8 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   auth data source + `BookTimelinePlayer` + LoudnessEnhancer + the transport-only session callback) so
   both targets reuse one player-construction codebase. Only the **concrete, manifest-registered** service
   (phone: `AudioPlayerService` adds the Auto browse tree + notification `PendingIntent`; Wear: its own)
-  stays **per-target** in `:app`/`:wear`, as does the foreground sync `Service` and the widget. The target
+  stays **per-target** in `:app`/`:wear`, as does the foreground sync `Service` (a `:core` `SyncKeepAliveService`
+  subclass with the target's notification) and the widget. The target
   injects its session-service `ComponentName` + hooks into `PlaybackManager.initialize`.
 - **Config/Context crossing the boundary is injected, not read.** Flavored `BuildConfig` values
   (`BASE_URL`, `GOOGLE_CLIENT_ID`, `REVENUECAT_API_KEY`) are passed into `:core` at startup
@@ -124,7 +140,34 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   (manifest components, Room `_Impl`, the Wear ongoing-activity surface) needs a keep rule AND an
   entry in `scripts/audit-mapping.sh`, which fails CI when such a class is renamed or moved.
 - **CI** (`.github/workflows/ci.yml`): `assembleDevDebug`, `testDevDebugUnitTest`, `lintDevDebug`, then an
-  unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17.
+  unsigned minified `assembleProdRelease` (app + wear) and the mapping audit, on JDK 17. It also runs the
+  release scripts' unit tests (`node --test scripts/play-release.test.mjs scripts/play-rollout.test.mjs`, and
+  `python3 -I -B -m unittest discover -s` over `scripts/release-check` and `scripts/sentry-commits`).
+- **Release check** (`scripts/release-check/release_check.py`): the release skill runs it on the Mac before
+  anything is committed or pushed; never CI. It builds HEAD's prodRelease phone and watch apps the way Play
+  delivers them (R8, bundletool's universal APK; debug-signed; no Sentry mapping upload) and checks their 64-bit
+  native libraries for 16 KB pages and the mapping audit. Then, on emulators it creates and wipes
+  (`bp-release-check-*`, ports 5600+), it runs fresh launch, import, playback and upgrade on the phone at minSdk
+  and at targetSdk (16 KB pages), and fresh launch and upgrade on the watch at both. A crash fails at once; any
+  other failure gets one retry on a wiped emulator. The upgrade starts from the previous release's tag, built once
+  and cached in `~/Library/Caches/BookPlayerReleaseCheckAndroid`. It drives the UI by its English labels (`Library`,
+  `Accept`, `Import Complete`, `Chapters`, a row's "N% completed"): renaming one means updating the script.
+- **Release** (`.github/workflows/release.yml`, on a `release-*` branch): tests and lint, the signed prod
+  bundles, then `scripts/play-release.mjs` submits phone (`production`) and watch (`wear:production`) in ONE
+  Play edit as a **1% staged rollout**, each with its notes from `distribution/whatsnew/{phone,wear}/whatsnew-en-US`
+  (written by the release skill; at most 500 characters, checked before the build). Both tracks are read back
+  and the edit validated before committing (any difference = nothing submitted), and read back again after.
+  Managed publishing is off, so Google's approval publishes it to 1%; raising the rollout is separate. A
+  rollout still in progress on a track is replaced by the new release. A newer run cancels one that is still
+  building, never one that is submitting (its submit waits instead). The Play key is a secret of the
+  `play-release` environment (`release-*` branches only), read by the submit job alone. The CI service
+  account needs Play's "Release to production, exclude devices, and use Play App Signing" permission.
+- **Rollout** (`scripts/play-rollout.mjs`): `status`, `step --expect <fraction> --expect-codes <phone>,<watch>` and
+  `halt` move the staged rollout along 1 → 2 → 5 → 10 → 25 → 50 → 100%, phone and watch together. `step` moves only
+  the build it was told about, at `--expect`, so a change in Play Console, a release submitted meanwhile or a second
+  run never moves the wrong build or skips a rung; at 100% the release completes. Unknown arguments are refused. No
+  resume: a person resumes a halted rollout in Play Console. A daily claude.ai routine (environment
+  `bookplayer-play-rollout`) runs it after judging the new version in Sentry.
 
 ## Conventions
 
@@ -184,12 +227,88 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     deleting a task doesn't stop the worker running it. Sign-out does the same for every lane
     (`SyncQueueReset.clearAll`), on the phone and the watch.
   - A sign-in or sign-out starts a new epoch: RevenueCat answers to calls made before it are dropped.
-  - The engine, the launch gate and the first sync wait for this launch's reading
+  - The engine and the first sync wait for this launch's reading
     (`SubscriptionManager.awaitTierReady`), so they never act on last session's tier.
+- **One sync engine per process** (`SyncRuntime` in `:core`, iOS's model). It's built at every process start, off
+  the main thread (building the network clients sets up TLS: ANDROID-BOOKPLAYER-2E), and runs for the life of the
+  process. It's never fatal: a failure building it, or in its own work once running (start-up steps, queue watcher,
+  scans; not a task's failure), is reported once per process (`onFailed` → Sentry), the engine retires, and the next
+  app open builds a new one (not every new task: a failure that happens every time would loop).
+  Never build a `TaskConcurrencyManager` anywhere else: its start resets the tasks a killed process left RUNNING,
+  so a second engine would run them twice, and `SyncEngine.current` (lapse and sign-out wipes) would only stop one.
+  - An engine runs once: started, then stopped for good (a start after a stop does nothing). No worker starts before
+    its start-up steps (the reset, lane moves, retirement) have run: every worker start waits on them. A write that
+    fails on a full disk is recorded and the step runs again once space is back, so the engine never silently
+    stops; space coming back also rescans the lanes a full disk held.
+  - The dataSync service (`SyncKeepAliveService`: the phone's `TaskConcurrencyServiceHost`, the watch's
+    `WearSyncServiceHost`) only keeps the process alive, and only for a transfer in
+    the background (`SyncKeepAlivePolicy`): an `upload` or `file` lane working (not waiting out a backoff), the app
+    off screen, and playback not in the foreground (`PlaybackForeground`: media3's `startInForegroundRequired`, so it
+    covers the paused window). Anything else (the sync lane, media-server progress pushes) never starts it, so
+    background listening doesn't spend the 6 h/day dataSync budget. It holds no engine, so a refused, timed-out or
+    stopped service leaves the engine running (ANDROID-BOOKPLAYER-2F was the service reading an engine a refused
+    promotion never built). It stops itself once nothing has needed it for a minute. Its notification has its own id
+    (`SyncServiceNotification.ID`, the watch's sync service too): media3's playback notification is 1001, and with one
+    id they were one notification, so the service stopping removed a paused book's notification. On Android 13+ the
+    notice needs the notification permission: the phone asks once, the first time a transfer runs with the app on
+    screen (`NotificationPermissionPrompt`); without it the service runs with its notice hidden.
+  - Android allows that start from the background only at a few moments, so `SyncKeepAlive` starts it as the app
+    leaves the screen, and as playback leaves the foreground: `PlaybackForeground.onLeaving` runs before media3
+    demotes, while the app still holds a foreground service. A refused start, or a service Android ends when its
+    budget runs out (`SyncKeepAliveService.onUnavailable`), hands its transfers to drains until the app is next
+    opened (which resets the budget).
+  - **Sync drains** (`SyncDrain`, `SyncDrainWorker`: WorkManager) take everything else once nothing keeps the process
+    alive (no app on screen, no playback in the foreground, no service): the sync lane, media-server pushes, lanes
+    waiting out a backoff (the in-process wait stops while the device sleeps), book uploads held for Wi-Fi, and
+    transfers the service can't carry. `SyncKeepAlive` schedules them (`SyncDrainScheduler`) from the stored queue
+    (`TaskConcurrencyManager.nextDrain`, by the lanes' own pick rules, plus the tasks this engine's workers run now;
+    what the process knew of its lanes dies with it): two unique works, one on any network, one that waits for an
+    unmetered network for held uploads, each due now or at the earliest retry. A drain has the lanes pick again by the
+    wall clock (`rescan`: a live process's waits stop while the device sleeps), runs the engine until no lane works or
+    is due, then the next is scheduled; Android ends a job after 10 minutes and WorkManager runs it again (downloads
+    resume, uploads continue from S3's parts). Never while something else keeps the process alive, and the service
+    isn't started while one runs: Android 16 counts a job started while the app is visible, or running beside a
+    foreground service, against the app's job quota.
+  - WorkManager starts on demand (each Application is its `Configuration.Provider`; each manifest removes its
+    start-up initializer, which wrote its database at every process start and was the first thing to die on a full
+    disk). Its database failing to open is reported (`setInitializationExceptionHandler`), and nothing schedules a
+    drain while storage is critical. Its consumer rules keep the worker's name, which it stores across app updates;
+    `scripts/audit-mapping.sh` pins it in both apps.
+  - What the old start/stop cycle covered is explicit: the runtime's `SyncNetworkWatch` rescans on network
+    changes and cuts backoffs short on a new validated network; the engine rescans on storage recovery; the
+    cellular-upload setting calls `requestWorkerScan()`. It follows the app's default network (`SyncNetworkCallback`)
+    and, on Android 12+, the physical one (`PhysicalNetworkCallback`): behind an always-on VPN the default network is
+    the VPN, which never changes when the connection under it drops and comes back. Android 9-11 have no public way to
+    follow that one, so there a VPN still hides it.
+  - The watch runs the same runtime (`WearApp`, `WearSyncEngine`: the watch's processors), but builds its engine only
+    when there's sync (`WearSyncPolicy`): a PRO account (any other plays the phone's library), with the app on screen
+    or tasks queued; a drain starts it itself. Tiles and complications start the watch's process often. Its keep-alive
+    carries downloads (the watch uploads nothing). `:wear` has no Sentry: runtime and WorkManager failures are logged.
+- **Downloads resume where they stopped** (`DownloadResume`; iOS needs none, its background URLSession keeps
+  going). A download writes `Downloading/<task row id>.part`, and before the first byte saves the server's validator
+  in its task's payload (`saveDownloadValidator`, as an upload keeps its `MultipartUploadState`): the strong ETag
+  (S3), else the Last-Modified date (Jellyfin sends no ETag; Audiobookshelf's is weak, which `If-Range` can't use).
+  A retry asks for the rest `If-Range` it; S3 honors that, though its docs don't say so. Only a 206 from the part's
+  end with the same validator is joined to the part: anything else starts over from byte 0, so the worst case is a
+  second download, never a book joined from two files. The part stays for a dropped connection, a stopped run or
+  no room yet; any other way out deletes it. A task removed without running (a cancel while it waits, a sign-out)
+  leaves its part, so `DownloadParts.sweep` drops the parts no task owns on every download run, at every engine
+  start, after a cancel and after a sign-out. A cloud link is
+  signed again on every attempt (`BookUrlRefresh`): a retry can come long after the queued one expired.
 - **Covers ride the sync lane** (iOS): `upload_artwork` queues behind its item's registration, so the server
   never gets a cover for an item it doesn't hold yet (`item_not_found`). The engine moves an older build's
   file-lane covers there at start. Only book files wait for Wi-Fi (`UploadDataPolicy`): a cover held in the
   sync lane would hold back every listing.
+- **Transfer from Computer** (iOS `TransferViewModel`/`TransferView`): the library menu opens `TransferSheet`
+  (the import sheet's shell, `ImportConfirmationSheet`, which `ImportSheet` uses too, as iOS shares
+  `ImportConfirmationView`). Each opening is one `TransferSession` with its own `:browserdrop` server, kept across a
+  configuration change by one `TransferViewModel` (fixed key), which lets the ended one go. The server pauses when the app goes to the background (`ProcessLifecycleOwner`) and resumes on the
+  same port. Done calls `ImportManager.importReceived`: the session's folder imports without the import sheet
+  (folders become folder items, archives expand; as on iOS, a book already here imports as a copy, `name-1`,
+  and an offloaded one gets its file back), then the placement prompt. Imports run one at a time
+  (`importLock`). The server's calls run in a scope that outlives the ViewModel, so Done/Cancel still close its
+  sockets. It serves only connections on an address the sheet shows (or loopback), never cellular or a global
+  IPv6 address. Staging is moved aside in `Application.onCreate` and deleted in the background. The page's text is `transfer_*web*` strings (iOS keys; `%d` → `{count}`).
 - **Media-server connection flow** (Jellyfin / AudiobookShelf; mirrors iOS, so check the iOS `develop`
   branch before changing behavior): one `ConnectionFlowSheet` (own `NavHost`) serves both Add Server and
   re-auth. Address → Connect **probes** the server (`ExternalService.probe` → `ServerCapabilities`) →
@@ -279,8 +398,8 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
     once `DownloadFileProcessor` has verified and moved the file into place, the phone queues the upload
     from the sync lane (`queue_file_upload`, which checks PRO and the file). The watch uploads nothing.
     1.2's stream-to-cloud pipe (`upload_stream_file`, server route `external_set`) is gone: the engine
-    turns queued pipe tasks into that step and drops their confirmations (`SyncTaskRetirement`, at app launch and at
-    engine start: a held retired task never starts the engine, and in the sync lane it holds back every refresh).
+    turns queued pipe tasks into that step and drops their confirmations (`SyncTaskRetirement`, at engine start,
+    which is every process start: left in the sync lane, a retired task would hold back every refresh).
 
 ## Git
 
@@ -294,7 +413,11 @@ wear/                      # Wear OS app — depends on :core; shares :app's app
   `Fixes ANDROID-BOOKPLAYER-<id>` on its own line in the **commit body** (the short id is in the
   Sentry issue URL; one id per line, or comma-separated after a single `Fixes`). `release.yml`
   attaches each release's commits in Sentry, and Sentry's GitHub integration then marks the issue
-  *resolved in the release that actually ships the commit* — not the next one. Consequences:
+  *resolved in the release that actually ships the commit* — not the next one. The commits are every
+  one after the previous version tag, sent as one list by `scripts/sentry-commits/sentry_release_commits.py`
+  (the same file as the iOS repo's `ci_scripts/`; change both). Don't hand Sentry a ref range instead
+  (`sentry-cli releases set-commits --auto`, `--commit A..B`): it keeps only the newest 100 commits, and
+  `--local` files them under a repository named "origin" that isn't linked to GitHub. Consequences:
   - Put it in the fix commit itself, not only the PR description: PRs land as merge commits, so
     the PR body never reaches git history.
   - Never plain-"Resolve" an issue in the Sentry UI on this project — `1.0.0+14` stragglers reopen

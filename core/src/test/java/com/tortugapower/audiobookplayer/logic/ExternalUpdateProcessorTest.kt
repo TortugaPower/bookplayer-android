@@ -106,6 +106,20 @@ class ExternalUpdateProcessorTest {
         assertFalse(body, body.contains("LastPlayedDate"))
     }
 
+    // No `Played`, as iOS sends none: Jellyfin gets the position and its percentage. A task an older build queued
+    // with its finished flag sends none either.
+    @Test fun `jellyfin progress push leaves Played out`() = runBlocking {
+        insertServer()
+        server.enqueue(MockResponse().setResponseCode(200))
+        val olderTask = task().let { it.copy(payload = it.payload.replace("\"isFinished\":false", "\"isFinished\":true")) }
+
+        assertTrue(ExternalUpdateProcessor(context, serverRepository()).process(olderTask))
+
+        val body = server.takeRequest().body.readUtf8()
+        assertFalse(body, body.contains("Played\""))
+        assertTrue(body, body.contains("\"PlayedPercentage\":25.0"))
+    }
+
     // MARK: - AudiobookShelf
 
     private fun absTask(lastPlayDate: String = ""","lastPlayDate":1790694307123""") = SyncTaskEntity(

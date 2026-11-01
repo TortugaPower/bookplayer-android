@@ -90,6 +90,11 @@ interface ImportService {
     fun removeFile(importFile: ImportFile)
     fun clearImport()
     fun acceptImport(context: Context, targetFolderPath: String? = null)
+    /**
+     * Imports a Transfer from Computer session's files into [targetFolderPath] without the import sheet.
+     * [receive] hands over the session's folder (null when nothing arrived); the import deletes it after.
+     */
+    fun importReceived(context: Context, targetFolderPath: String?, receive: suspend () -> File?)
     fun clearImportCompletion()
     fun dismissSheet()
 }

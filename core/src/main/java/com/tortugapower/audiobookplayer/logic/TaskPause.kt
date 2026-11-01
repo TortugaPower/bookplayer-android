@@ -77,17 +77,6 @@ object SyncTaskPicker {
     }
 
     /**
-     * Whether a freshly started engine would start a worker, for the launch gate: [lanesWithWork] over
-     * the queue as the engine sees it once it has reset the RUNNING rows a killed process left behind.
-     * Work held by the tier doesn't count, so a lapsed account's queue doesn't start the sync service
-     * on every launch to sit idle.
-     */
-    fun hasStartableWork(tasks: List<SyncTaskEntity>, canRun: (jobType: String) -> Boolean): Boolean {
-        val asStarted = tasks.map { if (it.status == SyncTaskStatus.RUNNING) it.copy(status = SyncTaskStatus.PENDING) else it }
-        return lanesWithWork(asStarted, canRun).isNotEmpty()
-    }
-
-    /**
      * [canRun] is the account's tier policy (TaskAccessPolicy): a task the tier can't run is held, not
      * dropped, so it goes out once the subscription is back. A tier allows all of a lane's structural
      * jobs or none of them, so holding one never runs a later one out of order.
@@ -118,4 +107,32 @@ object SyncTaskPicker {
         }
         return runnable
     }
+
+    /**
+     * What a lane's worker does next, from the tasks it may run ([runnable], in queue order): the first one
+     * due. A task waiting out a backoff (SyncBackoff) is passed over like a parked one
+     * (SyncFailurePolicy.scope): one that changes structure holds the lane behind it, since later tasks
+     * build on it; any other is skipped, and the lane runs what's behind it.
+     */
+    fun nextDue(tasks: List<SyncTaskEntity>, now: Long): LanePick {
+        var earliest: Long? = null
+        for (task in tasks) {
+            if (SyncBackoff.isDue(task.nextAttemptAt, now)) return LanePick.Run(task)
+            val until = checkNotNull(task.nextAttemptAt)
+            earliest = minOf(earliest ?: until, until)
+            if (SyncFailurePolicy.scope(task.jobType) == TaskPauseScope.LANE) break
+        }
+        return earliest?.let { LanePick.Wait(it) } ?: LanePick.Idle
+    }
+}
+
+/** A lane worker's next step ([SyncTaskPicker.nextDue]) */
+sealed interface LanePick {
+    data class Run(val task: SyncTaskEntity) : LanePick
+
+    /** Everything the lane may run is waiting out a backoff: nothing is due before [until] (epoch ms) */
+    data class Wait(val until: Long) : LanePick
+
+    /** Nothing to run: the worker retires */
+    data object Idle : LanePick
 }

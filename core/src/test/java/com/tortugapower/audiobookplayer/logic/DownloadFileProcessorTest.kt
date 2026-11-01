@@ -9,6 +9,8 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
+import com.tortugapower.audiobookplayer.model.ContentsResponse
+import com.tortugapower.audiobookplayer.model.SyncableItem
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.TokenCipher
@@ -19,6 +21,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -53,6 +56,9 @@ class DownloadFileProcessorTest {
         runBlocking(kotlinx.coroutines.Dispatchers.IO) { AppDatabase.getDatabase(context).clearAllTables() }
         // Robolectric's StatFs reports no free space; the storage guard would refuse every download.
         StorageMonitor.availableBytesProvider = { Long.MAX_VALUE / 2 }
+        partsDir().deleteRecursively()
+        DownloadParts.writing.clear()
+        SyncStatusManager.clearCancel(uuid)
     }
 
     @After fun tearDown() {
@@ -71,17 +77,25 @@ class DownloadFileProcessorTest {
         lastPlayDate = null, parentFolderUuid = null, type = type,
     )
 
-    private fun downloadTask(uuid: String) = SyncTaskEntity(
-        id = "row-$uuid", taskID = uuid, queueKey = SyncTaskFactory.QUEUE_FILE,
-        jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0,
-        payload = """{"uuid":"$uuid","title":"002","relativePath":"002","remoteURL":"https://example.invalid/002_"}""",
+    /** Stored, as the engine runs it: a download keeps its part's validator in its task */
+    private suspend fun queued(task: SyncTaskEntity): SyncTaskEntity =
+        task.also { AppDatabase.getDatabase(context).syncTaskDao().insertTask(it) }
+
+    private suspend fun downloadTask(uuid: String) = queued(
+        SyncTaskEntity(
+            id = "row-$uuid", taskID = uuid, queueKey = SyncTaskFactory.QUEUE_FILE,
+            jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0,
+            payload = """{"uuid":"$uuid","title":"002","relativePath":"002","remoteURL":"https://example.invalid/002_"}""",
+        )
     )
 
-    private fun bookDownloadTask(remoteURL: String) = SyncTaskEntity(
+    private fun unqueuedBookDownloadTask(remoteURL: String) = SyncTaskEntity(
         id = "row-$uuid", taskID = uuid, queueKey = SyncTaskFactory.QUEUE_FILE,
         jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0,
         payload = """{"uuid":"$uuid","title":"Book One","relativePath":"$relativePath","remoteURL":"$remoteURL"}""",
     )
+
+    private suspend fun bookDownloadTask(remoteURL: String) = queued(unqueuedBookDownloadTask(remoteURL))
 
     // Reversible stand-in for the Keystore cipher — the
     // stored row is ciphertext, and the download must authenticate with the DECRYPTED token.
@@ -116,10 +130,12 @@ class DownloadFileProcessorTest {
         failures: MutableList<String> = mutableListOf(),
         queuesUploads: Boolean = false,
         expiredServers: MutableList<String?> = mutableListOf(),
+        // The cloud signs nothing unless a test says so: the task's queued link is used
+        fetchCloudFile: suspend (LibraryItemEntity) -> ContentsResponse? = { null },
     ) = DownloadFileProcessor(
         context, serverRepository(), durationOf = durationOf,
         onFailedForGood = { failures += it.title; expiredServers += it.expiredServer },
-        syncTasks = syncTasks.takeIf { queuesUploads },
+        syncTasks = syncTasks, queuesUploads = queuesUploads, fetchCloudFile = fetchCloudFile,
     )
 
     @Test fun `container download task is dropped as done, not retried`() = runBlocking {
@@ -273,10 +289,12 @@ class DownloadFileProcessorTest {
         )
     }
 
-    private fun childDownloadTask(remoteURL: String) = SyncTaskEntity(
-        id = "row-$childUuid", taskID = childUuid, queueKey = SyncTaskFactory.QUEUE_FILE,
-        jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0,
-        payload = """{"uuid":"$childUuid","title":"01","relativePath":"$childPath","remoteURL":"$remoteURL"}""",
+    private suspend fun childDownloadTask(remoteURL: String) = queued(
+        SyncTaskEntity(
+            id = "row-$childUuid", taskID = childUuid, queueKey = SyncTaskFactory.QUEUE_FILE,
+            jobType = SyncTaskFactory.JOB_DOWNLOAD_FILE, position = 0,
+            payload = """{"uuid":"$childUuid","title":"01","relativePath":"$childPath","remoteURL":"$remoteURL"}""",
+        )
     )
 
     private val expandedItem =
@@ -449,7 +467,7 @@ class DownloadFileProcessorTest {
         assertEquals(1, mediaServer.requestCount)
     }
 
-    /** Every way out but the move clears its part, the early returns included */
+    /** A part no later attempt can resume (its server sent no validator) is cleared on every way out, the early returns included */
     @Test fun `a download held for storage leaves no part file`() = runBlocking {
         insertCloudBook(duration = 0.0)
         cloud.enqueue(MockResponse().setBody("audio-bytes"))
@@ -468,7 +486,7 @@ class DownloadFileProcessorTest {
         )
     }
 
-    private fun partsDir() = File(context.filesDir, DownloadFileProcessor.PARTS_DIR)
+    private fun partsDir() = File(context.filesDir, DownloadParts.DIR)
 
     @Test fun `a verified download is moved into place, leaving no part file`() = runBlocking {
         insertCloudBook(duration = 600.0)
@@ -596,10 +614,9 @@ class DownloadFileProcessorTest {
         assertTrue(partsDir().listFiles().isNullOrEmpty())
     }
 
-    /** A process that died mid-download left a part file: the first download of the next process clears it */
+    /** A part whose task is gone (dropped or cancelled after a process died mid-download) is cleared by the next download */
     @Test fun `a part file left by a dead process is swept`() = runBlocking {
         val stale = File(partsDir().apply { mkdirs() }, "row-gone.part").apply { writeText("partial") }
-        DownloadFileProcessor.partsSwept.set(false)
         insertCloudBook(duration = 0.0)
         cloud.enqueue(MockResponse().setBody("audio"))
 
@@ -665,7 +682,7 @@ class DownloadFileProcessorTest {
 
         assertTrue(processor(queuesUploads = true).process(bookDownloadTask(cloud.url("/book.m4b").toString())))
 
-        assertTrue(syncTasks.getAllTasks().first().isEmpty())
+        assertTrue(queuedUploads().isEmpty())
     }
 
     @Test fun `a download that fails for good queues nothing`() = runBlocking {
@@ -700,5 +717,311 @@ class DownloadFileProcessorTest {
         assertTrue(processor(queuesUploads = true).process(task))
 
         assertEquals(1, queuedUploads().size)
+    }
+
+    // ---- Resuming (HTTP Range, If-Range the part's validator: DownloadResume) ----
+
+    private fun part(task: SyncTaskEntity) = DownloadParts.file(context, task.id)
+
+    private suspend fun storedValidator(task: SyncTaskEntity) =
+        DownloadFilePayload.validator(AppDatabase.getDatabase(context).syncTaskDao().getTaskById(task.id)!!.payload)
+
+    /** The part an earlier attempt left: [bytes] of the file, saved under [validator] */
+    private suspend fun withPart(task: SyncTaskEntity, bytes: String, validator: String?): SyncTaskEntity {
+        part(task).apply { parentFile?.mkdirs() }.writeText(bytes)
+        return queued(task.copy(payload = DownloadFilePayload.withValidator(task.payload, validator)))
+    }
+
+    private fun rest(body: String, contentRange: String, etag: String = "\"v1\"") =
+        MockResponse().setResponseCode(206).setHeader("ETag", etag).setHeader("Content-Range", contentRange).setBody(body)
+
+    private val book get() = OfflineDownloadManager.processedFile(context, relativePath)
+
+    @Test fun `a dropped connection keeps the part, and the validator it was saved under`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(
+            MockResponse().setHeader("ETag", "\"v1\"").setBody("audio-bytes".repeat(4_000))
+                .setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY)
+        )
+        val task = bookDownloadTask(cloud.url("/book.m4b").toString())
+        val failures = mutableListOf<String>()
+
+        assertFalse("retried", processor(failures = failures).process(task))
+
+        assertTrue(failures.isEmpty())
+        assertTrue(part(task).length() > 0)
+        assertEquals("\"v1\"", storedValidator(task))
+        assertFalse(book.exists())
+    }
+
+    @Test fun `the next attempt resumes from the part's end`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        val task = withPart(bookDownloadTask(cloud.url("/book.m4b").toString()), "audio-", "\"v1\"")
+        cloud.enqueue(rest("bytes", "bytes 6-10/11"))
+
+        assertTrue(processor().process(task))
+
+        val get = cloud.takeRequest()
+        assertEquals("bytes=6-", get.getHeader("Range"))
+        assertEquals("\"v1\"", get.getHeader("If-Range"))
+        assertEquals("audio-bytes", book.readText())
+        assertFalse(part(task).exists())
+    }
+
+    /** Every download asks for the file's own bytes: a compressed answer's couldn't be continued */
+    @Test fun `a download asks for the file uncompressed`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor().process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        val get = cloud.takeRequest()
+        assertEquals("identity", get.getHeader("Accept-Encoding"))
+        assertNull("a new download asks for the whole file", get.getHeader("Range"))
+    }
+
+    /** The server ignored the range, or the file changed since (If-Range): the whole file replaces the part */
+    @Test fun `the whole file in answer to a resume replaces the part`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        val task = withPart(bookDownloadTask(cloud.url("/book.m4b").toString()), "stale-", "\"v1\"")
+        cloud.enqueue(MockResponse().setHeader("ETag", "\"v2\"").setBody("audio-bytes"))
+
+        assertTrue(processor().process(task))
+
+        assertEquals(1, cloud.requestCount)
+        assertEquals("audio-bytes", book.readText())
+    }
+
+    /** A server or a proxy that ignored If-Range sent the rest of a file that changed: never joined to the part */
+    @Test fun `the rest of another file starts over`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        val task = withPart(bookDownloadTask(cloud.url("/book.m4b").toString()), "audio-", "\"v1\"")
+        cloud.enqueue(rest("XXXXX", "bytes 6-10/11", etag = "\"v2\""))
+        cloud.enqueue(MockResponse().setHeader("ETag", "\"v2\"").setBody("audio-bytes"))
+
+        assertTrue(processor().process(task))
+
+        cloud.takeRequest()
+        assertNull("the whole file asked for", cloud.takeRequest().getHeader("Range"))
+        assertEquals("audio-bytes", book.readText())
+    }
+
+    @Test fun `bytes from elsewhere than the part's end start over`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        val task = withPart(bookDownloadTask(cloud.url("/book.m4b").toString()), "audio-", "\"v1\"")
+        cloud.enqueue(rest("audio-bytes", "bytes 0-10/11"))
+        cloud.enqueue(MockResponse().setHeader("ETag", "\"v1\"").setBody("audio-bytes"))
+
+        assertTrue(processor().process(task))
+
+        assertEquals(2, cloud.requestCount)
+        assertEquals("audio-bytes", book.readText())
+    }
+
+    /** 416: the server can't serve from there (the file shrank, or the part was already whole) */
+    @Test fun `a part the server can't continue starts over`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        val task = withPart(bookDownloadTask(cloud.url("/book.m4b").toString()), "audio-", "\"v1\"")
+        cloud.enqueue(MockResponse().setResponseCode(416))
+        cloud.enqueue(MockResponse().setHeader("ETag", "\"v1\"").setBody("audio-bytes"))
+
+        assertTrue(processor().process(task))
+
+        assertEquals(2, cloud.requestCount)
+        assertEquals("audio-bytes", book.readText())
+    }
+
+    /** Without a validator nothing tells whether the part is still the file's start */
+    @Test fun `a part saved without a validator isn't resumed`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        val task = withPart(bookDownloadTask(cloud.url("/book.m4b").toString()), "junk-", validator = null)
+        cloud.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor().process(task))
+
+        assertNull(cloud.takeRequest().getHeader("Range"))
+        assertEquals("audio-bytes", book.readText())
+    }
+
+    /** A server that sends no validator: its part is never kept, nothing could resume it */
+    @Test fun `a dropped download from a server without validators keeps nothing`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(
+            MockResponse().setBody("audio-bytes".repeat(4_000))
+                .setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY)
+        )
+        val task = bookDownloadTask(cloud.url("/book.m4b").toString())
+
+        assertFalse(processor().process(task))
+
+        assertFalse(part(task).exists())
+        assertNull(storedValidator(task))
+    }
+
+    /** Jellyfin sends no ETag: its Last-Modified date is the validator */
+    @Test fun `a media server's date resumes its download`() = runBlocking {
+        insertJellyfinBook()
+        val date = "Fri, 05 Jun 2026 01:20:46 GMT"
+        mediaServer.enqueue(
+            MockResponse().setHeader("Last-Modified", date).setBody("audio-bytes".repeat(4_000))
+                .setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY)
+        )
+        val task = bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())
+        assertFalse(processor().process(task))
+        val kept = part(task).length()
+        val whole = "audio-bytes".repeat(4_000)
+        mediaServer.enqueue(
+            MockResponse().setResponseCode(206).setHeader("Last-Modified", date)
+                .setHeader("Content-Range", "bytes $kept-${whole.length - 1}/${whole.length}").setBody(whole.substring(kept.toInt()))
+        )
+
+        // The task as the engine reads it again for the retry, with the validator the first attempt saved
+        assertTrue(processor().process(AppDatabase.getDatabase(context).syncTaskDao().getTaskById(task.id)!!))
+
+        mediaServer.takeRequest()
+        val resume = mediaServer.takeRequest()
+        assertEquals("bytes=$kept-", resume.getHeader("Range"))
+        assertEquals(date, resume.getHeader("If-Range"))
+        assertNotNull("the media server's auth rides the resume too", resume.getHeader("Authorization"))
+        assertEquals(whole, book.readText())
+    }
+
+    @Test fun `a download held for storage keeps a part it can resume`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        val task = withPart(bookDownloadTask(cloud.url("/book.m4b").toString()), "audio-", "\"v1\"")
+        cloud.enqueue(rest("bytes", "bytes 6-10/11"))
+        StorageMonitor.availableBytesProvider = { 0L }
+
+        assertFalse(processor().process(task))
+
+        assertEquals("audio-", part(task).readText())
+    }
+
+    @Test fun `a download dropped for good drops its part`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        val task = withPart(bookDownloadTask(cloud.url("/book.m4b").toString()), "audio-", "\"v1\"")
+        cloud.enqueue(MockResponse().setResponseCode(403))
+        val failures = mutableListOf<String>()
+
+        assertTrue(processor(failures = failures).process(task))
+
+        assertEquals(1, failures.size)
+        assertFalse(part(task).exists())
+    }
+
+    @Test fun `a cancelled download drops its part`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        val task = withPart(bookDownloadTask(cloud.url("/book.m4b").toString()), "audio-", "\"v1\"")
+        cloud.enqueue(rest("bytes", "bytes 6-10/11"))
+        SyncStatusManager.requestCancel(uuid)
+
+        assertFalse(processor().process(task))
+
+        assertFalse(part(task).exists())
+    }
+
+    /** Removed while it ran (a cancel, a sign-out): it stops, as an upload does, and leaves nothing */
+    @Test fun `a download whose task is gone stops`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setHeader("ETag", "\"v1\"").setBody("audio-bytes"))
+        val failures = mutableListOf<String>()
+
+        assertTrue(processor(failures = failures).process(unqueuedBookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertTrue(failures.isEmpty())
+        assertFalse(book.exists())
+        assertTrue(partsDir().listFiles().isNullOrEmpty())
+    }
+
+    /** A stopped run's blocking read can outlive its cancel: the task's next run waits, and touches nothing */
+    @Test fun `a part another run is still writing waits`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        val task = withPart(bookDownloadTask(cloud.url("/book.m4b").toString()), "audio-", "\"v1\"")
+        DownloadParts.writing += task.id
+        var cloudAsked = 0
+
+        assertFalse(processor(fetchCloudFile = { cloudAsked++; null }).process(task))
+
+        assertEquals(0, cloud.requestCount)
+        assertEquals("not even the link signed", 0, cloudAsked)
+        assertEquals("audio-", part(task).readText())
+    }
+
+    @Test fun `a part another download owns is kept by the sweep`() = runBlocking {
+        val other = queued(unqueuedBookDownloadTask("https://example.invalid/other").copy(id = "row-other", taskID = "other"))
+        part(other).apply { parentFile?.mkdirs() }.writeText("other-")
+        val olderBuild = File(partsDir(), "row-old-123456.part").apply { writeText("partial") }
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(processor().process(bookDownloadTask(cloud.url("/book.m4b").toString())))
+
+        assertEquals("other-", part(other).readText())
+        assertFalse("an older build named its parts per run", olderBuild.exists())
+    }
+
+    // ---- The cloud link, signed again on every attempt ----
+
+    private fun cloudListing(url: String) = ContentsResponse(
+        content = listOf(
+            SyncableItem(
+                uuid = uuid, relativePath = relativePath, title = "Book One", details = "", originalFileName = "",
+                duration = 0.0, currentTime = 0.0, percentCompleted = 0.0, isFinished = false, orderRank = 0,
+                type = ItemType.BOOK.ordinal, remoteURL = url, artworkURL = null, speed = null, lastPlayDateTimestamp = null,
+            )
+        ),
+        lastItemPlayed = null,
+    )
+
+    /** A retry or a resume can come long after the queued link expired */
+    @Test fun `a cloud download asks for a freshly signed link`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setBody("audio-bytes"))
+
+        assertTrue(
+            processor(fetchCloudFile = { cloudListing(cloud.url("/signed-now.m4b").toString()) })
+                .process(bookDownloadTask(cloud.url("/expired.m4b").toString()))
+        )
+
+        assertEquals("/signed-now.m4b", cloud.takeRequest().path)
+        assertEquals(cloud.url("/signed-now.m4b").toString(), AppDatabase.getDatabase(context).libraryDao().getItemById(uuid)!!.remoteURL)
+    }
+
+    /** The link is stored alone (LibraryDao.updateLinks): the book read before signing never overwrites a newer position */
+    @Test fun `a position saved while the link is signed stays`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setBody("audio-bytes"))
+        val dao = AppDatabase.getDatabase(context).libraryDao()
+        val signing: suspend (LibraryItemEntity) -> ContentsResponse? = {
+            // Playback saves a position while the API signs the link
+            dao.updateItem(dao.getItemById(uuid)!!.copy(currentTime = 600.0))
+            cloudListing(cloud.url("/signed-now.m4b").toString())
+        }
+
+        assertTrue(processor(fetchCloudFile = signing).process(bookDownloadTask(cloud.url("/expired.m4b").toString())))
+
+        assertEquals(600.0, dao.getItemById(uuid)!!.currentTime, 0.0)
+    }
+
+    /** Only a listing stores a link: a book this device uploaded was queued with none */
+    @Test fun `a cloud book queued without a link gets one`() = runBlocking {
+        insertCloudBook(duration = 0.0)
+        cloud.enqueue(MockResponse().setBody("audio-bytes"))
+        val failures = mutableListOf<String>()
+
+        assertTrue(processor(failures = failures, fetchCloudFile = { cloudListing(cloud.url("/signed-now.m4b").toString()) }).process(bookDownloadTask("")))
+
+        assertTrue(failures.isEmpty())
+        assertEquals("audio-bytes", book.readText())
+    }
+
+    @Test fun `a media-server download doesn't ask the cloud`() = runBlocking {
+        insertJellyfinBook()
+        mediaServer.enqueue(MockResponse().setBody("audio-bytes"))
+        var asked = 0
+
+        assertTrue(processor(fetchCloudFile = { asked++; null }).process(bookDownloadTask(mediaServer.url("/Items/jf-9/Download").toString())))
+
+        assertEquals(0, asked)
     }
 }

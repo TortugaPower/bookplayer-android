@@ -85,7 +85,7 @@ class LibraryContentsSyncTest {
         db.libraryDao().insertItem(LibraryItemEntity(uuid = "g", title = "Library", relativePath = "Library", type = ItemType.FOLDER, orderRank = 0))
         db.libraryDao().insertItem(LibraryItemEntity(uuid = "fa", title = "A", relativePath = "Library/A", type = ItemType.FOLDER, orderRank = 0, parentFolderUuid = "g"))
         db.libraryDao().insertItem(LibraryItemEntity(uuid = "fb", title = "B", relativePath = "Library/B", type = ItemType.FOLDER, orderRank = 0, parentFolderUuid = "g"))
-        db.libraryDao().insertItem(LibraryItemEntity(uuid = "ba", title = "BookA", relativePath = "Library/A/BookA.mp3", type = ItemType.BOOK, orderRank = 0, duration = 100.0, currentTime = 50.0, parentFolderUuid = "fa"))
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "ba", title = "BookA", relativePath = "Library/A/BookA.mp3", type = ItemType.BOOK, orderRank = 0, duration = 100.0, currentTime = 50.0, percentCompleted = 0.5, parentFolderUuid = "fa"))
         db.libraryDao().insertItem(LibraryItemEntity(uuid = "bb", title = "BookB", relativePath = "Library/B/BookB.mp3", type = ItemType.BOOK, orderRank = 0, duration = 300.0, currentTime = 300.0, isFinished = true, parentFolderUuid = "fb"))
 
         LibraryContentsSync.updateParentFoldersBatch(
@@ -100,11 +100,12 @@ class LibraryContentsSyncTest {
         assertEquals(300.0, b.duration, 0.0)
         assertEquals(true, b.isFinished)
 
-        // Grandparent sums the recomputed sub-folders: 400 total, 350 listened, not finished (A isn't).
+        // Grandparent sums the recomputed sub-folders: 400 total, 350 listened, not finished (A isn't). Its progress
+        // is iOS's: each child once, the finished B as all of it, (0.5 + 1.0) / 2.
         val g = db.libraryDao().getItemById("g")!!
         assertEquals(400.0, g.duration, 0.0)
         assertEquals(350.0, g.currentTime, 0.0)
-        assertEquals(0.875, g.percentCompleted, 0.0001)
+        assertEquals(0.75, g.percentCompleted, 0.0001)
         assertEquals(false, g.isFinished)
         assertEquals("2", g.author)
     }
@@ -159,7 +160,7 @@ class LibraryContentsSyncTest {
         db.libraryDao().insertItem(
             LibraryItemEntity(
                 uuid = "b1", title = "Book1", relativePath = "Books/SciFi/Book1",
-                type = ItemType.BOOK, orderRank = 0, duration = 100.0, currentTime = 40.0,
+                type = ItemType.BOOK, orderRank = 0, duration = 100.0, currentTime = 40.0, percentCompleted = 0.4,
                 parentFolderUuid = "f2"
             )
         )
@@ -264,35 +265,47 @@ class LibraryContentsSyncTest {
 
     // --- percentCompleted scale normalization (wire is iOS's 0..100 / legacy Android 0..1) ---
 
-    @Test fun normalizedPercent_derivesFractionFromTimes_regardlessOfWireScale() {
-        // Server value on the iOS 0..100 scale — derived fraction wins over the wire value.
-        val ios = remote("b1", artworkURL = null).copy(
-            duration = 200.0, currentTime = 100.0, percentCompleted = 50.0
-        )
-        assertEquals(0.5, LibraryContentsSync.normalizedRemotePercent(ios), 1e-9)
-
-        // Row last written by an old Android build (raw 0..1 fraction) — same derivation, same answer.
-        val legacy = ios.copy(percentCompleted = 0.5)
-        assertEquals(0.5, LibraryContentsSync.normalizedRemotePercent(legacy), 1e-9)
+    // iOS stores the server's own value, books and folders alike; the server's scale is 0..100
+    @Test fun normalizedPercent_isTheServersOwn_onItsScale() {
+        val book = remote("b1", artworkURL = null).copy(duration = 200.0, currentTime = 100.0, percentCompleted = 50.0)
+        assertEquals(0.5, LibraryContentsSync.normalizedRemotePercent(book), 1e-9)
+        val durationless = book.copy(duration = 0.0, currentTime = 0.0, percentCompleted = 45.0)
+        assertEquals(0.45, LibraryContentsSync.normalizedRemotePercent(durationless), 1e-9)
+        assertEquals(1.0, LibraryContentsSync.normalizedRemotePercent(book.copy(percentCompleted = 140.0)), 1e-9)
     }
 
-    @Test fun normalizedPercent_durationlessItems_fallBackToFinishedThenWireAs100Scale() {
-        val finished = remote("b1", artworkURL = null).copy(
-            duration = 0.0, currentTime = 0.0, percentCompleted = 100.0, isFinished = true
-        )
-        assertEquals(1.0, LibraryContentsSync.normalizedRemotePercent(finished), 1e-9)
-
-        val unfinished = finished.copy(isFinished = false, percentCompleted = 45.0)
-        assertEquals(0.45, LibraryContentsSync.normalizedRemotePercent(unfinished), 1e-9)
-    }
-
-    @Test fun normalizedPercent_finishedOverridesDerivedFraction_matchingLocalWriter() {
-        // A finished item mid-book (e.g. marked finished manually) stores 1.0, exactly like
-        // RoomLibraryRepository's isFinished override — not the derived time fraction.
+    // A finished book mid-way keeps what the other device stored (iOS: its position's); its 100% shows from the flag
+    @Test fun normalizedPercent_finishedMidBook_keepsTheServersValue() {
         val finishedMidBook = remote("b1", artworkURL = null).copy(
             duration = 300.0, currentTime = 150.0, percentCompleted = 50.0, isFinished = true
         )
-        assertEquals(1.0, LibraryContentsSync.normalizedRemotePercent(finishedMidBook), 1e-9)
+        assertEquals(0.5, LibraryContentsSync.normalizedRemotePercent(finishedMidBook), 1e-9)
+    }
+
+    // A pulled folder keeps the server's percentage, its children's average (iOS calculateFolderProgress), not the
+    // position-sum its times give: a finished 100 s book and an unstarted 100 s one are 50%, not 20%
+    @Test fun upsert_pulledFolder_keepsTheServersAverage() = runBlocking {
+        val folder = remote("f1", artworkURL = null).copy(
+            relativePath = "Series", type = ItemType.FOLDER.ordinal, duration = 200.0, currentTime = 40.0, percentCompleted = 50.0
+        )
+        LibraryContentsSync.upsertItem(db.libraryDao(), null, folder, mutableSetOf())
+
+        assertEquals(0.5, db.libraryDao().getItemById("f1")!!.percentCompleted, 1e-9)
+    }
+
+    // iOS calculateFolderProgress: each child counts once, a finished one as all of it. A finished book keeps its
+    // position, so the positions alone would show the folder a fifth done.
+    @Test fun updateParentFolders_countsEachChildOnce_aFinishedOneAsAllOfIt() = runBlocking {
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "f", title = "F", relativePath = "F", type = ItemType.FOLDER, orderRank = 0))
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "b1", title = "B1", relativePath = "F/b1.mp3", type = ItemType.BOOK, orderRank = 0, duration = 100.0, currentTime = 40.0, percentCompleted = 0.4, isFinished = true, parentFolderUuid = "f"))
+        db.libraryDao().insertItem(LibraryItemEntity(uuid = "b2", title = "B2", relativePath = "F/b2.mp3", type = ItemType.BOOK, orderRank = 1, duration = 100.0, parentFolderUuid = "f"))
+
+        LibraryContentsSync.updateParentFolders(db.libraryDao(), "F/b1.mp3")
+
+        val folder = db.libraryDao().getItemById("f")!!
+        assertEquals(0.5, folder.percentCompleted, 0.0)
+        assertEquals(false, folder.isFinished)
+        assertEquals("2", folder.author)
     }
 
     @Test fun upsert_finishedServerItem_storesFractionNotServerScale() = runBlocking {

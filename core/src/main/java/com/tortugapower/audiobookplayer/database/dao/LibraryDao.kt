@@ -19,6 +19,32 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items WHERE relativePath LIKE :path || '/%' AND relativePath NOT LIKE :path || '/%/%' ORDER BY orderRank ASC")
     suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity>
 
+    /**
+     * A folder's direct children summed up for its roll-up ([LibraryContentsSync.recomputeFolder]), in one aggregate
+     * read rather than loading them (iOS `calculateFolderProgress` fetches a sum and a count too).
+     */
+    @Query(
+        """SELECT COUNT(*) AS count, COALESCE(SUM(duration), 0) AS duration, COALESCE(SUM(currentTime), 0) AS currentTime,
+        COALESCE(SUM(CASE WHEN isFinished THEN 1.0 ELSE percentCompleted END), 0) AS progressSum,
+        COALESCE(SUM(isFinished), 0) AS finishedCount
+        FROM library_items WHERE relativePath LIKE :path || '/%' AND relativePath NOT LIKE :path || '/%/%'"""
+    )
+    suspend fun getFolderChildrenSummary(path: String): FolderChildrenSummary
+
+    /**
+     * The play date of the folders at [paths], in one statement: a playback save stamps every folder above the book,
+     * and a write per folder made the library's lists read again once per folder level.
+     */
+    @Query("UPDATE library_items SET lastPlayDate = :lastPlayDate WHERE relativePath IN (:paths) AND type IN ('FOLDER', 'BOUND')")
+    suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?)
+
+    /** A folder's rolled-up columns; the rest of its row stays as it's stored now. */
+    @Query(
+        """UPDATE library_items SET duration = :duration, currentTime = :currentTime, author = :author,
+        percentCompleted = :percentCompleted, isFinished = :isFinished WHERE uuid = :uuid"""
+    )
+    suspend fun setFolderRollUp(uuid: String, duration: Double, currentTime: Double, author: String?, percentCompleted: Double, isFinished: Boolean)
+
     @Query("SELECT * FROM library_items WHERE relativePath NOT LIKE '%/%' ORDER BY orderRank ASC")
     suspend fun getRootItemsSync(): List<LibraryItemEntity>
 
@@ -96,9 +122,27 @@ interface LibraryDao {
     @Update
     suspend fun updateItem(item: LibraryItemEntity)
 
-    /** Just the URL a book streams from: a looked-up media-server URL is local, never synced. */
-    @Query("UPDATE library_items SET remoteURL = :url WHERE uuid = :uuid")
-    suspend fun updateRemoteURL(uuid: String, url: String?)
+    @Query("UPDATE library_items SET orderRank = :rank WHERE uuid = :uuid")
+    suspend fun setOrderRank(uuid: String, rank: Int)
+
+    /**
+     * Ranks [uuids] in that order. In one transaction, so a list observing the table never sees part of the change,
+     * and only the rank: writing whole items would undo a progress write that landed since they were read.
+     */
+    @Transaction
+    suspend fun setOrderRanks(uuids: List<String>) {
+        uuids.forEachIndexed { rank, uuid -> setOrderRank(uuid, rank) }
+    }
+
+    /**
+     * A book's freshly issued links and nothing else: a media server's stream URL, or a cloud listing's signed file
+     * URL with its cover's ([artworkURL]; the stored one is kept when null). The one way to store a link: it's local,
+     * since the server issued it, so it's never synced; and it never goes through a whole-row update, which writes back
+     * the row as read before the lookup (stale by then if a position was saved meanwhile) and, through
+     * `SyncingLibraryRepository`, sends that row to the server as the book's progress.
+     */
+    @Query("UPDATE library_items SET remoteURL = :remoteURL, artworkURL = COALESCE(:artworkURL, artworkURL) WHERE uuid = :uuid")
+    suspend fun updateLinks(uuid: String, remoteURL: String?, artworkURL: String?)
 
     @Delete
     suspend fun deleteItem(item: LibraryItemEntity)
@@ -137,6 +181,31 @@ interface LibraryDao {
 
     @Query("UPDATE library_items SET speed = :speed WHERE uuid = :uuid")
     suspend fun updateItemSpeed(uuid: String, speed: Double)
+
+    /** The finished state and the position it moved to; the rest of the row stays as it's stored now. */
+    @Query("UPDATE library_items SET isFinished = :isFinished, currentTime = :currentTime, percentCompleted = :percentCompleted WHERE uuid = :uuid")
+    suspend fun setFinished(uuid: String, isFinished: Boolean, currentTime: Double, percentCompleted: Double)
+
+    /**
+     * A playback save: the position, its progress and the play date. The finished flag only turns on here, when the
+     * book [reachedEnd]; a finished book keeps it. Its progress is the position's, finished or not, as iOS stores it:
+     * screens show a finished book's 100% from the flag. One statement, so a write of the flag (Mark as finished) or
+     * of another column made while playback saved isn't undone, as saving the whole row read before would.
+     */
+    @Query(
+        """UPDATE library_items SET currentTime = :currentTime, lastPlayDate = :lastPlayDate,
+        isFinished = (isFinished OR :reachedEnd), percentCompleted = :percentCompleted
+        WHERE uuid = :uuid"""
+    )
+    suspend fun savePlaybackPosition(uuid: String, currentTime: Double, percentCompleted: Double, reachedEnd: Boolean, lastPlayDate: Long)
+
+    /** The title and author; the rest of the row stays as it's stored now. */
+    @Query("UPDATE library_items SET title = :title, author = :author WHERE uuid = :uuid")
+    suspend fun setDetails(uuid: String, title: String, author: String?)
+
+    /** The artwork; the rest of the row stays as it's stored now. */
+    @Query("UPDATE library_items SET artworkURL = :artworkURL WHERE uuid = :uuid")
+    suspend fun setArtwork(uuid: String, artworkURL: String?)
 
     @Query("SELECT * FROM bookmarks WHERE bookUuid = :bookUuid ORDER BY time ASC")
     fun getBookmarksForBook(bookUuid: String): Flow<List<BookmarkEntity>>
@@ -315,3 +384,12 @@ interface LibraryDao {
     @Query("SELECT * FROM library_items WHERE type != 'FOLDER' AND (title LIKE '%' || :query || '%' OR author LIKE '%' || :query || '%') ORDER BY lastPlayDate DESC")
     fun searchAllBooksWithResources(query: String): Flow<List<com.tortugapower.audiobookplayer.database.entities.LibraryItemWithExternalResources>>
 }
+
+/** [LibraryDao.getFolderChildrenSummary]: a folder's direct children, summed (progress in the local 0..1 fraction). */
+data class FolderChildrenSummary(
+    val count: Int,
+    val duration: Double,
+    val currentTime: Double,
+    val progressSum: Double,
+    val finishedCount: Int,
+)

@@ -29,7 +29,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
-/** The parked-row actions: Retry resumes and wakes the engine, Dismiss is only for a book over the limit */
+/**
+ * The Queued Tasks row actions: Retry resumes a parked task, or runs a task waiting out a backoff now, and wakes
+ * the engine; Dismiss is only for a book over the limit
+ */
 @RunWith(RobolectricTestRunner::class)
 class ProfileViewModelPausedTasksTest {
 
@@ -66,12 +69,31 @@ class ProfileViewModelPausedTasksTest {
     @Test fun retry_resumesTheTask_andWakesTheEngine() = runBlocking {
         db.syncTaskDao().insertTask(parked("t", "item_not_found"))
 
-        viewModel.retryPausedTask(requireNotNull(db.syncTaskDao().getTaskById("t")))
+        viewModel.retryTask(requireNotNull(db.syncTaskDao().getTaskById("t")))
 
         until { db.syncTaskDao().getTaskById("t")?.status == SyncTaskStatus.PENDING }
         val resumed = requireNotNull(db.syncTaskDao().getTaskById("t"))
         assertNull(resumed.pauseScope)
         assertEquals("the report stays recorded", "evt", resumed.sentryEventId)
+        until { woken == 1 }
+    }
+
+    /** A task waiting out a backoff after a failure isn't parked: Retry runs it now, its streak kept */
+    @Test fun retry_onATaskWaitingToRetry_runsItNow_andWakesTheEngine() = runBlocking {
+        db.syncTaskDao().insertTask(
+            SyncTaskEntity(
+                id = "w", taskID = "book", queueKey = SyncTaskFactory.QUEUE_SYNC, jobType = SyncTaskFactory.JOB_UPDATE,
+                position = 0, payload = "{}", errorMessage = "timeout", failureStreak = 3,
+                nextAttemptAt = System.currentTimeMillis() + 60_000,
+            )
+        )
+
+        viewModel.retryTask(requireNotNull(db.syncTaskDao().getTaskById("w")))
+
+        until { db.syncTaskDao().getTaskById("w")?.nextAttemptAt == null }
+        val task = requireNotNull(db.syncTaskDao().getTaskById("w"))
+        assertEquals(SyncTaskStatus.PENDING, task.status)
+        assertEquals("a failure after it waits longer", 3, task.failureStreak)
         until { woken == 1 }
     }
 
@@ -124,7 +146,7 @@ class ProfileViewModelPausedTasksTest {
         db.syncTaskDao().insertTask(upload)
         UploadHandBack.claim(book)
 
-        viewModel.retryPausedTask(upload)
+        viewModel.retryTask(upload)
 
         assertTrue("released", UploadHandBack.claim(book))
         UploadHandBack.release(book)

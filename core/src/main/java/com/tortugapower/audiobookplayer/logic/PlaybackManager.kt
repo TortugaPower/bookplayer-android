@@ -42,8 +42,8 @@ object PlaybackManager {
     // Chosen to line up with Media3's built-in ICON_PLAYBACK_SPEED_* glyphs so the button shows the speed.
     private val SPEED_PRESETS = listOf(0.8f, 1.0f, 1.2f, 1.5f, 1.8f, 2.0f)
 
-    // Upper bound on the on-play contents fetch for an offloaded bound book, so a slow server can't
-    // hang playback (fail-soft: fall through to whatever's local).
+    // Upper bound on the on-play cloud fetch (an offloaded bound book's contents, a single book's signed URL),
+    // so a slow server can't hang playback (fail-soft: fall through to whatever else plays it).
     private const val CONTENTS_FETCH_TIMEOUT_MS = 15_000L
 
     // Cap the per-process "already attempted remote chapter fetch" dedup set (cleared on overflow).
@@ -131,11 +131,13 @@ object PlaybackManager {
         _missingExternalServer.value = null
     }
 
-    // Whether the most recent playItem was user-initiated (autoplay=true: taps, Auto, autoplay
-    // transitions) vs a silent load (autoplay=false: launch restore, the post-fetch last-played
-    // re-arm). Player errors from silent loads must not alert — the E2E for stable host identity
-    // caught the fetch re-arm popping the generic error on a fresh second-device sign-in before
-    // the user touched anything.
+    // Whether the load now in the player was the user's: written by playItem (its autoplay: true for a tap,
+    // Next, an autoplay transition; false for the post-fetch last-played re-arm), resolveSessionMediaItems
+    // (an Android Auto pick, true) and restoreLastPlayedItem (the launch restore, false). A player error alerts
+    // when it's true or when play was asked for since (playWhenReady, from any surface: onPlayerError,
+    // shouldAlertPlayerError). Errors from a silent load don't alert on their own: the E2E for stable host
+    // identity caught the fetch re-arm popping the generic error on a fresh second-device sign-in before the
+    // user touched anything.
     @Volatile
     private var lastLoadUserInitiated = true
 
@@ -544,6 +546,12 @@ object PlaybackManager {
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
+                        // Whether playback was asked for, from any surface (the app, the notification, the
+                        // lock screen, a headset, Auto, Wear). Read before the pause below.
+                        val playRequested = player?.playWhenReady == true
+                        // Back to paused, as iOS drops a failed item: Media3 keeps playWhenReady through an
+                        // error, so the next load of this player, even a silent one, would start playing.
+                        player?.pause()
                         playbackQueuedFlag = false
                         loadPlayPending = false
                         recomputeIsPlaying()
@@ -552,9 +560,9 @@ object PlaybackManager {
                         // errors out) — don't stack the generic dialog on top of it.
                         if (_externalStreamAuthError.value) return
                         // Silent loads (launch restore, post-fetch last-played re-arm) fail
-                        // silently: an alert with no user action reads as a random error. The
-                        // user's actual tap on the same book retries as user-initiated.
-                        if (!lastLoadUserInitiated) return
+                        // silently: an alert with no user action reads as a random error. A play
+                        // asked for afterwards retries it, and that one alerts.
+                        if (!shouldAlertPlayerError(lastLoadUserInitiated, playRequested)) return
                         scope.launch {
                             val currentItem = _currentItem.value
                             if (currentItem != null) {
@@ -652,14 +660,36 @@ object PlaybackManager {
      * Whether loading [playItem]'s target should reset the position to 0:00. A finished book
      * restarts on a MANUAL tap always, and on an autoplay transition only when the restart-finished
      * preference is on (iOS parity: `autoplayRestartEnabled`); `fromBeginning` (library "Play from
-     * beginning") always restarts. Pure — pinned by PlaybackRestartDecisionTest.
+     * beginning") always restarts. A sync's re-arm of another device's last played book ([isSyncRestore]) never
+     * does: a finished book stays finished while it plays on there, and restarting it here would send 0 back.
+     * Pure — pinned by PlaybackRestartDecisionTest.
      */
     internal fun shouldRestartFromZero(
         isFinished: Boolean,
         fromBeginning: Boolean,
         isAutoplayTransition: Boolean,
         autoplayRestartFinished: Boolean,
-    ): Boolean = (isFinished && (!isAutoplayTransition || autoplayRestartFinished)) || fromBeginning
+        isSyncRestore: Boolean = false,
+    ): Boolean = (isFinished && !isSyncRestore && (!isAutoplayTransition || autoplayRestartFinished)) || fromBeginning
+
+    /**
+     * The loaded book's whole-book position in seconds, or null while the player isn't ready on it (a load or
+     * transition in flight, a stream that failed and left the player idle, a volume whose timeline isn't built):
+     * its position then isn't the book's, and can read 0.
+     */
+    fun loadedPositionSeconds(): Double? {
+        val p = player ?: return null
+        val item = _currentItem.value ?: return null
+        val timelineMissing = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND &&
+            _currentPlayable.value?.timeline?.isEmpty != false
+        if (!canReadLivePosition(_isTransitioning.value, p.playbackState, timelineMissing)) return null
+        return controllerToWholeBookMs(p.currentMediaItemIndex, p.currentPosition) / 1000.0
+    }
+
+    /** Whether the player's position is the loaded book's. Pure — pinned by LivePositionDecisionTest. */
+    internal fun canReadLivePosition(isTransitioning: Boolean, playbackState: Int, timelineMissing: Boolean): Boolean =
+        !isTransitioning && !timelineMissing &&
+            (playbackState == Player.STATE_READY || playbackState == Player.STATE_BUFFERING || playbackState == Player.STATE_ENDED)
 
     /**
      * Whether a play-intent transition should re-arm the last sleep timer: only a PLAY (not a pause),
@@ -679,6 +709,15 @@ object PlaybackManager {
      */
     internal fun isLoadPlay(autoplay: Boolean, loadingUuid: String, loadedUuid: String?): Boolean =
         autoplay && loadingUuid != loadedUuid
+
+    /**
+     * Whether a player error alerts (iOS alerts only when playback was queued): when the failed load was the
+     * user's own ([lastLoadUserInitiated]: a tap, Next, an autoplay transition, an Android Auto pick), or when
+     * playback was asked for ([playRequested], from any surface). A silent load (the launch restore, the re-load
+     * after a sync) fails silently until then. Pure — pinned by PlayerErrorAlertTest.
+     */
+    internal fun shouldAlertPlayerError(lastLoadUserInitiated: Boolean, playRequested: Boolean): Boolean =
+        lastLoadUserInitiated || playRequested
 
     /**
      * The speed a book loads at (iOS `SpeedService.getSpeed` + `LibraryService.getItemSpeed`): the
@@ -750,7 +789,7 @@ object PlaybackManager {
             val artworkFile = File(artworkDir, "${entity.uuid}.jpg")
             if (ArtworkManager.extractAndSaveArtwork(file, artworkFile)) {
                 entity.artworkURL = artworkFile.absolutePath
-                getRepository(context).updateItem(entity)
+                getRepository(context).updateItemArtwork(entity)
             }
         }
     }
@@ -974,10 +1013,14 @@ object PlaybackManager {
         val currentPos = controllerToWholeBookMs(p.currentMediaItemIndex, p.currentPosition) / 1000.0
 
         val totalDuration = item.duration
-        val isFinished = forceFinished || (currentPos >= totalDuration - 1.0 && totalDuration > 0)
+        val reachedEnd = forceFinished || FinishedPolicy.isAtEnd(currentPos, totalDuration)
+        // The player's copy too, as iOS's markAsCompleted sets it: the player's Mark as finished/unfinished reads it
+        if (reachedEnd) item.isFinished = true
 
+        // Never un-finishes the book, as iOS's playback saves don't: Mark as unfinished, the library's Jump to start
+        // and a restart from 0 do
         scope.launch(Dispatchers.IO) {
-            getRepository(context).updateItemProgress(item.uuid, currentPos, isFinished)
+            getRepository(context).savePlaybackProgress(item.uuid, currentPos, reachedEnd)
         }
     }
 
@@ -1027,7 +1070,7 @@ object PlaybackManager {
             }
 
             android.util.Log.d("PlaybackManager", "🔄 Syncing last played item from remote: ${item.title} at ${item.currentTime}s")
-            playItem(context, item, autoplay = false)
+            playItem(context, item, autoplay = false, isSyncRestore = true)
         }
     }
 
@@ -1040,6 +1083,8 @@ object PlaybackManager {
         // here — not by the caller mutating the entity — so the seek below can't race the async DB reset.
         fromBeginning: Boolean = false,
         isAutoplayTransition: Boolean = false,
+        // A sync placing the player at another device's last played book: a finished one isn't restarted
+        isSyncRestore: Boolean = false,
     ) {
         lastLoadUserInitiated = autoplay
         // Cleared again on every path where this load never reaches playback (storage/streaming
@@ -1059,7 +1104,8 @@ object PlaybackManager {
             updateProgress(context, itemToUpdate = _currentItem.value)
         }
         
-        val restartFromZero = shouldRestartFromZero(item.isFinished, fromBeginning, isAutoplayTransition, autoplayRestartFinished)
+        val restartFromZero =
+            shouldRestartFromZero(item.isFinished, fromBeginning, isAutoplayTransition, autoplayRestartFinished, isSyncRestore)
         if (restartFromZero) {
             item.currentTime = 0.0
             item.isFinished = false
@@ -1143,6 +1189,10 @@ object PlaybackManager {
                 if (autoplay) {
                     player?.play()
                     _showPlayerScreen.value = true
+                } else {
+                    // A silent load never plays, as iOS's load(autoplay: false): Media3 keeps playWhenReady from
+                    // before, on after a book played to its end, so the new book would start by itself.
+                    player?.pause()
                 }
                 player?.setPlaybackSpeed(_playbackSpeed.value)
                 applyVolume(_volumeBoost.value, _playbackVolume.value)
@@ -1307,6 +1357,7 @@ object PlaybackManager {
         if (mediaItems.isEmpty()) return null
         // Only a pick that resolved loads anything: after a failed one the session keeps the loaded book
         loadPlayPending = isLoad
+        lastLoadUserInitiated = true
 
         _currentItem.value = refreshedItem
         _currentPlayable.value = playable
@@ -1379,6 +1430,8 @@ object PlaybackManager {
                 _hasPreviousItem.value = prev
                 _isTransitioning.value = true
 
+                // Silent: a book that fails to load here alerts only once the user plays it.
+                lastLoadUserInitiated = false
                 mediaController.setMediaItems(mediaItems, local.mediaItemIndex, local.positionMs)
                 mediaController.prepare()
 
@@ -1744,7 +1797,7 @@ object PlaybackManager {
         val remote = subItems.filter { sub -> sub.relativePath?.let { File(processedDir, it).isFile } != true }
         val urls = repo.externalStreamUrlsFor(remote, onSessionExpired)
         val dao = AppDatabase.getDatabase(context).libraryDao()
-        urls.forEach { (uuid, url) -> dao.updateRemoteURL(uuid, url) }
+        urls.forEach { (uuid, url) -> dao.updateLinks(uuid, url, artworkURL = null) }
         return urls.keys
     }
 
@@ -1787,10 +1840,13 @@ object PlaybackManager {
             // book has no file of its own: its sub-books are resolved below.
             val externalUrl = if (isBound) null else repo.externalStreamUrlsFor(listOf(item), onSessionExpired)[item.uuid]
             val resolvedItem = item.also { if (externalUrl != null) it.remoteURL = externalUrl }
+            // The fresh links are stored as links only, never by writing the book back (LibraryDao.updateLinks): the
+            // re-read below then has them, with the position as it is now
+            val dao = AppDatabase.getDatabase(context).libraryDao()
+            val saveLinks: suspend (String, String, String?) -> Unit = { uuid, url, artwork -> dao.updateLinks(uuid, url, artwork) }
 
             try {
                 if (isBound) {
-                    val dao = AppDatabase.getDatabase(context).libraryDao()
                     cloudServed = VolumeUrlRefresh(
                         // Bounded so a slow/unreachable server can't hang playback (OkHttp also has timeouts).
                         fetchContents = { path ->
@@ -1824,41 +1880,24 @@ object PlaybackManager {
                         },
                         booksIn = { path -> repo.getItemsInPathSync(path) },
                         saveStreams = { books -> saveSubStreams(context, repo, books, processedDir, onSessionExpired) },
-                        saveBook = { book -> repo.updateItem(book) },
+                        saveLinks = saveLinks,
                         isDownloaded = { book -> book.relativePath?.let { File(processedDir, it).isFile } == true },
                     ).refresh(resolvedItem.relativePath ?: "")
                     android.util.Log.d("PlaybackManager", "✅ Refreshed remote URLs for bound item sub-books")
-                } else if (!resolvedItem.remoteURL.isNullOrEmpty()) {
-                    // Media-server-first: refresh the BookPlayer presigned URL only when no saved
-                    // Jellyfin/ABS server can serve the item — that's how a streamed book whose file is in
-                    // the cloud plays from it on a device without the server configured, while devices WITH the
-                    // server keep streaming from it (LAN speed, zero S3 egress).
-                    if (externalUrl == null) {
-                        // Only query Bookplayer API signed URLs if it's not a Jellyfin/Audiobookshelf item
-                        val response = NetworkClient.libraryApi.getRemoteFileURL(
-                            path = resolvedItem.relativePath ?: "",
-                            uuid = resolvedItem.uuid
-                        )
-                        if (response.isSuccessful && response.body() != null) {
-                            val body = response.body()!!
-                            val remoteItem = body.content.firstOrNull { it.uuid == resolvedItem.uuid || it.relativePath == resolvedItem.relativePath }
-                            if (remoteItem != null && !remoteItem.remoteURL.isNullOrEmpty()) {
-                                resolvedItem.remoteURL = remoteItem.remoteURL
-                                if (!remoteItem.artworkURL.isNullOrEmpty()) {
-                                    resolvedItem.artworkURL = remoteItem.artworkURL
-                                }
-                                repo.updateItem(resolvedItem)
-                                cloudServed = true
-                                android.util.Log.d("PlaybackManager", "✅ Refreshed remote URL for single item: ${resolvedItem.title}")
-                            }
-                        }
-                    } else {
-                        repo.updateItem(resolvedItem)
-                    }
+                } else {
+                    // Media-server-first: a saved Jellyfin/ABS server keeps streaming (LAN speed, zero S3
+                    // egress), and the BookPlayer cloud copy plays only what no server serves, stored URL or not.
+                    cloudServed = BookUrlRefresh(
+                        // Bounded like the volume's fetch: it now runs for books with no stored URL too, such as a
+                        // media-server book whose server isn't saved here, which should reach its prompt promptly.
+                        fetchCloudFile = BookUrlRefresh.cloudListing(CONTENTS_FETCH_TIMEOUT_MS),
+                        saveLinks = saveLinks,
+                    ).refresh(resolvedItem, externalUrl)
+                    if (cloudServed) android.util.Log.d("PlaybackManager", "✅ Refreshed remote URL for single item: ${resolvedItem.title}")
                 }
             } catch (e: Exception) {
-                // Fallback: update DB with resolved Jellyfin/ABS streaming URLs even if cloud fetch fails
-                repo.updateItem(resolvedItem)
+                // Each link was stored as it was resolved: what's left plays from what's stored
+                StorageMonitor.reportFailure(context, e)
                 android.util.Log.e("PlaybackManager", "❌ Failed to refresh remote URL(s): ${e.message}")
             }
             if (reportsStreamAuthError(userInitiated, lookupRejected, cloudServed)) reportExternalStreamAuthError()

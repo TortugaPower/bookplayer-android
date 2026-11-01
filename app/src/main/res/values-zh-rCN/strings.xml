@@ -149,6 +149,7 @@
     <!-- Library -->
     <string name="library_title_default">库</string>
     <string name="library_create_folder_title">创建文件夹</string>
+    <string name="library_options_title">选项</string>
     <string name="library_folder_name_label">文件夹名称</string>
     <string name="library_folder_name_error">仅限字母、数字、\'-\' 或 \'_\'</string>
     <string name="search_prompt">Search your library</string>
@@ -444,4 +445,42 @@
     <plurals name="library_shallow_delete_name_taken">
         <item quantity="other">文件夹未删除：其中 %1$d 个项目与库中已有项目同名。请先将其重命名或移动。</item>
     </plurals>
+
+    <!-- Transfer from Computer -->
+    <string name="transfer_title">从电脑传输</string>
+    <string name="transfer_instructions">在同一网络中的电脑上，用浏览器打开此地址：</string>
+    <string name="transfer_no_address">连接无线局域网以接收来自电脑的文件。</string>
+    <string name="transfer_footer">上传文件时请保持此界面打开。</string>
+    <string name="transfer_server_url_accessibility_value">传输地址，%1$s</string>
+    <string name="import_remove_item_accessibility">移除，%1$s</string>
+    <string name="transfer_server_copy_button">复制地址</string>
+    <string name="transfer_server_copied_button">已复制</string>
+    <plurals name="transfer_folder_files">
+        <item quantity="other">%1$d 个文件</item>
+    </plurals>
+    <string name="transfer_server_web_subtitle">拖放有声书文件或文件夹。它们会出现在手机上本应用的导入界面中。</string>
+    <string name="transfer_server_web_folder_hint">会保留文件夹结构。</string>
+    <string name="transfer_server_web_drop_title">拖放到此处</string>
+    <string name="transfer_server_web_choose_files">选取文件</string>
+    <string name="transfer_server_web_choose_folder">选取文件夹</string>
+    <string name="transfer_server_web_retry">重试失败项</string>
+    <string name="transfer_server_web_uploading">正在上传</string>
+    <string name="transfer_server_web_uploaded">已上传</string>
+    <string name="transfer_server_web_failed">失败</string>
+    <string name="transfer_server_web_queue_empty">正在等待文件…</string>
+    <string name="transfer_server_web_skipped">已跳过不支持的文件：%d</string>
+    <string name="transfer_web_queued">等待中</string>
+    <string name="transfer_web_summary">已上传 %1$d/%2$d</string>
+    <string name="transfer_web_waiting">正在等待 BookPlayer…</string>
+    <string name="transfer_web_unreachable">无法连接 BookPlayer。请保持其传输界面打开；上传会自动继续。</string>
+    <string name="transfer_web_not_enough_space">设备空间不足</string>
+    <string name="transfer_web_too_large">文件过大</string>
+    <string name="transfer_web_unsupported">不支持此文件类型</string>
+    <string name="transfer_web_path_conflict">你发送的另一个文件或文件夹已使用此名称</string>
+    <string name="transfer_web_done_hint">完成后，请在 BookPlayer 中确认以导入文件。</string>
+    <string name="transfer_web_load_error">无法连接 BookPlayer。请检查其传输界面是否仍处于打开状态。</string>
+    <string name="layout_options_title">布局选项</string>
+    <string name="layout_list_option">列表</string>
+    <string name="layout_grid_option">网格</string>
+    <string name="layout_covers_option">封面</string>
 </resources>

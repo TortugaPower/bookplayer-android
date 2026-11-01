@@ -16,6 +16,7 @@ import com.tortugapower.audiobookplayer.network.S3Transfer
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.network.throwIfCoded
 import com.tortugapower.audiobookplayer.repository.ExternalServerRepository
+import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
@@ -24,7 +25,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
 import java.io.FileOutputStream
 import kotlinx.coroutines.flow.first
 import com.tortugapower.audiobookplayer.database.entities.ExternalServiceType
@@ -288,7 +288,8 @@ class MetadataUploadProcessor(
  *
  * A download that fails for good (an HTTP error answer, a server with no file for the book, a file that
  * fails the checks) is dropped, and the app says so once ([SyncStatusManager.notifyDownloadFailed]);
- * tapping download again asks afresh. A connection problem retries, as before.
+ * tapping download again asks afresh. A connection problem retries, and the retry resumes where the
+ * last attempt stopped ([DownloadResume]).
  */
 class DownloadFileProcessor(
     private val context: Context,
@@ -299,8 +300,12 @@ class DownloadFileProcessor(
     /** The file's playing time in seconds, or null when it can't be read */
     private val durationOf: (File) -> Double? = ::readDurationSeconds,
     private val onFailedForGood: (SyncStatusManager.DownloadFailure) -> Unit = SyncStatusManager::notifyDownloadFailed,
-    /** Where a streamed book's upload is queued once it's downloaded: the phone's queue. The watch uploads nothing, as on iOS. */
-    private val syncTasks: SyncTaskRepository? = null,
+    /** The task queue: where a download keeps its part's validator, and queues a streamed book's upload ([queuesUploads]) */
+    private val syncTasks: SyncTaskRepository = RoomSyncTaskRepository(AppDatabase.getDatabase(context).syncTaskDao()),
+    /** Whether a streamed book's upload is queued once it's downloaded: on the phone. The watch uploads nothing, as on iOS. */
+    private val queuesUploads: Boolean = false,
+    /** The book's cloud listing, with its file's URL freshly signed. Null or a throw when it isn't available. */
+    private val fetchCloudFile: suspend (LibraryItemEntity) -> ContentsResponse? = BookUrlRefresh.cloudListing(LOOKUP_TIMEOUT_MS),
 ) : TaskProcessor {
     companion object {
         // One base client for every download (and retry); per-server variants derive via newBuilder(),
@@ -313,13 +318,6 @@ class DownloadFileProcessor(
         // Nobody waits on a background download, unlike playback (MediaServerStreams' 5 s cap): give a slow home
         // server the HTTP client's own timeouts, or it times out on every run and holds up the file queue.
         private const val LOOKUP_TIMEOUT_MS = 30_000L
-
-        /** Where a download is written until it passes its checks (same volume as `Processed/`, for the move) */
-        internal const val PARTS_DIR = "Downloading"
-
-        // Downloads run one at a time (the file lane), so before this process's first one no part file is
-        // being written: anything there was left by a process that died mid-download
-        internal val partsSwept = AtomicBoolean(false)
 
         /** `application/` types that are text, never audio: a server's error or login page */
         private val TEXT_APPLICATION_SUBTYPES = setOf("json", "xml", "xhtml+xml")
@@ -342,6 +340,20 @@ class DownloadFileProcessor(
     }
 
     override suspend fun process(task: SyncTaskEntity): Boolean {
+        // One run at a time per task (DownloadParts.writing): a stopped run's blocking read can outlive its cancel,
+        // still writing the part. The next run waits for it, before asking any server for anything.
+        if (!DownloadParts.writing.add(task.id)) {
+            Log.w("DownloadFileProcessor", "⏳ A stopped run of download ${task.id} is still writing its part: trying later")
+            return false
+        }
+        return try {
+            download(task)
+        } finally {
+            DownloadParts.writing.remove(task.id)
+        }
+    }
+
+    private suspend fun download(task: SyncTaskEntity): Boolean {
         val gson = Gson()
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
@@ -383,21 +395,37 @@ class DownloadFileProcessor(
             }
         }
 
+        // A cloud link is signed again on every attempt, as playback does (BookUrlRefresh): a retry or a resume can come
+        // long after the link queued with the task expired, and a book queued without one gets one. A link on the
+        // book's saved media server isn't the cloud's. One the cloud can't sign now stays as queued. Stored as links
+        // only (LibraryDao.updateLinks), never by writing back the book read above.
+        if (book != null && (owner == null || ExternalServiceUtils.downloadHeadersFor(serverRepository, owner.resource, remoteURL) == null)) {
+            val libraryDao = AppDatabase.getDatabase(context).libraryDao()
+            val signed = BookUrlRefresh(
+                fetchCloudFile,
+                saveLinks = { uuid, url, artwork -> libraryDao.updateLinks(uuid, url, artwork) },
+            ).refresh(book, externalUrl = null)
+            if (signed) remoteURL = book.remoteURL.orEmpty()
+        }
+
         if (remoteURL.isEmpty() || relativePath.isNullOrEmpty()) {
             return failedForGood(taskId, title, "it has no URL or path to download to")
         }
 
         val destFile = OfflineDownloadManager.processedFile(context, relativePath)
-        val partsDir = File(context.filesDir, PARTS_DIR)
-        sweepPartsOnce()
-        var partFile: File? = null
+        val part = DownloadParts.file(context, task.id)
+        val saved = DownloadFilePayload.validator(task.payload)
+        // Where this attempt starts: the part's end, when its validator was saved (a part without one can't be checked)
+        var offset = if (saved != null && part.isFile) part.length() else 0L
+        // Whether the part can be resumed by a later attempt, and whether this one leaves it for that
+        var resumable = offset > 0
+        var keepPart = false
         var moved = false
 
         return try {
-            partsDir.mkdirs()
-            // A name of its own per run: a cancelled run's read can still be writing its part when the next starts
-            val part = File.createTempFile("${task.id}-", ".part", partsDir).also { partFile = it }
-            var httpResponse = execute(owner, remoteURL)
+            DownloadParts.sweep(context, syncTasks)
+            part.parentFile?.mkdirs()
+            var httpResponse = execute(owner, remoteURL, offset, saved)
             if (httpResponse.code == 404 && owner != null) {
                 // The file moved on the server since the URL was looked up: one fresh lookup, one retry. Closed
                 // first, so a lookup that throws can't leak it; a closed response still reports its 404 below.
@@ -407,7 +435,35 @@ class DownloadFileProcessor(
                 val fresh = lookup?.urls?.get(taskId)
                 if (fresh != null && fresh != remoteURL) {
                     remoteURL = fresh
-                    httpResponse = execute(owner, remoteURL)
+                    httpResponse = execute(owner, remoteURL, offset, saved)
+                }
+            }
+            // The whole length of the file, when known: a resumed answer's Content-Range says it
+            var total = -1L
+            if (offset > 0) {
+                val continued = if (httpResponse.code == 206) {
+                    DownloadResume.continuedLength(
+                        httpResponse.header("Content-Range"), httpResponse.header("ETag"), httpResponse.header("Last-Modified"),
+                        offset, saved!!,
+                    )
+                } else {
+                    null
+                }
+                when {
+                    continued != null -> total = continued
+                    // An answer that doesn't continue the part (another file's bytes, or from elsewhere than its end),
+                    // or a part the server can't continue: dropped below, and the whole file asked for
+                    httpResponse.code == 206 || httpResponse.code == 416 -> {
+                        httpResponse.close()
+                        offset = 0
+                        resumable = false
+                        httpResponse = execute(owner, remoteURL)
+                    }
+                    // The whole file (the server ignored the range, or the file changed since), or an error answer
+                    else -> {
+                        offset = 0
+                        resumable = false
+                    }
                 }
             }
             // `use` closes the response on every path: the early returns below (error status, no room) would
@@ -425,20 +481,35 @@ class DownloadFileProcessor(
                     return failedForGood(taskId, title, "HTTP ${response.code}", expiredServer = signedOutOf?.let { serverName(it) })
                 }
 
+                if (offset == 0L) {
+                    // A new part. The old one goes first, then the new validator is saved, before the first byte: a
+                    // process dying in between can't leave the old bytes under the new file's validator.
+                    part.delete()
+                    val validator = DownloadResume.validator(response.header("ETag"), response.header("Last-Modified"))
+                    if (!syncTasks.saveDownloadValidator(task.id, validator)) return gone(relativePath)
+                    resumable = validator != null
+                }
                 val body = response.body ?: return false
+                // The bytes still to come; the whole file's when the download starts at 0
                 val contentLength = body.contentLength()
-                // Refuse up front when the file can't fit with headroom to spare: a download that fills the
+                if (offset == 0L) total = contentLength
+                // Refuse up front when the rest can't fit with headroom to spare: a download that fills the
                 // disk takes the database down with it. The engine holds downloads until storage recovers.
                 if (contentLength > 0 && !StorageMonitor.hasRoomFor(context, contentLength)) {
                     StorageMonitor.noteTransferDoesNotFit(context, contentLength)
                     Log.w("DownloadFileProcessor", "⛔ Not enough storage for $relativePath ($contentLength bytes)")
+                    keepPart = true
                     return false
+                }
+                if (offset > 0) {
+                    Log.d("DownloadFileProcessor", "↪️ Resuming $relativePath at $offset of $total bytes")
+                    SyncStatusManager.updateTaskProgress(taskId, offset.toDouble() / total)
                 }
                 var bytesRead = 0L
                 var cancelled = false
 
                 body.byteStream().use { input: java.io.InputStream ->
-                    FileOutputStream(part).use { output: FileOutputStream ->
+                    FileOutputStream(part, offset > 0).use { output: FileOutputStream ->
                         val buffer = ByteArray(8 * 1024)
                         var read: Int
                         while (input.read(buffer).also { read = it } != -1) {
@@ -451,8 +522,8 @@ class DownloadFileProcessor(
                             }
                             output.write(buffer, 0, read)
                             bytesRead += read
-                            if (contentLength > 0) {
-                                val progress = bytesRead.toDouble() / contentLength
+                            if (total > 0) {
+                                val progress = (offset + bytesRead).toDouble() / total
                                 SyncStatusManager.updateTaskProgress(taskId, progress)
                             }
                         }
@@ -469,8 +540,9 @@ class DownloadFileProcessor(
                     return false
                 }
                 // Fewer bytes than announced (more is fine, as on iOS; an unknown length can't be checked)
-                if (contentLength > 0 && bytesRead < contentLength) {
-                    return failedForGood(taskId, title, "it ended at $bytesRead of $contentLength bytes")
+                val written = offset + bytesRead
+                if (total > 0 && written < total) {
+                    return failedForGood(taskId, title, "it ended at $written of $total bytes")
                 }
                 // Text in its place (a proxy's login or error page) is never the book, whatever is stored for it:
                 // kept, a streamed book's would even go up to the cloud as its file
@@ -480,7 +552,7 @@ class DownloadFileProcessor(
                 }
                 // Every announced byte arrived: a length Android's reader can't measure (a format it doesn't
                 // know, though the player does) isn't a sign of a cut file
-                failedCheck(part, book?.duration, trustUnreadable = contentLength > 0)?.let { reason -> return failedForGood(taskId, title, reason) }
+                failedCheck(part, book?.duration, trustUnreadable = total > 0)?.let { reason -> return failedForGood(taskId, title, reason) }
 
                 destFile.parentFile?.mkdirs()
                 destFile.delete()
@@ -493,8 +565,9 @@ class DownloadFileProcessor(
                 true
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
-            // A stopped worker leaves the task RUNNING for resetRunningTasks
+            // A stopped worker leaves the task RUNNING for resetRunningTasks, and its part for the next run to resume
             SyncStatusManager.clearTaskProgress(taskId)
+            keepPart = true
             throw e
         } catch (e: Exception) {
             StorageMonitor.reportFailure(context, e) // ENOSPC mid-write: the storage state holds further downloads
@@ -504,10 +577,13 @@ class DownloadFileProcessor(
             // set lets TaskConcurrencyManager treat the task as terminal (no retry) instead of re-queuing
             // and re-downloading. With no cancel pending the flag isn't set anyway (startDownload clears
             // any stale one before enqueuing), so nothing leaks.
+            // A dropped connection retries from where it stopped; a cancelled download doesn't come back
+            keepPart = !SyncStatusManager.isCancelRequested(taskId)
             false
         } finally {
-            // Every way out but the move leaves a part no later run can use
-            if (!moved) partFile?.delete()
+            // A part the next attempt resumes stays: a dropped connection, a stopped run, no room yet. Every
+            // other way out but the move drops it: the download is done with, or its part can't be resumed.
+            if (!moved && !(keepPart && resumable)) part.delete()
         }
     }
 
@@ -566,7 +642,7 @@ class DownloadFileProcessor(
      * download, which is already in place: a book whose upload couldn't be queued still streams.
      */
     private suspend fun queueUploadAfterDownload(uuid: String, owner: MediaServerStreams.Owner) {
-        val syncTasks = syncTasks ?: return
+        if (!queuesUploads) return
         // The server marks the link "downloaded" once the book's file has reached the cloud. Offloading turns it
         // back to "stream" on this device, so downloading it again queues the upload again: its start finds the
         // file in S3 and answers "exists" (MultipartUploadService.startUpload), one call and no bytes.
@@ -586,23 +662,33 @@ class DownloadFileProcessor(
         }
     }
 
-    private fun sweepPartsOnce() {
-        if (!partsSwept.compareAndSet(false, true)) return
-        File(context.filesDir, PARTS_DIR).listFiles()?.forEach { it.delete() }
+    /** The task was removed while it ran (cancelled, or cleared by a sign-out or a lapse): it stops, as an upload does */
+    private fun gone(relativePath: String): Boolean {
+        Log.w("DownloadFileProcessor", "Download of $relativePath is gone from the queue, stopping")
+        return true
     }
 
     /**
-     * GETs [url]; media-server headers ride only the hops that stay on that server (OkHttp would carry custom
-     * headers, often Cloudflare Access secrets, across a redirect to another host). They're resolved per run,
-     * not stored in the payload: tokens stay out of the task table, and a re-auth's fresh token applies to an
-     * already-queued download.
+     * GETs [url], from [offset] on when it's past 0: the rest, `If-Range` the part's [validator]. Media-server
+     * headers ride only the hops that stay on that server (OkHttp would carry custom headers, often Cloudflare
+     * Access secrets, across a redirect to another host). They're resolved per run, not stored in the payload:
+     * tokens stay out of the task table, and a re-auth's fresh token applies to an already-queued download.
      */
-    private suspend fun execute(owner: MediaServerStreams.Owner?, url: String): okhttp3.Response {
+    private suspend fun execute(
+        owner: MediaServerStreams.Owner?,
+        url: String,
+        offset: Long = 0,
+        validator: String? = null,
+    ): okhttp3.Response {
         val headers = owner?.let { ExternalServiceUtils.downloadHeadersFor(serverRepository, it.resource, url) }
         val client = headers?.let {
             baseHttpClient.newBuilder().addNetworkInterceptor(ExternalServiceUtils.originPinnedHeaders(url, it)).build()
         } ?: baseHttpClient
-        return client.newCall(okhttp3.Request.Builder().url(url).build()).execute()
+        val request = okhttp3.Request.Builder().url(url)
+            // The file's own bytes, never a compressed answer: a resume's offset counts them
+            .header("Accept-Encoding", "identity")
+        if (offset > 0 && validator != null) request.header("Range", "bytes=$offset-").header("If-Range", validator)
+        return client.newCall(request.build()).execute()
     }
 
     private suspend fun mediaServerOwner(uuid: String): MediaServerStreams.Owner? =
@@ -621,19 +707,22 @@ class DownloadFileProcessor(
 }
 
 class UpdateProcessor : TaskProcessor {
-    private val gson = Gson()
-
     override suspend fun process(task: SyncTaskEntity): Boolean {
-        val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
-        val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
-
-        val response = NetworkClient.libraryApi.updateMetadata(payload)
+        val response = NetworkClient.libraryApi.updateMetadata(updateRequestBody(task.payload))
         response.throwIfCoded()
         return response.isSuccessful
     }
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_UPDATE
+    }
+
+    companion object {
+        private val gson = SyncTaskFactory.payloadGson()
+
+        /** The update's request body, its whole numbers sent whole (a rank as 4, not 4.0). */
+        internal fun updateRequestBody(payload: String): Map<String, Any?> =
+            gson.fromJson(payload, object : TypeToken<Map<String, Any?>>() {}.type)
     }
 }
 
@@ -986,7 +1075,6 @@ class ExternalUpdateProcessor(
         val hostIdStr = payload["hostId"] as? String
         val currentTime = (payload["currentTime"] as? Double) ?: 0.0
         val percentCompleted = (payload["percentCompleted"] as? Double) ?: 0.0
-        val isFinished = (payload["isFinished"] as? Boolean) ?: false
         // Absent on tasks queued before the date was sent; the push then omits it (Jellyfin keeps its own
         // date, ABS stamps the time the push lands).
         val lastPlayDate = (payload["lastPlayDate"] as? Double)?.toLong()
@@ -1023,12 +1111,10 @@ class ExternalUpdateProcessor(
                 "jellyfin" -> {
                     val ticks = (currentTime * 10_000_000).toLong()
                     val playedPercentage = percentCompleted * 100.0
-                    val played = isFinished
 
                     val requestBody = com.tortugapower.audiobookplayer.network.services.JellyfinUserDataRequest(
                         playbackPositionTicks = ticks,
                         playedPercentage = playedPercentage,
-                        played = played,
                         lastPlayedDate = lastPlayDate?.let { java.time.Instant.ofEpochMilli(it).toString() }
                     )
 

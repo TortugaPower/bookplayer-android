@@ -13,6 +13,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Release script tests
+        run: |
+          node --test scripts/play-release.test.mjs scripts/play-rollout.test.mjs
+          python3 -I -B -m unittest discover -s scripts/release-check
+          python3 -I -B -m unittest discover -s scripts/sentry-commits
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -31,10 +42,10 @@ jobs:
       - name: Assemble devDebug
         run: ./gradlew assembleDevDebug --stacktrace
 
-      # :app/:wear tests via testDevDebugUnitTest; :core is a flavorless library, so its tests live
-      # under testDebugUnitTest and must be invoked explicitly.
+      # :app/:wear tests via testDevDebugUnitTest; :core and :browserdrop are flavorless libraries, so
+      # their tests live under testDebugUnitTest and must be invoked explicitly.
       - name: Run unit tests
-        run: ./gradlew testDevDebugUnitTest :core:testDebugUnitTest --stacktrace
+        run: ./gradlew testDevDebugUnitTest :core:testDebugUnitTest :browserdrop:testDebugUnitTest --stacktrace
 
       - name: Lint
         run: ./gradlew lintDevDebug --stacktrace

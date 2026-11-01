@@ -13,7 +13,6 @@ import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
@@ -59,14 +58,14 @@ class AudioPlayerService : MediaPlaybackService() {
         // Dev builds only: scripts/chaos shorten media3's 10-minute foreground timeout to reach the
         // demoted-while-paused state quickly (ANDROID-BOOKPLAYER-21 rig). Production returns null.
         DebugKnobs.mediaForegroundTimeoutMs(this)?.let { setForegroundServiceTimeoutMs(it) }
-        // Android 12+ refuses the foreground start of a gesture-less resume once media3 has dropped the
-        // foreground (ANDROID-BOOKPLAYER-21). media3 catches the exception and reports it here; see
-        // ForegroundStartRefusals for why this is recorded rather than worked around.
-        setListener(object : MediaSessionService.Listener {
-            override fun onForegroundServiceStartNotAllowedException() {
-                foregroundStartRefusals.onRefused(playbackContinued = mediaSession?.player?.isPlaying == true)
-            }
-        })
+    }
+
+    /**
+     * Android 12+ refuses the foreground start of a gesture-less resume once media3 has dropped the foreground
+     * (ANDROID-BOOKPLAYER-21). See ForegroundStartRefusals for why this is recorded rather than worked around.
+     */
+    override fun onForegroundStartRefused() {
+        foregroundStartRefusals.onRefused(playbackContinued = mediaSession?.player?.isPlaying == true)
     }
 
     override fun createSessionActivity(): PendingIntent {

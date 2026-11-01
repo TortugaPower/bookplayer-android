@@ -292,6 +292,10 @@
     <string name="library_sort_reverse_order">Reverse Order</string>
     <string name="library_show_progress_percentage">Show progress as percentage</string>
     <string name="library_show_original_file_name">Show original file name</string>
+    <string name="layout_options_title">Layout options</string>
+    <string name="layout_list_option">List</string>
+    <string name="layout_grid_option">Grid</string>
+    <string name="layout_covers_option">Covers</string>
     <string name="library_folder_name_label">Folder Name</string>
     <string name="library_folder_name_error">Use only letters, numbers, \'-\' or \'_\'</string>
     <string name="library_folder_name_exists_error">A folder or file with this name already exists</string>
@@ -316,6 +320,12 @@
     </plurals>
     <string name="sync_paused_alert_title">Sync is paused until a queued task is resolved</string>
     <string name="sync_tasks_view_title">View tasks</string>
+    <!-- The notification shown while a download or upload keeps running with the app in the background, and its channel's name in the system settings -->
+    <string name="sync_notification_channel">Downloads and uploads</string>
+    <string name="sync_notification_downloading">Downloading books</string>
+    <string name="sync_notification_uploading">Uploading books</string>
+    <string name="sync_notification_transferring">Downloading and uploading books</string>
+    <string name="sync_notification_syncing">Syncing your library</string>
     <string name="library_jump_to_start">Jump to start</string>
     <string name="library_cancel_download">Cancel download</string>
     <string name="library_remove_from_device">Remove from device</string>
@@ -376,6 +386,44 @@
     <string name="import_skipped_items">%1$d items were skipped because they already exist in the library</string>
     <string name="import_no_audio_files_alert">The selected items have no audio files to import.</string>
     <string name="import_skipped_no_audio_files">%1$d items were skipped because they have no audio files</string>
+
+    <!-- Transfer from Computer (iOS keys and text). The transfer_*web* strings are the upload page in the
+         computer's browser: %d, %1$d and %2$d become the page's {count}, {done} and {total}. -->
+    <string name="transfer_title">Transfer from Computer</string>
+    <string name="transfer_instructions">On a computer on the same network, open this address in a browser:</string>
+    <string name="transfer_no_address">Connect to Wi‑Fi to receive files from a computer.</string>
+    <string name="transfer_footer">Keep this screen open while uploading.</string>
+    <!-- Spoken for the address: its label, then the address. -->
+    <string name="transfer_server_url_accessibility_value">Transfer address, %1$s</string>
+    <!-- Spoken for an import row's remove button: what it does, then the row's title. -->
+    <string name="import_remove_item_accessibility">Remove, %1$s</string>
+    <string name="transfer_server_copy_button">Copy address</string>
+    <string name="transfer_server_copied_button">Copied</string>
+    <plurals name="transfer_folder_files">
+        <item quantity="one">%1$d file</item>
+        <item quantity="other">%1$d files</item>
+    </plurals>
+    <string name="transfer_server_web_subtitle">Drop audiobook files or folders. They appear in the app’s import screen on your phone.</string>
+    <string name="transfer_server_web_folder_hint">Folder structure is preserved.</string>
+    <string name="transfer_server_web_drop_title">Drop here</string>
+    <string name="transfer_server_web_choose_files">Choose files</string>
+    <string name="transfer_server_web_choose_folder">Choose folder</string>
+    <string name="transfer_server_web_retry">Retry failed</string>
+    <string name="transfer_server_web_uploading">Uploading</string>
+    <string name="transfer_server_web_uploaded">Uploaded</string>
+    <string name="transfer_server_web_failed">Failed</string>
+    <string name="transfer_server_web_queue_empty">Waiting for files…</string>
+    <string name="transfer_server_web_skipped">Skipped unsupported files: %d</string>
+    <string name="transfer_web_queued">Waiting</string>
+    <string name="transfer_web_summary">%1$d of %2$d uploaded</string>
+    <string name="transfer_web_waiting">Waiting for BookPlayer…</string>
+    <string name="transfer_web_unreachable">Can’t reach BookPlayer. Keep its Transfer screen open; uploads resume on their own.</string>
+    <string name="transfer_web_not_enough_space">Not enough space on the device</string>
+    <string name="transfer_web_too_large">Too large</string>
+    <string name="transfer_web_unsupported">File type not supported</string>
+    <string name="transfer_web_path_conflict">Another file or folder you sent has this name</string>
+    <string name="transfer_web_done_hint">When you’re done, confirm in BookPlayer to import the files.</string>
+    <string name="transfer_web_load_error">Can’t reach BookPlayer. Check that its Transfer screen is still open.</string>
     <!-- Interval/Duration -->
     <string name="interval_seconds">%1$d secs</string>
     <string name="interval_1_min">1 min</string>

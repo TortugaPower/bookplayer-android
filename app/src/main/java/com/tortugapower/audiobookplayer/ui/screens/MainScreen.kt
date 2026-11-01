@@ -68,6 +68,8 @@ import com.tortugapower.audiobookplayer.ui.screens.appicons.AppIconsScreen
 import com.tortugapower.audiobookplayer.ui.screens.library.ImportCompletionDialog
 import com.tortugapower.audiobookplayer.ui.screens.library.ImportSheet
 import com.tortugapower.audiobookplayer.ui.screens.library.LibraryScreen
+import com.tortugapower.audiobookplayer.ui.screens.library.TransferSheet
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.tortugapower.audiobookplayer.ui.screens.player.PlayerScreen
 import com.tortugapower.audiobookplayer.ui.screens.profile.ProfileScreen
 import com.tortugapower.audiobookplayer.ui.screens.profile.StatisticsScreen
@@ -240,6 +242,8 @@ fun MainScreen() {
 
 
     var showMediaServersFlow by remember { mutableStateOf(false) }
+    // The open Transfer from Computer session, if any: a new key per opening is a new session.
+    var transferSessionKey by rememberSaveable { mutableStateOf<String?>(null) }
     var mediaServersInitialType by remember { mutableStateOf<com.tortugapower.audiobookplayer.database.entities.ExternalServiceType?>(null) }
 
     // A synced-down media-server book whose server isn't configured on THIS device (configs are
@@ -346,6 +350,7 @@ fun MainScreen() {
                             importViewModel = importViewModel,
                             onNavigateToMediaServers = { showMediaServersFlow = true },
                             onNavigateToQueuedTasks = { navController.navigate("queuedTasks") },
+                            onTransferFromComputer = { transferSessionKey = java.util.UUID.randomUUID().toString() },
                         ) 
                     }
                     composable(Screen.Profile.route) { 
@@ -663,8 +668,17 @@ fun MainScreen() {
                     ImportSheet(importViewModel, targetFolderPath = currentLibraryPath)
                 }
 
-                // Post-import placement prompt (Library / folders / bound book).
-                importViewModel.importCompletion?.let { completion ->
+                transferSessionKey?.let { key ->
+                    TransferSheet(
+                        sessionKey = key,
+                        targetFolderPath = currentLibraryPath,
+                        onClose = { transferSessionKey = null }
+                    )
+                }
+
+                // Post-import placement prompt (Library / folders / bound book). A transfer's import starts
+                // as its sheet closes, so the prompt never comes up over it (iOS waits for the sheet too).
+                importViewModel.importCompletion?.takeIf { transferSessionKey == null }?.let { completion ->
                     ImportCompletionDialog(
                         completion = completion,
                         currentFolderPath = currentLibraryPath,

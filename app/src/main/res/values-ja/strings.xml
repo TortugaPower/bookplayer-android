@@ -149,6 +149,7 @@
     <!-- Library -->
     <string name="library_title_default">ライブラリ</string>
     <string name="library_create_folder_title">フォルダを作成</string>
+    <string name="library_options_title">オプション</string>
     <string name="library_folder_name_label">フォルダ名</string>
     <string name="library_folder_name_error">英数字、「-」、「_」のみ使用してください</string>
     <string name="search_prompt">Search your library</string>
@@ -444,4 +445,42 @@
     <plurals name="library_shallow_delete_name_taken">
         <item quantity="other">フォルダを削除できませんでした。フォルダ内の%1$d個のアイテムと同じ名前のアイテムがライブラリに既にあります。先に名前を変更するか、移動してください。</item>
     </plurals>
+
+    <!-- Transfer from Computer -->
+    <string name="transfer_title">コンピュータから転送</string>
+    <string name="transfer_instructions">同じネットワーク上のコンピュータで、このアドレスをブラウザで開いてください:</string>
+    <string name="transfer_no_address">コンピュータからファイルを受け取るには、Wi-Fiに接続してください。</string>
+    <string name="transfer_footer">ファイルのアップロード中はこの画面を開いたままにしてください。</string>
+    <string name="transfer_server_url_accessibility_value">転送アドレス、%1$s</string>
+    <string name="import_remove_item_accessibility">削除、%1$s</string>
+    <string name="transfer_server_copy_button">アドレスをコピー</string>
+    <string name="transfer_server_copied_button">コピーしました</string>
+    <plurals name="transfer_folder_files">
+        <item quantity="other">%1$d個のファイル</item>
+    </plurals>
+    <string name="transfer_server_web_subtitle">オーディオブックのファイルやフォルダをドロップしてください。電話のアプリの読み込み画面に表示されます。</string>
+    <string name="transfer_server_web_folder_hint">フォルダ構成はそのまま保持されます。</string>
+    <string name="transfer_server_web_drop_title">ここにドロップ</string>
+    <string name="transfer_server_web_choose_files">ファイルを選択</string>
+    <string name="transfer_server_web_choose_folder">フォルダを選択</string>
+    <string name="transfer_server_web_retry">失敗したものを再試行</string>
+    <string name="transfer_server_web_uploading">アップロード中</string>
+    <string name="transfer_server_web_uploaded">アップロード済み</string>
+    <string name="transfer_server_web_failed">失敗</string>
+    <string name="transfer_server_web_queue_empty">ファイルを待っています…</string>
+    <string name="transfer_server_web_skipped">サポートされていないファイルをスキップしました: %d</string>
+    <string name="transfer_web_queued">待機中</string>
+    <string name="transfer_web_summary">%2$d件中%1$d件アップロード済み</string>
+    <string name="transfer_web_waiting">BookPlayerを待っています…</string>
+    <string name="transfer_web_unreachable">BookPlayerに接続できません。BookPlayerの転送画面を開いたままにしてください。アップロードは自動的に再開されます。</string>
+    <string name="transfer_web_not_enough_space">デバイスの空き容量が足りません</string>
+    <string name="transfer_web_too_large">サイズが大きすぎます</string>
+    <string name="transfer_web_unsupported">サポートされていないファイル形式です</string>
+    <string name="transfer_web_path_conflict">送信した別のファイルまたはフォルダに同じ名前があります</string>
+    <string name="transfer_web_done_hint">完了したら、BookPlayerで確定してファイルを読み込んでください。</string>
+    <string name="transfer_web_load_error">BookPlayerに接続できません。BookPlayerの転送画面が開いたままか確認してください。</string>
+    <string name="layout_options_title">表示オプション</string>
+    <string name="layout_list_option">リスト</string>
+    <string name="layout_grid_option">グリッド</string>
+    <string name="layout_covers_option">表紙</string>
 </resources>

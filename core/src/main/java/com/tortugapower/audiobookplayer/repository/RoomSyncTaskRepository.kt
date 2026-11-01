@@ -34,8 +34,7 @@ class RoomSyncTaskRepository(
 
     override suspend fun saveTask(task: SyncTaskEntity) = withContext(Dispatchers.IO) {
         syncTaskDao.insertAtEnd(task)
-        // The sync foreground service stops itself when idle (dataSync budget, Android 15+);
-        // every new task must be able to bring it back up.
+        // Every new task makes sure the engine runs (the target's SyncRuntime)
         com.tortugapower.audiobookplayer.logic.SyncEngineWaker.notifyWorkEnqueued()
     }
 
@@ -56,6 +55,20 @@ class RoomSyncTaskRepository(
 
     override suspend fun markTaskPending(id: String, errorMessage: String?) = withContext(Dispatchers.IO) {
         syncTaskDao.markTaskPending(id, errorMessage)
+    }
+
+    override suspend fun markTaskRetrying(id: String, errorMessage: String, failureStreak: Int, nextAttemptAt: Long) =
+        withContext(Dispatchers.IO) {
+            syncTaskDao.markTaskRetrying(id, errorMessage, failureStreak, nextAttemptAt)
+        }
+
+    override suspend fun clearRetryWaits(): Int = withContext(Dispatchers.IO) {
+        syncTaskDao.clearRetryWaits()
+    }
+
+    override suspend fun clearRetryWait(id: String) = withContext(Dispatchers.IO) {
+        syncTaskDao.clearRetryWait(id)
+        Unit
     }
 
     override suspend fun updatePendingTaskPayload(task: SyncTaskEntity, payload: String): Boolean =
@@ -141,6 +154,14 @@ class RoomSyncTaskRepository(
 
     override suspend fun saveUploadState(id: String, state: MultipartUploadState): Boolean = withContext(Dispatchers.IO) {
         syncTaskDao.saveUploadState(id, state)
+    }
+
+    override suspend fun saveDownloadValidator(id: String, validator: String?): Boolean = withContext(Dispatchers.IO) {
+        syncTaskDao.saveDownloadValidator(id, validator)
+    }
+
+    override suspend fun taskRowIds(jobType: String): Set<String> = withContext(Dispatchers.IO) {
+        syncTaskDao.taskRowIds(jobType).toSet()
     }
 
     override suspend fun countQueuedTasksInQueue(queueKey: String): Int = withContext(Dispatchers.IO) {
