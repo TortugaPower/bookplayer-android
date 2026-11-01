@@ -11,6 +11,7 @@ import com.tortugapower.audiobookplayer.logic.FetchContentsProcessor
 import com.tortugapower.audiobookplayer.logic.HardcoverProcessor
 import com.tortugapower.audiobookplayer.logic.MatchUuidsProcessor
 import com.tortugapower.audiobookplayer.logic.MetadataUploadProcessor
+import com.tortugapower.audiobookplayer.logic.preferences.PreferenceFamily
 import com.tortugapower.audiobookplayer.logic.MoveProcessor
 import com.tortugapower.audiobookplayer.logic.MultipartUploadProcessor
 import com.tortugapower.audiobookplayer.logic.PreferenceFetchProcessor
@@ -66,7 +67,8 @@ internal object WearSyncEngine {
             // the watch writes sort prefs); the upload processor is registered to keep processor-set
             // parity with the phone, so a preference task can never sit unhandled in this queue.
             PreferenceUploadProcessor(),
-            PreferenceFetchProcessor(context, repository),
+            // Sort only: the watch has no layout or display toggles
+            PreferenceFetchProcessor(context, repository, families = listOf(PreferenceFamily.Sort)),
         )
         return TaskConcurrencyManager(
             context, repository, accountRepository, processors,

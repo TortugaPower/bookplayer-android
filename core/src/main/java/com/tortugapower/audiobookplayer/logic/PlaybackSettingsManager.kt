@@ -2,10 +2,12 @@ package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
 import android.util.Log
+import androidx.datastore.core.DataMigration
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.tortugapower.audiobookplayer.logic.preferences.PreferenceFamily
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -22,8 +24,33 @@ private val playbackSettingsCorruptionHandler = ReplaceFileCorruptionHandler<Pre
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
     name = "playback_settings",
-    corruptionHandler = playbackSettingsCorruptionHandler
+    corruptionHandler = playbackSettingsCorruptionHandler,
+    produceMigrations = { listOf(LibraryDisplayKeysMigration) },
 )
+
+/**
+ * The library's display toggles moved to iOS's synced keys ([PreferenceFamily.Display]), stored as "true"/"false".
+ * DataStore runs this before the first read: each old value is copied over unless the new key already has one, and
+ * the old key goes. Nothing is uploaded, so a value set on iOS still wins the first pull.
+ */
+internal object LibraryDisplayKeysMigration : DataMigration<Preferences> {
+    private val moves = mapOf(
+        booleanPreferencesKey("show_progress_percentage") to stringPreferencesKey(PreferenceFamily.Display.PROGRESS_STYLE),
+        booleanPreferencesKey("show_original_file_name") to stringPreferencesKey(PreferenceFamily.Display.TITLE_SOURCE),
+    )
+
+    override suspend fun shouldMigrate(currentData: Preferences): Boolean = moves.keys.any { it in currentData }
+
+    override suspend fun migrate(currentData: Preferences): Preferences = currentData.toMutablePreferences().apply {
+        moves.forEach { (old, new) ->
+            val value = this[old] ?: return@forEach
+            if (this[new] == null) this[new] = value.toString()
+            remove(old)
+        }
+    }.toPreferences()
+
+    override suspend fun cleanUp() = Unit
+}
 
 object PlaybackSettingsManager {
     private val SPEED = floatPreferencesKey("playback_speed")
@@ -205,29 +232,7 @@ object PlaybackSettingsManager {
         context.dataStore.edit { it[PREVENT_AUTOLOCK_ONLY_ON_POWER] = enabled }
     }
 
-    // Library display prefs (iOS parity: the library Options sheet's toggles). Both default OFF.
-    private val SHOW_PROGRESS_PERCENTAGE = booleanPreferencesKey("show_progress_percentage")
-    private val SHOW_ORIGINAL_FILE_NAME = booleanPreferencesKey("show_original_file_name")
-
-    fun getShowProgressAsPercentage(context: Context): Flow<Boolean> = context.dataStore.data.map { it[SHOW_PROGRESS_PERCENTAGE] ?: false }
-    suspend fun setShowProgressAsPercentage(context: Context, enabled: Boolean) {
-        context.dataStore.edit { it[SHOW_PROGRESS_PERCENTAGE] = enabled }
-    }
-
-    fun getShowOriginalFileName(context: Context): Flow<Boolean> = context.dataStore.data.map { it[SHOW_ORIGINAL_FILE_NAME] ?: false }
-    suspend fun setShowOriginalFileName(context: Context, enabled: Boolean) {
-        context.dataStore.edit { it[SHOW_ORIGINAL_FILE_NAME] = enabled }
-    }
-
-    // The Library tab's layout (iOS parity: the Options sheet's layout picker). Stored as iOS's raw value under
-    // the server's key (iOS `Constants.UserDefaults.libraryLayout`), so syncing it later needs no migration.
-    private val LIBRARY_LAYOUT = stringPreferencesKey("library_layout:style")
-
-    fun getLibraryLayout(context: Context): Flow<LibraryLayout> =
-        context.dataStore.data.map { LibraryLayout.fromRawValue(it[LIBRARY_LAYOUT]) }
-    suspend fun setLibraryLayout(context: Context, layout: LibraryLayout) {
-        context.dataStore.edit { it[LIBRARY_LAYOUT] = layout.rawValue }
-    }
+    // The Library tab's layout and display toggles are synced preferences: LibraryDisplayPreferences.
 
     // Data usage: whether background FILE uploads may run over a metered (cellular) connection.
     // Default OFF — uploads wait for un-metered Wi-Fi. Downloads are user-triggered and unaffected.

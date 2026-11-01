@@ -151,6 +151,8 @@ class ProfileViewModel(
         // runCatching like LibraryViewModel's sortManager access: unit tests with a plain
         // Application have no singleton, and logout cleanup must not abort halfway.
         runCatching { BookPlayerApplication.instance.librarySortManager.clearLocalPreferences() }
+        // The layout and display toggles too (iOS wipes every synced family): back to the list, toggles off
+        runCatching { BookPlayerApplication.instance.libraryDisplayPreferences.clearLocal() }
         SubscriptionManager.logout()
         SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
         // AFTER the account row is gone: stop + unload the loaded book if it's now gate-blocked
