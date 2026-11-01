@@ -616,7 +616,7 @@ class SyncingLibraryRepositoryTest {
         assertEquals(listOf(true), delegate.progressWrites)
     }
 
-    /** The player's Mark as finished sends the book's finish and its folder's rolled-up progress (iOS markAsCompleted) */
+    /** Mark as finished sends the book's finish and its folder's rolled-up progress (iOS markAsCompleted), not to media servers */
     @Test
     fun updateItemFinished_sendsTheFinish_andTheFoldersRollUp() = runBlocking {
         val book = speedBook(path = "Folder/book.mp3").apply {
@@ -634,7 +634,9 @@ class SyncingLibraryRepositoryTest {
 
         val updates = syncTaskRepository.tasks.filter { it.jobType == SyncTaskFactory.JOB_UPDATE }.associateBy { it.taskID }
         assertEquals(setOf("uuid", "relativePath", "isFinished", "currentTime", "percentCompleted"), payloadKeys(updates.getValue("book-1")))
-        assertEquals(setOf("uuid", "relativePath", "percentCompleted", "lastPlayDateTimestamp"), payloadKeys(updates.getValue("folder-1")))
+        // Its progress only: a finish doesn't change when the folder was played (the book's date could be older)
+        assertEquals(setOf("uuid", "relativePath", "percentCompleted"), payloadKeys(updates.getValue("folder-1")))
+        assertEquals(null, folder.lastPlayDate)
         assertTrue(syncTaskRepository.tasks.none { it.jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE })
     }
 

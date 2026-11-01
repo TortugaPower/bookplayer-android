@@ -53,7 +53,7 @@ class SyncingLibraryRepository(
         delegate.updateItemFinished(item)
         if (isSubscribed()) {
             val stored = delegate.getItemById(item.uuid) ?: return
-            pushToServer(stored, ItemUpdateFields.finished(stored))
+            pushToServer(stored, ItemUpdateFields.finished(stored), rollUpPlayDate = false)
         }
     }
 
@@ -134,12 +134,16 @@ class SyncingLibraryRepository(
 
         if (isSubscribed()) {
             val item = delegate.getItemById(uuid)
-            if (item != null) pushToServer(item, fields(item))
+            if (item != null) pushToServer(item, fields(item), rollUpPlayDate = true)
         }
     }
 
-    /** Sends [item]'s [fields] to our server, and each folder above it its rolled-up progress and play date. */
-    private suspend fun pushToServer(item: LibraryItemEntity, fields: Map<String, Any?>) {
+    /**
+     * Sends [item]'s [fields] to our server, and each folder above it its rolled-up progress, with the book's play date
+     * when [rollUpPlayDate]: a save that played it. A finish leaves when it was played as it is (iOS markAsCompleted
+     * updates the folders' progress only), and the book's date could be older than the folder's.
+     */
+    private suspend fun pushToServer(item: LibraryItemEntity, fields: Map<String, Any?>, rollUpPlayDate: Boolean) {
         SyncTaskFactory.createUpdateTask(syncTaskRepository, item, fields)
 
         // Sync parent folders as their aggregate progress changed. Roll the leaf's lastPlayDate up
@@ -150,9 +154,13 @@ class SyncingLibraryRepository(
             path = path.substringBeforeLast('/')
             val parent = delegate.getItemByPath(path)
             if (parent != null) {
-                parent.lastPlayDate = item.lastPlayDate
-                delegate.updateItem(parent)
-                SyncTaskFactory.createUpdateTask(syncTaskRepository, parent, ItemUpdateFields.folderProgress(parent))
+                if (rollUpPlayDate) {
+                    parent.lastPlayDate = item.lastPlayDate
+                    delegate.updateItem(parent)
+                    SyncTaskFactory.createUpdateTask(syncTaskRepository, parent, ItemUpdateFields.folderProgress(parent))
+                } else {
+                    SyncTaskFactory.createUpdateTask(syncTaskRepository, parent, ItemUpdateFields.folderPercent(parent))
+                }
             }
         }
     }

@@ -17,4 +17,11 @@ object FinishedPolicy {
      */
     fun positionAfter(isFinished: Boolean, currentTime: Double, duration: Double): Double =
         if (!isFinished && isAtEnd(currentTime, duration)) 0.0 else currentTime
+
+    /** The progress a book marked [isFinished] at [currentTime] shows: all of it once finished, else where it is. */
+    fun progressAfter(isFinished: Boolean, currentTime: Double, duration: Double): Double = when {
+        isFinished -> 1.0
+        duration > 0 -> (currentTime / duration).coerceIn(0.0, 1.0)
+        else -> 0.0
+    }
 }

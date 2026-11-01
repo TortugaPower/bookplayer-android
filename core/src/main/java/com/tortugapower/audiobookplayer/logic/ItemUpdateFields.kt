@@ -38,6 +38,9 @@ object ItemUpdateFields {
         "lastPlayDateTimestamp" to lastPlayDateSeconds(folder),
     )
 
+    /** A folder holding a book just marked finished or unfinished: its rolled-up progress (iOS `markAsCompleted`). */
+    fun folderPercent(folder: LibraryItemEntity): Map<String, Any?> = mapOf("percentCompleted" to percentCompleted(folder))
+
     /**
      * A folder whose contents changed (a move, a delete): its count, length and progress (iOS
      * `rebuildFolderDetails`). The server keeps a folder's details as the client wrote them.
