@@ -73,10 +73,13 @@ class LibraryViewModelTest {
         override suspend fun replaceChaptersForBook(bookUuid: String, chapters: List<com.tortugapower.audiobookplayer.database.entities.ChapterEntity>) {}
         override fun getExternalResourcesForBook(itemUuid: String): Flow<List<ExternalResourceEntity>> = emptyFlow()
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = emptyList()
-        override suspend fun getItemById(uuid: String): LibraryItemEntity? = null
+        // The stored rows, read back as fresh copies the way Room reads them
+        val stored = mutableMapOf<String, LibraryItemEntity>()
+        var onItemSaved: (LibraryItemEntity) -> Unit = {}
+        override suspend fun getItemById(uuid: String): LibraryItemEntity? = stored[uuid]?.copy()
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = null
         override suspend fun saveItem(item: LibraryItemEntity) {}
-        override suspend fun updateItem(item: LibraryItemEntity) {}
+        override suspend fun updateItem(item: LibraryItemEntity) { onItemSaved(item) }
         // Recorded so setFinishedStatus tests can assert the exact (uuid, time, finished) writes.
         val progressUpdates = mutableListOf<Triple<String, Double, Boolean>>()
         var descendantBooks: List<LibraryItemEntity> = emptyList()
@@ -428,6 +431,72 @@ class LibraryViewModelTest {
         runCurrent()
         // Re-emits once the rows land; only the BOOK files count as download units.
         assertEquals(listOf("b1"), emissions.last().map { it.uuid })
+    }
+
+    // ---- An edit saves a changed row, never the library list's own item ----
+
+    /** [repository] serving [items] at the root, re-read as fresh rows after every save, the way Room re-queries */
+    private fun servingRoot(repository: FakeLibraryRepository, root: MutableStateFlow<List<LibraryItemEntity>>, vararg items: LibraryItemEntity) {
+        items.forEach { repository.stored[it.uuid] = it }
+        root.value = repository.stored.values.map { it.copy() }
+        repository.onItemSaved = { saved ->
+            repository.stored[saved.uuid] = saved.copy()
+            root.value = repository.stored.values.map { it.copy() }
+        }
+    }
+
+    private fun book(author: String? = "Old", artworkURL: String? = null) = LibraryItemEntity(
+        uuid = "b1", title = "Book", author = author, relativePath = "Book.mp3", type = ItemType.BOOK, artworkURL = artworkURL,
+    )
+
+    // Changed in place, the list would already hold the edit, so the library's next emission would be dropped as
+    // equal and the card would never redraw
+    @Test fun updateItemDetails_theListGetsTheEditedRow_andItsOwnItemIsLeftAsItWas() = runTest(dispatcher) {
+        val root = MutableStateFlow<List<LibraryItemEntity>>(emptyList())
+        val libraryRepo = FakeLibraryRepository(root)
+        servingRoot(libraryRepo, root, book())
+        val model = modelWith(libraryRepo = libraryRepo)
+        val items = model.getItemsForPath(null)
+        advanceUntilIdle()
+        val shown = items.value.single()
+
+        model.updateItemDetails(shown, "Book", "New")
+        advanceUntilIdle()
+
+        assertEquals("New", items.value.single().author)
+        assertEquals("Old", shown.author)
+    }
+
+    @Test fun deleteArtwork_theListGetsTheChangedRow_andItsOwnItemIsLeftAsItWas() = runTest(dispatcher) {
+        val root = MutableStateFlow<List<LibraryItemEntity>>(emptyList())
+        val libraryRepo = FakeLibraryRepository(root)
+        servingRoot(libraryRepo, root, book(artworkURL = "/Artworks/cover.jpg"))
+        val model = modelWith(libraryRepo = libraryRepo)
+        val items = model.getItemsForPath(null)
+        advanceUntilIdle()
+        val shown = items.value.single()
+
+        model.deleteArtwork(shown)
+        advanceUntilIdle()
+
+        assertEquals(null, items.value.single().artworkURL)
+        assertEquals("/Artworks/cover.jpg", shown.artworkURL)
+    }
+
+    // The sheet's item still holds the artwork it opened with; the one set since is only on the stored row, and
+    // it's that file a removal must delete
+    @Test fun deleteArtwork_deletesTheStoredArtworksFile() = runTest(dispatcher) {
+        val root = MutableStateFlow<List<LibraryItemEntity>>(emptyList())
+        val libraryRepo = FakeLibraryRepository(root)
+        val setSince = java.io.File.createTempFile("artwork", ".jpg")
+        servingRoot(libraryRepo, root, book(artworkURL = setSince.absolutePath))
+        val model = modelWith(libraryRepo = libraryRepo)
+
+        model.deleteArtwork(book(artworkURL = null))
+        advanceUntilIdle()
+
+        assertFalse(setSince.exists())
+        assertEquals(null, libraryRepo.stored.getValue("b1").artworkURL)
     }
 
     // Mark-as-finished (iOS parity, LibraryService.markAsFinished): finishing keeps each book's

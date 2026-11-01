@@ -587,9 +587,9 @@ class LibraryViewModel(
 
         if (titleChanged || authorChanged) {
             viewModelScope.launch {
-                item.title = newTitle
-                item.author = newAuthor
-                repository.updateItemDetails(item)
+                // An edited copy: [item] is the library list's own, and changed in place the list would already hold
+                // the new title, so the library's next emission would look unchanged and the card wouldn't redraw.
+                repository.updateItemDetails(item.copy(title = newTitle, author = newAuthor))
             }
         }
     }
@@ -700,10 +700,11 @@ class LibraryViewModel(
 
     fun updateArtwork(context: android.content.Context, item: LibraryItemEntity, imageUri: android.net.Uri?) {
         viewModelScope.launch {
+            val stored = storedForArtwork(item) ?: return@launch
             if (imageUri == null) {
                 // Delete existing artwork
-                com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
-                item.artworkURL = null
+                com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
+                stored.artworkURL = null
             } else {
                 // Process and save new artwork
                 val artworkDir = java.io.File(context.filesDir, "Artworks")
@@ -716,24 +717,32 @@ class LibraryViewModel(
                 val success = com.tortugapower.audiobookplayer.logic.ArtworkManager.compressAndSaveImage(context, imageUri, destFile)
                 if (success) {
                     // Delete old artwork if exists
-                    com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
-                    item.artworkURL = destFile.absolutePath
+                    com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
+                    stored.artworkURL = destFile.absolutePath
                     
                     // Enqueue sync task for artwork (validation is inside repository)
-                    repository.updateArtworkSync(item)
+                    repository.updateArtworkSync(stored)
                 }
             }
-            repository.updateItemArtwork(item)
+            repository.updateItemArtwork(stored)
         }
     }
 
     fun deleteArtwork(item: LibraryItemEntity) {
         viewModelScope.launch {
-            com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
-            item.artworkURL = null
-            repository.updateItemArtwork(item)
+            val stored = storedForArtwork(item) ?: return@launch
+            com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
+            stored.artworkURL = null
+            repository.updateItemArtwork(stored)
         }
     }
+
+    /**
+     * The stored row an artwork change works on, not the sheet's [item]: that's the library list's own (changed in
+     * place, the card wouldn't redraw), and an artwork set earlier from the same sheet is only on the stored row,
+     * whose file the change must delete.
+     */
+    private suspend fun storedForArtwork(item: LibraryItemEntity): LibraryItemEntity? = repository.getItemById(item.uuid)
 
     companion object {
         /** Upper bound on how long the pull-to-refresh indicator waits for the fetch task to drain. */

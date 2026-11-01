@@ -437,9 +437,13 @@ class RoomLibraryRepository(
         }
     }
 
+    // The conversions change the stored rows, not the caller's items: those are the library list's own (changed in
+    // place, the list would already hold the change and its cards wouldn't redraw), and saved whole they could put
+    // back older progress.
     override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {
         withContext(Dispatchers.IO) {
-            items.forEach { item ->
+            items.forEach { selected ->
+                val item = libraryDao.getItemById(selected.uuid) ?: return@forEach
                 if (item.type == ItemType.BOUND) {
                     item.type = ItemType.FOLDER
                     // A folder doesn't carry the volume's played-as-one-unit recency (iOS parity:
@@ -456,7 +460,8 @@ class RoomLibraryRepository(
 
     override suspend fun convertFoldersToVolumes(context: Context, items: List<LibraryItemEntity>) {
         withContext(Dispatchers.IO) {
-            items.forEach { item ->
+            items.forEach { selected ->
+                val item = libraryDao.getItemById(selected.uuid) ?: return@forEach
                 if (item.type == ItemType.FOLDER) {
                     // iOS parity (LibraryService.updateFolder(.bound)): a bound volume may only
                     // contain books, and never nothing. Validate BEFORE mutating anything.

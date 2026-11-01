@@ -78,8 +78,13 @@ class SyncingLibraryRepositoryTest {
             return notMoved
         }
         override suspend fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String) {}
-        override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {}
-        override suspend fun convertFoldersToVolumes(context: android.content.Context, items: List<LibraryItemEntity>) {}
+        // As the Room repository does: the stored row converts, the caller's item is left as it was
+        override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {
+            items.forEach { item -> this.items[item.uuid]?.let { this.items[item.uuid] = it.copy(type = ItemType.FOLDER, lastPlayDate = null) } }
+        }
+        override suspend fun convertFoldersToVolumes(context: android.content.Context, items: List<LibraryItemEntity>) {
+            items.forEach { item -> this.items[item.uuid]?.let { this.items[item.uuid] = it.copy(type = ItemType.BOUND) } }
+        }
         override suspend fun reorderItems(items: List<LibraryItemEntity>) {}
         override suspend fun updateArtworkSync(item: LibraryItemEntity) {}
         override suspend fun getBookmarkAtTime(bookUuid: String, time: Double): BookmarkEntity? = null
@@ -526,6 +531,23 @@ class SyncingLibraryRepositoryTest {
         repository.updateItemDetails(speedBook().apply { title = "Renamed"; author = "Someone"; currentTime = 42.0 })
 
         assertEquals(setOf("uuid", "relativePath", "title", "details"), payloadKeys(syncTaskRepository.tasks.single()))
+    }
+
+    /** A conversion sends the converted row's new type: the delegate converts the stored row, not the caller's item */
+    @Test
+    fun convertVolumesToFolders_sendsTheConvertedRowsType() = runBlocking {
+        val volume = folder(uuid = "volume-1", path = "Volume", author = "2").copy(type = ItemType.BOUND)
+        val delegate = FakeLibraryRepository().apply { items += volume.uuid to volume.copy() }
+        val syncTaskRepository = FakeSyncTaskRepository()
+        val repository = SyncingLibraryRepository(delegate, syncTaskRepository, FakeAccountRepository(AccountTier.PRO))
+
+        repository.convertVolumesToFolders(listOf(volume))
+
+        val payload = com.google.gson.Gson().fromJson<Map<String, Any?>>(
+            syncTaskRepository.tasks.single().payload, object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
+        )
+        assertEquals(ItemType.FOLDER.ordinal.toDouble(), (payload["type"] as Number).toDouble(), 0.0)
+        assertEquals(ItemType.BOUND, volume.type)
     }
 
     /** A progress save sends the book's progress, and each folder above it its rolled-up progress and play date */

@@ -205,10 +205,11 @@ class SyncingLibraryRepository(
         return notMoved
     }
 
+    // The conversions' updates come from the converted rows: the delegate changes the stored rows, not [items].
     override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {
         delegate.convertVolumesToFolders(items)
         if (isSubscribed()) {
-            items.forEach { item ->
+            items.mapNotNull { delegate.getItemById(it.uuid) }.forEach { item ->
                 // Its new type, and the play date the delegate cleared, as an explicit 0 (iOS updateFolder).
                 SyncTaskFactory.createUpdateTask(
                     syncTaskRepository, item, ItemUpdateFields.type(item) + ItemUpdateFields.clearedLastPlayDate()
@@ -221,7 +222,7 @@ class SyncingLibraryRepository(
         // A failed validation (BoundConversionException) propagates to the caller — no tasks enqueued.
         delegate.convertFoldersToVolumes(context, items)
         if (isSubscribed()) {
-            items.forEach { item ->
+            items.mapNotNull { delegate.getItemById(it.uuid) }.forEach { item ->
                 SyncTaskFactory.createUpdateTask(syncTaskRepository, item, ItemUpdateFields.type(item))
                 // The delegate cleared each book's lastPlayDate — push those too (iOS parity:
                 // updateFolder(.bound) sends a lastPlayDate: 0 metadata update per child).
