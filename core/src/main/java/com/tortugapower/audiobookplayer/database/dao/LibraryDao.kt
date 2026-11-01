@@ -162,9 +162,11 @@ interface LibraryDao {
 
     /**
      * A playback save: the position, its progress and the play date. The finished flag only turns on here, when the
-     * book [reachedEnd]; a finished book keeps it, and its 100%. One statement, so a write of the flag (Mark as
-     * finished) or of another column made while playback saved isn't undone, as saving the whole row read before
-     * would.
+     * book [reachedEnd]; a finished book keeps it, and its 100%, as every finished row here holds 1.0 (the other
+     * progress writes and the server sync's `normalizedRemotePercent` store it so) while its position moves on. iOS
+     * stores the position's percentage and shows 100% from the flag; media servers get the position's percentage
+     * from Android too. One statement, so a write of the flag (Mark as finished) or of another column made while
+     * playback saved isn't undone, as saving the whole row read before would.
      */
     @Query(
         """UPDATE library_items SET currentTime = :currentTime, lastPlayDate = :lastPlayDate,
