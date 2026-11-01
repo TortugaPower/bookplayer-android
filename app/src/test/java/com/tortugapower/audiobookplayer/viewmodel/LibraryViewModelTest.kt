@@ -499,6 +499,31 @@ class LibraryViewModelTest {
         assertEquals(null, libraryRepo.stored.getValue("b1").artworkURL)
     }
 
+    // A new image: the stored row's artwork (set since the sheet opened) is the old file deleted, the row gets the new
+    // image, and the list's own item is left as it was
+    @Test fun updateArtwork_replacesTheStoredArtwork_andItsOwnItemIsLeftAsItWas() = runTest(dispatcher) {
+        val root = MutableStateFlow<List<LibraryItemEntity>>(emptyList())
+        val libraryRepo = FakeLibraryRepository(root)
+        val setSince = java.io.File.createTempFile("artwork", ".jpg")
+        servingRoot(libraryRepo, root, book(artworkURL = setSince.absolutePath))
+        val model = modelWith(libraryRepo = libraryRepo)
+        val shown = book(artworkURL = null)
+        val picked = java.io.File.createTempFile("picked", ".png").apply {
+            outputStream().use {
+                android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888)
+                    .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+        }
+
+        model.updateArtwork(ApplicationProvider.getApplicationContext(), shown, android.net.Uri.fromFile(picked))
+        advanceUntilIdle()
+
+        val newArtwork = libraryRepo.stored.getValue("b1").artworkURL
+        assertFalse(setSince.exists())
+        assertTrue(newArtwork != null && newArtwork != setSince.absolutePath && java.io.File(newArtwork).exists())
+        assertEquals(null, shown.artworkURL)
+    }
+
     // Mark-as-finished (iOS parity, LibraryService.markAsFinished): finishing keeps each book's
     // listening position — isFinished alone drives the 100% display — and fans out over every
     // descendant book of a container.
