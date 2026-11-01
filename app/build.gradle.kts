@@ -34,8 +34,8 @@ android {
         applicationId = "com.tortugapower.audiobookplayer"
         minSdk = 28
         targetSdk = 36
-        versionCode = 25
-        versionName = "1.3.0"
+        versionCode = 26
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
