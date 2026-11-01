@@ -660,14 +660,17 @@ object PlaybackManager {
      * Whether loading [playItem]'s target should reset the position to 0:00. A finished book
      * restarts on a MANUAL tap always, and on an autoplay transition only when the restart-finished
      * preference is on (iOS parity: `autoplayRestartEnabled`); `fromBeginning` (library "Play from
-     * beginning") always restarts. Pure — pinned by PlaybackRestartDecisionTest.
+     * beginning") always restarts. A sync's re-arm of another device's last played book ([isSyncRestore]) never
+     * does: a finished book stays finished while it plays on there, and restarting it here would send 0 back.
+     * Pure — pinned by PlaybackRestartDecisionTest.
      */
     internal fun shouldRestartFromZero(
         isFinished: Boolean,
         fromBeginning: Boolean,
         isAutoplayTransition: Boolean,
         autoplayRestartFinished: Boolean,
-    ): Boolean = (isFinished && (!isAutoplayTransition || autoplayRestartFinished)) || fromBeginning
+        isSyncRestore: Boolean = false,
+    ): Boolean = (isFinished && !isSyncRestore && (!isAutoplayTransition || autoplayRestartFinished)) || fromBeginning
 
     /**
      * The loaded book's whole-book position in seconds, or null while the player isn't ready on it (a load or
@@ -1067,7 +1070,7 @@ object PlaybackManager {
             }
 
             android.util.Log.d("PlaybackManager", "🔄 Syncing last played item from remote: ${item.title} at ${item.currentTime}s")
-            playItem(context, item, autoplay = false)
+            playItem(context, item, autoplay = false, isSyncRestore = true)
         }
     }
 
@@ -1080,6 +1083,8 @@ object PlaybackManager {
         // here — not by the caller mutating the entity — so the seek below can't race the async DB reset.
         fromBeginning: Boolean = false,
         isAutoplayTransition: Boolean = false,
+        // A sync placing the player at another device's last played book: a finished one isn't restarted
+        isSyncRestore: Boolean = false,
     ) {
         lastLoadUserInitiated = autoplay
         // Cleared again on every path where this load never reaches playback (storage/streaming
@@ -1099,7 +1104,8 @@ object PlaybackManager {
             updateProgress(context, itemToUpdate = _currentItem.value)
         }
         
-        val restartFromZero = shouldRestartFromZero(item.isFinished, fromBeginning, isAutoplayTransition, autoplayRestartFinished)
+        val restartFromZero =
+            shouldRestartFromZero(item.isFinished, fromBeginning, isAutoplayTransition, autoplayRestartFinished, isSyncRestore)
         if (restartFromZero) {
             item.currentTime = 0.0
             item.isFinished = false

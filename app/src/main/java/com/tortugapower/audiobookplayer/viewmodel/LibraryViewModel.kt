@@ -628,17 +628,21 @@ class LibraryViewModel(
                     val newTime = com.tortugapower.audiobookplayer.logic.FinishedPolicy.positionAfter(
                         isFinished, book.currentTime, book.duration
                     )
+                    val progress = com.tortugapower.audiobookplayer.logic.FinishedPolicy.progressAfter(isFinished, newTime, book.duration)
                     // The player's Mark as finished, as iOS has one markAsFinished for both: its columns and the
                     // finish's effects, on our server only; no play date, nothing to media servers
-                    repository.updateItemFinished(
-                        book.copy(
-                            isFinished = isFinished,
-                            currentTime = newTime,
-                            percentCompleted = com.tortugapower.audiobookplayer.logic.FinishedPolicy.progressAfter(
-                                isFinished, newTime, book.duration
-                            ),
-                        )
-                    )
+                    repository.updateItemFinished(book.copy(isFinished = isFinished, currentTime = newTime, percentCompleted = progress))
+                    // The loaded book's copy in the player too, as the player's own does: its menu and its next save
+                    // read it. Taken back to the start, the player goes there, or its next play would finish it again.
+                    val loaded = com.tortugapower.audiobookplayer.logic.PlaybackManager.currentItem.value
+                    if (loaded?.uuid == book.uuid) {
+                        loaded.isFinished = isFinished
+                        loaded.currentTime = newTime
+                        loaded.percentCompleted = progress
+                        if (newTime != book.currentTime) {
+                            com.tortugapower.audiobookplayer.logic.PlaybackManager.seekTo((newTime * 1000).toLong())
+                        }
+                    }
                 }
             }
         }
