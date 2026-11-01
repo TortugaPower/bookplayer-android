@@ -64,7 +64,8 @@ class SyncingLibraryRepositoryTest {
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = itemsByPath[path]
         override suspend fun saveItem(item: LibraryItemEntity) {}
         override suspend fun updateItem(item: LibraryItemEntity) {}
-        override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {}
+        val progressWrites = mutableListOf<Boolean>()
+        override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) { progressWrites += isFinished }
         override suspend fun deleteItemWithFile(context: android.content.Context, item: LibraryItemEntity) {}
         override suspend fun deleteItemsWithFiles(context: android.content.Context, items: List<LibraryItemEntity>) {}
         // Mirrors RoomLibraryRepository: mutates each item's relativePath IN PLACE — the move test pins
@@ -601,6 +602,18 @@ class SyncingLibraryRepositoryTest {
         )
         assertEquals(false, push["isFinished"])
         assertEquals(0.4, (push["percentCompleted"] as Number).toDouble(), 0.0)
+    }
+
+    /** A repository without its own playback save keeps a finished book finished, as the save's contract says */
+    @Test
+    fun savePlaybackProgress_byDefault_keepsAFinishedBookFinished() = runBlocking {
+        val book = speedBook().apply { isFinished = true }
+        val delegate = FakeLibraryRepository().apply { items += book.uuid to book }
+        val repository = SyncingLibraryRepository(delegate, FakeSyncTaskRepository(), FakeAccountRepository(AccountTier.FREE))
+
+        repository.savePlaybackProgress("book-1", 10.0, reachedEnd = false)
+
+        assertEquals(listOf(true), delegate.progressWrites)
     }
 
     // MARK: - Bookmark pull

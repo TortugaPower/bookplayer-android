@@ -1,16 +1,20 @@
 package com.tortugapower.audiobookplayer.logic
 
-import kotlin.math.ceil
-
 /**
- * Where a book's listening position goes when it's marked finished or unfinished, from the library or the player
- * (iOS `LibraryService.markAsFinished`). Pure, so the one rule is unit-testable.
+ * When a book is at its end, and where its listening position goes when it's marked finished or unfinished, from the
+ * library or the player (iOS `LibraryService.markAsFinished`). Pure, so the rules are unit-testable.
  */
 object FinishedPolicy {
+    /**
+     * Whether a book at [currentTime] is at its end: within its last second, where a playback save finishes it. One
+     * rule for that save and for unfinishing, so a book unfinished there isn't finished again by the next save.
+     */
+    fun isAtEnd(currentTime: Double, duration: Double): Boolean = duration > 0 && currentTime >= duration - 1.0
+
     /**
      * The position after marking a book at [currentTime] [isFinished]: finishing keeps it (the finished flag alone
      * shows 100%); unfinishing takes a book at its end back to the start, and keeps any other position.
      */
     fun positionAfter(isFinished: Boolean, currentTime: Double, duration: Double): Double =
-        if (!isFinished && ceil(currentTime) >= ceil(duration)) 0.0 else currentTime
+        if (!isFinished && isAtEnd(currentTime, duration)) 0.0 else currentTime
 }

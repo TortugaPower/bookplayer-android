@@ -670,6 +670,25 @@ object PlaybackManager {
     ): Boolean = (isFinished && (!isAutoplayTransition || autoplayRestartFinished)) || fromBeginning
 
     /**
+     * The loaded book's whole-book position in seconds, or null while the player isn't ready on it (a load or
+     * transition in flight, a stream that failed and left the player idle, a volume whose timeline isn't built):
+     * its position then isn't the book's, and can read 0.
+     */
+    fun loadedPositionSeconds(): Double? {
+        val p = player ?: return null
+        val item = _currentItem.value ?: return null
+        val timelineMissing = item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND &&
+            _currentPlayable.value?.timeline?.isEmpty != false
+        if (!canReadLivePosition(_isTransitioning.value, p.playbackState, timelineMissing)) return null
+        return controllerToWholeBookMs(p.currentMediaItemIndex, p.currentPosition) / 1000.0
+    }
+
+    /** Whether the player's position is the loaded book's. Pure — pinned by LivePositionDecisionTest. */
+    internal fun canReadLivePosition(isTransitioning: Boolean, playbackState: Int, timelineMissing: Boolean): Boolean =
+        !isTransitioning && !timelineMissing &&
+            (playbackState == Player.STATE_READY || playbackState == Player.STATE_BUFFERING || playbackState == Player.STATE_ENDED)
+
+    /**
      * Whether a play-intent transition should re-arm the last sleep timer: only a PLAY (not a pause),
      * only with the Auto Sleep Timer setting on, and never for the play of a load that changed the book
      * ([isLoadPlay]; iOS `handleAutoTimer` runs `if !autoPlayed`). Pure — pinned by AutoSleepTimerDecisionTest.
@@ -991,7 +1010,7 @@ object PlaybackManager {
         val currentPos = controllerToWholeBookMs(p.currentMediaItemIndex, p.currentPosition) / 1000.0
 
         val totalDuration = item.duration
-        val reachedEnd = forceFinished || (currentPos >= totalDuration - 1.0 && totalDuration > 0)
+        val reachedEnd = forceFinished || FinishedPolicy.isAtEnd(currentPos, totalDuration)
         // The player's copy too, as iOS's markAsCompleted sets it: the player's Mark as finished/unfinished reads it
         if (reachedEnd) item.isFinished = true
 

@@ -12,8 +12,19 @@ class FinishedPolicyTest {
 
     @Test fun unfinishing_aBookAtItsEnd_takesItToTheStart() {
         assertEquals(0.0, FinishedPolicy.positionAfter(isFinished = false, currentTime = 3600.0, duration = 3600.0), 0.0)
-        // At the end by the whole second, as iOS rounds both up
+        // Within the last second
         assertEquals(0.0, FinishedPolicy.positionAfter(isFinished = false, currentTime = 3599.4, duration = 3600.0), 0.0)
+    }
+
+    // The playback save's rule: unfinished in the last second, a book the next save would finish again goes back
+    // to the start instead
+    @Test fun unfinishing_inTheLastSecond_takesItToTheStart() {
+        assertEquals(true, FinishedPolicy.isAtEnd(currentTime = 3599.5, duration = 3600.3))
+        assertEquals(0.0, FinishedPolicy.positionAfter(isFinished = false, currentTime = 3599.5, duration = 3600.3), 0.0)
+    }
+
+    @Test fun aBookWithNoLength_isNeverAtItsEnd() {
+        assertEquals(false, FinishedPolicy.isAtEnd(currentTime = 0.0, duration = 0.0))
     }
 
     @Test fun unfinishing_midBook_keepsThePosition() {

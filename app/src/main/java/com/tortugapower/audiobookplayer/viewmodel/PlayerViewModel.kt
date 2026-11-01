@@ -199,7 +199,7 @@ class PlayerViewModel(
         val item = PlaybackManager.currentItem.value ?: return
         viewModelScope.launch {
             PlaybackManager.pause()
-            val position = PlaybackManager.player?.let { PlaybackManager.currentWholeBookMs() / 1000.0 } ?: item.currentTime
+            val position = PlaybackManager.loadedPositionSeconds() ?: item.currentTime
             item.isFinished = !item.isFinished
             item.currentTime = FinishedPolicy.positionAfter(item.isFinished, position, item.duration)
             item.percentCompleted = when {
