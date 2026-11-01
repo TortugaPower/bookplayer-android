@@ -65,7 +65,8 @@ interface LibraryRepository {
     suspend fun updateItemArtwork(item: LibraryItemEntity) = updateItem(item)
     /**
      * The play date of the folders and volumes at [paths], saved here only: a playback save stamps every one above the
-     * book (iOS `recursiveFolderLastPlayedDateUpdate`), in one statement rather than a whole-row save per folder.
+     * book (iOS `recursiveFolderLastPlayedDateUpdate`), in one statement rather than a whole-row save per folder. It
+     * doesn't sync, a syncing repository included: its caller queues the folders' updates.
      */
     suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?)
     suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean)

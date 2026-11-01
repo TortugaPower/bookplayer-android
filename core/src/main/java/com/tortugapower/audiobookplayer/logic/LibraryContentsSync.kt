@@ -137,17 +137,13 @@ object LibraryContentsSync {
     }
 
     /**
-     * The local 0..1 progress fraction for a fetched item. The wire scale is ambiguous — iOS and
-     * the API use 0..100, but rows last written by older Android builds hold 0..1 (they uploaded
-     * the local fraction raw) — so the fraction is DERIVED from currentTime/duration (always
-     * authoritative, either scale), finished or not, as iOS stores it: screens show a finished
-     * book's 100% from its flag. Duration-less items (unresolved or legacy) fall back to the wire
-     * value read as iOS's 0..100.
+     * The local 0..1 progress fraction for a fetched item: the server's own, as iOS stores it
+     * (`updateInfo`, `Book`/`Folder(syncItem:)`), for books and folders alike. A folder's is its
+     * children's average, which both apps send (iOS `calculateFolderProgress`); worked out here from
+     * its times, it would be the old position-sum. The server's scale is 0..100. A row an older
+     * Android build sent as 0..1 reads near 0 until its next local save sends it again.
      */
-    fun normalizedRemotePercent(remote: SyncableItem): Double = when {
-        remote.duration > 0 -> (remote.currentTime / remote.duration).coerceIn(0.0, 1.0)
-        else -> (remote.percentCompleted / 100.0).coerceIn(0.0, 1.0)
-    }
+    fun normalizedRemotePercent(remote: SyncableItem): Double = (remote.percentCompleted / 100.0).coerceIn(0.0, 1.0)
 
     /**
      * Recompute a FOLDER/BOUND row's aggregates from its direct children — the ONE implementation
