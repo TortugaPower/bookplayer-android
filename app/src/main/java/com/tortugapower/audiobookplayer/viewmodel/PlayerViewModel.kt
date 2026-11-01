@@ -198,16 +198,20 @@ class PlayerViewModel(
     fun toggleFinished() {
         val item = PlaybackManager.currentItem.value ?: return
         viewModelScope.launch {
-            PlaybackManager.pause()
             val position = PlaybackManager.loadedPositionSeconds() ?: item.currentTime
-            item.isFinished = !item.isFinished
-            item.currentTime = FinishedPolicy.positionAfter(item.isFinished, position, item.duration)
+            val finished = !item.isFinished
+            val newTime = FinishedPolicy.positionAfter(finished, position, item.duration)
+            // Back to the start before the pause: the pause saves the position, and at the end that save would finish
+            // the book again after this unfinishes it
+            if (newTime != position) PlaybackManager.seekTo((newTime * 1000).toLong())
+            PlaybackManager.pause()
+            item.isFinished = finished
+            item.currentTime = newTime
             item.percentCompleted = when {
-                item.isFinished -> 1.0
-                item.duration > 0 -> (item.currentTime / item.duration).coerceIn(0.0, 1.0)
+                finished -> 1.0
+                item.duration > 0 -> (newTime / item.duration).coerceIn(0.0, 1.0)
                 else -> 0.0
             }
-            if (item.currentTime != position) PlaybackManager.seekTo((item.currentTime * 1000).toLong())
             repository.updateItemFinished(item)
             showMoreOptions = false
             notifySeek()
