@@ -579,8 +579,8 @@ class SyncingLibraryRepositoryTest {
     }
 
     /**
-     * A media server gets where the book is and whether this save finished it, as before, not the stored flag: a
-     * finished book played on would otherwise tell Jellyfin it's played, and ABS it's at 100%, mid-book.
+     * A media server gets where the book is, not the stored flag (iOS sends media servers no finished flag): a
+     * finished book played on would otherwise tell ABS it's at 100% mid-book.
      */
     @Test
     fun savePlaybackProgress_ofAFinishedBook_tellsMediaServersWhereItIs() = runBlocking {
@@ -600,7 +600,7 @@ class SyncingLibraryRepositoryTest {
             syncTaskRepository.tasks.single { it.jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE }.payload,
             object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
         )
-        assertEquals(false, push["isFinished"])
+        assertFalse("isFinished" in push)
         assertEquals(0.4, (push["percentCompleted"] as Number).toDouble(), 0.0)
     }
 

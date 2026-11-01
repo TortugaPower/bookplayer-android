@@ -94,8 +94,8 @@ class SyncingLibraryRepository(
 
     /**
      * Sends a saved progress: its [fields] to our server, with its folders' roll-ups, and to the book's media servers
-     * the position and whether this save finished it ([mediaServerFinished]), not the stored flag. A finished book
-     * played on stays finished here, but Jellyfin (`Played`) and ABS (`progress`) get where it is, as before.
+     * the position and its percentage, 100% once this save finished it ([mediaServerFinished]), not from the stored
+     * flag: a finished book played on stays finished here, but Jellyfin and ABS get where it is.
      */
     private suspend fun pushProgress(
         uuid: String,
@@ -122,7 +122,6 @@ class SyncingLibraryRepository(
                                 item.duration > 0 -> (currentTime / item.duration).coerceIn(0.0, 1.0)
                                 else -> 0.0
                             },
-                            isFinished = mediaServerFinished,
                             // Stamped by the delegate's save just above.
                             lastPlayDate = item.lastPlayDate
                         )

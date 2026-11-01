@@ -96,10 +96,11 @@ interface JellyfinApi {
     ): Response<Unit>
 }
 
+// No `Played`, like iOS (JellyfinConnectionService.updateItemProgress): Jellyfin gets the position, its percentage and
+// the play date.
 data class JellyfinUserDataRequest(
     @SerializedName("PlaybackPositionTicks") val playbackPositionTicks: Long,
     @SerializedName("PlayedPercentage") val playedPercentage: Double?,
-    @SerializedName("Played") val played: Boolean,
     // When this position was reached (ISO-8601, UTC). Jellyfin stores it only when a client sends it,
     // and iOS applies a server position only when this date is newer than its own. Null is left out of
     // the body (Gson skips nulls), so the server keeps the date it has.

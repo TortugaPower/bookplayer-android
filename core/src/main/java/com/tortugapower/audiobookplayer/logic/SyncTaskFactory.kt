@@ -366,7 +366,6 @@ object SyncTaskFactory {
         hostId: String?,
         currentTime: Double,
         percentCompleted: Double,
-        isFinished: Boolean,
         // Epoch ms of the save this push carries (the item's lastPlayDate); the server's "last played".
         lastPlayDate: Long?
     ) {
@@ -379,7 +378,6 @@ object SyncTaskFactory {
             "hostId" to hostId,
             "currentTime" to currentTime,
             "percentCompleted" to percentCompleted,
-            "isFinished" to isFinished,
             "lastPlayDate" to lastPlayDate
         )
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_EXTERNAL_UPDATE, taskId)
