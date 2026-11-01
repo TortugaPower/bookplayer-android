@@ -700,11 +700,12 @@ class LibraryViewModel(
 
     fun updateArtwork(context: android.content.Context, item: LibraryItemEntity, imageUri: android.net.Uri?) {
         viewModelScope.launch {
-            val stored = storedForArtwork(item) ?: return@launch
             if (imageUri == null) {
+                val stored = storedForArtwork(item) ?: return@launch
                 // Delete existing artwork
                 com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
                 stored.artworkURL = null
+                repository.updateItemArtwork(stored)
             } else {
                 // Process and save new artwork
                 val artworkDir = java.io.File(context.filesDir, "Artworks")
@@ -716,15 +717,17 @@ class LibraryViewModel(
                 // Compress and save
                 val success = com.tortugapower.audiobookplayer.logic.ArtworkManager.compressAndSaveImage(context, imageUri, destFile)
                 if (success) {
+                    // The row as it is once the image is saved: an artwork set on it meanwhile is the file to delete
+                    val stored = storedForArtwork(item) ?: run { destFile.delete(); return@launch }
                     // Delete old artwork if exists
                     com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
                     stored.artworkURL = destFile.absolutePath
                     
                     // Enqueue sync task for artwork (validation is inside repository)
                     repository.updateArtworkSync(stored)
+                    repository.updateItemArtwork(stored)
                 }
             }
-            repository.updateItemArtwork(stored)
         }
     }
 
