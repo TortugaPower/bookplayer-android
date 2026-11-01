@@ -624,23 +624,30 @@ class LibraryViewModel(
             items.forEach { item ->
                 val books = repository.getDescendantBooks(item)
                 books.forEach { book ->
+                    // The loaded book is where the player is, which the stored row can trail by a save's interval
+                    val loaded = com.tortugapower.audiobookplayer.logic.PlaybackManager.currentItem.value
+                        ?.takeIf { it.uuid == book.uuid }
+                    val position = loaded?.let { com.tortugapower.audiobookplayer.logic.PlaybackManager.loadedPositionSeconds() }
+                        ?: book.currentTime
                     // Overwriting a mid-book position here would also sync the lost position to the server.
                     val newTime = com.tortugapower.audiobookplayer.logic.FinishedPolicy.positionAfter(
-                        isFinished, book.currentTime, book.duration
+                        isFinished, position, book.duration
                     )
                     val progress = com.tortugapower.audiobookplayer.logic.FinishedPolicy.progressAfter(isFinished, newTime, book.duration)
                     // The player's Mark as finished, as iOS has one markAsFinished for both: its columns and the
                     // finish's effects, on our server only; no play date, nothing to media servers
                     repository.updateItemFinished(book.copy(isFinished = isFinished, currentTime = newTime, percentCompleted = progress))
                     // The loaded book's copy in the player too, as the player's own does: its menu and its next save
-                    // read it. Taken back to the start, the player goes there, or its next play would finish it again.
-                    val loaded = com.tortugapower.audiobookplayer.logic.PlaybackManager.currentItem.value
-                    if (loaded?.uuid == book.uuid) {
+                    // read it. Taken back to the start, the player goes there, paused as the player's own leaves it
+                    // (an ended book still plays when ready, so the seek alone would start it), or its next play
+                    // would finish it again.
+                    if (loaded != null) {
                         loaded.isFinished = isFinished
                         loaded.currentTime = newTime
                         loaded.percentCompleted = progress
-                        if (newTime != book.currentTime) {
+                        if (newTime != position) {
                             com.tortugapower.audiobookplayer.logic.PlaybackManager.seekTo((newTime * 1000).toLong())
+                            com.tortugapower.audiobookplayer.logic.PlaybackManager.pause()
                         }
                     }
                 }

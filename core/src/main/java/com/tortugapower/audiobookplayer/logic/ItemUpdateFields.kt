@@ -10,10 +10,7 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
  */
 object ItemUpdateFields {
 
-    /**
-     * A progress save that sets the finished flag: Jump to start, Mark as finished from the library, a restart (iOS
-     * `jumpToStart`, `markAsFinished`).
-     */
+    /** A progress save that sets the finished flag: the library's Jump to start, a restart from 0 (iOS `jumpToStart`). */
     fun progress(item: LibraryItemEntity): Map<String, Any?> = mapOf(
         "currentTime" to item.currentTime,
         "percentCompleted" to percentCompleted(item),
@@ -63,7 +60,10 @@ object ItemUpdateFields {
         "details" to LibraryContentsSync.serverFolderDetails(item),
     )
 
-    /** The player's Mark as finished: the flag, the position it moved to (the end, or the start), and the progress. */
+    /**
+     * Mark as finished or unfinished, from the player or the library (iOS `markAsFinished`): the flag, the position
+     * (kept, or the start for a book unfinished at its end), and the progress.
+     */
     fun finished(item: LibraryItemEntity): Map<String, Any?> = mapOf(
         "isFinished" to item.isFinished,
         "currentTime" to item.currentTime,
