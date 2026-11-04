@@ -244,14 +244,15 @@ class RoomLibraryRepository(
                         }
                     } else {
                         val threshold = readingThresholdProvider()
-                        var status = hardcoverResource.syncStatus
+                        val status = hardcoverResource.syncStatus
                         if (item.percentCompleted >= threshold && status != "reading" && status != "read") {
                             libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "reading"))
                             SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, item.uuid, 2)
-                            status = "reading"
                         }
-                        // iOS parity: the listening percentage goes on Hardcover's read in progress, which
-                        // only a Currently Reading book has (the status change starts it).
+                        // iOS parity: the listening percentage goes on Hardcover's read in progress, which only a
+                        // Currently Reading book has (the status change starts it). Not on the save that just
+                        // queued that change: Hardcover has no read yet, and the send would use up the first
+                        // slot of the 2-minute schedule for nothing. The next save takes it.
                         if (status == "reading") hardcoverProgressListener(item.uuid, item.percentCompleted * 100)
                     }
                 }

@@ -68,7 +68,8 @@ object HardcoverAccount {
             decodeSession(context.dataStore.data.first())
         }
         override suspend fun write(tokens: HardcoverTokenSet) {
-            val encrypted = CredentialCipher.encrypt(gson.toJson(tokens))
+            // Encrypting is a Keystore call too (and generates the key the first time): never on Main, which sign-in is.
+            val encrypted = withContext(Dispatchers.Default) { CredentialCipher.encrypt(gson.toJson(tokens)) }
             context.dataStore.edit { it[SESSION] = encrypted }
         }
         override suspend fun clear() {

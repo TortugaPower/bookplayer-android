@@ -228,12 +228,17 @@ class RoomLibraryRepositoryTest {
     }
 
     @Test
-    fun testUpdateItemProgress_crossingThreshold_sendsPercentWithTheStatus() = runBlocking {
+    fun testUpdateItemProgress_crossingThreshold_waitsForTheStatusBeforeSendingPercent() = runBlocking {
         seedHardcoverBook(status = "synced")
 
+        // The save that queues Currently Reading sends no percent: Hardcover has no read to put it on yet.
         hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 60.0, isFinished = false)
+        assertTrue(progressSent.isEmpty())
 
-        assertEquals(listOf("book-1" to 60.0), progressSent)
+        // The next save does.
+        fakeDao.externalResource = fakeDao.insertedExternalResources.last()
+        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 62.0, isFinished = false)
+        assertEquals(listOf("book-1" to 62.0), progressSent)
     }
 
     @Test
