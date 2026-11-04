@@ -15,6 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
@@ -62,7 +63,10 @@ object HardcoverAccount {
     }
 
     private val store = object : HardcoverTokenStore {
-        override suspend fun read(): HardcoverTokenSet? = decodeSession(context.dataStore.data.first())
+        // Decrypting is a Keystore call: never on the caller's (often Main) thread.
+        override suspend fun read(): HardcoverTokenSet? = withContext(Dispatchers.Default) {
+            decodeSession(context.dataStore.data.first())
+        }
         override suspend fun write(tokens: HardcoverTokenSet) {
             val encrypted = CredentialCipher.encrypt(gson.toJson(tokens))
             context.dataStore.edit { it[SESSION] = encrypted }
@@ -94,11 +98,14 @@ object HardcoverAccount {
         val tokens = decodeSession(prefs)
         HardcoverConnection(
             isSignedInWithOAuth = tokens != null,
-            hasApiKey = !prefs[HardcoverSettingsManager.HARDCOVER_TOKEN].isNullOrBlank(),
+            hasApiKey = apiKey(prefs[HardcoverSettingsManager.HARDCOVER_TOKEN].orEmpty()).isNotEmpty(),
             username = prefs[USERNAME],
             needsSignInAgain = tokens?.missingScopes?.isNotEmpty() == true,
         )
     }
+        // Decrypting the session is a Keystore call + AES/GCM: not on the collector's (usually Main) thread,
+        // as RoomAccountRepository and ExternalServerRepository do with their credentials.
+        .flowOn(Dispatchers.Default)
 
     /** Connected either way: Hardcover work runs only then. */
     suspend fun isConnected(context: Context = this.context): Boolean = connection(context).first().isConnected
@@ -115,8 +122,10 @@ object HardcoverAccount {
             null
         }
         if (oauth != null) return HardcoverCredential(oauth, isOAuth = true)
-        val key = HardcoverSettingsManager.getToken(context).first()
-        return key.takeIf { it.isNotBlank() }?.let { HardcoverCredential(it, isOAuth = false) }
+        // Cleaned up as it's read: keys saved by older versions can still carry the `Bearer ` prefix they were
+        // copied with, and the request adds its own.
+        val key = apiKey(HardcoverSettingsManager.getToken(context).first())
+        return key.takeIf { it.isNotEmpty() }?.let { HardcoverCredential(it, isOAuth = false) }
     }
 
     /** A new OAuth token after the API refused [rejected]; null when there's none to try. */
@@ -165,14 +174,14 @@ object HardcoverAccount {
      */
     suspend fun saveApiKey(raw: String) {
         val key = apiKey(raw)
-        if (key == HardcoverSettingsManager.getToken(context).first()) return
+        if (key == apiKey(HardcoverSettingsManager.getToken(context).first())) return
         clearConnectedUser()
         HardcoverSettingsManager.setToken(context, key)
         // The account's id is read when first needed (a new link, a progress update), not here: Save leaves the screen.
     }
 
     /** The API key in what the user entered. */
-    fun apiKey(raw: String): String = raw.trim().replaceFirst(Regex("^(?i)bearer\\s+"), "").trim()
+    fun apiKey(raw: String): String = raw.trim().replaceFirst(Regex("^(?i)bearer(\\s+|$)"), "").trim()
 
     suspend fun connectedUserId(): String? = context.dataStore.data.first()[USER_ID]
 

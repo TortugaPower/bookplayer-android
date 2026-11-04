@@ -351,6 +351,24 @@ class LibraryContentsSyncTest {
         org.junit.Assert.assertEquals("abs-guid-1", stored.hostId)
     }
 
+    @Test fun upsert_hardcoverAccountHostId_isKeptThoughNumeric() = runBlocking {
+        // A Hardcover link's hostId is the connected account's Hardcover user id: a number by design, not a
+        // legacy rowid. A device syncing the library down must keep it.
+        val linked = remote("b22", artworkURL = null).copy(
+            externalResources = listOf(
+                com.tortugapower.audiobookplayer.model.SyncableExternalResource(
+                    providerName = "hardcover", providerId = "429306",
+                    syncStatus = "reading", lastSyncedAt = null, processedFile = false,
+                    hostId = "4242",
+                )
+            )
+        )
+        LibraryContentsSync.upsertItem(db.libraryDao(), null, linked, mutableSetOf())
+
+        val stored = db.libraryDao().getExternalResourcesForBookSync("b22").single()
+        org.junit.Assert.assertEquals("4242", stored.hostId)
+    }
+
     @Test fun upsert_nonNumericRemoteHostId_wins() = runBlocking {
         val v1 = remote("b21", artworkURL = null).copy(
             externalResources = listOf(

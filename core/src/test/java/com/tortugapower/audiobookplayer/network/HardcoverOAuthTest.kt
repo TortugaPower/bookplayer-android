@@ -87,8 +87,8 @@ class HardcoverOAuthTest {
         }
     }
 
-    @Test fun `form encoding sorts keys and escapes down to unreserved characters`() {
-        assertEquals("a=x%20y&b=~-._%2A%2B%2F", HardcoverOAuth.formEncode(mapOf("b" to "~-._*+/", "a" to "x y")))
+    @Test fun `authorize URL values are escaped down to unreserved characters`() {
+        assertEquals("x%20y~-._%2A%2B%2F", HardcoverOAuth.percentEncode("x y~-._*+/"))
     }
 
     @Test fun `token set expires_in is timed from when it arrived`() {

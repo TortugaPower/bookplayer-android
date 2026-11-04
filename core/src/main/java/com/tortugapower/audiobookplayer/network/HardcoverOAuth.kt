@@ -93,10 +93,6 @@ object HardcoverOAuth {
 
     fun secureRandomBytes(count: Int): ByteArray = ByteArray(count).also { SecureRandom().nextBytes(it) }
 
-    /** `application/x-www-form-urlencoded`, keys sorted, every value escaped down to the unreserved characters. */
-    fun formEncode(params: Map<String, String>): String =
-        params.entries.sortedBy { it.key }.joinToString("&") { (k, v) -> "$k=${percentEncode(v)}" }
-
     /** RFC 3986 unreserved characters only (URLEncoder writes spaces as `+` and leaves `*`). */
     internal fun percentEncode(value: String): String =
         URLEncoder.encode(value, "UTF-8").replace("+", "%20").replace("*", "%2A").replace("%7E", "~")
