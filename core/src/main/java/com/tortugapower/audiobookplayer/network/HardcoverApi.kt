@@ -79,7 +79,8 @@ object HardcoverService {
         var response = api.postQuery("Bearer ${credential.token}", request)
         if (response.code() == 401 && credential.isOAuth) {
             val refreshed = com.tortugapower.audiobookplayer.logic.HardcoverAccount.replaceRejected(credential.token)
-            if (refreshed != null) response = api.postQuery("Bearer $refreshed", request)
+            // A failed refresh (offline, rate limited) can hand back the refused token: sent again, it's refused again.
+            if (refreshed != null && refreshed != credential.token) response = api.postQuery("Bearer $refreshed", request)
         }
         if (!response.isSuccessful) {
             throw HardcoverRequestException(response.code(), "HTTP ${response.code()}")
