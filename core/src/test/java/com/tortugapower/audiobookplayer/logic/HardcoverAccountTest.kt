@@ -7,8 +7,11 @@ import androidx.test.core.app.ApplicationProvider
 import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.network.HardcoverOAuth
 import com.tortugapower.audiobookplayer.network.HardcoverTokenSet
+import com.tortugapower.audiobookplayer.network.HardcoverUser
 import com.tortugapower.audiobookplayer.network.WebAuthResult
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
@@ -73,7 +76,10 @@ class HardcoverAccountTest {
 
     @After fun tearDown() {
         HardcoverAccount.sessionOverride = null
+        HardcoverAccount.readMe = defaultReadMe
     }
+
+    private val defaultReadMe = HardcoverAccount.readMe
 
     private suspend fun storedKey() = HardcoverSettingsManager.getToken(context).first()
     private suspend fun storedUserId() = context.dataStore.data.first()[userId]
@@ -155,6 +161,29 @@ class HardcoverAccountTest {
         assertEquals("hc_rt", revoked.single()["token"])
         assertEquals(null to "", stateAtRevoke)
         assertNull(store.tokens)
+        assertNull(storedUserId())
+    }
+
+    @Test fun `the account's id is read from me and kept`() = runBlocking {
+        HardcoverSettingsManager.setToken(context, "hc_key")
+        HardcoverAccount.readMe = { HardcoverUser(7, "reader") }
+
+        assertEquals("7", HardcoverAccount.fetchConnectedUserId())
+        assertEquals("7", storedUserId())
+    }
+
+    @Test fun `a me answer that arrives after the account changed isn't kept`() = runBlocking {
+        HardcoverSettingsManager.setToken(context, "hc_key")
+        val asked = CompletableDeferred<Unit>()
+        val answer = CompletableDeferred<HardcoverUser>()
+        HardcoverAccount.readMe = { asked.complete(Unit); answer.await() }
+
+        val fetching = async(Dispatchers.Default) { HardcoverAccount.fetchConnectedUserId() }
+        asked.await()
+        HardcoverAccount.saveApiKey("hc_other")
+        answer.complete(HardcoverUser(7, "previous"))
+
+        assertNull(fetching.await())
         assertNull(storedUserId())
     }
 }

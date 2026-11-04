@@ -11,6 +11,7 @@ import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.network.HardcoverOAuth
 import com.tortugapower.audiobookplayer.network.HardcoverService
 import com.tortugapower.audiobookplayer.network.HardcoverTokenSet
+import com.tortugapower.audiobookplayer.network.HardcoverUser
 import com.tortugapower.audiobookplayer.network.WebAuthResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,7 @@ import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /** What the Hardcover settings screen shows. */
 data class HardcoverConnection(
@@ -87,6 +89,16 @@ object HardcoverAccount {
     internal var sessionOverride: HardcoverOAuthSession? = null
 
     val session: HardcoverOAuthSession get() = sessionOverride ?: defaultSession
+
+    /** Reads the connected account from `me`; tests answer it themselves. */
+    @VisibleForTesting
+    internal var readMe: suspend () -> HardcoverUser? = { HardcoverService.me() }
+
+    /**
+     * Bumped whenever the connected account may have changed. A `me` answer is stored only if none happened while it
+     * was on its way: one sent with the previous account's credential would otherwise stay cached as this one's.
+     */
+    private val accountGeneration = AtomicLong()
 
     private suspend fun postForm(url: String, form: Map<String, String>): HardcoverHttpReply = withContext(Dispatchers.IO) {
         val body = FormBody.Builder().apply { form.forEach { (k, v) -> add(k, v) } }.build()
@@ -183,8 +195,9 @@ object HardcoverAccount {
     suspend fun saveApiKey(raw: String) {
         val key = apiKey(raw)
         if (key == apiKey(HardcoverSettingsManager.getToken(context).first())) return
-        clearConnectedUser()
+        // The key first: a `me` sent after the clear then can't still be using the old one.
         HardcoverSettingsManager.setToken(context, key)
+        clearConnectedUser()
         // The account's id is read when first needed (a new link, a progress update), not here: Save leaves the screen.
     }
 
@@ -200,16 +213,22 @@ object HardcoverAccount {
      */
     suspend fun fetchConnectedUserId(): String? {
         connectedUserId()?.let { return it }
+        val generation = accountGeneration.get()
         if (!isConnected()) return null
-        val user = HardcoverService.me() ?: return null
+        val user = readMe() ?: return null
+        var stored = false
         context.dataStore.edit { prefs ->
+            if (accountGeneration.get() != generation) return@edit
             prefs[USER_ID] = user.id.toString()
             if (user.username != null) prefs[USERNAME] = user.username else prefs.remove(USERNAME)
+            stored = true
         }
-        return user.id.toString()
+        // The account changed meanwhile: this answer may be the previous one's. The next caller reads it again.
+        return if (stored) user.id.toString() else null
     }
 
     private suspend fun clearConnectedUser() {
+        accountGeneration.incrementAndGet()
         context.dataStore.edit {
             it.remove(USER_ID)
             it.remove(USERNAME)

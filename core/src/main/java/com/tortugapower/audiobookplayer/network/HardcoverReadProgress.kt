@@ -95,6 +95,9 @@ data class HardcoverReadProgress(
     }
 
     companion object {
+        /** Between the start and the end, exclusive: the only progress ever sent. */
+        fun isInRange(percent: Double): Boolean = percent > 0 && percent < 100
+
         const val AUDIOBOOK_FORMAT = 2
 
         /**
@@ -110,7 +113,7 @@ data class HardcoverReadProgress(
             read: ReadInProgressData.Read,
             fallbacks: List<ReadInProgressData.Edition?> = emptyList(),
         ): Outcome {
-            if (!(percent > 0 && percent < 100)) return Outcome.Skipped(Skip.OutOfRange)
+            if (!isInRange(percent)) return Outcome.Skipped(Skip.OutOfRange)
 
             val measured = (listOf(read.edition) + fallbacks).filterNotNull().firstNotNullOfOrNull(::measure)
                 ?: return Outcome.Skipped(Skip.NoLength)
@@ -160,6 +163,11 @@ class HardcoverProgressSchedule(private val intervalMs: Long) {
         lastSent[key] = now
         pending.remove(key)
         return percent
+    }
+
+    /** Forgets what's held for [key] without using up its slot: the book moved somewhere nothing is sent for. */
+    fun drop(key: String) {
+        pending.remove(key)
     }
 
     /** Everything held back, to send now; each one's interval restarts. */

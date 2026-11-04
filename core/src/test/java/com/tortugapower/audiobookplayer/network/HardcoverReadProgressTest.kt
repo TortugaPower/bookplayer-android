@@ -116,4 +116,14 @@ class HardcoverReadProgressTest {
         assertNull(schedule.record(13.0, "a", now = 150_000))
         assertEquals(14.0, schedule.record(14.0, "a", now = 180_000))
     }
+
+    @Test fun `drop forgets what's held without using up the slot`() {
+        val schedule = HardcoverProgressSchedule(120_000)
+        schedule.record(10.0, "a", now = 0)
+        schedule.record(30.0, "a", now = 30_000)
+        schedule.drop("a")
+        assertEquals(emptyList<Pair<String, Double>>(), schedule.flush(now = 60_000))
+        schedule.drop("b")
+        assertEquals(5.0, schedule.record(5.0, "b", now = 60_000))
+    }
 }

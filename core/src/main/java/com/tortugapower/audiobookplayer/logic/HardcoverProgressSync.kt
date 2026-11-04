@@ -30,6 +30,12 @@ object HardcoverProgressSync {
 
     /** A Currently Reading book's progress, [percent] 0–100: sent now, or held for the next slot. */
     fun onProgress(itemUuid: String, percent: Double) {
+        // 0% (back to the start, marked unfinished) and the end are never sent: they mustn't use up the book's slot,
+        // and what was held from before the move is stale now.
+        if (!HardcoverReadProgress.isInRange(percent)) {
+            synchronized(schedule) { schedule.drop(itemUuid) }
+            return
+        }
         val toSend = synchronized(schedule) { schedule.record(percent, itemUuid, System.currentTimeMillis()) } ?: return
         scope.launch { send(itemUuid, toSend) }
     }
