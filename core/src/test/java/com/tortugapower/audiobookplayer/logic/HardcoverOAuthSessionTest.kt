@@ -72,6 +72,15 @@ class HardcoverOAuthSessionTest {
         assertEquals("client-1", form["client_id"])
     }
 
+    @Test fun `a refresh answer without a refresh token or scope keeps the stored ones`() = runBlocking {
+        val store = MemoryStore(tokens(expiresIn = 30_000))
+        reply = { HardcoverHttpReply(200, """{"access_token":"hc_at_new","expires_in":604800}""") }
+
+        assertEquals("hc_at_new", session(store).accessToken())
+        assertEquals("hc_rt_old", store.tokens?.refreshToken)
+        assertEquals("read:catalog read:library write:library read:me", store.tokens?.scope)
+    }
+
     @Test fun `concurrent callers share one refresh, so a refresh token is never sent twice`() = runBlocking {
         val store = MemoryStore(tokens(expiresIn = 30_000))
         val gate = CompletableDeferred<Unit>()

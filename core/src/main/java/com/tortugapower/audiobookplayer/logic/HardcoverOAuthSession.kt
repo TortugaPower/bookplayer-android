@@ -125,7 +125,10 @@ class HardcoverOAuthSession(
 
     private suspend fun refresh(current: HardcoverTokenSet, refreshToken: String): HardcoverTokenSet {
         try {
-            val refreshed = requestTokens(mapOf("grant_type" to "refresh_token", "refresh_token" to refreshToken))
+            // A refresh answer may leave out the refresh token and the scope (RFC 6749 §6): both stay as they were then.
+            val refreshed = requestTokens(mapOf("grant_type" to "refresh_token", "refresh_token" to refreshToken)).let {
+                it.copy(refreshToken = it.refreshToken ?: refreshToken, scope = it.scope.ifEmpty { current.scope })
+            }
             mutex.withLock {
                 if (store.read()?.refreshToken != refreshToken) throw HardcoverSignInChangedException()
                 // Stored before anything else: the old refresh token is spent now.

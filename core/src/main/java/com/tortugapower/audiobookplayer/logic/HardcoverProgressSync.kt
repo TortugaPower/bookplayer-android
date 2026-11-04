@@ -62,7 +62,10 @@ object HardcoverProgressSync {
         val resource = dao.getExternalResource(itemUuid, "hardcover") ?: return
         if (resource.syncStatus != "reading") return
         val bookId = resource.providerId.toIntOrNull() ?: return
-        val userId = HardcoverAccount.fetchConnectedUserId()?.toIntOrNull() ?: return
+        val userId = HardcoverAccount.fetchConnectedUserId()?.toIntOrNull() ?: run {
+            Log.i(TAG, "Hardcover progress skipped for book $bookId: the account's id couldn't be read")
+            return
+        }
 
         val userBook = HardcoverService.readInProgress(userId, bookId)?.userBooks?.firstOrNull()
         val read = userBook?.userBookReads?.firstOrNull()

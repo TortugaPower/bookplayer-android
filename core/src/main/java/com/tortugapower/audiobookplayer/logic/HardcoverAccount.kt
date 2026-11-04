@@ -2,6 +2,7 @@ package com.tortugapower.audiobookplayer.logic
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -77,9 +78,15 @@ object HardcoverAccount {
         }
     }
 
-    val session: HardcoverOAuthSession by lazy {
+    private val defaultSession: HardcoverOAuthSession by lazy {
         HardcoverOAuthSession(store = store, send = ::postForm)
     }
+
+    /** Tests swap in a session with an in-memory store: the real one needs the Keystore, which Robolectric lacks. */
+    @VisibleForTesting
+    internal var sessionOverride: HardcoverOAuthSession? = null
+
+    val session: HardcoverOAuthSession get() = sessionOverride ?: defaultSession
 
     private suspend fun postForm(url: String, form: Map<String, String>): HardcoverHttpReply = withContext(Dispatchers.IO) {
         val body = FormBody.Builder().apply { form.forEach { (k, v) -> add(k, v) } }.build()
