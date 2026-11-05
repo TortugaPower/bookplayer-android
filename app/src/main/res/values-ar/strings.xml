@@ -289,6 +289,7 @@
     <string name="hardcover_signing_in">جارٍ تسجيل الدخول باستخدام Hardcover…</string>
     <string name="hardcover_sign_in_again_button">تسجيل الدخول مرة أخرى</string>
     <string name="hardcover_sign_in_again_footer">سجّل الدخول مرة أخرى للسماح لـ BookPlayer بتحديث تقدّم قراءتك على Hardcover.</string>
+    <string name="hardcover_sign_in_refused_footer">لم يعد Hardcover يقبل تسجيل الدخول هذا. سجّل الدخول مرة أخرى ليبقى BookPlayer متصلاً بـ Hardcover.</string>
     <string name="hardcover_sign_in_footer">أو الصق مفتاح API أدناه.</string>
     <string name="hardcover_connected">متصل بـ Hardcover</string>
     <string name="hardcover_connected_as">متصل باسم %1$s</string>

@@ -277,6 +277,7 @@
     <string name="hardcover_signing_in">Connexion avec Hardcover…</string>
     <string name="hardcover_sign_in_again_button">Se reconnecter</string>
     <string name="hardcover_sign_in_again_footer">Reconnectez-vous pour permettre à BookPlayer de mettre à jour votre progression de lecture sur Hardcover.</string>
+    <string name="hardcover_sign_in_refused_footer">Hardcover n\'accepte plus cette connexion. Reconnectez-vous pour que BookPlayer reste connecté à Hardcover.</string>
     <string name="hardcover_sign_in_footer">Ou collez une clé API ci-dessous.</string>
     <string name="hardcover_connected">Connecté à Hardcover</string>
     <string name="hardcover_connected_as">Connecté en tant que %1$s</string>

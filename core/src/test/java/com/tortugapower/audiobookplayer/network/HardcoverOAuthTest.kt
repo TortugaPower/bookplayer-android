@@ -133,4 +133,28 @@ class HardcoverOAuthTest {
         assertEquals(HardcoverUser(8, null), HardcoverService.parseMe(single))
         assertNull(HardcoverService.parseMe(JsonParser.parseString("""{"me":[]}""").asJsonObject))
     }
+
+    @Test fun `only a token endpoint that timed out, is busy or down may answer differently later`() {
+        listOf(HardcoverOAuthException.Http(408), HardcoverOAuthException.Http(429), HardcoverOAuthException.Http(503),
+            HardcoverOAuthException.Server("temporarily_unavailable", null), HardcoverOAuthException.Server("server_error", null),
+        ).forEach { assertTrue(it.message, it.isTemporary) }
+        listOf(HardcoverOAuthException.Http(400), HardcoverOAuthException.Http(401),
+            HardcoverOAuthException.Server("invalid_client", null), HardcoverOAuthException.Server("invalid_scope", null),
+            HardcoverOAuthException.InvalidResponse(), HardcoverOAuthException.InvalidGrant(),
+        ).forEach { assertFalse(it.message, it.isTemporary) }
+    }
+
+    @Test fun `a missing scope or a refused refresh needs signing in again`() {
+        val full = HardcoverTokenSet("a", "r", "read:catalog read:library write:library read:me", null)
+        assertFalse(full.needsSignInAgain)
+        assertTrue(full.copy(refreshRefused = true).needsSignInAgain)
+        assertTrue(full.copy(scope = "read:me").needsSignInAgain)
+    }
+
+    @Test fun `a stored sign-in from before the refused flag reads as not refused`() {
+        val stored = com.google.gson.Gson().fromJson(
+            """{"accessToken":"a","refreshToken":"r","scope":"","expiresAt":1}""", HardcoverTokenSet::class.java
+        )
+        assertFalse(stored.refreshRefused)
+    }
 }

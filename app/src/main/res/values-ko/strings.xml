@@ -275,6 +275,7 @@
     <string name="hardcover_signing_in">Hardcover로 로그인 중…</string>
     <string name="hardcover_sign_in_again_button">다시 로그인</string>
     <string name="hardcover_sign_in_again_footer">BookPlayer가 Hardcover에서 독서 진행 상황을 업데이트할 수 있도록 다시 로그인하세요.</string>
+    <string name="hardcover_sign_in_refused_footer">Hardcover가 더 이상 이 로그인을 허용하지 않습니다. BookPlayer가 Hardcover에 계속 연결되도록 다시 로그인하세요.</string>
     <string name="hardcover_sign_in_footer">또는 아래에 API 키를 붙여 넣으세요.</string>
     <string name="hardcover_connected">Hardcover에 연결됨</string>
     <string name="hardcover_connected_as">%1$s(으)로 연결됨</string>

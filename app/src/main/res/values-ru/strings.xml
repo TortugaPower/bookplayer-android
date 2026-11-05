@@ -283,6 +283,7 @@
     <string name="hardcover_signing_in">Вход через Hardcover…</string>
     <string name="hardcover_sign_in_again_button">Войти снова</string>
     <string name="hardcover_sign_in_again_footer">Войдите снова, чтобы BookPlayer мог обновлять ваш прогресс чтения в Hardcover.</string>
+    <string name="hardcover_sign_in_refused_footer">Hardcover больше не принимает этот вход. Войдите снова, чтобы BookPlayer оставался подключён к Hardcover.</string>
     <string name="hardcover_sign_in_footer">Или вставьте ключ API ниже.</string>
     <string name="hardcover_connected">Подключено к Hardcover</string>
     <string name="hardcover_connected_as">Подключено как %1$s</string>

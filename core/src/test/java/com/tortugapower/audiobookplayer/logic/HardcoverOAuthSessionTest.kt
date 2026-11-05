@@ -89,6 +89,46 @@ class HardcoverOAuthSessionTest {
 
         assertEquals("invalid_client", e.code)
         assertEquals("only invalid_grant ends the sign-in", "hc_rt_old", store.tokens?.refreshToken)
+        assertTrue("Settings offers Sign In Again", store.tokens!!.refreshRefused)
+    }
+
+    @Test fun `a sign-in refused for good sends no more refreshes, and its expired token isn't used`() = runBlocking {
+        val store = MemoryStore(tokens(expiresIn = -1).copy(refreshRefused = true))
+        reply = { error("no refresh may be sent") }
+
+        assertNull(session(store).accessToken())
+        assertNull(session(store).accessToken(rejected = "hc_at_old"))
+        assertTrue(sent.isEmpty())
+    }
+
+    @Test fun `a refusal with time left keeps using the token until it expires, without refreshing again`() = runBlocking {
+        val store = MemoryStore(tokens(expiresIn = 30_000))
+        reply = { HardcoverHttpReply(400, """{"error":"unauthorized_client"}""") }
+        val session = session(store)
+
+        assertEquals("hc_at_old", session.accessToken())
+        now += 20_000
+        assertEquals("hc_at_old", session.accessToken())
+        assertEquals(1, refreshes.size)
+        now += 20_000
+        assertNull(session.accessToken())
+        assertEquals(1, refreshes.size)
+    }
+
+    @Test fun `an expired token's callers wait out a failed refresh instead of each sending one`() = runBlocking {
+        val store = MemoryStore(tokens(expiresIn = -1))
+        reply = { throw IOException("offline") }
+        val session = session(store)
+
+        assertThrows(IOException::class.java) { runBlocking { session.accessToken() } }
+        assertThrows(IOException::class.java) { runBlocking { session.accessToken() } }
+        assertEquals(1, refreshes.size)
+        assertTrue("a temporary failure isn't a refusal", !store.tokens!!.refreshRefused)
+
+        now += HardcoverOAuth.REFRESH_RETRY_DELAY_MS
+        reply = { tokenReply("hc_at_new", "hc_rt_new") }
+        assertEquals("hc_at_new", session.accessToken())
+        assertEquals(2, refreshes.size)
     }
 
     @Test fun `concurrent callers share one refresh, so a refresh token is never sent twice`() = runBlocking {

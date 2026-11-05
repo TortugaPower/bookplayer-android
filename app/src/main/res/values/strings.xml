@@ -510,6 +510,7 @@
     <string name="hardcover_signing_in">Signing In with Hardcover…</string>
     <string name="hardcover_sign_in_again_button">Sign In Again</string>
     <string name="hardcover_sign_in_again_footer">Sign in again to let BookPlayer update your reading progress on Hardcover.</string>
+    <string name="hardcover_sign_in_refused_footer">Hardcover no longer accepts this sign-in. Sign in again to keep BookPlayer connected to Hardcover.</string>
     <string name="hardcover_sign_in_footer">Or paste an API key below.</string>
     <string name="hardcover_connected">Connected to Hardcover</string>
     <string name="hardcover_connected_as">Connected as %1$s</string>

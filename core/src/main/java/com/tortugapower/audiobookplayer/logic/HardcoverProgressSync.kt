@@ -17,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -93,19 +94,22 @@ object HardcoverProgressSync {
         } catch (e: HardcoverOAuthException) {
             // The expired token's refresh failed. Only a token endpoint that's down or busy may answer later: a
             // refusal (invalid_client, invalid_request, a bare 4xx, an unreadable answer) would retry forever.
-            if (isWorthRetrying(e)) throw e
+            if (e.isTemporary) throw e
             Log.e(TAG, "Hardcover's sign-in couldn't be refreshed: ${e.message}")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            // Offline, or the connection dropped: retried
+            throw e
+        } catch (e: Exception) {
+            // Anything else won't go away on its own (an answer that doesn't parse, after Hardcover changes a field):
+            // retried, it would retry forever
+            Log.e(TAG, "Hardcover progress failed: ${e.javaClass.simpleName}")
         }
     }
 
     /** No answer (offline throws an IOException, retried as is), a timeout, rate limited or down. */
     internal fun isWorthRetrying(status: Int): Boolean = status == 0 || status == 408 || status == 429 || status >= 500
-
-    internal fun isWorthRetrying(e: HardcoverOAuthException): Boolean = when (e) {
-        is HardcoverOAuthException.Http -> isWorthRetrying(e.status)
-        is HardcoverOAuthException.Server -> e.code == "temporarily_unavailable" || e.code == "server_error"
-        else -> false
-    }
 
     @VisibleForTesting
     internal fun resetForTests() = lastSent.clear()

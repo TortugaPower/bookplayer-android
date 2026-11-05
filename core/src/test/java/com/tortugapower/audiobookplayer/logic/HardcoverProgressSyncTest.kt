@@ -59,6 +59,9 @@ class HardcoverProgressSyncTest {
         send { HardcoverProgressResult.NoReadInProgress }
         send { HardcoverProgressResult.Skipped(HardcoverReadProgress.Skip.NoLength) }
         send { HardcoverProgressResult.Sent }
+        // An answer that doesn't parse won't parse next time either
+        send { throw com.google.gson.JsonSyntaxException("Expected a string") }
+        send { throw IllegalStateException("not a string") }
     }
 
     @Test fun `a refresh the token endpoint may answer later is retried, a refused one is dropped`() {

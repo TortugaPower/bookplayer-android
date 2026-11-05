@@ -121,6 +121,17 @@ sealed class HardcoverOAuthException(message: String) : Exception(message) {
     class InvalidGrant : HardcoverOAuthException("invalid_grant")
     class Server(val code: String, val description: String?) : HardcoverOAuthException("server error: $code")
     class Http(val status: Int) : HardcoverOAuthException("HTTP $status")
+
+    /**
+     * The token endpoint may answer differently later: it timed out, was busy or down. Anything else (another
+     * RFC 6749 §5.2 code such as `invalid_client`, a bare 4xx, an unreadable answer) is a refusal that won't change.
+     */
+    val isTemporary: Boolean
+        get() = when (this) {
+            is Http -> status == 408 || status == 429 || status >= 500
+            is Server -> code == "temporarily_unavailable" || code == "server_error"
+            else -> false
+        }
 }
 
 /** The tokens of a sign-in, stored as one encrypted value (iOS Keychain `.hardcoverSession`). */
@@ -133,6 +144,12 @@ data class HardcoverTokenSet(
     @SerializedName("scope") val scope: String,
     /** Epoch millis. */
     @SerializedName("expiresAt") val expiresAt: Long?,
+    /**
+     * The token endpoint refused to refresh it for good, with something other than `invalid_grant` (which ends the
+     * sign-in): no more refreshes are sent, the access token serves until it expires, and Settings offers Sign In
+     * Again. The sign-in is kept: a client id problem would otherwise sign everyone out.
+     */
+    @SerializedName("refreshRefused") val refreshRefused: Boolean = false,
 ) {
     /**
      * What the app asks for that this sign-in wasn't granted: a sign-in from before a scope was added keeps its
@@ -140,6 +157,9 @@ data class HardcoverTokenSet(
      */
     val missingScopes: Set<String>
         get() = if (scope.isEmpty()) emptySet() else HardcoverOAuth.SCOPES.toSet() - scope.split(" ").toSet()
+
+    /** Only signing in again helps: a scope added since, or a refresh refused for good. */
+    val needsSignInAgain: Boolean get() = refreshRefused || missingScopes.isNotEmpty()
 
     fun needsRefresh(now: Long): Boolean = expiresAt != null && expiresAt - now < HardcoverOAuth.REFRESH_LEEWAY_MS
 

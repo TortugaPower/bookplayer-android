@@ -35,8 +35,10 @@ data class HardcoverConnection(
     val hasApiKey: Boolean = false,
     /** The connected account's username, once read from `me`. */
     val username: String? = null,
-    /** Signed in without every scope the app now asks for: signing in again grants the rest. */
+    /** Only signing in again helps: a scope the app now asks for is missing, or [signInRefused]. */
     val needsSignInAgain: Boolean = false,
+    /** Hardcover refused to refresh the sign-in for good: it stops working once its token expires. */
+    val signInRefused: Boolean = false,
 ) {
     val isConnected: Boolean get() = isSignedInWithOAuth || hasApiKey
 }
@@ -122,7 +124,8 @@ object HardcoverAccount {
             isSignedInWithOAuth = tokens != null,
             hasApiKey = apiKey(prefs[HardcoverSettingsManager.HARDCOVER_TOKEN].orEmpty()).isNotEmpty(),
             username = prefs[USERNAME],
-            needsSignInAgain = tokens?.missingScopes?.isNotEmpty() == true,
+            needsSignInAgain = tokens?.needsSignInAgain == true,
+            signInRefused = tokens?.refreshRefused == true,
         )
     }
         // Decrypting the session is a Keystore call + AES/GCM: not on the collector's (usually Main) thread,

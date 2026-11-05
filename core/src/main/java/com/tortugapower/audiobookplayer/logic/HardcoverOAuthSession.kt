@@ -44,6 +44,8 @@ class HardcoverOAuthSession(
     private val mutex = Mutex()
     private var refreshing: CompletableDeferred<HardcoverTokenSet>? = null
     private var lastFailedRefresh: Long? = null
+    /** That failure: an expired token's callers get it for the wait instead of each sending a refresh. */
+    private var lastRefreshFailure: Exception? = null
 
     suspend fun tokens(): HardcoverTokenSet? = store.read()
 
@@ -58,13 +60,20 @@ class HardcoverOAuthSession(
         val pending: CompletableDeferred<HardcoverTokenSet> = mutex.withLock {
             refreshing ?: run {
                 val current = store.read() ?: return null
-                val mustRefresh = if (rejected != null) {
-                    rejected == current.accessToken
-                } else {
-                    current.needsRefresh(now()) && !isWaitingAfterFailedRefresh(current)
+                // Refused for good: no more refreshes. The token serves until it expires or is refused, and then
+                // Settings offers Sign In Again.
+                if (current.refreshRefused) {
+                    return current.accessToken.takeUnless { current.isExpired(now()) || it == rejected }
                 }
                 val refreshToken = current.refreshToken
+                val mustRefresh = if (rejected != null) rejected == current.accessToken else current.needsRefresh(now())
                 if (!mustRefresh || refreshToken == null) return current.accessToken
+                // A refresh failed moments ago (offline, busy): wait it out rather than every caller sending one.
+                // An expired token gets that failure; one with time left is still used.
+                if (rejected == null) recentRefreshFailure()?.let { failure ->
+                    if (current.isExpired(now())) throw failure
+                    return current.accessToken
+                }
 
                 val holder = CompletableDeferred<HardcoverTokenSet>()
                 refreshing = holder
@@ -97,6 +106,7 @@ class HardcoverOAuthSession(
             // A refresh still running belongs to the old sign-in: it sees the new tokens and drops its answer.
             refreshing = null
             lastFailedRefresh = null
+            lastRefreshFailure = null
             store.write(tokens)
         }
         return tokens
@@ -111,6 +121,7 @@ class HardcoverOAuthSession(
             val tokens = store.read() ?: return
             refreshing = null
             lastFailedRefresh = null
+            lastRefreshFailure = null
             store.clear()
             tokens
         }
@@ -134,6 +145,7 @@ class HardcoverOAuthSession(
                 // Stored before anything else: the old refresh token is spent now.
                 store.write(refreshed)
                 lastFailedRefresh = null
+                lastRefreshFailure = null
             }
             return refreshed
         } catch (e: HardcoverOAuthException.InvalidGrant) {
@@ -144,17 +156,23 @@ class HardcoverOAuthSession(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            mutex.withLock { lastFailedRefresh = now() }
-            // Offline, rate limited or down: the access token may still have time left.
+            val refused = e is HardcoverOAuthException && !e.isTemporary
+            mutex.withLock {
+                lastFailedRefresh = now()
+                lastRefreshFailure = e
+                // Marked on this sign-in only: a new one signed in meanwhile starts clean
+                if (refused) store.read()?.takeIf { it.refreshToken == refreshToken }?.let { store.write(it.copy(refreshRefused = true)) }
+            }
+            // The access token may still have time left
             if (!current.isExpired(now())) return current
             throw e
         }
     }
 
-    private fun isWaitingAfterFailedRefresh(current: HardcoverTokenSet): Boolean {
-        val failed = lastFailedRefresh ?: return false
-        if (current.isExpired(now())) return false
-        return now() - failed < HardcoverOAuth.REFRESH_RETRY_DELAY_MS
+    /** The refresh failure of the last [HardcoverOAuth.REFRESH_RETRY_DELAY_MS], if any. */
+    private fun recentRefreshFailure(): Exception? {
+        val failed = lastFailedRefresh ?: return null
+        return lastRefreshFailure.takeIf { now() - failed < HardcoverOAuth.REFRESH_RETRY_DELAY_MS }
     }
 
     private fun clientParam() = mapOf("client_id" to clientId())

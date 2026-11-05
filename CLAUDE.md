@@ -372,7 +372,10 @@ browserdrop/               # standalone library (no :core/:app deps), package co
     replaces the API key; OAuth wins when both exist (`HardcoverAccount.credential`).
     - The token set is one Keystore-encrypted DataStore value (`hardcover_session`). `HardcoverOAuthSession`
       refreshes one at a time (refresh tokens rotate; a spent one revokes the sign-in), never retries a
-      refresh, stores the new pair before using it, and only `invalid_grant` ends the sign-in. A 401 on an
+      refresh, stores the new pair before using it, and only `invalid_grant` ends the sign-in. Any other refusal
+      (`invalid_client`, a bare 4xx, an unreadable answer) keeps the sign-in but marks it `refreshRefused`: no
+      more refreshes, its token serves until it expires, and Settings offers Sign In Again. After a temporary
+      failure, an expired token's callers get that failure for 10 s instead of each sending a refresh. A 401 on an
       OAuth call refreshes once and retries once (`HardcoverService.execute`). Never log a code or token.
     - A sign-in missing a scope added since (refreshes keep the first grant) shows Sign In Again, and
       progress (needs `read:library`) is skipped, not sent to a 403.

@@ -145,6 +145,7 @@ fun HardcoverSettingsScreen(
                 SignedInSection(
                     username = connection?.username,
                     needsSignInAgain = connection?.needsSignInAgain == true,
+                    signInRefused = connection?.signInRefused == true,
                     canSignIn = canSignIn,
                     isSigningIn = isSigningIn,
                     onSignIn = viewModel::signIn,
@@ -321,11 +322,12 @@ private fun SignInSection(isSigningIn: Boolean, onSignIn: () -> Unit) {
     }
 }
 
-/** Signed in with OAuth: who, and Sign In Again when the sign-in lacks a scope added since. */
+/** Signed in with OAuth: who, and Sign In Again when the sign-in lacks a scope added since or Hardcover refused it. */
 @Composable
 private fun SignedInSection(
     username: String?,
     needsSignInAgain: Boolean,
+    signInRefused: Boolean,
     canSignIn: Boolean,
     isSigningIn: Boolean,
     onSignIn: () -> Unit,
@@ -370,7 +372,9 @@ private fun SignedInSection(
         }
         if (needsSignInAgain && canSignIn) {
             Text(
-                text = stringResource(R.string.hardcover_sign_in_again_footer),
+                text = stringResource(
+                    if (signInRefused) R.string.hardcover_sign_in_refused_footer else R.string.hardcover_sign_in_again_footer
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
