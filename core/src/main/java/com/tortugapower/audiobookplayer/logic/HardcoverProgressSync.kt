@@ -1,10 +1,14 @@
 package com.tortugapower.audiobookplayer.logic
 
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
-import com.tortugapower.audiobookplayer.network.HardcoverProgressSchedule
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
+import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
+import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import com.tortugapower.audiobookplayer.network.HardcoverReadProgress
 import com.tortugapower.audiobookplayer.network.HardcoverService
 import com.tortugapower.audiobookplayer.network.ReadInProgressData
@@ -13,49 +17,51 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Puts a book's listening percentage on its read in progress on Hardcover (iOS `HardcoverService.updateReadProgress`):
- * measured against that read's edition, the first update right away, then at most every 2 minutes per book plus on
- * pause, only forward and never at the end. Hardcover failures are logged and dropped: an outage must never touch
- * playback or the library, and the next update sends it again.
+ * Puts a book's listening percentage on its read in progress on Hardcover (iOS `HardcoverService.updateReadProgress`),
+ * measured against that read's edition, only forward and never at the end.
+ *
+ * It rides the Hardcover lane like the media servers' progress rides theirs: `SyncingLibraryRepository` queues one
+ * `hardcover_update_progress` task per book holding the latest percentage, behind the status change that starts the
+ * read, and [HardcoverProcessor] runs it through [send]. A book's first send goes right away, the next ones at least
+ * 2 minutes apart ([notBefore], the task's `nextAttemptAt`), and a pause sends what's waiting ([onPause]). A failure
+ * Hardcover may get over (offline, a timeout, rate limited, down) is retried by the engine; anything else is dropped,
+ * and the next save queues the latest again. Hardcover never touches playback or the library.
  */
 object HardcoverProgressSync {
     private const val TAG = "HardcoverProgress"
     /** A request pair every two minutes per book while listening: far below Hardcover's rate limit. */
-    private const val INTERVAL_MS = 120_000L
+    const val INTERVAL_MS = 120_000L
     private const val READ_LIBRARY_SCOPE = "read:library"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val schedule = HardcoverProgressSchedule(INTERVAL_MS)
+    /** When each book's progress last went out, this process: a new process's first goes right away. */
+    private val lastSent = ConcurrentHashMap<String, Long>()
 
-    /** A Currently Reading book's progress, [percent] 0–100: sent now, or held for the next slot. */
-    fun onProgress(itemUuid: String, percent: Double) {
-        // 0% (back to the start, marked unfinished) and the end are never sent: they mustn't use up the book's slot,
-        // and what was held from before the move is stale now.
-        if (!HardcoverReadProgress.isInRange(percent)) {
-            synchronized(schedule) { schedule.drop(itemUuid) }
-            return
-        }
-        val toSend = synchronized(schedule) { schedule.record(percent, itemUuid, System.currentTimeMillis()) } ?: return
-        scope.launch { send(itemUuid, toSend) }
-    }
+    /** When a new progress task for [itemUuid] may run: null for now, else 2 minutes after its last send. */
+    fun notBefore(itemUuid: String, now: Long): Long? = lastSent[itemUuid]?.plus(INTERVAL_MS)?.takeIf { it > now }
 
-    /** Playback paused: everything held is sent now, so stopping mid-interval loses nothing. */
+    /** Playback paused: a progress task waiting for its 2 minutes goes now, so stopping mid-interval loses nothing. */
     fun onPause() {
-        val held = synchronized(schedule) { schedule.flush(System.currentTimeMillis()) }
-        if (held.isEmpty()) return
-        scope.launch { held.forEach { (uuid, percent) -> send(uuid, percent) } }
+        scope.launch {
+            try {
+                flush(RoomSyncTaskRepository(AppDatabase.getDatabase(CoreContext.appContext).syncTaskDao()))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Couldn't send the held Hardcover progress: ${e.javaClass.simpleName}")
+            }
+        }
     }
 
-    private suspend fun send(itemUuid: String, percent: Double) {
-        try {
-            update(itemUuid, percent)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to update Hardcover progress for $itemUuid: ${e.javaClass.simpleName} ${e.message}")
-        }
+    /** Runs every progress task waiting only for its slot now (not one waiting out a failure's backoff). */
+    internal suspend fun flush(repository: SyncTaskRepository) {
+        repository.getTasksByStatus(SyncTaskStatus.PENDING)
+            .filter { it.jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS && it.isWaitingForSlot }
+            .forEach { SyncRetryWake.retryNow(repository, it.id) }
     }
 
     private val updater = HardcoverProgressUpdate(
@@ -66,10 +72,39 @@ object HardcoverProgressSync {
         updateReadProgress = HardcoverService::updateReadProgress,
     )
 
-    private suspend fun update(itemUuid: String, percent: Double) {
-        updater.update(itemUuid, percent)
+    /** A queued progress task's run. Throws for a failure worth retrying; anything else is done with. */
+    suspend fun send(itemUuid: String, percent: Double) {
+        send(itemUuid, percent, System.currentTimeMillis(), updater::update)
     }
+
+    internal suspend fun send(
+        itemUuid: String,
+        percent: Double,
+        now: Long,
+        update: suspend (String, Double) -> HardcoverProgressResult,
+    ) {
+        lastSent[itemUuid] = now
+        val result = try {
+            update(itemUuid, percent)
+        } catch (e: HardcoverService.HardcoverRequestException) {
+            if (isWorthRetrying(e.status)) throw e
+            Log.e(TAG, "Hardcover refused the progress request: HTTP ${e.status}")
+            return
+        }
+        // `me` failed: nearly always offline (a refused sign-in has already ended it, and the task was dropped)
+        if (result == HardcoverProgressResult.NoUserId) throw IOException("Hardcover account id unavailable")
+    }
+
+    /** No answer (offline throws an IOException, retried as is), a timeout, rate limited or down. */
+    internal fun isWorthRetrying(status: Int): Boolean = status == 0 || status == 408 || status == 429 || status >= 500
+
+    @VisibleForTesting
+    internal fun resetForTests() = lastSent.clear()
 }
+
+/** Waiting for its 2-minute slot, not for a retry: no failure behind it, nor a park. */
+private val SyncTaskEntity.isWaitingForSlot: Boolean
+    get() = nextAttemptAt != null && failureStreak == 0 && pauseScope == null
 
 /** What happened to one progress update, for the log and the tests. */
 internal sealed class HardcoverProgressResult {

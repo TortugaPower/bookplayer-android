@@ -54,6 +54,7 @@ object SyncFailurePolicy {
         SyncTaskFactory.JOB_EXTERNAL_UPDATE,
         SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH,
         SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS,
+        SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS,
     )
 
     /**

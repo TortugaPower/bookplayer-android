@@ -10,7 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** iOS `HardcoverReadProgressTests` + `HardcoverProgressScheduleTests`. */
+/** iOS `HardcoverReadProgressTests` (the schedule became the Hardcover lane: `HardcoverProgressSyncTest`). */
 class HardcoverReadProgressTest {
 
     private val audiobook = Edition(id = 1, pages = null, audioSeconds = 36_000, readingFormatId = 2)
@@ -89,41 +89,5 @@ class HardcoverReadProgressTest {
         assertEquals(2, userBook.statusId)
         assertEquals(120, userBook.userBookReads!!.single().progressSeconds)
         assertEquals(listOf(audiobook, null, null, null, print), userBook.book!!.defaultEditions)
-    }
-
-    // --- Schedule ---
-
-    @Test fun `the first update goes at once, later ones within 120 s are held and only the latest sent`() {
-        val schedule = HardcoverProgressSchedule(120_000)
-        assertEquals(10.0, schedule.record(10.0, "a", now = 0))
-        assertNull(schedule.record(11.0, "a", now = 10_000))
-        assertNull(schedule.record(12.0, "a", now = 20_000))
-        assertEquals(13.0, schedule.record(13.0, "a", now = 120_000))
-        assertEquals(emptyList<Pair<String, Double>>(), schedule.flush(now = 121_000))
-    }
-
-    @Test fun `books are scheduled independently`() {
-        val schedule = HardcoverProgressSchedule(120_000)
-        assertEquals(10.0, schedule.record(10.0, "a", now = 0))
-        assertEquals(50.0, schedule.record(50.0, "b", now = 1_000))
-    }
-
-    @Test fun `flush returns the latest held and restarts the interval`() {
-        val schedule = HardcoverProgressSchedule(120_000)
-        schedule.record(10.0, "a", now = 0)
-        schedule.record(12.0, "a", now = 30_000)
-        assertEquals(listOf("a" to 12.0), schedule.flush(now = 60_000))
-        assertNull(schedule.record(13.0, "a", now = 150_000))
-        assertEquals(14.0, schedule.record(14.0, "a", now = 180_000))
-    }
-
-    @Test fun `drop forgets what's held without using up the slot`() {
-        val schedule = HardcoverProgressSchedule(120_000)
-        schedule.record(10.0, "a", now = 0)
-        schedule.record(30.0, "a", now = 30_000)
-        schedule.drop("a")
-        assertEquals(emptyList<Pair<String, Double>>(), schedule.flush(now = 60_000))
-        schedule.drop("b")
-        assertEquals(5.0, schedule.record(5.0, "b", now = 60_000))
     }
 }

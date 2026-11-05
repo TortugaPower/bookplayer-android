@@ -125,13 +125,11 @@ class RoomLibraryRepositoryTest {
 
     private val syncTasks = FakeSyncTaskRepository()
     private var hardcoverConnected = true
-    private val progressSent = mutableListOf<Pair<String, Double>>()
     private val hardcoverRepository = RoomLibraryRepository(
         android.content.ContextWrapper(null),
         fakeDao,
         hardcoverConnectedProvider = { hardcoverConnected },
         readingThresholdProvider = { 0.5f },
-        hardcoverProgressListener = { uuid, percent -> progressSent += uuid to percent },
         syncTaskRepositoryProvider = { syncTasks }
     ) { timeCurrent }
 
@@ -216,41 +214,6 @@ class RoomLibraryRepositoryTest {
 
         assertTrue(fakeDao.insertedExternalResources.isEmpty())
         assertTrue(syncTasks.tasks.isEmpty())
-    }
-
-    @Test
-    fun testUpdateItemProgress_reading_sendsPercentForTheRead() = runBlocking {
-        seedHardcoverBook(status = "reading")
-
-        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 60.0, isFinished = false)
-
-        assertEquals(listOf("book-1" to 60.0), progressSent)
-    }
-
-    @Test
-    fun testUpdateItemProgress_crossingThreshold_waitsForTheStatusBeforeSendingPercent() = runBlocking {
-        seedHardcoverBook(status = "synced")
-
-        // The save that queues Currently Reading sends no percent: Hardcover has no read to put it on yet.
-        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 60.0, isFinished = false)
-        assertTrue(progressSent.isEmpty())
-
-        // The next save does.
-        fakeDao.externalResource = fakeDao.insertedExternalResources.last()
-        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 62.0, isFinished = false)
-        assertEquals(listOf("book-1" to 62.0), progressSent)
-    }
-
-    @Test
-    fun testUpdateItemProgress_notReading_sendsNoPercent() = runBlocking {
-        seedHardcoverBook(status = "synced")
-        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 20.0, isFinished = false)
-        seedHardcoverBook(status = "read")
-        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 60.0, isFinished = false)
-        seedHardcoverBook(status = "reading")
-        hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 100.0, isFinished = true)
-
-        assertTrue(progressSent.isEmpty())
     }
 
     @Test

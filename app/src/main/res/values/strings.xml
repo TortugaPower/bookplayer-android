@@ -475,6 +475,7 @@
     <string name="sync_task_delete_external_resource">Delete External Resource</string>
     <string name="sync_task_hardcover_auto_match">Hardcover Auto-Match</string>
     <string name="sync_task_hardcover_update_status">Update Hardcover Status</string>
+    <string name="sync_task_hardcover_update_progress">Update Hardcover Progress</string>
     <string name="sync_task_external_update">External Status Update</string>
 
     <string name="profile_week">Week</string>

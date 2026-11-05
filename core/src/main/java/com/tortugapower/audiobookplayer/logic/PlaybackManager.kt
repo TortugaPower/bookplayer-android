@@ -429,8 +429,8 @@ object PlaybackManager {
                         _isPlaying.value = playing
                         if (!playing) {
                             lastPauseTime = System.currentTimeMillis()
-                            // A pause sends the Hardcover progress the 2-minute schedule held back, once this
-                            // last position is recorded.
+                            // A pause sends the Hardcover progress task waiting for its 2-minute slot, once this
+                            // last position is recorded (and merged into it).
                             updateProgress(appContext, afterSave = HardcoverProgressSync::onPause)
                         } else {
                             // Real playback has started — the load/buffering "queued" window is over.

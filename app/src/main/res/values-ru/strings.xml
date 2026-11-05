@@ -217,6 +217,7 @@
     <string name="sync_task_delete_external_resource">Удалить внешний ресурс</string>
     <string name="sync_task_hardcover_auto_match">Автоматическое сопоставление Hardcover</string>
     <string name="sync_task_hardcover_update_status">Обновить статус Hardcover</string>
+    <string name="sync_task_hardcover_update_progress">Обновить прогресс Hardcover</string>
     <string name="sync_task_external_update">Обновление внешнего статуса</string>
 
     <!-- Profile Stats -->

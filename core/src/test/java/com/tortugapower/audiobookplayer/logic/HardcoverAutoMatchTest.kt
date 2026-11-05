@@ -47,7 +47,10 @@ class HardcoverAutoMatchTest {
         saveUserBookStatus = { _, _ -> 1 },
         connectedUserId = { "4242" },
         downloadArtwork = { _, url, dest -> downloads += url; dest.writeText("cover"); true },
+        sendProgress = { uuid, percent -> progressSent += uuid to percent },
     )
+
+    private val progressSent = mutableListOf<Pair<String, Double>>()
 
     private fun book(id: String, cover: String? = null) =
         HardcoverBook(id = id, title = "Book $id", image = cover?.let { HardcoverImage(it) }, contributions = null)
@@ -156,5 +159,26 @@ class HardcoverAutoMatchTest {
         assertTrue(downloads.isEmpty())
         assertEquals("/art/embedded.jpg", dao.getItemById("own")!!.artworkURL)
         assertEquals("800", linkOf("own"))
+    }
+
+    @Test fun `a progress task sends the book's percentage`() = runBlocking {
+        val task = SyncTaskEntity(
+            id = "p", taskID = "b1", queueKey = SyncTaskFactory.QUEUE_HARDCOVER,
+            jobType = SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS, position = 0,
+            payload = """{"itemUuid":"b1","percent":42.5}""",
+        )
+        assertTrue(processor().canHandle(task.jobType))
+        assertTrue(processor().process(task))
+        assertEquals(listOf("b1" to 42.5), progressSent)
+    }
+
+    @Test fun `a progress task fails as its send does, for the engine to retry`() = runBlocking {
+        val failing = HardcoverProcessor(context, sendProgress = { _, _ -> throw java.io.IOException("offline") })
+        val task = SyncTaskEntity(
+            id = "p", taskID = "b1", queueKey = SyncTaskFactory.QUEUE_HARDCOVER,
+            jobType = SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS, position = 0,
+            payload = """{"itemUuid":"b1","percent":42.5}""",
+        )
+        assertTrue(runCatching { failing.process(task) }.exceptionOrNull() is java.io.IOException)
     }
 }

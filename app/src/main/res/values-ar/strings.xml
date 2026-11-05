@@ -218,6 +218,7 @@
     <string name="sync_task_delete_external_resource">حذف مورد خارجي</string>
     <string name="sync_task_hardcover_auto_match">مطابقة تلقائية لـ Hardcover</string>
     <string name="sync_task_hardcover_update_status">تحديث حالة Hardcover</string>
+    <string name="sync_task_hardcover_update_progress">تحديث تقدم Hardcover</string>
     <string name="sync_task_external_update">تحديث الحالة الخارجية</string>
 
     <!-- Profile Stats -->

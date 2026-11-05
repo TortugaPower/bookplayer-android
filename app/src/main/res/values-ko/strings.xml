@@ -218,6 +218,7 @@
     <string name="sync_task_delete_external_resource">외부 리소스 삭제</string>
     <string name="sync_task_hardcover_auto_match">Hardcover 자동 매칭</string>
     <string name="sync_task_hardcover_update_status">Hardcover 상태 업데이트</string>
+    <string name="sync_task_hardcover_update_progress">Hardcover 진행률 업데이트</string>
     <string name="sync_task_external_update">외부 상태 업데이트</string>
 
     <!-- Profile Stats -->

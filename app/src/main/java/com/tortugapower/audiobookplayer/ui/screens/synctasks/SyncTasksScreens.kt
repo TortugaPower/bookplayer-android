@@ -287,6 +287,7 @@ private fun QueuedTaskRow(
         SyncTaskFactory.JOB_DELETE_EXTERNAL_RESOURCE -> Icons.Default.Delete to stringResource(R.string.sync_task_delete_external_resource)
         SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH -> Icons.Default.Search to stringResource(R.string.sync_task_hardcover_auto_match)
         SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS -> Icons.Default.Check to stringResource(R.string.sync_task_hardcover_update_status)
+        SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS -> Icons.Default.Check to stringResource(R.string.sync_task_hardcover_update_progress)
         SyncTaskFactory.JOB_EXTERNAL_UPDATE -> Icons.Default.Dns to stringResource(R.string.sync_task_external_update)
         else -> Icons.Default.Sync to stringResource(R.string.sync_task_generic)
     }

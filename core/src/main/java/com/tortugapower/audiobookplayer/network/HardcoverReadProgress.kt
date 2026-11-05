@@ -143,38 +143,3 @@ data class HardcoverReadProgress(
         }
     }
 }
-
-/**
- * When to send a book's progress (iOS `HardcoverProgressSchedule`): its first update right away, then at most once
- * per [intervalMs], with the latest one held until then or until playback pauses. Not thread-safe: the owner
- * serializes access.
- */
-class HardcoverProgressSchedule(private val intervalMs: Long) {
-    private val lastSent = mutableMapOf<String, Long>()
-    private val pending = mutableMapOf<String, Double>()
-
-    /** The percentage to send now, if any; otherwise it's kept for later. */
-    fun record(percent: Double, key: String, now: Long): Double? {
-        val last = lastSent[key]
-        if (last != null && now - last < intervalMs) {
-            pending[key] = percent
-            return null
-        }
-        lastSent[key] = now
-        pending.remove(key)
-        return percent
-    }
-
-    /** Forgets what's held for [key] without using up its slot: the book moved somewhere nothing is sent for. */
-    fun drop(key: String) {
-        pending.remove(key)
-    }
-
-    /** Everything held back, to send now; each one's interval restarts. */
-    fun flush(now: Long): List<Pair<String, Double>> {
-        val held = pending.toList()
-        pending.clear()
-        held.forEach { (key, _) -> lastSent[key] = now }
-        return held
-    }
-}

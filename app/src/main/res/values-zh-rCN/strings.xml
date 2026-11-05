@@ -218,6 +218,7 @@
     <string name="sync_task_delete_external_resource">删除外部资源</string>
     <string name="sync_task_hardcover_auto_match">Hardcover 自动匹配</string>
     <string name="sync_task_hardcover_update_status">更新 Hardcover 状态</string>
+    <string name="sync_task_hardcover_update_progress">更新 Hardcover 进度</string>
     <string name="sync_task_external_update">外部状态更新</string>
 
     <!-- Profile Stats -->

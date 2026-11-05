@@ -218,6 +218,7 @@
     <string name="sync_task_delete_external_resource">बाहरी संसाधन हटाएं</string>
     <string name="sync_task_hardcover_auto_match">हार्डकवर ऑटो-मैच</string>
     <string name="sync_task_hardcover_update_status">हार्डकवर स्थिति अपडेट करें</string>
+    <string name="sync_task_hardcover_update_progress">हार्डकवर प्रगति अपडेट करें</string>
     <string name="sync_task_external_update">बाहरी स्थिति अपडेट</string>
 
     <!-- Profile Stats -->

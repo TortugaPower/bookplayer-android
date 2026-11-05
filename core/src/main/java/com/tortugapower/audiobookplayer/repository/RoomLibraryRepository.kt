@@ -34,9 +34,6 @@ class RoomLibraryRepository(
     private val readingThresholdProvider: suspend () -> Float = {
         com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getReadingThreshold(context).first()
     },
-    /** A Currently Reading book's progress (uuid, percent 0–100), for its read on Hardcover. */
-    private val hardcoverProgressListener: (String, Double) -> Unit =
-        com.tortugapower.audiobookplayer.logic.HardcoverProgressSync::onProgress,
     syncTaskRepositoryProvider: (() -> SyncTaskRepository)? = null,
     private val timeProvider: () -> Long = { System.currentTimeMillis() }
 ) : LibraryRepository {
@@ -249,11 +246,8 @@ class RoomLibraryRepository(
                             libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "reading"))
                             SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, item.uuid, 2)
                         }
-                        // iOS parity: the listening percentage goes on Hardcover's read in progress, which only a
-                        // Currently Reading book has (the status change starts it). Not on the save that just
-                        // queued that change: Hardcover has no read yet, and the send would use up the first
-                        // slot of the 2-minute schedule for nothing. The next save takes it.
-                        if (status == "reading") hardcoverProgressListener(item.uuid, item.percentCompleted * 100)
+                        // The listening percentage itself is queued by SyncingLibraryRepository, in the Hardcover lane
+                        // behind this status change.
                     }
                 }
             }

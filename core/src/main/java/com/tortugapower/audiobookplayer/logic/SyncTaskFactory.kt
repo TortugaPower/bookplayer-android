@@ -60,6 +60,7 @@ object SyncTaskFactory {
     const val JOB_MATCH_UUIDS = "match_uuids"
     const val JOB_HARDCOVER_AUTO_MATCH = "hardcover_auto_match"
     const val JOB_HARDCOVER_UPDATE_STATUS = "hardcover_update_status"
+    const val JOB_HARDCOVER_UPDATE_PROGRESS = "hardcover_update_progress"
     const val JOB_UPLOAD_EXTERNAL_RESOURCE = "upload_external_resource"
     const val JOB_DELETE_EXTERNAL_RESOURCE = "delete_external_resource"
     const val JOB_EXTERNAL_UPDATE = "external_update"
@@ -389,6 +390,23 @@ object SyncTaskFactory {
     }
 
     /**
+     * A Currently Reading book's listening percentage (0–100) for its read on Hardcover (HardcoverProgressSync). One
+     * task per book: a newer percentage replaces a waiting one's. In the Hardcover lane, so it runs after the status
+     * change that starts the read. A new one waits until [notBefore] (its 2 minutes since the book's last send).
+     */
+    suspend fun createHardcoverProgressTask(repository: SyncTaskRepository, itemUuid: String, percent: Double, notBefore: Long?) {
+        val payload = mapOf("itemUuid" to itemUuid, "percent" to percent)
+        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_HARDCOVER_UPDATE_PROGRESS, itemUuid)
+        if (existing != null && repository.updatePendingTaskPayload(existing, gson.toJson(payload))) return
+        enqueue(repository, QUEUE_HARDCOVER, JOB_HARDCOVER_UPDATE_PROGRESS, itemUuid, payload, nextAttemptAt = notBefore)
+    }
+
+    /** The book moved where nothing is sent (back to the start, or the end): its waiting percentage is stale. */
+    suspend fun dropHardcoverProgressTask(repository: SyncTaskRepository, itemUuid: String) {
+        repository.getPendingTaskByTypeAndTaskId(JOB_HARDCOVER_UPDATE_PROGRESS, itemUuid)?.let { repository.deleteTask(it) }
+    }
+
+    /**
      * Push one preference level (root or a folder) to the server. Keyed by the preference key so
      * rapid changes to the same level coalesce onto a single pending task (last write wins) — the
      * same merge [createUpdateTask] uses for items. A parked push of the same key is superseded:
@@ -430,7 +448,9 @@ object SyncTaskFactory {
         queueKey: String,
         jobType: String,
         taskId: String,
-        payload: Map<String, Any?>
+        payload: Map<String, Any?>,
+        /** Not to run before this (epoch ms): a task spaced out, not one retrying (its failureStreak stays 0) */
+        nextAttemptAt: Long? = null,
     ) {
         val task = SyncTaskEntity(
             id = UUID.randomUUID().toString(),
@@ -438,7 +458,8 @@ object SyncTaskFactory {
             queueKey = queueKey,
             jobType = jobType,
             position = 0, // assigned at insert (SyncTaskDao.insertAtEnd): a lane runs in stored order
-            payload = gson.toJson(payload)
+            payload = gson.toJson(payload),
+            nextAttemptAt = nextAttemptAt,
         )
         android.util.Log.d("SyncTaskFactory", "📝 Enqueuing task: $jobType into $queueKey queue [TaskID: $taskId]")
         repository.saveTask(task)

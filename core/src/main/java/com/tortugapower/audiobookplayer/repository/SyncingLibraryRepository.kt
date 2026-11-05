@@ -3,10 +3,14 @@ package com.tortugapower.audiobookplayer.repository
 import android.content.Context
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
+import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.BookmarkSync
+import com.tortugapower.audiobookplayer.logic.HardcoverAccount
+import com.tortugapower.audiobookplayer.logic.HardcoverProgressSync
 import com.tortugapower.audiobookplayer.logic.ItemUpdateFields
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
+import com.tortugapower.audiobookplayer.network.HardcoverReadProgress
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 
@@ -15,7 +19,11 @@ class SyncingLibraryRepository(
     private val syncTaskRepository: SyncTaskRepository,
     private val accountRepository: AccountRepository,
     // The bookmark-pull server call, injectable so the merge and its guards are testable offline.
-    private val bookmarkFetcher: BookmarkSync.Fetcher = BookmarkSync.networkFetcher
+    private val bookmarkFetcher: BookmarkSync.Fetcher = BookmarkSync.networkFetcher,
+    /** Read only for a book linked to Hardcover: a disconnected account's links queue nothing. */
+    private val hardcoverConnected: suspend () -> Boolean = { HardcoverAccount.isConnected() },
+    /** When a book's next Hardcover progress may go (2 minutes after its last), null for now. */
+    private val hardcoverNotBefore: (itemUuid: String) -> Long? = { HardcoverProgressSync.notBefore(it, System.currentTimeMillis()) },
 ) : LibraryRepository by delegate {
 
     private suspend fun isSubscribed(): Boolean {
@@ -93,6 +101,22 @@ class SyncingLibraryRepository(
     }
 
     /**
+     * A Currently Reading book's percentage for its read on Hardcover (iOS `updateReadProgress`), in the Hardcover
+     * lane behind the status change that starts the read (the delegate's save has just queued it, when this save
+     * crossed the threshold). A finished book's status is Read instead, and a move back to the start or to the end
+     * sends nothing and drops the stale percentage waiting.
+     */
+    private suspend fun queueHardcoverProgress(item: LibraryItemEntity, resource: ExternalResourceEntity) {
+        if (resource.syncStatus != "reading" || item.isFinished || !hardcoverConnected()) return
+        val percent = item.percentCompleted * 100
+        if (HardcoverReadProgress.isInRange(percent)) {
+            SyncTaskFactory.createHardcoverProgressTask(syncTaskRepository, item.uuid, percent, hardcoverNotBefore(item.uuid))
+        } else {
+            SyncTaskFactory.dropHardcoverProgressTask(syncTaskRepository, item.uuid)
+        }
+    }
+
+    /**
      * Sends a saved progress: its [fields] to our server, with its folders' roll-ups, and to the book's media servers
      * the position and its percentage, 100% once this save finished it ([mediaServerFinished]), not from the stored
      * flag: a finished book played on stays finished here, but Jellyfin and ABS get where it is.
@@ -103,13 +127,15 @@ class SyncingLibraryRepository(
         mediaServerFinished: Boolean,
         fields: (LibraryItemEntity) -> Map<String, Any?>,
     ) {
-        // Update progress for non-hardcover external resources
+        // The book's media servers and Hardcover, each in its own lane
         try {
             val externalResources = delegate.getExternalResourcesForBook(uuid).first()
             val item = delegate.getItemById(uuid)
             if (item != null) {
                 externalResources.forEach { resource ->
-                    if (resource.providerName != "hardcover") {
+                    if (resource.providerName == HARDCOVER) {
+                        queueHardcoverProgress(item, resource)
+                    } else {
                         SyncTaskFactory.createExternalUpdateTask(
                             syncTaskRepository,
                             libraryItemUuid = uuid,
@@ -368,5 +394,9 @@ class SyncingLibraryRepository(
                 SyncTaskFactory.createDeleteExternalResourceTask(syncTaskRepository, existing)
             }
         }
+    }
+
+    private companion object {
+        const val HARDCOVER = "hardcover"
     }
 }

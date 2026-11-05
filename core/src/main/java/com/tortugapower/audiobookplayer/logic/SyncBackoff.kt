@@ -31,6 +31,9 @@ object SyncBackoff {
         nextAttemptAt == null || nextAttemptAt <= now || nextAttemptAt - now > MAX_DELAY_MS
 }
 
-/** Waiting out a backoff after a failure: the Queued Tasks screen offers Retry, which runs it now */
+/**
+ * Waiting out a backoff after a failure: the Queued Tasks screen offers Retry, which runs it now. A task only spaced
+ * out (a Hardcover progress waiting for its 2 minutes) has no failure behind it: a backoff always counts one.
+ */
 val SyncTaskEntity.isWaitingToRetry: Boolean
-    get() = status == SyncTaskStatus.PENDING && nextAttemptAt != null && pauseScope == null
+    get() = status == SyncTaskStatus.PENDING && nextAttemptAt != null && failureStreak > 0 && pauseScope == null

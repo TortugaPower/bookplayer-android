@@ -221,6 +221,7 @@
     <string name="sync_task_delete_external_resource">Eliminar recurso externo</string>
     <string name="sync_task_hardcover_auto_match">Emparejamiento automático de Hardcover</string>
     <string name="sync_task_hardcover_update_status">Actualizar estado de Hardcover</string>
+    <string name="sync_task_hardcover_update_progress">Actualizar progreso de Hardcover</string>
     <string name="sync_task_external_update">Actualización de estado externo</string>
 
     <!-- Profile Stats -->

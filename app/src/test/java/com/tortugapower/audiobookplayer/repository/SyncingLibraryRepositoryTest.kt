@@ -149,8 +149,11 @@ class SyncingLibraryRepositoryTest {
         override suspend fun getTasksByStatus(status: SyncTaskStatus): List<SyncTaskEntity> = emptyList()
         override suspend fun getTasksInQueueByStatus(queueKey: String, status: SyncTaskStatus): List<SyncTaskEntity> = emptyList()
         override suspend fun getActiveQueueKeys(): List<String> = emptyList()
-        override suspend fun updateTask(task: SyncTaskEntity) {}
-        override suspend fun deleteTask(task: SyncTaskEntity) {}
+        override suspend fun updateTask(task: SyncTaskEntity) {
+            val i = tasks.indexOfFirst { it.id == task.id }
+            if (i >= 0) tasks[i] = task
+        }
+        override suspend fun deleteTask(task: SyncTaskEntity) { tasks.removeAll { it.id == task.id } }
         override suspend fun clearCompletedTasks() {}
         override suspend fun resetRunningTasks() {}
         override suspend fun deleteAllTasks() {}
@@ -855,5 +858,94 @@ class SyncingLibraryRepositoryTest {
         // Merging the stale row would resurrect the deleted bookmark as a local-only copy.
         assertTrue(delegate.addedBookmarks.isEmpty())
         assertTrue(delegate.updatedBookmarks.isEmpty())
+    }
+
+    // --- Hardcover progress: the Hardcover lane, next to the media servers' ---
+
+    private fun hardcoverRepository(
+        delegate: FakeLibraryRepository,
+        tasks: FakeSyncTaskRepository,
+        connected: Boolean = true,
+        notBefore: Long? = null,
+    ) = SyncingLibraryRepository(
+        delegate, tasks, FakeAccountRepository(AccountTier.FREE),
+        hardcoverConnected = { connected },
+        hardcoverNotBefore = { notBefore },
+    )
+
+    private fun hardcoverBook(status: String, percent: Double = 0.4, vararg others: ExternalResourceEntity): FakeLibraryRepository {
+        val book = speedBook().apply { duration = 100.0; percentCompleted = percent; currentTime = percent * 100 }
+        return FakeLibraryRepository().apply {
+            items += book.uuid to book
+            externalResources = listOf(
+                ExternalResourceEntity(providerName = "hardcover", providerId = "999", syncStatus = status, libraryItemUuid = book.uuid)
+            ) + others
+        }
+    }
+
+    private fun percentOf(task: SyncTaskEntity): Double =
+        (com.google.gson.Gson().fromJson(task.payload, Map::class.java)["percent"] as Number).toDouble()
+
+    @Test
+    fun savePlaybackProgress_ofACurrentlyReadingBook_queuesItsPercentInTheHardcoverLane() = runBlocking {
+        val tasks = FakeSyncTaskRepository()
+        val jellyfin = ExternalResourceEntity(providerName = "jellyfin", providerId = "jf-1", syncStatus = "synced", libraryItemUuid = "book-1")
+        hardcoverRepository(hardcoverBook("reading", 0.4, jellyfin), tasks).savePlaybackProgress("book-1", 40.0, reachedEnd = false)
+
+        val progress = tasks.tasks.single { it.jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS }
+        assertEquals(SyncTaskFactory.QUEUE_HARDCOVER, progress.queueKey)
+        assertEquals("book-1", progress.taskID)
+        assertEquals(40.0, percentOf(progress), 1e-9)
+        assertNull(progress.nextAttemptAt)
+        // The media server still gets its own push, in its own lane.
+        assertEquals("jellyfin", tasks.tasks.single { it.jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE }.queueKey)
+    }
+
+    @Test
+    fun hardcoverProgress_isOneTaskPerBook_holdingTheLatestPercent() = runBlocking {
+        val tasks = FakeSyncTaskRepository()
+        val delegate = hardcoverBook("reading", 0.4)
+        val repository = hardcoverRepository(delegate, tasks)
+
+        repository.savePlaybackProgress("book-1", 40.0, reachedEnd = false)
+        delegate.items["book-1"]!!.percentCompleted = 0.45
+        repository.savePlaybackProgress("book-1", 45.0, reachedEnd = false)
+
+        assertEquals(45.0, percentOf(tasks.tasks.single { it.jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS }), 1e-9)
+    }
+
+    @Test
+    fun hardcoverProgress_waitsForItsTwoMinutesSinceTheBooksLastSend() = runBlocking {
+        val tasks = FakeSyncTaskRepository()
+        hardcoverRepository(hardcoverBook("reading"), tasks, notBefore = 1_234_000L).savePlaybackProgress("book-1", 40.0, reachedEnd = false)
+
+        val progress = tasks.tasks.single { it.jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS }
+        assertEquals(1_234_000L, progress.nextAttemptAt)
+        assertEquals(0, progress.failureStreak)
+    }
+
+    @Test
+    fun hardcoverProgress_needsACurrentlyReadingBook_andAConnectedAccount() = runBlocking {
+        val tasks = FakeSyncTaskRepository()
+        hardcoverRepository(hardcoverBook("synced"), tasks).savePlaybackProgress("book-1", 40.0, reachedEnd = false)
+        hardcoverRepository(hardcoverBook("read"), tasks).savePlaybackProgress("book-1", 40.0, reachedEnd = false)
+        hardcoverRepository(hardcoverBook("reading"), tasks, connected = false).savePlaybackProgress("book-1", 40.0, reachedEnd = false)
+        val finished = hardcoverBook("reading", 1.0).apply { items["book-1"]!!.isFinished = true }
+        hardcoverRepository(finished, tasks).savePlaybackProgress("book-1", 100.0, reachedEnd = true)
+
+        assertTrue(tasks.tasks.none { it.jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS })
+    }
+
+    @Test
+    fun hardcoverProgress_backToTheStart_dropsTheStalePercentWaiting() = runBlocking {
+        val tasks = FakeSyncTaskRepository()
+        val delegate = hardcoverBook("reading", 0.4)
+        val repository = hardcoverRepository(delegate, tasks)
+        repository.savePlaybackProgress("book-1", 40.0, reachedEnd = false)
+
+        delegate.items["book-1"]!!.percentCompleted = 0.0
+        repository.updateItemProgress("book-1", 0.0, isFinished = false)
+
+        assertTrue(tasks.tasks.none { it.jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS })
     }
 }

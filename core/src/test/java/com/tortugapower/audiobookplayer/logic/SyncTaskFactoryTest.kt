@@ -460,4 +460,26 @@ class SyncTaskFactoryTest {
         assertEquals(4.0, (payload["orderRank"] as Number).toDouble(), 0.0)
         assertEquals(52.0, payload["currentTime"])
     }
+
+    @Test fun hardcoverProgress_goesInTheHardcoverLane_waitingUntilItsSlot() = runBlocking {
+        val repo = CapturingRepo()
+        SyncTaskFactory.createHardcoverProgressTask(repo, "u1", 42.5, notBefore = 9_000L)
+
+        val task = repo.saved!!
+        assertEquals(SyncTaskFactory.QUEUE_HARDCOVER, task.queueKey)
+        assertEquals(SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS, task.jobType)
+        assertEquals("u1", task.taskID)
+        assertEquals(9_000L, task.nextAttemptAt)
+        assertEquals(0, task.failureStreak)
+        assertEquals(42.5, payloadOf(task)["percent"])
+    }
+
+    @Test fun hardcoverProgress_replacesTheWaitingPercent_keepingItsSlot() = runBlocking {
+        val repo = PendingRepo()
+        SyncTaskFactory.createHardcoverProgressTask(repo, "u1", 40.0, notBefore = 9_000L)
+        SyncTaskFactory.createHardcoverProgressTask(repo, "u1", 41.0, notBefore = 12_000L)
+
+        assertEquals(41.0, payloadOf(repo.pending!!)["percent"])
+        assertEquals(9_000L, repo.pending!!.nextAttemptAt)
+    }
 }

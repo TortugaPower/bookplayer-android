@@ -218,6 +218,7 @@
     <string name="sync_task_delete_external_resource">外部リソースの削除</string>
     <string name="sync_task_hardcover_auto_match">Hardcover 自動マッチング</string>
     <string name="sync_task_hardcover_update_status">Hardcover ステータスの更新</string>
+    <string name="sync_task_hardcover_update_progress">Hardcover の進捗の更新</string>
     <string name="sync_task_external_update">外部ステータスの更新</string>
 
     <!-- Profile Stats -->

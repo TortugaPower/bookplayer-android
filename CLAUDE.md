@@ -377,10 +377,14 @@ browserdrop/               # standalone library (no :core/:app deps), package co
     - A sign-in missing a scope added since (refreshes keep the first grant) shows Sign In Again, and
       progress (needs `read:library`) is skipped, not sent to a 403.
     - New links carry the account's Hardcover user id (`me`) as `hostId`; one account per item stays the rule.
-    - A Currently Reading book's percentage goes on Hardcover's read in progress (`HardcoverProgressSync`, fed
-      by `RoomLibraryRepository.updateItemProgress`, flushed on pause): the first now, then every 120 s per
-      book, measured against the read's edition (else the first fallback with a length, written with it),
-      only forward and short of the end (`HardcoverReadProgress`). Hardcover failures never touch playback.
+    - A Currently Reading book's percentage goes on Hardcover's read in progress, through the `hardcover` lane like
+      the media servers' progress goes through theirs: `SyncingLibraryRepository.pushProgress` queues one
+      `hardcover_update_progress` task per book holding the latest percentage, behind the status change that
+      starts the read. The first goes now, the next ones 120 s after the book's last send (the task's
+      `nextAttemptAt`, with no failure behind it, so Queued Tasks doesn't offer Retry), and a pause sends what's
+      waiting (`HardcoverProgressSync`). Measured against the read's edition (else the first fallback with a length,
+      written with it), only forward and short of the end (`HardcoverReadProgress`). Offline, timeouts, 429 and 5xx
+      retry with the engine's backoff; anything else is dropped. Hardcover failures never touch playback.
   - **Hardcover auto-match runs once per import** (iOS parity: `HardcoverService.processAutoMatch`).
     - `ImportManager` queues one `JOB_HARDCOVER_AUTO_MATCH` task covering every item the import created
       at the top level: books, folders, volumes and streamed items. A task queued in the older

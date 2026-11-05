@@ -24,6 +24,9 @@ class HardcoverProcessor(
     /** The connected account's Hardcover user id, written as new links' `hostId`; null offline (fine). */
     private val connectedUserId: suspend () -> String? = HardcoverAccount::fetchConnectedUserId,
     private val downloadArtwork: (Context, String, java.io.File) -> Boolean = ArtworkManager::downloadAndSaveArtwork,
+    /** Sends a book's progress to its read; throws for a failure worth retrying. */
+    private val sendProgress: suspend (itemUuid: String, percent: Double) -> Unit = HardcoverProgressSync::send,
+    private val isConnected: suspend (Context) -> Boolean = { HardcoverAccount.isConnected(it) },
 ) : TaskProcessor {
     private val gson = Gson()
 
@@ -31,7 +34,7 @@ class HardcoverProcessor(
         val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
         val payload: Map<String, Any?> = gson.fromJson(task.payload, payloadType)
         
-        if (!HardcoverAccount.isConnected(context)) {
+        if (!isConnected(context)) {
             // iOS no-ops all Hardcover work when unauthorized; discard so the queue doesn't wedge.
             Log.w("HardcoverProcessor", "Not connected to Hardcover, discarding task: ${task.jobType}")
             return true
@@ -79,6 +82,14 @@ class HardcoverProcessor(
                 } catch (e: Exception) {
                     Log.e("HardcoverProcessor", "Exception updating hardcover status", e)
                 }
+                true
+            }
+
+            SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS -> {
+                val itemUuid = payload["itemUuid"] as? String ?: return true
+                val percent = (payload["percent"] as? Number)?.toDouble() ?: return true
+                // A failure worth retrying throws, and the engine backs off; anything else ends here.
+                sendProgress(itemUuid, percent)
                 true
             }
 
@@ -170,7 +181,8 @@ class HardcoverProcessor(
 
     override fun canHandle(jobType: String): Boolean {
         return jobType == SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH ||
-               jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS
+               jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS ||
+               jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS
     }
 }
 
