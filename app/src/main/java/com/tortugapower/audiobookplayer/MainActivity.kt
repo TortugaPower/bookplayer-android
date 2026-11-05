@@ -163,8 +163,18 @@ class MainActivity : ComponentActivity() {
 
     // --- Picture in Picture ----------------------------------------------------------------------
 
-    private fun pipSupported(): Boolean =
+    /** A binder call whose answer never changes for the process: asked once. */
+    private val pipSupported: Boolean by lazy {
         packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    }
+
+    /**
+     * Set while this activity opens another one (the cast sheet's output picker, Bluetooth or Cast settings, a file
+     * picker). Below Android 12 that launch also calls [onUserLeaveHint], which must not shrink the app into PiP: only
+     * leaving the app does that, as Android 12+'s auto-enter does. One-shot: cleared by that leave hint, on resume, and
+     * when the launch fails, so it never swallows a real Home press.
+     */
+    private var launchingOwnActivity = false
 
     /** Keep the PiP eligibility and params current so the OS can auto-enter (S+) or we can on leave. */
     private fun observeVideoPlayback() {
@@ -183,7 +193,7 @@ class MainActivity : ComponentActivity() {
                 PlaybackManager.videoSize,
             ) { (background, pip), hasVideo, playing, playerShown, _ ->
                 PictureInPicturePolicy.shouldEnter(
-                    supported = pipSupported(),
+                    supported = pipSupported,
                     pipEnabled = pip,
                     backgroundPlaybackEnabled = background,
                     hasVideo = hasVideo,
@@ -217,7 +227,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyPictureInPictureParams(autoEnter: Boolean) {
-        if (!pipSupported()) return
+        if (!pipSupported) return
         try {
             setPictureInPictureParams(buildPictureInPictureParams(autoEnter))
         } catch (e: IllegalStateException) {
@@ -231,8 +241,24 @@ class MainActivity : ComponentActivity() {
 
     /** Pre-Android 12 there is no auto-enter: shrink into PiP ourselves when the user leaves. */
     @Suppress("DEPRECATION")
+    // Every launch ends here: startActivity, startActivityForResult and the activity-result launchers.
+    @Deprecated("Overridden only to see this activity's own launches; launch through the usual APIs.")
+    override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) {
+        launchingOwnActivity = true
+        try {
+            @Suppress("DEPRECATION")
+            super.startActivityForResult(intent, requestCode, options)
+        } catch (e: Throwable) {
+            launchingOwnActivity = false
+            throw e
+        }
+    }
+
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        val ownLaunch = launchingOwnActivity
+        launchingOwnActivity = false
+        if (ownLaunch) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && pipEligible && !isInPictureInPictureMode) {
             try {
                 enterPictureInPictureMode(buildPictureInPictureParams(autoEnter = false))
@@ -277,6 +303,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        launchingOwnActivity = false
         // Coming back from Settings after freeing space: re-measure; leave the gate if it's showing.
         val critical = StorageMonitor.refresh(this).isCritical
         if (storageGateShown && !critical) recreate()
