@@ -488,4 +488,8 @@
     <string name="layout_list_option">सूची</string>
     <string name="layout_grid_option">ग्रिड</string>
     <string name="layout_covers_option">कवर</string>
+    <string name="player_settings_video_playback">वीडियो प्लेबैक</string>
+    <string name="player_settings_video_background_playback">बैकग्राउंड में वीडियो की आवाज़ जारी रखें</string>
+    <string name="player_settings_video_pip">पिक्चर-इन-पिक्चर</string>
+    <string name="player_settings_video_playback_desc">ऐप छोड़ने या स्क्रीन लॉक करने पर भी वीडियो की आवाज़ सुनते रहें। प्लेयर से ऐप छोड़ने पर पिक्चर-इन-पिक्चर वीडियो को एक छोटी विंडो में दिखाता रहता है।</string>
 </resources>

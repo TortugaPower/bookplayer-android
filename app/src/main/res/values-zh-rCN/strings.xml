@@ -483,4 +483,8 @@
     <string name="layout_list_option">列表</string>
     <string name="layout_grid_option">网格</string>
     <string name="layout_covers_option">封面</string>
+    <string name="player_settings_video_playback">视频播放</string>
+    <string name="player_settings_video_background_playback">在后台继续播放视频音频</string>
+    <string name="player_settings_video_pip">画中画</string>
+    <string name="player_settings_video_playback_desc">离开应用或锁定屏幕时继续收听视频的音频。从播放器离开应用时，画中画会在小窗口中继续显示视频。</string>
 </resources>

@@ -488,4 +488,8 @@
     <string name="layout_list_option">Liste</string>
     <string name="layout_grid_option">Raster</string>
     <string name="layout_covers_option">Cover</string>
+    <string name="player_settings_video_playback">Videowiedergabe</string>
+    <string name="player_settings_video_background_playback">Videoton im Hintergrund fortsetzen</string>
+    <string name="player_settings_video_pip">Bild-im-Bild</string>
+    <string name="player_settings_video_playback_desc">Höre den Ton eines Videos weiter, wenn du die App verlässt oder den Bildschirm sperrst. Bild-im-Bild zeigt das Video in einem kleinen Fenster, wenn du die App aus dem Player heraus verlässt.</string>
 </resources>

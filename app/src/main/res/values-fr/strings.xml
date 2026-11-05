@@ -489,4 +489,8 @@
     <string name="layout_list_option">Liste</string>
     <string name="layout_grid_option">Grille</string>
     <string name="layout_covers_option">Couvertures</string>
+    <string name="player_settings_video_playback">Lecture vidéo</string>
+    <string name="player_settings_video_background_playback">Continuer le son de la vidéo en arrière-plan</string>
+    <string name="player_settings_video_pip">Image dans l\'image</string>
+    <string name="player_settings_video_playback_desc">Continuez d\'écouter le son d\'une vidéo lorsque vous quittez l\'app ou verrouillez l\'écran. Image dans l\'image garde la vidéo dans une petite fenêtre lorsque vous quittez l\'app depuis le lecteur.</string>
 </resources>

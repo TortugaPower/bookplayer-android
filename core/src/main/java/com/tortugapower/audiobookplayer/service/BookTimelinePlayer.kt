@@ -5,6 +5,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
+import androidx.media3.common.Tracks
 import com.google.common.util.concurrent.ListenableFuture
 import com.tortugapower.audiobookplayer.logic.BoundTimeline
 import com.tortugapower.audiobookplayer.logic.PlayableItem
@@ -100,6 +101,7 @@ class BookTimelinePlayer(
             .setMediaMetadata(metadata)
             .setDurationUs(totalMs * 1000)
             .setIsSeekable(true)
+            .setTracks(currentTracks())
             .build()
 
         return base.buildUpon()
@@ -132,6 +134,7 @@ class BookTimelinePlayer(
         // One window per chapter; current file's artwork/artist reused, title per chapter.
         val baseMeta = wrapped.currentMediaItem?.mediaMetadata ?: MediaMetadata.EMPTY
         val currentItem = wrapped.currentMediaItem ?: MediaItem.EMPTY
+        val tracks = currentTracks()
         val windows = playable.chapters.mapIndexed { i, ch ->
             val meta = baseMeta.buildUpon().setTitle(ch.title).build()
             SimpleBasePlayer.MediaItemData.Builder("$CHAPTER_WINDOW_UID_PREFIX$i")
@@ -139,6 +142,9 @@ class BookTimelinePlayer(
                 .setMediaMetadata(meta)
                 .setDurationUs(timeline.chapterDurationMs(i) * 1000)
                 .setIsSeekable(true)
+                // Only the playing window carries tracks, like the real timeline (a Player reports
+                // tracks for the current item alone).
+                .setTracks(if (i == here.chapterIndex) tracks else Tracks.EMPTY)
                 .build()
         }
 
@@ -153,6 +159,16 @@ class BookTimelinePlayer(
             )
             .build()
     }
+
+    /**
+     * The real player's current tracks, for the virtual window that is playing. The forwarding base
+     * attaches these to the passthrough playlist itself, but the whole-book and chapter windows are
+     * built from scratch here — without them the controller (and so the in-app player screen, which
+     * decides "this is a video" from the controller's tracks) sees an audio-only item and never
+     * shows the video surface or the fullscreen control.
+     */
+    private fun currentTracks(): Tracks =
+        if (wrapped.isCommandAvailable(Player.COMMAND_GET_TRACKS)) wrapped.currentTracks else Tracks.EMPTY
 
     private fun playbackSpeed(base: SimpleBasePlayer.State): Float {
         val playing = base.playWhenReady &&
