@@ -55,6 +55,10 @@ interface SyncTaskRepository {
         }
     }
 
+    /** Every PENDING [jobType] task waiting for a time: a retry's backoff, or a spaced-out task's slot */
+    suspend fun getWaitingPendingTasksByType(jobType: String): List<SyncTaskEntity> =
+        getTasksByStatus(SyncTaskStatus.PENDING).filter { it.jobType == jobType && it.nextAttemptAt != null }
+
     /** Every task waiting out a backoff may run now, its streak kept. Returns how many. */
     suspend fun clearRetryWaits(): Int {
         val waiting = getTasksByStatus(SyncTaskStatus.PENDING).filter { it.nextAttemptAt != null }

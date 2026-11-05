@@ -183,6 +183,10 @@ interface SyncTaskDao {
     )
     suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity?
 
+    /** Every PENDING [jobType] task waiting for a time (a retry's backoff, or a spaced-out task's slot) */
+    @Query("SELECT * FROM sync_tasks WHERE jobType = :jobType AND status = 'PENDING' AND nextAttemptAt IS NOT NULL")
+    suspend fun getWaitingPendingTasksByType(jobType: String): List<SyncTaskEntity>
+
     /** Moves every [jobType] task to [queueKey]: returns how many moved */
     @Query("UPDATE sync_tasks SET queueKey = :queueKey WHERE jobType = :jobType AND queueKey != :queueKey")
     suspend fun moveToLane(jobType: String, queueKey: String): Int

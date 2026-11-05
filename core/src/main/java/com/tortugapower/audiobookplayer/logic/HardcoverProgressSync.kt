@@ -6,7 +6,6 @@ import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
-import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import com.tortugapower.audiobookplayer.network.HardcoverOAuthException
@@ -59,8 +58,9 @@ object HardcoverProgressSync {
 
     /** Runs every progress task waiting only for its slot now (not one waiting out a failure's backoff). */
     internal suspend fun flush(repository: SyncTaskRepository) {
-        repository.getTasksByStatus(SyncTaskStatus.PENDING)
-            .filter { it.jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS && it.isWaitingForSlot }
+        // Only those rows: every pause runs this, and the queue can hold a large backlog
+        repository.getWaitingPendingTasksByType(SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS)
+            .filter { it.isWaitingForSlot }
             .forEach { SyncRetryWake.retryNow(repository, it.id) }
     }
 

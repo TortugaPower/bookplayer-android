@@ -46,6 +46,17 @@ class SyncTaskDaoTest {
     private suspend fun pendingIds() =
         dao.getTasksInQueueByStatus("sync", SyncTaskStatus.PENDING).map { it.id }
 
+    /** A pause's Hardcover flush reads only the waiting progress rows, not the whole queue */
+    @Test fun getWaitingPendingTasksByType_returnsOnlyThatTypesPendingRowsWithAWait() = runBlocking {
+        val progress = "hardcover_update_progress"
+        dao.insertAtEnd(task("waiting", "b1", progress).copy(nextAttemptAt = 5L))
+        dao.insertAtEnd(task("due", "b2", progress))
+        dao.insertAtEnd(task("running", "b3", progress).copy(nextAttemptAt = 5L, status = SyncTaskStatus.RUNNING))
+        dao.insertAtEnd(task("other", "b4", "move").copy(nextAttemptAt = 5L))
+
+        assertEquals(listOf("waiting"), dao.getWaitingPendingTasksByType(progress).map { it.id })
+    }
+
     @Test fun insertAtEnd_runsTasksInTheOrderTheyWereStored() = runBlocking {
         listOf("c", "a", "d", "b").forEach { dao.insertAtEnd(task(it, "item-$it")) }
 
