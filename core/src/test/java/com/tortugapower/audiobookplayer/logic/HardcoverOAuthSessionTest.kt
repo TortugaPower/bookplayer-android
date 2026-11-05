@@ -81,6 +81,16 @@ class HardcoverOAuthSessionTest {
         assertEquals("read:catalog read:library write:library read:me", store.tokens?.scope)
     }
 
+    @Test fun `an expired token whose refresh is refused with invalid_client throws it and keeps the sign-in`() = runBlocking {
+        val store = MemoryStore(tokens(expiresIn = -1))
+        reply = { HardcoverHttpReply(400, """{"error":"invalid_client"}""") }
+
+        val e = assertThrows(HardcoverOAuthException.Server::class.java) { runBlocking { session(store).accessToken() } }
+
+        assertEquals("invalid_client", e.code)
+        assertEquals("only invalid_grant ends the sign-in", "hc_rt_old", store.tokens?.refreshToken)
+    }
+
     @Test fun `concurrent callers share one refresh, so a refresh token is never sent twice`() = runBlocking {
         val store = MemoryStore(tokens(expiresIn = 30_000))
         val gate = CompletableDeferred<Unit>()

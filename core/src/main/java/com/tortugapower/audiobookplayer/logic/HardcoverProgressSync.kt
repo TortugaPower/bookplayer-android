@@ -9,6 +9,7 @@ import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import com.tortugapower.audiobookplayer.network.HardcoverOAuthException
 import com.tortugapower.audiobookplayer.network.HardcoverReadProgress
 import com.tortugapower.audiobookplayer.network.HardcoverService
 import com.tortugapower.audiobookplayer.network.ReadInProgressData
@@ -89,11 +90,22 @@ object HardcoverProgressSync {
         } catch (e: HardcoverService.HardcoverRequestException) {
             if (isWorthRetrying(e.status)) throw e
             Log.e(TAG, "Hardcover refused the progress request: HTTP ${e.status}")
+        } catch (e: HardcoverOAuthException) {
+            // The expired token's refresh failed. Only a token endpoint that's down or busy may answer later: a
+            // refusal (invalid_client, invalid_request, a bare 4xx, an unreadable answer) would retry forever.
+            if (isWorthRetrying(e)) throw e
+            Log.e(TAG, "Hardcover's sign-in couldn't be refreshed: ${e.message}")
         }
     }
 
     /** No answer (offline throws an IOException, retried as is), a timeout, rate limited or down. */
     internal fun isWorthRetrying(status: Int): Boolean = status == 0 || status == 408 || status == 429 || status >= 500
+
+    internal fun isWorthRetrying(e: HardcoverOAuthException): Boolean = when (e) {
+        is HardcoverOAuthException.Http -> isWorthRetrying(e.status)
+        is HardcoverOAuthException.Server -> e.code == "temporarily_unavailable" || e.code == "server_error"
+        else -> false
+    }
 
     @VisibleForTesting
     internal fun resetForTests() = lastSent.clear()

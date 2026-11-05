@@ -2,6 +2,7 @@ package com.tortugapower.audiobookplayer.logic
 
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.network.HardcoverOAuthException
 import com.tortugapower.audiobookplayer.network.HardcoverReadProgress
 import com.tortugapower.audiobookplayer.network.HardcoverService.HardcoverRequestException
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
@@ -58,6 +59,19 @@ class HardcoverProgressSyncTest {
         send { HardcoverProgressResult.NoReadInProgress }
         send { HardcoverProgressResult.Skipped(HardcoverReadProgress.Skip.NoLength) }
         send { HardcoverProgressResult.Sent }
+    }
+
+    @Test fun `a refresh the token endpoint may answer later is retried, a refused one is dropped`() {
+        val busy = listOf(
+            HardcoverOAuthException.Http(503), HardcoverOAuthException.Http(429),
+            HardcoverOAuthException.Server("temporarily_unavailable", null),
+        )
+        for (e in busy) assertThrows(e.message, HardcoverOAuthException::class.java) { send { throw e } }
+
+        send { throw HardcoverOAuthException.Server("invalid_client", null) }
+        send { throw HardcoverOAuthException.Server("invalid_request", null) }
+        send { throw HardcoverOAuthException.Http(400) }
+        send { throw HardcoverOAuthException.InvalidResponse() }
     }
 
     @Test fun `a pause runs the progress waiting for its slot, not one waiting out a failure`() = runBlocking {
