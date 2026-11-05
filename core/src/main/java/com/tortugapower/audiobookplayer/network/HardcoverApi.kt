@@ -258,13 +258,19 @@ object HardcoverService {
 
     /** The connected Hardcover user (`me`), or null when not connected or it couldn't be read. */
     suspend fun me(): HardcoverUser? = try {
-        parseMe(execute(ME_QUERY))
+        meOrThrow()
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         android.util.Log.e(TAG, "Failed to read the connected Hardcover account", e)
         null
     }
+
+    /**
+     * As [me], but a failure to read it throws: a [HardcoverRequestException] with the HTTP status (a refused key is
+     * a 401), or the transport's error. Null only when not connected, or the answer held no user.
+     */
+    suspend fun meOrThrow(): HardcoverUser? = parseMe(execute(ME_QUERY))
 
     /** `me` comes back as a list with the one user; a single object is read the same way. */
     internal fun parseMe(data: JsonObject?): HardcoverUser? {

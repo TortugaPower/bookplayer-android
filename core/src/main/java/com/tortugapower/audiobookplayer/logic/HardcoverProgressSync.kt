@@ -17,7 +17,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -67,7 +66,8 @@ object HardcoverProgressSync {
     private val updater = HardcoverProgressUpdate(
         lacksReadLibrary = { HardcoverAccount.lacksScope(READ_LIBRARY_SCOPE) },
         hardcoverLink = { uuid -> AppDatabase.getDatabase(CoreContext.appContext).libraryDao().getExternalResource(uuid, "hardcover") },
-        userId = { HardcoverAccount.fetchConnectedUserId() },
+        // A refused key throws its 401 here (dropped below), being offline its transport error (retried)
+        userId = { HardcoverAccount.connectedUserIdOrThrow() },
         readInProgress = HardcoverService::readInProgress,
         updateReadProgress = HardcoverService::updateReadProgress,
     )
@@ -84,15 +84,12 @@ object HardcoverProgressSync {
         update: suspend (String, Double) -> HardcoverProgressResult,
     ) {
         lastSent[itemUuid] = now
-        val result = try {
+        try {
             update(itemUuid, percent)
         } catch (e: HardcoverService.HardcoverRequestException) {
             if (isWorthRetrying(e.status)) throw e
             Log.e(TAG, "Hardcover refused the progress request: HTTP ${e.status}")
-            return
         }
-        // `me` failed: nearly always offline (a refused sign-in has already ended it, and the task was dropped)
-        if (result == HardcoverProgressResult.NoUserId) throw IOException("Hardcover account id unavailable")
     }
 
     /** No answer (offline throws an IOException, retried as is), a timeout, rate limited or down. */
@@ -138,7 +135,7 @@ internal class HardcoverProgressUpdate(
         val bookId = resource?.providerId?.toIntOrNull()
         if (resource?.syncStatus != "reading" || bookId == null) return HardcoverProgressResult.NotReading
         val userId = userId()?.toIntOrNull() ?: run {
-            Log.i(TAG, "Hardcover progress skipped for book $bookId: the account's id couldn't be read")
+            Log.i(TAG, "Hardcover progress skipped for book $bookId: Hardcover returned no account")
             return HardcoverProgressResult.NoUserId
         }
 

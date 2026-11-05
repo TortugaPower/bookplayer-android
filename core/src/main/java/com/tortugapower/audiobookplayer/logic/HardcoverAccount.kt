@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.google.gson.Gson
 import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.network.HardcoverOAuth
+import com.tortugapower.audiobookplayer.network.HardcoverOAuthException
 import com.tortugapower.audiobookplayer.network.HardcoverService
 import com.tortugapower.audiobookplayer.network.HardcoverTokenSet
 import com.tortugapower.audiobookplayer.network.HardcoverUser
@@ -93,7 +94,7 @@ object HardcoverAccount {
 
     /** Reads the connected account from `me`; tests answer it themselves. */
     @VisibleForTesting
-    internal var readMe: suspend () -> HardcoverUser? = { HardcoverService.me() }
+    internal var readMe: suspend () -> HardcoverUser? = { HardcoverService.meOrThrow() }
 
     /**
      * Bumped whenever the connected account may have changed. A `me` answer is stored only if none happened while it
@@ -131,17 +132,13 @@ object HardcoverAccount {
     /** Connected either way: Hardcover work runs only then. */
     suspend fun isConnected(context: Context = this.context): Boolean = connection(context).first().isConnected
 
-    /** OAuth first (refreshed when it's about to expire), else the API key. Null when not connected. */
+    /**
+     * OAuth first (refreshed when it's about to expire), else the API key. Null when not connected. A refresh that
+     * failed for a reason Hardcover may get over (offline, rate limited, down) with the token already expired throws:
+     * the caller's request fails as it would have, and a queued task is retried.
+     */
     suspend fun credential(): HardcoverCredential? {
-        val oauth = try {
-            session.accessToken()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "No usable Hardcover sign-in token: ${e.javaClass.simpleName}")
-            // An ended sign-in (invalid_grant) has been deleted: an API key can't be there too, it was replaced.
-            null
-        }
+        val oauth = oauthToken(rejected = null)
         if (oauth != null) return HardcoverCredential(oauth, isOAuth = true)
         // Cleaned up as it's read: keys saved by older versions can still carry the `Bearer ` prefix they were
         // copied with, and the request adds its own.
@@ -149,14 +146,21 @@ object HardcoverAccount {
         return key.takeIf { it.isNotEmpty() }?.let { HardcoverCredential(it, isOAuth = false) }
     }
 
-    /** A new OAuth token after the API refused [rejected]; null when there's none to try. */
-    suspend fun replaceRejected(rejected: String): String? = try {
-        session.accessToken(rejected = rejected)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        Log.w(TAG, "Hardcover token refresh after a 401 failed: ${e.javaClass.simpleName}")
+    /** A new OAuth token after the API refused [rejected]; null when there's none to try. Throws as [credential]. */
+    suspend fun replaceRejected(rejected: String): String? = oauthToken(rejected)
+
+    /**
+     * The sign-in's access token, or null without one. An ended sign-in (`invalid_grant`) has been deleted: null, and
+     * an API key can't be there too, it was replaced. A sign-in replaced while refreshing hands over the current one's.
+     */
+    private suspend fun oauthToken(rejected: String?): String? = try {
+        session.accessToken(rejected)
+    } catch (e: HardcoverOAuthException.InvalidGrant) {
+        Log.w(TAG, "The Hardcover sign-in has ended")
         null
+    } catch (e: HardcoverSignInChangedException) {
+        // Signed out or in again during the refresh: the token refused belonged to the previous sign-in
+        if (rejected == null) session.accessToken() else null
     }
 
     /**
@@ -216,7 +220,20 @@ object HardcoverAccount {
      * is saved, or for a connection made before ids were stored. Null when offline. Written as `hostId` on the
      * Hardcover links it makes, so a later version can tell accounts apart.
      */
-    suspend fun fetchConnectedUserId(): String? {
+    suspend fun fetchConnectedUserId(): String? = try {
+        connectedUserIdOrThrow()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "Couldn't read the connected Hardcover account: ${e.javaClass.simpleName}")
+        null
+    }
+
+    /**
+     * As [fetchConnectedUserId], but a failure to read `me` throws (HardcoverService.meOrThrow): a refused key apart
+     * from being offline. Null when not connected, or `me` held no user.
+     */
+    suspend fun connectedUserIdOrThrow(): String? {
         connectedUserId()?.let { return it }
         val generation = accountGeneration.get()
         if (!isConnected()) return null

@@ -44,12 +44,15 @@ class HardcoverProgressSyncTest {
                 send { throw HardcoverRequestException(status, "HTTP $status") }
             }
         }
-        // `me` failing is nearly always being offline
-        assertThrows(IOException::class.java) { send { HardcoverProgressResult.NoUserId } }
+        // Offline: the request's own transport error
+        assertThrows(IOException::class.java) { send { throw IOException("offline") } }
     }
 
     @Test fun `a refusal, a skip or a send is done with`() {
+        // A refused key: `me` (or the progress request) answers 401, and nothing would ever change that
+        send { throw HardcoverRequestException(401, "HTTP 401") }
         send { throw HardcoverRequestException(403, "HTTP 403") }
+        send { HardcoverProgressResult.NoUserId }
         send { throw HardcoverRequestException(400, "HTTP 400") }
         send { HardcoverProgressResult.Refused("nope") }
         send { HardcoverProgressResult.NoReadInProgress }

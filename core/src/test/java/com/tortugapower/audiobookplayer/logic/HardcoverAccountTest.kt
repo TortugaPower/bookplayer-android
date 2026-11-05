@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.test.core.app.ApplicationProvider
 import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.network.HardcoverOAuth
+import com.tortugapower.audiobookplayer.network.HardcoverService
 import com.tortugapower.audiobookplayer.network.HardcoverTokenSet
 import com.tortugapower.audiobookplayer.network.HardcoverUser
 import com.tortugapower.audiobookplayer.network.WebAuthResult
@@ -205,5 +206,25 @@ class HardcoverAccountTest {
         assertNull(store.tokens)
         assertEquals("", storedKey())
         assertNull(storedUserId())
+    }
+
+    @Test fun `an expired sign-in whose refresh fails offline throws, rather than reading as not connected`() = runBlocking {
+        store.tokens = tokens(expiresAt = System.currentTimeMillis() - 1)
+        send = { _, _ -> throw IOException("offline") }
+
+        val failure = runCatching { HardcoverAccount.credential() }.exceptionOrNull()
+
+        assertTrue(failure is IOException)
+        assertEquals("the sign-in is kept for the next try", "hc_at", store.tokens?.accessToken)
+    }
+
+    @Test fun `a refused me throws its status for progress, and reads as no id elsewhere`() = runBlocking {
+        HardcoverSettingsManager.setToken(context, "hc_revoked")
+        HardcoverAccount.readMe = { throw HardcoverService.HardcoverRequestException(401, "HTTP 401") }
+
+        val failure = runCatching { HardcoverAccount.connectedUserIdOrThrow() }.exceptionOrNull()
+
+        assertEquals(401, (failure as HardcoverService.HardcoverRequestException).status)
+        assertNull(HardcoverAccount.fetchConnectedUserId())
     }
 }
