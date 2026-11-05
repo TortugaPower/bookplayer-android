@@ -37,12 +37,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tortugapower.audiobookplayer.logic.HardcoverAccount
 import com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager
-import com.tortugapower.audiobookplayer.ui.screens.settings.connection.AuthTabWebAuthenticator
-import com.tortugapower.audiobookplayer.ui.screens.settings.connection.SsoAvailability
 import com.tortugapower.audiobookplayer.viewmodel.HardcoverSettingsViewModel
 import com.tortugapower.audiobookplayer.viewmodel.HardcoverSettingsViewModelFactory
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerSlider
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.components.SettingsToggleItem
@@ -64,22 +60,16 @@ fun HardcoverSettingsScreen(
     val signInFailed by viewModel.signInFailed.collectAsState()
     val isSignedIn = connection?.isSignedInWithOAuth == true
 
-    // The browser that can run the sign-in (Chrome's Auth Tab, as for media-server SSO), or null: then only API
-    // keys are offered. Resolved off the composition pass (a few PackageManager binder calls).
-    val authTabProvider by produceState<String?>(initialValue = null, context) {
-        value = withContext(Dispatchers.Default) { SsoAvailability.authTabProvider(context.applicationContext) }
-    }
-    val webAuthenticator = remember(authTabProvider) {
-        authTabProvider?.let { AuthTabWebAuthenticator(context.applicationContext, it) }
-    }
+    // The Auth Tab's result goes to the ViewModel, which holds the sign-in waiting on it: after the Activity is
+    // recreated mid sign-in, this new launcher receives the result and hands it to that same sign-in.
     val authLauncher = rememberLauncherForActivityResult(AuthTabIntent.AuthenticateUserResultContract()) { result ->
-        webAuthenticator?.deliver(result)
+        viewModel.deliverAuthResult(result)
     }
-    LaunchedEffect(webAuthenticator, authLauncher) {
-        webAuthenticator?.launcher = authLauncher
-        viewModel.webAuthenticator = webAuthenticator
+    DisposableEffect(authLauncher) {
+        viewModel.attachAuthLauncher(authLauncher)
+        onDispose { viewModel.detachAuthLauncher(authLauncher) }
     }
-    val canSignIn = viewModel.canSignIn && webAuthenticator != null
+    val canSignIn by viewModel.canSignIn.collectAsState()
 
     var token by remember { mutableStateOf("") }
     var autoMatch by remember { mutableStateOf(false) }
