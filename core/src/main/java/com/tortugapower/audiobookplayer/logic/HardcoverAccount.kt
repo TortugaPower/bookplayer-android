@@ -15,6 +15,7 @@ import com.tortugapower.audiobookplayer.network.HardcoverUser
 import com.tortugapower.audiobookplayer.network.WebAuthResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
@@ -182,9 +183,13 @@ object HardcoverAccount {
 
     /** Disconnect: revoke a sign-in and forget the API key and the cached account. */
     suspend fun disconnect() {
-        HardcoverSettingsManager.setToken(context, "")
-        session.signOut()
-        clearConnectedUser()
+        // Finished even if the caller is cancelled (Unlink then Save leaves the screen, clearing its ViewModel):
+        // stopped halfway, the key would be gone but the sign-in still stored, and the app would still show connected.
+        withContext(NonCancellable) {
+            HardcoverSettingsManager.setToken(context, "")
+            session.signOut()
+            clearConnectedUser()
+        }
         Log.i(TAG, "Disconnected from Hardcover")
     }
 

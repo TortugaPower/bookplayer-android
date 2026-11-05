@@ -12,6 +12,7 @@ import com.tortugapower.audiobookplayer.network.WebAuthResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
@@ -184,6 +185,25 @@ class HardcoverAccountTest {
         answer.complete(HardcoverUser(7, "previous"))
 
         assertNull(fetching.await())
+        assertNull(storedUserId())
+    }
+
+    @Test fun `disconnect finishes even when its caller is cancelled`() = runBlocking {
+        HardcoverSettingsManager.setToken(context, "hc_key")
+        store.tokens = tokens()
+        context.dataStore.edit { it[userId] = "42" }
+        val revoking = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        send = { _, _ -> revoking.complete(Unit); release.await(); HardcoverHttpReply(200, "{}") }
+
+        val job = launch(Dispatchers.Default) { HardcoverAccount.disconnect() }
+        revoking.await()
+        job.cancel()
+        release.complete(Unit)
+        job.join()
+
+        assertNull(store.tokens)
+        assertEquals("", storedKey())
         assertNull(storedUserId())
     }
 }

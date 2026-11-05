@@ -75,13 +75,12 @@ object HardcoverService {
      */
     suspend fun execute(query: String, variables: Map<String, Any>? = null): JsonObject? {
         val credential = com.tortugapower.audiobookplayer.logic.HardcoverAccount.credential() ?: return null
-        val request = GraphQLRequest(query = query, variables = variables)
-        var response = api.postQuery("Bearer ${credential.token}", request)
-        if (response.code() == 401 && credential.isOAuth) {
-            val refreshed = com.tortugapower.audiobookplayer.logic.HardcoverAccount.replaceRejected(credential.token)
-            // A failed refresh (offline, rate limited) can hand back the refused token: sent again, it's refused again.
-            if (refreshed != null && refreshed != credential.token) response = api.postQuery("Bearer $refreshed", request)
-        }
+        val response = send(
+            credential,
+            GraphQLRequest(query = query, variables = variables),
+            replaceRejected = com.tortugapower.audiobookplayer.logic.HardcoverAccount::replaceRejected,
+            post = { auth, request -> api.postQuery(auth, request) },
+        )
         if (!response.isSuccessful) {
             throw HardcoverRequestException(response.code(), "HTTP ${response.code()}")
         }
@@ -90,6 +89,21 @@ object HardcoverService {
             throw HardcoverRequestException(response.code(), "GraphQL errors: ${body?.errors}")
         }
         return body?.data
+    }
+
+    /** Sends [request] with [credential]; a refused OAuth token is replaced once and the request sent again. */
+    internal suspend fun <T> send(
+        credential: com.tortugapower.audiobookplayer.logic.HardcoverCredential,
+        request: GraphQLRequest,
+        replaceRejected: suspend (rejected: String) -> String?,
+        post: suspend (authHeader: String, request: GraphQLRequest) -> Response<T>,
+    ): Response<T> {
+        val response = post("Bearer ${credential.token}", request)
+        if (response.code() != 401 || !credential.isOAuth) return response
+        val refreshed = replaceRejected(credential.token)
+        // A failed refresh (offline, rate limited) can hand back the refused token: sent again, it's refused again.
+        if (refreshed == null || refreshed == credential.token) return response
+        return post("Bearer $refreshed", request)
     }
 
     /**
