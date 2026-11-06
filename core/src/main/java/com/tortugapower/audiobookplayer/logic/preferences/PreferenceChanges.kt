@@ -10,7 +10,7 @@ import com.google.gson.reflect.TypeToken
  * while FREE, or whose upload a lapse wiped) is uploaded after the next pull. An upload the server took clears it.
  * Kept in the same store as the values, so sign-out clears it with them.
  */
-class PreferenceChanges(
+open class PreferenceChanges(
     private val store: PreferencesStore,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -27,7 +27,7 @@ class PreferenceChanges(
     suspend fun all(): Map<String, Long> = read()
 
     /** The server took [key]'s change of [at] (or has a newer value, when [at] is null). A later change stays. */
-    suspend fun clear(key: String, at: Long? = null) {
+    open suspend fun clear(key: String, at: Long? = null) {
         edit { if (at == null || it[key] == at) it.remove(key) }
     }
 

@@ -97,11 +97,14 @@ class PreferenceFetchProcessor(
             }
             store.setString(entry.key, value)
             if (changedAt != null) {
-                // Superseded: the older local value mustn't go up after it
-                changes.clear(entry.key)
-                syncTaskRepository.deleteParkedTasks(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, entry.key)
-                syncTaskRepository.getPendingTaskByTypeAndTaskId(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, entry.key)
-                    ?.let { syncTaskRepository.deleteTask(it) }
+                // Superseded: the older local value mustn't go up after it. Only the change read above: one made
+                // during the pull is newer than the server's, and keeps its upload.
+                changes.clear(entry.key, changedAt)
+                if (changes.changedAt(entry.key) == null) {
+                    syncTaskRepository.deleteParkedTasks(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, entry.key)
+                    syncTaskRepository.getPendingTaskByTypeAndTaskId(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, entry.key)
+                        ?.let { syncTaskRepository.deleteTask(it) }
+                }
             }
         }
         uploadUnsentChanges()

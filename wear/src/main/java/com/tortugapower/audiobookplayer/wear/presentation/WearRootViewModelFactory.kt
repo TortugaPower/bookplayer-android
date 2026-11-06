@@ -25,6 +25,7 @@ class WearRootViewModelFactory(private val application: Application) : ViewModel
                 app.libraryRepository,
                 app.syncTaskRepository,
                 WearPhoneApp(application),
+                clearLocalPreferences = app.librarySortManager::clearLocalPreferences,
             ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")

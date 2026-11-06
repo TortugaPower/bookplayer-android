@@ -137,11 +137,13 @@ class LibrarySortManager(
      * Logout: drop every local sort preference (queued push tasks are cleared with the sync queue). Each level sorted
      * by a rule first keeps the order it shows as its own (iOS `freezeAutomaticSortsBeforeWipe`): without its rule, it
      * would fall back to the stored ranks, scrambling a library the user never reordered. Call it once the account
-     * is gone, so the rank writes stay here.
+     * is gone, so the rank writes stay here. The changes the server never took go too, every family's: they were
+     * that account's, and the next one's first pull would upload them (iOS wipes `userPreferences.dirty`).
      */
     suspend fun clearLocalPreferences() {
         freezeAutomaticSorts()
         sortStore.removeAll()
+        sortStore.changes.clearAll()
     }
 
     private suspend fun freezeAutomaticSorts() {

@@ -299,11 +299,15 @@ class SyncingLibrarySortTest {
         seed("f2", "Folder/Alpha", "Alpha", 1)
         manager.applySort(null, SortType.metadataTitle)
         manager.applySort("Folder", SortType.metadataTitle)
+        prefs.setString("library_layout:style", "covers")
+        store.changes.mark("library_layout:style")
         build(AccountTier.FREE) // the account is gone by then: nothing syncs
 
         manager.clearLocalPreferences()
 
         assertTrue(store.all().isEmpty())
+        // The changes the server never took were that account's, every family's
+        assertTrue(store.changes.all().isEmpty())
         assertEquals(listOf("b", "a"), listOf("a", "b").sortedBy { runBlocking { rankOf(it) } })
         assertTrue(rankOf("f2") < rankOf("f1"))
         assertTrue("the freeze stays local", !anyUpdateTasks())

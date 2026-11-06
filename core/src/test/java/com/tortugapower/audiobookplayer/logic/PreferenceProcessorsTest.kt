@@ -303,4 +303,30 @@ class PreferenceProcessorsTest {
         assertNull(changes.changedAt("library_layout:style"))
         repeat(2) { server.takeRequest() }
     }
+
+    @Test fun `a change made while the pull runs keeps its upload`() = runBlocking {
+        val repository = roomRepository()
+        val store = com.tortugapower.audiobookplayer.logic.preferences.FakePreferencesStore(mapOf("library_layout:style" to "covers"))
+        var now = 1_000_000L
+        val changes = PreferenceChanges(store) { now }
+        SyncTaskFactory.createUploadPreferenceTask(repository, "library_layout:style", "covers", changes.mark("library_layout:style"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"entries":[{"key":"library_layout:style","value":{"layout":"grid"},"updated_at":"${at(1_000_500L)}"}]}"""
+        ))
+        // The user picks again between the pull reading the change and clearing it
+        val racing = object : PreferenceChanges(store, { now }) {
+            override suspend fun clear(key: String, at: Long?) {
+                now = 1_001_000L
+                SyncTaskFactory.createUploadPreferenceTask(repository, key, "list", changes.mark(key))
+                super.clear(key, at)
+            }
+        }
+
+        assertTrue(PreferenceFetchProcessor(context, repository, api, store = store, changes = racing)
+            .process(task(SyncTaskFactory.JOB_FETCH_PREFERENCES, "{}")))
+        server.takeRequest()
+
+        assertEquals(1_001_000L, changes.changedAt("library_layout:style"))
+        assertEquals("list", uploads(repository).getValue("library_layout:style")["value"])
+    }
 }

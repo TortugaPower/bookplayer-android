@@ -60,6 +60,8 @@ class WearRootViewModel(
     libraryRepository: LibraryRepository,
     private val syncTaskRepository: SyncTaskRepository,
     private val phoneApp: PhoneApp,
+    /** Sign-out: the sort rules and the preference changes the server never took (`LibrarySortManager`). */
+    private val clearLocalPreferences: suspend () -> Unit = {},
 ) : ViewModel() {
 
     /** The user's phone-selected theme colors (null until the phone syncs one → default palette applies). */
@@ -229,6 +231,9 @@ class WearRootViewModel(
             SubscriptionManager.logout()
             accountRepository.deleteAccount()
             SyncQueueReset.clearAll(syncTaskRepository)
+            // After the account is gone (the freeze's rank writes stay here), as the phone does: left behind, the
+            // old account's sort changes would beat the next account's pull and be uploaded to its server
+            clearLocalPreferences()
             storageTrigger.value++
         }
     }
