@@ -22,7 +22,7 @@ class SyncingLibraryRepository(
     private val bookmarkFetcher: BookmarkSync.Fetcher = BookmarkSync.networkFetcher,
     /** Read only for a book linked to Hardcover: a disconnected account's links queue nothing. */
     private val hardcoverConnected: suspend () -> Boolean = { HardcoverAccount.isConnected() },
-    /** When a book's next Hardcover progress may go (2 minutes after its last), null for now. */
+    /** When a book's next Hardcover progress may go (30 seconds after its last), null for now. */
     private val hardcoverNotBefore: (itemUuid: String) -> Long? = { HardcoverProgressSync.notBefore(it, System.currentTimeMillis()) },
 ) : LibraryRepository by delegate {
 

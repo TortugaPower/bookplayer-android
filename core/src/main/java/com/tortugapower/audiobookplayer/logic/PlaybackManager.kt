@@ -429,7 +429,7 @@ object PlaybackManager {
                         _isPlaying.value = playing
                         if (!playing) {
                             lastPauseTime = System.currentTimeMillis()
-                            // A pause sends the Hardcover progress task waiting for its 2-minute slot, once this
+                            // A pause sends the Hardcover progress task waiting for its 30-second slot, once this
                             // last position is recorded (and merged into it).
                             updateProgress(appContext, afterSave = HardcoverProgressSync::onPause)
                         } else {

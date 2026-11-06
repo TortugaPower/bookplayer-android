@@ -383,7 +383,7 @@ browserdrop/               # standalone library (no :core/:app deps), package co
     - A Currently Reading book's percentage goes on Hardcover's read in progress, through the `hardcover` lane like
       the media servers' progress goes through theirs: `SyncingLibraryRepository.pushProgress` queues one
       `hardcover_update_progress` task per book holding the latest percentage, behind the status change that
-      starts the read. The first goes now, the next ones 120 s after the book's last send (the task's
+      starts the read. The first goes now, the next ones 30 s after the book's last send (the task's
       `nextAttemptAt`, with no failure behind it, so Queued Tasks doesn't offer Retry), and a pause sends what's
       waiting (`HardcoverProgressSync`). Measured against the read's edition (else the first fallback with a length,
       written with it), only forward and short of the end (`HardcoverReadProgress`). Offline, timeouts, 429 and 5xx

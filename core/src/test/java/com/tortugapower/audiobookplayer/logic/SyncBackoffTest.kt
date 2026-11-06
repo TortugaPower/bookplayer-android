@@ -64,7 +64,7 @@ class SyncBackoffTest {
         assertFalse(task.isWaitingToRetry)
         assertTrue(task.copy(nextAttemptAt = 5L, failureStreak = 1).isWaitingToRetry)
         assertFalse(
-            "spaced out, not failed (a Hardcover progress waiting for its 2 minutes)",
+            "spaced out, not failed (a Hardcover progress waiting for its 30 seconds)",
             task.copy(nextAttemptAt = 5L).isWaitingToRetry,
         )
         assertFalse("running", task.copy(nextAttemptAt = 5L, failureStreak = 1, status = SyncTaskStatus.RUNNING).isWaitingToRetry)

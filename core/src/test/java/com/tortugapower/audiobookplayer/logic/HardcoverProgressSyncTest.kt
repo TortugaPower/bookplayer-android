@@ -16,7 +16,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.IOException
 
-/** A queued Hardcover progress task's run: its 2-minute spacing, the pause flush, and what's worth retrying. */
+/** A queued Hardcover progress task's run: its 30-second spacing, the pause flush, and what's worth retrying. */
 class HardcoverProgressSyncTest {
 
     @After fun tearDown() = HardcoverProgressSync.resetForTests()
@@ -25,18 +25,18 @@ class HardcoverProgressSyncTest {
         HardcoverProgressSync.send(uuid, 40.0, now) { _, _ -> result() }
     }
 
-    @Test fun `a book's first progress goes now, the next one 2 minutes after its last send`() {
+    @Test fun `a book's first progress goes now, the next one 30 seconds after its last send`() {
         assertNull(HardcoverProgressSync.notBefore("u1", 1_000_000L))
         send { HardcoverProgressResult.Sent }
 
-        assertEquals(1_120_000L, HardcoverProgressSync.notBefore("u1", 1_030_000L))
-        assertNull("another book has its own slot", HardcoverProgressSync.notBefore("u2", 1_030_000L))
-        assertNull("its 2 minutes are up", HardcoverProgressSync.notBefore("u1", 1_120_000L))
+        assertEquals(1_030_000L, HardcoverProgressSync.notBefore("u1", 1_010_000L))
+        assertNull("another book has its own slot", HardcoverProgressSync.notBefore("u2", 1_010_000L))
+        assertNull("its 30 seconds are up", HardcoverProgressSync.notBefore("u1", 1_030_000L))
     }
 
     @Test fun `a try uses up the slot whatever happened`() {
         assertThrows(IOException::class.java) { send { throw IOException("offline") } }
-        assertEquals(1_120_000L, HardcoverProgressSync.notBefore("u1", 1_000_001L))
+        assertEquals(1_030_000L, HardcoverProgressSync.notBefore("u1", 1_000_001L))
     }
 
     @Test fun `what Hardcover may get over is retried`() {

@@ -27,24 +27,27 @@ import java.util.concurrent.ConcurrentHashMap
  * It rides the Hardcover lane like the media servers' progress rides theirs: `SyncingLibraryRepository` queues one
  * `hardcover_update_progress` task per book holding the latest percentage, behind the status change that starts the
  * read, and [HardcoverProcessor] runs it through [send]. A book's first send goes right away, the next ones at least
- * 2 minutes apart ([notBefore], the task's `nextAttemptAt`), and a pause sends what's waiting ([onPause]). A failure
+ * 30 seconds apart ([notBefore], the task's `nextAttemptAt`), and a pause sends what's waiting ([onPause]). A failure
  * Hardcover may get over (offline, a timeout, rate limited, down) is retried by the engine; anything else is dropped,
  * and the next save queues the latest again. Hardcover never touches playback or the library.
  */
 object HardcoverProgressSync {
     private const val TAG = "HardcoverProgress"
-    /** A request pair every two minutes per book while listening: far below Hardcover's rate limit. */
-    const val INTERVAL_MS = 120_000L
+    /**
+     * A request pair (find the read, write its progress) every 30 seconds per book while listening: 240 requests an
+     * hour, so Hardcover's 5,000 a day last over 20 hours of listening.
+     */
+    const val INTERVAL_MS = 30_000L
     private const val READ_LIBRARY_SCOPE = "read:library"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     /** When each book's progress last went out, this process: a new process's first goes right away. */
     private val lastSent = ConcurrentHashMap<String, Long>()
 
-    /** When a new progress task for [itemUuid] may run: null for now, else 2 minutes after its last send. */
+    /** When a new progress task for [itemUuid] may run: null for now, else 30 seconds after its last send. */
     fun notBefore(itemUuid: String, now: Long): Long? = lastSent[itemUuid]?.plus(INTERVAL_MS)?.takeIf { it > now }
 
-    /** Playback paused: a progress task waiting for its 2 minutes goes now, so stopping mid-interval loses nothing. */
+    /** Playback paused: a progress task waiting for its 30 seconds goes now, so stopping mid-interval loses nothing. */
     fun onPause() {
         scope.launch {
             try {
@@ -115,7 +118,7 @@ object HardcoverProgressSync {
     internal fun resetForTests() = lastSent.clear()
 }
 
-/** Waiting for its 2-minute slot, not for a retry: no failure behind it, nor a park. */
+/** Waiting for its 30-second slot, not for a retry: no failure behind it, nor a park. */
 private val SyncTaskEntity.isWaitingForSlot: Boolean
     get() = nextAttemptAt != null && failureStreak == 0 && pauseScope == null
 

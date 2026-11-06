@@ -915,7 +915,7 @@ class SyncingLibraryRepositoryTest {
     }
 
     @Test
-    fun hardcoverProgress_waitsForItsTwoMinutesSinceTheBooksLastSend() = runBlocking {
+    fun hardcoverProgress_waitsForItsThirtySecondsSinceTheBooksLastSend() = runBlocking {
         val tasks = FakeSyncTaskRepository()
         hardcoverRepository(hardcoverBook("reading"), tasks, notBefore = 1_234_000L).savePlaybackProgress("book-1", 40.0, reachedEnd = false)
 
