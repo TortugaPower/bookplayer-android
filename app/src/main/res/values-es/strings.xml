@@ -282,6 +282,7 @@
     <string name="hardcover_sign_in_again_button">Volver a iniciar sesión</string>
     <string name="hardcover_sign_in_again_footer">Vuelve a iniciar sesión para que BookPlayer actualice tu progreso de lectura en Hardcover.</string>
     <string name="hardcover_sign_in_refused_footer">Hardcover ya no acepta este inicio de sesión. Vuelve a iniciar sesión para que BookPlayer siga conectado a Hardcover.</string>
+    <string name="hardcover_sign_in_refused_unlink_footer">Hardcover ya no acepta este inicio de sesión, y dejará de funcionar cuando caduque. Desvincula la cuenta y añade una clave de API para que BookPlayer siga conectado a Hardcover.</string>
     <string name="hardcover_sign_in_footer">O pega una clave de API abajo.</string>
     <string name="hardcover_connected">Conectado a Hardcover</string>
     <string name="hardcover_connected_as">Conectado como %1$s</string>

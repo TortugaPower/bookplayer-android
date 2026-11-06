@@ -278,6 +278,7 @@
     <string name="hardcover_sign_in_again_button">फिर से साइन इन करें</string>
     <string name="hardcover_sign_in_again_footer">BookPlayer को Hardcover पर आपकी पढ़ने की प्रगति अपडेट करने देने के लिए फिर से साइन इन करें।</string>
     <string name="hardcover_sign_in_refused_footer">Hardcover अब इस साइन-इन को स्वीकार नहीं करता। BookPlayer को Hardcover से जुड़ा रखने के लिए फिर से साइन इन करें।</string>
+    <string name="hardcover_sign_in_refused_unlink_footer">Hardcover अब इस साइन-इन को स्वीकार नहीं करता, और इसकी अवधि समाप्त होने पर यह काम करना बंद कर देगा। BookPlayer को Hardcover से जुड़ा रखने के लिए अनलिंक करें, फिर एक API कुंजी जोड़ें।</string>
     <string name="hardcover_sign_in_footer">या नीचे एक API कुंजी पेस्ट करें।</string>
     <string name="hardcover_connected">Hardcover से कनेक्टेड</string>
     <string name="hardcover_connected_as">%1$s के रूप में कनेक्टेड</string>

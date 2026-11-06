@@ -356,8 +356,11 @@ private fun SignedInSection(
                     )
                     ListItem(
                         headlineContent = {
+                            // The row is disabled while signing in: its label says why, for TalkBack too
                             Text(
-                                stringResource(R.string.hardcover_sign_in_again_button),
+                                stringResource(
+                                    if (isSigningIn) R.string.hardcover_signing_in else R.string.hardcover_sign_in_again_button
+                                ),
                                 color = MaterialTheme.colorScheme.primary,
                             )
                         },
@@ -370,11 +373,16 @@ private fun SignedInSection(
                 }
             }
         }
-        if (needsSignInAgain && canSignIn) {
+        // Without a sign-in button (no Auth Tab, or no client id), a refused sign-in's way forward is an API key
+        val footer = when {
+            needsSignInAgain && canSignIn ->
+                if (signInRefused) R.string.hardcover_sign_in_refused_footer else R.string.hardcover_sign_in_again_footer
+            signInRefused -> R.string.hardcover_sign_in_refused_unlink_footer
+            else -> null
+        }
+        if (footer != null) {
             Text(
-                text = stringResource(
-                    if (signInRefused) R.string.hardcover_sign_in_refused_footer else R.string.hardcover_sign_in_again_footer
-                ),
+                text = stringResource(footer),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
