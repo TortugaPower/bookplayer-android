@@ -373,12 +373,12 @@ private fun SignedInSection(
                 }
             }
         }
-        // Without a sign-in button (no Auth Tab, or no client id), a refused sign-in's way forward is an API key
+        // Without a sign-in button (no Auth Tab, or no client id), the way forward is an API key
         val footer = when {
-            needsSignInAgain && canSignIn ->
-                if (signInRefused) R.string.hardcover_sign_in_refused_footer else R.string.hardcover_sign_in_again_footer
+            !needsSignInAgain -> null
+            canSignIn -> if (signInRefused) R.string.hardcover_sign_in_refused_footer else R.string.hardcover_sign_in_again_footer
             signInRefused -> R.string.hardcover_sign_in_refused_unlink_footer
-            else -> null
+            else -> R.string.hardcover_missing_scope_unlink_footer
         }
         if (footer != null) {
             Text(

@@ -285,6 +285,7 @@
     <string name="hardcover_sign_in_again_footer">Войдите снова, чтобы BookPlayer мог обновлять ваш прогресс чтения в Hardcover.</string>
     <string name="hardcover_sign_in_refused_footer">Hardcover больше не принимает этот вход. Войдите снова, чтобы BookPlayer оставался подключён к Hardcover.</string>
     <string name="hardcover_sign_in_refused_unlink_footer">Hardcover больше не принимает этот вход, и он перестанет работать, когда истечёт его срок. Отвяжите аккаунт и добавьте ключ API, чтобы BookPlayer оставался подключён к Hardcover.</string>
+    <string name="hardcover_missing_scope_unlink_footer">С этим входом нельзя обновлять прогресс чтения на Hardcover. Отвяжите аккаунт и добавьте ключ API, чтобы отправлять его.</string>
     <string name="hardcover_sign_in_footer">Или вставьте ключ API ниже.</string>
     <string name="hardcover_connected">Подключено к Hardcover</string>
     <string name="hardcover_connected_as">Подключено как %1$s</string>

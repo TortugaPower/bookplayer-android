@@ -279,6 +279,7 @@
     <string name="hardcover_sign_in_again_footer">Accedi di nuovo per consentire a BookPlayer di aggiornare i tuoi progressi di lettura su Hardcover.</string>
     <string name="hardcover_sign_in_refused_footer">Hardcover non accetta più questo accesso. Accedi di nuovo per mantenere BookPlayer collegato a Hardcover.</string>
     <string name="hardcover_sign_in_refused_unlink_footer">Hardcover non accetta più questo accesso, che smetterà di funzionare alla scadenza. Scollega l\'account, poi aggiungi una chiave API per mantenere BookPlayer collegato a Hardcover.</string>
+    <string name="hardcover_missing_scope_unlink_footer">Questo accesso non può aggiornare i tuoi progressi di lettura su Hardcover. Scollega l\'account, poi aggiungi una chiave API per inviarli.</string>
     <string name="hardcover_sign_in_footer">Oppure incolla una chiave API qui sotto.</string>
     <string name="hardcover_connected">Connesso a Hardcover</string>
     <string name="hardcover_connected_as">Connesso come %1$s</string>

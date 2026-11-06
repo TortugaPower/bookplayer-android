@@ -111,11 +111,12 @@ object HardcoverAccount {
     }
 
     /**
-     * The last session decoded, by its stored ciphertext: settings writes and progress saves read it often. Only a
-     * session that decoded: a Keystore that failed once may not fail again.
+     * The last session decoded, by its stored ciphertext: settings writes and progress saves read it often. One that
+     * didn't decode is kept too: CredentialCipher treats a failure as a lost key (a backup restored on another device),
+     * which retrying would only log again on every settings write.
      */
     @Volatile
-    private var decoded: Pair<String, HardcoverTokenSet>? = null
+    private var decoded: Pair<String, HardcoverTokenSet?>? = null
 
     private fun decodeSession(prefs: Preferences): HardcoverTokenSet? {
         val stored = prefs[SESSION] ?: return null
@@ -124,7 +125,7 @@ object HardcoverAccount {
         val json = CredentialCipher.decrypt(stored).takeIf { it.isNotEmpty() }
         val tokens = json?.let { runCatching { gson.fromJson(it, HardcoverTokenSet::class.java) }.getOrNull() }
             ?.takeIf { @Suppress("SENSELESS_COMPARISON") (it.accessToken != null) && it.accessToken.isNotEmpty() }
-        if (tokens != null) decoded = stored to tokens
+        decoded = stored to tokens
         return tokens
     }
 

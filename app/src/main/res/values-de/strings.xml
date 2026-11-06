@@ -279,6 +279,7 @@
     <string name="hardcover_sign_in_again_footer">Melde dich erneut an, damit BookPlayer deinen Lesefortschritt auf Hardcover aktualisieren kann.</string>
     <string name="hardcover_sign_in_refused_footer">Hardcover akzeptiert diese Anmeldung nicht mehr. Melde dich erneut an, damit BookPlayer mit Hardcover verbunden bleibt.</string>
     <string name="hardcover_sign_in_refused_unlink_footer">Hardcover akzeptiert diese Anmeldung nicht mehr, und sie funktioniert nicht mehr, sobald sie abläuft. Trenne die Verbindung und füge dann einen API-Schlüssel hinzu, damit BookPlayer mit Hardcover verbunden bleibt.</string>
+    <string name="hardcover_missing_scope_unlink_footer">Mit dieser Anmeldung kann dein Lesefortschritt nicht auf Hardcover aktualisiert werden. Trenne die Verbindung und füge dann einen API-Schlüssel hinzu, um ihn zu senden.</string>
     <string name="hardcover_sign_in_footer">Oder füge unten einen API-Schlüssel ein.</string>
     <string name="hardcover_connected">Mit Hardcover verbunden</string>
     <string name="hardcover_connected_as">Verbunden als %1$s</string>
