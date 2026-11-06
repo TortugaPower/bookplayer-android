@@ -88,6 +88,8 @@ class LibraryDisplayPreferencesTest {
 
         assertEquals(LibraryLayout.GRID, preferences.observeLayout().first())
         assertTrue(queuedUploads().isEmpty())
+        // Recorded, for the pull after an upgrade to send it
+        assertEquals(setOf("library_layout:style"), PreferenceChanges(store).all().keys)
     }
 
     @Test fun `unset, the layout is the list and the toggles are off`() = runBlocking {

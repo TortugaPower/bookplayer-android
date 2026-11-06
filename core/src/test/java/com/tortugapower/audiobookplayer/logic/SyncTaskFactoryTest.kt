@@ -244,7 +244,7 @@ class SyncTaskFactoryTest {
         val repo = object : SyncTaskRepository by capturing {
             override suspend fun deleteParkedTasks(jobType: String, taskId: String) { superseded += jobType to taskId }
         }
-        SyncTaskFactory.createUploadPreferenceTask(repo, "library_sort:root", "fileName")
+        SyncTaskFactory.createUploadPreferenceTask(repo, "library_sort:root", "fileName", changedAt = null)
         assertEquals(listOf(SyncTaskFactory.JOB_UPLOAD_PREFERENCE to "library_sort:root"), superseded)
     }
 

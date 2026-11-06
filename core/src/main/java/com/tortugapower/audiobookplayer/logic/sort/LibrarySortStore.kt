@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.logic.sort
 
+import com.tortugapower.audiobookplayer.logic.preferences.PreferenceChanges
 import com.tortugapower.audiobookplayer.logic.preferences.PreferencesStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -12,6 +13,15 @@ import kotlinx.coroutines.flow.map
  * no-ops — you can never leave a partial preference against a placeholder-uuid key or a bound volume.
  */
 class LibrarySortStore(private val prefs: PreferencesStore) {
+
+    /** The sort rules changed here that the server hasn't taken yet (iOS `userPreferences.dirty`). */
+    val changes = PreferenceChanges(prefs)
+
+    /** Every stored rule's location and value, for sign-out's freeze. */
+    suspend fun all(): Map<SortLocation, EffectiveSort> =
+        prefs.keysWithPrefix(SortLocation.KEY_PREFIX).mapNotNull { key ->
+            SortLocation.fromStoreKey(key)?.let { it to EffectiveSort.deserialize(prefs.getString(key)) }
+        }.toMap()
 
     suspend fun get(location: SortLocation): EffectiveSort {
         val key = location.storeKey ?: return EffectiveSort.Custom

@@ -1,5 +1,7 @@
 package com.tortugapower.audiobookplayer.viewmodel
 
+import com.tortugapower.audiobookplayer.logic.preferences.DataStorePreferencesStore
+import com.tortugapower.audiobookplayer.logic.preferences.PreferenceChanges
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.BookPlayerApplication
@@ -141,11 +143,16 @@ class ProfileViewModel(
         // The library stays, but the next account's server holds none of it (and the next first sync corrects
         // whatever a failed write leaves)
         cleanUp("clear the server-known flags") { libraryDao.clearServerKnown() }
-        // Drop every local library_sort:* preference so the next login pulls fresh (no stale state). Unit tests
-        // with a plain Application have no singleton: cleanUp carries on past that too.
+        // Drop every local library_sort:* preference so the next login pulls fresh (no stale state), each level
+        // sorted by a rule keeping the order it shows. Unit tests with a plain Application have no singleton:
+        // cleanUp carries on past that too.
         cleanUp("clear the sort preferences") { BookPlayerApplication.instance.librarySortManager.clearLocalPreferences() }
         // The layout and display toggles too (iOS wipes every synced family): back to the list, toggles off
         cleanUp("clear the display preferences") { BookPlayerApplication.instance.libraryDisplayPreferences.clearLocal() }
+        // and the changes the server never took: they were this account's (iOS wipes `userPreferences.dirty` too)
+        cleanUp("clear the unsent preference changes") {
+            PreferenceChanges(DataStorePreferencesStore(BookPlayerApplication.instance)).clearAll()
+        }
         SubscriptionManager.logout()
         SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
         // AFTER the account row is gone: stop + unload the loaded book if it's now gate-blocked

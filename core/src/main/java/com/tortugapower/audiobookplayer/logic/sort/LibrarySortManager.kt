@@ -133,9 +133,27 @@ class LibrarySortManager(
         setPreference(location, EffectiveSort.Custom)
     }
 
-    /** Logout: drop every local sort preference (queued push tasks are cleared with the sync queue). */
+    /**
+     * Logout: drop every local sort preference (queued push tasks are cleared with the sync queue). Each level sorted
+     * by a rule first keeps the order it shows as its own (iOS `freezeAutomaticSortsBeforeWipe`): without its rule, it
+     * would fall back to the stored ranks, scrambling a library the user never reordered. Call it once the account
+     * is gone, so the rank writes stay here.
+     */
     suspend fun clearLocalPreferences() {
+        freezeAutomaticSorts()
         sortStore.removeAll()
+    }
+
+    private suspend fun freezeAutomaticSorts() {
+        sortStore.all().forEach { (location, sort) ->
+            if (sort !is EffectiveSort.Automatic) return@forEach
+            val path = when (location) {
+                SortLocation.Root -> null
+                is SortLocation.Folder -> repository.getItemById(location.uuid)?.relativePath ?: return@forEach
+                SortLocation.Unresolved -> return@forEach
+            }
+            repository.reorderItems(sort.sortType.sorted(childrenOf(path)))
+        }
     }
 
     /** The order the user currently sees for [location]: by rule when automatic, by rank when custom. */
@@ -151,8 +169,10 @@ class LibrarySortManager(
     private suspend fun setPreference(location: SortLocation, sort: EffectiveSort) {
         sortStore.set(location, sort)
         val key = location.storeKey ?: return
+        // Recorded for any account: a FREE one's change goes up after an upgrade's pull, unless the server's is newer
+        val changedAt = sortStore.changes.mark(key)
         if (isSubscribed()) {
-            SyncTaskFactory.createUploadPreferenceTask(syncTaskRepository, key, sort.serialize())
+            SyncTaskFactory.createUploadPreferenceTask(syncTaskRepository, key, sort.serialize(), changedAt)
         }
     }
 

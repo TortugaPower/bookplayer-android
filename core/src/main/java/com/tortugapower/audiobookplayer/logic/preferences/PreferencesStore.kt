@@ -31,6 +31,12 @@ interface PreferencesStore {
     fun observeString(key: String): Flow<String?>
     /** Observe the whole store; emits a snapshot map of key-name -> value on every change. */
     fun observeAll(): Flow<Map<String, String>>
+
+    /** Replaces [key]'s value with [transform]'s (null removes it), atomically in the real store. */
+    suspend fun update(key: String, transform: (String?) -> String?) {
+        val value = transform(getString(key))
+        if (value == null) remove(key) else setString(key, value)
+    }
 }
 
 /**
@@ -77,6 +83,14 @@ class DataStorePreferencesStore(
 
     override fun observeAll(): Flow<Map<String, String>> =
         context.dataStore.data.map { prefs -> prefs.stringSnapshot() }
+
+    override suspend fun update(key: String, transform: (String?) -> String?) {
+        val prefKey = stringPreferencesKey(key)
+        context.dataStore.edit { prefs ->
+            val value = transform(prefs[prefKey])
+            if (value == null) prefs.remove(prefKey) else prefs[prefKey] = value
+        }
+    }
 
     private fun Preferences.stringSnapshot(): Map<String, String> =
         asMap().entries

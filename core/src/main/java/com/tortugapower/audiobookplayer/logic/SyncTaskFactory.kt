@@ -394,9 +394,10 @@ object SyncTaskFactory {
      * same merge [createUpdateTask] uses for items. A parked push of the same key is superseded:
      * resumed later, it would send the older value over this one.
      */
-    suspend fun createUploadPreferenceTask(repository: SyncTaskRepository, key: String, value: String) {
+    suspend fun createUploadPreferenceTask(repository: SyncTaskRepository, key: String, value: String, changedAt: Long?) {
         repository.deleteParkedTasks(JOB_UPLOAD_PREFERENCE, key)
-        val payload = mapOf("key" to key, "value" to value)
+        // When the value changed here (PreferenceChanges): the upload clears that change, not a later one
+        val payload = mapOf("key" to key, "value" to value, "changedAt" to changedAt)
         val existing = repository.getPendingTaskByTypeAndTaskId(JOB_UPLOAD_PREFERENCE, key)
         if (existing == null || !repository.updatePendingTaskPayload(existing, gson.toJson(payload))) {
             enqueue(repository, QUEUE_PREFERENCES, JOB_UPLOAD_PREFERENCE, key, payload)

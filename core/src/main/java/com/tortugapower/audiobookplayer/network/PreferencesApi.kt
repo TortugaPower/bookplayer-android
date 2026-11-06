@@ -36,5 +36,10 @@ data class PreferencesResponse(
 
 data class PreferenceEntryDto(
     @SerializedName("key") val key: String,
-    @SerializedName("value") val value: Map<String, Any?>? = null
-)
+    @SerializedName("value") val value: Map<String, Any?>? = null,
+    /** When the server last stored it: ISO 8601, with or without fractional seconds. */
+    @SerializedName("updated_at") val updatedAt: String? = null,
+) {
+    /** [updatedAt] in epoch millis, or null when it's missing or unreadable. */
+    fun updatedAtMillis(): Long? = updatedAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
+}

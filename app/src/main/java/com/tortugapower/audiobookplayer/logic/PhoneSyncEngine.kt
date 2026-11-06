@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.logic
 
+import com.tortugapower.audiobookplayer.network.NetworkClient
 import android.content.Context
 import com.tortugapower.audiobookplayer.repository.AccountRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
@@ -44,7 +45,11 @@ internal object PhoneSyncEngine {
             verifySyncEntitlement = { SubscriptionManager.refreshSyncEntitlement() },
             onTaskPaused = syncPauseReporter::report,
             onSyncLaneDrained = firstSync::onSyncLaneDrained,
-            awaitTierReady = SubscriptionManager::awaitTierReady,
+            // And for the account's token: a task sent before it goes unauthenticated
+            awaitTierReady = {
+                NetworkClient.awaitTokenLoaded()
+                SubscriptionManager.awaitTierReady()
+            },
             onFailure = onFailure,
         )
     }
