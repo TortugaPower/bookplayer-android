@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.preferences.DataStorePreferencesStore
+import com.tortugapower.audiobookplayer.logic.preferences.PreferenceChanges
 import com.tortugapower.audiobookplayer.logic.preferences.PreferenceFamily
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.Flow
@@ -202,5 +203,130 @@ class PreferenceProcessorsTest {
         server.enqueue(MockResponse().setResponseCode(400).setBody("""{"message":"You are not subscribed"}"""))
         assertFalse(processor.process(upload))
         repeat(2) { server.takeRequest() }
+    }
+
+    // --- Conflicts go to the newer change (iOS last-write-wins), and changes the server never took go up ---
+
+    private fun roomRepository() = com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository(
+        androidx.room.Room.inMemoryDatabaseBuilder(context, com.tortugapower.audiobookplayer.database.AppDatabase::class.java)
+            .allowMainThreadQueries().build().syncTaskDao()
+    )
+
+    private suspend fun uploads(repository: SyncTaskRepository): Map<String, Map<*, *>> =
+        repository.getPendingTasks().filter { it.jobType == SyncTaskFactory.JOB_UPLOAD_PREFERENCE }
+            .associate { it.taskID to com.google.gson.Gson().fromJson(it.payload, Map::class.java) }
+
+    private fun at(millis: Long) = java.time.Instant.ofEpochMilli(millis).toString()
+
+    @Test fun `a pulled value newer than the local change replaces it and drops its upload`() = runBlocking {
+        val repository = roomRepository()
+        val store = com.tortugapower.audiobookplayer.logic.preferences.FakePreferencesStore(mapOf("library_layout:style" to "covers"))
+        val changes = PreferenceChanges(store) { 1_000_000L }
+        SyncTaskFactory.createUploadPreferenceTask(repository, "library_layout:style", "covers", changes.mark("library_layout:style"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"entries":[{"key":"library_layout:style","value":{"layout":"grid"},"updated_at":"${at(1_000_500L)}"}]}"""
+        ))
+
+        assertTrue(PreferenceFetchProcessor(context, repository, api, store = store, changes = changes)
+            .process(task(SyncTaskFactory.JOB_FETCH_PREFERENCES, "{}")))
+        server.takeRequest()
+
+        assertEquals("grid", store.getString("library_layout:style"))
+        assertNull(changes.changedAt("library_layout:style"))
+        assertTrue(uploads(repository).isEmpty())
+    }
+
+    @Test fun `a local change newer than the pulled value, or a pull without a time, keeps it`() = runBlocking {
+        val repository = roomRepository()
+        val store = com.tortugapower.audiobookplayer.logic.preferences.FakePreferencesStore(
+            mapOf("library_layout:style" to "covers", "library_sort:default" to "fileName")
+        )
+        val changes = PreferenceChanges(store) { 1_000_000L }
+        SyncTaskFactory.createUploadPreferenceTask(repository, "library_layout:style", "covers", changes.mark("library_layout:style"))
+        SyncTaskFactory.createUploadPreferenceTask(repository, "library_sort:default", "fileName", changes.mark("library_sort:default"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"entries":[
+                {"key":"library_layout:style","value":{"layout":"grid"},"updated_at":"${at(999_000L)}"},
+                {"key":"library_sort:default","value":{"sort":"mostRecent"}}
+            ]}"""
+        ))
+
+        assertTrue(PreferenceFetchProcessor(context, repository, api, store = store, changes = changes)
+            .process(task(SyncTaskFactory.JOB_FETCH_PREFERENCES, "{}")))
+        server.takeRequest()
+
+        assertEquals("covers", store.getString("library_layout:style"))
+        assertEquals("fileName", store.getString("library_sort:default"))
+        assertEquals(setOf("library_layout:style", "library_sort:default"), uploads(repository).keys)
+    }
+
+    @Test fun `a change the server never took (made while FREE) is uploaded after the pull`() = runBlocking {
+        val repository = roomRepository()
+        val store = com.tortugapower.audiobookplayer.logic.preferences.FakePreferencesStore(
+            mapOf("library_display:progress_style" to "true", "library_layout:style" to "covers")
+        )
+        val changes = PreferenceChanges(store) { 1_000_000L }
+        val changedAt = changes.mark("library_display:progress_style")
+        changes.mark("library_layout:style")
+        changes.mark("library_sort:gone") // reset since: nothing to send
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"entries":[{"key":"library_layout:style","value":{"layout":"list"},"updated_at":"${at(2_000_000L)}"}]}"""
+        ))
+
+        assertTrue(PreferenceFetchProcessor(context, repository, api, store = store, changes = changes)
+            .process(task(SyncTaskFactory.JOB_FETCH_PREFERENCES, "{}")))
+        server.takeRequest()
+
+        val queued = uploads(repository)
+        assertEquals("only the change the server's newer value didn't replace", setOf("library_display:progress_style"), queued.keys)
+        assertEquals("true", queued.getValue("library_display:progress_style")["value"])
+        assertEquals(changedAt, (queued.getValue("library_display:progress_style")["changedAt"] as Number).toLong())
+        assertEquals("list", store.getString("library_layout:style"))
+        assertEquals(setOf("library_display:progress_style"), changes.all().keys)
+    }
+
+    @Test fun `a taken upload clears the change it carried, not a later one`() = runBlocking {
+        val store = com.tortugapower.audiobookplayer.logic.preferences.FakePreferencesStore()
+        var now = 1_000L
+        val changes = PreferenceChanges(store) { now }
+        val sent = changes.mark("library_layout:style")
+        val processor = PreferenceUploadProcessor(api, changes)
+        val upload = """{"key":"library_layout:style","value":"covers","changedAt":$sent}"""
+        repeat(2) { server.enqueue(MockResponse().setResponseCode(200).setBody("{}")) }
+
+        now = 2_000L
+        changes.mark("library_layout:style") // changed again while the first went up
+        assertTrue(processor.process(task(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, upload)))
+        assertEquals(2_000L, changes.changedAt("library_layout:style"))
+
+        assertTrue(processor.process(task(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, upload.replace("$sent", "2000"))))
+        assertNull(changes.changedAt("library_layout:style"))
+        repeat(2) { server.takeRequest() }
+    }
+
+    @Test fun `a change made while the pull runs keeps its upload`() = runBlocking {
+        val repository = roomRepository()
+        val store = com.tortugapower.audiobookplayer.logic.preferences.FakePreferencesStore(mapOf("library_layout:style" to "covers"))
+        var now = 1_000_000L
+        val changes = PreferenceChanges(store) { now }
+        SyncTaskFactory.createUploadPreferenceTask(repository, "library_layout:style", "covers", changes.mark("library_layout:style"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"entries":[{"key":"library_layout:style","value":{"layout":"grid"},"updated_at":"${at(1_000_500L)}"}]}"""
+        ))
+        // The user picks again between the pull reading the change and clearing it
+        val racing = object : PreferenceChanges(store, { now }) {
+            override suspend fun clear(key: String, at: Long?) {
+                now = 1_001_000L
+                SyncTaskFactory.createUploadPreferenceTask(repository, key, "list", changes.mark(key))
+                super.clear(key, at)
+            }
+        }
+
+        assertTrue(PreferenceFetchProcessor(context, repository, api, store = store, changes = racing)
+            .process(task(SyncTaskFactory.JOB_FETCH_PREFERENCES, "{}")))
+        server.takeRequest()
+
+        assertEquals(1_001_000L, changes.changedAt("library_layout:style"))
+        assertEquals("list", uploads(repository).getValue("library_layout:style")["value"])
     }
 }

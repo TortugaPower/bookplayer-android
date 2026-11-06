@@ -278,10 +278,43 @@ class SyncingLibrarySortTest {
 
         assertEquals("metadataTitle", prefs.getString(SortLocation.Root.storeKey))
         assertTrue("free tier does not sync preferences", prefPushes().isEmpty())
+        // Recorded, for the pull after an upgrade to send it
+        assertTrue(store.changes.changedAt("library_sort:default") != null)
+    }
+
+    @Test fun `a push carries when the rule changed, so it clears that change only`() = runBlocking {
+        seed("a", "A", "A", 0)
+
+        manager.applySort(null, SortType.metadataTitle)
+
+        val changedAt = store.changes.changedAt("library_sort:default")!!
+        assertEquals(changedAt, (payloadOf(prefPushes().single())["changedAt"] as Number).toLong())
+    }
+
+    @Test fun `sign-out keeps each rule's visible order as the stored ranks before dropping the rules`() = runBlocking {
+        seed("a", "Chapter 10", "Chapter 10", 0)
+        seed("b", "Chapter 2", "Chapter 2", 1)
+        seed("f", "Folder", "Folder", 2, ItemType.FOLDER)
+        seed("f1", "Folder/Zed", "Zed", 0)
+        seed("f2", "Folder/Alpha", "Alpha", 1)
+        manager.applySort(null, SortType.metadataTitle)
+        manager.applySort("Folder", SortType.metadataTitle)
+        prefs.setString("library_layout:style", "covers")
+        store.changes.mark("library_layout:style")
+        build(AccountTier.FREE) // the account is gone by then: nothing syncs
+
+        manager.clearLocalPreferences()
+
+        assertTrue(store.all().isEmpty())
+        // The changes the server never took were that account's, every family's
+        assertTrue(store.changes.all().isEmpty())
+        assertEquals(listOf("b", "a"), listOf("a", "b").sortedBy { runBlocking { rankOf(it) } })
+        assertTrue(rankOf("f2") < rankOf("f1"))
+        assertTrue("the freeze stays local", !anyUpdateTasks())
     }
 
     @Test fun `fetch preferences is skipped while a preference push is queued`() = runBlocking {
-        SyncTaskFactory.createUploadPreferenceTask(syncTaskRepository, "library_sort:default", "metadataTitle")
+        SyncTaskFactory.createUploadPreferenceTask(syncTaskRepository, "library_sort:default", "metadataTitle", changedAt = null)
         assertTrue("must not clobber an unsynced local change",
             !SyncTaskFactory.createFetchPreferencesTask(syncTaskRepository))
 

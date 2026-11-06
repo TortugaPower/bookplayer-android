@@ -10,14 +10,15 @@ import kotlinx.coroutines.flow.map
 
 /**
  * The Library tab's layout and display toggles (the Options sheet), synced across devices as iOS syncs them
- * (`PreferencesSyncService`): [PreferenceFamily.Layout] and [PreferenceFamily.Display]. A change is written here
- * and, for a subscribed account, queued for the server like a sort rule (`LibrarySortManager`); a pull writes
- * the same keys, so the screen follows either.
+ * (`PreferencesSyncService`): [PreferenceFamily.Layout] and [PreferenceFamily.Display]. A change is written here,
+ * recorded in [changes] and, for a subscribed account, queued for the server like a sort rule (`LibrarySortManager`);
+ * a pull writes the same keys, so the screen follows either.
  */
 class LibraryDisplayPreferences(
     private val store: PreferencesStore,
     private val syncTaskRepository: SyncTaskRepository,
     private val accountRepository: AccountRepository,
+    private val changes: PreferenceChanges = PreferenceChanges(store),
 ) {
 
     fun observeLayout(): Flow<LibraryLayout> =
@@ -46,9 +47,11 @@ class LibraryDisplayPreferences(
 
     private suspend fun set(key: String, value: String) {
         store.setString(key, value)
+        // Recorded for any account: a FREE one's change goes up after an upgrade's pull, unless the server's is newer
+        val changedAt = changes.mark(key)
         val tier = accountRepository.getAccount()?.tier
         if (tier == AccountTier.PRO || tier == AccountTier.LITE) {
-            SyncTaskFactory.createUploadPreferenceTask(syncTaskRepository, key, value)
+            SyncTaskFactory.createUploadPreferenceTask(syncTaskRepository, key, value, changedAt)
         }
     }
 }

@@ -141,7 +141,8 @@ class ProfileViewModel(
         // The library stays, but the next account's server holds none of it (and the next first sync corrects
         // whatever a failed write leaves)
         cleanUp("clear the server-known flags") { libraryDao.clearServerKnown() }
-        // Drop every local library_sort:* preference so the next login pulls fresh (no stale state). Unit tests
+        // Drop every local library_sort:* preference so the next login pulls fresh (no stale state), each level
+        // sorted by a rule keeping the order it shows, and the preference changes the server never took. Unit tests
         // with a plain Application have no singleton: cleanUp carries on past that too.
         cleanUp("clear the sort preferences") { BookPlayerApplication.instance.librarySortManager.clearLocalPreferences() }
         // The layout and display toggles too (iOS wipes every synced family): back to the list, toggles off

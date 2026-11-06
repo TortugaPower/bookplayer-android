@@ -1,5 +1,6 @@
 package com.tortugapower.audiobookplayer.wear.sync
 
+import com.tortugapower.audiobookplayer.network.NetworkClient
 import android.content.Context
 import com.tortugapower.audiobookplayer.logic.ArtworkUploadProcessor
 import com.tortugapower.audiobookplayer.logic.DeleteBookmarkProcessor
@@ -74,7 +75,11 @@ internal object WearSyncEngine {
             context, repository, accountRepository, processors,
             parkingEnabled = false,
             verifySyncEntitlement = { SubscriptionManager.refreshSyncEntitlement() },
-            awaitTierReady = SubscriptionManager::awaitTierReady,
+            // And for the account's token: a task sent before it goes unauthenticated
+            awaitTierReady = {
+                NetworkClient.awaitTokenLoaded()
+                SubscriptionManager.awaitTierReady()
+            },
             onFailure = onFailure,
         )
     }

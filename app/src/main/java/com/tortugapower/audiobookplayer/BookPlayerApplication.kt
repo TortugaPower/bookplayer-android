@@ -175,8 +175,12 @@ class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.P
             },
             // Its own scope, off the main thread: the pass reads the library and checks files on disk
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + StorageMonitor.exceptionHandler { this }),
-            // Not on last session's tier: a lapse while the app was closed shows in this launch's reading
-            awaitTierReady = SubscriptionManager::awaitTierReady,
+            // Not on last session's tier: a lapse while the app was closed shows in this launch's reading. Nor
+            // before the account's token is set: its requests would go unauthenticated
+            awaitTierReady = {
+                NetworkClient.awaitTokenLoaded()
+                SubscriptionManager.awaitTierReady()
+            },
         )
 
         val librarySortStore = LibrarySortStore(DataStorePreferencesStore(this))

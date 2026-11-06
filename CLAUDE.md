@@ -295,6 +295,17 @@ browserdrop/               # standalone library (no :core/:app deps), package co
   leaves its part, so `DownloadParts.sweep` drops the parts no task owns on every download run, at every engine
   start, after a cancel and after a sign-out. A cloud link is
   signed again on every attempt (`BookUrlRefresh`): a retry can come long after the queued one expired.
+- **Synced preferences follow iOS's `PreferencesSyncService`**: the library's sort rules, layout and display toggles
+  (`PreferenceFamily`), as key → JSON object on `/v1/user/preferences`.
+  - Every local change is recorded with its time (`PreferenceChanges`, iOS's `userPreferences.dirty`), whatever the
+    tier. An upload the server took clears the change it carried, not a later one.
+  - A conflict goes to the newer change: a pull replaces a local change only when the entry's `updated_at` is later,
+    and then drops its queued upload. Each pull ends by uploading the changes the server still lacks (made while
+    FREE, or wiped by a lapse).
+  - Sign-out freezes each rule-sorted level's visible order into its ranks (iOS `freezeAutomaticSortsBeforeWipe`),
+    then clears the values and the changes.
+  - The engine waits for the account's token (`NetworkClient.awaitTokenLoaded`) before its first request: the
+    target sets it from Room after launch, and a request without it gets 400 "the user is invalid".
 - **Covers ride the sync lane** (iOS): `upload_artwork` queues behind its item's registration, so the server
   never gets a cover for an item it doesn't hold yet (`item_not_found`). The engine moves an older build's
   file-lane covers there at start. Only book files wait for Wi-Fi (`UploadDataPolicy`): a cover held in the

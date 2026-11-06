@@ -1,6 +1,7 @@
 package com.tortugapower.audiobookplayer.wear.presentation
 
 import android.text.format.Formatter
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.core.CoreContext
@@ -15,6 +16,7 @@ import com.tortugapower.audiobookplayer.wear.auth.WatchAuthenticator
 import com.tortugapower.audiobookplayer.wear.auth.WearAuthOutcome
 import com.tortugapower.audiobookplayer.wear.data.PhoneApp
 import com.tortugapower.audiobookplayer.wear.data.WearThemeRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -60,6 +62,8 @@ class WearRootViewModel(
     libraryRepository: LibraryRepository,
     private val syncTaskRepository: SyncTaskRepository,
     private val phoneApp: PhoneApp,
+    /** Sign-out: the sort rules and the preference changes the server never took (`LibrarySortManager`). */
+    private val clearLocalPreferences: suspend () -> Unit = {},
 ) : ViewModel() {
 
     /** The user's phone-selected theme colors (null until the phone syncs one → default palette applies). */
@@ -229,6 +233,16 @@ class WearRootViewModel(
             SubscriptionManager.logout()
             accountRepository.deleteAccount()
             SyncQueueReset.clearAll(syncTaskRepository)
+            // After the account is gone (the freeze's rank writes stay here), as the phone does: left behind, the
+            // old account's sort changes would beat the next account's pull and be uploaded to its server. A failure
+            // (a database or DataStore error) is logged and sign-out carries on, as on the phone.
+            try {
+                clearLocalPreferences()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Couldn't clear the sort preferences: ${e.javaClass.simpleName}")
+            }
             storageTrigger.value++
         }
     }
@@ -241,6 +255,8 @@ class WearRootViewModel(
     }
 
     companion object {
+        private const val TAG = "WearRootViewModel"
+
         /** Delete-downloads is enabled iff the Processed folder holds at least one byte (pure, unit-tested). */
         fun hasDownloads(bytes: Long): Boolean = bytes > 0L
     }

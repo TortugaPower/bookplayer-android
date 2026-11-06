@@ -42,11 +42,25 @@ interface AuthApi {
 }
 
 object NetworkClient {
+    @Volatile
     private var apiToken: String? = null
+    private val tokenLoaded = kotlinx.coroutines.CompletableDeferred<Unit>()
 
     fun setToken(token: String?) {
         apiToken = token
+        tokenLoaded.complete(Unit)
     }
+
+    /**
+     * Returns once the target has set the stored account's token (null when signed out), a few seconds at most. The
+     * target reads it from Room after launch, so a request sent before then goes without one, and the server answers
+     * 400 "the user is invalid" (the first preference pull after a cold launch did).
+     */
+    suspend fun awaitTokenLoaded() {
+        kotlinx.coroutines.withTimeoutOrNull(TOKEN_LOAD_TIMEOUT_MS) { tokenLoaded.await() }
+    }
+
+    private const val TOKEN_LOAD_TIMEOUT_MS = 5_000L
 
     private val client = okhttp3.OkHttpClient.Builder()
         .addInterceptor { chain ->
