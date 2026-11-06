@@ -130,8 +130,12 @@ interface SyncTaskDao {
     )
     suspend fun markTaskRetrying(id: String, errorMessage: String, failureStreak: Int, nextAttemptAt: Long)
 
-    /** Every task waiting out a backoff may run now, its streak kept. Returns how many. */
-    @Query("UPDATE sync_tasks SET nextAttemptAt = NULL WHERE status = 'PENDING' AND nextAttemptAt IS NOT NULL")
+    /**
+     * Every task waiting out a backoff may run now, its streak kept. Returns how many. A task spaced out with no failure
+     * behind it (a Hardcover progress waiting for its 30 s) keeps its wait: an app open or a new network isn't a reason
+     * to send it early.
+     */
+    @Query("UPDATE sync_tasks SET nextAttemptAt = NULL WHERE status = 'PENDING' AND nextAttemptAt IS NOT NULL AND failureStreak > 0")
     suspend fun clearRetryWaits(): Int
 
     /** [id] may run now if it's waiting out a backoff, its streak kept. Returns 0 when it isn't waiting. */

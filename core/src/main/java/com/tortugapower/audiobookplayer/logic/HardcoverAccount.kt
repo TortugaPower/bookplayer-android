@@ -110,11 +110,22 @@ object HardcoverAccount {
         oauthHttp.newCall(request).execute().use { HardcoverHttpReply(it.code, it.body?.string().orEmpty()) }
     }
 
+    /**
+     * The last session decoded, by its stored ciphertext: settings writes and progress saves read it often. Only a
+     * session that decoded: a Keystore that failed once may not fail again.
+     */
+    @Volatile
+    private var decoded: Pair<String, HardcoverTokenSet>? = null
+
     private fun decodeSession(prefs: Preferences): HardcoverTokenSet? {
         val stored = prefs[SESSION] ?: return null
-        val json = CredentialCipher.decrypt(stored).takeIf { it.isNotEmpty() } ?: return null
-        return runCatching { gson.fromJson(json, HardcoverTokenSet::class.java) }.getOrNull()
+        decoded?.let { (ciphertext, tokens) -> if (ciphertext == stored) return tokens }
+        // A Keystore call + AES/GCM, so only when the stored session changed
+        val json = CredentialCipher.decrypt(stored).takeIf { it.isNotEmpty() }
+        val tokens = json?.let { runCatching { gson.fromJson(it, HardcoverTokenSet::class.java) }.getOrNull() }
             ?.takeIf { @Suppress("SENSELESS_COMPARISON") (it.accessToken != null) && it.accessToken.isNotEmpty() }
+        if (tokens != null) decoded = stored to tokens
+        return tokens
     }
 
     /** The settings screen's state, live. */

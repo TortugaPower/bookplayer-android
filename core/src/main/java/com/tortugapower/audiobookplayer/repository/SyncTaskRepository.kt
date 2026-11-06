@@ -59,9 +59,9 @@ interface SyncTaskRepository {
     suspend fun getWaitingPendingTasksByType(jobType: String): List<SyncTaskEntity> =
         getTasksByStatus(SyncTaskStatus.PENDING).filter { it.jobType == jobType && it.nextAttemptAt != null }
 
-    /** Every task waiting out a backoff may run now, its streak kept. Returns how many. */
+    /** Every task waiting out a backoff may run now, its streak kept (not one spaced out, see the DAO's). Returns how many. */
     suspend fun clearRetryWaits(): Int {
-        val waiting = getTasksByStatus(SyncTaskStatus.PENDING).filter { it.nextAttemptAt != null }
+        val waiting = getTasksByStatus(SyncTaskStatus.PENDING).filter { it.nextAttemptAt != null && it.failureStreak > 0 }
         waiting.forEach { updateTask(it.copy(nextAttemptAt = null)) }
         return waiting.size
     }

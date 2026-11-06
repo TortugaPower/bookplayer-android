@@ -380,10 +380,13 @@ class SyncTaskDaoTest {
         dao.insertAtEnd(task("c", "c"))
         dao.markTaskRetrying("a", "timeout", 2, 9_000L)
         dao.markTaskRetrying("b", "timeout", 5, 9_000L)
+        // Spaced out, no failure behind it (a Hardcover progress waiting for its 30 s)
+        dao.insertAtEnd(task("spaced", "d").copy(nextAttemptAt = 9_000L))
 
         assertEquals(2, dao.clearRetryWaits())
         assertEquals(listOf(null, null, null), listOf("a", "b", "c").map { dao.getTaskById(it)?.nextAttemptAt })
         assertEquals(listOf(2, 5, 0), listOf("a", "b", "c").map { dao.getTaskById(it)?.failureStreak })
+        assertEquals("a spaced-out task keeps its wait", 9_000L, dao.getTaskById("spaced")?.nextAttemptAt)
         assertEquals("nothing left waiting", 0, dao.clearRetryWaits())
     }
 
