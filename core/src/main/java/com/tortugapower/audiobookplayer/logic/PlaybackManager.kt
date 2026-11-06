@@ -430,8 +430,13 @@ object PlaybackManager {
                         if (!playing) {
                             lastPauseTime = System.currentTimeMillis()
                             // A pause sends the Hardcover progress task waiting for its 30-second slot, once this
-                            // last position is recorded (and merged into it).
-                            updateProgress(appContext, afterSave = HardcoverProgressSync::onPause)
+                            // last position is recorded (and merged into it). Only a real one: a stream rebuffering
+                            // or playback suppressed (a call) also stops playing, with playWhenReady still on, and
+                            // sending then would cut every slot short on a flaky stream.
+                            updateProgress(
+                                appContext,
+                                afterSave = if (mediaController.playWhenReady) null else HardcoverProgressSync::onPause,
+                            )
                         } else {
                             // Real playback has started — the load/buffering "queued" window is over.
                             playbackQueuedFlag = false
