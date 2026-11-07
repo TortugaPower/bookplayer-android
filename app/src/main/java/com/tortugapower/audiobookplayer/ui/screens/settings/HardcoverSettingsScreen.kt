@@ -110,7 +110,11 @@ fun HardcoverSettingsScreen(
     ) { innerPadding ->
         // Signing in comes first (iOS): until the user signs in, the page offers only that. An API key saved by an
         // earlier version keeps syncing, but isn't shown here; signing in replaces it.
-        if (!isSignedIn) {
+        if (connection == null) {
+            // Still reading the stored sign-in (a Keystore decrypt): neither page, so a signed-in user never sees the
+            // sign-in page flash on the way in.
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding))
+        } else if (!isSignedIn) {
             SignedOutContent(
                 canSignIn = canSignIn,
                 isSigningIn = isSigningIn,
