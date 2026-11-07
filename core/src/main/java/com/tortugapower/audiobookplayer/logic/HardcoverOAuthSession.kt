@@ -11,6 +11,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -78,13 +80,16 @@ class HardcoverOAuthSession(
                 val holder = CompletableDeferred<HardcoverTokenSet>()
                 refreshing = holder
                 scope.launch {
-                    try {
-                        holder.complete(refresh(current, refreshToken))
+                    val result = try {
+                        Result.success(refresh(current, refreshToken))
                     } catch (e: Throwable) {
-                        holder.completeExceptionally(e)
-                    } finally {
-                        mutex.withLock { if (refreshing === holder) refreshing = null }
+                        Result.failure(e)
                     }
+                    // Cleared before its callers resume, so one asking again gets a fresh look at the stored token,
+                    // never this finished refresh's answer (by then maybe expired). Even when cancelled: its callers
+                    // must still get an answer.
+                    withContext(NonCancellable) { mutex.withLock { if (refreshing === holder) refreshing = null } }
+                    result.fold({ holder.complete(it) }, { holder.completeExceptionally(it) })
                 }
                 holder
             }
