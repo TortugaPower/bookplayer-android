@@ -260,10 +260,6 @@
 
     <!-- Hardcover Settings -->
     <string name="hardcover_settings_title">Hardcover सेटिंग्स</string>
-    <string name="hardcover_api_access_section">API एक्सेस</string>
-    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
-    <string name="hardcover_api_access_hint">आप %1$s पर अपना Hardcover API एक्सेस पा सकते हैं।</string>
-    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
     <string name="hardcover_automation_section">स्वचालन</string>
     <string name="hardcover_auto_match_books">किताबों का स्वचालित मिलान करें</string>
     <string name="hardcover_auto_add_want_to_read">स्वचालित रूप से \"पढ़ना चाहते हैं\" में जोड़ें</string>
@@ -275,12 +271,11 @@
     <string name="hardcover_account_title">खाता</string>
     <string name="hardcover_sign_in_button">Hardcover से साइन इन करें</string>
     <string name="hardcover_signing_in">Hardcover से साइन इन हो रहा है…</string>
-    <string name="hardcover_sign_in_again_button">फिर से साइन इन करें</string>
-    <string name="hardcover_sign_in_again_footer">BookPlayer को Hardcover पर आपकी पढ़ने की प्रगति अपडेट करने देने के लिए फिर से साइन इन करें।</string>
-    <string name="hardcover_sign_in_refused_footer">Hardcover अब इस साइन-इन को स्वीकार नहीं करता। BookPlayer को Hardcover से जुड़ा रखने के लिए फिर से साइन इन करें।</string>
-    <string name="hardcover_sign_in_refused_unlink_footer">Hardcover अब इस साइन-इन को स्वीकार नहीं करता, और इसकी अवधि समाप्त होने पर यह काम करना बंद कर देगा। BookPlayer को Hardcover से जुड़ा रखने के लिए अनलिंक करें, फिर एक API कुंजी जोड़ें।</string>
-    <string name="hardcover_missing_scope_unlink_footer">यह साइन-इन Hardcover पर आपकी पढ़ने की प्रगति अपडेट नहीं कर सकता। इसे भेजने के लिए अनलिंक करें, फिर एक API कुंजी जोड़ें।</string>
-    <string name="hardcover_sign_in_footer">या नीचे एक API कुंजी पेस्ट करें।</string>
+    <string name="hardcover_sign_in_unavailable">Hardcover में साइन इन करने के लिए इस डिवाइस पर एक वेब ब्राउज़र होना चाहिए।</string>
+    <string name="hardcover_sign_in_title">Hardcover से कनेक्ट करें</string>
+    <string name="hardcover_sign_in_message">अपनी किताबों का मिलान करने, उन्हें अपनी Hardcover लाइब्रेरी में जोड़ने और सुनते समय अपनी पढ़ने की प्रगति अपडेट करने के लिए अपने Hardcover खाते में साइन इन करें।</string>
+    <string name="hardcover_not_signed_in">Hardcover में साइन इन नहीं है</string>
+    <string name="hardcover_sign_in_hint">किताबें खोजने और लिंक करने के लिए, सेटिंग्स &gt; Hardcover सेटिंग्स में Hardcover में साइन इन करें।</string>
     <string name="hardcover_connected">Hardcover से कनेक्टेड</string>
     <string name="hardcover_connected_as">%1$s के रूप में कनेक्टेड</string>
     <string name="hardcover_sign_in_failed_title">साइन इन नहीं हो सका</string>
@@ -373,8 +368,6 @@
     <!-- Hardcover Browser -->
     <string name="hardcover_search_title">हार्डकवर खोज</string>
     <string name="hardcover_unlink">अनलिंक करें</string>
-    <string name="hardcover_token_missing">हार्डकवर एपीआई टोकन गायब है</string>
-    <string name="hardcover_configure_token_hint">पुस्तकों को खोजने और लिंक करने के लिए, सेटिंग्स > हार्डकवर सेटिंग्स में अपना एपीआई टोकन कॉन्फ़िगर करें।</string>
     <string name="hardcover_no_popular_books_found">कोई लोकप्रिय पुस्तकें नहीं मिलीं</string>
     <string name="hardcover_no_books_found">कोई पुस्तकें नहीं मिलीं</string>
     <string name="hardcover_link_book">पुस्तक लिंक करें</string>

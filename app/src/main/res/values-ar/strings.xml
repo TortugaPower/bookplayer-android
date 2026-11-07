@@ -272,10 +272,6 @@
 
     <!-- Hardcover Settings -->
     <string name="hardcover_settings_title">إعدادات Hardcover</string>
-    <string name="hardcover_api_access_section">الوصول إلى واجهة برمجة التطبيقات (API)</string>
-    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
-    <string name="hardcover_api_access_hint">يمكنك العثور على وصول واجهة برمجة تطبيقات Hardcover الخاصة بك في %1$s.</string>
-    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
     <string name="hardcover_automation_section">الأتمتة</string>
     <string name="hardcover_auto_match_books">مطابقة الكتب تلقائيًا</string>
     <string name="hardcover_auto_add_want_to_read">الإضافة تلقائيًا إلى \"أرغب في قراءته\"</string>
@@ -287,12 +283,11 @@
     <string name="hardcover_account_title">الحساب</string>
     <string name="hardcover_sign_in_button">تسجيل الدخول باستخدام Hardcover</string>
     <string name="hardcover_signing_in">جارٍ تسجيل الدخول باستخدام Hardcover…</string>
-    <string name="hardcover_sign_in_again_button">تسجيل الدخول مرة أخرى</string>
-    <string name="hardcover_sign_in_again_footer">سجّل الدخول مرة أخرى للسماح لـ BookPlayer بتحديث تقدّم قراءتك على Hardcover.</string>
-    <string name="hardcover_sign_in_refused_footer">لم يعد Hardcover يقبل تسجيل الدخول هذا. سجّل الدخول مرة أخرى ليبقى BookPlayer متصلاً بـ Hardcover.</string>
-    <string name="hardcover_sign_in_refused_unlink_footer">لم يعد Hardcover يقبل تسجيل الدخول هذا، وسيتوقف عن العمل عند انتهاء صلاحيته. ألغِ الربط، ثم أضف مفتاح API ليبقى BookPlayer متصلاً بـ Hardcover.</string>
-    <string name="hardcover_missing_scope_unlink_footer">لا يمكن لتسجيل الدخول هذا تحديث تقدّم قراءتك على Hardcover. ألغِ الربط، ثم أضف مفتاح API لإرساله.</string>
-    <string name="hardcover_sign_in_footer">أو الصق مفتاح API أدناه.</string>
+    <string name="hardcover_sign_in_unavailable">يتطلب تسجيل الدخول إلى Hardcover وجود متصفح ويب على هذا الجهاز.</string>
+    <string name="hardcover_sign_in_title">الاتصال بـ Hardcover</string>
+    <string name="hardcover_sign_in_message">سجّل الدخول إلى حسابك في Hardcover لمطابقة كتبك وإضافتها إلى مكتبتك في Hardcover وتحديث تقدم قراءتك أثناء الاستماع.</string>
+    <string name="hardcover_not_signed_in">لم تسجّل الدخول إلى Hardcover</string>
+    <string name="hardcover_sign_in_hint">للبحث عن الكتب وربطها، سجّل الدخول إلى Hardcover من الإعدادات &gt; إعدادات Hardcover.</string>
     <string name="hardcover_connected">متصل بـ Hardcover</string>
     <string name="hardcover_connected_as">متصل باسم %1$s</string>
     <string name="hardcover_sign_in_failed_title">تعذّر تسجيل الدخول</string>
@@ -385,8 +380,6 @@
     <!-- Hardcover Browser -->
     <string name="hardcover_search_title">بحث هاردكفر</string>
     <string name="hardcover_unlink">إلغاء الربط</string>
-    <string name="hardcover_token_missing">رمز الوصول لـ Hardcover API مفقود</string>
-    <string name="hardcover_configure_token_hint">للبحث عن الكتب وربطها، قم بتهيئة رمز الوصول الخاص بك في الإعدادات > إعدادات هاردكفر.</string>
     <string name="hardcover_no_popular_books_found">لم يتم العثور على كتب شائعة</string>
     <string name="hardcover_no_books_found">لم يتم العثور على كتب</string>
     <string name="hardcover_link_book">ربط الكتاب</string>

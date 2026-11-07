@@ -266,10 +266,6 @@
 
     <!-- Hardcover Settings -->
     <string name="hardcover_settings_title">Настройки Hardcover</string>
-    <string name="hardcover_api_access_section">Доступ по API</string>
-    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
-    <string name="hardcover_api_access_hint">Вы можете найти доступ к Hardcover API по ссылке %1$s.</string>
-    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
     <string name="hardcover_automation_section">Автоматизация</string>
     <string name="hardcover_auto_match_books">Автоматически сопоставлять книги</string>
     <string name="hardcover_auto_add_want_to_read">Автоматически добавлять в «Хочу прочитать»</string>
@@ -281,12 +277,11 @@
     <string name="hardcover_account_title">Учётная запись</string>
     <string name="hardcover_sign_in_button">Войти через Hardcover</string>
     <string name="hardcover_signing_in">Вход через Hardcover…</string>
-    <string name="hardcover_sign_in_again_button">Войти снова</string>
-    <string name="hardcover_sign_in_again_footer">Войдите снова, чтобы BookPlayer мог обновлять ваш прогресс чтения в Hardcover.</string>
-    <string name="hardcover_sign_in_refused_footer">Hardcover больше не принимает этот вход. Войдите снова, чтобы BookPlayer оставался подключён к Hardcover.</string>
-    <string name="hardcover_sign_in_refused_unlink_footer">Hardcover больше не принимает этот вход, и он перестанет работать, когда истечёт его срок. Отвяжите аккаунт и добавьте ключ API, чтобы BookPlayer оставался подключён к Hardcover.</string>
-    <string name="hardcover_missing_scope_unlink_footer">С этим входом нельзя обновлять прогресс чтения на Hardcover. Отвяжите аккаунт и добавьте ключ API, чтобы отправлять его.</string>
-    <string name="hardcover_sign_in_footer">Или вставьте ключ API ниже.</string>
+    <string name="hardcover_sign_in_unavailable">Для входа в Hardcover на этом устройстве нужен веб-браузер.</string>
+    <string name="hardcover_sign_in_title">Подключить Hardcover</string>
+    <string name="hardcover_sign_in_message">Войдите в аккаунт Hardcover, чтобы сопоставлять книги, добавлять их в библиотеку Hardcover и обновлять прогресс чтения во время прослушивания.</string>
+    <string name="hardcover_not_signed_in">Вход в Hardcover не выполнен</string>
+    <string name="hardcover_sign_in_hint">Чтобы искать и связывать книги, войдите в Hardcover в разделе Настройки &gt; Настройки Hardcover.</string>
     <string name="hardcover_connected">Подключено к Hardcover</string>
     <string name="hardcover_connected_as">Подключено как %1$s</string>
     <string name="hardcover_sign_in_failed_title">Не удалось войти</string>
@@ -379,8 +374,6 @@
     <!-- Hardcover Browser -->
     <string name="hardcover_search_title">Поиск Hardcover</string>
     <string name="hardcover_unlink">Отвязать</string>
-    <string name="hardcover_token_missing">Отсутствует API-токен Hardcover</string>
-    <string name="hardcover_configure_token_hint">Чтобы искать и связывать книги, настройте API-токен в разделе Настройки > Настройки Hardcover.</string>
     <string name="hardcover_no_popular_books_found">Популярные книги не найдены</string>
     <string name="hardcover_no_books_found">Книги не найдены</string>
     <string name="hardcover_link_book">Привязать книгу</string>

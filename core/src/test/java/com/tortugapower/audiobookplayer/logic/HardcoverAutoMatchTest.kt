@@ -11,6 +11,7 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.network.HardcoverBook
 import com.tortugapower.audiobookplayer.network.HardcoverImage
+import com.tortugapower.audiobookplayer.network.HardcoverLibraryEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -44,13 +45,33 @@ class HardcoverAutoMatchTest {
     private fun processor() = HardcoverProcessor(
         context,
         searchBooks = { query -> searched += query; duringSearch(); listOfNotNull(hits[query]) },
-        saveUserBookStatus = { _, _ -> 1 },
+        saveUserBookStatus = { bookId, status, edition -> saved += Triple(bookId, status, edition); 1 },
+        libraryEntry = { _, bookId -> entries[bookId] ?: throw java.io.IOException("offline") },
         connectedUserId = { "4242" },
         downloadArtwork = { _, url, dest -> downloads += url; dest.writeText("cover"); true },
         sendProgress = { uuid, percent -> progressSent += uuid to percent },
     )
 
     private val progressSent = mutableListOf<Pair<String, Double>>()
+    /** What was added to the user's Hardcover library: (book, status, edition). */
+    private val saved = mutableListOf<Triple<Int, Int, Int?>>()
+    /** The library entry lookup's answers by book id; a book without one fails the lookup. */
+    private val entries = mutableMapOf<Int, HardcoverLibraryEntry>()
+
+    private fun entry(hasBook: Boolean, default: Int? = null, defaultSeconds: Int? = 36_000, mostRead: Int? = null) =
+        HardcoverLibraryEntry(
+            userBooks = if (hasBook) listOf(HardcoverLibraryEntry.UserBook(1)) else emptyList(),
+            book = HardcoverLibraryEntry.Book(
+                defaultAudioEdition = default?.let { HardcoverLibraryEntry.Edition(it, defaultSeconds) },
+                audioEditions = listOfNotNull(mostRead?.let { HardcoverLibraryEntry.Edition(it, 20_000) }),
+            ),
+        )
+
+    private fun statusTask(uuid: String, status: Int) = SyncTaskEntity(
+        id = "s", taskID = uuid, queueKey = SyncTaskFactory.QUEUE_HARDCOVER,
+        jobType = SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS, position = 0,
+        payload = """{"itemUuid":"$uuid","status":$status}""",
+    )
 
     private fun book(id: String, cover: String? = null) =
         HardcoverBook(id = id, title = "Book $id", image = cover?.let { HardcoverImage(it) }, contributions = null)
@@ -180,5 +201,49 @@ class HardcoverAutoMatchTest {
             payload = """{"itemUuid":"b1","percent":42.5}""",
         )
         assertTrue(runCatching { failing.process(task) }.exceptionOrNull() is java.io.IOException)
+    }
+
+    // iOS: Hardcover would add it as the print edition, and listening would count as its pages.
+    @Test fun `a book the user doesn't have goes in as its audiobook edition`() = runBlocking {
+        HardcoverSettingsManager.setAutoAddToWantToRead(context, true)
+        insert("a", "Alpha")
+        hits["Alpha"] = book("500")
+        entries[500] = entry(hasBook = false, default = 51)
+
+        processor().process(batch("a"))
+
+        assertEquals(listOf(Triple(500, 1, 51)), saved)
+    }
+
+    @Test fun `a default audiobook edition without a duration gives way to the most read one`() = runBlocking {
+        insert("b", "Beta")
+        dao.insertExternalResource(ExternalResourceEntity(providerName = "hardcover", providerId = "600", syncStatus = "library", libraryItemUuid = "b"))
+        entries[600] = entry(hasBook = false, default = 61, defaultSeconds = 0, mostRead = 62)
+
+        processor().process(statusTask("b", 2))
+
+        assertEquals(listOf(Triple(600, 2, 62)), saved)
+    }
+
+    @Test fun `a book the user has keeps its edition, and a failed lookup lets Hardcover pick`() = runBlocking {
+        insert("c", "Gamma")
+        insert("d", "Delta")
+        dao.insertExternalResource(ExternalResourceEntity(providerName = "hardcover", providerId = "700", syncStatus = "library", libraryItemUuid = "c"))
+        dao.insertExternalResource(ExternalResourceEntity(providerName = "hardcover", providerId = "800", syncStatus = "library", libraryItemUuid = "d"))
+        entries[700] = entry(hasBook = true, default = 71)
+
+        processor().process(statusTask("c", 2))
+        processor().process(statusTask("d", 2))
+
+        assertEquals(listOf(Triple(700, 2, null), Triple(800, 2, null)), saved)
+    }
+
+    @Test fun `the library entry answer decodes`() {
+        val json = """
+            {"user_books":[],"books_by_pk":{"default_audio_edition":{"id":5,"audio_seconds":null},
+              "audio_editions":[{"id":6,"audio_seconds":3600}]}}
+        """
+        val entry = com.google.gson.Gson().fromJson(json, HardcoverLibraryEntry::class.java)
+        assertEquals(6, entry.editionForNewEntry)
     }
 }

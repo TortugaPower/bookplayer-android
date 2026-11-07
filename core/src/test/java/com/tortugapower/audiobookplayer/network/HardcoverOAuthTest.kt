@@ -144,11 +144,10 @@ class HardcoverOAuthTest {
         ).forEach { assertFalse(it.message, it.isTemporary) }
     }
 
-    @Test fun `a missing scope or a refused refresh needs signing in again`() {
+    @Test fun `a scope added since the sign-in is missing from it`() {
         val full = HardcoverTokenSet("a", "r", "read:catalog read:library write:library read:me", null)
-        assertFalse(full.needsSignInAgain)
-        assertTrue(full.copy(refreshRefused = true).needsSignInAgain)
-        assertTrue(full.copy(scope = "read:me").needsSignInAgain)
+        assertTrue(full.missingScopes.isEmpty())
+        assertEquals(setOf("read:catalog", "read:library", "write:library"), full.copy(scope = "read:me").missingScopes)
     }
 
     @Test fun `a stored sign-in from before the refused flag reads as not refused`() {

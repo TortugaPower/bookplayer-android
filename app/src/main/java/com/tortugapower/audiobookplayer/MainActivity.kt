@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tortugapower.audiobookplayer.ui.theme.BookPlayerTheme
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
+import com.tortugapower.audiobookplayer.logic.HardcoverBrowserSignIn
 import com.tortugapower.audiobookplayer.logic.PlayerUiSignals
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
 import com.tortugapower.audiobookplayer.logic.SleepTimerManager
@@ -136,6 +137,7 @@ class MainActivity : ComponentActivity() {
         if (StorageMonitor.isCritical) return
         val uri = intent.data
         when {
+            uri != null && HardcoverBrowserSignIn.isCallback(uri.toString()) -> handleHardcoverCallback(intent, uri)
             uri != null && uri.scheme == "bookplayer" -> handleDeepLink(uri)
             // "Open with" an audio file shared from another app: copy the shared URI into the import
             // flow while this activity holds the transient read grant (ImportManager shows the sheet).
@@ -157,6 +159,22 @@ class MainActivity : ComponentActivity() {
                 }
             }
             intent.getBooleanExtra("OPEN_PLAYER", false) -> PlaybackManager.setShowPlayer(true)
+        }
+    }
+
+    /**
+     * A regular browser coming back from Hardcover's sign-in (no Auth Tab on this device). Handed to the process-wide
+     * sign-in, never to a screen: some browsers open the link inside their own task, which makes a second copy of this
+     * Activity there. That copy closes and brings the app's own task back, where the settings screen is waiting.
+     */
+    private fun handleHardcoverCallback(intent: Intent, uri: Uri) {
+        // Reopened from recents: the same redirect again, whose attempt is used up
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0) {
+            HardcoverBrowserSignIn.handleCallback(uri.toString())
+        }
+        if (!isTaskRoot) {
+            finish()
+            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
 

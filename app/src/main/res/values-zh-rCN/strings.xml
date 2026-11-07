@@ -258,10 +258,6 @@
 
     <!-- Hardcover Settings -->
     <string name="hardcover_settings_title">Hardcover 设置</string>
-    <string name="hardcover_api_access_section">API 访问</string>
-    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
-    <string name="hardcover_api_access_hint">您可以在 %1$s 找到您的 Hardcover API 访问权限。</string>
-    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
     <string name="hardcover_automation_section">自动化</string>
     <string name="hardcover_auto_match_books">自动匹配书籍</string>
     <string name="hardcover_auto_add_want_to_read">自动添加到“想读”</string>
@@ -273,12 +269,11 @@
     <string name="hardcover_account_title">账户</string>
     <string name="hardcover_sign_in_button">使用 Hardcover 登录</string>
     <string name="hardcover_signing_in">正在使用 Hardcover 登录…</string>
-    <string name="hardcover_sign_in_again_button">重新登录</string>
-    <string name="hardcover_sign_in_again_footer">请重新登录，以便 BookPlayer 在 Hardcover 上更新你的阅读进度。</string>
-    <string name="hardcover_sign_in_refused_footer">Hardcover 不再接受此登录。请重新登录，以便 BookPlayer 保持与 Hardcover 的连接。</string>
-    <string name="hardcover_sign_in_refused_unlink_footer">Hardcover 不再接受此登录，登录过期后将停止工作。请取消关联，然后添加 API 密钥，以便 BookPlayer 保持与 Hardcover 的连接。</string>
-    <string name="hardcover_missing_scope_unlink_footer">此登录无法更新你在 Hardcover 上的阅读进度。请取消关联，然后添加 API 密钥以发送进度。</string>
-    <string name="hardcover_sign_in_footer">或在下方粘贴 API 密钥。</string>
+    <string name="hardcover_sign_in_unavailable">登录 Hardcover 需要此设备上有网页浏览器。</string>
+    <string name="hardcover_sign_in_title">连接 Hardcover</string>
+    <string name="hardcover_sign_in_message">登录你的 Hardcover 账户，即可匹配图书、将其添加到你的 Hardcover 书库，并在收听时更新阅读进度。</string>
+    <string name="hardcover_not_signed_in">未登录 Hardcover</string>
+    <string name="hardcover_sign_in_hint">要搜索和关联图书，请在“设置 &gt; Hardcover 设置”中登录 Hardcover。</string>
     <string name="hardcover_connected">已连接到 Hardcover</string>
     <string name="hardcover_connected_as">已作为 %1$s 连接</string>
     <string name="hardcover_sign_in_failed_title">无法登录</string>
@@ -371,8 +366,6 @@
     <!-- Hardcover Browser -->
     <string name="hardcover_search_title">Hardcover 搜索</string>
     <string name="hardcover_unlink">取消链接</string>
-    <string name="hardcover_token_missing">缺少 Hardcover API 令牌</string>
-    <string name="hardcover_configure_token_hint">要搜索和链接书籍，请在 设置 > Hardcover 设置 中配置您的 API 令牌。</string>
     <string name="hardcover_no_popular_books_found">未找到热门书籍</string>
     <string name="hardcover_no_books_found">未找到书籍</string>
     <string name="hardcover_link_book">关联书籍</string>

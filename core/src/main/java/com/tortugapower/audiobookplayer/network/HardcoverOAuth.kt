@@ -38,7 +38,8 @@ object HardcoverOAuth {
 
     /**
      * Registered on the Hardcover app exactly as written: Hardcover matches redirect URIs exactly. The Auth Tab
-     * returns it as an activity result, so the manifest's `bookplayer://` deep link never sees it.
+     * returns it as an activity result, so the manifest's `bookplayer://` deep link never sees it. Without an Auth Tab,
+     * a regular browser opens it and that link brings it back (`HardcoverAccount.completeBrowserSignIn`).
      */
     const val CALLBACK_SCHEME = "bookplayer"
     const val REDIRECT_URI = "bookplayer://hardcover/callback"
@@ -146,8 +147,8 @@ data class HardcoverTokenSet(
     @SerializedName("expiresAt") val expiresAt: Long?,
     /**
      * The token endpoint refused to refresh it for good, with something other than `invalid_grant` (which ends the
-     * sign-in): no more refreshes are sent, the access token serves until it expires, and Settings offers Sign In
-     * Again. The sign-in is kept: a client id problem would otherwise sign everyone out.
+     * sign-in): no more refreshes are sent, and the access token serves until it expires. The sign-in is kept: a client
+     * id problem would otherwise sign everyone out. Logging out and signing in again replaces it.
      */
     @SerializedName("refreshRefused") val refreshRefused: Boolean = false,
 ) {
@@ -157,9 +158,6 @@ data class HardcoverTokenSet(
      */
     val missingScopes: Set<String>
         get() = if (scope.isEmpty()) emptySet() else HardcoverOAuth.SCOPES.toSet() - scope.split(" ").toSet()
-
-    /** Only signing in again helps: a scope added since, or a refresh refused for good. */
-    val needsSignInAgain: Boolean get() = refreshRefused || missingScopes.isNotEmpty()
 
     fun needsRefresh(now: Long): Boolean = expiresAt != null && expiresAt - now < HardcoverOAuth.REFRESH_LEEWAY_MS
 

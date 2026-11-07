@@ -78,10 +78,28 @@ class HardcoverAccountTest {
 
     @After fun tearDown() {
         HardcoverAccount.sessionOverride = null
+        HardcoverAccount.sealPending = defaultSeal
+        HardcoverAccount.openPending = defaultOpen
         HardcoverAccount.readMe = defaultReadMe
     }
 
     private val defaultReadMe = HardcoverAccount.readMe
+    private val defaultSeal = HardcoverAccount.sealPending
+    private val defaultOpen = HardcoverAccount.openPending
+
+    /** Robolectric has no Keystore: the saved attempt is "sealed" by reversing it, so it's never stored as is. */
+    private fun plainPendingCipher() {
+        HardcoverAccount.sealPending = { it.reversed() }
+        HardcoverAccount.openPending = { it.reversed() }
+    }
+
+    private suspend fun beginInBrowser(now: Long = 1_000L): String {
+        plainPendingCipher()
+        val url = HardcoverAccount.beginBrowserSignIn(now)
+        return HardcoverOAuth.queryParameters(url).getValue("state")
+    }
+
+    private fun redirect(state: String, extra: String = "code=abc") = "${HardcoverOAuth.REDIRECT_URI}?$extra&state=$state"
 
     private suspend fun storedKey() = HardcoverSettingsManager.getToken(context).first()
     private suspend fun storedUserId() = context.dataStore.data.first()[userId]
@@ -108,26 +126,6 @@ class HardcoverAccountTest {
 
         assertEquals(HardcoverCredential("hc_key", isOAuth = false), HardcoverAccount.credential())
         assertNull(store.tokens)
-    }
-
-    @Test fun `saving the same key again, prefixed or not, keeps the account's id`() = runBlocking {
-        HardcoverSettingsManager.setToken(context, "hc_key")
-        context.dataStore.edit { it[userId] = "42" }
-
-        HardcoverAccount.saveApiKey("  Bearer hc_key ")
-
-        assertEquals("42", storedUserId())
-        assertEquals("hc_key", storedKey())
-    }
-
-    @Test fun `saving a different key clears the account's id`() = runBlocking {
-        HardcoverSettingsManager.setToken(context, "hc_key")
-        context.dataStore.edit { it[userId] = "42" }
-
-        HardcoverAccount.saveApiKey("Bearer hc_other")
-
-        assertNull(storedUserId())
-        assertEquals("hc_other", storedKey())
     }
 
     @Test fun `a sign-in replaces the API key and the account's id`() = runBlocking {
@@ -182,7 +180,7 @@ class HardcoverAccountTest {
 
         val fetching = async(Dispatchers.Default) { HardcoverAccount.fetchConnectedUserId() }
         asked.await()
-        HardcoverAccount.saveApiKey("hc_other")
+        HardcoverAccount.disconnect()
         answer.complete(HardcoverUser(7, "previous"))
 
         assertNull(fetching.await())
@@ -226,5 +224,90 @@ class HardcoverAccountTest {
 
         assertEquals(401, (failure as HardcoverService.HardcoverRequestException).status)
         assertNull(HardcoverAccount.fetchConnectedUserId())
+    }
+
+    @Test fun `a regular browser's return signs in with the saved attempt, once`() = runBlocking {
+        HardcoverSettingsManager.setToken(context, "hc_key")
+        val state = beginInBrowser()
+        var form: Map<String, String>? = null
+        val answer = send
+        send = { url, f -> if (url == HardcoverOAuth.TOKEN_URL) form = f; answer(url, f) }
+
+        assertTrue(HardcoverAccount.completeBrowserSignIn(redirect(state), now = 2_000L))
+        assertEquals("hc_at_new", store.tokens?.accessToken)
+        assertEquals("abc", form?.get("code"))
+        assertTrue("the saved verifier is sent", form?.get("code_verifier").orEmpty().isNotEmpty())
+        assertEquals("the sign-in replaces the API key", "", storedKey())
+
+        // Delivered again (reopened from recents): the attempt is used up
+        store.tokens = null
+        assertFalse(HardcoverAccount.completeBrowserSignIn(redirect(state), now = 3_000L))
+        assertNull(store.tokens)
+    }
+
+    @Test fun `a return that isn't the saved attempt's is ignored, and the attempt keeps waiting`() = runBlocking {
+        val state = beginInBrowser()
+
+        assertFalse(HardcoverAccount.completeBrowserSignIn(redirect("forged"), now = 2_000L))
+        assertFalse(HardcoverAccount.completeBrowserSignIn(HardcoverOAuth.REDIRECT_URI + "?code=abc", now = 2_000L))
+        assertNull(store.tokens)
+
+        assertTrue(HardcoverAccount.completeBrowserSignIn(redirect(state), now = 3_000L))
+    }
+
+    @Test fun `nothing started, nothing signs in`() = runBlocking {
+        plainPendingCipher()
+        assertFalse(HardcoverAccount.completeBrowserSignIn(redirect("any"), now = 2_000L))
+        assertNull(store.tokens)
+    }
+
+    @Test fun `an attempt older than ten minutes is dropped`() = runBlocking {
+        val state = beginInBrowser(now = 1_000L)
+
+        assertFalse(HardcoverAccount.completeBrowserSignIn(redirect(state), now = 1_000L + HardcoverAccount.PENDING_SIGN_IN_TTL_MS + 1))
+        assertNull(store.tokens)
+    }
+
+    @Test fun `a refused authorization uses up the attempt and reports it`() = runBlocking {
+        val state = beginInBrowser()
+
+        val failure = runCatching {
+            HardcoverAccount.completeBrowserSignIn(redirect(state, extra = "error=access_denied"), now = 2_000L)
+        }.exceptionOrNull()
+
+        assertTrue(failure is com.tortugapower.audiobookplayer.network.HardcoverOAuthException.Server)
+        assertFalse(HardcoverAccount.completeBrowserSignIn(redirect(state), now = 3_000L))
+        assertNull(store.tokens)
+    }
+
+    @Test fun `unlinking drops a browser sign-in still waiting`() = runBlocking {
+        val state = beginInBrowser()
+
+        HardcoverAccount.disconnect()
+
+        assertFalse(HardcoverAccount.completeBrowserSignIn(redirect(state), now = 2_000L))
+        assertNull(store.tokens)
+    }
+
+    @Test fun `the saved attempt is sealed`() = runBlocking {
+        val state = beginInBrowser()
+        val stored = context.dataStore.data.first()[stringPreferencesKey("hardcover_pending_sign_in")].orEmpty()
+        assertFalse(stored.contains(state))
+    }
+
+    @Test fun `unlinking drops the progress still queued for the account, and what was sent`() = runBlocking {
+        val db = com.tortugapower.audiobookplayer.database.AppDatabase.getDatabase(context)
+        kotlinx.coroutines.withContext(Dispatchers.IO) { db.clearAllTables() }
+        val dao = db.syncTaskDao()
+        val tasks = com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository(dao)
+        SyncTaskFactory.createHardcoverProgressTask(tasks, "book-1", 40.0)
+        SyncTaskFactory.createHardcoverUpdateStatusTask(tasks, "book-2", 2)
+        HardcoverProgressSync.changes.isNew("book-1", 40.0)
+
+        HardcoverAccount.disconnect()
+
+        val left = tasks.getPendingTasks().map { it.jobType }
+        assertEquals(listOf(SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS), left)
+        assertTrue("the next account gets it again", HardcoverProgressSync.changes.isNew("book-1", 40.0))
     }
 }

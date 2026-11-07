@@ -192,10 +192,6 @@ class RoomSyncTaskRepository(
         syncTaskDao.countActiveTasksByType(jobType)
     }
 
-    override suspend fun getWaitingPendingTasksByType(jobType: String): List<SyncTaskEntity> = withContext(Dispatchers.IO) {
-        syncTaskDao.getWaitingPendingTasksByType(jobType)
-    }
-
     override suspend fun getPendingTaskByTypeAndTaskId(jobType: String, taskId: String): SyncTaskEntity? = withContext(Dispatchers.IO) {
         syncTaskDao.getPendingTaskByTypeAndTaskId(jobType, taskId)
     }

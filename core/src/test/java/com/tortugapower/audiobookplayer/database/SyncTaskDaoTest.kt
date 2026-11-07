@@ -46,17 +46,6 @@ class SyncTaskDaoTest {
     private suspend fun pendingIds() =
         dao.getTasksInQueueByStatus("sync", SyncTaskStatus.PENDING).map { it.id }
 
-    /** A pause's Hardcover flush reads only the waiting progress rows, not the whole queue */
-    @Test fun getWaitingPendingTasksByType_returnsOnlyThatTypesPendingRowsWithAWait() = runBlocking {
-        val progress = "hardcover_update_progress"
-        dao.insertAtEnd(task("waiting", "b1", progress).copy(nextAttemptAt = 5L))
-        dao.insertAtEnd(task("due", "b2", progress))
-        dao.insertAtEnd(task("running", "b3", progress).copy(nextAttemptAt = 5L, status = SyncTaskStatus.RUNNING))
-        dao.insertAtEnd(task("other", "b4", "move").copy(nextAttemptAt = 5L))
-
-        assertEquals(listOf("waiting"), dao.getWaitingPendingTasksByType(progress).map { it.id })
-    }
-
     @Test fun insertAtEnd_runsTasksInTheOrderTheyWereStored() = runBlocking {
         listOf("c", "a", "d", "b").forEach { dao.insertAtEnd(task(it, "item-$it")) }
 
@@ -380,13 +369,10 @@ class SyncTaskDaoTest {
         dao.insertAtEnd(task("c", "c"))
         dao.markTaskRetrying("a", "timeout", 2, 9_000L)
         dao.markTaskRetrying("b", "timeout", 5, 9_000L)
-        // Spaced out, no failure behind it (a Hardcover progress waiting for its 30 s)
-        dao.insertAtEnd(task("spaced", "d").copy(nextAttemptAt = 9_000L))
 
         assertEquals(2, dao.clearRetryWaits())
         assertEquals(listOf(null, null, null), listOf("a", "b", "c").map { dao.getTaskById(it)?.nextAttemptAt })
         assertEquals(listOf(2, 5, 0), listOf("a", "b", "c").map { dao.getTaskById(it)?.failureStreak })
-        assertEquals("a spaced-out task keeps its wait", 9_000L, dao.getTaskById("spaced")?.nextAttemptAt)
         assertEquals("nothing left waiting", 0, dao.clearRetryWaits())
     }
 

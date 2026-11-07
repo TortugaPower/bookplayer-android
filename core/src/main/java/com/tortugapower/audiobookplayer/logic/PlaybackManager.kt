@@ -429,14 +429,7 @@ object PlaybackManager {
                         _isPlaying.value = playing
                         if (!playing) {
                             lastPauseTime = System.currentTimeMillis()
-                            // A pause sends the Hardcover progress task waiting for its 30-second slot, once this
-                            // last position is recorded (and merged into it). Only a real one: a stream rebuffering
-                            // or playback suppressed (a call) also stops playing, with playWhenReady still on, and
-                            // sending then would cut every slot short on a flaky stream.
-                            updateProgress(
-                                appContext,
-                                afterSave = if (mediaController.playWhenReady) null else HardcoverProgressSync::onPause,
-                            )
+                            updateProgress(appContext)
                         } else {
                             // Real playback has started — the load/buffering "queued" window is over.
                             playbackQueuedFlag = false
@@ -1000,27 +993,20 @@ object PlaybackManager {
         }
     }
 
-    private fun updateProgress(
-        context: Context,
-        itemToUpdate: LibraryItemEntity? = null,
-        forceFinished: Boolean = false,
-        afterSave: (() -> Unit)? = null,
-    ) {
-        // Nothing to save still runs [afterSave]: it waits for a save, not on one.
-        fun skip() { afterSave?.invoke() }
-        if (_isTransitioning.value) return skip()
+    private fun updateProgress(context: Context, itemToUpdate: LibraryItemEntity? = null, forceFinished: Boolean = false) {
+        if (_isTransitioning.value) return
 
-        val item = itemToUpdate ?: _currentItem.value ?: return skip()
-        val p = player ?: return skip()
+        val item = itemToUpdate ?: _currentItem.value ?: return
+        val p = player ?: return
         
         // Safety: Only update if the player is actually on an item in this context
         val isPlayerActive = p.playbackState == Player.STATE_READY || p.playbackState == Player.STATE_BUFFERING
-        if (!isPlayerActive && !forceFinished) return skip()
+        if (!isPlayerActive && !forceFinished) return
 
         val timeline = _currentPlayable.value?.timeline
         if (item.type == com.tortugapower.audiobookplayer.database.entities.ItemType.BOUND &&
             (timeline == null || timeline.isEmpty)) {
-            return skip() // timeline not built yet (rare, e.g. a persist racing the load); next tick persists
+            return // timeline not built yet (rare, e.g. a persist racing the load); next tick persists
         }
         // Whole-book seconds, inverting whatever window the session presents (book/chapter/single) on the
         // calling (main) thread before any IO hop.
@@ -1034,11 +1020,7 @@ object PlaybackManager {
         // Never un-finishes the book, as iOS's playback saves don't: Mark as unfinished, the library's Jump to start
         // and a restart from 0 do
         scope.launch(Dispatchers.IO) {
-            try {
-                getRepository(context).savePlaybackProgress(item.uuid, currentPos, reachedEnd)
-            } finally {
-                afterSave?.invoke()
-            }
+            getRepository(context).savePlaybackProgress(item.uuid, currentPos, reachedEnd)
         }
     }
 

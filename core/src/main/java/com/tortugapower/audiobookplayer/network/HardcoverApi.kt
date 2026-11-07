@@ -234,19 +234,26 @@ object HardcoverService {
         }
     }
 
-    suspend fun saveUserBookStatus(bookId: Int, statusId: Int): Int? {
+    /**
+     * Adds the book to the user's Hardcover library, or sets its status there. [editionId] is the edition a book they
+     * don't have yet goes in as ([HardcoverLibraryEntry.editionForNewEntry]); null lets Hardcover pick.
+     */
+    suspend fun saveUserBookStatus(bookId: Int, statusId: Int, editionId: Int? = null): Int? {
         val graphQLQuery = """
-            mutation InsertUserBook(${'$'}book_id: Int!, ${'$'}status_id: Int!) {
-              insert_user_book(
-                object: {book_id: ${'$'}book_id, status_id: ${'$'}status_id}
-              ) {
+            mutation InsertUserBook(${'$'}object: UserBookCreateInput!) {
+              insert_user_book(object: ${'$'}object) {
                 id
               }
             }
         """.trimIndent()
+        val bookObject = buildMap<String, Any> {
+            put("book_id", bookId)
+            put("status_id", statusId)
+            editionId?.let { put("edition_id", it) }
+        }
 
         return try {
-            execute(graphQLQuery, mapOf("book_id" to bookId, "status_id" to statusId))
+            execute(graphQLQuery, mapOf("object" to bookObject))
                 ?.getAsJsonObject("insert_user_book")?.get("id")?.asInt
         } catch (e: CancellationException) {
             throw e
@@ -255,6 +262,11 @@ object HardcoverService {
             null
         }
     }
+
+    /** Whether the user already has the book, and its audiobook editions with a duration; throws when it can't tell. */
+    suspend fun libraryEntry(userId: Int, bookId: Int): HardcoverLibraryEntry? =
+        execute(LIBRARY_ENTRY_QUERY, mapOf("user_id" to userId, "book_id" to bookId))
+            ?.let { gson.fromJson(it, HardcoverLibraryEntry::class.java) }
 
     /** The connected Hardcover user (`me`), or null when not connected or it couldn't be read. */
     suspend fun me(): HardcoverUser? = try {
@@ -298,28 +310,38 @@ object HardcoverService {
 
     const val ME_QUERY = "query Me { me { id username } }"
 
-    /** The started read that isn't finished (Hardcover's "Read in Progress"); needs `read:library`. */
+    /** Needs `read:library` and `read:catalog` (iOS `libraryEntryQuery`). */
+    val LIBRARY_ENTRY_QUERY = """
+        query LibraryEntry(${'$'}user_id: Int!, ${'$'}book_id: Int!) {
+          user_books(where: {user_id: {_eq: ${'$'}user_id}, book_id: {_eq: ${'$'}book_id}}) {
+            id
+          }
+          books_by_pk(id: ${'$'}book_id) {
+            default_audio_edition {
+              id
+              audio_seconds
+            }
+            audio_editions: editions(
+              where: {reading_format_id: {_eq: 2}, audio_seconds: {_gt: 0}},
+              order_by: {users_count: desc},
+              limit: 1
+            ) {
+              id
+              audio_seconds
+            }
+          }
+        }
+    """.trimIndent()
+
+    /**
+     * The started read that isn't finished (Hardcover's "Read in Progress"), with its edition, which progress is
+     * measured against; needs `read:library`.
+     */
     val READ_IN_PROGRESS_QUERY = """
         query ReadInProgress(${'$'}user_id: Int!, ${'$'}book_id: Int!) {
           user_books(where: {user_id: {_eq: ${'$'}user_id}, book_id: {_eq: ${'$'}book_id}}) {
             id
             status_id
-            edition { id pages audio_seconds reading_format_id }
-            book {
-              default_audio_edition { id pages audio_seconds reading_format_id }
-              default_ebook_edition { id pages audio_seconds reading_format_id }
-              default_physical_edition { id pages audio_seconds reading_format_id }
-              audio_editions: editions(
-                where: {reading_format_id: {_eq: 2}, audio_seconds: {_gt: 0}},
-                order_by: {users_count: desc},
-                limit: 1
-              ) { id pages audio_seconds reading_format_id }
-              paged_editions: editions(
-                where: {pages: {_gt: 0}},
-                order_by: {users_count: desc},
-                limit: 1
-              ) { id pages audio_seconds reading_format_id }
-            }
             user_book_reads(where: {finished_at: {_is_null: true}}, order_by: {id: desc}, limit: 1) {
               id
               progress_pages
@@ -337,6 +359,41 @@ object HardcoverService {
           }
         }
     """.trimIndent()
+}
+
+/**
+ * What adding a book needs to know first (iOS `HardcoverLibraryEntryData`): whether the user already has it, and the
+ * audiobook edition to add it with.
+ */
+data class HardcoverLibraryEntry(
+    @SerializedName("user_books") val userBooks: List<UserBook>?,
+    @SerializedName("books_by_pk") val book: Book?,
+) {
+    data class UserBook(@SerializedName("id") val id: Int)
+
+    data class Book(
+        @SerializedName("default_audio_edition") val defaultAudioEdition: Edition?,
+        /** The most read audiobook edition with a duration, for books whose default has none. */
+        @SerializedName("audio_editions") val audioEditions: List<Edition>?,
+    ) {
+        /** The default audiobook edition when it has a duration, else the most read one with a duration. */
+        val audiobookEditionId: Int?
+            get() = defaultAudioEdition?.takeIf { (it.audioSeconds ?: 0) > 0 }?.id
+                ?: audioEditions?.firstOrNull { (it.audioSeconds ?: 0) > 0 }?.id
+    }
+
+    data class Edition(
+        @SerializedName("id") val id: Int,
+        @SerializedName("audio_seconds") val audioSeconds: Int?,
+    )
+
+    /**
+     * The edition a book the user doesn't have yet goes in as: its audiobook one. Hardcover would pick the print one,
+     * and the read it starts takes the entry's edition, so listening would count as pages. Null when they already have
+     * the book (it keeps its edition) or it has no audiobook edition with a duration.
+     */
+    val editionForNewEntry: Int?
+        get() = if (userBooks.isNullOrEmpty()) book?.audiobookEditionId else null
 }
 
 data class HardcoverUser(

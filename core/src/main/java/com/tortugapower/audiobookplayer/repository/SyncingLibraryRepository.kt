@@ -7,6 +7,7 @@ import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.BookmarkSync
 import com.tortugapower.audiobookplayer.logic.HardcoverAccount
+import com.tortugapower.audiobookplayer.logic.HardcoverProgressChanges
 import com.tortugapower.audiobookplayer.logic.HardcoverProgressSync
 import com.tortugapower.audiobookplayer.logic.ItemUpdateFields
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
@@ -22,8 +23,8 @@ class SyncingLibraryRepository(
     private val bookmarkFetcher: BookmarkSync.Fetcher = BookmarkSync.networkFetcher,
     /** Read only for a book linked to Hardcover: a disconnected account's links queue nothing. */
     private val hardcoverConnected: suspend () -> Boolean = { HardcoverAccount.isConnected() },
-    /** When a book's next Hardcover progress may go (30 seconds after its last), null for now. */
-    private val hardcoverNotBefore: (itemUuid: String) -> Long? = { HardcoverProgressSync.notBefore(it, System.currentTimeMillis()) },
+    /** Which Hardcover percentages are new (a whole percentage changed): only those are queued. */
+    private val hardcoverChanges: HardcoverProgressChanges = HardcoverProgressSync.changes,
 ) : LibraryRepository by delegate {
 
     private suspend fun isSubscribed(): Boolean {
@@ -110,8 +111,11 @@ class SyncingLibraryRepository(
         if (resource.syncStatus != "reading" || item.isFinished || !hardcoverConnected()) return
         val percent = item.percentCompleted * 100
         if (HardcoverReadProgress.isInRange(percent)) {
-            SyncTaskFactory.createHardcoverProgressTask(syncTaskRepository, item.uuid, percent, hardcoverNotBefore(item.uuid))
+            if (hardcoverChanges.isNew(item.uuid, percent)) {
+                SyncTaskFactory.createHardcoverProgressTask(syncTaskRepository, item.uuid, percent)
+            }
         } else {
+            hardcoverChanges.forget(item.uuid)
             SyncTaskFactory.dropHardcoverProgressTask(syncTaskRepository, item.uuid)
         }
     }

@@ -260,10 +260,6 @@
 
     <!-- Hardcover Settings -->
     <string name="hardcover_settings_title">Paramètres Hardcover</string>
-    <string name="hardcover_api_access_section">Accès API</string>
-    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
-    <string name="hardcover_api_access_hint">Vous pouvez trouver vos accès API Hardcover sur %1$s.</string>
-    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
     <string name="hardcover_automation_section">Automatisation</string>
     <string name="hardcover_auto_match_books">Associer automatiquement les livres</string>
     <string name="hardcover_auto_add_want_to_read">Ajouter automatiquement à « À lire »</string>
@@ -275,12 +271,11 @@
     <string name="hardcover_account_title">Compte</string>
     <string name="hardcover_sign_in_button">Se connecter avec Hardcover</string>
     <string name="hardcover_signing_in">Connexion avec Hardcover…</string>
-    <string name="hardcover_sign_in_again_button">Se reconnecter</string>
-    <string name="hardcover_sign_in_again_footer">Reconnectez-vous pour permettre à BookPlayer de mettre à jour votre progression de lecture sur Hardcover.</string>
-    <string name="hardcover_sign_in_refused_footer">Hardcover n\'accepte plus cette connexion. Reconnectez-vous pour que BookPlayer reste connecté à Hardcover.</string>
-    <string name="hardcover_sign_in_refused_unlink_footer">Hardcover n\'accepte plus cette connexion, qui cessera de fonctionner à son expiration. Dissociez le compte, puis ajoutez une clé API pour que BookPlayer reste connecté à Hardcover.</string>
-    <string name="hardcover_missing_scope_unlink_footer">Cette connexion ne peut pas mettre à jour votre progression de lecture sur Hardcover. Dissociez le compte, puis ajoutez une clé API pour l\'envoyer.</string>
-    <string name="hardcover_sign_in_footer">Ou collez une clé API ci-dessous.</string>
+    <string name="hardcover_sign_in_unavailable">La connexion à Hardcover nécessite un navigateur web sur cet appareil.</string>
+    <string name="hardcover_sign_in_title">Se connecter à Hardcover</string>
+    <string name="hardcover_sign_in_message">Connecte-toi à ton compte Hardcover pour associer tes livres, les ajouter à ta bibliothèque Hardcover et mettre à jour ta progression de lecture pendant l\'écoute.</string>
+    <string name="hardcover_not_signed_in">Non connecté à Hardcover</string>
+    <string name="hardcover_sign_in_hint">Pour rechercher et associer des livres, connecte-toi à Hardcover dans Réglages &gt; Réglages Hardcover.</string>
     <string name="hardcover_connected">Connecté à Hardcover</string>
     <string name="hardcover_connected_as">Connecté en tant que %1$s</string>
     <string name="hardcover_sign_in_failed_title">Connexion impossible</string>
@@ -373,8 +368,6 @@
     <!-- Hardcover Browser -->
     <string name="hardcover_search_title">Recherche Hardcover</string>
     <string name="hardcover_unlink">Dissocier</string>
-    <string name="hardcover_token_missing">Le jeton API Hardcover est manquant</string>
-    <string name="hardcover_configure_token_hint">Pour rechercher et associer des livres, configurez votre jeton API dans Paramètres > Paramètres Hardcover.</string>
     <string name="hardcover_no_popular_books_found">Aucun livre populaire trouvé</string>
     <string name="hardcover_no_books_found">Aucun livre trouvé</string>
     <string name="hardcover_link_book">Associer le livre</string>

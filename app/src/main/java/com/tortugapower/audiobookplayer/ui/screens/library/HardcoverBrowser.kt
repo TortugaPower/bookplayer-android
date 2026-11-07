@@ -120,14 +120,14 @@ fun HardcoverBrowser(
                     modifier = Modifier.padding(24.dp)
                 ) {
                     Text(
-                        text = stringResource(R.string.hardcover_token_missing),
+                        text = stringResource(R.string.hardcover_not_signed_in),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = stringResource(R.string.hardcover_configure_token_hint),
+                        text = stringResource(R.string.hardcover_sign_in_hint),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center

@@ -7,7 +7,6 @@ import com.tortugapower.audiobookplayer.network.HardcoverReadProgress.Skip
 import com.tortugapower.audiobookplayer.network.ReadInProgressData.Edition
 import com.tortugapower.audiobookplayer.network.ReadInProgressData.Read
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 /** iOS `HardcoverReadProgressTests` (the schedule became the Hardcover lane: `HardcoverProgressSyncTest`). */
@@ -23,11 +22,11 @@ class HardcoverReadProgressTest {
     private fun sent(outcome: Outcome) = (outcome as Outcome.Send).progress
 
     @Test fun `25 percent of a 36000 s audiobook is 9000 s`() {
-        assertEquals(HardcoverReadProgress(ProgressUnit.SECONDS, 9_000, null), sent(HardcoverReadProgress.evaluate(25.0, read(audiobook))))
+        assertEquals(HardcoverReadProgress(ProgressUnit.SECONDS, 9_000), sent(HardcoverReadProgress.evaluate(25.0, read(audiobook))))
     }
 
     @Test fun `50 percent of 300 pages is 150`() {
-        assertEquals(HardcoverReadProgress(ProgressUnit.PAGES, 150, null), sent(HardcoverReadProgress.evaluate(50.0, read(print))))
+        assertEquals(HardcoverReadProgress(ProgressUnit.PAGES, 150), sent(HardcoverReadProgress.evaluate(50.0, read(print))))
     }
 
     @Test fun `the format decides the unit, and without one a recording length means audiobook`() {
@@ -37,15 +36,19 @@ class HardcoverReadProgressTest {
         assertEquals(ProgressUnit.SECONDS, sent(HardcoverReadProgress.evaluate(50.0, read(unformatted))).unit)
     }
 
-    @Test fun `a read with no edition takes the fallback and sends its edition_id`() {
-        val progress = sent(HardcoverReadProgress.evaluate(50.0, read(null), listOf(null, audiobook)))
-        assertEquals(HardcoverReadProgress(ProgressUnit.SECONDS, 18_000, editionId = 1), progress)
-        assertEquals(mapOf("progress_seconds" to 18_000, "edition_id" to 1), progress.objectFields)
+    @Test fun `the unit's field is all that's written`() {
+        assertEquals(mapOf("progress_seconds" to 18_000), sent(HardcoverReadProgress.evaluate(50.0, read(audiobook))).objectFields)
+        assertEquals(mapOf("progress_pages" to 150), sent(HardcoverReadProgress.evaluate(50.0, read(print))).objectFields)
     }
 
-    @Test fun `a read's edition with a length is kept, one without is replaced`() {
-        assertNull(sent(HardcoverReadProgress.evaluate(50.0, read(print), listOf(audiobook))).editionId)
-        assertEquals(1, sent(HardcoverReadProgress.evaluate(50.0, read(printWithoutPages), listOf(audiobook))).editionId)
+    @Test fun `no other edition stands in for the read's (iOS)`() {
+        assertEquals(Outcome.Skipped(Skip.NoLength), HardcoverReadProgress.evaluate(50.0, read(null)))
+        assertEquals(Outcome.Skipped(Skip.NoLength), HardcoverReadProgress.evaluate(50.0, read(printWithoutPages)))
+    }
+
+    @Test fun `an edition without a format and no recording length counts in pages`() {
+        val noAudio = Edition(id = 7, pages = 300, audioSeconds = 0, readingFormatId = null)
+        assertEquals(HardcoverReadProgress(ProgressUnit.PAGES, 150), sent(HardcoverReadProgress.evaluate(50.0, read(noAudio))))
     }
 
     @Test fun `nothing at 0 or 100 percent`() {
@@ -53,21 +56,11 @@ class HardcoverReadProgressTest {
         assertEquals(Outcome.Skipped(Skip.OutOfRange), HardcoverReadProgress.evaluate(100.0, read(audiobook)))
     }
 
-    @Test fun `nothing when no edition has a length`() {
-        assertEquals(Outcome.Skipped(Skip.NoLength), HardcoverReadProgress.evaluate(50.0, read(printWithoutPages), listOf(null)))
-    }
-
     @Test fun `nothing when not ahead of the read's progress`() {
         assertEquals(
             Outcome.Skipped(Skip.NotAhead(current = 20_000, value = 18_000)),
             HardcoverReadProgress.evaluate(50.0, read(audiobook, seconds = 20_000))
         )
-    }
-
-    @Test fun `a replaced edition's progress doesn't count`() {
-        // 150 pages on an edition without a length are in another unit: the audiobook starts from 0.
-        val progress = sent(HardcoverReadProgress.evaluate(10.0, read(printWithoutPages, pages = 150), listOf(audiobook)))
-        assertEquals(3_600, progress.value)
     }
 
     @Test fun `kept short of the end - 99,99 percent of 1000 s is 999`() {
@@ -78,16 +71,14 @@ class HardcoverReadProgressTest {
 
     @Test fun `the read in progress answer decodes`() {
         val json = """
-            {"user_books":[{"id":5,"status_id":2,"edition":null,
-              "book":{"default_audio_edition":{"id":1,"pages":null,"audio_seconds":36000,"reading_format_id":2},
-                      "default_ebook_edition":null,"default_physical_edition":null,
-                      "audio_editions":[],"paged_editions":[{"id":2,"pages":300,"audio_seconds":null,"reading_format_id":1}]},
-              "user_book_reads":[{"id":9,"progress_pages":null,"progress_seconds":120,"edition":null}]}]}
+            {"user_books":[{"id":5,"status_id":2,
+              "user_book_reads":[{"id":9,"progress_pages":null,"progress_seconds":120,
+                "edition":{"id":1,"pages":null,"audio_seconds":36000,"reading_format_id":2}}]}]}
         """
         val data = Gson().fromJson(json, ReadInProgressData::class.java)
         val userBook = data.userBooks!!.single()
         assertEquals(2, userBook.statusId)
         assertEquals(120, userBook.userBookReads!!.single().progressSeconds)
-        assertEquals(listOf(audiobook, null, null, null, print), userBook.book!!.defaultEditions)
+        assertEquals(audiobook, userBook.userBookReads!!.single().edition)
     }
 }

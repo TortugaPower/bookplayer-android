@@ -392,13 +392,13 @@ object SyncTaskFactory {
     /**
      * A Currently Reading book's listening percentage (0–100) for its read on Hardcover (HardcoverProgressSync). One
      * task per book: a newer percentage replaces a waiting one's. In the Hardcover lane, so it runs after the status
-     * change that starts the read. A new one waits until [notBefore] (its 30 seconds since the book's last send).
+     * change that starts the read.
      */
-    suspend fun createHardcoverProgressTask(repository: SyncTaskRepository, itemUuid: String, percent: Double, notBefore: Long?) {
+    suspend fun createHardcoverProgressTask(repository: SyncTaskRepository, itemUuid: String, percent: Double) {
         val payload = mapOf("itemUuid" to itemUuid, "percent" to percent)
         val existing = repository.getPendingTaskByTypeAndTaskId(JOB_HARDCOVER_UPDATE_PROGRESS, itemUuid)
         if (existing != null && repository.updatePendingTaskPayload(existing, gson.toJson(payload))) return
-        enqueue(repository, QUEUE_HARDCOVER, JOB_HARDCOVER_UPDATE_PROGRESS, itemUuid, payload, nextAttemptAt = notBefore)
+        enqueue(repository, QUEUE_HARDCOVER, JOB_HARDCOVER_UPDATE_PROGRESS, itemUuid, payload)
     }
 
     /** The book moved where nothing is sent (back to the start, or the end): its waiting percentage is stale. */
@@ -448,9 +448,7 @@ object SyncTaskFactory {
         queueKey: String,
         jobType: String,
         taskId: String,
-        payload: Map<String, Any?>,
-        /** Not to run before this (epoch ms): a task spaced out, not one retrying (its failureStreak stays 0) */
-        nextAttemptAt: Long? = null,
+        payload: Map<String, Any?>
     ) {
         val task = SyncTaskEntity(
             id = UUID.randomUUID().toString(),
@@ -458,8 +456,7 @@ object SyncTaskFactory {
             queueKey = queueKey,
             jobType = jobType,
             position = 0, // assigned at insert (SyncTaskDao.insertAtEnd): a lane runs in stored order
-            payload = gson.toJson(payload),
-            nextAttemptAt = nextAttemptAt,
+            payload = gson.toJson(payload)
         )
         android.util.Log.d("SyncTaskFactory", "📝 Enqueuing task: $jobType into $queueKey queue [TaskID: $taskId]")
         repository.saveTask(task)

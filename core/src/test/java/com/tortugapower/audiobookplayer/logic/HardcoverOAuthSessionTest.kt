@@ -89,7 +89,7 @@ class HardcoverOAuthSessionTest {
 
         assertEquals("invalid_client", e.code)
         assertEquals("only invalid_grant ends the sign-in", "hc_rt_old", store.tokens?.refreshToken)
-        assertTrue("Settings offers Sign In Again", store.tokens!!.refreshRefused)
+        assertTrue("no more refreshes are sent", store.tokens!!.refreshRefused)
     }
 
     @Test fun `a sign-in refused for good sends no more refreshes, and its expired token isn't used`() = runBlocking {

@@ -7,7 +7,9 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
 import com.tortugapower.audiobookplayer.core.CoreContext
+import com.tortugapower.audiobookplayer.network.HardcoverAuthorizationAttempt
 import com.tortugapower.audiobookplayer.network.HardcoverOAuth
 import com.tortugapower.audiobookplayer.network.HardcoverOAuthException
 import com.tortugapower.audiobookplayer.network.HardcoverService
@@ -30,25 +32,30 @@ import java.util.concurrent.atomic.AtomicLong
 
 /** What the Hardcover settings screen shows. */
 data class HardcoverConnection(
-    /** Signed in with OAuth, not an API key. */
+    /** Signed in with OAuth. An API key from an earlier version doesn't count here. */
     val isSignedInWithOAuth: Boolean = false,
     val hasApiKey: Boolean = false,
     /** The connected account's username, once read from `me`. */
     val username: String? = null,
-    /** Only signing in again helps: a scope the app now asks for is missing, or [signInRefused]. */
-    val needsSignInAgain: Boolean = false,
-    /** Hardcover refused to refresh the sign-in for good: it stops working once its token expires. */
-    val signInRefused: Boolean = false,
 ) {
     val isConnected: Boolean get() = isSignedInWithOAuth || hasApiKey
 }
+
+/** The attempt a regular-browser sign-in is waiting on, saved (sealed) so it survives the process. */
+internal data class HardcoverPendingSignIn(
+    @SerializedName("state") val state: String,
+    @SerializedName("codeVerifier") val codeVerifier: String,
+    /** Epoch millis. */
+    @SerializedName("createdAt") val createdAt: Long,
+)
 
 /** The token a request sends, and whether it's an OAuth one (only those are refreshed after a 401). */
 data class HardcoverCredential(val token: String, val isOAuth: Boolean)
 
 /**
- * The connected Hardcover account (iOS `HardcoverService`'s credential half): one at a time, by OAuth sign-in or a
- * pasted API key; a sign-in replaces the key, and OAuth wins when both exist. The OAuth tokens are one value in the
+ * The connected Hardcover account (iOS `HardcoverService`'s credential half): one at a time, by OAuth sign-in. An API
+ * key saved by an earlier version still works, but can't be entered any more (iOS too): a sign-in replaces it, and
+ * OAuth wins when both exist. The OAuth tokens are one value in the
  * settings DataStore, encrypted with the Keystore key [CredentialCipher] holds (iOS: Keychain `hardcover_session`).
  */
 object HardcoverAccount {
@@ -57,6 +64,19 @@ object HardcoverAccount {
     private val SESSION = stringPreferencesKey("hardcover_session")
     private val USER_ID = stringPreferencesKey("hardcover_user_id")
     private val USERNAME = stringPreferencesKey("hardcover_username")
+    private val PENDING_SIGN_IN = stringPreferencesKey("hardcover_pending_sign_in")
+
+    /** How long a sign-in started in a regular browser waits for its return: long enough to type a password. */
+    const val PENDING_SIGN_IN_TTL_MS = 10 * 60_000L
+
+    /**
+     * Seals the saved attempt: its verifier is what makes a code worth anything. Keystore calls, so tests (Robolectric
+     * has no Keystore) swap in plain functions.
+     */
+    @VisibleForTesting
+    internal var sealPending: (String) -> String = CredentialCipher::encrypt
+    @VisibleForTesting
+    internal var openPending: (String) -> String = CredentialCipher::decrypt
 
     private val gson = Gson()
 
@@ -136,8 +156,6 @@ object HardcoverAccount {
             isSignedInWithOAuth = tokens != null,
             hasApiKey = apiKey(prefs[HardcoverSettingsManager.HARDCOVER_TOKEN].orEmpty()).isNotEmpty(),
             username = prefs[USERNAME],
-            needsSignInAgain = tokens?.needsSignInAgain == true,
-            signInRefused = tokens?.refreshRefused == true,
         )
     }
         // Decrypting the session is a Keystore call + AES/GCM: not on the collector's (usually Main) thread,
@@ -191,13 +209,66 @@ object HardcoverAccount {
             is WebAuthResult.Failed -> throw IllegalStateException("Browser failed: ${result.code}")
         }
         val code = HardcoverOAuth.authorizationCode(redirect, attempt)
-        session.signIn(code, attempt.codeVerifier)
+        finishSignIn(code, attempt.codeVerifier)
+        return true
+    }
+
+    /**
+     * Starts a sign-in in a regular browser, for devices where no browser runs the Auth Tab: that browser comes back
+     * through the manifest's `bookplayer://` link, maybe to a new process, so the attempt is saved (sealed) for
+     * [completeBrowserSignIn], replacing any earlier one. Returns the authorize URL to open.
+     */
+    suspend fun beginBrowserSignIn(now: Long = System.currentTimeMillis()): String {
+        val attempt = HardcoverOAuth.makeAuthorization()
+        val pending = HardcoverPendingSignIn(attempt.state, attempt.codeVerifier, now)
+        val sealed = withContext(Dispatchers.Default) { sealPending(gson.toJson(pending)) }
+        context.dataStore.edit { it[PENDING_SIGN_IN] = sealed }
+        return attempt.url
+    }
+
+    /**
+     * Finishes a sign-in [beginBrowserSignIn] started, from the redirect the browser opened. Any app or page can open
+     * that link, so one that isn't the saved attempt's (another `state`, or none saved) is ignored: false, and the saved
+     * attempt keeps waiting for its own. The attempt is used once: it's deleted before the code is exchanged, so the
+     * same redirect delivered again (reopened from recents) is ignored. After [PENDING_SIGN_IN_TTL_MS] it's dropped.
+     * Throws when the redirect is the attempt's but carries an error, or the exchange fails.
+     */
+    suspend fun completeBrowserSignIn(redirect: String, now: Long = System.currentTimeMillis()): Boolean {
+        val state = HardcoverOAuth.queryParameters(redirect)["state"] ?: return false
+        val stored = context.dataStore.data.first()[PENDING_SIGN_IN] ?: return false
+        val pending = withContext(Dispatchers.Default) { decodePending(stored) }
+        var taken = false
+        context.dataStore.edit { prefs ->
+            // Another attempt replaced it, or another delivery took it, since it was read
+            if (prefs[PENDING_SIGN_IN] != stored) return@edit
+            when {
+                pending == null || now - pending.createdAt !in 0..PENDING_SIGN_IN_TTL_MS -> prefs.remove(PENDING_SIGN_IN)
+                pending.state == state -> {
+                    prefs.remove(PENDING_SIGN_IN)
+                    taken = true
+                }
+            }
+        }
+        if (!taken || pending == null) return false
+        val attempt = HardcoverAuthorizationAttempt(url = "", state = pending.state, codeVerifier = pending.codeVerifier)
+        finishSignIn(HardcoverOAuth.authorizationCode(redirect, attempt), pending.codeVerifier)
+        return true
+    }
+
+    private fun decodePending(sealed: String): HardcoverPendingSignIn? {
+        val json = runCatching { openPending(sealed) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
+        return runCatching { gson.fromJson(json, HardcoverPendingSignIn::class.java) }.getOrNull()
+            ?.takeIf { @Suppress("SENSELESS_COMPARISON") (it.state != null && it.codeVerifier != null) }
+    }
+
+    private suspend fun finishSignIn(code: String, codeVerifier: String) {
+        session.signIn(code, codeVerifier)
         clearConnectedUser()
-        // One account at a time: the sign-in replaces an API key.
+        // One account at a time: the sign-in replaces an API key, and a browser sign-in still waiting can't replace it.
         HardcoverSettingsManager.setToken(context, "")
+        context.dataStore.edit { it.remove(PENDING_SIGN_IN) }
         Log.i(TAG, "Signed in to Hardcover")
         fetchConnectedUserId()
-        return true
     }
 
     /** Disconnect: revoke a sign-in and forget the API key and the cached account. */
@@ -206,33 +277,23 @@ object HardcoverAccount {
         // stopped halfway, the key would be gone but the sign-in still stored, and the app would still show connected.
         withContext(NonCancellable) {
             HardcoverSettingsManager.setToken(context, "")
+            // A browser sign-in still waiting can't sign the account back in after the user unlinked it.
+            context.dataStore.edit { it.remove(PENDING_SIGN_IN) }
             session.signOut()
             clearConnectedUser()
+            HardcoverProgressSync.forgetAccount()
         }
         Log.i(TAG, "Disconnected from Hardcover")
     }
 
-    /**
-     * Saves a pasted API key: trimmed and without a leading `Bearer` (older keys were copied with it). The same key
-     * written back by Save isn't another account, so nothing is cleared then.
-     */
-    suspend fun saveApiKey(raw: String) {
-        val key = apiKey(raw)
-        if (key == apiKey(HardcoverSettingsManager.getToken(context).first())) return
-        // The key first: a `me` sent after the clear then can't still be using the old one.
-        HardcoverSettingsManager.setToken(context, key)
-        clearConnectedUser()
-        // The account's id is read when first needed (a new link, a progress update), not here: Save leaves the screen.
-    }
-
-    /** The API key in what the user entered. */
+    /** The API key in what an older version stored. */
     fun apiKey(raw: String): String = raw.trim().replaceFirst(Regex("^(?i)bearer(\\s+|$)"), "").trim()
 
     suspend fun connectedUserId(): String? = context.dataStore.data.first()[USER_ID]
 
     /**
-     * The connected account's user id, read from `me` the first time it's needed: after signing in, after an API key
-     * is saved, or for a connection made before ids were stored. Null when offline. Written as `hostId` on the
+     * The connected account's user id, read from `me` the first time it's needed: after signing in, or for a
+     * connection made before ids were stored. Null when offline. Written as `hostId` on the
      * Hardcover links it makes, so a later version can tell accounts apart.
      */
     suspend fun fetchConnectedUserId(): String? = try {

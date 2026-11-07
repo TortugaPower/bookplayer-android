@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.tortugapower.audiobookplayer.logic.HardcoverAccount
+import com.tortugapower.audiobookplayer.logic.HardcoverBrowserSignIn
 import com.tortugapower.audiobookplayer.logic.HardcoverConnection
 import com.tortugapower.audiobookplayer.network.HardcoverOAuth
 import com.tortugapower.audiobookplayer.ui.screens.settings.connection.AuthTabWebAuthenticator
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -32,13 +34,17 @@ class HardcoverSettingsViewModel(application: Application) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val _isSigningIn = MutableStateFlow(false)
-    val isSigningIn: StateFlow<Boolean> = _isSigningIn.asStateFlow()
+    /** An Auth Tab sign-in here, or a regular-browser one (process-wide: [HardcoverBrowserSignIn]). */
+    val isSigningIn: StateFlow<Boolean> = combine(_isSigningIn, HardcoverBrowserSignIn.state) { authTab, browser ->
+        authTab || browser != HardcoverBrowserSignIn.State.Idle
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     private val _signInFailed = MutableStateFlow(false)
-    val signInFailed: StateFlow<Boolean> = _signInFailed.asStateFlow()
+    val signInFailed: StateFlow<Boolean> = combine(_signInFailed, HardcoverBrowserSignIn.failed) { a, b -> a || b }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /**
-     * The Auth Tab leg, or null when no browser on the device can run it (only API keys are offered then). It lives
+     * The Auth Tab leg, or null when no browser on the device can run it (a regular browser signs in then). It lives
      * here, not in the screen, so a sign-in survives the Activity being recreated while the Auth Tab covers it: the
      * new screen's launcher delivers to the same authenticator the sign-in is waiting on. Built from the Application
      * context, so it never holds an Activity.
@@ -46,9 +52,13 @@ class HardcoverSettingsViewModel(application: Application) : ViewModel() {
     private var webAuthenticator: AuthTabWebAuthenticator? = null
     private var attachedLauncher: ActivityResultLauncher<Intent>? = null
 
-    private val _canSignIn = MutableStateFlow(false)
-    /** BookPlayer's Hardcover app is registered (a client id) and a browser can run the Auth Tab. */
-    val canSignIn: StateFlow<Boolean> = _canSignIn.asStateFlow()
+    private val _canSignIn = MutableStateFlow<Boolean?>(null)
+    /**
+     * BookPlayer's Hardcover app is registered (a client id) and a browser can sign in: in the Auth Tab, else as a
+     * regular browser ([HardcoverBrowserSignIn]). Null until the browser lookup is done, so the screen shows neither the
+     * button nor why there's none before it knows.
+     */
+    val canSignIn: StateFlow<Boolean?> = _canSignIn.asStateFlow()
 
     init {
         if (HardcoverOAuth.isAvailable) {
@@ -59,8 +69,12 @@ class HardcoverSettingsViewModel(application: Application) : ViewModel() {
                     // The screen may have attached its launcher before this lookup finished.
                     webAuthenticator = AuthTabWebAuthenticator(application, provider).also { it.launcher = attachedLauncher }
                     _canSignIn.value = true
+                } else {
+                    _canSignIn.value = withContext(Dispatchers.Default) { HardcoverBrowserSignIn.isBrowserAvailable(application) }
                 }
             }
+        } else {
+            _canSignIn.value = false
         }
     }
 
@@ -85,14 +99,16 @@ class HardcoverSettingsViewModel(application: Application) : ViewModel() {
     }
 
     fun signIn() {
-        val authenticator = webAuthenticator ?: return
-        if (_isSigningIn.value) return
+        if (isSigningIn.value || _canSignIn.value != true) return
+        val authenticator = webAuthenticator ?: return HardcoverBrowserSignIn.start()
         _isSigningIn.value = true
         viewModelScope.launch {
             try {
-                // The shared (not ephemeral) browser session, so a browser signed in to Hardcover isn't asked again.
+                // A private browser session (iOS): with the shared one, Hardcover's website stays logged in after Log out,
+                // so signing in goes straight back to the same account. Hardcover has no `prompt` to force its login
+                // form. A browser without private Auth Tabs falls back to its shared session.
                 HardcoverAccount.signIn { url ->
-                    authenticator.authenticate(url, HardcoverOAuth.CALLBACK_SCHEME, ephemeral = false)
+                    authenticator.authenticate(url, HardcoverOAuth.CALLBACK_SCHEME, ephemeral = true)
                 }
                 // Closed by the user (false): nothing to report.
             } catch (e: CancellationException) {
@@ -109,9 +125,15 @@ class HardcoverSettingsViewModel(application: Application) : ViewModel() {
 
     fun dismissSignInFailure() {
         _signInFailed.value = false
+        HardcoverBrowserSignIn.dismissFailure()
     }
 
-    /** Revokes a sign-in and forgets the API key. */
+    /** The screen left for the browser, or came back: see [HardcoverBrowserSignIn.onScreenResumed]. */
+    fun onScreenPaused() = HardcoverBrowserSignIn.onScreenPaused()
+
+    fun onScreenResumed() = HardcoverBrowserSignIn.onScreenResumed()
+
+    /** Revokes the sign-in, and forgets an API key an earlier version saved. */
     fun unlink() {
         viewModelScope.launch { HardcoverAccount.disconnect() }
     }

@@ -26,7 +26,7 @@ class HardcoverProgressUpdateTest {
     private val written = mutableListOf<Pair<Int, HardcoverReadProgress>>()
 
     private fun userBook(statusId: Int = 2, reads: List<Read> = listOf(Read(9, null, 3_600, audiobook))) =
-        UserBook(id = 5, statusId = statusId, edition = null, book = null, userBookReads = reads)
+        UserBook(id = 5, statusId = statusId, userBookReads = reads)
 
     private fun update(percent: Double = 25.0) = runBlocking {
         HardcoverProgressUpdate(
@@ -41,7 +41,7 @@ class HardcoverProgressUpdateTest {
     @Test fun `a Currently Reading book's progress is written on its read`() {
         assertEquals(HardcoverProgressResult.Sent, update(25.0))
         assertEquals(listOf(42 to 77), asked)
-        assertEquals(listOf(9 to HardcoverReadProgress(HardcoverReadProgress.ProgressUnit.SECONDS, 9_000, null)), written)
+        assertEquals(listOf(9 to HardcoverReadProgress(HardcoverReadProgress.ProgressUnit.SECONDS, 9_000)), written)
     }
 
     @Test fun `a sign-in without read library sends nothing`() {

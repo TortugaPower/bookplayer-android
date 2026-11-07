@@ -8,6 +8,7 @@ import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.logic.HardcoverProgressChanges
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -866,11 +867,11 @@ class SyncingLibraryRepositoryTest {
         delegate: FakeLibraryRepository,
         tasks: FakeSyncTaskRepository,
         connected: Boolean = true,
-        notBefore: Long? = null,
+        changes: HardcoverProgressChanges = HardcoverProgressChanges(),
     ) = SyncingLibraryRepository(
         delegate, tasks, FakeAccountRepository(AccountTier.FREE),
         hardcoverConnected = { connected },
-        hardcoverNotBefore = { notBefore },
+        hardcoverChanges = changes,
     )
 
     private fun hardcoverBook(status: String, percent: Double = 0.4, vararg others: ExternalResourceEntity): FakeLibraryRepository {
@@ -915,13 +916,20 @@ class SyncingLibraryRepositoryTest {
     }
 
     @Test
-    fun hardcoverProgress_waitsForItsThirtySecondsSinceTheBooksLastSend() = runBlocking {
+    fun hardcoverProgress_isQueuedOnlyWhenItsWholePercentageChanges() = runBlocking {
         val tasks = FakeSyncTaskRepository()
-        hardcoverRepository(hardcoverBook("reading"), tasks, notBefore = 1_234_000L).savePlaybackProgress("book-1", 40.0, reachedEnd = false)
+        val delegate = hardcoverBook("reading", 0.402)
+        val repository = hardcoverRepository(delegate, tasks)
 
-        val progress = tasks.tasks.single { it.jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS }
-        assertEquals(1_234_000L, progress.nextAttemptAt)
-        assertEquals(0, progress.failureStreak)
+        repository.savePlaybackProgress("book-1", 40.2, reachedEnd = false)
+        tasks.tasks.clear()
+        delegate.items["book-1"]!!.percentCompleted = 0.409
+        repository.savePlaybackProgress("book-1", 40.9, reachedEnd = false)
+        assertTrue("same whole percentage", tasks.tasks.none { it.jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS })
+
+        delegate.items["book-1"]!!.percentCompleted = 0.41
+        repository.savePlaybackProgress("book-1", 41.0, reachedEnd = false)
+        assertEquals(41.0, percentOf(tasks.tasks.single { it.jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS }), 1e-9)
     }
 
     @Test

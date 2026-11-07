@@ -11,16 +11,19 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.dao.LibraryDao
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.network.HardcoverBook
+import com.tortugapower.audiobookplayer.network.HardcoverLibraryEntry
 import com.tortugapower.audiobookplayer.network.HardcoverService
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
 class HardcoverProcessor(
     private val context: Context,
     // Test seams: these reach Hardcover over the network.
     private val searchBooks: suspend (query: String) -> List<HardcoverBook> = HardcoverService::searchBooks,
-    private val saveUserBookStatus: suspend (bookId: Int, statusId: Int) -> Int? = HardcoverService::saveUserBookStatus,
+    private val saveUserBookStatus: suspend (bookId: Int, statusId: Int, editionId: Int?) -> Int? = HardcoverService::saveUserBookStatus,
+    private val libraryEntry: suspend (userId: Int, bookId: Int) -> HardcoverLibraryEntry? = HardcoverService::libraryEntry,
     /** The connected account's Hardcover user id, written as new links' `hostId`; null offline (fine). */
     private val connectedUserId: suspend () -> String? = HardcoverAccount::fetchConnectedUserId,
     private val downloadArtwork: (Context, String, java.io.File) -> Boolean = ArtworkManager::downloadAndSaveArtwork,
@@ -70,11 +73,11 @@ class HardcoverProcessor(
                 try {
                     val hardcoverBookId = resource.providerId.toIntOrNull()
                     if (hardcoverBookId != null) {
-                        val userBookId = saveUserBookStatus(hardcoverBookId, statusId)
+                        val userBookId = saveStatus(hardcoverBookId, statusId)
                         if (userBookId != null) {
                             Log.d("HardcoverProcessor", "Successfully updated Hardcover status (userBookId: $userBookId)")
                         } else {
-                            Log.e("HardcoverProcessor", "Failed to update status on Hardcover (saveUserBookStatus returned null)")
+                            Log.e("HardcoverProcessor", "Failed to update status on Hardcover (no entry returned)")
                         }
                     } else {
                         Log.e("HardcoverProcessor", "Invalid providerId format: ${resource.providerId}")
@@ -171,12 +174,29 @@ class HardcoverProcessor(
                 return
             }
             try {
-                val userBookId = saveUserBookStatus(bookId, 1)
+                val userBookId = saveStatus(bookId, 1)
                 if (userBookId == null) Log.e("HardcoverProcessor", "Failed to add '${item.title}' to Hardcover Want to Read")
             } catch (e: Exception) {
                 Log.e("HardcoverProcessor", "Error registering matched book as Want to Read", e)
             }
         }
+    }
+
+    /**
+     * Adds the book to the user's Hardcover library, or sets its status there (iOS `insertUserBook`). A book they don't
+     * have yet goes in as its audiobook edition; one they have keeps its own.
+     */
+    private suspend fun saveStatus(bookId: Int, statusId: Int): Int? =
+        saveUserBookStatus(bookId, statusId, editionForNewEntry(bookId))
+
+    /** Null when the user already has the book, it has no audiobook edition, or the lookup fails: Hardcover picks then. */
+    private suspend fun editionForNewEntry(bookId: Int): Int? = try {
+        connectedUserId()?.toIntOrNull()?.let { libraryEntry(it, bookId)?.editionForNewEntry }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.e("HardcoverProcessor", "Failed to look up book $bookId before adding it to Hardcover: ${e.javaClass.simpleName}")
+        null
     }
 
     override fun canHandle(jobType: String): Boolean {

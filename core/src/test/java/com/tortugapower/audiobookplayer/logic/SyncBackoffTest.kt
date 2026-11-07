@@ -59,18 +59,14 @@ class SyncBackoffTest {
         assertTrue(SyncBackoff.isDue(now + SyncBackoff.MAX_DELAY_MS + 1, now))
     }
 
-    @Test fun onlyAPendingTaskWithAWaitAfterAFailure_isWaitingToRetry() {
+    @Test fun onlyAPendingTaskWithAWait_isWaitingToRetry() {
         val task = SyncTaskEntity(id = "t", taskID = "t", queueKey = "sync", jobType = "move", position = 0, payload = "{}")
         assertFalse(task.isWaitingToRetry)
-        assertTrue(task.copy(nextAttemptAt = 5L, failureStreak = 1).isWaitingToRetry)
-        assertFalse(
-            "spaced out, not failed (a Hardcover progress waiting for its 30 seconds)",
-            task.copy(nextAttemptAt = 5L).isWaitingToRetry,
-        )
-        assertFalse("running", task.copy(nextAttemptAt = 5L, failureStreak = 1, status = SyncTaskStatus.RUNNING).isWaitingToRetry)
+        assertTrue(task.copy(nextAttemptAt = 5L).isWaitingToRetry)
+        assertFalse("running", task.copy(nextAttemptAt = 5L, status = SyncTaskStatus.RUNNING).isWaitingToRetry)
         assertFalse(
             "parked: its own Retry resumes it",
-            task.copy(nextAttemptAt = 5L, failureStreak = 1, status = SyncTaskStatus.FAILED, pauseScope = "TASK").isWaitingToRetry,
+            task.copy(nextAttemptAt = 5L, status = SyncTaskStatus.FAILED, pauseScope = "TASK").isWaitingToRetry,
         )
     }
 }
