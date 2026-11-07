@@ -51,6 +51,7 @@ object TaskAccessPolicy {
 
         if (jobType == SyncTaskFactory.JOB_HARDCOVER_AUTO_MATCH || 
             jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_STATUS ||
+            jobType == SyncTaskFactory.JOB_HARDCOVER_UPDATE_PROGRESS ||
             jobType == SyncTaskFactory.JOB_EXTERNAL_UPDATE) {
             return true
         }

@@ -217,6 +217,7 @@
     <string name="sync_task_delete_external_resource">Elimina risorsa esterna</string>
     <string name="sync_task_hardcover_auto_match">Associazione automatica Hardcover</string>
     <string name="sync_task_hardcover_update_status">Aggiorna stato Hardcover</string>
+    <string name="sync_task_hardcover_update_progress">Aggiorna progresso Hardcover</string>
     <string name="sync_task_external_update">Aggiornamento stato esterno</string>
 
     <!-- Profile Stats -->
@@ -259,10 +260,6 @@
 
     <!-- Hardcover Settings -->
     <string name="hardcover_settings_title">Impostazioni Hardcover</string>
-    <string name="hardcover_api_access_section">Accesso API</string>
-    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
-    <string name="hardcover_api_access_hint">Puoi trovare il tuo accesso API di Hardcover su %1$s.</string>
-    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
     <string name="hardcover_automation_section">Automazione</string>
     <string name="hardcover_auto_match_books">Abbina automaticamente i libri</string>
     <string name="hardcover_auto_add_want_to_read">Aggiungi automaticamente a "Voglio leggere"</string>
@@ -271,6 +268,18 @@
     <string name="hardcover_reading_threshold">Soglia di lettura</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">Imposta la percentuale minima di progresso richiesta prima che un libro venga contrassegnato come "In lettura" nella tua libreria Hardcover.</string>
+    <string name="hardcover_account_title">Account</string>
+    <string name="hardcover_sign_in_button">Accedi con Hardcover</string>
+    <string name="hardcover_signing_in">Accesso con Hardcover…</string>
+    <string name="hardcover_sign_in_unavailable">Per accedere a Hardcover serve un browser web su questo dispositivo.</string>
+    <string name="hardcover_sign_in_title">Collegati a Hardcover</string>
+    <string name="hardcover_sign_in_message">Accedi al tuo account Hardcover per abbinare i tuoi libri, aggiungerli alla tua libreria Hardcover e aggiornare i tuoi progressi di lettura mentre ascolti.</string>
+    <string name="hardcover_not_signed_in">Accesso a Hardcover non effettuato</string>
+    <string name="hardcover_sign_in_hint">Per cercare e collegare libri, accedi a Hardcover in Impostazioni &gt; Impostazioni Hardcover.</string>
+    <string name="hardcover_connected">Connesso a Hardcover</string>
+    <string name="hardcover_connected_as">Connesso come %1$s</string>
+    <string name="hardcover_sign_in_failed_title">Impossibile accedere</string>
+    <string name="hardcover_sign_in_failed_message">Hardcover non ha completato l\'accesso. Riprova.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">Server multimediali</string>
@@ -359,8 +368,6 @@
     <!-- Hardcover Browser -->
     <string name="hardcover_search_title">Ricerca Hardcover</string>
     <string name="hardcover_unlink">Scollega</string>
-    <string name="hardcover_token_missing">Token API Hardcover mancante</string>
-    <string name="hardcover_configure_token_hint">Per cercare e collegare libri, configura il tuo token API in Impostazioni > Impostazioni Hardcover.</string>
     <string name="hardcover_no_popular_books_found">Nessun libro popolare trovato</string>
     <string name="hardcover_no_books_found">Nessun libro trovato</string>
     <string name="hardcover_link_book">Collega libro</string>

@@ -13,6 +13,7 @@ Please note we have a code of conduct, please follow it in all your interactions
 2. Copy `local.properties.example` to `local.properties` and fill in the values you need. Every key is optional for local development and is also read from the environment, so you can leave the file uncommitted and inject values via env vars in CI:
    - `DEV_BASE_URL` — defaults to `http://10.0.2.2:5003` (the emulator's alias for your host's localhost), so the `dev` flavor builds with no setup.
    - `GOOGLE_CLIENT_ID`, `SENTRY_DSN`, `REVENUECAT_API_KEY` — only needed to exercise Google Sign-In, crash reporting, or purchases.
+   - `HARDCOVER_CLIENT_ID` — the public client id of a Hardcover OAuth app with the redirect `bookplayer://hardcover/callback`; only needed for "Sign In with Hardcover" (API keys work without it).
 3. Select the **devDebug** build variant and run. Release signing is optional and only needed to produce signed builds — see `keystore.properties.example`.
 
 ## Reporting a bug

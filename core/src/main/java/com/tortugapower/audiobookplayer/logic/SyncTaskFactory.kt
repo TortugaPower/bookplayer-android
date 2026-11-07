@@ -60,6 +60,7 @@ object SyncTaskFactory {
     const val JOB_MATCH_UUIDS = "match_uuids"
     const val JOB_HARDCOVER_AUTO_MATCH = "hardcover_auto_match"
     const val JOB_HARDCOVER_UPDATE_STATUS = "hardcover_update_status"
+    const val JOB_HARDCOVER_UPDATE_PROGRESS = "hardcover_update_progress"
     const val JOB_UPLOAD_EXTERNAL_RESOURCE = "upload_external_resource"
     const val JOB_DELETE_EXTERNAL_RESOURCE = "delete_external_resource"
     const val JOB_EXTERNAL_UPDATE = "external_update"
@@ -386,6 +387,23 @@ object SyncTaskFactory {
         } else {
             enqueue(repository, queueKey, JOB_EXTERNAL_UPDATE, taskId, payload)
         }
+    }
+
+    /**
+     * A Currently Reading book's listening percentage (0–100) for its read on Hardcover (HardcoverProgressSync). One
+     * task per book: a newer percentage replaces a waiting one's. In the Hardcover lane, so it runs after the status
+     * change that starts the read.
+     */
+    suspend fun createHardcoverProgressTask(repository: SyncTaskRepository, itemUuid: String, percent: Double) {
+        val payload = mapOf("itemUuid" to itemUuid, "percent" to percent)
+        val existing = repository.getPendingTaskByTypeAndTaskId(JOB_HARDCOVER_UPDATE_PROGRESS, itemUuid)
+        if (existing != null && repository.updatePendingTaskPayload(existing, gson.toJson(payload))) return
+        enqueue(repository, QUEUE_HARDCOVER, JOB_HARDCOVER_UPDATE_PROGRESS, itemUuid, payload)
+    }
+
+    /** The book moved where nothing is sent (back to the start, or the end): its waiting percentage is stale. */
+    suspend fun dropHardcoverProgressTask(repository: SyncTaskRepository, itemUuid: String) {
+        repository.getPendingTaskByTypeAndTaskId(JOB_HARDCOVER_UPDATE_PROGRESS, itemUuid)?.let { repository.deleteTask(it) }
     }
 
     /**
