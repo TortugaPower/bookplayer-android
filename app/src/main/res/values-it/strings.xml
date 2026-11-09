@@ -268,8 +268,6 @@
     <string name="hardcover_reading_threshold">Soglia di lettura</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">Imposta la percentuale minima di progresso richiesta prima che un libro venga contrassegnato come "In lettura" nella tua libreria Hardcover.</string>
-    <string name="hardcover_account_title">Account</string>
-    <string name="hardcover_sign_in_button">Accedi con Hardcover</string>
     <string name="hardcover_signing_in">Accesso con Hardcover…</string>
     <string name="hardcover_sign_in_unavailable">Per accedere a Hardcover serve un browser web su questo dispositivo.</string>
     <string name="hardcover_sign_in_title">Collegati a Hardcover</string>
@@ -277,8 +275,6 @@
     <string name="hardcover_not_signed_in">Accesso a Hardcover non effettuato</string>
     <string name="hardcover_sign_in_hint">Per cercare e collegare libri, accedi a Hardcover in Impostazioni &gt; Impostazioni Hardcover.</string>
     <string name="hardcover_connected">Connesso a Hardcover</string>
-    <string name="hardcover_connected_as">Connesso come %1$s</string>
-    <string name="hardcover_sign_in_failed_title">Impossibile accedere</string>
     <string name="hardcover_sign_in_failed_message">Hardcover non ha completato l\'accesso. Riprova.</string>
 
     <!-- Media Servers -->

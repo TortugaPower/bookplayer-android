@@ -88,6 +88,14 @@ object HardcoverProgressSync {
     /** No answer (offline throws an IOException, retried as is), a timeout, rate limited or down. */
     internal fun isWorthRetrying(status: Int): Boolean = status == 0 || status == 408 || status == 429 || status >= 500
 
+    /** A Hardcover failure that may go away on its own (see [send]): the queued task is retried, not dropped. */
+    internal fun isTemporary(e: Throwable): Boolean = when (e) {
+        is HardcoverService.HardcoverRequestException -> isWorthRetrying(e.status)
+        is HardcoverOAuthException -> e.isTemporary
+        is IOException -> true
+        else -> false
+    }
+
 }
 
 /**

@@ -266,8 +266,6 @@
     <string name="hardcover_reading_threshold">阅读阈值</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">设置在 Hardcover 库中将书籍标记为正在阅读所需的最低进度百分比。</string>
-    <string name="hardcover_account_title">账户</string>
-    <string name="hardcover_sign_in_button">使用 Hardcover 登录</string>
     <string name="hardcover_signing_in">正在使用 Hardcover 登录…</string>
     <string name="hardcover_sign_in_unavailable">登录 Hardcover 需要此设备上有网页浏览器。</string>
     <string name="hardcover_sign_in_title">连接 Hardcover</string>
@@ -275,8 +273,6 @@
     <string name="hardcover_not_signed_in">未登录 Hardcover</string>
     <string name="hardcover_sign_in_hint">要搜索和关联图书，请在“设置 &gt; Hardcover 设置”中登录 Hardcover。</string>
     <string name="hardcover_connected">已连接到 Hardcover</string>
-    <string name="hardcover_connected_as">已作为 %1$s 连接</string>
-    <string name="hardcover_sign_in_failed_title">无法登录</string>
     <string name="hardcover_sign_in_failed_message">Hardcover 未完成登录。请重试。</string>
 
     <!-- Media Servers -->

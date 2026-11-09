@@ -203,6 +203,29 @@ class HardcoverAutoMatchTest {
         assertTrue(runCatching { failing.process(task) }.exceptionOrNull() is java.io.IOException)
     }
 
+    // The link says `reading` before this runs: dropped while offline, Hardcover would never start the read.
+    @Test fun `a status change Hardcover may get over is retried, any other failure dropped`() = runBlocking {
+        insert("r", "Rho")
+        dao.insertExternalResource(ExternalResourceEntity(providerName = "hardcover", providerId = "900", syncStatus = "reading", libraryItemUuid = "r"))
+        entries[900] = entry(hasBook = true)
+        fun failing(error: Exception) = HardcoverProcessor(
+            context,
+            saveUserBookStatus = { _, _, _ -> throw error },
+            libraryEntry = { _, bookId -> entries[bookId]!! },
+            connectedUserId = { "4242" },
+        )
+
+        for (error in listOf(
+            java.io.IOException("offline"),
+            com.tortugapower.audiobookplayer.network.HardcoverService.HardcoverRequestException(429, "busy"),
+            com.tortugapower.audiobookplayer.network.HardcoverService.HardcoverRequestException(503, "down"),
+        )) {
+            assertTrue(runCatching { failing(error).process(statusTask("r", 2)) }.exceptionOrNull() === error)
+        }
+        assertTrue(failing(com.tortugapower.audiobookplayer.network.HardcoverService.HardcoverRequestException(400, "bad")).process(statusTask("r", 2)))
+        assertTrue(failing(IllegalStateException("unreadable")).process(statusTask("r", 2)))
+    }
+
     // iOS: Hardcover would add it as the print edition, and listening would count as its pages.
     @Test fun `a book the user doesn't have goes in as its audiobook edition`() = runBlocking {
         HardcoverSettingsManager.setAutoAddToWantToRead(context, true)

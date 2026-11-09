@@ -87,7 +87,7 @@ fun HardcoverSettingsScreen(
     if (signInFailed) {
         AlertDialog(
             onDismissRequest = viewModel::dismissSignInFailure,
-            title = { Text(stringResource(R.string.hardcover_sign_in_failed_title)) },
+            title = { Text(stringResource(R.string.common_error)) },
             text = { Text(stringResource(R.string.hardcover_sign_in_failed_message)) },
             confirmButton = {
                 TextButton(onClick = viewModel::dismissSignInFailure) { Text(stringResource(R.string.common_ok)) }
@@ -337,12 +337,17 @@ private fun SignInButton(isSigningIn: Boolean, onSignIn: () -> Unit) {
             .fillMaxWidth()
             .heightIn(min = 56.dp),
         shape = RoundedCornerShape(28.dp),
+        // Signing in keeps the button's look, as iOS keeps its tint: the default disabled grey reads as broken
+        colors = ButtonDefaults.buttonColors(
+            disabledContainerColor = MaterialTheme.colorScheme.primary,
+            disabledContentColor = MaterialTheme.colorScheme.onPrimary,
+        ),
     ) {
         // Both labels are always laid out, one hidden, so switching doesn't resize the button; the small
         // spinner is shorter than a line of text.
         Box(contentAlignment = Alignment.Center) {
             Text(
-                text = stringResource(R.string.hardcover_sign_in_button),
+                text = stringResource(R.string.profile_sign_in),
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
@@ -396,7 +401,7 @@ private fun LogOutButton(onClick: () -> Unit) {
 @Composable
 private fun SignedInSection(username: String?) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionTitle(stringResource(R.string.hardcover_account_title))
+        SectionTitle(stringResource(R.string.profile_account))
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -404,10 +409,8 @@ private fun SignedInSection(username: String?) {
         ) {
             ListItem(
                 headlineContent = {
-                    Text(
-                        if (username != null) stringResource(R.string.hardcover_connected_as, username)
-                        else stringResource(R.string.hardcover_connected)
-                    )
+                    // The plain username (iOS); before `me` has been read (offline at sign-in), just that it's connected
+                    Text(username ?: stringResource(R.string.hardcover_connected))
                 },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             )

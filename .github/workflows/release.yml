@@ -32,7 +32,7 @@
 #      PROD_BASE_URL               \
 #      GOOGLE_CLIENT_ID             > same values as local.properties
 #      REVENUECAT_API_KEY          /
-#      HARDCOVER_CLIENT_ID         Hardcover OAuth app's public client id (empty hides its sign-in)
+#      HARDCOVER_CLIENT_ID         Hardcover OAuth app's public client id (required: without it Hardcover can't sign in)
 #      SENTRY_DSN
 #      SENTRY_AUTH_TOKEN           Sentry token (project:releases) — R8 mapping upload to Sentry
 #

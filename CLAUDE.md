@@ -396,6 +396,8 @@ browserdrop/               # standalone library (no :core/:app deps), package co
       an hour on a 10-hour book). Measured against the read's own edition only: one without a length gets nothing
       (iOS; the edition on a read is the user's), only forward and short of the end (`HardcoverReadProgress`).
       Offline, timeouts, 429 and 5xx retry with the engine's backoff (iOS drops them); anything else is dropped.
+      The status change retries the same failures: the link says `reading` before it's sent, so a dropped one
+      would never start the read, and every progress send for the book would find none.
       Log out drops the queued progress and what was sent, so the next account gets each book's again.
       Hardcover failures never touch playback.
     - A book added to the user's Hardcover library (a status change, auto-add to Want to Read) goes in as its

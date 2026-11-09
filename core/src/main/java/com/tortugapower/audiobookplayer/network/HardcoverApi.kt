@@ -252,15 +252,9 @@ object HardcoverService {
             editionId?.let { put("edition_id", it) }
         }
 
-        return try {
-            execute(graphQLQuery, mapOf("object" to bookObject))
-                ?.getAsJsonObject("insert_user_book")?.get("id")?.asInt
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            android.util.Log.e(TAG, "Error saving user book status", e)
-            null
-        }
+        // Throws its failures: the status task retries the ones Hardcover may get over (progress waits behind it)
+        return execute(graphQLQuery, mapOf("object" to bookObject))
+            ?.getAsJsonObject("insert_user_book")?.get("id")?.asInt
     }
 
     /** Whether the user already has the book, and its audiobook editions with a duration; throws when it can't tell. */

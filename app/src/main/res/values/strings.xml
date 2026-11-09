@@ -501,8 +501,6 @@
     <string name="hardcover_reading_threshold">Reading threshold</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">Sets the minimum progress percentage required before a book is marked as Currently Reading in your Hardcover library.</string>
-    <string name="hardcover_account_title">Account</string>
-    <string name="hardcover_sign_in_button">Sign In with Hardcover</string>
     <string name="hardcover_signing_in">Signing In with Hardcover…</string>
     <string name="hardcover_sign_in_unavailable">Signing in to Hardcover needs a web browser on this device.</string>
     <string name="hardcover_sign_in_title">Connect to Hardcover</string>
@@ -510,8 +508,6 @@
     <string name="hardcover_not_signed_in">Not signed in to Hardcover</string>
     <string name="hardcover_sign_in_hint">To search and link books, sign in to Hardcover in Settings &gt; Hardcover Settings.</string>
     <string name="hardcover_connected">Connected to Hardcover</string>
-    <string name="hardcover_connected_as">Connected as %1$s</string>
-    <string name="hardcover_sign_in_failed_title">Couldn\'t Sign In</string>
     <string name="hardcover_sign_in_failed_message">Hardcover didn\'t complete the sign-in. Try again.</string>
 
     <!-- Media Servers -->

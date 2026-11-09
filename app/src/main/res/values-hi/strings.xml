@@ -268,8 +268,6 @@
     <string name="hardcover_reading_threshold">पढ़ने की सीमा</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">अपनी Hardcover लाइब्रेरी में किसी पुस्तक को अभी पढ़ रहे हैं के रूप में चिह्नित करने के लिए आवश्यक न्यूनतम प्रगति प्रतिशत निर्धारित करता है।</string>
-    <string name="hardcover_account_title">खाता</string>
-    <string name="hardcover_sign_in_button">Hardcover से साइन इन करें</string>
     <string name="hardcover_signing_in">Hardcover से साइन इन हो रहा है…</string>
     <string name="hardcover_sign_in_unavailable">Hardcover में साइन इन करने के लिए इस डिवाइस पर एक वेब ब्राउज़र होना चाहिए।</string>
     <string name="hardcover_sign_in_title">Hardcover से कनेक्ट करें</string>
@@ -277,8 +275,6 @@
     <string name="hardcover_not_signed_in">Hardcover में साइन इन नहीं है</string>
     <string name="hardcover_sign_in_hint">किताबें खोजने और लिंक करने के लिए, सेटिंग्स &gt; Hardcover सेटिंग्स में Hardcover में साइन इन करें।</string>
     <string name="hardcover_connected">Hardcover से कनेक्टेड</string>
-    <string name="hardcover_connected_as">%1$s के रूप में कनेक्टेड</string>
-    <string name="hardcover_sign_in_failed_title">साइन इन नहीं हो सका</string>
     <string name="hardcover_sign_in_failed_message">Hardcover ने साइन-इन पूरा नहीं किया। फिर से कोशिश करें।</string>
 
     <!-- Media Servers -->

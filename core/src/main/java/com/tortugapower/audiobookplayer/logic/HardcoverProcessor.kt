@@ -68,8 +68,10 @@ class HardcoverProcessor(
                 }
 
                 Log.d("HardcoverProcessor", "Updating Hardcover status for book ID ${resource.providerId} to status $statusId")
-                // Hardcover status updates are fire-and-forget on iOS (log the failure, don't
-                // retry); mirror that by discarding the task on any failure.
+                // The link already says `reading`/`read`, so this task is the only send: a failure Hardcover may get
+                // over (offline, a timeout, rate limited, down) throws for the engine to retry. Dropped, Hardcover
+                // would never start the read and every progress send for the book would find none. Anything else
+                // is dropped (iOS drops every failure, but records the status only once sent).
                 try {
                     val hardcoverBookId = resource.providerId.toIntOrNull()
                     if (hardcoverBookId != null) {
@@ -82,8 +84,11 @@ class HardcoverProcessor(
                     } else {
                         Log.e("HardcoverProcessor", "Invalid providerId format: ${resource.providerId}")
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    Log.e("HardcoverProcessor", "Exception updating hardcover status", e)
+                    if (HardcoverProgressSync.isTemporary(e)) throw e
+                    Log.e("HardcoverProcessor", "Hardcover refused the status change: ${e.javaClass.simpleName}")
                 }
                 true
             }

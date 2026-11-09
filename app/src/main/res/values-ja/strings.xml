@@ -218,7 +218,7 @@
     <string name="sync_task_delete_external_resource">外部リソースの削除</string>
     <string name="sync_task_hardcover_auto_match">Hardcover 自動マッチング</string>
     <string name="sync_task_hardcover_update_status">Hardcover ステータスの更新</string>
-    <string name="sync_task_hardcover_update_progress">Hardcover の進捗の更新</string>
+    <string name="sync_task_hardcover_update_progress">Hardcoverの進捗の更新</string>
     <string name="sync_task_external_update">外部ステータスの更新</string>
 
     <!-- Profile Stats -->
@@ -266,17 +266,13 @@
     <string name="hardcover_reading_threshold">読書しきい値</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">Hardcoverライブラリで本を読書中にするために必要な最小進捗率を設定します。</string>
-    <string name="hardcover_account_title">アカウント</string>
-    <string name="hardcover_sign_in_button">Hardcoverでサインイン</string>
     <string name="hardcover_signing_in">Hardcoverでサインイン中…</string>
-    <string name="hardcover_sign_in_unavailable">Hardcover にサインインするには、このデバイスに Web ブラウザが必要です。</string>
-    <string name="hardcover_sign_in_title">Hardcover に接続</string>
-    <string name="hardcover_sign_in_message">Hardcover アカウントにサインインすると、本の照合、Hardcover ライブラリへの追加、聴きながらの読書の進捗の更新ができます。</string>
-    <string name="hardcover_not_signed_in">Hardcover にサインインしていません</string>
-    <string name="hardcover_sign_in_hint">本を検索してリンクするには、設定 &gt; Hardcover 設定で Hardcover にサインインしてください。</string>
+    <string name="hardcover_sign_in_unavailable">Hardcoverにサインインするには、このデバイスにWebブラウザが必要です。</string>
+    <string name="hardcover_sign_in_title">Hardcoverに接続</string>
+    <string name="hardcover_sign_in_message">Hardcoverアカウントにサインインすると、本の照合、Hardcoverライブラリへの追加、聴きながらの読書の進捗の更新ができます。</string>
+    <string name="hardcover_not_signed_in">Hardcoverにサインインしていません</string>
+    <string name="hardcover_sign_in_hint">本を検索してリンクするには、設定 &gt; Hardcover設定でHardcoverにサインインしてください。</string>
     <string name="hardcover_connected">Hardcoverに接続済み</string>
-    <string name="hardcover_connected_as">%1$sとして接続済み</string>
-    <string name="hardcover_sign_in_failed_title">サインインできませんでした</string>
     <string name="hardcover_sign_in_failed_message">Hardcoverでサインインが完了しませんでした。もう一度お試しください。</string>
 
     <!-- Media Servers -->

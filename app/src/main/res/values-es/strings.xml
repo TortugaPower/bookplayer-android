@@ -272,8 +272,6 @@
     <string name="hardcover_reading_threshold">Umbral de lectura</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">Establece el porcentaje mínimo de progreso requerido para que un libro se marque como Leyendo actualmente en tu biblioteca de Hardcover.</string>
-    <string name="hardcover_account_title">Cuenta</string>
-    <string name="hardcover_sign_in_button">Iniciar sesión con Hardcover</string>
     <string name="hardcover_signing_in">Iniciando sesión con Hardcover…</string>
     <string name="hardcover_sign_in_unavailable">Para iniciar sesión en Hardcover se necesita un navegador web en este dispositivo.</string>
     <string name="hardcover_sign_in_title">Conectar con Hardcover</string>
@@ -281,8 +279,6 @@
     <string name="hardcover_not_signed_in">No has iniciado sesión en Hardcover</string>
     <string name="hardcover_sign_in_hint">Para buscar y vincular libros, inicia sesión en Hardcover en Ajustes &gt; Ajustes de Hardcover.</string>
     <string name="hardcover_connected">Conectado a Hardcover</string>
-    <string name="hardcover_connected_as">Conectado como %1$s</string>
-    <string name="hardcover_sign_in_failed_title">No se pudo iniciar sesión</string>
     <string name="hardcover_sign_in_failed_message">Hardcover no completó el inicio de sesión. Inténtalo de nuevo.</string>
 
     <!-- Media Servers -->
