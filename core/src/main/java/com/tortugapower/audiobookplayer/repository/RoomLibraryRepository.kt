@@ -28,8 +28,8 @@ class RoomLibraryRepository(
     // Injectable like timeProvider: DataStore and Room aren't available in unit tests, and the
     // Hardcover progress transitions below need to be testable. timeProvider stays last so
     // existing trailing-lambda call sites keep compiling.
-    private val hardcoverTokenProvider: suspend () -> String = {
-        com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getToken(context).first()
+    private val hardcoverConnectedProvider: suspend () -> Boolean = {
+        com.tortugapower.audiobookplayer.logic.HardcoverAccount.isConnected(context)
     },
     private val readingThresholdProvider: suspend () -> Float = {
         com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager.getReadingThreshold(context).first()
@@ -233,8 +233,7 @@ class RoomLibraryRepository(
         try {
             val hardcoverResource = libraryDao.getExternalResource(item.uuid, "hardcover")
             if (hardcoverResource != null) {
-                val hardcoverToken = hardcoverTokenProvider()
-                if (hardcoverToken.isNotBlank()) {
+                if (hardcoverConnectedProvider()) {
                     if (item.isFinished) {
                         if (hardcoverResource.syncStatus != "read") {
                             libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "read"))
@@ -242,10 +241,13 @@ class RoomLibraryRepository(
                         }
                     } else {
                         val threshold = readingThresholdProvider()
-                        if (item.percentCompleted >= threshold && hardcoverResource.syncStatus != "reading" && hardcoverResource.syncStatus != "read") {
+                        val status = hardcoverResource.syncStatus
+                        if (item.percentCompleted >= threshold && status != "reading" && status != "read") {
                             libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "reading"))
                             SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, item.uuid, 2)
                         }
+                        // The listening percentage itself is queued by SyncingLibraryRepository, in the Hardcover lane
+                        // behind this status change.
                     }
                 }
             }

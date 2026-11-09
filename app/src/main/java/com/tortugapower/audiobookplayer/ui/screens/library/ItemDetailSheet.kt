@@ -12,7 +12,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
-import com.tortugapower.audiobookplayer.logic.HardcoverSettingsManager
+import com.tortugapower.audiobookplayer.logic.HardcoverAccount
 import com.tortugapower.audiobookplayer.network.HardcoverBook
 import com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel
 import kotlinx.coroutines.flow.first
@@ -41,17 +41,15 @@ fun ItemDetailSheet(
     val navController = rememberNavController()
     var linkedBook by remember { mutableStateOf<HardcoverBook?>(null) }
     var initialBookId by remember { mutableStateOf<String?>(null) }
-    var token by remember { mutableStateOf("") }
+    val connected by remember { HardcoverAccount.connection(context) }
+        .collectAsState(initial = null)
+    val isConnected = connected?.isConnected == true
 
-    LaunchedEffect(Unit) {
-        token = HardcoverSettingsManager.getToken(context).first()
-    }
-
-    LaunchedEffect(token) {
-        if (token.isNotBlank()) {
+    LaunchedEffect(isConnected) {
+        if (isConnected) {
             val resource = viewModel.getExternalResource(item.uuid, "hardcover")
             if (resource != null) {
-                val book = com.tortugapower.audiobookplayer.network.HardcoverService.getBook(token, resource.providerId)
+                val book = com.tortugapower.audiobookplayer.network.HardcoverService.getBook(resource.providerId)
                 if (book != null) {
                     linkedBook = book
                     initialBookId = book.id
@@ -132,7 +130,7 @@ fun ItemDetailSheet(
                 }
             ) {
                 HardcoverBrowser(
-                    token = token,
+                    isConnected = isConnected,
                     initialQuery = com.tortugapower.audiobookplayer.network.HardcoverService.buildSearchString(title, author),
                     linkedBook = linkedBook,
                     onBookSelected = { book ->

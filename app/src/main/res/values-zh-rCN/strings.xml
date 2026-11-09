@@ -218,6 +218,7 @@
     <string name="sync_task_delete_external_resource">删除外部资源</string>
     <string name="sync_task_hardcover_auto_match">Hardcover 自动匹配</string>
     <string name="sync_task_hardcover_update_status">更新 Hardcover 状态</string>
+    <string name="sync_task_hardcover_update_progress">更新 Hardcover 进度</string>
     <string name="sync_task_external_update">外部状态更新</string>
 
     <!-- Profile Stats -->
@@ -257,10 +258,6 @@
 
     <!-- Hardcover Settings -->
     <string name="hardcover_settings_title">Hardcover 设置</string>
-    <string name="hardcover_api_access_section">API 访问</string>
-    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
-    <string name="hardcover_api_access_hint">您可以在 %1$s 找到您的 Hardcover API 访问权限。</string>
-    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
     <string name="hardcover_automation_section">自动化</string>
     <string name="hardcover_auto_match_books">自动匹配书籍</string>
     <string name="hardcover_auto_add_want_to_read">自动添加到“想读”</string>
@@ -269,6 +266,14 @@
     <string name="hardcover_reading_threshold">阅读阈值</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">设置在 Hardcover 库中将书籍标记为正在阅读所需的最低进度百分比。</string>
+    <string name="hardcover_signing_in">正在使用 Hardcover 登录…</string>
+    <string name="hardcover_sign_in_unavailable">登录 Hardcover 需要此设备上有网页浏览器。</string>
+    <string name="hardcover_sign_in_title">连接 Hardcover</string>
+    <string name="hardcover_sign_in_message">登录你的 Hardcover 账户，即可匹配图书、将其添加到你的 Hardcover 书库，并在收听时更新阅读进度。</string>
+    <string name="hardcover_not_signed_in">未登录 Hardcover</string>
+    <string name="hardcover_sign_in_hint">要搜索和关联图书，请在“设置 &gt; Hardcover 设置”中登录 Hardcover。</string>
+    <string name="hardcover_connected">已连接到 Hardcover</string>
+    <string name="hardcover_sign_in_failed_message">Hardcover 未完成登录。请重试。</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">媒体服务器</string>
@@ -357,8 +362,6 @@
     <!-- Hardcover Browser -->
     <string name="hardcover_search_title">Hardcover 搜索</string>
     <string name="hardcover_unlink">取消链接</string>
-    <string name="hardcover_token_missing">缺少 Hardcover API 令牌</string>
-    <string name="hardcover_configure_token_hint">要搜索和链接书籍，请在 设置 > Hardcover 设置 中配置您的 API 令牌。</string>
     <string name="hardcover_no_popular_books_found">未找到热门书籍</string>
     <string name="hardcover_no_books_found">未找到书籍</string>
     <string name="hardcover_link_book">关联书籍</string>

@@ -364,6 +364,46 @@ browserdrop/               # standalone library (no :core/:app deps), package co
       (`Title-1`, `ImportArchiveUtils.uniqueDirectory`). The name must also be free in the library: a
       streamed volume of that title has no folder on disk, and the paths would collide.
     - Zips the user imports keep their folders, and an untagged folder stays a FOLDER.
+  - **Hardcover connects by signing in (OAuth), one account at a time** (iOS `HardcoverOAuth` /
+    `HardcoverService`; spec: the "Hardcover OAuth & Progress Sync" doc). Authorization code + PKCE with a
+    public client (`HardcoverOAuth`, client id injected from `BuildConfig.HARDCOVER_CLIENT_ID`; empty hides
+    the button), its browser leg in the Auth Tab like media-server SSO, where the `bookplayer://hardcover/callback`
+    redirect comes back as an activity result. Unlike SSO there's a fallback, since iOS has no API key either: with
+    no Auth Tab, a regular browser opens the page and comes back through the manifest's `bookplayer://` link
+    (`HardcoverBrowserSignIn`, process-wide; `MainActivity` hands it over, and a copy the browser opened in its own
+    task closes). The attempt is saved sealed for 10 minutes (`HardcoverAccount.beginBrowserSignIn`), so it
+    survives the process; a return that isn't its `state` is ignored silently, and it's used once. Coming back to
+    Settings without a return ends the wait. With no browser at all, the page says why there's no button.
+    API keys are legacy, as on iOS: one saved by an earlier version keeps working but isn't shown, and none
+    can be entered. A sign-in replaces it; OAuth wins when both exist (`HardcoverAccount.credential`).
+    Settings shows only Sign In until signed in; then the account, its settings (applied as they change)
+    and Log out. The Auth Tab signs in privately (ephemeral, iOS): with the browser's own session, Hardcover's
+    site stays logged in after Log out and another account can't be picked (Hardcover has no `prompt`).
+    - The token set is one Keystore-encrypted DataStore value (`hardcover_session`). `HardcoverOAuthSession`
+      refreshes one at a time (refresh tokens rotate; a spent one revokes the sign-in), never retries a
+      refresh, stores the new pair before using it, and only `invalid_grant` ends the sign-in. Any other refusal
+      (`invalid_client`, a bare 4xx, an unreadable answer) keeps the sign-in but marks it `refreshRefused`: no
+      more refreshes, its token serves until it expires; logging out and signing in again replaces it. After a temporary
+      failure, an expired token's callers get that failure for 10 s instead of each sending a refresh. A 401 on an
+      OAuth call refreshes once and retries once (`HardcoverService.execute`). Never log a code or token.
+    - A sign-in missing a scope added since (refreshes keep the first grant) skips what needs it: progress (needs
+      `read:library`) isn't sent to a 403. As on iOS, there's no Sign In Again prompt until a scope is added.
+    - New links carry the account's Hardcover user id (`me`) as `hostId`; one account per item stays the rule.
+    - A Currently Reading book's percentage goes on Hardcover's read in progress, through the `hardcover` lane like
+      the media servers' progress goes through theirs: `SyncingLibraryRepository.pushProgress` queues one
+      `hardcover_update_progress` task per book holding the latest percentage, behind the status change that
+      starts the read, whenever its whole percentage changes (`HardcoverProgressChanges`, iOS's: about 20 requests
+      an hour on a 10-hour book). Measured against the read's own edition only: one without a length gets nothing
+      (iOS; the edition on a read is the user's), only forward and short of the end (`HardcoverReadProgress`).
+      Offline, timeouts, 429 and 5xx retry with the engine's backoff (iOS drops them); anything else is dropped.
+      The status change retries the same failures: the link says `reading` before it's sent, so a dropped one
+      would never start the read, and every progress send for the book would find none.
+      Log out drops the queued progress and what was sent, so the next account gets each book's again.
+      Hardcover failures never touch playback.
+    - A book added to the user's Hardcover library (a status change, auto-add to Want to Read) goes in as its
+      audiobook edition when they don't have it yet (`HardcoverLibraryEntry`, iOS `insertUserBook`): the default
+      one with a duration, else the most read one. Hardcover would pick the print one, and listening would count as
+      its pages. A book they have keeps its edition; a failed lookup lets Hardcover pick.
   - **Hardcover auto-match runs once per import** (iOS parity: `HardcoverService.processAutoMatch`).
     - `ImportManager` queues one `JOB_HARDCOVER_AUTO_MATCH` task covering every item the import created
       at the top level: books, folders, volumes and streamed items. A task queued in the older

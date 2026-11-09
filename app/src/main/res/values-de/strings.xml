@@ -217,6 +217,7 @@
     <string name="sync_task_delete_external_resource">Externe Ressource löschen</string>
     <string name="sync_task_hardcover_auto_match">Hardcover automatischer Abgleich</string>
     <string name="sync_task_hardcover_update_status">Hardcover-Status aktualisieren</string>
+    <string name="sync_task_hardcover_update_progress">Hardcover-Fortschritt aktualisieren</string>
     <string name="sync_task_external_update">Externes Status-Update</string>
 
     <!-- Profile Stats -->
@@ -259,10 +260,6 @@
 
     <!-- Hardcover Settings -->
     <string name="hardcover_settings_title">Hardcover-Einstellungen</string>
-    <string name="hardcover_api_access_section">API-Zugriff</string>
-    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
-    <string name="hardcover_api_access_hint">Sie finden Ihren Hardcover-API-Zugang unter %1$s.</string>
-    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
     <string name="hardcover_automation_section">Automatisierung</string>
     <string name="hardcover_auto_match_books">Bücher automatisch abgleichen</string>
     <string name="hardcover_auto_add_want_to_read">Automatisch zu „Möchte ich lesen“ hinzufügen</string>
@@ -271,6 +268,14 @@
     <string name="hardcover_reading_threshold">Leseschwelle</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">Legt den minimalen Fortschrittsprozentsatz fest, der erforderlich ist, bevor ein Buch in Ihrer Hardcover-Bibliothek als Wird gerade gelesen markiert wird.</string>
+    <string name="hardcover_signing_in">Anmeldung mit Hardcover…</string>
+    <string name="hardcover_sign_in_unavailable">Für die Anmeldung bei Hardcover wird ein Webbrowser auf diesem Gerät benötigt.</string>
+    <string name="hardcover_sign_in_title">Mit Hardcover verbinden</string>
+    <string name="hardcover_sign_in_message">Melde dich mit deinem Hardcover-Konto an, um deine Bücher zuzuordnen, sie deiner Hardcover-Bibliothek hinzuzufügen und deinen Lesefortschritt beim Hören zu aktualisieren.</string>
+    <string name="hardcover_not_signed_in">Nicht bei Hardcover angemeldet</string>
+    <string name="hardcover_sign_in_hint">Um Bücher zu suchen und zu verknüpfen, melde dich unter Einstellungen &gt; Hardcover-Einstellungen bei Hardcover an.</string>
+    <string name="hardcover_connected">Mit Hardcover verbunden</string>
+    <string name="hardcover_sign_in_failed_message">Hardcover hat die Anmeldung nicht abgeschlossen. Versuche es erneut.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">Medienserver</string>
@@ -359,8 +364,6 @@
     <!-- Hardcover Browser -->
     <string name="hardcover_search_title">Hardcover-Suche</string>
     <string name="hardcover_unlink">Verknüpfung aufheben</string>
-    <string name="hardcover_token_missing">Hardcover-API-Token fehlt</string>
-    <string name="hardcover_configure_token_hint">Um Bücher zu suchen und zu verknüpfen, konfigurieren Sie Ihr API-Token in Einstellungen > Hardcover-Einstellungen.</string>
     <string name="hardcover_no_popular_books_found">Keine beliebten Bücher gefunden</string>
     <string name="hardcover_no_books_found">Keine Bücher gefunden</string>
     <string name="hardcover_link_book">Buch verknüpfen</string>

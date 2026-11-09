@@ -31,6 +31,13 @@
         <intent>
             <action android:name="android.support.customtabs.action.CustomTabsService" />
         </intent>
+        <!-- Any browser, for Hardcover's sign-in where none runs the Auth Tab: it opens in a regular browser, which
+             comes back through the bookplayer:// link below (HardcoverBrowserSignIn). -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
     </queries>
 
     <application

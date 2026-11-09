@@ -124,11 +124,11 @@ class RoomLibraryRepositoryTest {
     // --- Hardcover progress transitions (updateItemProgress) ---
 
     private val syncTasks = FakeSyncTaskRepository()
-    private var hardcoverToken = "test-token"
+    private var hardcoverConnected = true
     private val hardcoverRepository = RoomLibraryRepository(
         android.content.ContextWrapper(null),
         fakeDao,
-        hardcoverTokenProvider = { hardcoverToken },
+        hardcoverConnectedProvider = { hardcoverConnected },
         readingThresholdProvider = { 0.5f },
         syncTaskRepositoryProvider = { syncTasks }
     ) { timeCurrent }
@@ -206,9 +206,9 @@ class RoomLibraryRepositoryTest {
     }
 
     @Test
-    fun testUpdateItemProgress_blankToken_skipsHardcoverSync() = runBlocking {
+    fun testUpdateItemProgress_notConnected_skipsHardcoverSync() = runBlocking {
         seedHardcoverBook(status = "synced")
-        hardcoverToken = ""
+        hardcoverConnected = false
 
         hardcoverRepository.updateItemProgress(uuid = "book-1", currentTime = 100.0, isFinished = true)
 

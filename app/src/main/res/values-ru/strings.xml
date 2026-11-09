@@ -217,6 +217,7 @@
     <string name="sync_task_delete_external_resource">Удалить внешний ресурс</string>
     <string name="sync_task_hardcover_auto_match">Автоматическое сопоставление Hardcover</string>
     <string name="sync_task_hardcover_update_status">Обновить статус Hardcover</string>
+    <string name="sync_task_hardcover_update_progress">Обновить прогресс Hardcover</string>
     <string name="sync_task_external_update">Обновление внешнего статуса</string>
 
     <!-- Profile Stats -->
@@ -265,10 +266,6 @@
 
     <!-- Hardcover Settings -->
     <string name="hardcover_settings_title">Настройки Hardcover</string>
-    <string name="hardcover_api_access_section">Доступ по API</string>
-    <string name="hardcover_api_token_placeholder">Bearer eyJhbGciOiJSUzl1NiIsInR5cCI6IkpX...</string>
-    <string name="hardcover_api_access_hint">Вы можете найти доступ к Hardcover API по ссылке %1$s.</string>
-    <string name="hardcover_api_access_link">https://hardcover.app/account/api</string>
     <string name="hardcover_automation_section">Автоматизация</string>
     <string name="hardcover_auto_match_books">Автоматически сопоставлять книги</string>
     <string name="hardcover_auto_add_want_to_read">Автоматически добавлять в «Хочу прочитать»</string>
@@ -277,6 +274,14 @@
     <string name="hardcover_reading_threshold">Порог чтения</string>
     <string name="hardcover_reading_threshold_percent">%1$d%%</string>
     <string name="hardcover_progress_tracking_hint">Устанавливает минимальный процент прогресса, необходимый для того, чтобы книга была отмечена как «Читаю сейчас» в вашей библиотеке Hardcover.</string>
+    <string name="hardcover_signing_in">Вход через Hardcover…</string>
+    <string name="hardcover_sign_in_unavailable">Для входа в Hardcover на этом устройстве нужен веб-браузер.</string>
+    <string name="hardcover_sign_in_title">Подключить Hardcover</string>
+    <string name="hardcover_sign_in_message">Войдите в аккаунт Hardcover, чтобы сопоставлять книги, добавлять их в библиотеку Hardcover и обновлять прогресс чтения во время прослушивания.</string>
+    <string name="hardcover_not_signed_in">Вход в Hardcover не выполнен</string>
+    <string name="hardcover_sign_in_hint">Чтобы искать и связывать книги, войдите в Hardcover в разделе Настройки &gt; Настройки Hardcover.</string>
+    <string name="hardcover_connected">Подключено к Hardcover</string>
+    <string name="hardcover_sign_in_failed_message">Hardcover не завершил вход. Повторите попытку.</string>
 
     <!-- Media Servers -->
     <string name="media_servers_title">Медиасерверы</string>
@@ -365,8 +370,6 @@
     <!-- Hardcover Browser -->
     <string name="hardcover_search_title">Поиск Hardcover</string>
     <string name="hardcover_unlink">Отвязать</string>
-    <string name="hardcover_token_missing">Отсутствует API-токен Hardcover</string>
-    <string name="hardcover_configure_token_hint">Чтобы искать и связывать книги, настройте API-токен в разделе Настройки > Настройки Hardcover.</string>
     <string name="hardcover_no_popular_books_found">Популярные книги не найдены</string>
     <string name="hardcover_no_books_found">Книги не найдены</string>
     <string name="hardcover_link_book">Привязать книгу</string>
