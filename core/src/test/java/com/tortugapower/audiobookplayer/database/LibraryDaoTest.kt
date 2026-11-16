@@ -62,6 +62,24 @@ class LibraryDaoTest {
         assertEquals(listOf("2", "3", "1"), result.map { it.uuid })
     }
 
+    /** A fresh link is stored alone: a position saved while it was looked up stays, and a cover changes only when given */
+    @Test fun updateLinks_setsOnlyTheLinks() = runBlocking {
+        dao.insertItem(
+            item("1", "Dune", "Frank Herbert", "Dune.m4b")
+                .copy(currentTime = 42.0, remoteURL = "https://s3/expired", artworkURL = "https://s3/cover-old")
+        )
+
+        dao.updateLinks("1", "https://s3/fresh", artworkURL = null)
+
+        dao.getItemById("1")!!.let { stored ->
+            assertEquals("https://s3/fresh", stored.remoteURL)
+            assertEquals("kept: the listing had no cover", "https://s3/cover-old", stored.artworkURL)
+            assertEquals(42.0, stored.currentTime, 0.0)
+        }
+        dao.updateLinks("1", "https://s3/fresher", "https://s3/cover-new")
+        assertEquals("https://s3/cover-new", dao.getItemById("1")!!.artworkURL)
+    }
+
     /** A targeted write: a speed change can't undo a progress or confirmation written meanwhile */
     @Test fun updateItemSpeed_setsOnlyTheSpeed() = runBlocking {
         dao.insertItem(item("1", "Dune", "Frank Herbert", "Dune.m4b").copy(currentTime = 42.0, serverKnown = true))

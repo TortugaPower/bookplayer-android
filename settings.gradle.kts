@@ -23,3 +23,4 @@ rootProject.name = "BookPlayer"
 include(":app")
 include(":core")
 include(":wear")
+include(":browserdrop")

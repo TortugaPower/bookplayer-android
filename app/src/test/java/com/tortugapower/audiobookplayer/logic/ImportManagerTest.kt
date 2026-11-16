@@ -207,6 +207,24 @@ class ImportManagerTest {
         assertEquals(listOf("1", "2", "10"), byRank)
     }
 
+    // Every folder inside gets its totals, not just those above the first child: `Disc 2` sits beside `01.mp3`.
+    @Test fun importDirectory_nestedFolders_eachGetTheirTotals() = runBlocking {
+        val source = File(stagingDir(), "My Book").apply { mkdirs() }
+        listOf("01.mp3", "02.mp3", "Disc 2/03.mp3", "Disc 2/Extras/04.mp3", "Disc 2/Extras/05.mp3").forEach {
+            File(source, it).apply { parentFile!!.mkdirs() }.writeText("x")
+        }
+        val baseDir = File(context.filesDir, "Processed").apply { mkdirs() }
+
+        val folder = ImportManager.importDirectory(
+            context, db.libraryDao(), RoomSyncTaskRepository(db.syncTaskDao()),
+            ImportFile(name = "My Book", file = source), baseDir, basePath = null, orderRank = 0, isSubscribed = false, isPro = false,
+        )!!
+
+        assertEquals("3", folder.author)
+        assertEquals("2", db.libraryDao().getItemByPath("My Book/Disc 2")!!.author)
+        assertEquals("2", db.libraryDao().getItemByPath("My Book/Disc 2/Extras")!!.author)
+    }
+
     // A media-server item's folder of books is that item: a volume with its link, like a streamed volume.
     @Test fun importDirectory_aMediaServerItemsFolder_isALinkedVolume() = runBlocking {
         val source = File(stagingDir(), "Abs Book").apply { mkdirs() }

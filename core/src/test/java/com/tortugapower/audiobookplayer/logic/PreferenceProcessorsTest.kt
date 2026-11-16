@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.preferences.DataStorePreferencesStore
+import com.tortugapower.audiobookplayer.logic.preferences.PreferenceFamily
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
@@ -119,6 +120,74 @@ class PreferenceProcessorsTest {
         assertEquals("mostRecent", store.getString("library_sort:pending"))
         // Invalid raw value rejected.
         assertNull(store.getString("library_sort:bogus"))
+    }
+
+    @Test fun `upload PATCHes the layout and a display toggle in their iOS shapes`() = runBlocking {
+        val processor = PreferenceUploadProcessor(api)
+        repeat(2) { server.enqueue(MockResponse().setResponseCode(200).setBody("{}")) }
+
+        assertTrue(processor.process(task(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, """{"key":"library_layout:style","value":"covers"}""")))
+        assertTrue(processor.process(task(SyncTaskFactory.JOB_UPLOAD_PREFERENCE, """{"key":"library_display:progress_style","value":"true"}""")))
+
+        assertEquals(
+            """{"entries":[{"key":"library_layout:style","value":{"layout":"covers"}}]}""",
+            server.takeRequest().body.readUtf8(),
+        )
+        assertEquals(
+            """{"entries":[{"key":"library_display:progress_style","value":{"value":true}}]}""",
+            server.takeRequest().body.readUtf8(),
+        )
+    }
+
+    // One request without a prefix fetches every family, as iOS does; each entry goes through its own family
+    @Test fun `fetch asks for every family at once and routes each entry`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"entries":[
+                    {"key":"library_layout:style","value":{"layout":"grid"}},
+                    {"key":"library_display:progress_style","value":{"value":1}},
+                    {"key":"library_display:title_source","value":{"value":false}},
+                    {"key":"library_display:unknown","value":{"value":true}},
+                    {"key":"something_else","value":{"value":true}}
+                ]}"""
+            )
+        )
+        val store = DataStorePreferencesStore(context)
+
+        assertTrue(
+            PreferenceFetchProcessor(context, FakeSyncTaskRepository(emptySet()), api)
+                .process(task(SyncTaskFactory.JOB_FETCH_PREFERENCES, "{}"))
+        )
+
+        assertEquals("/v1/user/preferences", server.takeRequest().path)
+        assertEquals("grid", store.getString("library_layout:style"))
+        assertEquals("true", store.getString("library_display:progress_style"))
+        assertEquals("false", store.getString("library_display:title_source"))
+        assertNull(store.getString("library_display:unknown"))
+        assertNull(store.getString("something_else"))
+    }
+
+    // The watch has no layout or display toggles: it asks for sorts alone and keeps none of the others
+    @Test fun `a sort-only fetch asks for the sort prefix and keeps sorts alone`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"entries":[
+                    {"key":"library_sort:watch","value":{"sort":"fileName"}},
+                    {"key":"library_layout:style","value":{"layout":"covers"}}
+                ]}"""
+            )
+        )
+        val store = DataStorePreferencesStore(context)
+        store.remove("library_layout:style")
+
+        assertTrue(
+            PreferenceFetchProcessor(context, FakeSyncTaskRepository(emptySet()), api, families = listOf(PreferenceFamily.Sort))
+                .process(task(SyncTaskFactory.JOB_FETCH_PREFERENCES, "{}"))
+        )
+
+        assertEquals("/v1/user/preferences?prefix=library_sort%3A", server.takeRequest().path)
+        assertEquals("fileName", store.getString("library_sort:watch"))
+        assertNull(store.getString("library_layout:style"))
     }
 
     /** A coded API answer reaches the engine as a CodedFailureException; an uncoded one stays a retry */

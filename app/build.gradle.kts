@@ -34,8 +34,8 @@ android {
         applicationId = "com.tortugapower.audiobookplayer"
         minSdk = 28
         targetSdk = 36
-        versionCode = 25
-        versionName = "1.3.0"
+        versionCode = 26
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -112,6 +112,9 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Robolectric tests that resolve real resources (the sync service's localized notification) need them
+        // packaged for unit tests, as in :core.
+        unitTests.isIncludeAndroidResources = true
     }
 
     lint {
@@ -121,10 +124,6 @@ android {
         // this AGP/Lint version (a known broken detector), which hard-fails `lintDevDebug` in CI
         // regardless of abortOnError. We don't use LiveData, so disabling it is safe.
         disable += "NullSafeMutableLiveData"
-    }
-
-    testOptions {
-        unitTests.isReturnDefaultValues = true
     }
 }
 
@@ -157,12 +156,16 @@ sentry {
 dependencies {
 
     implementation(project(":core"))
+    // Transfer from Computer: the upload-only server the Transfer sheet runs (the Android port of SwiftBrowserDrop).
+    implementation(project(":browserdrop"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     // ProcessLifecycleOwner: the app-foreground signal that re-syncs preferences and the visible level.
     implementation(libs.androidx.lifecycle.process)
+    // The sync drain (SyncDrainWorker): runs the engine when nothing else keeps the process alive
+    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
@@ -183,6 +186,7 @@ dependencies {
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.googleid)
     implementation(libs.coil.compose)
+    implementation(libs.reorderable)
     implementation(libs.billing.ktx)
     // Play In-App Review — the post-book-finish rating prompt (ReviewPromptManager).
     implementation(libs.play.review)
@@ -206,6 +210,7 @@ dependencies {
     testImplementation(libs.robolectric)          // Intent-building tests (JVM)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.androidx.work.testing)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

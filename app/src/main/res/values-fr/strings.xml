@@ -150,6 +150,7 @@
     <!-- Library -->
     <string name="library_title_default">Bibliothèque</string>
     <string name="library_create_folder_title">Créer un dossier</string>
+    <string name="library_options_title">Options</string>
     <string name="library_folder_name_label">Nom du dossier</string>
     <string name="library_folder_name_error">Utilisez uniquement des lettres, des chiffres, \'-\' ou \'_\'</string>
     <string name="search_prompt">Rechercher dans votre bibliothèque</string>
@@ -448,4 +449,44 @@
         <item quantity="one">Le dossier n\'a pas été supprimé : %1$d élément qu\'il contient porte le même nom qu\'un élément de la bibliothèque. Renommez-le ou déplacez-le d\'abord.</item>
         <item quantity="other">Le dossier n\'a pas été supprimé : %1$d éléments qu\'il contient portent les mêmes noms que des éléments de la bibliothèque. Renommez-les ou déplacez-les d\'abord.</item>
     </plurals>
+
+    <!-- Transfer from Computer -->
+    <string name="transfer_title">Transfert depuis l’ordinateur</string>
+    <string name="transfer_instructions">Sur un ordinateur du même réseau, ouvrez cette adresse dans un navigateur :</string>
+    <string name="transfer_no_address">Connectez-vous au Wi‑Fi pour recevoir des fichiers depuis un ordinateur.</string>
+    <string name="transfer_footer">Laissez cet écran ouvert pendant l’envoi des fichiers.</string>
+    <string name="transfer_server_url_accessibility_value">Adresse de transfert, %1$s</string>
+    <string name="import_remove_item_accessibility">Retirer, %1$s</string>
+    <string name="transfer_server_copy_button">Copier l’adresse</string>
+    <string name="transfer_server_copied_button">Copiée</string>
+    <plurals name="transfer_folder_files">
+        <item quantity="one">%1$d fichier</item>
+        <item quantity="many">%1$d de fichiers</item>
+        <item quantity="other">%1$d fichiers</item>
+    </plurals>
+    <string name="transfer_server_web_subtitle">Déposez des fichiers ou des dossiers de livres audio. Ils apparaîtront dans l’écran d’importation de l’app sur votre téléphone.</string>
+    <string name="transfer_server_web_folder_hint">La structure des dossiers est conservée.</string>
+    <string name="transfer_server_web_drop_title">Déposez ici</string>
+    <string name="transfer_server_web_choose_files">Choisir des fichiers</string>
+    <string name="transfer_server_web_choose_folder">Choisir un dossier</string>
+    <string name="transfer_server_web_retry">Réessayer les échecs</string>
+    <string name="transfer_server_web_uploading">Envoi en cours</string>
+    <string name="transfer_server_web_uploaded">Envoyé</string>
+    <string name="transfer_server_web_failed">Échec</string>
+    <string name="transfer_server_web_queue_empty">En attente de fichiers…</string>
+    <string name="transfer_server_web_skipped">Fichiers non pris en charge ignorés : %d</string>
+    <string name="transfer_web_queued">En attente</string>
+    <string name="transfer_web_summary">%1$d sur %2$d envoyés</string>
+    <string name="transfer_web_waiting">En attente de BookPlayer…</string>
+    <string name="transfer_web_unreachable">Impossible de joindre BookPlayer. Laissez son écran de transfert ouvert ; les envois reprendront d’eux-mêmes.</string>
+    <string name="transfer_web_not_enough_space">Espace insuffisant sur l’appareil</string>
+    <string name="transfer_web_too_large">Trop volumineux</string>
+    <string name="transfer_web_unsupported">Type de fichier non pris en charge</string>
+    <string name="transfer_web_path_conflict">Un autre fichier ou dossier que vous avez envoyé porte déjà ce nom</string>
+    <string name="transfer_web_done_hint">Une fois terminé, confirmez dans BookPlayer pour importer les fichiers.</string>
+    <string name="transfer_web_load_error">Impossible de joindre BookPlayer. Vérifiez que son écran de transfert est toujours ouvert.</string>
+    <string name="layout_options_title">Options d’affichage</string>
+    <string name="layout_list_option">Liste</string>
+    <string name="layout_grid_option">Grille</string>
+    <string name="layout_covers_option">Couvertures</string>
 </resources>

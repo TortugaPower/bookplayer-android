@@ -70,6 +70,11 @@ dependencies {
     // DefaultHttpDataSource, DataSourceBitmapLoader).
     api(libs.androidx.media3.exoplayer)
 
+    // WorkManager — the sync drains (SyncDrain, SyncDrainScheduler, SyncDrainWorker) live here so phone AND Wear share
+    // them. `api` because SyncDrainScheduler's public surface takes a WorkManager. Each target starts it on demand (its
+    // Application is the Configuration.Provider, and its manifest drops the start-up initializer).
+    api(libs.androidx.work.runtime.ktx)
+
     // androidx.core — MediaPlaybackService uses IntentCompat.getParcelableExtra (the type-safe overload
     // needs core 1.10+, newer than what Room/DataStore pull transitively). Internal use only → implementation.
     implementation(libs.androidx.core.ktx)
@@ -79,4 +84,5 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver) // HttpRangeByteSourceTest
     testImplementation(libs.robolectric)          // in-memory Room DAO tests (JVM)
     testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.work.testing) // SyncDrainSchedulerTest
 }

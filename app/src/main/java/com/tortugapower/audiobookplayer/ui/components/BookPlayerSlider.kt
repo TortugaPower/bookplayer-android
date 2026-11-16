@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.ui.components
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -13,6 +14,8 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 
+// The custom thumb and track are experimental in material3 1.4 (stable from 1.5).
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookPlayerSlider(
     value: Float,

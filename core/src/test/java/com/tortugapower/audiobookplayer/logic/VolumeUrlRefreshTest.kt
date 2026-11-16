@@ -21,16 +21,19 @@ class VolumeUrlRefreshTest {
         LibraryItemEntity(uuid = "c2", title = "02", relativePath = "Vol/02.mp3", type = ItemType.BOOK),
     )
 
-    private fun remote(uuid: String, url: String?) = SyncableItem(
+    private fun remote(uuid: String, url: String?, artwork: String? = null) = SyncableItem(
         uuid = uuid, relativePath = "Vol/0${uuid.last()}.mp3", title = uuid, details = "", originalFileName = "",
         duration = 60.0, currentTime = 0.0, percentCompleted = 0.0, isFinished = false, orderRank = 0,
-        type = ItemType.BOOK.ordinal, remoteURL = url, artworkURL = null, speed = null, lastPlayDateTimestamp = null,
+        type = ItemType.BOOK.ordinal, remoteURL = url, artworkURL = artwork, speed = null, lastPlayDateTimestamp = null,
     )
 
     private fun cloud(vararg items: SyncableItem) = ContentsResponse(content = items.toList(), lastItemPlayed = null)
 
+    /** A book's stored links: what saveLinks gets, never the whole book */
+    private data class Links(val uuid: String, val remoteURL: String, val artworkURL: String?)
+
     private class Calls {
-        val saved = mutableListOf<LibraryItemEntity>()
+        val saved = mutableListOf<Links>()
         val streamedAsked = mutableListOf<List<String>>()
         val order = mutableListOf<String>()
     }
@@ -45,7 +48,7 @@ class VolumeUrlRefreshTest {
         insertMissing = { _, _ -> calls.order += "insert" },
         booksIn = { calls.order += "read"; books.map { it.copy() } },
         saveStreams = { asked -> calls.streamedAsked += asked.map { it.uuid }; streamed },
-        saveBook = { calls.saved += it },
+        saveLinks = { uuid, url, artwork -> calls.saved += Links(uuid, url, artwork) },
         isDownloaded = { it.uuid in downloaded },
     )
 
@@ -65,9 +68,18 @@ class VolumeUrlRefreshTest {
 
         val cloudServed = refresh(calls, { cloud(remote("c1", "https://s3/c1"), remote("c2", "https://s3/c2")) }, streamed = setOf("c1")).refresh("Vol")
 
-        assertEquals(listOf("c2"), calls.saved.map { it.uuid })
-        assertEquals("https://s3/c2", calls.saved.single().remoteURL)
+        assertEquals(listOf(Links("c2", "https://s3/c2", null)), calls.saved)
         assertTrue(cloudServed)
+    }
+
+    /** A listing's cover is stored with the book's link; without one, null keeps the stored cover (updateLinks) */
+    @Test fun `a book's cover is stored only when the listing has one`() = runBlocking {
+        val calls = Calls()
+
+        refresh(calls, { cloud(remote("c1", "https://s3/c1", artwork = "https://s3/c1-cover"), remote("c2", "https://s3/c2", artwork = "")) }, streamed = emptySet())
+            .refresh("Vol")
+
+        assertEquals(listOf(Links("c1", "https://s3/c1", "https://s3/c1-cover"), Links("c2", "https://s3/c2", null)), calls.saved)
     }
 
     @Test fun `missing books are inserted before the volume's books are read`() = runBlocking {

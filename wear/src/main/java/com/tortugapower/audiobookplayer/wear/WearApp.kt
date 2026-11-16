@@ -6,12 +6,24 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.wear.tiles.TileService
 import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
+import androidx.work.Configuration
+import androidx.work.WorkManager
 import com.tortugapower.audiobookplayer.core.CoreContext
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
+import com.tortugapower.audiobookplayer.logic.PlaybackForeground
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
+import com.tortugapower.audiobookplayer.logic.StorageGuardedExecutor
+import com.tortugapower.audiobookplayer.logic.StorageMonitor
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
+import com.tortugapower.audiobookplayer.logic.SyncDrain
+import com.tortugapower.audiobookplayer.logic.SyncDrainScheduler
+import com.tortugapower.audiobookplayer.logic.SyncEngineWaker
+import com.tortugapower.audiobookplayer.logic.SyncKeepAlive
+import com.tortugapower.audiobookplayer.logic.SyncKeepAliveService
+import com.tortugapower.audiobookplayer.logic.SyncRuntime
+import com.tortugapower.audiobookplayer.logic.SyncRuntimeHost
 import com.tortugapower.audiobookplayer.logic.preferences.DataStorePreferencesStore
 import com.tortugapower.audiobookplayer.logic.sort.LibrarySortManager
 import com.tortugapower.audiobookplayer.logic.sort.LibrarySortStore
@@ -28,13 +40,19 @@ import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
 import com.tortugapower.audiobookplayer.wear.service.WearPlaybackService
+import com.tortugapower.audiobookplayer.wear.sync.WearSyncEngine
+import com.tortugapower.audiobookplayer.wear.sync.WearSyncPolicy
 import com.tortugapower.audiobookplayer.wear.sync.WearSyncServiceHost
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asExecutor
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -43,12 +61,11 @@ import kotlinx.coroutines.launch
  * `BookPlayerApplication`, minus the home-screen widget.
  *
  * The library repository is a [SyncingLibraryRepository] so on-watch playback progress persists AND
- * enqueues sync tasks (uploaded by [WearSyncServiceHost]), matching the phone. `PlaybackManager` is a
- * `MediaController` client pointed at the watch's own [WearPlaybackService]. The sync foreground service
- * runs only while the account is PRO AND the app is in use (foreground OR actively playing) — never
- * started from a background Data Layer wake.
+ * enqueues sync tasks, matching the phone. `PlaybackManager` is a `MediaController` client pointed at the
+ * watch's own [WearPlaybackService]. The sync runtime is the phone's (SyncRuntime, SyncKeepAlive, sync drains),
+ * but the engine is built only when there's sync (WearSyncPolicy).
  */
-class WearApp : Application() {
+class WearApp : Application(), Configuration.Provider, SyncRuntimeHost {
     lateinit var accountRepository: AccountRepository
         private set
     lateinit var libraryRepository: LibraryRepository
@@ -66,6 +83,34 @@ class WearApp : Application() {
         private set
 
     private val appScope = CoroutineScope(Dispatchers.Main + SupervisorJob() + com.tortugapower.audiobookplayer.logic.StorageMonitor.exceptionHandler { com.tortugapower.audiobookplayer.core.CoreContext.appContextOrNull })
+
+    /** The process's one sync engine, built when there's sync (WearSyncPolicy). Set in [onCreate]. */
+    private lateinit var syncRuntime: SyncRuntime
+
+    /** Starts the sync service when a download needs it to keep the process alive. Set in [onCreate]. */
+    override lateinit var syncKeepAlive: SyncKeepAlive
+        private set
+
+    /** Runs the sync engine while nothing else keeps the process alive (SyncDrainWorker). Set in [onCreate]. */
+    override lateinit var syncDrain: SyncDrain
+        private set
+
+    /**
+     * WorkManager starts on demand, with this (the manifest drops its start-up initializer, which wrote its database
+     * at every process start). A full disk under its database is reported, never a crash: at its start (the
+     * handlers), and in its own bookkeeping (StorageGuardedExecutor), which a pending drain runs before our code.
+     * :wear has no Sentry, so anything else is logged.
+     */
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setInitializationExceptionHandler { e -> onWorkManagerFailed(e) }
+            .setSchedulingExceptionHandler { e -> onWorkManagerFailed(e) }
+            .setTaskExecutor(StorageGuardedExecutor(Dispatchers.IO.asExecutor()) { e -> StorageMonitor.reportFailure(this, e) })
+            .build()
+
+    private fun onWorkManagerFailed(e: Throwable) {
+        if (!StorageMonitor.reportFailure(this, e)) android.util.Log.e("WearApp", "WorkManager failed", e)
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -141,48 +186,75 @@ class WearApp : Application() {
             syncTaskRepository.resumeAllPaused()
         }
 
-        // The sync host stops itself when idle (Android 15+ dataSync budget); wake it when new
-        // work is enqueued. start() no-ops while running and swallows background-start refusals.
-        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
-            WearSyncServiceHost.start(this)
+        // The process's one sync engine (SyncRuntime): built off the main thread, then running for the life of the
+        // process, but only when there's sync (WearSyncPolicy). A failure is logged by the runtime (:wear has no
+        // Sentry), and the next app open builds it again.
+        syncRuntime = SyncRuntime(
+            this, appScope,
+            buildEngine = { onFailure -> WearSyncEngine.build(this, syncTaskRepository, accountRepository, onFailure) },
+        )
+        val isPro = accountRepository.getAccountFlow().map { it?.tier == AccountTier.PRO }
+            .stateIn(appScope, SharingStarted.Eagerly, false)
+        val visible = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
+            .map { it.isAtLeast(Lifecycle.State.STARTED) }
+            .stateIn(appScope, SharingStarted.Eagerly, false)
+        // Tasks a killed process left are picked up too: the queue is read at every process start
+        val queued = syncTaskRepository.getAllTasks().map { tasks ->
+            tasks.any { it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING }
         }
-
-        // Run the on-watch sync foreground service while PRO AND the app is in use. Start/stop use
-        // ASYMMETRIC conditions on purpose:
-        //  - START only while foreground — starting a dataSync FGS from the background throws on API 31+
-        //    (the sync service has no media-session background-start exemption), and a background
-        //    play→true (resume from the notification/Bluetooth) must NOT trigger a start.
-        //  - STOP when not PRO, or when idle in the background — i.e. NOT foreground, NOT playing, and NO
-        //    active sync work. Keeping it alive while playback continues (progress sync) OR while a task is
-        //    queued/running (e.g. a download the user kicked off then pocketed the watch) means backgrounding
-        //    won't abandon in-flight work; it stops once the queue drains. True app-CLOSED background work
-        //    (download-while-charging) is the deferred WorkManager path.
         appScope.launch {
-            val isPro = accountRepository.getAccountFlow().map { it?.tier == AccountTier.PRO }
-            val isForeground = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
-                .map { it.isAtLeast(Lifecycle.State.STARTED) }
-            // "Active work" excludes tasks that have already failed several times: sync retries are
-            // intentionally infinite (they keep retrying with backoff), but a permanently-failing task (a
-            // 404 URL, an offline device) must NOT pin the foreground service alive in the background
-            // forever (battery + a persistent notification). Such a task still retries whenever the app is
-            // foregrounded (the `foreground` signal runs the service regardless).
-            val hasActiveWork = syncTaskRepository.getAllTasks().map { tasks ->
-                tasks.any {
-                    (it.status == SyncTaskStatus.PENDING || it.status == SyncTaskStatus.RUNNING) &&
-                        it.attempts < MAX_BACKGROUND_WORK_ATTEMPTS
-                }
-            }
-            combine(isPro, isForeground, PlaybackManager.isPlaying, hasActiveWork) { pro, foreground, playing, work ->
-                GateInputs(pro, foreground, playing, work)
-            }
+            combine(isPro, visible, queued, WearSyncPolicy::runsEngine)
                 .distinctUntilChanged()
-                .collect { (pro, foreground, playing, work) ->
-                    when {
-                        pro && foreground -> WearSyncServiceHost.start(this@WearApp)
-                        !pro || (!foreground && !playing && !work) -> WearSyncServiceHost.stop(this@WearApp)
+                .filter { it }
+                .collect { syncRuntime.start() }
+        }
+        // A new task starts it at once (the queue's own update follows a moment later)
+        SyncEngineWaker.onWorkEnqueued = { if (isPro.value) syncRuntime.start() }
+
+        // Sync drains (WorkManager jobs) run the engine while nothing else keeps the process alive
+        syncDrain = SyncDrain(
+            keptAlive = combine(visible, PlaybackForeground.inForeground, SyncKeepAliveService.running) { visible, playing, service ->
+                visible || playing || service
+            }.stateIn(appScope, SharingStarted.Eagerly, false),
+            scanned = syncRuntime.scanned,
+            lanes = syncRuntime.laneStates,
+            startEngine = { syncRuntime.start() },
+            rescan = { syncRuntime.rescan() },
+        )
+        val drainScheduler = SyncDrainScheduler(
+            needs = { syncRuntime.nextDrain() },
+            workManager = { WorkManager.getInstance(this) },
+            hasReturned = syncDrain::hasReturned,
+        )
+        // The sync service keeps the process alive while a download runs in the background, unless playback does;
+        // drains take whatever else is left
+        syncKeepAlive = SyncKeepAlive(
+            appScope,
+            visible = visible,
+            playing = PlaybackForeground.inForeground,
+            lanes = syncRuntime.laneStates,
+            serviceRunning = SyncKeepAliveService.running,
+            draining = syncDrain.draining,
+            scanned = syncRuntime.scanned,
+            startService = { WearSyncServiceHost.start(this) },
+            scheduleDrains = { drainScheduler.schedule() },
+        )
+        PlaybackForeground.onLeaving = syncKeepAlive::onPlaybackLeavingForeground
+        SyncKeepAliveService.onUnavailable = syncKeepAlive::onServiceUnavailable
+
+        // Every time the app is opened, tasks waiting out a backoff retry now, their streak kept (as on the
+        // phone). Not while storage is critical: the engine holds all work then.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+            override fun onStart(owner: androidx.lifecycle.LifecycleOwner) {
+                // An engine that failed is built again (only here, not for every new task)
+                if (isPro.value) syncRuntime.onAppOpened()
+                appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    if (!com.tortugapower.audiobookplayer.logic.StorageMonitor.isCritical) {
+                        com.tortugapower.audiobookplayer.logic.SyncRetryWake.retryAllNow(syncTaskRepository)
                     }
                 }
-        }
+            }
+        })
 
         // Refresh the glance surfaces (tile + complication) when the STANDALONE book changes (new book, or
         // sign-out clears it) OR the current chapter changes (chapter jump / boundary) — they only re-render
@@ -222,15 +294,3 @@ class WearApp : Application() {
         }
     }
 }
-
-/** After this many failed attempts a task no longer keeps the sync FGS alive in the background (it still
- *  retries when the app is foregrounded). Keeps a permanently-failing task from pinning the service. */
-private const val MAX_BACKGROUND_WORK_ATTEMPTS = 3
-
-/** Inputs to the sync-service run gate (a 4-field holder for combine + distinctUntilChanged). */
-private data class GateInputs(
-    val pro: Boolean,
-    val foreground: Boolean,
-    val playing: Boolean,
-    val work: Boolean,
-)

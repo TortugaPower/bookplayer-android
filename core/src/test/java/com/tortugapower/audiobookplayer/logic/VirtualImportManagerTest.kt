@@ -344,6 +344,9 @@ class VirtualImportManagerTest {
         override fun getRootItems(): Flow<List<LibraryItemEntity>> = TODO()
         override fun getItemsInPath(path: String): Flow<List<LibraryItemEntity>> = TODO()
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> = TODO()
+        override suspend fun getFolderChildrenSummary(path: String) = TODO()
+        override suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) = TODO()
+        override suspend fun setFolderRollUp(uuid: String, duration: Double, currentTime: Double, author: String?, percentCompleted: Double, isFinished: Boolean) = TODO()
         override suspend fun getRootItemsSync(): List<LibraryItemEntity> = TODO()
         override suspend fun getItemByPath(path: String): LibraryItemEntity? = items.values.find { it.relativePath == path }
         override suspend fun getItemByFileName(fileName: String): LibraryItemEntity? = TODO()
@@ -358,7 +361,8 @@ class VirtualImportManagerTest {
         override suspend fun getMaxPathOrderRank(path: String): Int? =
             items.values.filter { it.relativePath?.substringBeforeLast('/', "") == path }.maxOfOrNull { it.orderRank }
         override suspend fun updateItem(item: LibraryItemEntity) = TODO()
-        override suspend fun updateRemoteURL(uuid: String, url: String?) = TODO()
+        override suspend fun setOrderRank(uuid: String, rank: Int) = TODO()
+        override suspend fun updateLinks(uuid: String, remoteURL: String?, artworkURL: String?) = TODO()
         override suspend fun deleteItem(item: LibraryItemEntity) = TODO()
         override suspend fun deleteItems(items: List<LibraryItemEntity>) = TODO()
         override suspend fun getDescendantsOfPath(path: String): List<LibraryItemEntity> = TODO()
@@ -370,6 +374,10 @@ class VirtualImportManagerTest {
         override suspend fun insertBookmark(bookmark: BookmarkEntity): Long = TODO()
         override suspend fun updateBookmark(bookmark: BookmarkEntity) = TODO()
         override suspend fun updateItemSpeed(uuid: String, speed: Double) = TODO()
+        override suspend fun setFinished(uuid: String, isFinished: Boolean, currentTime: Double, percentCompleted: Double) = TODO()
+        override suspend fun savePlaybackPosition(uuid: String, currentTime: Double, percentCompleted: Double, reachedEnd: Boolean, lastPlayDate: Long) = TODO()
+        override suspend fun setDetails(uuid: String, title: String, author: String?) = TODO()
+        override suspend fun setArtwork(uuid: String, artworkURL: String?) = TODO()
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) = TODO()
         override suspend fun updateChaptersUuid(oldUuid: String, newUuid: String) = TODO()
         override suspend fun updateBookmarksUuid(oldUuid: String, newUuid: String) = TODO()

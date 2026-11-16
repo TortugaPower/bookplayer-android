@@ -214,11 +214,11 @@ fun SettingsScreen(
                     label = stringResource(R.string.settings_upload_cellular_label),
                     checked = uploadOnCellular,
                     onCheckedChange = { enabled ->
-                        scope.launch { PlaybackSettingsManager.setUploadUsingCellularData(context, enabled) }
-                        // Turning it ON: wake the (possibly retired) worker so held uploads resume now
-                        // instead of waiting for the next network change or sync-task write.
-                        if (enabled) {
-                            com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost.resumeUploads(context)
+                        scope.launch {
+                            PlaybackSettingsManager.setUploadUsingCellularData(context, enabled)
+                            // Turning it ON: once it's stored, the engine looks at its lanes again so held
+                            // uploads resume now instead of waiting for the next network change or task write.
+                            if (enabled) com.tortugapower.audiobookplayer.logic.SyncEngine.current?.requestWorkerScan()
                         }
                     },
                 )

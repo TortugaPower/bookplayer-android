@@ -229,8 +229,8 @@ class AccountTierSyncTest {
     }
 
     /**
-     * The launch gate opens once a reading's tier is stored: once per reading, before the queue changes for it
-     * (a lapse's session end waits on a pass that may be waiting on the gate), and for a dropped reading too
+     * The engine and the first sync go once a reading's tier is stored: once per reading, before the queue changes
+     * for it (a lapse's session end waits on a pass that may be waiting on it), and for a dropped reading too
      */
     @Test fun start_tellsWhenEachTierIsStored_beforeTheQueueChanges() = runBlocking {
         val accounts = Accounts(AccountTier.PRO)

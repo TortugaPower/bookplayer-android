@@ -5,6 +5,7 @@ import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.BookmarkEntity
 import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.logic.BookmarkSync
+import com.tortugapower.audiobookplayer.logic.ItemUpdateFields
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -36,10 +37,23 @@ class SyncingLibraryRepository(
         }
     }
 
-    override suspend fun updateItem(item: LibraryItemEntity) {
-        delegate.updateItem(item)
+    // updateItem and updateItemArtwork save here only (the delegate's): iOS sends no item update for an artwork, whose
+    // image goes up through its own upload task. The changes that sync have their own methods, each sending its fields.
+
+    override suspend fun updateItemDetails(item: LibraryItemEntity) {
+        delegate.updateItemDetails(item)
         if (isSubscribed()) {
-            SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
+            SyncTaskFactory.createUpdateTask(syncTaskRepository, item, ItemUpdateFields.details(item))
+        }
+    }
+
+    // To our server with its folders' rolled-up progress (iOS markAsCompleted), not to media servers: iOS's reach
+    // them only from playback saves
+    override suspend fun updateItemFinished(item: LibraryItemEntity) {
+        delegate.updateItemFinished(item)
+        if (isSubscribed()) {
+            val stored = delegate.getItemById(item.uuid) ?: return
+            pushToServer(stored, ItemUpdateFields.finished(stored), rollUpPlayDate = false)
         }
     }
 
@@ -52,18 +66,43 @@ class SyncingLibraryRepository(
     /**
      * A rank rewrite. Only ever invoked while a location is in — or transitioning to — custom order
      * (manual drag, reverse, or freezing the visible order on switch-to-custom), so the moved ranks
-     * always sync as normal item updates. Automatic sort never rewrites ranks; its order is derived
-     * at view time, so there is no rank churn to sync.
+     * always sync as item updates. Automatic sort never rewrites ranks; its order is derived
+     * at view time, so there is no rank churn to sync. Only the items whose rank changed go up, with
+     * only their rank (iOS `freezeVisibleOrder`).
      */
     override suspend fun reorderItems(items: List<LibraryItemEntity>) {
+        // Read before the delegate, which sets each item's new rank on it.
+        val ranksBefore = items.map { it.orderRank }
         delegate.reorderItems(items)
         if (!isSubscribed()) return
-        items.forEach { SyncTaskFactory.createUpdateTask(syncTaskRepository, it) }
+        items.forEachIndexed { index, item ->
+            if (item.orderRank != ranksBefore[index]) {
+                SyncTaskFactory.createUpdateTask(syncTaskRepository, item, ItemUpdateFields.rank(item))
+            }
+        }
     }
 
     override suspend fun updateItemProgress(uuid: String, currentTime: Double, isFinished: Boolean) {
         delegate.updateItemProgress(uuid, currentTime, isFinished)
+        pushProgress(uuid, currentTime, mediaServerFinished = isFinished) { ItemUpdateFields.progress(it) }
+    }
 
+    override suspend fun savePlaybackProgress(uuid: String, currentTime: Double, reachedEnd: Boolean) {
+        delegate.savePlaybackProgress(uuid, currentTime, reachedEnd)
+        pushProgress(uuid, currentTime, mediaServerFinished = reachedEnd) { ItemUpdateFields.playback(it, reachedEnd) }
+    }
+
+    /**
+     * Sends a saved progress: its [fields] to our server, with its folders' roll-ups, and to the book's media servers
+     * the position and its percentage, 100% once this save finished it ([mediaServerFinished]), not from the stored
+     * flag: a finished book played on stays finished here, but Jellyfin and ABS get where it is.
+     */
+    private suspend fun pushProgress(
+        uuid: String,
+        currentTime: Double,
+        mediaServerFinished: Boolean,
+        fields: (LibraryItemEntity) -> Map<String, Any?>,
+    ) {
         // Update progress for non-hardcover external resources
         try {
             val externalResources = delegate.getExternalResourcesForBook(uuid).first()
@@ -78,9 +117,12 @@ class SyncingLibraryRepository(
                             providerId = resource.providerId,
                             hostId = resource.hostId,
                             currentTime = currentTime,
-                            percentCompleted = item.percentCompleted,
-                            isFinished = isFinished,
-                            // Stamped by the delegate's updateItemProgress just above.
+                            percentCompleted = when {
+                                mediaServerFinished -> 1.0
+                                item.duration > 0 -> (currentTime / item.duration).coerceIn(0.0, 1.0)
+                                else -> 0.0
+                            },
+                            // Stamped by the delegate's save just above.
                             lastPlayDate = item.lastPlayDate
                         )
                     }
@@ -92,23 +134,33 @@ class SyncingLibraryRepository(
 
         if (isSubscribed()) {
             val item = delegate.getItemById(uuid)
-            if (item != null) {
-                SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
+            if (item != null) pushToServer(item, fields(item), rollUpPlayDate = true)
+        }
+    }
 
-                // Sync parent folders as their aggregate progress changed. Roll the leaf's lastPlayDate up
-                // to each ancestor (matches iOS, which stamps the folder's lastPlayDate on play) so folders
-                // sort by recency both locally and on the server.
-                var path = item.relativePath
-                while (path != null && path.contains('/')) {
-                    path = path.substringBeforeLast('/')
-                    val parent = delegate.getItemByPath(path)
-                    if (parent != null) {
-                        parent.lastPlayDate = item.lastPlayDate
-                        delegate.updateItem(parent)
-                        SyncTaskFactory.createUpdateTask(syncTaskRepository, parent)
-                    }
-                }
+    /**
+     * Sends [item]'s [fields] to our server, and each folder above it its rolled-up progress, with the book's play date
+     * when [rollUpPlayDate]: a save that played it. A finish leaves when it was played as it is (iOS markAsCompleted
+     * updates the folders' progress only), and the book's date could be older than the folder's.
+     */
+    private suspend fun pushToServer(item: LibraryItemEntity, fields: Map<String, Any?>, rollUpPlayDate: Boolean) {
+        SyncTaskFactory.createUpdateTask(syncTaskRepository, item, fields)
+
+        // Sync parent folders as their aggregate progress changed. Roll the leaf's lastPlayDate up
+        // to each ancestor (matches iOS, which stamps the folder's lastPlayDate on play) so folders
+        // sort by recency both locally and on the server. Stamped here in one write for all of them.
+        val ancestors = generateSequence(item.relativePath) { path -> path.substringBeforeLast('/', "").ifEmpty { null } }
+            .drop(1)
+            .toList()
+        if (rollUpPlayDate) delegate.setFoldersLastPlayDate(ancestors, item.lastPlayDate)
+        ancestors.forEach { path ->
+            val parent = delegate.getItemByPath(path) ?: return@forEach
+            val fields = if (rollUpPlayDate) {
+                ItemUpdateFields.folderProgress(parent.copy(lastPlayDate = item.lastPlayDate))
+            } else {
+                ItemUpdateFields.folderPercent(parent)
             }
+            SyncTaskFactory.createUpdateTask(syncTaskRepository, parent, fields)
         }
     }
 
@@ -130,7 +182,7 @@ class SyncingLibraryRepository(
     private suspend fun pushParentFolderMetadata(parentPaths: Set<String>) {
         parentPaths.forEach { parentPath ->
             delegate.getItemByPath(parentPath)?.let { folder ->
-                SyncTaskFactory.createUpdateTask(syncTaskRepository, folder)
+                SyncTaskFactory.createUpdateTask(syncTaskRepository, folder, ItemUpdateFields.folderDetails(folder))
             }
         }
     }
@@ -179,18 +231,23 @@ class SyncingLibraryRepository(
             // Both sides change counts: the destination grew, the source parents shrank. The destination
             // row was fetched above AFTER the delegate's recompute, so reuse it instead of a second lookup;
             // it's subtracted from the source set so a move within the same parent pushes only once.
-            destinationFolder?.let { SyncTaskFactory.createUpdateTask(syncTaskRepository, it) }
+            destinationFolder?.let {
+                SyncTaskFactory.createUpdateTask(syncTaskRepository, it, ItemUpdateFields.folderDetails(it))
+            }
             pushParentFolderMetadata(sourceParents - setOfNotNull(targetFolderPath))
         }
         return notMoved
     }
 
+    // The conversions' updates come from the converted rows: the delegate changes the stored rows, not [items].
     override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {
         delegate.convertVolumesToFolders(items)
         if (isSubscribed()) {
-            items.forEach { item ->
-                // The delegate cleared the ex-volume's lastPlayDate — push the explicit 0 (iOS parity).
-                SyncTaskFactory.createUpdateTask(syncTaskRepository, item, clearedLastPlayDate = true)
+            items.mapNotNull { delegate.getItemById(it.uuid) }.forEach { item ->
+                // Its new type, and the play date the delegate cleared, as an explicit 0 (iOS updateFolder).
+                SyncTaskFactory.createUpdateTask(
+                    syncTaskRepository, item, ItemUpdateFields.type(item) + ItemUpdateFields.clearedLastPlayDate()
+                )
             }
         }
     }
@@ -199,13 +256,13 @@ class SyncingLibraryRepository(
         // A failed validation (BoundConversionException) propagates to the caller — no tasks enqueued.
         delegate.convertFoldersToVolumes(context, items)
         if (isSubscribed()) {
-            items.forEach { item ->
-                SyncTaskFactory.createUpdateTask(syncTaskRepository, item)
+            items.mapNotNull { delegate.getItemById(it.uuid) }.forEach { item ->
+                SyncTaskFactory.createUpdateTask(syncTaskRepository, item, ItemUpdateFields.type(item))
                 // The delegate cleared each book's lastPlayDate — push those too (iOS parity:
                 // updateFolder(.bound) sends a lastPlayDate: 0 metadata update per child).
                 item.relativePath?.let { path ->
                     delegate.getItemsInPathSync(path).forEach { child ->
-                        SyncTaskFactory.createUpdateTask(syncTaskRepository, child, clearedLastPlayDate = true)
+                        SyncTaskFactory.createUpdateTask(syncTaskRepository, child, ItemUpdateFields.clearedLastPlayDate())
                     }
                 }
             }
@@ -269,10 +326,10 @@ class SyncingLibraryRepository(
         if (!isSubscribed()) return
         // The delegate set it on the item and its folder: both go up, with their speed
         val item = delegate.getItemById(uuid) ?: return
-        SyncTaskFactory.createUpdateTask(syncTaskRepository, item, includeSpeed = true)
+        SyncTaskFactory.createUpdateTask(syncTaskRepository, item, ItemUpdateFields.speed(item))
         val parentPath = item.relativePath?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() }
         parentPath?.let { delegate.getItemByPath(it) }?.let {
-            SyncTaskFactory.createUpdateTask(syncTaskRepository, it, includeSpeed = true)
+            SyncTaskFactory.createUpdateTask(syncTaskRepository, it, ItemUpdateFields.speed(it))
         }
     }
 

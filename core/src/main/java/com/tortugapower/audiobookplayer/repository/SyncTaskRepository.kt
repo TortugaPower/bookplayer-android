@@ -3,6 +3,7 @@ package com.tortugapower.audiobookplayer.repository
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskStatus
 import com.tortugapower.audiobookplayer.logic.CodedFailure
+import com.tortugapower.audiobookplayer.logic.DownloadFilePayload
 import com.tortugapower.audiobookplayer.logic.MultipartUploadState
 import com.tortugapower.audiobookplayer.logic.TaskPauseScope
 import com.tortugapower.audiobookplayer.logic.UploadFilePayload
@@ -18,16 +19,53 @@ interface SyncTaskRepository {
     suspend fun updateTask(task: SyncTaskEntity)
 
     /**
-     * Marks a task running for one more attempt. Only the status and attempt count change: a write
-     * made to the task since it was read (a uuid migration, saved upload state) stays.
+     * Marks a task running for one more attempt, no longer waiting out a backoff. Only those change: a
+     * write made to the task since it was read (a uuid migration, saved upload state) stays.
      */
     suspend fun markTaskRunning(id: String) {
-        getTaskById(id)?.let { updateTask(it.copy(status = SyncTaskStatus.RUNNING, attempts = it.attempts + 1)) }
+        getTaskById(id)?.let {
+            updateTask(it.copy(status = SyncTaskStatus.RUNNING, attempts = it.attempts + 1, nextAttemptAt = null))
+        }
     }
 
-    /** Returns a task to pending after a failed run, changing only its status and error */
+    /**
+     * Returns a task to pending after a run that wasn't a failure (uploads held for Wi-Fi), changing only its
+     * status and error. Its retry streak ends.
+     */
     suspend fun markTaskPending(id: String, errorMessage: String?) {
-        getTaskById(id)?.let { updateTask(it.copy(status = SyncTaskStatus.PENDING, errorMessage = errorMessage)) }
+        getTaskById(id)?.let {
+            updateTask(
+                it.copy(status = SyncTaskStatus.PENDING, errorMessage = errorMessage, failureStreak = 0, nextAttemptAt = null)
+            )
+        }
+    }
+
+    /**
+     * Returns a task to pending after a failure the policy retries (SyncBackoff): [failureStreak] failures in
+     * a row, and not to run before [nextAttemptAt]. Only those and the error change.
+     */
+    suspend fun markTaskRetrying(id: String, errorMessage: String, failureStreak: Int, nextAttemptAt: Long) {
+        getTaskById(id)?.let {
+            updateTask(
+                it.copy(
+                    status = SyncTaskStatus.PENDING, errorMessage = errorMessage,
+                    failureStreak = failureStreak, nextAttemptAt = nextAttemptAt,
+                )
+            )
+        }
+    }
+
+    /** Every task waiting out a backoff may run now, its streak kept. Returns how many. */
+    suspend fun clearRetryWaits(): Int {
+        val waiting = getTasksByStatus(SyncTaskStatus.PENDING).filter { it.nextAttemptAt != null }
+        waiting.forEach { updateTask(it.copy(nextAttemptAt = null)) }
+        return waiting.size
+    }
+
+    /** [id] may run now if it's waiting out a backoff, its streak kept */
+    suspend fun clearRetryWait(id: String) {
+        getTaskById(id)?.takeIf { it.status == SyncTaskStatus.PENDING && it.nextAttemptAt != null }
+            ?.let { updateTask(it.copy(nextAttemptAt = null)) }
     }
 
     /**
@@ -48,13 +86,14 @@ interface SyncTaskRepository {
 
     suspend fun hasAccountPause(): Boolean = false
 
-    /** Parks the task. False when the task is gone (removed meanwhile). */
+    /** Parks the task, ending its retry streak. False when the task is gone (removed meanwhile). */
     suspend fun parkTask(id: String, scope: TaskPauseScope, failure: CodedFailure, pausedAt: Long): Boolean {
         val task = getTaskById(id) ?: return false
         updateTask(
             task.copy(
                 status = SyncTaskStatus.FAILED, pauseScope = scope.name, errorCode = failure.code,
                 errorMessage = failure.message, httpStatus = failure.httpStatus, pausedAt = pausedAt,
+                failureStreak = 0, nextAttemptAt = null,
             )
         )
         return true
@@ -96,6 +135,20 @@ interface SyncTaskRepository {
         updateTask(task.copy(payload = UploadFilePayload.withState(task.payload, state)))
         return true
     }
+
+    /**
+     * Writes the validator of a running download's part into its stored payload, the rest untouched, as
+     * [saveUploadState]. False when the task is gone: cancelled, or cleared by a sign-out or a lapse, so stop.
+     */
+    suspend fun saveDownloadValidator(id: String, validator: String?): Boolean {
+        val task = getTaskById(id) ?: return false
+        updateTask(task.copy(payload = DownloadFilePayload.withValidator(task.payload, validator)))
+        return true
+    }
+
+    /** The row ids of [jobType]'s tasks, whatever their status: the ones a download's part can belong to */
+    suspend fun taskRowIds(jobType: String): Set<String> =
+        SyncTaskStatus.entries.flatMap { getTasksByStatus(it) }.filter { it.jobType == jobType }.mapTo(mutableSetOf()) { it.id }
 
     /**
      * The lane's tasks still to go through, parked ones included: what blocks a library fetch, since a

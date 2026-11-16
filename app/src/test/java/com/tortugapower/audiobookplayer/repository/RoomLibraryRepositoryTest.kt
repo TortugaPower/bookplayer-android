@@ -376,8 +376,12 @@ class RoomLibraryRepositoryTest {
             items[item.uuid] = item
         }
 
-        override suspend fun updateRemoteURL(uuid: String, url: String?) {
-            items[uuid]?.let { items[uuid] = it.copy(remoteURL = url) }
+        override suspend fun setOrderRank(uuid: String, rank: Int) {
+            items[uuid]?.let { items[uuid] = it.copy(orderRank = rank) }
+        }
+
+        override suspend fun updateLinks(uuid: String, remoteURL: String?, artworkURL: String?) {
+            items[uuid]?.let { items[uuid] = it.copy(remoteURL = remoteURL, artworkURL = artworkURL ?: it.artworkURL) }
         }
 
         override suspend fun getItemByPath(path: String): LibraryItemEntity? {
@@ -386,6 +390,24 @@ class RoomLibraryRepositoryTest {
 
         override suspend fun getItemsInPathSync(path: String): List<LibraryItemEntity> {
             return items.values.filter { it.relativePath?.startsWith(path) == true }
+        }
+        override suspend fun getFolderChildrenSummary(path: String): com.tortugapower.audiobookplayer.database.dao.FolderChildrenSummary {
+            val children = getItemsInPathSync(path)
+            return com.tortugapower.audiobookplayer.database.dao.FolderChildrenSummary(
+                count = children.size,
+                duration = children.sumOf { it.duration },
+                currentTime = children.sumOf { it.currentTime },
+                progressSum = children.sumOf { if (it.isFinished) 1.0 else it.percentCompleted },
+                finishedCount = children.count { it.isFinished },
+            )
+        }
+        override suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) {
+            items.values.filter { it.relativePath in paths }.forEach { items[it.uuid] = it.copy(lastPlayDate = lastPlayDate) }
+        }
+        override suspend fun setFolderRollUp(uuid: String, duration: Double, currentTime: Double, author: String?, percentCompleted: Double, isFinished: Boolean) {
+            items[uuid]?.let {
+                items[uuid] = it.copy(duration = duration, currentTime = currentTime, author = author, percentCompleted = percentCompleted, isFinished = isFinished)
+            }
         }
 
         override suspend fun markExternalResourceFileProcessed(id: Long): Unit = TODO()
@@ -420,6 +442,24 @@ class RoomLibraryRepositoryTest {
         override suspend fun updateBookmark(bookmark: BookmarkEntity) = TODO()
         override suspend fun updateItemSpeed(uuid: String, speed: Double) {
             items[uuid]?.let { items[uuid] = it.copy(speed = speed) }
+        }
+        override suspend fun setFinished(uuid: String, isFinished: Boolean, currentTime: Double, percentCompleted: Double) {
+            items[uuid]?.let { items[uuid] = it.copy(isFinished = isFinished, currentTime = currentTime, percentCompleted = percentCompleted) }
+        }
+        override suspend fun savePlaybackPosition(uuid: String, currentTime: Double, percentCompleted: Double, reachedEnd: Boolean, lastPlayDate: Long) {
+            items[uuid]?.let {
+                val finished = it.isFinished || reachedEnd
+                items[uuid] = it.copy(
+                    currentTime = currentTime, lastPlayDate = lastPlayDate, isFinished = finished,
+                    percentCompleted = if (finished) 1.0 else percentCompleted,
+                )
+            }
+        }
+        override suspend fun setDetails(uuid: String, title: String, author: String?) {
+            items[uuid]?.let { items[uuid] = it.copy(title = title, author = author) }
+        }
+        override suspend fun setArtwork(uuid: String, artworkURL: String?) {
+            items[uuid]?.let { items[uuid] = it.copy(artworkURL = artworkURL) }
         }
         override suspend fun deleteBookmark(bookmark: BookmarkEntity) = TODO()
         override suspend fun updateChaptersUuid(oldUuid: String, newUuid: String) = TODO()

@@ -14,7 +14,6 @@ import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
 import com.tortugapower.audiobookplayer.logic.sort.LibrarySortManager
 import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
-import com.tortugapower.audiobookplayer.wear.sync.WearSyncServiceHost
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -130,12 +129,12 @@ class StandaloneViewModel(
     fun refresh() = enqueueFetch(force = true)
 
     fun download(row: LibraryRow) = withItem(row) { item ->
+        // Its task starts the engine (SyncEngineWaker); leaving the screen with it running starts the keep-alive
         OfflineDownloadManager.startDownload(appContext, libraryRepository, syncTaskRepository, item)
-        WearSyncServiceHost.start(appContext) // ensure the sync engine is running to execute the task
     }
 
     fun cancelDownload(row: LibraryRow) = withItem(row) { item ->
-        OfflineDownloadManager.cancelDownload(libraryRepository, syncTaskRepository, item)
+        OfflineDownloadManager.cancelDownload(appContext, libraryRepository, syncTaskRepository, item)
     }
 
     fun removeDownload(row: LibraryRow) = withItem(row) { item ->

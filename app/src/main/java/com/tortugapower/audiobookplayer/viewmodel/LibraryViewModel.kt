@@ -20,6 +20,11 @@ import com.tortugapower.audiobookplayer.repository.LibraryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
+import android.util.Log
 import kotlinx.coroutines.withTimeoutOrNull
 
 class LibraryViewModel(
@@ -188,22 +193,19 @@ class LibraryViewModel(
 
     /**
      * Download [item] for offline via the shared `:core` orchestration (same path as Wear): fans a BOUND
-     * book out into its BOOK files, skips already-local/queued files, refreshes expiring presigned URLs,
-     * then starts the sync engine to run the tasks.
+     * book out into its BOOK files, skips already-local/queued files and refreshes expiring presigned URLs.
+     * The sync engine picks the queued tasks up.
      */
     fun startDownload(item: LibraryItemEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             OfflineDownloadManager.startDownload(appContext, repository, syncTaskRepository, item)
-            appContext.startService(
-                android.content.Intent(appContext, com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost::class.java)
-            )
         }
     }
 
     /** Cancel an in-flight download (iOS parity: the options dialog's "Cancel download"). */
     fun cancelDownload(item: LibraryItemEntity) {
         viewModelScope.launch(Dispatchers.IO) {
-            OfflineDownloadManager.cancelDownload(repository, syncTaskRepository, item)
+            OfflineDownloadManager.cancelDownload(appContext, repository, syncTaskRepository, item)
         }
     }
 
@@ -429,8 +431,13 @@ class LibraryViewModel(
      */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val sortLocationWritable: StateFlow<Boolean> = _currentPath
-        .mapLatest { path -> sortManager?.resolveLocation(path)?.isWritable ?: false }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+        // Not writable until a level resolves: it would otherwise keep the last level's answer meanwhile, and a drag
+        // started then on a level whose order can't be saved would snap back.
+        .transformLatest { path ->
+            emit(false)
+            emit(sortManager?.resolveLocation(path)?.isWritable ?: false)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /**
      * Pull synced preferences for the level being visited — debounced and skipped when we have an
@@ -456,26 +463,38 @@ class LibraryViewModel(
         viewModelScope.launch(ioDispatcher) { sortManager?.setCustom(_currentPath.value) }
     }
 
-    // ---- Library display prefs (Options sheet toggles) --------------------------------------
+    // ---- Library display prefs (Options sheet), synced across devices --------------------------
+
+    // Nullable like sortManager: unit tests without the app singleton read the defaults and set nothing
+    private val displayPreferences: com.tortugapower.audiobookplayer.logic.preferences.LibraryDisplayPreferences?
+        get() = runCatching { BookPlayerApplication.instance.libraryDisplayPreferences }.getOrNull()
 
     val showProgressAsPercentage: StateFlow<Boolean> =
-        com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.getShowProgressAsPercentage(appContext)
+        (displayPreferences?.observeShowProgressAsPercentage() ?: flowOf(false))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val showOriginalFileName: StateFlow<Boolean> =
-        com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.getShowOriginalFileName(appContext)
+        (displayPreferences?.observeShowOriginalFileName() ?: flowOf(false))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     fun setShowProgressAsPercentage(enabled: Boolean) {
-        viewModelScope.launch {
-            com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.setShowProgressAsPercentage(appContext, enabled)
-        }
+        viewModelScope.launch { displayPreferences?.setShowProgressAsPercentage(enabled) }
     }
 
     fun setShowOriginalFileName(enabled: Boolean) {
-        viewModelScope.launch {
-            com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager.setShowOriginalFileName(appContext, enabled)
-        }
+        viewModelScope.launch { displayPreferences?.setShowOriginalFileName(enabled) }
+    }
+
+    /**
+     * List, grid of cards, or grid of covers (Options sheet). Null until the stored choice is read, so the
+     * screen never shows the list for a moment at launch before switching to a grid.
+     */
+    val libraryLayout: StateFlow<com.tortugapower.audiobookplayer.logic.LibraryLayout?> =
+        (displayPreferences?.observeLayout() ?: flowOf(com.tortugapower.audiobookplayer.logic.LibraryLayout.LIST))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun setLibraryLayout(layout: com.tortugapower.audiobookplayer.logic.LibraryLayout) {
+        viewModelScope.launch { displayPreferences?.setLayout(layout) }
     }
 
     /** One-off reverse of the current order; flips the location to a custom (manual) order. */
@@ -486,14 +505,30 @@ class LibraryViewModel(
     }
 
     /**
-     * Manual drag-and-drop reorder: persist the moved ranks and flip the location to custom. No-op
-     * for a placeholder folder / bound volume (an unresolved location can't be re-ranked).
+     * Manual drag-and-drop reorder ([orderedUuids]: the level in its new order): persist the ranks and flip
+     * the location to custom. No-op for a drop that changed nothing, and for a placeholder folder / bound
+     * volume (an unresolved location can't be re-ranked). [onSaved] runs once the save is done, or has failed.
      */
-    fun reorderItems(items: List<LibraryItemEntity>) {
+    fun reorderItems(orderedUuids: List<String>, onSaved: () -> Unit = {}) {
+        val path = _currentPath.value
         viewModelScope.launch {
-            sortManager?.setCustomOrder(_currentPath.value, items)
+            try {
+                // One save at a time, in drop order; off the main thread, since it sorts the whole level.
+                reorderLock.withLock {
+                    withContext(ioDispatcher) { sortManager?.setCustomOrder(path, orderedUuids) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The screen goes back to the stored order.
+                Log.w("LibraryViewModel", "Couldn't save a reorder", e)
+            } finally {
+                onSaved()
+            }
         }
     }
+
+    private val reorderLock = Mutex()
 
     fun combineToVolume(context: android.content.Context, items: List<LibraryItemEntity>, volumeName: String) {
         viewModelScope.launch {
@@ -550,9 +585,9 @@ class LibraryViewModel(
 
         if (titleChanged || authorChanged) {
             viewModelScope.launch {
-                item.title = newTitle
-                item.author = newAuthor
-                repository.updateItem(item)
+                // An edited copy: [item] is the library list's own, and changed in place the list would already hold
+                // the new title, so the library's next emission would look unchanged and the card wouldn't redraw.
+                repository.updateItemDetails(item.copy(title = newTitle, author = newAuthor))
             }
         }
     }
@@ -587,13 +622,32 @@ class LibraryViewModel(
             items.forEach { item ->
                 val books = repository.getDescendantBooks(item)
                 books.forEach { book ->
-                    // iOS parity (LibraryService.markAsFinished): finishing keeps the listening position
-                    // (isFinished alone forces the 100% display); un-finishing rewinds to 0 ONLY when the
-                    // book actually sits at the end, otherwise the position survives the round-trip —
-                    // overwriting it here would also sync the destroyed position to the server.
-                    val atEnd = kotlin.math.ceil(book.currentTime) >= kotlin.math.ceil(book.duration)
-                    val newTime = if (!isFinished && atEnd) 0.0 else book.currentTime
-                    repository.updateItemProgress(book.uuid, newTime, isFinished)
+                    // The loaded book is where the player is, which the stored row can trail by a save's interval
+                    val loaded = com.tortugapower.audiobookplayer.logic.PlaybackManager.currentItem.value
+                        ?.takeIf { it.uuid == book.uuid }
+                    val position = loaded?.let { com.tortugapower.audiobookplayer.logic.PlaybackManager.loadedPositionSeconds() }
+                        ?: book.currentTime
+                    // Overwriting a mid-book position here would also sync the lost position to the server.
+                    val newTime = com.tortugapower.audiobookplayer.logic.FinishedPolicy.positionAfter(
+                        isFinished, position, book.duration
+                    )
+                    val progress = com.tortugapower.audiobookplayer.logic.FinishedPolicy.progressAt(newTime, book.duration)
+                    // The player's Mark as finished, as iOS has one markAsFinished for both: its columns and the
+                    // finish's effects, on our server only; no play date, nothing to media servers
+                    repository.updateItemFinished(book.copy(isFinished = isFinished, currentTime = newTime, percentCompleted = progress))
+                    // The loaded book's copy in the player too, as the player's own does: its menu and its next save
+                    // read it. Taken back to the start, the player goes there, paused as the player's own leaves it
+                    // (an ended book still plays when ready, so the seek alone would start it), or its next play
+                    // would finish it again.
+                    if (loaded != null) {
+                        loaded.isFinished = isFinished
+                        loaded.currentTime = newTime
+                        loaded.percentCompleted = progress
+                        if (newTime != position) {
+                            com.tortugapower.audiobookplayer.logic.PlaybackManager.seekTo((newTime * 1000).toLong())
+                            com.tortugapower.audiobookplayer.logic.PlaybackManager.pause()
+                        }
+                    }
                 }
             }
         }
@@ -633,7 +687,7 @@ class LibraryViewModel(
                     }
                     if (success) {
                         item.artworkURL = destFile.absolutePath
-                        repository.updateItem(item)
+                        repository.updateItemArtwork(item)
                     }
                 }
                 
@@ -661,12 +715,19 @@ class LibraryViewModel(
         }
     }
 
+    // One artwork change at a time, as when they ran on the main thread: a removal tapped while a picked image is still
+    // saving waits for it, and two picks don't both replace the same old artwork (leaving one new file behind)
+    private val artworkLock = Mutex()
+
     fun updateArtwork(context: android.content.Context, item: LibraryItemEntity, imageUri: android.net.Uri?) {
-        viewModelScope.launch {
+        // ioDispatcher: decoding and writing the picked image, and deleting the old one, are disk work
+        viewModelScope.launch(ioDispatcher) { artworkLock.withLock {
             if (imageUri == null) {
+                val stored = storedForArtwork(item) ?: return@launch
                 // Delete existing artwork
-                com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
-                item.artworkURL = null
+                com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
+                stored.artworkURL = null
+                repository.updateItemArtwork(stored)
             } else {
                 // Process and save new artwork
                 val artworkDir = java.io.File(context.filesDir, "Artworks")
@@ -678,25 +739,35 @@ class LibraryViewModel(
                 // Compress and save
                 val success = com.tortugapower.audiobookplayer.logic.ArtworkManager.compressAndSaveImage(context, imageUri, destFile)
                 if (success) {
+                    // The row as it is once the image is saved: an artwork set on it meanwhile is the file to delete
+                    val stored = storedForArtwork(item) ?: run { destFile.delete(); return@launch }
                     // Delete old artwork if exists
-                    com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
-                    item.artworkURL = destFile.absolutePath
+                    com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
+                    stored.artworkURL = destFile.absolutePath
                     
                     // Enqueue sync task for artwork (validation is inside repository)
-                    repository.updateArtworkSync(item)
+                    repository.updateArtworkSync(stored)
+                    repository.updateItemArtwork(stored)
                 }
             }
-            repository.updateItem(item)
-        }
+        } }
     }
 
     fun deleteArtwork(item: LibraryItemEntity) {
-        viewModelScope.launch {
-            com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(item.artworkURL)
-            item.artworkURL = null
-            repository.updateItem(item)
-        }
+        viewModelScope.launch(ioDispatcher) { artworkLock.withLock {
+            val stored = storedForArtwork(item) ?: return@launch
+            com.tortugapower.audiobookplayer.logic.ArtworkManager.deleteArtwork(stored.artworkURL)
+            stored.artworkURL = null
+            repository.updateItemArtwork(stored)
+        } }
     }
+
+    /**
+     * The stored row an artwork change works on, not the sheet's [item]: that's the library list's own (changed in
+     * place, the card wouldn't redraw), and an artwork set earlier from the same sheet is only on the stored row,
+     * whose file the change must delete.
+     */
+    private suspend fun storedForArtwork(item: LibraryItemEntity): LibraryItemEntity? = repository.getItemById(item.uuid)
 
     companion object {
         /** Upper bound on how long the pull-to-refresh indicator waits for the fetch task to drain. */

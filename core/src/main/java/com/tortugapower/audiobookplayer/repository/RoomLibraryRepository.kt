@@ -9,6 +9,7 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ItemType
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.database.entities.BookCompletionEntity
+import com.tortugapower.audiobookplayer.logic.FinishedPolicy
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.core.R
 import com.tortugapower.audiobookplayer.logic.ExternalServiceUtils
@@ -125,17 +126,62 @@ class RoomLibraryRepository(
 
     override suspend fun updateItem(item: LibraryItemEntity) {
         withContext(Dispatchers.IO) {
-            val oldItem = libraryDao.getItemById(item.uuid)
-            if (oldItem != null && item.isFinished && !oldItem.isFinished) {
-                val completion = BookCompletionEntity(
-                    bookUuid = item.uuid,
-                    bookTitle = item.title,
-                    authorName = item.author,
-                    completionDate = timeProvider()
-                )
-                libraryDao.insertCompletionIfMissing(completion)
-            }
+            recordCompletion(item)
             libraryDao.updateItem(item)
+        }
+    }
+
+    /**
+     * Writes only the finished state, position and progress: [item] is the player's copy, loaded before playback
+     * saved its play date, and writing it whole would put that back.
+     */
+    override suspend fun updateItemFinished(item: LibraryItemEntity) {
+        withContext(Dispatchers.IO) {
+            val wasFinished = libraryDao.getItemById(item.uuid)?.isFinished ?: return@withContext
+            libraryDao.setFinished(item.uuid, item.isFinished, item.currentTime, item.percentCompleted)
+            // The same as any finish (iOS markAsCompleted): a completion, Hardcover's read status, the folders' progress
+            afterProgressSaved(libraryDao.getItemById(item.uuid) ?: return@withContext, wasFinished, rollUpFolders = true)
+        }
+    }
+
+    /**
+     * Writes only the title and author: [item] is the details sheet's copy, loaded when the sheet opened, and writing
+     * it whole would put back the progress and play date saved since.
+     */
+    override suspend fun updateItemDetails(item: LibraryItemEntity) {
+        withContext(Dispatchers.IO) {
+            libraryDao.setDetails(item.uuid, item.title, item.author)
+        }
+    }
+
+    override suspend fun setFoldersLastPlayDate(paths: List<String>, lastPlayDate: Long?) {
+        if (paths.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            libraryDao.setFoldersLastPlayDate(paths, lastPlayDate)
+        }
+    }
+
+    /**
+     * Writes only the artwork: [item] can be a copy loaded a while ago (the details sheet's, or one read before the
+     * artwork downloaded or was extracted), and writing it whole would put back the progress and play date saved since.
+     */
+    override suspend fun updateItemArtwork(item: LibraryItemEntity) {
+        withContext(Dispatchers.IO) {
+            libraryDao.setArtwork(item.uuid, item.artworkURL)
+        }
+    }
+
+    /** A book just finished counts as a completion. */
+    private suspend fun recordCompletion(item: LibraryItemEntity) {
+        val oldItem = libraryDao.getItemById(item.uuid)
+        if (oldItem != null && item.isFinished && !oldItem.isFinished) {
+            val completion = BookCompletionEntity(
+                bookUuid = item.uuid,
+                bookTitle = item.title,
+                authorName = item.author,
+                completionDate = timeProvider()
+            )
+            libraryDao.insertCompletionIfMissing(completion)
         }
     }
 
@@ -145,47 +191,70 @@ class RoomLibraryRepository(
             val wasFinished = item.isFinished
             item.currentTime = currentTime
             item.isFinished = isFinished
-            item.percentCompleted = if (item.duration > 0) (currentTime / item.duration).coerceIn(0.0, 1.0) else 0.0
-            if (isFinished) item.percentCompleted = 1.0
-            if (isFinished && !wasFinished) {
-                val completion = BookCompletionEntity(
-                    bookUuid = item.uuid,
-                    bookTitle = item.title,
-                    authorName = item.author,
-                    completionDate = timeProvider()
-                )
-                libraryDao.insertCompletionIfMissing(completion)
-            }
+            item.percentCompleted = FinishedPolicy.progressAt(currentTime, item.duration)
             item.lastPlayDate = timeProvider()
             libraryDao.updateItem(item)
+            afterProgressSaved(item, wasFinished, rollUpFolders = true)
+        }
+    }
 
-            // Hardcover Progress Integration
-            try {
-                val hardcoverResource = libraryDao.getExternalResource(uuid, "hardcover")
-                if (hardcoverResource != null) {
-                    val hardcoverToken = hardcoverTokenProvider()
-                    if (hardcoverToken.isNotBlank()) {
-                        if (isFinished) {
-                            if (hardcoverResource.syncStatus != "read") {
-                                libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "read"))
-                                SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, uuid, 3)
-                            }
-                        } else {
-                            val threshold = readingThresholdProvider()
-                            if (item.percentCompleted >= threshold && hardcoverResource.syncStatus != "reading" && hardcoverResource.syncStatus != "read") {
-                                libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "reading"))
-                                SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, uuid, 2)
-                            }
+    override suspend fun savePlaybackProgress(uuid: String, currentTime: Double, reachedEnd: Boolean) {
+        withContext(Dispatchers.IO) {
+            val before = libraryDao.getItemById(uuid) ?: return@withContext
+            libraryDao.savePlaybackPosition(
+                uuid, currentTime, FinishedPolicy.progressAt(currentTime, before.duration), reachedEnd, timeProvider()
+            )
+            val item = libraryDao.getItemById(uuid) ?: return@withContext
+            // As iOS's updatePlaybackTime: the folders above roll up only when the book's whole percent (or its
+            // finished flag) changed, not on every save, which comes every ~10 s while it plays
+            val foldersChanged = wholePercent(before) != wholePercent(item) || before.isFinished != item.isFinished
+            afterProgressSaved(item, before.isFinished, rollUpFolders = foldersChanged)
+        }
+    }
+
+    private fun wholePercent(item: LibraryItemEntity): Int = (item.percentCompleted * 100).toInt()
+
+    /**
+     * What a saved progress leads to: a completion when the book just finished, its Hardcover status, and when
+     * [rollUpFolders], its folders' roll-up.
+     */
+    private suspend fun afterProgressSaved(item: LibraryItemEntity, wasFinished: Boolean, rollUpFolders: Boolean) {
+        if (item.isFinished && !wasFinished) {
+            val completion = BookCompletionEntity(
+                bookUuid = item.uuid,
+                bookTitle = item.title,
+                authorName = item.author,
+                completionDate = timeProvider()
+            )
+            libraryDao.insertCompletionIfMissing(completion)
+        }
+
+        // Hardcover Progress Integration
+        try {
+            val hardcoverResource = libraryDao.getExternalResource(item.uuid, "hardcover")
+            if (hardcoverResource != null) {
+                val hardcoverToken = hardcoverTokenProvider()
+                if (hardcoverToken.isNotBlank()) {
+                    if (item.isFinished) {
+                        if (hardcoverResource.syncStatus != "read") {
+                            libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "read"))
+                            SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, item.uuid, 3)
+                        }
+                    } else {
+                        val threshold = readingThresholdProvider()
+                        if (item.percentCompleted >= threshold && hardcoverResource.syncStatus != "reading" && hardcoverResource.syncStatus != "read") {
+                            libraryDao.insertExternalResource(hardcoverResource.copy(syncStatus = "reading"))
+                            SyncTaskFactory.createHardcoverUpdateStatusTask(syncTaskRepository, item.uuid, 2)
                         }
                     }
                 }
-            } catch (e: Exception) {
-                android.util.Log.e("RoomLibraryRepository", "Error tracking hardcover progress", e)
             }
-
-            // Recursively update parents
-            updateParentFolders(item.relativePath)
+        } catch (e: Exception) {
+            android.util.Log.e("RoomLibraryRepository", "Error tracking hardcover progress", e)
         }
+
+        // Recursively update parents
+        if (rollUpFolders) updateParentFolders(item.relativePath)
     }
 
     // Same walk + aggregation as the sync path — LibraryContentsSync.recomputeFolder is the single
@@ -401,9 +470,13 @@ class RoomLibraryRepository(
         }
     }
 
+    // The conversions change the stored rows, not the caller's items: those are the library list's own (changed in
+    // place, the list would already hold the change and its cards wouldn't redraw), and saved whole they could put
+    // back older progress.
     override suspend fun convertVolumesToFolders(items: List<LibraryItemEntity>) {
         withContext(Dispatchers.IO) {
-            items.forEach { item ->
+            items.forEach { selected ->
+                val item = libraryDao.getItemById(selected.uuid) ?: return@forEach
                 if (item.type == ItemType.BOUND) {
                     item.type = ItemType.FOLDER
                     // A folder doesn't carry the volume's played-as-one-unit recency (iOS parity:
@@ -420,7 +493,8 @@ class RoomLibraryRepository(
 
     override suspend fun convertFoldersToVolumes(context: Context, items: List<LibraryItemEntity>) {
         withContext(Dispatchers.IO) {
-            items.forEach { item ->
+            items.forEach { selected ->
+                val item = libraryDao.getItemById(selected.uuid) ?: return@forEach
                 if (item.type == ItemType.FOLDER) {
                     // iOS parity (LibraryService.updateFolder(.bound)): a bound volume may only
                     // contain books, and never nothing. Validate BEFORE mutating anything.
@@ -449,10 +523,11 @@ class RoomLibraryRepository(
 
     override suspend fun reorderItems(items: List<LibraryItemEntity>) {
         withContext(Dispatchers.IO) {
-            items.forEachIndexed { index, item ->
-                item.orderRank = index
-                libraryDao.updateItem(item)
-            }
+            // The items carry their new rank on to the sync's update tasks.
+            items.forEachIndexed { index, item -> item.orderRank = index }
+            // One transaction: written one at a time, the library re-reads between writes, and two items sharing a
+            // rank show in their old order for a frame, so a drop flashes.
+            libraryDao.setOrderRanks(items.map { it.uuid })
         }
     }
 

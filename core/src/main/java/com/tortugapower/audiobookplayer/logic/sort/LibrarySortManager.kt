@@ -97,15 +97,27 @@ class LibrarySortManager(
     }
 
     /**
-     * Manual drag-and-drop reorder: flip to custom and persist the moved ranks ([orderedItems] is in
-     * the user's chosen order). The rank writes sync as normal item updates. No-op for an unresolved
-     * location — a bound volume / placeholder folder can never be re-ranked.
+     * Manual drag-and-drop reorder: flip to custom and persist the ranks of [orderedUuids], the level in the
+     * user's chosen order. The ranks are written to the items as stored now, not to the copies a drag held:
+     * those can be seconds old, and saving them would undo whatever changed meanwhile (a playing book's
+     * progress). An item that arrived during the drag keeps its place after the dragged ones. A drop that
+     * leaves the visible order as it was changes nothing, not even an automatic rule. The rank writes sync as
+     * normal item updates. No-op for an unresolved location: a bound volume / placeholder folder can never be
+     * re-ranked.
      */
-    suspend fun setCustomOrder(path: String?, orderedItems: List<LibraryItemEntity>) {
+    suspend fun setCustomOrder(path: String?, orderedUuids: List<String>) {
         val location = resolveLocation(path)
         if (!location.isWritable) return
+        val visible = displayOrder(location, path)
+        val stored = visible.associateBy { it.uuid }
+        val dragged = orderedUuids.toSet()
+        // Nothing moved: the items both orders hold are as they were. An item added or removed during the drag (a
+        // listing, an import, a delete) doesn't count, or a plain long press to select could switch the level to custom.
+        if (visible.map { it.uuid }.filter { it in dragged } == orderedUuids.filter { it in stored }) return
+        // The ranks before the rule: switched to custom first, an automatic level would show its old ranks until
+        // the new ones land.
+        repository.reorderItems(orderedUuids.mapNotNull { stored[it] } + visible.filter { it.uuid !in dragged })
         setPreference(location, EffectiveSort.Custom)
-        repository.reorderItems(orderedItems)
     }
 
     /**
@@ -116,8 +128,9 @@ class LibrarySortManager(
         val location = resolveLocation(path)
         if (!location.isWritable) return
         val visible = displayOrder(location, path)
-        setPreference(location, EffectiveSort.Custom)
+        // The ranks before the rule, as in setCustomOrder.
         repository.reorderItems(visible.reversed())
+        setPreference(location, EffectiveSort.Custom)
     }
 
     /** Logout: drop every local sort preference (queued push tasks are cleared with the sync queue). */

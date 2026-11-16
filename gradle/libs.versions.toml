@@ -11,9 +11,10 @@ espressoCore = "3.5.1"
 # the ecosystem resolves higher transitively anyway.
 lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.8.0"
-composeBom = "2024.09.01"
+# Compose 1.11 + material3 1.4.0, both stable (1.4.0 has ShortNavigationBar, the short tab bar). Compose 1.12
+# (BOM 2026.08+) needs compileSdk 37 and AGP 9.1.
+composeBom = "2026.06.01"
 wearCompose = "1.4.1"
-material3 = "1.5.0-alpha16"
 media3 = "1.11.0"
 navigationCompose = "2.7.7"
 # Chrome Auth Tab (AudiobookShelf SSO browser leg). 1.10.0 = latest stable; needs Chrome 137+ at runtime.
@@ -24,6 +25,9 @@ robolectric = "4.14.1"
 androidxTestCore = "1.6.1"
 # 2.7+ required: 2.6.x KSP breaks on Kotlin 2.2 metadata (unexpected jvm signature V).
 room = "2.8.4"
+# On-demand initialization only (BookPlayerApplication is its Configuration.Provider): its auto-initializer wrote
+# its database at every process start, first to die on a full disk (removed in f74432dd)
+work = "2.12.0"
 datastore = "1.1.1"
 splashscreen = "1.0.1"
 wearOngoing = "1.0.0"
@@ -40,6 +44,8 @@ retrofit = "2.11.0"
 credential = "1.2.2"
 googleid = "1.1.1"
 coil = "2.6.0"
+# Drag to reorder in the library's lazy list and grid (Compose has no reorder API). Needs Compose >= 1.7.
+reorderable = "3.1.0"
 # Play requires Billing Library >= 8.0.0 from Aug 30, 2026; must stay on the same major
 # as the BillingClient bundled by RevenueCat (purchases 9.x -> BC 8.x).
 billing = "8.3.0"
@@ -63,6 +69,8 @@ wearProtolayout = "1.4.1"
 wearWatchface = "1.2.1"
 # Bridges a suspend block to the ListenableFuture TileService.onTileRequest returns; matches coroutines 1.7.3.
 coroutinesGuava = "1.7.3"
+# @ColorInt and friends, for :browserdrop (matches what the AndroidX libraries already resolve).
+androidxAnnotation = "1.9.1"
 
 [libraries]
 purchases = { group = "com.revenuecat.purchases", name = "purchases", version.ref = "revenuecat" }
@@ -72,6 +80,7 @@ sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "
 sentry-okhttp = { group = "io.sentry", name = "sentry-okhttp", version.ref = "sentry" }
 konfetti-compose = { group = "nl.dionsegijn", name = "konfetti-compose", version.ref = "konfetti" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+reorderable = { group = "sh.calvin.reorderable", name = "reorderable", version.ref = "reorderable" }
 billing-ktx = { group = "com.android.billingclient", name = "billing-ktx", version.ref = "billing" }
 billing = { group = "com.android.billingclient", name = "billing", version.ref = "billing" }
 androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "fragment" }
@@ -88,6 +97,8 @@ androidx-wear-remote-interactions = { group = "androidx.wear", name = "wear-remo
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
+androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "work" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
@@ -102,6 +113,8 @@ androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.re
 androidx-media = { group = "androidx.media", name = "media", version.ref = "media" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutinesTest" }
+androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidxAnnotation" }
 kotlinx-coroutines-guava = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-guava", version.ref = "coroutinesGuava" }
 androidx-wear-tiles = { group = "androidx.wear.tiles", name = "tiles", version.ref = "wearTiles" }
 androidx-wear-protolayout = { group = "androidx.wear.protolayout", name = "protolayout", version.ref = "wearProtolayout" }
@@ -129,7 +142,7 @@ androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
-androidx-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
+androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
 # Wear OS Compose — the watch UI toolkit (androidx.wear.compose.material, NOT the phone's material3).
 androidx-wear-compose-material = { group = "androidx.wear.compose", name = "compose-material", version.ref = "wearCompose" }
 # Wear compose-foundation: ScalingLazyColumn + curved layout for the remote list.

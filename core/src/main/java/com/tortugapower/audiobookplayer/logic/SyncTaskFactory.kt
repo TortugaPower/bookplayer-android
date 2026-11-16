@@ -6,14 +6,28 @@ import com.tortugapower.audiobookplayer.database.entities.LibraryItemEntity
 import com.tortugapower.audiobookplayer.database.entities.ExternalResourceEntity
 import com.tortugapower.audiobookplayer.database.entities.SyncTaskEntity
 import com.tortugapower.audiobookplayer.repository.SyncTaskRepository
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 object SyncTaskFactory {
     private val gson = Gson()
 
+    // Whole numbers read back whole (a rank, a play date in seconds), not as the doubles Gson defaults to.
+    private val pendingGson = payloadGson()
+
+    /** A Gson for a task's stored payload that reads whole numbers back whole, as they were written. */
+    internal fun payloadGson(): Gson = com.google.gson.GsonBuilder()
+        .setObjectToNumberStrategy(com.google.gson.ToNumberPolicy.LONG_OR_DOUBLE)
+        .create()
+
+    // One update merge at a time, as iOS merges inside its SyncQueueRepository actor with no await in between: a merge
+    // reads the pending update and writes it back, and another running in between would lose one of the two's fields.
+    private val updateMergeLock = Mutex()
+
     private fun pendingPayloadOf(task: SyncTaskEntity): Map<String, Any?> {
         val type = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
-        return runCatching { gson.fromJson<Map<String, Any?>>(task.payload, type) }.getOrNull() ?: emptyMap()
+        return runCatching { pendingGson.fromJson<Map<String, Any?>>(task.payload, type) }.getOrNull() ?: emptyMap()
     }
 
     const val QUEUE_SYNC = "sync"
@@ -84,53 +98,37 @@ object SyncTaskFactory {
         enqueue(repository, QUEUE_SYNC, JOB_UPLOAD_METADATA, item.uuid, payload)
     }
 
-    suspend fun createUpdateTask(
-        repository: SyncTaskRepository,
-        item: LibraryItemEntity,
-        // Bound-volume conversions deliberately CLEAR lastPlayDate; send an explicit 0 (iOS parity —
-        // updateFolder pushes lastPlayDate: 0) so the server drops the stale value. Everywhere else a
-        // null lastPlayDate stays omitted from the payload (Gson drops nulls): update tasks push a
-        // full snapshot, and a never-played-here item must not wipe a date set by another device.
-        clearedLastPlayDate: Boolean = false,
-        // Only a speed change sends the speed, as on iOS (LibraryService.updateBookSpeed). Every other
-        // update (progress ticks above all) leaves it out, or this device's copy would overwrite a speed
-        // set later on another one.
-        includeSpeed: Boolean = false
-    ) {
-        val payload = mapOf(
-            "uuid" to item.uuid,
-            "title" to item.title,
-            // Containers translate their bare-count author into the server display format ("N Files"/
-            // "N Chapters") at this boundary; books pass through (LibraryContentsSync KDoc).
-            "details" to LibraryContentsSync.serverFolderDetails(item),
-            // Folder duration is recomputed together with its file count on moves — push both, like iOS's
-            // rebuildFolderDetails metadata update, so a later fetch doesn't restore stale server values.
-            "duration" to item.duration,
-            "currentTime" to item.currentTime,
-            // The API/iOS convention is 0..100; the local column is the 0..1 fraction.
-            "percentCompleted" to item.percentCompleted * 100.0,
-            "isFinished" to item.isFinished,
-            "orderRank" to item.orderRank,
-            // Epoch SECONDS (local column is ms), matching iOS/the API — without it the server's
-            // last_play_date never advances from Android, breaking cross-device "recently played".
-            "lastPlayDateTimestamp" to (item.lastPlayDate?.let { it / 1000 } ?: if (clearedLastPlayDate) 0L else null),
-            "type" to item.type.ordinal,
-            // Null is dropped by Gson
-            "speed" to if (includeSpeed) item.speed else null
-        )
+    /**
+     * Queue an update of [item]'s [fields] (`POST /v1/library`, which writes only the fields sent): what the change
+     * touched, from [ItemUpdateFields], as iOS sends. Every other field is left out, so this device's copy of it
+     * can't overwrite a newer one from another device. A null field is left out too: absent means unchanged. The
+     * item's path goes with it, as on iOS, for the queued-tasks list; the server finds the item by its uuid.
+     *
+     * Merges into the item's pending update field by field (iOS `TasksDataManager.updateTaskModel`): a field queued
+     * before and not in [fields] still goes up, with the newer value of any field in both. Except the path, which
+     * keeps the pending update's, as iOS does: that update can sit ahead of a move queued since, and goes up
+     * before the server has moved the item. Not every server lookup is by uuid yet. Merges run one at a time, so two
+     * at once (a playback save and a reorder) both reach the server, and queue one task when none was pending.
+     */
+    suspend fun createUpdateTask(repository: SyncTaskRepository, item: LibraryItemEntity, fields: Map<String, Any?>) {
+        val payload = (mapOf("uuid" to item.uuid, "relativePath" to item.relativePath) + fields)
+            .filterValues { it != null }
 
-        val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_UPDATE, item.uuid)
-        // A pending speed change survives the progress ticks merged into its task after it
-        val merged = if (existingTask != null && !includeSpeed) {
-            val pendingSpeed = pendingPayloadOf(existingTask)["speed"]
-            if (pendingSpeed != null) payload + ("speed" to pendingSpeed) else payload
-        } else payload
-        if (existingTask != null && repository.updatePendingTaskPayload(existingTask, gson.toJson(merged))) {
-            android.util.Log.d("SyncTaskFactory", "🔄 Merging update task for item: ${item.uuid}")
-        } else {
-            enqueue(repository, QUEUE_SYNC, JOB_UPDATE, item.uuid, payload)
+        updateMergeLock.withLock {
+            val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_UPDATE, item.uuid)
+            if (existingTask != null &&
+                repository.updatePendingTaskPayload(existingTask, gson.toJson(mergedUpdate(pendingPayloadOf(existingTask), payload)))
+            ) {
+                android.util.Log.d("SyncTaskFactory", "🔄 Merging update task for item: ${item.uuid}")
+            } else {
+                enqueue(repository, QUEUE_SYNC, JOB_UPDATE, item.uuid, payload)
+            }
         }
     }
+
+    /** [pending] with [update]'s fields over it, and [pending]'s path (none if it had none). */
+    private fun mergedUpdate(pending: Map<String, Any?>, update: Map<String, Any?>): Map<String, Any?> =
+        (pending + update - "relativePath") + pending.filterKeys { it == "relativePath" }
 
     suspend fun createMoveTask(repository: SyncTaskRepository, item: LibraryItemEntity, origin: String, destination: String) {
         val payload = mapOf(
@@ -368,7 +366,6 @@ object SyncTaskFactory {
         hostId: String?,
         currentTime: Double,
         percentCompleted: Double,
-        isFinished: Boolean,
         // Epoch ms of the save this push carries (the item's lastPlayDate); the server's "last played".
         lastPlayDate: Long?
     ) {
@@ -381,7 +378,6 @@ object SyncTaskFactory {
             "hostId" to hostId,
             "currentTime" to currentTime,
             "percentCompleted" to percentCompleted,
-            "isFinished" to isFinished,
             "lastPlayDate" to lastPlayDate
         )
         val existingTask = repository.getPendingTaskByTypeAndTaskId(JOB_EXTERNAL_UPDATE, taskId)

@@ -70,6 +70,8 @@ class Migration11To12Test {
                 assertEquals(7, cursor.getInt(3))
                 (4..8).forEach { assertTrue("column $it is null", cursor.isNull(it)) }
             }
+            // Room checks the current schema: the later sync_tasks migrations bring the table up to it
+            AppDatabase.MIGRATION_14_15.migrate(db)
             columns(db)
         }
 

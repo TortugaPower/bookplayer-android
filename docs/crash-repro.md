@@ -339,6 +339,31 @@ single-mail-app support path — now `launchSupportEmail` (`logic/SupportInfo.kt
 disappeared between resolving and starting into the same clipboard fallback iOS shows when `canSendMail()` is
 false; `LaunchSupportEmailTest` drives the real throw with Robolectric's `checkActivities(true)`.
 
+### ANDROID-BOOKPLAYER-2F — the sync host read an engine a refused promotion never built
+
+`scripts/chaos/sync-host-promotion-refused.sh` on `bp-api36` (API 35+: the dataSync time limit; `google_apis`, so
+`adb root` works)
+
+Shrinks the dataSync budget to 10 s (`device_config put activity_manager data_sync_fgs_timeout_duration 10000`),
+opens the app and sends it home (the budget only burns while the app isn't on screen), starts the sync host from
+the shell, waits for `FGS (dataSync) timed out`, then starts it again. Android refuses the promotion: "Time limit
+already exhausted for foreground service type dataSync". In the field the second start is the app's own, allowed
+from the background because playback holds a foreground service. That's why the crash also stopped audio.
+
+* Before (1.2.0 – 1.3.0): `onCreate` caught the refusal and returned before building the engine, and `onDestroy`
+  read the `lateinit` engine. FATAL `UninitializedPropertyAccessException` (Sentry titles it
+  `CompletionHandlerException`, an R8 naming artifact); the process is gone. The rig prints
+  `PROCESS: <pid> → gone` and one new app crash.
+* After: the host builds nothing. The engine is built once per process, off the main thread (`SyncRuntime`), and
+  the host only keeps the process alive. The refusal is logged, the host stops, and the process and its engine
+  live on: `PROCESS: <pid> → <same pid>`, no new crash.
+* The budget's 24 h bookkeeping survives until a reboot or an uninstall: reboot between runs.
+* ANDROID-BOOKPLAYER-2E (a background ANR in the host's `onCreate` while building the network clients' TLS on the
+  main thread) isn't reproducible on the emulator. It's gone with the same change, since nothing is built in the
+  host or on the main thread. Unit tests: `SyncRuntimeTest` (one engine, built off the main thread, a failed build
+  reported and retried), `TaskConcurrencyManagerLifecycleTest` (runs once, no worker before the start-up steps, a
+  full disk waited out), `TaskConcurrencyServiceHostTest` (no lifecycle path reads an engine).
+
 ### Not yet scripted
 
 | Issue | Planned recipe |

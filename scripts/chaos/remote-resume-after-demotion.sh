@@ -93,9 +93,10 @@ sleep 2
 echo "after pause:  session state=$(session_state) foreground=$(is_foreground)"
 
 # Past media3's (shortened) engaged timeout AND until nothing of ours is a foreground service any more:
-# playback enqueues sync work, the sync host promotes itself for it and idle-stops ~60 s after its queues
-# empty — while it is up, any foreground start of ours is allowed (the UID is already FGS), which is why
-# the field failure needs a quiet app.
+# while one is up, any foreground start of ours is allowed (the UID is already FGS), which is why the field
+# failure needs a quiet app. Before BKPLY-454 playback's sync work brought the sync host up too, and it
+# idle-stopped ~60 s after its queues emptied; now only a transfer with nothing else keeping the process
+# alive does (SyncKeepAlivePolicy), so the wait usually ends with the demotion.
 for ((i = 0; i < 40; i++)); do
   sleep 5
   [ "$(is_foreground)" = "false" ] && [ -z "$(foreground_services)" ] && break

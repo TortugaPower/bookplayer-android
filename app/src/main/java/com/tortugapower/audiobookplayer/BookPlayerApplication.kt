@@ -2,6 +2,7 @@ package com.tortugapower.audiobookplayer
 
 import android.app.Application
 import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import coil.ImageLoader
@@ -9,15 +10,21 @@ import coil.ImageLoaderFactory
 import com.tortugapower.audiobookplayer.database.AppDatabase
 import com.tortugapower.audiobookplayer.database.entities.AccountTier
 import com.tortugapower.audiobookplayer.logic.EmbeddedArtworkFetcher
+import com.tortugapower.audiobookplayer.logic.PlaybackForeground
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.ParkedTaskRetry
 import com.tortugapower.audiobookplayer.logic.PreferencesPullTriggers
-import com.tortugapower.audiobookplayer.logic.SyncHostLaunchGate
+import com.tortugapower.audiobookplayer.logic.PhoneSyncEngine
+import com.tortugapower.audiobookplayer.logic.StorageGuardedExecutor
+import com.tortugapower.audiobookplayer.logic.SyncDrain
+import com.tortugapower.audiobookplayer.logic.SyncDrainScheduler
+import com.tortugapower.audiobookplayer.logic.SyncKeepAlive
 import com.tortugapower.audiobookplayer.logic.SyncPauseReporter
+import com.tortugapower.audiobookplayer.logic.SyncRuntime
+import com.tortugapower.audiobookplayer.logic.SyncRuntimeHost
+import com.tortugapower.audiobookplayer.logic.SyncKeepAliveService
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
-import com.tortugapower.audiobookplayer.logic.SyncTaskPicker
 import com.tortugapower.audiobookplayer.logic.TaskAccessPolicy
-import com.tortugapower.audiobookplayer.logic.UploadDataPolicy
 import com.tortugapower.audiobookplayer.logic.TaskConcurrencyServiceHost
 import com.tortugapower.audiobookplayer.network.NetworkClient
 import com.tortugapower.audiobookplayer.logic.SubscriptionManager
@@ -28,6 +35,7 @@ import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
 import com.tortugapower.audiobookplayer.repository.SyncingLibraryRepository
 import com.tortugapower.audiobookplayer.logic.preferences.DataStorePreferencesStore
+import com.tortugapower.audiobookplayer.logic.preferences.LibraryDisplayPreferences
 import com.tortugapower.audiobookplayer.logic.sort.LibrarySortManager
 import com.tortugapower.audiobookplayer.logic.sort.LibrarySortStore
 import io.sentry.Sentry
@@ -36,15 +44,17 @@ import io.sentry.protocol.User
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
+import androidx.work.Configuration
+import androidx.work.WorkManager
+import kotlinx.coroutines.asExecutor
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import com.tortugapower.audiobookplayer.logic.StorageMonitor
 
-class BookPlayerApplication : Application(), ImageLoaderFactory {
+class BookPlayerApplication : Application(), ImageLoaderFactory, Configuration.Provider, SyncRuntimeHost {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main + StorageMonitor.exceptionHandler { this })
 
     companion object {
@@ -64,6 +74,37 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
     lateinit var librarySortManager: LibrarySortManager
         private set
 
+    /** The Library tab's synced layout and display toggles. Set in [onCreate]. */
+    lateinit var libraryDisplayPreferences: LibraryDisplayPreferences
+        private set
+
+    /** The process's one sync engine. Set in [onCreate]. */
+    private lateinit var syncRuntime: SyncRuntime
+
+    /** Starts the sync service when a transfer needs it to keep the process alive. Set in [onCreate]. */
+    override lateinit var syncKeepAlive: SyncKeepAlive
+        private set
+
+    /** Runs the sync engine while nothing else keeps the process alive (SyncDrainWorker). Set in [onCreate]. */
+    override lateinit var syncDrain: SyncDrain
+        private set
+
+    /**
+     * WorkManager starts on demand, with this (the manifest drops its start-up initializer, which wrote its database
+     * at every process start). A full disk under its database is reported, never a crash: at its start (the
+     * handlers), and in its own bookkeeping (StorageGuardedExecutor), which a pending drain runs before our code.
+     */
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setInitializationExceptionHandler { e -> onWorkManagerFailed(e) }
+            .setSchedulingExceptionHandler { e -> onWorkManagerFailed(e) }
+            .setTaskExecutor(StorageGuardedExecutor(Dispatchers.IO.asExecutor()) { e -> StorageMonitor.reportFailure(this, e) })
+            .build()
+
+    private fun onWorkManagerFailed(e: Throwable) {
+        if (!StorageMonitor.reportFailure(this, e)) io.sentry.Sentry.captureException(e)
+    }
+
     /**
      * App-wide Coil loader with our [EmbeddedArtworkFetcher] registered, so the library list can resolve
      * embedded cover art (via the [com.tortugapower.audiobookplayer.logic.ItemArtwork] model) for items
@@ -82,6 +123,9 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
 
         // Provide :core with the app context + flavored BuildConfig before anything touches the network.
         com.tortugapower.audiobookplayer.core.CoreContext.init(this)
+        // A Transfer from Computer session the app was killed in left its staging behind, and an import of
+        // one that never finished, its handed-over folder: both live in the server's staging root.
+        com.tortugapower.browserdrop.BrowserDropServer.removeLeftovers(this)
         // Measure storage before anything can write: at zero bytes free the database can't open, and
         // MainActivity shows the storage screen instead of the app (Sentry ANDROID-BOOKPLAYER-10/-12).
         StorageMonitor.refresh(this)
@@ -142,6 +186,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             syncTaskRepository,
             accountRepository
         )
+        libraryDisplayPreferences = LibraryDisplayPreferences(DataStorePreferencesStore(this), syncTaskRepository, accountRepository)
         // Next/previous and end-of-book auto-advance follow the visible (effective) order.
         // Property-wired: the manager depends on the repository, so this can't be a constructor arg.
         baseLibraryRepository.effectiveSortResolver = librarySortManager::effectiveSort
@@ -171,9 +216,7 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
         )
 
         // Keep NetworkClient's auth token current with the signed-in account at the app level — as the
-        // watch does — so playback (presigned-URL refresh), account calls and sync all see it whether or
-        // not the sync host is running. Until the launch gate below, the host's unconditional start was
-        // what set the token for the whole process.
+        // watch does — so playback (presigned-URL refresh), account calls and sync all see it.
         appScope.launch {
             accountRepository.getAccountFlow().collect { account ->
                 NetworkClient.setToken(account?.apiToken)
@@ -191,6 +234,51 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
                 }
             }
         }
+        // The process's one sync engine (SyncRuntime): built off the main thread, then running for the life of the
+        // process. A new task makes sure it's started.
+        syncRuntime = SyncRuntime(
+            this, appScope,
+            buildEngine = { onFailure ->
+                PhoneSyncEngine.build(this, syncTaskRepository, accountRepository, firstSync, syncPauseReporter, onFailure)
+            },
+            onFailed = { io.sentry.Sentry.captureException(it) },
+        )
+        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = { syncRuntime.start() }
+        val visible = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
+            .map { it.isAtLeast(Lifecycle.State.STARTED) }
+            .stateIn(appScope, SharingStarted.Eagerly, false)
+        // Sync drains (WorkManager jobs) run the engine while nothing else keeps the process alive
+        syncDrain = SyncDrain(
+            keptAlive = combine(visible, PlaybackForeground.inForeground, SyncKeepAliveService.running) { visible, playing, service ->
+                visible || playing || service
+            }.stateIn(appScope, SharingStarted.Eagerly, false),
+            scanned = syncRuntime.scanned,
+            lanes = syncRuntime.laneStates,
+            startEngine = { syncRuntime.start() },
+            rescan = { syncRuntime.rescan() },
+        )
+        val drainScheduler = SyncDrainScheduler(
+            needs = { syncRuntime.nextDrain() },
+            workManager = { WorkManager.getInstance(this) },
+            hasReturned = syncDrain::hasReturned,
+            onFailed = { io.sentry.Sentry.captureException(it) },
+        )
+        // The sync service keeps the process alive while a transfer runs in the background, unless playback does;
+        // drains take whatever else is left
+        syncKeepAlive = SyncKeepAlive(
+            appScope,
+            visible = visible,
+            playing = PlaybackForeground.inForeground,
+            lanes = syncRuntime.laneStates,
+            serviceRunning = SyncKeepAliveService.running,
+            draining = syncDrain.draining,
+            scanned = syncRuntime.scanned,
+            startService = { TaskConcurrencyServiceHost.start(this) },
+            scheduleDrains = { drainScheduler.schedule() },
+        )
+        PlaybackForeground.onLeaving = syncKeepAlive::onPlaybackLeavingForeground
+        SyncKeepAliveService.onUnavailable = syncKeepAlive::onServiceUnavailable
+
         // The one automatic retry of parked tasks, when the app is first opened in this process
         val parkedTaskRetry = ParkedTaskRetry(
             resumeAllPaused = syncTaskRepository::resumeAllPaused,
@@ -200,6 +288,15 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
             override fun onStart(owner: LifecycleOwner) {
                 forcePreferencesPull()
                 appScope.launch(Dispatchers.IO) { parkedTaskRetry.onForeground(StorageMonitor.isCritical) }
+                // An engine that failed is built again (only here, not for every new task)
+                syncRuntime.onAppOpened()
+                // Every time the app is opened, tasks waiting out a backoff retry now (their streak kept).
+                // Not while storage is critical: the engine holds all work then.
+                appScope.launch(Dispatchers.IO) {
+                    if (!StorageMonitor.isCritical) {
+                        com.tortugapower.audiobookplayer.logic.SyncRetryWake.retryAllNow(syncTaskRepository)
+                    }
+                }
             }
         })
         appScope.launch {
@@ -212,44 +309,6 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
                 }
         }
 
-        // The sync host stops itself when idle (Android 15+ dataSync budget), and :core wakes it back up
-        // whenever a sync task is enqueued — so at launch it is started only for work left over from an
-        // earlier session (see SyncHostLaunchGate), never just to sit idle.
-        com.tortugapower.audiobookplayer.logic.SyncEngineWaker.onWorkEnqueued = {
-            TaskConcurrencyServiceHost.start(this)
-        }
-        appScope.launch(Dispatchers.IO) {
-            // Before the gate: jobs this build no longer runs are held, so they'd never start the engine
-            // that cleans them up, and one left in the sync lane holds back every library refresh
-            com.tortugapower.audiobookplayer.logic.SyncTaskRetirement.cleanUp(syncTaskRepository)
-            // Parked tasks don't count: they're retried when the app is opened (ParkedTaskRetry)
-            val hasStartableWork: suspend () -> Boolean = {
-                // The count first: most launches have an empty queue and skip loading it
-                syncTaskRepository.countActiveTasks() > 0 && run {
-                    // This launch's tier, not last session's: a lapse while closed holds the queue
-                    SubscriptionManager.awaitTierReady()
-                    val tier = accountRepository.getAccount()?.tier
-                    // Uploads held to Wi-Fi don't count either: the service would only sit idle
-                    val holdUploads = UploadDataPolicy.shouldHoldUploads(this@BookPlayerApplication)
-                    SyncTaskPicker.hasStartableWork(syncTaskRepository.getAllTasks().first()) {
-                        TaskAccessPolicy.canExecuteTask(tier, it) && !(holdUploads && UploadDataPolicy.isFileUploadJob(it))
-                    }
-                }
-            }
-            if (SyncHostLaunchGate.shouldStart(StorageMonitor.isCritical, hasStartableWork)) {
-                TaskConcurrencyServiceHost.start(this@BookPlayerApplication)
-            }
-        }
-        // The engine holds all work while storage is critical; restart it when space is back.
-        appScope.launch {
-            StorageMonitor.state
-                .map { it.isCritical }
-                .distinctUntilChanged()
-                .drop(1)
-                .filter { critical -> !critical }
-                .collect { TaskConcurrencyServiceHost.start(this@BookPlayerApplication) }
-        }
-
         // Mirror playback state to a paired Wear watch (remote-controller mode).
         com.tortugapower.audiobookplayer.wear.WearRemotePublisher.initialize(this, database.libraryDao())
         com.tortugapower.audiobookplayer.wear.WearRemotePublisher.start()
@@ -260,6 +319,8 @@ class BookPlayerApplication : Application(), ImageLoaderFactory {
 
         // Crash/error reporting
         initSentry(accountRepository)
+        // After Sentry: an engine that fails right away is reported (SyncRuntime's onFailed)
+        syncRuntime.start()
     }
 
     private fun initSentry(accountRepository: AccountRepository) {

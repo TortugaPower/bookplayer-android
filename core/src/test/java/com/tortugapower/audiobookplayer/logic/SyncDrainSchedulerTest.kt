@@ -1,0 +1,232 @@
+package com.tortugapower.audiobookplayer.logic
+
+import android.app.Application
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import androidx.work.Clock
+import androidx.work.Configuration
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkerParameters
+import kotlinx.coroutines.awaitCancellation
+import androidx.work.NetworkType
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.testing.SynchronousExecutor
+import androidx.work.testing.WorkManagerTestInitHelper
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.util.UUID
+
+/** The drains the stored queue needs, as WorkManager unique works (SyncDrainScheduler) */
+@RunWith(RobolectricTestRunner::class)
+@Config(application = Application::class)
+class SyncDrainSchedulerTest {
+
+    private val context = ApplicationProvider.getApplicationContext<Context>()
+    private val now = 1_000_000L
+    private val later = now + 600_000
+    private val returned = mutableSetOf<UUID>()
+
+    @Before fun setUp() {
+        WorkManagerTestInitHelper.initializeTestWorkManager(
+            context,
+            Configuration.Builder().setExecutor(SynchronousExecutor()).setClock(Clock { now }).build(),
+        )
+    }
+
+    private fun scheduler(needs: SyncDrainPolicy.Needs) = SyncDrainScheduler(
+        needs = { needs }, workManager = { WorkManager.getInstance(context) }, hasReturned = { it in returned }, clock = { now },
+        isStorageCritical = { false }, isWorkManagerStarted = { true },
+    )
+
+    private fun drains(name: String): List<WorkInfo> =
+        WorkManager.getInstance(context).getWorkInfosForUniqueWork(name).get().filter { !it.state.isFinished }
+
+    @Test fun `work due now gets a drain on any network`() = runBlocking {
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = now, unmeteredOnly = null)).schedule()
+
+        val drain = drains(SyncDrainScheduler.ANY_NETWORK).single()
+        assertEquals(WorkInfo.State.ENQUEUED, drain.state)
+        assertEquals(NetworkType.CONNECTED, drain.constraints.requiredNetworkType)
+        assertEquals(0L, drain.initialDelayMillis)
+        assertTrue(drains(SyncDrainScheduler.UNMETERED).isEmpty())
+    }
+
+    @Test fun `uploads held for Wi-Fi get a drain that waits for an unmetered network`() = runBlocking {
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = null, unmeteredOnly = now)).schedule()
+
+        assertEquals(NetworkType.UNMETERED, drains(SyncDrainScheduler.UNMETERED).single().constraints.requiredNetworkType)
+        assertTrue(drains(SyncDrainScheduler.ANY_NETWORK).isEmpty())
+    }
+
+    /** A retry's time: the drain wakes the lane then, since its own wait stops while the device sleeps */
+    @Test fun `a wait gets a drain at its end`() = runBlocking {
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = later, unmeteredOnly = null)).schedule()
+
+        assertEquals(600_000L, drains(SyncDrainScheduler.ANY_NETWORK).single().initialDelayMillis)
+    }
+
+    /** It runs no later than needed: an early run finds nothing due, and schedules the next */
+    @Test fun `a pending drain due earlier is kept`() = runBlocking {
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = now, unmeteredOnly = null)).schedule()
+        val first = drains(SyncDrainScheduler.ANY_NETWORK).single().id
+
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = later, unmeteredOnly = null)).schedule()
+
+        assertEquals(first, drains(SyncDrainScheduler.ANY_NETWORK).single().id)
+    }
+
+    /** WorkManager stamps the enqueue a moment after the delay was worked out: that's still the same drain */
+    @Test fun `a pending drain a moment later than needed is kept`() = runBlocking {
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = later, unmeteredOnly = null)).schedule()
+        val first = drains(SyncDrainScheduler.ANY_NETWORK).single().id
+
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = later - 50, unmeteredOnly = null)).schedule()
+
+        assertEquals(first, drains(SyncDrainScheduler.ANY_NETWORK).single().id)
+    }
+
+    @Test fun `a pending drain due too late is replaced`() = runBlocking {
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = later, unmeteredOnly = null)).schedule()
+        val first = drains(SyncDrainScheduler.ANY_NETWORK).single().id
+
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = now, unmeteredOnly = null)).schedule()
+
+        val drain = drains(SyncDrainScheduler.ANY_NETWORK).single()
+        assertNotEquals(first, drain.id)
+        assertEquals(0L, drain.initialDelayMillis)
+    }
+
+    @Test fun `a pending drain nothing needs any more is cancelled`() = runBlocking {
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = later, unmeteredOnly = later)).schedule()
+
+        scheduler(SyncDrainPolicy.Needs.NONE).schedule()
+
+        assertTrue(drains(SyncDrainScheduler.ANY_NETWORK).isEmpty())
+        assertTrue(drains(SyncDrainScheduler.UNMETERED).isEmpty())
+    }
+
+    /**
+     * A process a drain just started runs this before its engine has looked at the queue: nothing is known yet, and
+     * answering "nothing needed" would cancel the drain being started
+     */
+    @Test fun `before the engine has looked at the queue, nothing changes`() = runBlocking {
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = now, unmeteredOnly = null)).schedule()
+        val pending = drains(SyncDrainScheduler.ANY_NETWORK).single().id
+
+        SyncDrainScheduler(
+            needs = { null }, workManager = { WorkManager.getInstance(context) }, hasReturned = { false }, clock = { now },
+            isStorageCritical = { false }, isWorkManagerStarted = { true },
+        ).schedule()
+
+        assertEquals(pending, drains(SyncDrainScheduler.ANY_NETWORK).single().id)
+    }
+
+    /** WorkManager's own database would be the first write to fail */
+    @Test fun `a critically full disk never touches WorkManager`() = runBlocking {
+        var touched = 0
+        SyncDrainScheduler(
+            needs = { SyncDrainPolicy.Needs(now, null) },
+            workManager = { touched++; WorkManager.getInstance(context) },
+            hasReturned = { false },
+            isStorageCritical = { true },
+        ).schedule()
+
+        assertEquals(0, touched)
+    }
+
+    /** A free account never needs one: WorkManager isn't started (its database created) just to look */
+    @Test fun `nothing needed never starts WorkManager`() = runBlocking {
+        var touched = 0
+        SyncDrainScheduler(
+            needs = { SyncDrainPolicy.Needs.NONE },
+            workManager = { touched++; WorkManager.getInstance(context) },
+            hasReturned = { false },
+            isStorageCritical = { false },
+            isWorkManagerStarted = { false },
+        ).schedule()
+
+        assertEquals(0, touched)
+    }
+
+    private fun listedAsRunning(): UUID {
+        val drain = OneTimeWorkRequestBuilder<StillRecording>().build()
+        WorkManager.getInstance(context).enqueueUniqueWork(SyncDrainScheduler.ANY_NETWORK, ExistingWorkPolicy.REPLACE, drain)
+        assertEquals(WorkInfo.State.RUNNING, drains(SyncDrainScheduler.ANY_NETWORK).single().state)
+        return drain.id
+    }
+
+    /**
+     * The drain that just ended can still be listed as running: WorkManager hasn't recorded it yet. It has returned, so
+     * the next one is scheduled: a lane waiting out a backoff changes no more, and nothing else would
+     */
+    @Test fun `a drain that has returned here doesn't hold up the next`() = runBlocking {
+        returned += listedAsRunning()
+
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = later, unmeteredOnly = null)).schedule()
+
+        val next = drains(SyncDrainScheduler.ANY_NETWORK).single()
+        assertEquals(WorkInfo.State.ENQUEUED, next.state)
+        assertEquals(600_000L, next.initialDelayMillis)
+    }
+
+    /**
+     * WorkManager lists a drain as running just before its worker runs: replacing it would stop it as it starts. It
+     * runs the engine, and its end schedules the next
+     */
+    @Test fun `a drain starting is left to run`() = runBlocking {
+        val starting = listedAsRunning()
+
+        scheduler(SyncDrainPolicy.Needs(anyNetwork = now, unmeteredOnly = null)).schedule()
+        scheduler(SyncDrainPolicy.Needs.NONE).schedule()
+
+        val drain = drains(SyncDrainScheduler.ANY_NETWORK).single()
+        assertEquals(starting, drain.id)
+        assertEquals(WorkInfo.State.RUNNING, drain.state)
+    }
+
+    /** Each schedule would report it again: once per process, as the sync runtime reports its failures */
+    @Test fun `a failure is reported once`() = runBlocking {
+        val failures = mutableListOf<Throwable>()
+        val failing = SyncDrainScheduler(
+            needs = { SyncDrainPolicy.Needs(now, null) },
+            workManager = { throw IllegalStateException("WorkManager is not initialized") },
+            hasReturned = { false },
+            isStorageCritical = { false },
+            onFailed = { failures += it },
+        )
+
+        failing.schedule()
+        failing.schedule()
+
+        assertEquals(1, failures.size)
+    }
+
+    /** Best effort: the next app open runs the queue anyway */
+    @Test fun `a failure to schedule is reported, never thrown`() = runBlocking {
+        val failures = mutableListOf<Throwable>()
+        SyncDrainScheduler(
+            needs = { SyncDrainPolicy.Needs(now, null) },
+            workManager = { throw IllegalStateException("WorkManager is not initialized") },
+            hasReturned = { false },
+            isStorageCritical = { false },
+            onFailed = { failures += it },
+        ).schedule()
+
+        assertEquals(1, failures.size)
+    }
+}
+
+/** A drain WorkManager still lists as running: it never returns on its own */
+class StillRecording(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result = awaitCancellation()
+}

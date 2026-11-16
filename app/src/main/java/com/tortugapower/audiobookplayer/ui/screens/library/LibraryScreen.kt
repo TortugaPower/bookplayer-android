@@ -5,12 +5,10 @@ package com.tortugapower.audiobookplayer.ui.screens.library
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
@@ -26,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -36,13 +33,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
@@ -58,24 +51,29 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.runtime.collectAsState
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import com.tortugapower.audiobookplayer.logic.ItemArtwork
+import com.tortugapower.audiobookplayer.logic.LibraryLayout
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import com.tortugapower.audiobookplayer.logic.hasQueuedUploadTask
 import com.tortugapower.audiobookplayer.logic.removeLocalFile
 import com.tortugapower.audiobookplayer.R
@@ -89,7 +87,6 @@ import com.tortugapower.audiobookplayer.logic.sort.EffectiveSort
 import com.tortugapower.audiobookplayer.logic.sort.SortType
 import com.tortugapower.audiobookplayer.repository.BoundConversionException
 import com.tortugapower.audiobookplayer.logic.ShortcutHelper
-import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.repository.RoomAccountRepository
 import com.tortugapower.audiobookplayer.repository.RoomLibraryRepository
 import com.tortugapower.audiobookplayer.repository.RoomSyncTaskRepository
@@ -110,6 +107,7 @@ fun LibraryScreen(
     viewModel: LibraryViewModel? = null,
     onNavigateToMediaServers: () -> Unit = {},
     onNavigateToQueuedTasks: () -> Unit = {},
+    onTransferFromComputer: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -133,6 +131,7 @@ fun LibraryScreen(
     val canSyncLibrary = account?.tier == AccountTier.PRO || account?.tier == AccountTier.LITE
 
     val isRefreshing by libraryViewModel.isRefreshing.collectAsState()
+    val libraryLayout by libraryViewModel.libraryLayout.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val syncTasksBusyMessage = stringResource(R.string.library_sync_tasks_busy)
     val syncPausedMessage = stringResource(R.string.sync_paused_alert_title)
@@ -1111,6 +1110,34 @@ fun LibraryScreen(
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
+                // Densest first, as iOS (after Pocket Casts) orders them.
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.layout_options_title)) },
+                    trailingContent = {
+                        val options = listOf(
+                            Triple(LibraryLayout.COVERS, Icons.Default.Apps, R.string.layout_covers_option),
+                            Triple(LibraryLayout.GRID, Icons.Default.GridView, R.string.layout_grid_option),
+                            Triple(LibraryLayout.LIST, Icons.AutoMirrored.Filled.FormatListBulleted, R.string.layout_list_option),
+                        )
+                        SingleChoiceSegmentedButtonRow {
+                            options.forEachIndexed { index, (option, icon, label) ->
+                                SegmentedButton(
+                                    selected = libraryLayout == option,
+                                    onClick = { libraryViewModel.setLibraryLayout(option) },
+                                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                                    // The icons say it all; the selected segment's fill shows which is on.
+                                    icon = {},
+                                ) {
+                                    Icon(icon, contentDescription = stringResource(label))
+                                }
+                            }
+                        }
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
                 val showPercentage by libraryViewModel.showProgressAsPercentage.collectAsState()
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.library_show_progress_percentage)) },
@@ -1432,6 +1459,14 @@ fun LibraryScreen(
                             leadingIcon = { Icon(Icons.Default.FileDownload, null) },
                         )
                         DropdownMenuItem(
+                            text = { Text(stringResource(R.string.transfer_title)) },
+                            onClick = {
+                                showMenu = false
+                                onTransferFromComputer()
+                            },
+                            leadingIcon = { Icon(Icons.Default.LaptopChromebook, null) },
+                        )
+                        DropdownMenuItem(
                             text = { Text(stringResource(R.string.library_download_from_url)) },
                             onClick = {
                                 showMenu = false
@@ -1484,11 +1519,90 @@ fun LibraryScreen(
             ) { path ->
                 val pathItems by remember(path) { libraryViewModel.getItemsForPath(path) }.collectAsState()
             
-                // Local state to handle reordering during selection mode
-                val reorderableItems = remember(pathItems, isSelectMode) { 
-                    pathItems.toMutableStateList() 
+                // The screen's own copy of the level's order: what it shows while a drag moves the items, and after
+                // the drop until the library shows the new order, so the library's updates meanwhile (a playing
+                // book's progress) don't undo it. Otherwise it shows the library's items as they come.
+                val reorderableItems = remember(path) { mutableStateListOf<LibraryItemEntity>() }
+                var isDragging by remember(path) { mutableStateOf(false) }
+                // A drop's order, kept on screen until the library shows it. Saving it takes more than one write
+                // (the ranks, and the switch to custom), and what the library shows between them would flash
+                // the old order.
+                var savingOrder by remember(path) { mutableStateOf<List<String>?>(null) }
+                // The last order the library finished saving. The fallback below counts from then, not from the drop:
+                // a big level's save (a sync task for each of its items) can take seconds.
+                var savedOrder by remember(path) { mutableStateOf<List<String>?>(null) }
+                val shownItems: List<LibraryItemEntity> =
+                    if (isDragging || savingOrder != null) reorderableItems else pathItems
+                LaunchedEffect(pathItems, isDragging) {
+                    val order = savingOrder ?: return@LaunchedEffect
+                    if (!isDragging && pathItems.showsOrder(order)) savingOrder = null
+                }
+                // Should the save never show (it failed), follow the library again; under a new drag, the screen
+                // keeps its order, and the drop is compared with the library's.
+                LaunchedEffect(savingOrder, savedOrder) {
+                    val order = savingOrder ?: return@LaunchedEffect
+                    if (savedOrder != order) return@LaunchedEffect
+                    delay(SAVING_ORDER_TIMEOUT_MS)
+                    savingOrder = null
+                }
+                val canReorder by libraryViewModel.sortLocationWritable.collectAsState()
+
+                // What a tap and a long press do, in the list and the grid alike.
+                val onItemClick: (LibraryItemEntity) -> Unit = { item ->
+                    if (isSelectMode) {
+                        selectedItemUuids = if (item.uuid in selectedItemUuids) {
+                            selectedItemUuids - item.uuid
+                        } else {
+                            selectedItemUuids + item.uuid
+                        }
+                    } else {
+                        if (item.type == ItemType.FOLDER) {
+                            libraryViewModel.navigateTo(item.relativePath ?: "")
+                        } else {
+                            val isCurrentlyPlaying = PlaybackManager.currentItem.value?.uuid == item.uuid
+                            if (isCurrentlyPlaying) {
+                                PlaybackManager.setShowPlayer(true)
+                                if (PlaybackManager.player?.isPlaying == false) {
+                                    PlaybackManager.player?.play()
+                                }
+                            } else {
+                                PlaybackManager.playItem(context, item)
+                            }
+                        }
+                    }
+                }
+                val onItemLongClick: (LibraryItemEntity) -> Unit = { item ->
+                    if (!isSelectMode) {
+                        isSelectMode = true
+                        selectedItemUuids = setOf(item.uuid)
+                    }
+                }
+                // A long press selects (in either layout), and moving on drags the item to a new place.
+                val onDragStarted: (LibraryItemEntity) -> Unit = { item ->
+                    // From here the screen shows its copy: the library's order, or the one still being saved.
+                    if (savingOrder == null) reorderableItems.replaceWith(pathItems)
+                    isDragging = true
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    onItemLongClick(item)
+                }
+                val onMove: (Int, Int) -> Unit = { from, to ->
+                    reorderableItems.add(to, reorderableItems.removeAt(from))
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentFrequentTick)
+                }
+                val onDragStopped: () -> Unit = {
+                    isDragging = false
+                    val order = reorderableItems.map { it.uuid }
+                    // Against the order the screen showed before this drag: one still being saved, else the
+                    // library's. Let go where it started (an item the library added or removed meanwhile aside, as
+                    // when a plain long press selects), there's nothing to save.
+                    if (!order.sameOrderAs(savingOrder ?: pathItems.map { it.uuid })) {
+                        savingOrder = order
+                        libraryViewModel.reorderItems(order) { savedOrder = order }
+                    }
                 }
 
+                // A local, so the branches below can tell an unread layout from a read one.
+                val layout = libraryLayout
                 if (pathItems.isEmpty()) {
                     // Scrollable so pull-to-refresh works on an empty folder (the main reason to refresh).
                     Box(
@@ -1507,9 +1621,37 @@ fun LibraryScreen(
                             )
                         }
                     }
+                } else if (layout == null) {
+                    // The stored layout arrives within a frame or two: nothing until then, not the list.
+                    Box(modifier = Modifier.fillMaxSize())
+                } else if (layout != LibraryLayout.LIST) {
+                    LibraryTileGrid(
+                        items = shownItems,
+                        layout = layout,
+                        isSelectMode = isSelectMode,
+                        selectedItemUuids = selectedItemUuids,
+                        libraryViewModel = libraryViewModel,
+                        canDownload = canSyncLibrary,
+                        bottomInset = LocalMiniPlayerInset.current,
+                        onClick = onItemClick,
+                        onLongClick = onItemLongClick,
+                        onOptions = { item ->
+                            itemForSwipeOptions = item
+                            showSwipeOptionsDialog = true
+                        },
+                        canReorder = canReorder,
+                        onMove = onMove,
+                        onDragStarted = onDragStarted,
+                        onDragStopped = onDragStopped,
+                    )
                 } else {
                     val lazyListState = rememberLazyListState()
-                
+                    // Scrolls on its own near the edges while dragging, stopping short of the mini player.
+                    val listReorderState = rememberReorderableLazyListState(
+                        lazyListState = lazyListState,
+                        scrollThresholdPadding = PaddingValues(bottom = LocalMiniPlayerInset.current)
+                    ) { from, to -> onMove(from.index, to.index) }
+
                     LazyColumn(
                         state = lazyListState,
                         modifier = Modifier.fillMaxSize(),
@@ -1517,7 +1659,7 @@ fun LibraryScreen(
                         // while the list still scrolls behind the pill.
                         contentPadding = PaddingValues(bottom = LocalMiniPlayerInset.current)
                     ) {
-                        itemsIndexed(reorderableItems, key = { _, it -> it.uuid }) { index, item ->
+                        itemsIndexed(shownItems, key = { _, it -> it.uuid }) { index, item ->
                             val isSelected = selectedItemUuids.contains(item.uuid)
                             val dismissState = rememberSwipeToDismissBoxState()
 
@@ -1535,129 +1677,89 @@ fun LibraryScreen(
                                 }
                             }
 
-                            SwipeToDismissBox(
-                                state = dismissState,
-                                backgroundContent = {
-                                    // Native Material treatment (the Gmail pattern): a full-width
-                                    // tinted background with ONE icon that emphasizes once the drag
-                                    // crosses the commit threshold. M3's SwipeToDismissBox has no
-                                    // persistent "revealed buttons" state (that's iOS's swipe-actions
-                                    // pattern) — a full swipe commits the single action, which here
-                                    // opens the item's options dialog (delete lives safely inside it).
-                                    if (!isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
-                                        val crossedThreshold = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
-                                        val iconScale by animateFloatAsState(
-                                            targetValue = if (crossedThreshold) 1.2f else 1f,
-                                            label = "swipeIconScale"
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(
-                                                    if (crossedThreshold) MaterialTheme.colorScheme.primaryContainer
-                                                    else MaterialTheme.colorScheme.surfaceVariant
-                                                ),
-                                            contentAlignment = Alignment.CenterEnd
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Info,
-                                                contentDescription = stringResource(R.string.library_see_details),
-                                                tint = if (crossedThreshold) MaterialTheme.colorScheme.onPrimaryContainer
-                                                       else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier
-                                                    .padding(end = 24.dp)
-                                                    .graphicsLayer {
-                                                        scaleX = iconScale
-                                                        scaleY = iconScale
-                                                    }
-                                            )
-                                        }
-                                    }
-                                },
-                                enableDismissFromStartToEnd = false,
-                                // Swiping must not fight the select-mode drag-reorder gesture.
-                                enableDismissFromEndToStart = !isSelectMode
-                            ) {
-                                Surface(
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.background,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    LibraryListItem(
-                                        item = item,
-                                        isSelected = isSelected,
-                                        isSelectMode = isSelectMode,
-                                        libraryViewModel = libraryViewModel,
-                                        canDownload = canSyncLibrary,
-                                        // The reorder gesture lives on the drag HANDLE (immediate drag, like
-                                        // iOS edit-mode handles) — not as a hidden long-press on the row.
-                                        dragHandleModifier = if (isSelectMode) {
-                                            Modifier.pointerInput(item.uuid, reorderableItems) {
-                                                var dragAccumulator = 0f
-                                                detectDragGestures(
-                                                    onDragStart = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) },
-                                                    onDragEnd = { libraryViewModel.reorderItems(reorderableItems.toList()) },
-                                                    onDragCancel = { libraryViewModel.reorderItems(reorderableItems.toList()) },
-                                                    onDrag = { change, dragAmount ->
-                                                        change.consume()
-                                                        dragAccumulator += dragAmount.y
-
-                                                        val currentIndex = reorderableItems.indexOfFirst { it.uuid == item.uuid }
-                                                        if (currentIndex == -1) return@detectDragGestures
-
-                                                        val threshold = with(density) { 64.dp.toPx() }
-
-                                                        if (dragAccumulator > threshold && currentIndex < reorderableItems.size - 1) {
-                                                            reorderableItems[currentIndex] = reorderableItems[currentIndex + 1]
-                                                            reorderableItems[currentIndex + 1] = item
-                                                            dragAccumulator = 0f
-                                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                                        } else if (dragAccumulator < -threshold && currentIndex > 0) {
-                                                            reorderableItems[currentIndex] = reorderableItems[currentIndex - 1]
-                                                            reorderableItems[currentIndex - 1] = item
-                                                            dragAccumulator = 0f
-                                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                                        }
-                                                    }
+                            ReorderableItem(listReorderState, key = item.uuid, enabled = canReorder) { isRowDragging ->
+                                Column {
+                                    SwipeToDismissBox(
+                                        state = dismissState,
+                                        backgroundContent = {
+                                            // Native Material treatment (the Gmail pattern): a full-width
+                                            // tinted background with ONE icon that emphasizes once the drag
+                                            // crosses the commit threshold. M3's SwipeToDismissBox has no
+                                            // persistent "revealed buttons" state (that's iOS's swipe-actions
+                                            // pattern) — a full swipe commits the single action, which here
+                                            // opens the item's options dialog (delete lives safely inside it).
+                                            if (!isSelectMode && dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                                                val crossedThreshold = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+                                                val iconScale by animateFloatAsState(
+                                                    targetValue = if (crossedThreshold) 1.2f else 1f,
+                                                    label = "swipeIconScale"
                                                 )
-                                            }
-                                        } else Modifier,
-                                        onClick = {
-                                            if (isSelectMode) {
-                                                selectedItemUuids = if (isSelected) {
-                                                    selectedItemUuids - item.uuid
-                                                } else {
-                                                    selectedItemUuids + item.uuid
-                                                }
-                                            } else {
-                                                if (item.type == ItemType.FOLDER) {
-                                                    libraryViewModel.navigateTo(item.relativePath ?: "")
-                                                } else {
-                                                    val isCurrentlyPlaying = PlaybackManager.currentItem.value?.uuid == item.uuid
-                                                    if (isCurrentlyPlaying) {
-                                                        PlaybackManager.setShowPlayer(true)
-                                                        if (PlaybackManager.player?.isPlaying == false) {
-                                                            PlaybackManager.player?.play()
-                                                        }
-                                                    } else {
-                                                        PlaybackManager.playItem(context, item)
-                                                    }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(
+                                                            if (crossedThreshold) MaterialTheme.colorScheme.primaryContainer
+                                                            else MaterialTheme.colorScheme.surfaceVariant
+                                                        ),
+                                                    contentAlignment = Alignment.CenterEnd
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Info,
+                                                        contentDescription = stringResource(R.string.library_options_title),
+                                                        tint = if (crossedThreshold) MaterialTheme.colorScheme.onPrimaryContainer
+                                                               else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier
+                                                            .padding(end = 24.dp)
+                                                            .graphicsLayer {
+                                                                scaleX = iconScale
+                                                                scaleY = iconScale
+                                                            }
+                                                    )
                                                 }
                                             }
                                         },
-                                        onLongClick = {
-                                            if (!isSelectMode) {
-                                                isSelectMode = true
-                                                selectedItemUuids = setOf(item.uuid)
-                                            }
+                                        enableDismissFromStartToEnd = false,
+                                        // No swipe to options while selecting, or while the row is dragged.
+                                        enableDismissFromEndToStart = !isSelectMode && !isRowDragging
+                                    ) {
+                                        Surface(
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.background,
+                                            // Lifted off the list while dragged.
+                                            shadowElevation = if (isRowDragging) 8.dp else 0.dp,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            LibraryListItem(
+                                                item = item,
+                                                isSelected = isSelected,
+                                                isSelectMode = isSelectMode,
+                                                // The swipe, for TalkBack, which can't swipe a row.
+                                                onOptions = {
+                                                    itemForSwipeOptions = item
+                                                    showSwipeOptionsDialog = true
+                                                },
+                                                libraryViewModel = libraryViewModel,
+                                                canDownload = canSyncLibrary,
+                                                // Its long press selects and, moving on, drags the row to a new place.
+                                                reorderHandle = if (canReorder) {
+                                                    Modifier.longPressDraggableHandle(
+                                                        onDragStarted = { onDragStarted(item) },
+                                                        onDragStopped = onDragStopped
+                                                    )
+                                                } else {
+                                                    null
+                                                },
+                                                onClick = { onItemClick(item) },
+                                                onLongClick = { onItemLongClick(item) }
+                                            )
                                         }
+                                    }
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = if (isSelectMode) 120.dp else 80.dp),
+                                        thickness = 0.5.dp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                                     )
                                 }
                             }
-                            HorizontalDivider(
-                                modifier = Modifier.padding(start = if (isSelectMode) 120.dp else 80.dp),
-                                thickness = 0.5.dp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                            )
                         }
                     }
                 }
@@ -1682,10 +1784,14 @@ fun LibraryListItem(
     isSelected: Boolean = false,
     isSelectMode: Boolean = false,
     modifier: Modifier = Modifier,
-    // Attached to the trailing reorder handle in select mode — the caller supplies the drag gesture.
-    dragHandleModifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
+    // The long press that selects and, moving on, drags the row (the caller's reorder); null where a row
+    // can't be reordered, and then a long press only selects.
+    reorderHandle: Modifier? = null,
+    // The row's swipe action (its options), offered to TalkBack as the row's one action. Null where a row
+    // has no swipe (search results).
+    onOptions: (() -> Unit)? = null,
     libraryViewModel: com.tortugapower.audiobookplayer.viewmodel.LibraryViewModel? = null,
     // Tier gate for the artwork's cloud-download affordance. For FREE/signed-out users a missing
     // file can't be re-fetched (TaskAccessPolicy discards their download tasks), so the overlay
@@ -1695,36 +1801,15 @@ fun LibraryListItem(
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val context = LocalContext.current
 
-    val externalResources = item.externalResources
+    // Download state and ring fraction, derived off the main thread (shared with the grid's tiles).
+    val download = rememberItemDownload(item, libraryViewModel)
+    val isDownloading = download.isDownloading
+    val downloadProgress: Float? = download.progress
 
-    // Aggregate download state (units, task queue, disk truth), derived in the ViewModel OFF the main
-    // thread — the same `:core` derivation Wear uses; this composable only collects state and never
-    // stats the disk. Reactive end to end: the units flow re-emits when a just-signed-in BOUND's
-    // sub-books land, and the task flow re-emits on queue changes (tap → downloading; tasks drained →
-    // disk truth re-checked). Null until the first computation lands: render neither the cloud badge
-    // nor the ring rather than guessing (prevents a wrong-icon flash while rows scroll in).
-    val downloadState by remember(item.uuid, item.relativePath, item.type) {
-        libraryViewModel?.itemDownloadStateFlow(item)
-            ?: kotlinx.coroutines.flow.flowOf(null)
-    }.collectAsState(initial = null)
-    val isDownloading = downloadState?.isDownloading == true
-
-    // Whole-item ring fraction (a 2-file bound book fills 0→50%→100%, mirroring Wear/iOS): pure math
-    // over the aggregate + the live per-chunk progress of the in-flight files. No disk IO here — the
-    // downloaded-unit count came from the ViewModel; completed files count as whole units.
-    val taskProgress by SyncStatusManager.taskProgress.collectAsState()
-    val downloadProgress: Float? = downloadState?.takeIf { it.isDownloading }?.let { state ->
-        com.tortugapower.audiobookplayer.logic.OfflineDownloadManager.downloadProgressFraction(
-            downloadedUnits = state.downloadedUnits,
-            totalUnits = state.totalUnits,
-            inProgressSum = state.inFlightUuids.sumOf { taskProgress[it] ?: 0.0 },
-        )
-    }
-
-    // Highlight the row of the book currently loaded in the player (library and search share
-    // this row composable).
+    // Highlight the book loaded in the player, or the folder holding it (library and search share this
+    // row composable), as the grid does.
     val currentPlayingItem by PlaybackManager.currentItem.collectAsState()
-    val isCurrentlyPlaying = currentPlayingItem?.uuid == item.uuid
+    val isCurrentlyPlaying = isPlayingOrHoldsPlaying(item, currentPlayingItem)
 
     // Library display prefs (Options sheet). Default off when no ViewModel (e.g. previews).
     val showOriginalFileName by remember(libraryViewModel) {
@@ -1733,39 +1818,13 @@ fun LibraryListItem(
     val showProgressAsPercentage by remember(libraryViewModel) {
         libraryViewModel?.showProgressAsPercentage ?: MutableStateFlow(false)
     }.collectAsState()
-    // Books carry an original file name; folders/bound volumes don't, so they keep their title.
-    val displayTitle = item.originalFileName
-        ?.takeIf { showOriginalFileName && item.type != ItemType.FOLDER && it.isNotBlank() }
-        ?: item.title
+    val displayTitle = itemDisplayTitle(item, showOriginalFileName)
 
-    val durationText = if (item.duration > 0) {
-        val h = (item.duration / 3600).toInt()
-        val m = ((item.duration % 3600) / 60).toInt()
-        val s = (item.duration % 60).toInt()
-        if (h > 0) stringResource(R.string.duration_hms, h, m, s) else stringResource(R.string.duration_ms, m, s)
-    } else ""
-
-    // Shared helper localizes container bare counts ("N Files"/"N Chapters" — every surface uses
-    // the same mapping); blanks fall back per type.
-    val authorText = com.tortugapower.audiobookplayer.logic.LibraryContentsSync
-        .displayDetails(context, item.type, item.author)
-        ?.takeIf { it.isNotBlank() }
-        ?: if (item.type == ItemType.FOLDER) stringResource(R.string.library_folder_empty)
-           else stringResource(R.string.library_unknown_author)
-
-    val progressText = if (item.isFinished) {
-        stringResource(R.string.common_completed)
-    } else {
-        "${(item.percentCompleted.coerceIn(0.0, 1.0) * 100).toInt()}% ${stringResource(R.string.common_completed).lowercase()}"
-    }
-
-    val showCloud = downloadState?.isLocal == false
-
-    val combinedDescription = if (showCloud && !canDownload) {
-        "${item.title}. $authorText. $durationText. $progressText. ${stringResource(R.string.library_audio_unavailable)}"
-    } else {
-        "${item.title}. $authorText. $durationText. $progressText"
-    }
+    val durationText = itemDurationText(item)
+    val authorText = itemDetailsText(item)
+    val showCloud = download.showCloud
+    val combinedDescription = itemAccessibilityDescription(item, download, canDownload)
+    val optionsLabel = stringResource(R.string.library_options_title)
 
     Row(
         modifier = modifier
@@ -1773,9 +1832,16 @@ fun LibraryListItem(
             .semantics(mergeDescendants = true) {
                 contentDescription = combinedDescription
                 role = Role.Button
+                if (onOptions != null && !isSelectMode) {
+                    customActions = listOf(CustomAccessibilityAction(optionsLabel) { onOptions(); true })
+                }
+                // The drag handle's long press, for TalkBack, Switch Access and Voice Access: it selects.
+                if (reorderHandle != null && !isSelectMode) {
+                    onLongClick { onLongClick(); true }
+                }
             }
-            .pointerInput(isSelectMode, onClick, onLongClick) {
-                if (isSelectMode) {
+            .pointerInput(isSelectMode, onClick, onLongClick, reorderHandle != null) {
+                if (isSelectMode || reorderHandle != null) {
                     detectTapGestures(onTap = { onClick() })
                 } else {
                     detectTapGestures(
@@ -1787,6 +1853,9 @@ fun LibraryListItem(
                     )
                 }
             }
+            // Inside the tap, so it sees each touch first: a long press let go without moving is used up here and
+            // doesn't also count as a tap.
+            .then(reorderHandle ?: Modifier)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1833,36 +1902,7 @@ fun LibraryListItem(
                 artworkModifier.clearAndSetSemantics { }
             }
         ) {
-            if (item.artworkURL != null) {
-                AsyncImage(
-                    model = item.artworkURL,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else if (
-                (item.type == ItemType.BOOK || item.type == ItemType.BOUND || item.type == ItemType.FOLDER) &&
-                (!item.relativePath.isNullOrEmpty() || !item.remoteURL.isNullOrEmpty())
-            ) {
-                // No stored artworkURL: resolve the embedded cover via CoverArtResolver (iOS parity —
-                // covers PRO cloud items not yet downloaded). BOOK reads its own file; BOUND loops its
-                // sub-books; FOLDER recurses its contents (handleDirectory). Keyed by relativePath so the
-                // decoded cover is reused from the memory cache.
-                val artworkCacheKey = item.relativePath?.takeIf { it.isNotEmpty() } ?: item.remoteURL
-                val artworkRequest = remember(item.relativePath, item.remoteURL) {
-                    ImageRequest.Builder(context)
-                        .data(ItemArtwork(item.uuid, item.relativePath, item.remoteURL))
-                        .memoryCacheKey(artworkCacheKey)
-                        .crossfade(true)
-                        .build()
-                }
-                AsyncImage(
-                    model = artworkRequest,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
+            LibraryItemArtworkImage(item, ContentScale.Crop)
 
             if (downloadProgress != null) {
                 // Download Progress Overlay
@@ -1881,26 +1921,10 @@ fun LibraryListItem(
                     )
                 }
             } else if (showCloud) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val path = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(size.width, size.height * 0.3f)
-                        lineTo(size.width, size.height)
-                        lineTo(size.width * 0.3f, size.height)
-                        close()
-                    }
-                    drawPath(path, Color.Black.copy(alpha = 0.65f))
-                }
-                Icon(
-                    // LITE/PRO: tappable cloud (downloadable). FREE/signed-out: the file is missing
-                    // and can't be re-fetched — an error badge, not a dead download button.
-                    imageVector = if (canDownload) Icons.Outlined.Cloud else Icons.Outlined.ErrorOutline,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(4.dp)
-                        .size(16.dp),
-                    tint = if (canDownload) Color(0xFF4285F4) else MaterialTheme.colorScheme.error
-                )
+                DownloadCorner(item, canDownload, box = 56.dp, modifier = Modifier.align(Alignment.BottomEnd))
+            }
+            if (isCurrentlyPlaying) {
+                PlayingWash()
             }
             if (item.type == ItemType.FOLDER) {
                 // Small circular corner badge, mirroring iOS's integrations-list folder badge
@@ -1949,95 +1973,13 @@ fun LibraryListItem(
                 overflow = TextOverflow.Ellipsis
             )
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                if (externalResources.isNotEmpty()) {
-                    externalResources.forEachIndexed { index, resource ->
-                        if (index > 0) {
-                            Text(
-                                text = "•",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        
-                        val tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            when (resource.providerName.lowercase()) {
-                                "jellyfin" -> {
-                                    Box(
-                                        modifier = Modifier.size(12.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Canvas(modifier = Modifier.fillMaxSize()) {
-                                            val path = androidx.compose.ui.graphics.Path().apply {
-                                                moveTo(size.width / 2f, 1f)
-                                                lineTo(size.width - 1f, size.height - 1f)
-                                                lineTo(1f, size.height - 1f)
-                                                close()
-                                            }
-                                            drawPath(
-                                                path = path,
-                                                color = tint,
-                                                style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                                    width = 1.5.dp.toPx(),
-                                                    join = androidx.compose.ui.graphics.StrokeJoin.Round
-                                                )
-                                            )
-                                        }
-                                    }
-                                }
-                                "audiobookshelf" -> {
-                                    Icon(
-                                        imageVector = Icons.Default.Book,
-                                        contentDescription = null,
-                                        tint = tint,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
-                                else -> {
-                                    Icon(
-                                        imageVector = Icons.Default.Layers,
-                                        contentDescription = null,
-                                        tint = tint,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
-                            }
-                            
-                            val providerLabel = resource.providerName.lowercase().replaceFirstChar {
-                                if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString()
-                            }
-                            
-                            Text(
-                                text = providerLabel,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                    
-                    Text(
-                        text = "•",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-
-                Text(
-                    text = authorText,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall.copy(lineHeightStyle = trimmedLineHeight),
-                    maxLines = 1
-                )
-            }
+            // The media server shows in the artwork's corner (iOS), not here.
+            Text(
+                text = authorText,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall.copy(lineHeightStyle = trimmedLineHeight),
+                maxLines = 1
+            )
 
             if (item.duration > 0) {
                 Text(
@@ -2051,105 +1993,67 @@ fun LibraryListItem(
 
         Spacer(modifier = Modifier.width(8.dp))
 
-        if (isSelectMode) {
-            // 44dp touch target around the 24dp glyph so the handle is actually grabbable.
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(44.dp).then(dragHandleModifier).clearAndSetSemantics { }
-            ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clearAndSetSemantics { }
+        ) {
+            // iOS `ItemProgressView`: the wheel, or the number in between with that option (iOS
+            // `PercentageProgressView`); the check once finished, nothing before it's started.
+            val progress = if (item.isFinished) 1.0 else item.percentCompleted
+                .takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0
+            if (showProgressAsPercentage && progress > 0.0 && progress < 1.0) {
+                Text(
+                    text = "${(progress * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isCurrentlyPlaying) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            } else {
+                ProgressWheel(
+                    progress = progress,
+                    isHighlighted = isCurrentlyPlaying,
+                    modifier = Modifier.size(PROGRESS_WHEEL_SIZE)
+                )
+            }
+            
+            // Only folders trail a disclosure chevron; for books the progress wheel/checkmark
+            // floats to the right edge (no phantom 24dp placeholder holding its spot).
+            if (item.type == ItemType.FOLDER) {
                 Icon(
-                    imageVector = Icons.Default.Reorder,
+                    imageVector = Icons.Default.ChevronRight,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(24.dp)
                 )
             }
-        } else {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clearAndSetSemantics { }
-            ) {
-                if (item.isFinished) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                } else if (showProgressAsPercentage) {
-                    // Match iOS PercentageProgressView: nothing at 0, the finished checkmark at
-                    // 100%, the number only in between (non-finite progress collapses to 0).
-                    val progress = item.percentCompleted
-                        .takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0
-                    if (progress >= 1.0) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    } else if (progress > 0.0) {
-                        Text(
-                            text = "${(progress * 100).roundToInt()}%",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                } else {
-                    PieProgressIcon(
-                        progress = item.percentCompleted.coerceIn(0.0, 1.0).toFloat(),
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-                
-                // Only folders trail a disclosure chevron; for books the progress wheel/checkmark
-                // floats to the right edge (no phantom 24dp placeholder holding its spot).
-                if (item.type == ItemType.FOLDER) {
-                    Icon(
-                        imageVector = Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
         }
     }
 }
 
-@Composable
-fun PieProgressIcon(
-    progress: Float,
-    modifier: Modifier = Modifier,
-    color: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-) {
-    Canvas(modifier = modifier) {
-        if (progress > 0) {
-            val strokeWidth = 1.5.dp.toPx()
-            val radius = (size.minDimension - strokeWidth) / 2
-            val center = Offset(size.width / 2, size.height / 2)
+/** How long a dropped order, once saved, stays on screen waiting for the library to show it. */
+private const val SAVING_ORDER_TIMEOUT_MS = 2_000L
 
-            // Outer ring
-            drawCircle(
-                color = color,
-                radius = radius,
-                center = center,
-                style = Stroke(width = strokeWidth)
-            )
+/**
+ * Whether these items are in [order], leaving aside any added or removed meanwhile (an item imported during
+ * the save lands after the dropped ones).
+ */
+private fun List<LibraryItemEntity>.showsOrder(order: List<String>): Boolean = map { it.uuid }.sameOrderAs(order)
 
-            // Pie slice
-            val padding = 3.dp.toPx()
-            val arcRadius = radius - padding
-            drawArc(
-                color = color,
-                startAngle = -90f,
-                sweepAngle = 360f * progress,
-                useCenter = true,
-                topLeft = Offset(center.x - arcRadius, center.y - arcRadius),
-                size = Size(arcRadius * 2, arcRadius * 2)
-            )
-        }
-    }
+/** Whether the uuids both lists hold are in the same order, any only one of them holds aside. */
+private fun List<String>.sameOrderAs(other: List<String>): Boolean {
+    val mine = toSet()
+    val theirs = other.toSet()
+    return filter { it in theirs } == other.filter { it in mine }
+}
+
+/** Replaces the list's items with [items], unless it holds them already. */
+private fun <T> MutableList<T>.replaceWith(items: List<T>) {
+    if (toList() == items) return
+    clear()
+    addAll(items)
 }
 
 @Composable

@@ -39,8 +39,8 @@ android {
         // Wear lives in its own 100xxx range: Play requires versionCodes to be unique across
         // EVERY bundle ever uploaded for the package (the phone app already consumed 1..13), so
         // the two apps increment independently without ever colliding.
-        versionCode = 100015
-        versionName = "1.3.0"
+        versionCode = 100016
+        versionName = "1.4.0"
 
         buildConfigField("String", "REVENUECAT_API_KEY", "\"${localProp("REVENUECAT_API_KEY")}\"")
     }
@@ -129,8 +129,10 @@ dependencies {
     implementation(libs.androidx.wear.ongoing)
     implementation(libs.androidx.wear.remote.interactions)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    // ProcessLifecycleOwner: gate the sync foreground service on process-foreground state.
+    // ProcessLifecycleOwner: whether the app is on screen (the sync keep-alive and the engine's start).
     implementation(libs.androidx.lifecycle.process)
+    // Sync drains (:core SyncDrain): WearApp is WorkManager's Configuration.Provider
+    implementation(libs.androidx.work.runtime.ktx)
 
     // Media3 — the Wear playback service subclasses :core's MediaPlaybackService (ExoPlayer + MediaSession).
     // Types come transitively via :core (api), but declared here per the module convention (a module that

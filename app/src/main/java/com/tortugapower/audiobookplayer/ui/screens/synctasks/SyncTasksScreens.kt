@@ -40,6 +40,7 @@ import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.TaskPause
 import com.tortugapower.audiobookplayer.logic.buildSyncPauseReportIntents
 import com.tortugapower.audiobookplayer.logic.launchSyncPauseReport
+import com.tortugapower.audiobookplayer.logic.isWaitingToRetry
 import com.tortugapower.audiobookplayer.logic.pause
 import com.tortugapower.audiobookplayer.ui.components.BookPlayerTabScaffold
 import com.tortugapower.audiobookplayer.ui.components.LocalMiniPlayerInset
@@ -156,7 +157,7 @@ fun QueuedTasksScreen(
                             QueuedTaskRow(
                                 task = task,
                                 progress = progressMap[task.id],
-                                onRetry = { viewModel.retryPausedTask(task) },
+                                onRetry = { viewModel.retryTask(task) },
                                 onReport = { report(task) },
                                 onDismiss = { viewModel.dismissPausedTask(task) },
                             )
@@ -252,7 +253,8 @@ private fun LaneHeader(
 /**
  * One task: its type icon, label and the item it touches, its error if any, live progress while it
  * runs. A parked task says why it stopped and offers Retry and Report, or Dismiss for a book over the
- * upload limit (retrying can't make it smaller, and there's nothing to report).
+ * upload limit (retrying can't make it smaller, and there's nothing to report). A task waiting out a
+ * backoff after a failure offers Retry, which runs it now.
  */
 @Composable
 private fun QueuedTaskRow(
@@ -347,6 +349,10 @@ private fun QueuedTaskRow(
             }
             if (pause != null) {
                 PausedDetails(pause, itemTitle = title, onRetry = onRetry, onReport = onReport, onDismiss = onDismiss)
+            } else if (task.isWaitingToRetry) {
+                Row(modifier = Modifier.padding(start = 40.dp)) {
+                    TaskAction(stringResource(R.string.sync_task_retry_button), title, onRetry)
+                }
             }
         }
     }
@@ -376,17 +382,17 @@ private fun PausedDetails(
     )
     Row(modifier = Modifier.padding(start = 40.dp)) {
         if (isTooLarge) {
-            PausedAction(stringResource(R.string.sync_task_dismiss_button), itemTitle, onDismiss)
+            TaskAction(stringResource(R.string.sync_task_dismiss_button), itemTitle, onDismiss)
         } else {
-            PausedAction(stringResource(R.string.sync_task_retry_button), itemTitle, onRetry)
-            PausedAction(stringResource(R.string.sync_task_report_button), itemTitle, onReport)
+            TaskAction(stringResource(R.string.sync_task_retry_button), itemTitle, onRetry)
+            TaskAction(stringResource(R.string.sync_task_report_button), itemTitle, onReport)
         }
     }
 }
 
-/** TalkBack hears which item the action is for: several rows can be parked at once */
+/** TalkBack hears which item the action is for: several rows can offer one at once */
 @Composable
-private fun PausedAction(label: String, itemTitle: String, onClick: () -> Unit) {
+private fun TaskAction(label: String, itemTitle: String, onClick: () -> Unit) {
     val spoken = stringResource(R.string.sync_task_action_voiceover, label, itemTitle)
     TextButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = spoken }) {
         Text(label)

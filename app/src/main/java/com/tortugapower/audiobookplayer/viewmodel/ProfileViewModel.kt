@@ -14,6 +14,7 @@ import com.tortugapower.audiobookplayer.logic.SyncEngineWaker
 import com.tortugapower.audiobookplayer.logic.SyncFailurePolicy
 import com.tortugapower.audiobookplayer.logic.SyncPauseReport
 import com.tortugapower.audiobookplayer.logic.SyncQueueReset
+import com.tortugapower.audiobookplayer.logic.SyncRetryWake
 import com.tortugapower.audiobookplayer.logic.SyncStatusManager
 import com.tortugapower.audiobookplayer.logic.SyncTaskFactory
 import com.tortugapower.audiobookplayer.logic.UploadFilePayload
@@ -139,17 +140,12 @@ class ProfileViewModel(
         SyncQueueReset.clearAll(syncTaskRepository)
         // The library stays, but the next account's server holds none of it (and the next first sync corrects
         // whatever a failed write leaves)
-        try {
-            libraryDao.clearServerKnown()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            android.util.Log.w("ProfileViewModel", "Couldn't clear the server-known flags: ${e.javaClass.simpleName}")
-        }
-        // Drop every local library_sort:* preference so the next login pulls fresh (no stale state).
-        // runCatching like LibraryViewModel's sortManager access: unit tests with a plain
-        // Application have no singleton, and logout cleanup must not abort halfway.
-        runCatching { BookPlayerApplication.instance.librarySortManager.clearLocalPreferences() }
+        cleanUp("clear the server-known flags") { libraryDao.clearServerKnown() }
+        // Drop every local library_sort:* preference so the next login pulls fresh (no stale state). Unit tests
+        // with a plain Application have no singleton: cleanUp carries on past that too.
+        cleanUp("clear the sort preferences") { BookPlayerApplication.instance.librarySortManager.clearLocalPreferences() }
+        // The layout and display toggles too (iOS wipes every synced family): back to the list, toggles off
+        cleanUp("clear the display preferences") { BookPlayerApplication.instance.libraryDisplayPreferences.clearLocal() }
         SubscriptionManager.logout()
         SyncStatusManager.updateLastSyncTimestamp(0) // Reset to effectively "Never"
         // AFTER the account row is gone: stop + unload the loaded book if it's now gate-blocked
@@ -159,11 +155,27 @@ class ProfileViewModel(
         PlaybackManager.enforceRemoteStreamingGate(com.tortugapower.audiobookplayer.core.CoreContext.appContext)
     }
 
+    /** A sign-out step that mustn't stop the rest when it fails, logged instead; a cancellation still cancels. */
+    private suspend fun cleanUp(what: String, step: suspend () -> Unit) {
+        try {
+            step()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("ProfileViewModel", "Couldn't $what: ${e.javaClass.simpleName}")
+        }
+    }
+
     /**
-     * The user's Retry: back to pending (one account pause resumes them all), and the engine is woken. An
-     * upload's Retry asks for the book again: it may be registered again even if it already was this session.
+     * The user's Retry. A parked task goes back to pending (one account pause resumes them all), and the
+     * engine is woken; an upload's Retry asks for the book again: it may be registered again even if it
+     * already was this session. A task waiting out a backoff runs now, keeping its streak.
      */
-    fun retryPausedTask(task: SyncTaskEntity) {
+    fun retryTask(task: SyncTaskEntity) {
+        if (task.pause == null) {
+            viewModelScope.launch { SyncRetryWake.retryNow(syncTaskRepository, task.id) }
+            return
+        }
         if (task.jobType == SyncTaskFactory.JOB_UPLOAD_FILE) {
             UploadFilePayload.uuid(task.payload)?.let(UploadHandBack::release)
         }

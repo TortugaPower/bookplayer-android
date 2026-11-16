@@ -26,6 +26,7 @@ import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.tortugapower.audiobookplayer.logic.PlaybackForeground
 import com.tortugapower.audiobookplayer.logic.PlaybackManager
 import com.tortugapower.audiobookplayer.logic.PlaybackSettingsManager
 import kotlinx.coroutines.CoroutineScope
@@ -95,8 +96,18 @@ abstract class MediaPlaybackService : MediaLibraryService() {
      *  refresh). The shared volume-boost and speed observers are already running by this point. */
     protected open fun onSessionReady() {}
 
+    /** Android refused the service's foreground start; media3 caught it, and playback goes on in the background */
+    protected open fun onForegroundStartRefused() {}
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+        setListener(object : Listener {
+            override fun onForegroundServiceStartNotAllowedException() {
+                PlaybackForeground.onPromotionRefused()
+                onForegroundStartRefused()
+            }
+        })
 
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -301,7 +312,17 @@ abstract class MediaPlaybackService : MediaLibraryService() {
         return mediaSession
     }
 
+    /**
+     * media3 promotes and demotes the service from here: published to [PlaybackForeground] first, so a demotion is
+     * announced while the app still holds the foreground.
+     */
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        PlaybackForeground.onNotificationUpdate(startInForegroundRequired)
+        super.onUpdateNotification(session, startInForegroundRequired)
+    }
+
     override fun onDestroy() {
+        PlaybackForeground.onNotificationUpdate(false)
         // Stop the settings + BookTimelinePlayer collectors before releasing the player, so a late
         // flow emission can't drive invalidateState()/getState() against a released ExoPlayer.
         serviceScope.cancel()
